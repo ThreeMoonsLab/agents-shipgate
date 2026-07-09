@@ -6,7 +6,9 @@ These items require release infrastructure, registry credentials, domains, or Gi
 
 - `agents-shipgate` is published on PyPI.
 - Pinned GitHub Action release tags are published, including `v0.15.0`.
-- GitHub Releases attach the wheel, sdist, SBOM, and Sigstore bundles.
+- GitHub Releases attach the independently qualified wheel, SBOM,
+  `safety-qualification.json`, and their Sigstore bundles. The tag workflow
+  does not rebuild or publish an unqualified sdist.
 - Evaluate a container image later only if it has an exercised build-and-test path.
 - Evaluate Homebrew once CLI usage warrants it.
 
@@ -25,6 +27,30 @@ to install a published PyPI version.
 
 PyPI Trusted Publishing is configured for this repository's tag-triggered
 release workflow and protected `pypi` environment.
+
+### Protected qualification inputs
+
+Every tag release now fails closed unless the protected `pypi` environment
+provides all six variables below. Values must be populated by the independent
+benchmark-owner promotion flow after it runs the frozen corpus against the
+exact wheel and signs `safety-qualification.json`:
+
+| Environment variable | Required value |
+|---|---|
+| `SAFETY_QUALIFICATION_WHEEL_URL` | HTTPS URL for the exact qualified wheel |
+| `SAFETY_QUALIFICATION_WHEEL_FILENAME` | Safe wheel basename, for example `agents_shipgate-0.16.0b1-py3-none-any.whl` |
+| `SAFETY_QUALIFICATION_JSON_URL` | HTTPS URL for the production-qualified JSON artifact |
+| `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | HTTPS URL for that JSON artifact's Sigstore bundle |
+| `SAFETY_QUALIFICATION_SIGNER_IDENTITY` | Exact trusted certificate identity for the independent qualification signer |
+| `SAFETY_QUALIFICATION_OIDC_ISSUER` | Trusted OIDC issuer, normally `https://token.actions.githubusercontent.com` for GitHub Actions |
+
+The release workflow verifies the signature identity first, then validates
+the artifact's production policy, 100-case invariants, tag/version, and wheel
+SHA-256. It copies and publishes that exact wheel only; it never rebuilds the
+package after qualification. Missing variables, non-HTTPS URLs, an unsafe
+filename, an invalid signature, a non-production result, or any binding
+mismatch stops before PyPI publication. Protect variable updates with required
+environment reviewers who are independent of the release initiator.
 
 ## Marketplace And Site
 

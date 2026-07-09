@@ -31,11 +31,15 @@ Useful fixtures:
 - [`simple_openai_api_agent`](../samples/simple_openai_api_agent/) — OpenAI API artifacts including prompts, tools, structured outputs, tests, and traces.
 - [`simple_anthropic_agent`](../samples/simple_anthropic_agent/) — Anthropic Messages API tool-use artifacts.
 - [`google_adk_agent`](../samples/google_adk_agent/) — Google ADK Python and YAML config with eval references and explicit tool inventory.
-- [`simple_langchain_agent`](../samples/simple_langchain_agent/) — static LangChain/LangGraph extraction.
-- [`simple_crewai_agent`](../samples/simple_crewai_agent/) — static CrewAI extraction.
+- [`simple_langchain_agent`](../samples/simple_langchain_agent/) — static LangChain/LangGraph extraction paired with a reviewed bound-tool inventory.
+- [`simple_crewai_agent`](../samples/simple_crewai_agent/) — static CrewAI extraction paired with a reviewed inventory; ambient filesystem authority remains review-required.
 - [`multi_agent_workspace`](../samples/multi_agent_workspace/) — multiple manifests in one workspace.
 - [`baseline_workflow`](../samples/baseline_workflow/) — adoption path from existing findings to strict mode.
 - [`_anti_patterns`](../samples/_anti_patterns/) — intentionally invalid or unsafe shapes for testing errors and documentation.
+
+Framework AST extraction remains conservative: these positive fixtures use
+reviewed inventories because an AST-only binding graph does not qualify for an
+evidence-backed `passed` verdict on its own.
 
 ## CI recipes
 
@@ -65,7 +69,8 @@ The static scan fixtures write:
 - `agents-shipgate-reports/report.sarif` when requested or when using the GitHub Action
 
 The JSON output is the stable contract for tools and coding agents. See
-[report-schema.v0.28.json](report-schema.v0.28.json) (current; emitted reports
-carry `report_schema_version: "0.28"`, moving policy-pack routing metadata to
-`findings[].policy_routing`; v0.27 is frozen at
-[report-schema.v0.27.json](report-schema.v0.27.json)).
+[report-schema.v0.29.json](report-schema.v0.29.json) (current; emitted reports
+carry `report_schema_version: "0.29"`, adding normalized semantic assessments
+and evidence-backed pass coverage while preserving policy-pack routing metadata
+in `findings[].policy_routing`; v0.28 is frozen at
+[report-schema.v0.28.json](report-schema.v0.28.json)).

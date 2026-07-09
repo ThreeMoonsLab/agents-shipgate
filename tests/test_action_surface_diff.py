@@ -140,7 +140,11 @@ def test_action_surface_facts_normalize_mcp_and_explicit_metadata():
     action = facts.actions[0]
     assert action.action_id == "agent:action-test/agent:mcp:stripe:refund_customer"
     assert action.effect == "financial_write"
-    assert action.risk_tags == ["external_communication", "financial_write"]
+    assert action.risk_tags == [
+        "external_communication",
+        "financial_write",
+        "writes_data",
+    ]
     assert action.required_scopes == ["refunds:create"]
     assert action.approval_policy.required is True
     assert action.approval_policy.threshold == "amount <= 100"
@@ -543,17 +547,13 @@ def test_enrich_action_surface_diff_populates_structured_source_fields():
         ]
     )
     diff = compute_action_surface_diff(current, base)
-    pre_reason = next(
-        row for row in diff.modified if row.type == "APPROVAL_REMOVED"
-    ).reason
+    pre_reason = next(row for row in diff.modified if row.type == "APPROVAL_REMOVED").reason
     enrich_action_surface_diff_with_source(
         diff,
         {"stripe.create_refund": ("api.yaml", 97)},
     )
     assert diff.modified
-    approval_removed = next(
-        row for row in diff.modified if row.type == "APPROVAL_REMOVED"
-    )
+    approval_removed = next(row for row in diff.modified if row.type == "APPROVAL_REMOVED")
     assert approval_removed.source_path == "api.yaml"
     assert approval_removed.source_start_line == 97
     # Reason stays byte-stable so finding fingerprints don't churn.
@@ -725,10 +725,68 @@ def test_builtin_wildcard_policy_blocks_added_action():
     )
 
     assert any(
-        finding.check_id == "SHIP-ACTION-WILDCARD-SCOPE"
-        and finding.blocks_release
+        finding.check_id == "SHIP-ACTION-WILDCARD-SCOPE" and finding.blocks_release
         for finding in findings
     )
+
+
+def test_builtin_financial_controls_apply_without_diff_reference():
+    manifest = _manifest()
+    current = ActionSurfaceFacts(
+        actions=[
+            _action(
+                "agent:action-test/agent:mcp:tools:process_payment",
+                effect="financial_write",
+                risk_tags=["financial_write"],
+            )
+        ]
+    )
+
+    findings = evaluate_action_surface_policies(
+        manifest,
+        current,
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+    )
+
+    finding = next(
+        item for item in findings if item.check_id == "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING"
+    )
+    assert finding.blocks_release is True
+    assert finding.evidence["missing"] == [
+        "approval.required",
+        "safeguards.audit_log",
+        "safeguards.idempotency",
+    ]
+
+
+def test_builtin_destructive_controls_apply_to_existing_action():
+    manifest = _manifest()
+    current = ActionSurfaceFacts(
+        actions=[
+            _action(
+                "agent:action-test/agent:mcp:tools:delete_record",
+                effect="destructive",
+                risk_tags=["destructive"],
+            )
+        ]
+    )
+
+    findings = evaluate_action_surface_policies(
+        manifest,
+        current,
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+    )
+
+    finding = next(
+        item for item in findings if item.check_id == "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING"
+    )
+    assert finding.evidence["missing"] == [
+        "approval.required",
+        "safeguards.rollback",
+        "confirmation.required",
+    ]
 
 
 def test_action_surface_diff_reports_modification_taxonomy():
@@ -1026,16 +1084,16 @@ def test_action_declaration_effect_downgrade_blocks_release():
     )
 
     finding = next(
-        item
-        for item in findings
-        if item.check_id == "SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED"
+        item for item in findings if item.check_id == "SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED"
     )
     assert finding.blocks_release is True
     assert finding.evidence["inferred_effect"] == "write"
     assert finding.evidence["declared_effect"] == "read"
 
 
-def test_scan_diff_from_prior_report_blocks_new_financial_action(tmp_path):
+def test_scan_diff_from_prior_report_does_not_launder_financial_keyword_into_blocker(
+    tmp_path,
+):
     base = tmp_path / "base"
     head = tmp_path / "head"
     base.mkdir()
@@ -1103,14 +1161,17 @@ tool_sources:
     assert exit_code == 0
     assert report.action_surface_diff.enabled is True
     assert report.action_surface_diff.summary.actions_added == 1
-    assert report.action_surface_diff.summary.blocking_findings == 1
+    assert report.action_surface_diff.summary.blocking_findings == 0
     assert report.release_decision is not None
-    assert report.release_decision.decision == "blocked"
-    assert any(
-        finding.check_id == "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING"
-        and finding.blocks_release
+    assert report.release_decision.decision == "review_required"
+    assert not any(
+        finding.check_id == "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING" and finding.blocks_release
         for finding in report.findings
     )
+    action = report.action_surface_facts.actions[0]
+    assert action.effect == "financial_write"
+    assert action.semantic_assessment is not None
+    assert action.semantic_assessment.effect.status == "inferred"
 
 
 def test_action_surface_diff_can_use_v04_baseline(tmp_path):
@@ -1235,6 +1296,10 @@ tool_sources:
     type: mcp
     path: tools.json
 action_surface:
+  actions:
+    - tool: lookup
+      effect: read
+      authority: {mode: none}
   policies:
     - id: require-audit-for-lookup
       match:
@@ -1308,7 +1373,9 @@ tool_sources:
     type: mcp
     path: tools.json
 """
-    head_manifest = base_manifest + """
+    head_manifest = (
+        base_manifest
+        + """
 action_surface:
   policies:
     - id: require-audit-for-lookup
@@ -1319,6 +1386,7 @@ action_surface:
       severity: high
       block: true
 """
+    )
     config = project / "shipgate.yaml"
     config.write_text(base_manifest, encoding="utf-8")
     run_scan(
@@ -1340,9 +1408,7 @@ action_surface:
     )
 
     policy_finding = next(
-        finding
-        for finding in report.findings
-        if finding.check_id == "SHIP-ACTION-POLICY-VIOLATION"
+        finding for finding in report.findings if finding.check_id == "SHIP-ACTION-POLICY-VIOLATION"
     )
     assert policy_finding.blocks_release is True
     assert policy_finding.evidence["missing"][0]["reason"] == "unknown_path"

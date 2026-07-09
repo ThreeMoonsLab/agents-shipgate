@@ -46,6 +46,21 @@ risk_overrides:
       owner: support-ops
       reason: refund issuance is a financial write action
 
+action_surface:
+  actions:
+    - tool: issue_refund
+      effect: financial_write
+      scopes: [refunds:write]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+      approval:
+        required: true
+      safeguards:
+        idempotency: true
+        audit_log: true
+
 ci:
   mode: advisory
 

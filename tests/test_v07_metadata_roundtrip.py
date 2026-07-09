@@ -236,11 +236,11 @@ def test_stale_finding_with_unique_match_is_per_finding_autofix_safe(tmp_path):
 # --- release version sanity check ------------------------------------------
 
 
-def test_package_version_is_current_release():
+def test_package_version_is_current_in_tree_runtime():
     """Guard against bumping schemas while leaving package metadata behind."""
     import agents_shipgate
 
-    assert agents_shipgate.__version__ == "0.15.0", (
+    assert agents_shipgate.__version__ == "0.16.0b1", (
         f"package version is {agents_shipgate.__version__!r}; "
-        "expected 0.15.0 for the current release"
+        "expected 0.16.0b1 for the current in-tree runtime"
     )

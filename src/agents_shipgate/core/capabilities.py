@@ -20,6 +20,7 @@ from agents_shipgate.schemas.capabilities import (
     capability_fact_sort_key,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import ActionFact, ActionSurfaceFacts
 
 
@@ -53,6 +54,7 @@ def capability_fact_from_action(
         confirmation_required=confirmation_required,
     )
     evidence = _capability_evidence(action, tool)
+    semantic_evidence = _semantic_evidence(action)
     hashes = CapabilityHashes(
         identity_hash=_capability_stable_hash(identity.model_dump(mode="json")),
         effect_hash=_capability_stable_hash(effect.model_dump(mode="json")),
@@ -65,7 +67,16 @@ def capability_fact_from_action(
             }
         ),
         risk_hash=_capability_stable_hash({"risk_tags": sorted(set(action.risk_tags))}),
-        evidence_hash=_capability_stable_hash(evidence.model_dump(mode="json")),
+        evidence_hash=_capability_stable_hash(
+            {
+                "evidence": evidence.model_dump(mode="json"),
+                "semantic_assessment": (
+                    semantic_evidence.model_dump(mode="json")
+                    if semantic_evidence is not None
+                    else None
+                ),
+            }
+        ),
     )
     return CapabilityFactV1(
         id=f"cap_{hashes.identity_hash}",
@@ -74,6 +85,7 @@ def capability_fact_from_action(
         authority=authority,
         controls=controls,
         evidence=evidence,
+        semantic_assessment=semantic_evidence,
         risk_tags=tuple(sorted(set(action.risk_tags))),
         hashes=hashes,
     )
@@ -144,6 +156,16 @@ def capability_fact_from_action_fact(action: ActionFact) -> CapabilityFactV1:
         high_risk=side_effect.is_high_risk,
     )
     authority = CapabilityAuthority(
+        auth_type=(
+            action.semantic_assessment.authority.auth_type
+            if action.semantic_assessment is not None
+            else None
+        ),
+        credential_mode=(
+            action.semantic_assessment.authority.credential_mode
+            if action.semantic_assessment is not None
+            else None
+        ),
         scopes=tuple(sorted(set(action.required_scopes))),
         broad_scopes=tuple(sorted(scope.raw for scope in scopes if scope.is_broad())),
     )
@@ -165,6 +187,7 @@ def capability_fact_from_action_fact(action: ActionFact) -> CapabilityFactV1:
         provenance_kind="static_declaration",
         confidence="medium",
     )
+    semantic_evidence = action.semantic_assessment
     hashes = CapabilityHashes(
         identity_hash=_capability_stable_hash(identity.model_dump(mode="json")),
         effect_hash=_capability_stable_hash(effect.model_dump(mode="json")),
@@ -172,7 +195,16 @@ def capability_fact_from_action_fact(action: ActionFact) -> CapabilityFactV1:
         control_hash=_capability_stable_hash(controls.model_dump(mode="json")),
         schema_hash=action.input_schema_hash,
         risk_hash=_capability_stable_hash({"risk_tags": sorted(set(action.risk_tags))}),
-        evidence_hash=_capability_stable_hash(evidence.model_dump(mode="json")),
+        evidence_hash=_capability_stable_hash(
+            {
+                "evidence": evidence.model_dump(mode="json"),
+                "semantic_assessment": (
+                    semantic_evidence.model_dump(mode="json")
+                    if semantic_evidence is not None
+                    else None
+                ),
+            }
+        ),
     )
     return CapabilityFactV1(
         id=f"cap_{hashes.identity_hash}",
@@ -181,6 +213,7 @@ def capability_fact_from_action_fact(action: ActionFact) -> CapabilityFactV1:
         authority=authority,
         controls=controls,
         evidence=evidence,
+        semantic_assessment=semantic_evidence,
         risk_tags=tuple(sorted(set(action.risk_tags))),
         hashes=hashes,
     )
@@ -211,13 +244,36 @@ def _capability_effect(action: Action) -> CapabilityEffect:
 
 
 def _capability_authority(action: Action, tool: Tool | None) -> CapabilityAuthority:
-    scopes = tuple(sorted(set(action.scope_strings)))
+    assessment = action.semantic_assessment
+    scopes = tuple(
+        sorted(
+            set(
+                assessment.authority.scopes
+                if assessment is not None
+                else action.scope_strings
+            )
+        )
+    )
     return CapabilityAuthority(
-        auth_type=tool.auth.type if tool else None,
-        credential_mode=tool.auth.credential_mode if tool else None,
+        auth_type=(
+            assessment.authority.auth_type
+            if assessment is not None
+            else tool.auth.type
+            if tool
+            else None
+        ),
+        credential_mode=(
+            assessment.authority.credential_mode
+            if assessment is not None
+            else tool.auth.credential_mode
+            if tool
+            else None
+        ),
         source=tool.auth.source if tool else None,
         scopes=scopes,
-        broad_scopes=tuple(sorted(scope.raw for scope in action.scopes if scope.is_broad())),
+        broad_scopes=tuple(
+            sorted(scope for scope in scopes if Scope.parse(scope).is_broad())
+        ),
     )
 
 
@@ -277,6 +333,14 @@ def _capability_evidence(action: Action, tool: Tool | None) -> CapabilityEvidenc
         source_pointer=tool.source_pointer,
         provenance_kind=_provenance_kind(tool),
         confidence=tool.extraction_confidence,
+    )
+
+
+def _semantic_evidence(action: Action) -> ToolSemanticEvidence | None:
+    if action.semantic_assessment is None:
+        return None
+    return ToolSemanticEvidence.model_validate(
+        action.semantic_assessment.model_dump(mode="python")
     )
 
 

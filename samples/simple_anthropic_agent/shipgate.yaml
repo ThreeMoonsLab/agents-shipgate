@@ -23,6 +23,23 @@ anthropic:
   policy_rules:
     - path: policies/anthropic-policy.yaml
 
+action_surface:
+  actions:
+    - tool: create_refund
+      effect: financial_write
+      authority:
+        mode: unscoped
+        auth_type: api_key
+        credential_mode: service_account
+        reason: tool artifact declares authentication but no enumerable scopes
+    - tool: get_help_article
+      effect: read
+      authority:
+        mode: unscoped
+        auth_type: api_key
+        credential_mode: service_account
+        reason: help-center binding uses an API credential without scoped grants
+
 ci:
   mode: advisory
 

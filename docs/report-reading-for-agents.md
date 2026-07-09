@@ -33,24 +33,33 @@ Precedence (highest first): `blocked` → `review_required` (active high/critica
 | `decision` | Meaning | Agent behavior |
 |---|---|---|
 | `"blocked"` | Active, unaccepted blockers exist. CI will fail in strict mode. | Surface blockers; do not auto-merge; do not assert evidence categories — see [`agent-autofix-boundary.md`](agent-autofix-boundary.md). |
-| `"insufficient_evidence"` (v0.14+) | With no active blockers **and no active high/critical review finding**, evidence coverage is degraded past threshold: low-confidence tools are at least `max(1, ceil(tool_count × 0.5))`, or source-loader warnings exceed `3`. The scan can't gate release reliably, but this does not prove the agent is unsafe. | Surface the `release_decision.reason` verbatim; recommend gathering deeper sources (MCP exports, OpenAPI specs, explicit inventories, broader SDK source paths, eval traces) and re-running. Do not auto-merge. |
+| `"insufficient_evidence"` (v0.14+) | The scan cannot establish a defensible static pass. In v0.29 this includes any action with unknown, inferred-only, protocol-defaulted, partial, conflicting, invalid, or incomplete required effect/authority evidence, plus the existing extraction-confidence and source-warning thresholds. This does not prove the agent is unsafe. | Read `semantic_coverage` and work each `evidence_gaps[].next_action`. Effect/authority declarations are human assertions: never auto-write them. Do not auto-merge. |
 | `"review_required"` | Review items exist (often baseline-matched accepted debt, capability/intent misalignments, or sub-threshold evidence gaps). This **also** covers a degraded-evidence case that carries an active (non-baseline-accepted) high/critical finding — the verdict names the concern instead of the vaguer `insufficient_evidence`, but the evidence gap is still present in `evidence_coverage`. One to three source warnings without blockers also land here. | Surface review items as a human handoff. Safe mechanical patches may still apply via `apply-patches --confidence high` — **unless** evidence is degraded (check `evidence_coverage.low_confidence_tool_count` / `source_warning_count`), in which case treat it like `insufficient_evidence` and gather deeper sources first. `verify`'s `fix_task` already routes degraded-evidence cases to a human. |
-| `"passed"` | No active blockers, no review items, evidence coverage clean. | Mechanical patches (if any) may apply; otherwise nothing to do. |
+| `"passed"` | Every in-scope action has complete, conflict-free static surface, effect, and authority evidence; all applicable controls were evaluated; and no policy condition requires review. This is not runtime proof. | Mechanical patches (if any) may apply; otherwise nothing to do. Preserve the runtime-safety disclaimer when summarizing. |
 
 The decision is **baseline-aware**: a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not in `release_decision.blockers`. Compare with the legacy `summary.status` field, which is *baseline-blind* — see Anti-patterns below.
 
-> **Don't switch on the verdict label to detect degraded evidence.** A degraded-evidence case can surface as either `insufficient_evidence` or `review_required` (the latter when an active high/critical finding names the concern). Read `release_decision.evidence_coverage.{low_confidence_tool_count, source_warning_count, evidence_gaps[]}` to know whether evidence was thin, regardless of the label.
+Before summarizing any verdict, preserve the machine boundary:
+`release_decision.static_analysis_only` is always `true`,
+`runtime_behavior_verified` is always `false`, and
+`static_verdict_disclaimer` is the canonical non-runtime statement. Packet §1
+mirrors all three fields.
+
+> **Don't switch on the verdict label to detect degraded evidence.** Read `release_decision.evidence_coverage.{semantic_coverage, low_confidence_tool_count, source_warning_count, evidence_gaps[]}`. Semantic gaps are not Findings, so suppression, baselines, severity overrides, `--no-heuristics`, and `human_ack` cannot clear them.
 
 ### Step 2 · `release_decision.{reason, blockers, review_items, fail_policy.would_fail_ci}`
 
 Once you have the decision, read the supporting fields:
 
 - `release_decision.reason` — one-sentence explanation suitable for a PR comment.
+- `release_decision.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}` — explicit static-only boundary; preserve it in every human or agent-facing projection.
 - `release_decision.blockers[]` — items that block this run; reference shape `{id, fingerprint, check_id, severity, title, baseline_status}`. The full Finding payload is in `findings[]`.
 - `release_decision.review_items[]` — items the human reviewer should look at; same reference shape.
 - `release_decision.fail_policy.would_fail_ci` — `true`/`false`. Matches the process exit code that CI will see.
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, exit_code}` — full CI policy.
-- `release_decision.evidence_coverage.{level, human_review_recommended, low_confidence_tool_count, source_warning_count}` — coverage for the evidence sections.
+- `release_decision.evidence_coverage.{level, human_review_recommended, low_confidence_tool_count, source_warning_count}` — extraction/source coverage.
+- `release_decision.evidence_coverage.semantic_coverage` (v0.29+) — `{total_actions, pass_eligible_actions, gap_count, review_concern_count, reason_counts}` for the normalized action surface.
+- `release_decision.evidence_coverage.evidence_gaps[]` — ordered, typed human-routed remediation rows; follow their source/manifest pointers and accepted values instead of guessing. Semantic declaration placeholders are explicitly `suggested_patch_kind: "manual"`, `auto_apply: false`, and `requires_human_review: true`.
 - `release_decision.baseline_delta.{matched_count, new_count, resolved_count}` — what changed vs. the loaded baseline.
 
 The GitHub Action exposes a subset as outputs (v0.8+): `decision`, `blocker_count`, `review_item_count`, `ci_would_fail`.
@@ -137,7 +146,7 @@ Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at
 - §1 verdict — derives from `release_decision.decision` only. Never derive a verdict from `summary.status`.
 - §10 ("What this packet did NOT prove") — always lists prompt robustness, runtime behavior, model correctness, adversarial resistance.
 
-The packet schema is `0.7`; full schema at [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json).
+The packet schema is `0.8`; full schema at [`docs/packet-schema.v0.8.json`](packet-schema.v0.8.json). It projects report v0.29 semantic coverage and gap remediation; v0.7 is a frozen reference.
 
 ---
 
@@ -218,8 +227,8 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.28` | `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.28.json`](report-schema.v0.28.json) |
-| Packet | `0.7` | `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.7.json`](packet-schema.v0.7.json) |
+| Report | `0.29` | `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.29.json`](report-schema.v0.29.json) |
+| Packet | `0.8` | `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.8.json`](packet-schema.v0.8.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `5` | — | `agents-shipgate contract --json` |
 

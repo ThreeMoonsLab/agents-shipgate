@@ -23,6 +23,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`product-hardening-gap-closure.md`](product-hardening-gap-closure.md) — closure map for the root dogfood gate, governance case catalog, policy-pack tests, trace contract, and runtime-inventory boundary
 - [`agent-workflow-evidence.md`](agent-workflow-evidence.md) — local Agent Workflow Evidence and AgentTraceEvent contract for replayable verifier scenarios
 - [`capability-standard.md`](capability-standard.md) — stable static capability lock/diff standard for external integrations and research
+- [`passed-verdict-contract.md`](passed-verdict-contract.md) — evidence-backed static meaning of `passed`, semantic gap routing, and 0.15 migration
 - [`governance-benchmark.md`](governance-benchmark.md) — stable research benchmark for evaluating agent governance behavior
 - [`manifest-v0.1.md`](manifest-v0.1.md) — manifest schema in prose form
 - [`trust-model.md`](trust-model.md) — what the scanner does and doesn't do
@@ -34,7 +35,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.28.json`](report-schema.v0.28.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.28"`, moving policy-pack routing metadata to `findings[].policy_routing` while preserving policy-pack matching, capability locks, baselines, and the release gate)
+- [`report-schema.v0.29.json`](report-schema.v0.29.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.29"`, normalized semantic assessments, zero-tolerance semantic evidence coverage for `passed`, and an explicit static-only verdict boundary)
+- [`report-schema.v0.28.json`](report-schema.v0.28.json) — frozen v0.28 reference schema; pre-v0.29 reports validate against this
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
@@ -53,8 +55,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
 - [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — frozen v0.2 registry reference
-- [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — stable JSON Schema for `capabilities.lock.json` emitted by `agents-shipgate capability export`; non-gating and not part of `report.json`
-- [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json) — stable JSON Schema for semantic capability-lock diff artifacts emitted by `agents-shipgate capability diff`; non-gating and not part of `report.json`
+- [`capability-lock-schema.v0.3.json`](capability-lock-schema.v0.3.json) — current JSON Schema for `capabilities.lock.json`; adds normalized semantic assessments and remains non-gating
+- [`capability-lock-diff-schema.v0.4.json`](capability-lock-diff-schema.v0.4.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — frozen v0.2 capability-lock reference
+- [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json) — frozen v0.3 capability-lock-diff reference
 - [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — frozen experimental reference for old capability lock and diff artifacts; `capability diff` still accepts old lock inputs
 - [`governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json) — stable JSON Schema for `benchmark/agent-pr-governance/cases.yaml`; an eval substrate, not a release gate
 - [`governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json) — stable JSON Schema for governance benchmark result artifacts emitted by `scripts/run_governance_benchmark.py`; non-gating and not part of `report.json`
@@ -84,7 +88,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.7.json`](packet-schema.v0.7.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.7"`, adding capability-linked local trace evidence summary and trace refs under `human_in_the_loop`)
+- [`packet-schema.v0.8.json`](packet-schema.v0.8.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.8"` and project report v0.29 semantic coverage plus the static-only verdict boundary in §1)
+- [`packet-schema.v0.7.json`](packet-schema.v0.7.json) — frozen v0.7 reference packet schema; pre-v0.8 packets validate against this
 - [`packet-schema.v0.6.json`](packet-schema.v0.6.json) — frozen v0.6 reference packet schema; pre-v0.7 packets validate against this
 - [`packet-schema.v0.5.json`](packet-schema.v0.5.json) — frozen v0.5 reference packet schema; pre-v0.6 packets validate against this
 - [`packet-schema.v0.4.json`](packet-schema.v0.4.json) — frozen v0.4 reference packet schema
@@ -97,6 +102,9 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`../examples/golden-prs/`](../examples/golden-prs/) — end-to-end advisory PR examples for humans and coding agents
 - [`manifest-v0.1.example.minimal.yaml`](manifest-v0.1.example.minimal.yaml) — smallest valid manifest
 - [`manifest-v0.1.example.full.yaml`](manifest-v0.1.example.full.yaml) — every section populated
+- [`examples/capability-fact.v0.2.example.json`](examples/capability-fact.v0.2.example.json) — capability-standard v0.2 fact with normalized semantic evidence
+- [`examples/capability-lock.v0.3.example.json`](examples/capability-lock.v0.3.example.json) — current deterministic capability lock example
+- [`examples/capability-lock-diff.v0.4.example.json`](examples/capability-lock-diff.v0.4.example.json) — current semantic capability-lock diff example
 - [`../samples/`](../samples/) — runnable fixtures
 - [`../samples/_anti_patterns/`](../samples/_anti_patterns/) — manifests that intentionally fail validation
 

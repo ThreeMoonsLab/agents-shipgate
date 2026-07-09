@@ -142,6 +142,7 @@ def test_scope_is_read_write_classifiers() -> None:
     assert not Scope.parse("stripe:refunds:read").is_write()
     assert Scope.parse("stripe:refunds:write").is_write()
     assert not Scope.parse("stripe:refunds:write").is_read()
+    assert Scope.parse("email:send").is_write()
     # Wildcard is NOT a verb — both classifiers return False.
     assert not Scope.parse("stripe:*").is_read()
     assert not Scope.parse("stripe:*").is_write()
@@ -258,13 +259,13 @@ def test_tool_side_effect_populates_structural_fields() -> None:
     assert se.externally_visible is True
     assert se.is_high_risk
 
-    # Plain GET with no enrichment: effect=read (HTTP fallback) but
-    # ``read_only`` tag is NOT in the canonical set — so reversibility
-    # stays ``unknown`` until ``enrich_tools_with_risk_hints`` runs.
+    # A structural GET is pass-eligible read evidence. Canonical risk tags are
+    # now a projection of the central assessment, so the typed side effect is
+    # consistently reversible even before legacy hint enrichment runs.
     se_read_plain = tool_side_effect(_tool("read_plain", annotations={"httpMethod": "GET"}))
     assert se_read_plain.effect == "read"
     assert not se_read_plain.is_high_risk
-    assert se_read_plain.reversibility == "unknown"
+    assert se_read_plain.reversibility == "reversible"
 
     # MCP-style readOnlyHint promotes ``is_effectively_read_only`` to
     # True, which adds ``read_only`` to canonical tags, which yields

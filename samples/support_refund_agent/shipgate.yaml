@@ -46,6 +46,9 @@ tool_sources:
     path: agents/refund_agent.py
     mode: static
     optional: true
+  - id: reviewed_sdk_inventory
+    type: mcp
+    path: inventories/sdk-tools.json
 
 policies:
   require_approval_for_tools:
@@ -76,6 +79,66 @@ risk_overrides:
       owner: payments-platform
       confidence: manual
       reason: "Creates real payment refunds."
+    gmail.send_customer_email:
+      tags: ["external_write", "customer_communication"]
+      remove_tags: ["financial_action"]
+      owner: support-platform
+      confidence: manual
+      reason: "Communicates refund status but cannot move funds."
+
+action_surface:
+  actions:
+    - tool: support.search_kb
+      effect: read
+      scopes: [support:kb:read]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+    - tool: gmail.send_customer_email
+      effect: external_communication
+      scopes: [gmail:send]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+    - tool: refund_status_lookup
+      effect: read
+      authority:
+        mode: unscoped
+        auth_type: oauth2
+        credential_mode: service_account
+        reason: OpenAPI operation authenticates without an enumerable scope
+    - tool: zendesk.update_ticket
+      effect: write
+      scopes: [zendesk:tickets:write]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+    - tool: shopify.cancel_order
+      effect: destructive
+      scopes: [shopify:orders:write]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+      approval:
+        required: true
+      safeguards:
+        idempotency: true
+        rollback: true
+    - tool: stripe.create_refund
+      effect: financial_write
+      scopes: [stripe:refunds:write]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+    - tool: send_email_preview
+      effect: read
+      authority:
+        mode: none
 
 checks:
   ignore:

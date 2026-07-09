@@ -11,9 +11,11 @@ they do not create a second verdict.
 
 ## Current Versions
 
-- Capability standard version: `0.1`
-- Capability lock schema: [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
-- Capability lock diff schema: [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
+- Capability standard version: `0.2`
+- Capability lock schema: [`capability-lock-schema.v0.3.json`](capability-lock-schema.v0.3.json)
+- Capability lock diff schema: [`capability-lock-diff-schema.v0.4.json`](capability-lock-diff-schema.v0.4.json)
+- Frozen lock reference: [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
+- Frozen lock-diff reference: [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
 - Frozen experimental lock reference: [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
 
 ## CLI Workflow
@@ -75,10 +77,14 @@ Each fact has:
   broad scopes.
 - `controls` — approval, confirmation, safeguard, owner, and runbook signals.
 - `evidence` — static source provenance for the declaration or extraction.
+- `semantic_assessment` (v0.2) — normalized effect and authority claims,
+  issues, conservative effect, and pass-eligibility state. Newly emitted v0.3
+  locks populate it; it is optional only so older fact payloads remain
+  readable.
 - `risk_tags` — compatibility metadata for existing policy and review surfaces.
 - `hashes` — separated semantic and evidence hashes for deterministic audit.
 
-See [`examples/capability-fact.v0.1.example.json`](examples/capability-fact.v0.1.example.json)
+See [`examples/capability-fact.v0.2.example.json`](examples/capability-fact.v0.2.example.json)
 for a compact representative fact.
 
 ## Identity And Hashes
@@ -114,6 +120,10 @@ Lock-level hashes include:
 Runtime trace evidence is intentionally excluded from capability locks and
 semantic lock hashes.
 
+The normalized semantic assessment is static evidence and contributes to the
+fact's `evidence_hash`. It does not change capability identity. The legacy
+effect and authority projections remain the stable semantic hash inputs.
+
 ## Diff Semantics
 
 Capability lock diff matches facts by `CapabilityFactV1.id`.
@@ -128,8 +138,8 @@ Changed rows carry `changed_hashes`, `semantic_direction`, and
 `semantic_changes` so tools can explain whether the delta is broadened,
 narrowed, mixed, unknown, or evidence-only.
 
-See [`examples/capability-lock.v0.2.example.json`](examples/capability-lock.v0.2.example.json)
-and [`examples/capability-lock-diff.v0.3.example.json`](examples/capability-lock-diff.v0.3.example.json).
+See [`examples/capability-lock.v0.3.example.json`](examples/capability-lock.v0.3.example.json)
+and [`examples/capability-lock-diff.v0.4.example.json`](examples/capability-lock-diff.v0.4.example.json).
 
 ## Provenance Boundaries
 
@@ -144,13 +154,15 @@ static capability envelope.
 
 ## Compatibility
 
-New exports use `capability_lock_schema_version: "0.2"` and
+New exports use `capability_lock_schema_version: "0.3"` and
 `experimental: false`. `agents-shipgate capability diff` continues to accept
 old experimental `0.1` lock inputs and normalizes them before comparison.
 Diff metadata reports the normalized current lock schema version for such
 legacy inputs.
 
-New diffs use `capability_lock_diff_schema_version: "0.3"` and
-`experimental: false`. The older combined
+New diffs use `capability_lock_diff_schema_version: "0.4"` and
+`experimental: false`. The v0.2 lock and v0.3 diff schemas remain frozen
+references for archived artifacts; regenerate both sides with 0.16 before a
+current semantic comparison. The older combined
 [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
 remains a frozen reference.

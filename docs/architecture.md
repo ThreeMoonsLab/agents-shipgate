@@ -2,8 +2,8 @@
 
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
-2026-06-08; auto-checked against `agents-shipgate contract --json`:
-runtime contract `10`, report schema `v0.28`, packet schema `v0.7`.
+2026-07-09; auto-checked against `agents-shipgate contract --json`:
+runtime contract `11`, report schema `v0.29`, packet schema `v0.8`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -39,6 +39,7 @@ src/agents_shipgate/
 │                      entry-point group and filtered through
 │                      `checks/plugin_validation.py`.
 ├── core/               Domain logic: ScanContext, findings, baseline,
+│                      semantic_assessment, semantic_consistency,
 │                      severity_overrides, dynamic_defaults, privacy,
 │                      risk_hints, heuristics, errors, and `lenses/`
 │                      (reviewer-lens computation: tool_surface,
@@ -47,7 +48,7 @@ src/agents_shipgate/
 ├── schemas/            (v0.11+) Wire-shape Pydantic models — `manifest`,
 │                      `report`, `packet`, `baseline`, `contract`,
 │                      `diagnostics`, `surfaces`, `policy_pack`,
-│                      `checks`, `patches`, `disclaimers`, `detect`,
+│                      `checks`, `patches`, `semantic`, `disclaimers`, `detect`,
 │                      `codex_plugin`, `adoption_scorecard`, `common`.
 │                      Layer-isolated: schemas may NOT import core (lint
 │                      enforced by `tests/test_schema_boundaries.py`).
@@ -59,7 +60,8 @@ src/agents_shipgate/
 │                      `ReadinessReport` Pydantic fields.
 └── packet/             Release Evidence Packet builder + renderers
                        (markdown, json, html, pdf). Includes the
-                       v0.6 `evidence_matrix` reviewer-lens projection.
+                       v0.8 semantic evidence coverage and the existing
+                       `evidence_matrix` reviewer-lens projection.
 
 harness/                (Not packaged.) Cold-agent adoption harness
                        (P0.2). 100-point rubric across 8 benchmark
@@ -87,8 +89,13 @@ inputs/<name>.py                   each adapter returns LoadedAdapterResult.
                                      ↓
 _flatten_and_deduplicate_tools     merge by stable id, source_priority break
                                      ↓
-core/risk_hints.py                 enrich tools with risk tags (read_only,
-                                   write, destructive, financial_action, …)
+core/risk_hints.py                 enrich source/manual escalation hints
+                                     ↓
+core/semantic_assessment.py       attach exactly one declaration-aware
+                                   ToolSemanticAssessment per tool after
+                                   extraction + manifest enrichment; resolve
+                                   conservative effect, effect evidence,
+                                   authority evidence, issues, and pass eligibility
                                      ↓
 _build_agent + ScanContext         (manifest, agent, tools, ArtifactBag,
                                     action_surface_facts, config_path)
@@ -112,7 +119,8 @@ apply_no_heuristics_filter         v0.21: when --no-heuristics is set,
                                    mark heuristic-provenance findings
                                    suppressed BEFORE build_release_decision
                                    runs, so excluded findings cannot
-                                   gate release. Runs after
+                                   gate as Findings. Semantic assessments and
+                                   evidence gaps are unaffected. Runs after
                                    apply_suppressions so manifest
                                    intent wins on overlap. Always emits
                                    the heuristics_filter envelope
@@ -136,7 +144,8 @@ core/findings.build_report         assemble ReadinessReport; internally
                                    ({blocked, insufficient_evidence,
                                     review_required, passed} +
                                    contribution_rules[] audit) over the
-                                   post-filter active set; populates
+                                   post-filter active Finding set plus
+                                   zero-tolerance semantic coverage; populates
                                    agent_summary + policy_audit +
                                    privacy_audit + heuristics_filter
                                      ↓
@@ -146,9 +155,19 @@ build_reviewer_summary             populate v0.20 reviewer_summary from
                                    final lens/audit data (already
                                    post-filter)
                                      ↓
+build_verifier_blocks             capability change, protected surfaces,
+                                   effective policy, human acknowledgement,
+                                   and verifier summary projections
+                                     ↓
+core/semantic_consistency          assert tool assessment == action fact ==
+                                   capability fact, semantic coverage matches,
+                                   and passed implies every assessment is
+                                   pass-eligible
+                                     ↓
 report/{markdown,json,sarif}       formatters write to agents-shipgate-reports/
-packet/builder.build_packet        Release Evidence Packet (v0.7) including
-                                   evidence_matrix and capability trace refs
+packet/builder.build_packet        Release Evidence Packet (v0.8) including
+                                   semantic coverage, evidence gaps,
+                                   evidence_matrix, and capability trace refs
                                      ↓
 cli/scan/orchestrator.py:run_scan  entry-point orchestrator. Composed of
                                    nine sequential phase helpers
@@ -167,7 +186,7 @@ cli/scan/orchestrator.py:run_scan  entry-point orchestrator. Composed of
 ## Schemas layer (v0.11+)
 
 Wire-shape Pydantic models live under `src/agents_shipgate/schemas/`
-(15 modules, see `Module map` above). `core/` holds processing logic — finding builders,
+(see `Module map` above). `core/` holds processing logic — finding builders,
 resolver, baseline manager, privacy sanitizer, etc. The two layers
 are **AST-isolated**:
 
@@ -302,16 +321,17 @@ agent/provider/operation/tool rows and reports them as `reidentified`
 instead of unrelated add/remove churn. Added and removed capability facts
 are listed separately.
 
-The v0.2 lock is an enumerable-tools envelope. Dynamic toolkit scope
+The capability-standard v0.2 lock is an enumerable-tools envelope. Dynamic toolkit scope
 bounds parsed from factories are counted in `source.toolkit_bound_count`
 but are not yet emitted as capability facts, so widening a dynamic
 factory's authority bound is a known limitation until a later phase
 adds non-enumerable authority facts. The current schema is
-[`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json);
+[`capability-lock-schema.v0.3.json`](capability-lock-schema.v0.3.json);
 diff artifacts use
-[`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json).
+[`capability-lock-diff-schema.v0.4.json`](capability-lock-diff-schema.v0.4.json).
 Both carry `experimental: false`. Old experimental v0.1 lock inputs
-remain readable by `capability diff`, but new exports use v0.2.
+remain readable by `capability diff`, but new exports use v0.3 and carry the
+normalized semantic assessment beside each capability fact.
 Capability locks are not part of `report.json`, do not include runtime
 trace evidence, and do not gate. The committed lock is deterministic for
 the same manifest-relative inputs; `cli_version` is provenance and may
@@ -495,11 +515,11 @@ without a per-call-site allowlist with literal-anchor snippet;
 files outside the manifest directory rejected (path-traversal
 containment); files larger than 10 MB rejected.
 
-## Release Evidence Packet (v0.7)
+## Release Evidence Packet (v0.8)
 
 `scan` emits a reviewer-shaped artifact alongside `report.{md,json,sarif}`
 whenever `output.packet.enabled` is true (default). The packet has its
-own JSON contract ([`packet-schema.v0.7.json`](packet-schema.v0.7.json))
+own JSON contract ([`packet-schema.v0.8.json`](packet-schema.v0.8.json))
 so the report schema stays minimal.
 
 The packet is derived from the in-memory scan (manifest, tools,
@@ -643,10 +663,10 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.28"`; older schemas frozen as
+  `report_schema_version: "0.29"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
-  `packet_schema_version: "0.7"`; older schemas frozen.
+  `packet_schema_version: "0.8"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
   `baseline verify` only), `20` strict-mode gate failure.

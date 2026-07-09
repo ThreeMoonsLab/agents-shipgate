@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate import __version__
+from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.verifier import map_merge_verdict
 
 AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v1"
@@ -35,6 +36,9 @@ class AgentHandoffGate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     gating_signal: Literal["release_decision.decision"] = "release_decision.decision"
+    static_analysis_only: Literal[True] = True
+    runtime_behavior_verified: Literal[False] = False
+    static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
     decision: str | None = None
     merge_verdict: str
     applicability: str | None = None
@@ -122,6 +126,8 @@ class AgentHandoffArtifact(BaseModel):
 
     @model_validator(mode="after")
     def _gate_projects_release_decision(self) -> AgentHandoffArtifact:
+        if self.gate.static_verdict_disclaimer != STATIC_VERDICT_DISCLAIMER:
+            raise ValueError("AgentHandoffArtifact must preserve the static-verdict disclaimer")
         if self.gate.decision is None:
             return self
         expected = map_merge_verdict(self.gate.decision)

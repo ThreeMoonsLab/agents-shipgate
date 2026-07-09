@@ -170,9 +170,9 @@ Do **not** claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has
 explicitly accepted the human-review requirement. Follow `fix_task` as the
 repair boundary. When `first_next_action.actor` or `fix_task.actor` is `human`,
-surface the item for a person — approval, confirmation, idempotency,
-broad-scope, prohibited-action, waiver, baseline, and policy evidence cannot be
-synthesized.
+surface the item for a person — action effect, action authority, approval,
+confirmation, idempotency, broad-scope, prohibited-action, waiver, baseline,
+and policy evidence cannot be synthesized.
 
 Never weaken `shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`, policy
 packs, baselines, waivers, or suppressions merely to make Shipgate pass; that

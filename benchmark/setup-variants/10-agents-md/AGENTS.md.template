@@ -42,9 +42,9 @@ PR/CI verification after making the base ref available.
 `agents-shipgate-reports/verifier.json` explains trigger/base status; it is
 not a second release verdict.
 
-Auto-apply only high-confidence safe patches. Do not auto-assert approval,
-confirmation, idempotency, broad-scope, or prohibited-action policy decisions;
-surface those as human review items.
+Auto-apply only high-confidence safe patches. Do not auto-assert action effect,
+action authority, approval, confirmation, idempotency, broad-scope, or
+prohibited-action policy decisions; surface those as human review items.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent

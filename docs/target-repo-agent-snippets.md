@@ -83,9 +83,9 @@ For coding-agent host grants, run `shipgate audit --host` and read the emitted
 host-grants inventory before changing MCP servers, permission rules, hooks, or
 workflow scopes.
 
-Auto-apply only high-confidence safe patches. Do not auto-assert approval,
-confirmation, idempotency, broad-scope, or prohibited-action policy decisions;
-surface those as human review items.
+Auto-apply only high-confidence safe patches. Do not auto-assert action effect,
+action authority, approval, confirmation, idempotency, broad-scope, or
+prohibited-action policy decisions; surface those as human review items.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent
@@ -188,8 +188,8 @@ host-grants inventory before changing MCP servers, permission rules, hooks, or
 workflow scopes.
 
 Use `apply-patches --confidence high --apply` only for high-confidence safe
-patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action
-changes require human review.
+patches. Action effect, action authority, approval, confirmation, idempotency,
+broad-scope, and prohibited-action changes require human review.
 
 Do not bypass the verifier by suppressing findings, lowering severity, expanding
 baselines or waivers, removing Shipgate CI, or weakening agent instructions.
@@ -273,8 +273,8 @@ For coding-agent host grants, run:
 Read the host-grants inventory before changing MCP servers, permission rules,
 hooks, or workflow scopes.
 
-Apply only high-confidence safe patches. Do not invent approval, confirmation,
-or idempotency evidence.
+Apply only high-confidence safe patches. Do not invent action effect, action
+authority, approval, confirmation, or idempotency evidence.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent
@@ -337,8 +337,9 @@ capability changes — a local-first, static Tool-Use Readiness review.
       `merge_verdict`, and checked `capability_review.top_changes[]`.
 - [ ] I reviewed `agents-shipgate-reports/report.json` and used
       `release_decision.decision` as the release gate.
-- [ ] I did not auto-assert approval, confirmation, idempotency, broad-scope,
-      or prohibited-action policy decisions.
+- [ ] I did not auto-assert action effect, action authority, approval,
+      confirmation, idempotency, broad-scope, or prohibited-action policy
+      decisions.
 ````
 
 ## Advisory GitHub Action
@@ -396,7 +397,8 @@ make Shipgate pass.
 (`mergeable` / `human_review_required` / `insufficient_evidence` / `blocked` /
 `unknown`), a deterministic projection of `release_decision.decision` — the gate,
 which lives in `report.json`. `fix_task` is the deterministic repair boundary:
-agent-safe mechanical work has `actor: coding_agent`; approval, idempotency,
-waiver, baseline, and policy authority has `actor: human`. See
+agent-safe mechanical work has `actor: coding_agent`; action effect, action
+authority, approval, idempotency, waiver, baseline, and policy authority has
+`actor: human`. See
 [`use-cases/ai-generated-agent-prs.md`](use-cases/ai-generated-agent-prs.md) for
 the full PR-verification walkthrough.

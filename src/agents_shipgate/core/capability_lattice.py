@@ -5,10 +5,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 from agents_shipgate.core.domain import Scope, Tool, ToolRiskHint
-from agents_shipgate.core.risk_hints import (
-    canonical_risk_tags,
-    is_effectively_read_only,
-)
 from agents_shipgate.schemas.common import parse_confidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
@@ -112,9 +108,7 @@ _PRODUCTION_TOKENS = {
     "production",
     "terraform",
 }
-_SECRET_NAME_RE = re.compile(
-    r"(api[_-]?key|auth|credential|password|secret|token)", re.IGNORECASE
-)
+_SECRET_NAME_RE = re.compile(r"(api[_-]?key|auth|credential|password|secret|token)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -142,77 +136,66 @@ class CapabilityPermissionProfile:
 def classify_tool_permission(tool: Tool) -> CapabilityPermissionProfile:
     """Classify one tool into Shipgate's deterministic permission lattice.
 
-    The classifier is static-only. It never calls a server and never trusts a
-    single weak signal as proof of safety. Explicit MCP/Shipgate annotations
-    are read first, then scopes, config facts, existing risk hints, and finally
-    conservative name/schema cues.
+    Compatibility projection over the central semantic resolver. The lattice
+    retains its legacy classes and risk score for MCP audit consumers, but it
+    no longer implements an independent effect inference path.
     """
 
+    # Local import avoids a domain/lattice/resolver cycle.
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
     classes: set[PermissionClass] = set()
-    reasons: list[str] = []
-    annotations = tool.annotations
+    reasons = [issue.kind for issue in assessment.effect.issues]
+    for claim in assessment.effect.claims:
+        if claim.source == "mcp_protocol_default":
+            reasons.append(claim.source)
+            continue
+        permission_class = _permission_class_for_effect(claim.value)
+        if permission_class is not None:
+            classes.add(permission_class)
+        reasons.append(claim.source)
 
-    explicit = _explicit_permission_classes(annotations)
-    if explicit:
-        classes.update(explicit)
-        reasons.append("explicit_permission_class")
+    if not classes and assessment.effect.status in {"declared", "structural"}:
+        permission_class = _permission_class_for_effect(assessment.conservative_effect)
+        if permission_class is not None:
+            classes.add(permission_class)
 
-    if annotations.get("readOnlyHint") is True:
-        classes.add("read")
-        reasons.append("readOnlyHint")
-    if annotations.get("destructiveHint") is True:
-        classes.update({"write", "destructive"})
-        reasons.append("destructiveHint")
-    if annotations.get("openWorldHint") is True:
-        classes.add("external")
-        reasons.append("openWorldHint")
-
-    scope_classes = _classes_from_scopes(tool.auth.scopes)
-    if scope_classes:
-        classes.update(scope_classes)
-        reasons.append("auth_scopes")
-
-    if annotations.get("mcp_env_secret_names"):
-        classes.add("external")
-        reasons.append("env_secret_pass_through")
-    if annotations.get("mcp_wildcard_tools") or annotations.get("wildcard_tools"):
+    side_effect_unknown = assessment.effect.status in {
+        "protocol_default",
+        "inferred",
+        "unknown",
+        "conflicting",
+    } or any(issue.kind == "incomplete_surface" for issue in assessment.effect.issues)
+    if side_effect_unknown:
         classes.add("unknown")
-        reasons.append("wildcard_tools")
-    if annotations.get("mcp_unknown_schema"):
-        classes.add("unknown")
-        reasons.append("unknown_schema")
-
-    hint_classes = _classes_from_risk_tags(canonical_risk_tags(tool))
-    if hint_classes:
-        classes.update(hint_classes)
-        reasons.append("risk_hints")
-
-    name_classes = _classes_from_name(tool.name, tool.description)
-    if name_classes and not is_effectively_read_only(tool):
-        classes.update(name_classes)
-        reasons.append("name_description")
-
-    if not classes:
-        classes.add("read")
-        reasons.append("default_read")
-
-    if classes == {"read"} and is_effectively_read_only(tool):
-        reasons.append("effective_read_only")
 
     normalized = _normalize_classes(classes)
-    effect = PERMISSION_EFFECT[
-        max(normalized, key=lambda item: PERMISSION_CLASS_RANK[item])
-    ]
-    side_effect_unknown = "unknown" in normalized
     score = _risk_score(tool, normalized, side_effect_unknown=side_effect_unknown)
     return CapabilityPermissionProfile(
         classes=tuple(sorted(normalized, key=lambda item: PERMISSION_CLASS_RANK[item])),
-        effect=effect,
+        effect=assessment.conservative_effect,
         risk_level=_risk_level(score),
         risk_score=score,
         side_effect_unknown=side_effect_unknown,
         reasons=tuple(dict.fromkeys(reasons)),
     )
+
+
+def _permission_class_for_effect(value: str) -> PermissionClass | None:
+    return {
+        "read": "read",
+        "write": "write",
+        "destructive": "destructive",
+        "external_communication": "external",
+        "financial_write": "financial",
+        "production_operation": "production",
+        # The legacy MCP lattice has no first-class classes for these effects;
+        # retain the conservative write upper bound instead of inventing one.
+        "privileged_data_access": "write",
+        "code_execution": "write",
+        "identity_access": "write",
+    }.get(value)  # type: ignore[return-value]
 
 
 def mcp_permission_risk_hints(tool: Tool) -> list[ToolRiskHint]:
@@ -225,7 +208,7 @@ def mcp_permission_risk_hints(tool: Tool) -> list[ToolRiskHint]:
         hints.append(
             ToolRiskHint(
                 tag=tag,
-                source="mcp_permission_lattice",
+                source=_permission_hint_source(tool, permission_class),
                 confidence=parse_confidence(
                     _read_only_confidence(tool) if permission_class == "read" else "medium"
                 ),
@@ -342,7 +325,31 @@ def _normalize_classes(classes: set[PermissionClass]) -> set[PermissionClass]:
         classes.add("write")
     if classes - {"read"}:
         classes.discard("read")
-    return classes or {"read"}
+    return classes or {"unknown"}
+
+
+def _permission_hint_source(
+    tool: Tool,
+    permission_class: PermissionClass,
+) -> str:
+    """Return the strongest provenance that supports one permission class."""
+
+    annotations = tool.annotations
+    if permission_class in _explicit_permission_classes(annotations):
+        return "mcp_annotation"
+    if permission_class == "read" and annotations.get("readOnlyHint") is True:
+        return "mcp_annotation"
+    if permission_class in {"write", "destructive"} and annotations.get("destructiveHint") is True:
+        return "mcp_annotation"
+    if permission_class in _classes_from_scopes(tool.auth.scopes):
+        return "auth_scope"
+    if permission_class == "unknown" and (
+        annotations.get("mcp_wildcard_tools")
+        or annotations.get("wildcard_tools")
+        or annotations.get("mcp_unknown_schema")
+    ):
+        return "mcp_config"
+    return "keyword"
 
 
 def _risk_score(

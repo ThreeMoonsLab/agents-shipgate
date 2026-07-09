@@ -18,7 +18,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agents_shipgate.schemas.common import HitlSourceProvenance
-from agents_shipgate.schemas.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
+from agents_shipgate.schemas.disclaimers import (
+    HITL_RUNTIME_CONTROL_DISCLAIMER,
+    STATIC_VERDICT_DISCLAIMER,
+)
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     CapabilityTraceEvidenceSummary,
@@ -74,6 +77,9 @@ class ReleaseDecisionSection(BaseModel):
     evidence_coverage: EvidenceCoverageDecision
     baseline_delta: BaselineDelta
     fail_policy: FailPolicy
+    static_analysis_only: Literal[True] = True
+    runtime_behavior_verified: Literal[False] = False
+    static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
 
 
 class EvidenceMatrixRow(BaseModel):
@@ -343,7 +349,9 @@ class EvidencePacket(BaseModel):
     # schema by version" contract is preserved.
     # v0.7: additive opt-in local runtime trace/provenance evidence under
     # human_in_the_loop. release_decision.decision remains the only gate.
-    packet_schema_version: Literal["0.7"] = "0.7"
+    # v0.8: release-decision evidence coverage carries the additive
+    # evidence-backed semantic coverage and gap remediation contract.
+    packet_schema_version: Literal["0.8"] = "0.8"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)

@@ -9,7 +9,8 @@ Using the Codex plugin requires a local `agents-shipgate` CLI installation. The
 plugin does not bundle the scanner binary, provide a hosted service, connect to
 MCP servers, or execute agent tools. Users remain responsible for the commands
 they ask Codex to run and for reviewing any merge, release, suppression,
-baseline, waiver, approval, confirmation, idempotency, or policy decision.
+baseline, waiver, action-effect, action-authority, approval, confirmation,
+idempotency, or policy decision.
 
 Agents Shipgate reports are static analysis artifacts. They can help identify
 declared tool-use release risks, but they do not prove runtime behavior, model

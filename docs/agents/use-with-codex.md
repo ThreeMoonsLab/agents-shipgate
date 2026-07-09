@@ -227,9 +227,9 @@ Codex must not claim completion when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has
 explicitly accepted the human-review requirement. Follow `fix_task` as the
 repair boundary. When `first_next_action.actor` or `fix_task.actor` is `human` —
-approval, confirmation, idempotency, broad-scope, prohibited-action,
-acknowledgement, waiver, baseline, or policy decisions — Codex surfaces the item
-for a person rather than resolving it.
+action effect, action authority, approval, confirmation, idempotency,
+broad-scope, prohibited-action, acknowledgement, waiver, baseline, or policy
+decisions — Codex surfaces the item for a person rather than resolving it.
 
 And Codex must **never** weaken `shipgate.yaml`, the Shipgate CI workflow,
 `AGENTS.md`, policy packs, baselines, waivers, or suppressions just to make
@@ -253,8 +253,8 @@ Codex must preserve the same safety boundary as every other agent:
 - It may install, preview/detect, init, verify, scan, summarize, add advisory CI, apply
   high-confidence mechanical patches, and add `agents-shipgate-reports/` to
   `.gitignore`.
-- It must not invent approval, confirmation, idempotency, broad-scope,
-  prohibited-action, or runtime-trace evidence.
+- It must not invent action effect, action authority, approval, confirmation,
+  idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
 - It must not bypass the verifier by suppressing findings, lowering severity,
   expanding baselines or waivers, removing Shipgate CI, or weakening agent
   instructions. Verify-mode `SHIP-VERIFY-*` checks route those trust-root

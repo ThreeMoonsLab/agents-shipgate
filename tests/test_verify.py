@@ -136,9 +136,7 @@ def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> No
     assert "correct --config" in payload["headline"].lower()
     assert payload["human_review"]["required"] is True
     assert "verify --preview --json" in payload["human_review"]["why"]
-    assert payload["first_next_action"]["command"] == (
-        "agents-shipgate verify --preview --json"
-    )
+    assert payload["first_next_action"]["command"] == ("agents-shipgate verify --preview --json")
     assert (out_dir / "verifier.json").is_file()
     assert (out_dir / "verify-run.json").is_file()
     assert (out_dir / "agent-handoff.json").is_file()
@@ -227,9 +225,7 @@ def test_verify_warns_when_reports_directory_is_staged(tmp_path: Path) -> None:
     reports = repo / "agents-shipgate-reports"
     reports.mkdir()
     (reports / "report.json").write_text("{}\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "add", "agents-shipgate-reports/report.json"], cwd=repo, check=True
-    )
+    subprocess.run(["git", "add", "agents-shipgate-reports/report.json"], cwd=repo, check=True)
 
     result = runner.invoke(
         app,
@@ -266,9 +262,7 @@ def test_verify_warns_on_staged_reports_from_subdirectory_workspace(
     reports = repo / "agents-shipgate-reports"
     reports.mkdir()
     (reports / "report.json").write_text("{}\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "add", "agents-shipgate-reports/report.json"], cwd=repo, check=True
-    )
+    subprocess.run(["git", "add", "agents-shipgate-reports/report.json"], cwd=repo, check=True)
 
     # ...but verify is invoked with a subdirectory --workspace. The nudge must
     # still resolve to the git root rather than probing only the subdirectory.
@@ -604,10 +598,15 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     assert "- Next actor: `human`" in comment
     assert "A human owner must confirm approval and idempotency evidence" in comment
     assert "- Trust root touched: `true`" in comment
+    assert "- Static-verdict boundary:" in comment
+    assert "did not execute the agent or prove runtime behavior" in comment
     assert "[packet.json](agents-shipgate-reports/packet.json)" in comment
     assert '"merge_verdict": "blocked"' in comment
     assert '"fix_task": {' in comment
-    assert '"verification_command": "agents-shipgate verify --base origin/main --head HEAD --json"' in comment
+    assert (
+        '"verification_command": "agents-shipgate verify --base origin/main --head HEAD --json"'
+        in comment
+    )
 
 
 def test_capability_review_pr_comment_preserves_valid_agent_json_when_compacted() -> None:

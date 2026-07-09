@@ -91,11 +91,9 @@ def render_packet_html(packet: EvidencePacket) -> str:
     packet = sanitize_packet(packet)
     parts: list[str] = []
     parts.append("<!doctype html>")
-    parts.append("<html lang=\"en\"><head>")
-    parts.append("<meta charset=\"utf-8\">")
-    title = escape(
-        f"Release Evidence Packet — {packet.project.get('name') or 'agent'}"
-    )
+    parts.append('<html lang="en"><head>')
+    parts.append('<meta charset="utf-8">')
+    title = escape(f"Release Evidence Packet — {packet.project.get('name') or 'agent'}")
     parts.append(f"<title>{title}</title>")
     parts.append(f"<style>{_BASE_STYLE}</style>")
     parts.append("</head><body>")
@@ -133,7 +131,7 @@ def _render_header(packet: EvidencePacket) -> str:
     if packet.generated_at is not None:
         timestamp_part = f"Generated at: {escape(packet.generated_at)} · "
     return (
-        "<p class=\"meta\">"
+        '<p class="meta">'
         f"Project: <strong>{project}</strong> · "
         f"Agent: <strong>{agent}</strong> · "
         f"Environment: <strong>{target}</strong><br>"
@@ -150,7 +148,7 @@ def _render_header(packet: EvidencePacket) -> str:
 def _heading(number: int, title: str, status: SectionStatus) -> str:
     return (
         f"<h2>§{number} {escape(title)} — "
-        f"<span class=\"status-{status}\">{_STATUS_LABEL[status]}</span></h2>"
+        f'<span class="status-{status}">{_STATUS_LABEL[status]}</span></h2>'
     )
 
 
@@ -158,8 +156,7 @@ def _render_release_decision(section: ReleaseDecisionSection) -> str:
     css = _VERDICT_CLASS.get(section.verdict, "verdict verdict-review")
     parts: list[str] = []
     parts.append(
-        f"<h2>§1 Release decision — "
-        f"<span class=\"{css}\">{escape(section.verdict)}</span></h2>"
+        f'<h2>§1 Release decision — <span class="{css}">{escape(section.verdict)}</span></h2>'
     )
     parts.append("<ul>")
     parts.append(f"<li>Decision: <code>{escape(section.decision)}</code></li>")
@@ -179,6 +176,19 @@ def _render_release_decision(section: ReleaseDecisionSection) -> str:
         "verdict. The verdict above derives from "
         "<code>release_decision.decision</code>.</li>"
     )
+    parts.append("</ul>")
+    semantic = section.evidence_coverage.semantic_coverage
+    parts.append("<h3>Static semantic coverage</h3><ul>")
+    parts.append(
+        f"<li>Pass-eligible actions: {semantic.pass_eligible_actions}/{semantic.total_actions}</li>"
+    )
+    parts.append(f"<li>Evidence gaps: {semantic.gap_count}</li>")
+    parts.append(f"<li>Known authority review concerns: {semantic.review_concern_count}</li>")
+    if semantic.reason_counts:
+        reasons = ", ".join(
+            f"{escape(key)}={count}" for key, count in sorted(semantic.reason_counts.items())
+        )
+        parts.append(f"<li>Reasons: {reasons}</li>")
     parts.append("</ul>")
     if section.blockers:
         parts.append("<h3>Blockers</h3><ul>")
@@ -270,10 +280,7 @@ def _render_capability_intent(section: CapabilityIntentDiff) -> str:
     if section.divergence_findings:
         parts.append("<h3>Divergences</h3><ul>")
         for item in section.divergence_findings:
-            parts.append(
-                f"<li><code>{escape(item.check_id)}</code>: "
-                f"{escape(item.title)}</li>"
-            )
+            parts.append(f"<li><code>{escape(item.check_id)}</code>: {escape(item.title)}</li>")
         parts.append("</ul>")
     return "".join(parts)
 
@@ -281,7 +288,7 @@ def _render_capability_intent(section: CapabilityIntentDiff) -> str:
 def _render_high_risk_surface(section: HighRiskSurfaceSection) -> str:
     parts = [_heading(3, "High-risk tool surface", section.status)]
     parts.append(
-        f"<p class=\"meta\">Total tools: {section.total_tools} · "
+        f'<p class="meta">Total tools: {section.total_tools} · '
         f"High-risk: {section.high_risk_count}</p>"
     )
     if section.tools:
@@ -303,16 +310,14 @@ def _render_high_risk_surface(section: HighRiskSurfaceSection) -> str:
             )
         parts.append("</tbody></table>")
     else:
-        parts.append(
-            "<p>No high-risk tools detected on this surface.</p>"
-        )
+        parts.append("<p>No high-risk tools detected on this surface.</p>")
     return "".join(parts)
 
 
 def _render_tool_surface_diff(section: ToolSurfaceDiffSection) -> str:
     parts = [
         "<h2>§3A Tool-surface diff — "
-        f"<span class=\"status-{section.status}\">"
+        f'<span class="status-{section.status}">'
         f"{_STATUS_LABEL[section.status]}</span></h2>"
     ]
     if not section.enabled:
@@ -351,7 +356,7 @@ def _render_tool_surface_diff(section: ToolSurfaceDiffSection) -> str:
 def _render_action_surface_diff(section: ActionSurfaceDiffSection) -> str:
     parts = [
         "<h2>§3B Action-surface diff — "
-        f"<span class=\"status-{section.status}\">"
+        f'<span class="status-{section.status}">'
         f"{_STATUS_LABEL[section.status]}</span></h2>"
     ]
     if not section.enabled:
@@ -377,9 +382,7 @@ def _render_action_surface_diff(section: ActionSurfaceDiffSection) -> str:
         f"<li>Controls: {summary.approvals_removed} approval removal(s), "
         f"{summary.safeguards_removed} safeguard removal(s)</li>"
     )
-    parts.append(
-        f"<li>Blocking action findings: {summary.blocking_findings}</li>"
-    )
+    parts.append(f"<li>Blocking action findings: {summary.blocking_findings}</li>")
     parts.append("</ul>")
     if section.highlights:
         parts.append("<h3>Action changes</h3><ul>")
@@ -396,9 +399,7 @@ def _render_action_surface_diff(section: ActionSurfaceDiffSection) -> str:
 
 def _coverage_table(rows, columns: list[str]) -> str:
     head = "".join(f"<th>{escape(col)}</th>" for col in columns)
-    out = [
-        f"<table><thead><tr>{head}</tr></thead><tbody>"
-    ]
+    out = [f"<table><thead><tr>{head}</tr></thead><tbody>"]
     for row in rows:
         declared = "yes" if row.declared else "no"
         source = escape(row.source or "—")
@@ -417,15 +418,10 @@ def _render_approval_coverage(section: ApprovalCoverageSection) -> str:
     parts = [_heading(4, "Approval policy coverage", section.status)]
     if section.rows:
         parts.append(
-            _coverage_table(
-                section.rows, ["Tool", "Declared", "Source", "Gap finding(s)"]
-            )
+            _coverage_table(section.rows, ["Tool", "Declared", "Source", "Gap finding(s)"])
         )
     else:
-        parts.append(
-            "<p>No high-risk tools require approval policy review for "
-            "this scan.</p>"
-        )
+        parts.append("<p>No high-risk tools require approval policy review for this scan.</p>")
     if section.gap_findings:
         parts.append("<h3>Gap findings</h3><ul>")
         for item in section.gap_findings:
@@ -443,15 +439,10 @@ def _render_idempotency_risk(section: IdempotencyRiskSection) -> str:
     parts.append(f"<p>Retry policy: <strong>{retry_label}</strong></p>")
     if section.rows:
         parts.append(
-            _coverage_table(
-                section.rows, ["Tool", "Declared", "Source", "Gap finding(s)"]
-            )
+            _coverage_table(section.rows, ["Tool", "Declared", "Source", "Gap finding(s)"])
         )
     else:
-        parts.append(
-            "<p>No write-class tools require idempotency review for "
-            "this scan.</p>"
-        )
+        parts.append("<p>No write-class tools require idempotency review for this scan.</p>")
     if section.gap_findings:
         parts.append("<h3>Gap findings</h3><ul>")
         for item in section.gap_findings:
@@ -480,10 +471,7 @@ def _render_scope_coverage(section: ScopeCoverageSection) -> str:
         )
         for row in section.rows:
             declared = "yes" if row.declared else "no"
-            used = (
-                ", ".join(f"<code>{escape(t)}</code>" for t in row.used_by_tools)
-                or "—"
-            )
+            used = ", ".join(f"<code>{escape(t)}</code>" for t in row.used_by_tools) or "—"
             parts.append(
                 f"<tr><td><code>{escape(row.scope)}</code></td>"
                 f"<td>{declared}</td>"
@@ -512,26 +500,17 @@ def _render_scope_coverage(section: ScopeCoverageSection) -> str:
 
 
 def _render_memory_isolation(section: MemoryIsolationStatus) -> str:
-    return (
-        _heading(7, "Memory isolation", section.status)
-        + f"<p>{escape(section.notes)}</p>"
-    )
+    return _heading(7, "Memory isolation", section.status) + f"<p>{escape(section.notes)}</p>"
 
 
 def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
     parts = [_heading(8, "Human-in-the-loop evidence", section.status)]
     parts.append("<ul>")
+    parts.append(f"<li>Configured: {'yes' if section.is_configured else 'no'}</li>")
     parts.append(
-        f"<li>Configured: {'yes' if section.is_configured else 'no'}</li>"
+        f"<li>Human review recommended: {'yes' if section.human_review_recommended else 'no'}</li>"
     )
-    parts.append(
-        "<li>Human review recommended: "
-        f"{'yes' if section.human_review_recommended else 'no'}</li>"
-    )
-    parts.append(
-        f"<li>Provenance mode: "
-        f"<code>{escape(section.provenance_mode)}</code></li>"
-    )
+    parts.append(f"<li>Provenance mode: <code>{escape(section.provenance_mode)}</code></li>")
     summary = section.capability_trace_summary
     parts.append(
         "<li>Capability-linked trace rows: "
@@ -556,7 +535,7 @@ def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
             refs = ""
             if item.capability_trace_refs:
                 refs = (
-                    "<br><span class=\"meta\">Trace refs: "
+                    '<br><span class="meta">Trace refs: '
                     f"{escape(', '.join(item.capability_trace_refs))}</span>"
                 )
             parts.append(
@@ -569,9 +548,7 @@ def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
         for ref in section.capability_trace_refs[:10]:
             parts.append(f"<li><code>{escape(ref)}</code></li>")
         if len(section.capability_trace_refs) > 10:
-            parts.append(
-                f"<li>+{len(section.capability_trace_refs) - 10} more</li>"
-            )
+            parts.append(f"<li>+{len(section.capability_trace_refs) - 10} more</li>")
         parts.append("</ul>")
     if section.source_provenance:
         parts.append("<h3>Source provenance</h3>")
@@ -596,9 +573,7 @@ def _render_human_in_the_loop(section: HumanInTheLoopEvidence) -> str:
             "workspace for full-fidelity provenance.</p>"
         )
     if not section.is_configured and not section.human_review_recommended:
-        parts.append(
-            "<p>No human-in-the-loop evidence configured — see §10.</p>"
-        )
+        parts.append("<p>No human-in-the-loop evidence configured — see §10.</p>")
     return "".join(parts)
 
 
@@ -608,20 +583,15 @@ def _render_dynamic_scenarios(section: DynamicScenariosSection) -> str:
         parts.append("<ul>")
         for scenario in section.scenarios:
             parts.append(
-                f"<li><strong>{escape(scenario.scenario)}</strong> — "
-                f"{escape(scenario.why)}"
+                f"<li><strong>{escape(scenario.scenario)}</strong> — {escape(scenario.why)}"
             )
             if scenario.finding_ids:
                 ids = escape(", ".join(scenario.finding_ids))
-                parts.append(
-                    f"<br><span class=\"meta\">Related finding(s): {ids}</span>"
-                )
+                parts.append(f'<br><span class="meta">Related finding(s): {ids}</span>')
             parts.append("</li>")
         parts.append("</ul>")
     else:
-        parts.append(
-            "<p>No additional dynamic scenarios are required from this scan.</p>"
-        )
+        parts.append("<p>No additional dynamic scenarios are required from this scan.</p>")
     return "".join(parts)
 
 
@@ -630,9 +600,7 @@ def _render_not_proven(section: NotProvenSection) -> str:
     parts.append(f"<p>{escape(section.headline)}</p>")
     parts.append("<ul>")
     for item in section.unconditional:
-        parts.append(
-            f"<li><strong>{escape(item.label)}.</strong> {escape(item.body)}</li>"
-        )
+        parts.append(f"<li><strong>{escape(item.label)}.</strong> {escape(item.body)}</li>")
     parts.append("</ul>")
     parts.append("<h3>Per-run residuals</h3><ul>")
     if section.source_warnings:
@@ -643,9 +611,7 @@ def _render_not_proven(section: NotProvenSection) -> str:
     else:
         parts.append("<li>Source warnings: none</li>")
     if section.low_confidence_tools:
-        names = ", ".join(
-            f"<code>{escape(name)}</code>" for name in section.low_confidence_tools
-        )
+        names = ", ".join(f"<code>{escape(name)}</code>" for name in section.low_confidence_tools)
         parts.append(f"<li>Low-confidence tool extractions: {names}</li>")
     else:
         parts.append("<li>Low-confidence tool extractions: none</li>")

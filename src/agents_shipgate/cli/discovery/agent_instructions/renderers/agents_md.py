@@ -64,9 +64,9 @@ For coding-agent host grants, run `shipgate audit --host` and read the emitted
 host-grants inventory before changing MCP servers, permission rules, hooks, or
 workflow scopes.
 
-Auto-apply only high-confidence safe patches. Do not auto-assert approval,
-confirmation, idempotency, broad-scope, or prohibited-action policy decisions;
-surface those as human review items.
+Auto-apply only high-confidence safe patches. Do not auto-assert action effect,
+action authority, approval, confirmation, idempotency, broad-scope, or
+prohibited-action policy decisions; surface those as human review items.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent

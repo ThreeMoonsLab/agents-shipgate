@@ -180,10 +180,7 @@ def _load_mcp_policy(
 
 def _load_packaged_default_mcp_policy() -> dict[str, Any] | None:
     candidate = (
-        Path(__file__).resolve().parents[1]
-        / "_meta"
-        / "policies"
-        / "mcp-permissions.shipgate.yaml"
+        Path(__file__).resolve().parents[1] / "_meta" / "policies" / "mcp-permissions.shipgate.yaml"
     )
     try:
         if candidate.is_file():
@@ -338,7 +335,9 @@ def build_mcp_audit(
             "evidence_changed": [_row_record(row) for row in diff.evidence_changed],
             "unchanged": diff.unchanged_count,
         },
-        "risk_scores": [_risk_record(tool) for tool in sorted(head_tools, key=lambda item: item.name)],
+        "risk_scores": [
+            _risk_record(tool) for tool in sorted(head_tools, key=lambda item: item.name)
+        ],
         "violated_rules": violations,
         "diagnostics": [diag.model_dump(mode="json", exclude_none=True) for diag in diagnostics],
     }
@@ -458,7 +457,14 @@ def _audit_violations(
     changed_ids = {row.after.id for row in [*diff.reidentified, *diff.changed]}
     fact_by_tool = {
         _fact_key(ctx.fact): ctx.fact
-        for ctx in [*diff.added, *[row.after_context for row in [*diff.reidentified, *diff.changed] if row.after_context]]
+        for ctx in [
+            *diff.added,
+            *[
+                row.after_context
+                for row in [*diff.reidentified, *diff.changed]
+                if row.after_context
+            ],
+        ]
     }
     for tool in tools:
         fact = fact_by_tool.get(_tool_key(tool))
@@ -480,6 +486,7 @@ def _audit_violations(
                 item in {"write", "destructive", "external", "financial", "production"}
                 for item in profile.classes
             )
+            and _has_structural_side_effect(tool)
         ):
             violations.append(
                 _violation(
@@ -499,9 +506,10 @@ def _audit_violations(
                 item in {"write", "destructive", "external", "financial", "production"}
                 for item in profile.classes
             )
+            and _has_structural_side_effect(tool)
         )
         if (
-            tool.annotations.get("mcp_unknown_schema") is True
+            (tool.annotations.get("mcp_unknown_schema") is True or profile.side_effect_unknown)
             and fact_id in added_ids | changed_ids
             and not auto_approved_side_effect
         ):
@@ -552,6 +560,18 @@ def _audit_violations(
     return _dedupe_violations(violations)
 
 
+def _has_structural_side_effect(tool: Tool) -> bool:
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+    return any(
+        claim.value != "read"
+        and claim.confidence == "high"
+        and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
+        for claim in assessment.effect.claims
+    )
+
+
 def _violation(
     rule_id: str,
     *,
@@ -599,26 +619,16 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV1:
         policy=AgentResultPolicy(
             id="mcp-permissions",
             version=audit["policy_version"],
-            source="packaged_default"
-            if audit["policy_version"] == "builtin"
-            else "workspace",
+            source="packaged_default" if audit["policy_version"] == "builtin" else "workspace",
             discovery=["mcp audit policy"],
         ),
         violated_rules=[
-            AgentResultViolatedRule.model_validate(item)
-            for item in audit["violated_rules"]
+            AgentResultViolatedRule.model_validate(item) for item in audit["violated_rules"]
         ],
-        affected_files=[
-            AgentResultAffectedFile(path=path) for path in audit["changed_files"]
-        ],
+        affected_files=[AgentResultAffectedFile(path=path) for path in audit["changed_files"]],
         required_reviewers=human_review.required_reviewers,
-        diagnostics=[
-            AgentResultDiagnostic.model_validate(item)
-            for item in audit["diagnostics"]
-        ],
-        finding_fingerprints=[
-            _fingerprint(item) for item in audit["violated_rules"]
-        ],
+        diagnostics=[AgentResultDiagnostic.model_validate(item) for item in audit["diagnostics"]],
+        finding_fingerprints=[_fingerprint(item) for item in audit["violated_rules"]],
         source_artifacts={"mcp_audit": "stdout"},
         exit_code_hint=20 if decision == "block" else 0,
     )

@@ -45,7 +45,7 @@ def run(context: ScanContext):
                         subject,
                         matched_predicates={
                             "missing_approval_policy": True,
-                            "risk_tags": list(subject.legacy_risk_tags),
+                            "effect": [subject.fact.effect.effect],
                         },
                     ),
                 )
@@ -72,7 +72,7 @@ def run(context: ScanContext):
                         subject,
                         matched_predicates={
                             "missing_confirmation_policy": True,
-                            "risk_tags": list(subject.legacy_risk_tags),
+                            "effect": [subject.fact.effect.effect],
                         },
                     ),
                 )

@@ -53,8 +53,8 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     ``payload`` may be a parsed dict or a raw JSON string/bytes. Older
     payloads are upgraded additively through the current packet shape:
     v0.2 tool-surface diff, v0.3 HITL provenance fields, v0.5
-    action-surface diff, v0.6 evidence matrix, and v0.7 capability trace
-    evidence metadata. Unsupported versions
+    action-surface diff, v0.6 evidence matrix, v0.7 capability trace
+    evidence metadata, and v0.8 semantic coverage. Unsupported versions
     raise ``PacketSchemaError`` so callers can downgrade to a clean
     error rather than a noisy validation traceback.
     """
@@ -71,10 +71,13 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         raise PacketSchemaError("packet.json must be a JSON object")
 
     version = payload_dict.get("packet_schema_version")
+    legacy_version = (
+        version if version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"} else None
+    )
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.7",
+            "packet_schema_version": "0.8",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -89,33 +92,39 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.3":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.4":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.5":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.6":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.7"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
         _upgrade_hitl_v07(payload_dict)
-    elif version != "0.7":
+    elif version == "0.7":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+    elif version != "0.8":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
-            f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', or '0.7'"
+            f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', "
+            "'0.6', '0.7', or '0.8'"
         )
+
+    if legacy_version is not None:
+        _upgrade_semantic_coverage_v08(payload_dict, source_version=legacy_version)
 
     try:
         return EvidencePacket.model_validate(payload_dict)
@@ -194,3 +203,88 @@ def _upgrade_hitl_v07(payload: dict[str, Any]) -> None:
         },
     )
     hitl.setdefault("capability_trace_refs", [])
+
+
+def _upgrade_semantic_coverage_v08(
+    payload: dict[str, Any],
+    *,
+    source_version: str,
+) -> None:
+    """Never reinterpret a legacy ``passed`` packet as a v0.8 pass.
+
+    Packet v0.7 and older predate evidence-backed semantic coverage.  They
+    remain readable, but their historical verdict cannot prove the v0.8 pass
+    contract.  Downgrade only the unsafe ``passed`` case and attach a
+    structured, human-routed regeneration action.
+    """
+
+    release = payload.get("release_decision")
+    if not isinstance(release, dict) or release.get("decision") != "passed":
+        return
+
+    rerun_command = "agents-shipgate scan -c shipgate.yaml --format json"
+    reason = (
+        f"Packet schema {source_version} predates evidence-backed semantic "
+        "coverage; its historical passed verdict is not a v0.8 safety "
+        f"statement. Regenerate from the source workspace with `{rerun_command}`."
+    )
+    release["decision"] = "insufficient_evidence"
+    release["verdict"] = "INSUFFICIENT EVIDENCE"
+    release["reason"] = reason
+
+    evidence = release.get("evidence_coverage")
+    if isinstance(evidence, dict):
+        evidence["level"] = "incomplete"
+        evidence["human_review_recommended"] = True
+        gaps = evidence.setdefault("evidence_gaps", [])
+        if isinstance(gaps, list):
+            gaps.append(
+                {
+                    "kind": "incomplete_surface",
+                    "subject": f"legacy_packet_schema:{source_version}",
+                    "source_type": None,
+                    "source_ref": f"packet_schema_version={source_version}",
+                    "why": (
+                        "The legacy packet has no trustworthy v0.8 semantic coverage assessment."
+                    ),
+                    "next_action": {
+                        "kind": "provide_complete_inventory",
+                        "command": rerun_command,
+                        "path": "shipgate.yaml",
+                        "why": (
+                            "Semantic coverage must be recomputed by the current "
+                            "static engine from source artifacts."
+                        ),
+                        "expects": (
+                            "A freshly generated packet schema 0.8 whose semantic "
+                            "coverage accounts for every in-scope action."
+                        ),
+                        "accepted_values": [],
+                    },
+                }
+            )
+        total_actions = 0
+        high_risk_surface = payload.get("high_risk_surface")
+        if isinstance(high_risk_surface, dict):
+            candidate = high_risk_surface.get("total_tools")
+            if isinstance(candidate, int) and candidate >= 0:
+                total_actions = candidate
+        evidence["semantic_coverage"] = {
+            "total_actions": total_actions,
+            "pass_eligible_actions": 0,
+            "gap_count": 1,
+            "review_concern_count": 0,
+            "reason_counts": {"legacy_packet_requires_regeneration": 1},
+        }
+
+    fail_policy = release.get("fail_policy")
+    if isinstance(fail_policy, dict):
+        strict = fail_policy.get("ci_mode") == "strict"
+        fail_policy["would_fail_ci"] = strict
+        fail_policy["exit_code"] = 20 if strict else 0
+
+    not_proven = payload.get("not_proven")
+    if isinstance(not_proven, dict):
+        residuals = not_proven.setdefault("additional_residuals", [])
+        if isinstance(residuals, list):
+            residuals.append(reason)

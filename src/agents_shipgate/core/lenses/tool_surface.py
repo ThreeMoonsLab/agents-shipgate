@@ -53,6 +53,8 @@ from agents_shipgate.schemas.surfaces import (
 )
 
 _METADATA_FIELDS = {"owner", "description", "auth_scopes", "extraction_confidence"}
+_SEMANTIC_DIFF_REPORT_SCHEMA_VERSION = "0.29"
+_REGENERATE_DIFF_BASE_COMMAND = "agents-shipgate scan -c shipgate.yaml --format json"
 
 
 @dataclass(frozen=True)
@@ -265,12 +267,8 @@ def _summary_from_diff_parts(
         tools_changed=sum(1 for item in tool_changes if item.kind == "changed"),
         new_scopes=sum(1 for item in scopes if item.kind == "added"),
         removed_scopes=sum(1 for item in scopes if item.kind == "removed"),
-        new_high_risk_effects=sum(
-            1 for item in high_risk_effects if item.kind == "added"
-        ),
-        removed_high_risk_effects=sum(
-            1 for item in high_risk_effects if item.kind == "removed"
-        ),
+        new_high_risk_effects=sum(1 for item in high_risk_effects if item.kind == "added"),
+        removed_high_risk_effects=sum(1 for item in high_risk_effects if item.kind == "removed"),
         controls_added=sum(1 for item in controls if item.kind == "added"),
         controls_removed=sum(1 for item in controls if item.kind == "removed"),
         metadata_changes=len(metadata_changes),
@@ -409,9 +407,7 @@ def _control_facts(
     )
     if api_artifacts:
         facts.extend(
-            _artifact_control_facts(
-                "approval_policy", "openai_api", api_artifacts.approval_tools()
-            )
+            _artifact_control_facts("approval_policy", "openai_api", api_artifacts.approval_tools())
         )
         facts.extend(
             _artifact_control_facts(
@@ -473,10 +469,7 @@ def _artifact_control_facts(
     source: str,
     tools: set[str],
 ) -> list[ToolSurfaceControlFact]:
-    return [
-        ToolSurfaceControlFact(kind=kind, tool=tool, source=source)
-        for tool in sorted(tools)
-    ]
+    return [ToolSurfaceControlFact(kind=kind, tool=tool, source=source) for tool in sorted(tools)]
 
 
 def _policy_facts(
@@ -486,9 +479,7 @@ def _policy_facts(
 ) -> list[ToolSurfacePolicyFact]:
     facts: list[ToolSurfacePolicyFact] = []
     facts.extend(
-        _policy_entry_facts(
-            "policy.approval", manifest.policies.require_approval_for_tools
-        )
+        _policy_entry_facts("policy.approval", manifest.policies.require_approval_for_tools)
     )
     facts.extend(
         _policy_entry_facts(
@@ -539,9 +530,7 @@ def _policy_facts(
         facts.extend(_artifact_policy_facts("openai_api.policy", api_artifacts.policy_rules))
     if anthropic_artifacts:
         facts.extend(
-            _artifact_policy_facts(
-                "anthropic_api.policy", anthropic_artifacts.policy_rules
-            )
+            _artifact_policy_facts("anthropic_api.policy", anthropic_artifacts.policy_rules)
         )
     return sorted(facts, key=lambda item: (item.kind, item.key))
 
@@ -663,19 +652,12 @@ def _diff_high_risk_effects(
     for tool, tag in sorted(current_items - base_items):
         changes.append(ToolSurfaceHighRiskEffectChange(kind="added", tool=tool, tag=tag))
     for tool, tag in sorted(base_items - current_items):
-        changes.append(
-            ToolSurfaceHighRiskEffectChange(kind="removed", tool=tool, tag=tag)
-        )
+        changes.append(ToolSurfaceHighRiskEffectChange(kind="removed", tool=tool, tag=tag))
     return changes
 
 
 def _high_risk_items(tools: list[ToolSurfaceToolFact]) -> set[tuple[str, str]]:
-    return {
-        (tool.name, tag)
-        for tool in tools
-        for tag in tool.risk_tags
-        if tag in HIGH_RISK_TAGS
-    }
+    return {(tool.name, tag) for tool in tools for tag in tool.risk_tags if tag in HIGH_RISK_TAGS}
 
 
 def _diff_scopes(
@@ -692,10 +674,7 @@ def _diff_scopes(
     for key in sorted(current_by_key.keys() & base_by_key.keys()):
         current_item = current_by_key[key]
         base_item = base_by_key[key]
-        if (
-            current_item.tool_names != base_item.tool_names
-            or current_item.broad != base_item.broad
-        ):
+        if current_item.tool_names != base_item.tool_names or current_item.broad != base_item.broad:
             changes.append(_scope_change("changed", current_item))
     return changes
 
@@ -859,14 +838,22 @@ def _reference_from_report_payload(
     payload: dict[str, Any],
     display_path: str,
 ) -> ToolSurfaceDiffReference:
+    source_version = payload.get("report_schema_version")
+    if _report_schema_precedes_semantic_diff(source_version):
+        raise InputParseError(
+            f"Reference report {display_path} uses report schema {source_version}, "
+            f"which predates report schema {_SEMANTIC_DIFF_REPORT_SCHEMA_VERSION} "
+            "semantic evidence and is not comparable with --diff-from. "
+            "Regenerate the base report from its source workspace with "
+            f"`{_REGENERATE_DIFF_BASE_COMMAND}`, then rerun the head scan using "
+            "the regenerated report."
+        )
     try:
         report = ReadinessReport.model_validate(payload)
     except ValidationError as exc:
         raise InputParseError(f"Invalid diff report {display_path}: {exc}") from exc
     facts = report.tool_surface_facts if "tool_surface_facts" in payload else None
-    action_facts = (
-        report.action_surface_facts if "action_surface_facts" in payload else None
-    )
+    action_facts = report.action_surface_facts if "action_surface_facts" in payload else None
     notes: list[str] = []
     action_notes: list[str] = []
     if facts is None:
@@ -895,6 +882,17 @@ def _reference_from_report_payload(
         # weakening checks degrade safely when it is absent).
         effective_policy=report.effective_policy,
     )
+
+
+def _report_schema_precedes_semantic_diff(value: Any) -> bool:
+    if not isinstance(value, str):
+        return True
+    try:
+        current = tuple(int(part) for part in value.split("."))
+        minimum = tuple(int(part) for part in _SEMANTIC_DIFF_REPORT_SCHEMA_VERSION.split("."))
+    except ValueError:
+        return True
+    return current < minimum
 
 
 def _reference_from_baseline_payload(

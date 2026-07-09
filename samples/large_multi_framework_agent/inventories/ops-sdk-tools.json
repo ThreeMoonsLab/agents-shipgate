@@ -1,0 +1,83 @@
+{
+  "tools": [
+    {
+      "name": "render_customer_email_preview",
+      "description": "Render a customer email preview locally without sending it.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "recipient": {"type": "string", "format": "email"},
+          "subject": {"type": "string"},
+          "body": {"type": "string"}
+        },
+        "required": ["recipient", "subject", "body"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    },
+    {
+      "name": "calculate_refund_total",
+      "description": "Compute a refund total locally without contacting a payment provider.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "line_items": {"type": "array", "items": {"type": "object"}},
+          "tax_rate": {"type": "number"},
+          "restocking_fee": {"type": "number"}
+        },
+        "required": ["line_items", "tax_rate", "restocking_fee"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    },
+    {
+      "name": "generate_shipping_label_pdf",
+      "description": "Write a locally rendered shipping-label PDF artifact.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "shipment_id": {"type": "string"},
+          "carrier": {"type": "string"}
+        },
+        "required": ["shipment_id", "carrier"]
+      },
+      "permission_class": "write",
+      "auth": {"mode": "none"}
+    },
+    {
+      "name": "schedule_internal_callback",
+      "description": "Write a delayed job to the internal callback queue.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "queue": {"type": "string"},
+          "delay_seconds": {"type": "integer", "minimum": 0},
+          "payload": {"type": "object"}
+        },
+        "required": ["queue", "delay_seconds", "payload"]
+      },
+      "permission_class": "write",
+      "auth": {"mode": "none"}
+    },
+    {
+      "name": "escalate_to_human",
+      "description": "Write an internal human-escalation queue record and pause the conversation.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {"type": "string"},
+          "severity": {"type": "string"},
+          "context": {"type": "object"}
+        },
+        "required": ["reason", "severity", "context"]
+      },
+      "permission_class": "write",
+      "auth": {"mode": "none"}
+    }
+  ]
+}

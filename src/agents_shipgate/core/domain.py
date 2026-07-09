@@ -5,8 +5,113 @@ from typing import Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.core.heuristics import is_broad_scope
-from agents_shipgate.schemas.common import Confidence, parse_confidence
+from agents_shipgate.schemas.common import Confidence, ProvenanceKind, parse_confidence
 from agents_shipgate.schemas.surfaces import ActionEffect
+
+SemanticDimension = Literal["effect", "authority"]
+EffectEvidenceStatus = Literal[
+    "declared",
+    "structural",
+    "protocol_default",
+    "inferred",
+    "unknown",
+    "conflicting",
+]
+AuthorityEvidenceStatus = Literal[
+    "declared",
+    "structural",
+    "partial",
+    "unknown",
+    "conflicting",
+]
+AuthorityMode = Literal["none", "scoped", "unscoped", "ambient", "unknown"]
+SemanticIssueKind = Literal[
+    "incomplete_surface",
+    "missing_effect_evidence",
+    "inferred_effect_only",
+    "conflicting_effect_evidence",
+    "missing_authority_evidence",
+    "partial_authority_evidence",
+    "conflicting_authority_evidence",
+    "invalid_semantic_annotation",
+]
+
+
+class SemanticClaim(BaseModel):
+    """One deterministic piece of evidence used by semantic resolution."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    dimension: SemanticDimension
+    value: str
+    confidence: Confidence
+    provenance_kind: ProvenanceKind
+    source: str
+    source_pointer: str | None = None
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class SemanticIssue(BaseModel):
+    """An unsatisfied evidence condition that prevents an evidence-backed pass."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: SemanticIssueKind
+    dimension: SemanticDimension
+    message: str
+    source: str | None = None
+    source_pointer: str | None = None
+
+
+class EffectSemanticAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: EffectEvidenceStatus
+    confidence: Confidence
+    claims: list[SemanticClaim] = Field(default_factory=list)
+    issues: list[SemanticIssue] = Field(default_factory=list)
+
+
+class AuthoritySemanticAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: AuthorityEvidenceStatus
+    mode: AuthorityMode
+    auth_type: str | None = None
+    credential_mode: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    claims: list[SemanticClaim] = Field(default_factory=list)
+    issues: list[SemanticIssue] = Field(default_factory=list)
+
+
+class ToolSemanticAssessment(BaseModel):
+    """Pass-eligibility result for one statically extracted tool/action."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    conservative_effect: ActionEffect
+    effect: EffectSemanticAssessment
+    authority: AuthoritySemanticAssessment
+    pass_eligible: bool
+
+
+class AuthSchemeRequirement(BaseModel):
+    """One OpenAPI security-scheme requirement inside an OR alternative."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    type: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+
+
+class AuthAlternative(BaseModel):
+    """One OpenAPI security requirement object (OR across alternatives)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schemes: list[AuthSchemeRequirement] = Field(default_factory=list)
+    anonymous: bool = False
 
 
 class AuthInfo(BaseModel):
@@ -16,6 +121,13 @@ class AuthInfo(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     credential_mode: str | None = None
     source: str | None = None
+    mode: AuthorityMode = "unknown"
+    explicit: bool = False
+    inherited: bool = False
+    alternatives: list[AuthAlternative] = Field(default_factory=list)
+    # Source adapters preserve malformed annotations here so the semantic
+    # resolver can fail closed without losing the rest of the tool inventory.
+    invalid_annotations: list[str] = Field(default_factory=list)
 
 
 class ToolParameter(BaseModel):
@@ -67,6 +179,12 @@ class Tool(BaseModel):
     owner: str | None = None
     extraction_confidence: Confidence = "low"
     extraction: dict[str, Any] = Field(default_factory=dict)
+    # In-memory semantic resolution. Excluded from generic Tool dumps because
+    # report schemas expose this evidence through their own versioned models.
+    semantic_assessment: ToolSemanticAssessment | None = Field(
+        default=None,
+        exclude=True,
+    )
 
     @model_validator(mode="after")
     def normalize_extraction_confidence(self) -> Tool:
@@ -185,6 +303,7 @@ _SCOPE_VERB_TOKENS: frozenset[str] = frozenset(
         "manage",
         "read",
         "run",
+        "send",
         "update",
         "view",
         "write",
@@ -192,7 +311,18 @@ _SCOPE_VERB_TOKENS: frozenset[str] = frozenset(
 )
 _SCOPE_READ_VERBS: frozenset[str] = frozenset({"get", "list", "read", "view"})
 _SCOPE_WRITE_VERBS: frozenset[str] = frozenset(
-    {"admin", "create", "delete", "destroy", "execute", "manage", "run", "update", "write"}
+    {
+        "admin",
+        "create",
+        "delete",
+        "destroy",
+        "execute",
+        "manage",
+        "run",
+        "send",
+        "update",
+        "write",
+    }
 )
 
 
@@ -428,6 +558,7 @@ class Action(BaseModel):
     required_input_fields: list[str] = Field(default_factory=list)
     input_schema: dict[str, Any] = Field(default_factory=dict)
     parameters_for_hash: list[dict[str, Any]] = Field(default_factory=list)
+    semantic_assessment: ToolSemanticAssessment | None = None
 
     @property
     def scope_strings(self) -> list[str]:

@@ -1,0 +1,1043 @@
+{
+  "$defs": {
+    "AuthoritySemanticEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "auth_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Type"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/SemanticClaimEvidence"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "credential_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Mode"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/SemanticIssueEvidence"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "none",
+            "scoped",
+            "unscoped",
+            "ambient",
+            "unknown"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "declared",
+            "structural",
+            "partial",
+            "unknown",
+            "conflicting"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "mode"
+      ],
+      "title": "AuthoritySemanticEvidence",
+      "type": "object"
+    },
+    "CapabilityAuthority": {
+      "additionalProperties": false,
+      "description": "Authority source and scope facts for a capability.",
+      "properties": {
+        "auth_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Type"
+        },
+        "broad_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Broad Scopes",
+          "type": "array"
+        },
+        "credential_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Mode"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "title": "CapabilityAuthority",
+      "type": "object"
+    },
+    "CapabilityControls": {
+      "additionalProperties": false,
+      "description": "Policy and safeguard controls already known to the action surface.",
+      "properties": {
+        "approval_required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Required"
+        },
+        "approval_threshold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Threshold"
+        },
+        "confirmation_required": {
+          "default": false,
+          "title": "Confirmation Required",
+          "type": "boolean"
+        },
+        "evidence_approval_ticket": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Approval Ticket"
+        },
+        "evidence_owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Owner"
+        },
+        "evidence_runbook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Runbook"
+        },
+        "safeguard_audit_log": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safeguard Audit Log"
+        },
+        "safeguard_dry_run": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safeguard Dry Run"
+        },
+        "safeguard_idempotency": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safeguard Idempotency"
+        },
+        "safeguard_rollback": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safeguard Rollback"
+        }
+      },
+      "title": "CapabilityControls",
+      "type": "object"
+    },
+    "CapabilityEffect": {
+      "additionalProperties": false,
+      "description": "Normalized side-effect view derived from ``SideEffect``.",
+      "properties": {
+        "code_execution": {
+          "default": false,
+          "title": "Code Execution",
+          "type": "boolean"
+        },
+        "effect": {
+          "enum": [
+            "read",
+            "write",
+            "destructive",
+            "external_communication",
+            "financial_write",
+            "production_operation",
+            "privileged_data_access",
+            "code_execution",
+            "identity_access"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "externally_visible": {
+          "default": false,
+          "title": "Externally Visible",
+          "type": "boolean"
+        },
+        "financial": {
+          "default": false,
+          "title": "Financial",
+          "type": "boolean"
+        },
+        "handles_sensitive_data": {
+          "default": false,
+          "title": "Handles Sensitive Data",
+          "type": "boolean"
+        },
+        "high_risk": {
+          "default": false,
+          "title": "High Risk",
+          "type": "boolean"
+        },
+        "idempotency_known": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Known"
+        },
+        "reversibility": {
+          "default": "unknown",
+          "enum": [
+            "reversible",
+            "irreversible",
+            "unknown"
+          ],
+          "title": "Reversibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "effect"
+      ],
+      "title": "CapabilityEffect",
+      "type": "object"
+    },
+    "CapabilityEvidence": {
+      "additionalProperties": false,
+      "description": "Structured source provenance for a capability fact.",
+      "properties": {
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "provenance_kind": {
+          "default": "static_declaration",
+          "enum": [
+            "static_declaration",
+            "ast_extraction",
+            "keyword_heuristic",
+            "regex_heuristic",
+            "policy_pack"
+          ],
+          "title": "Provenance Kind",
+          "type": "string"
+        },
+        "source_end_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source End Line"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Location"
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Path"
+        },
+        "source_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pointer"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "source_start_column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Column"
+        },
+        "source_start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Line"
+        },
+        "source_type": {
+          "title": "Source Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_type"
+      ],
+      "title": "CapabilityEvidence",
+      "type": "object"
+    },
+    "CapabilityFactV1": {
+      "additionalProperties": false,
+      "description": "Durable capability fact used by stable capability locks.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/CapabilityAuthority"
+        },
+        "controls": {
+          "$ref": "#/$defs/CapabilityControls"
+        },
+        "effect": {
+          "$ref": "#/$defs/CapabilityEffect"
+        },
+        "evidence": {
+          "$ref": "#/$defs/CapabilityEvidence"
+        },
+        "hashes": {
+          "$ref": "#/$defs/CapabilityHashes"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "identity": {
+          "$ref": "#/$defs/CapabilityIdentity"
+        },
+        "risk_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Tags",
+          "type": "array"
+        },
+        "semantic_assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolSemanticEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "identity",
+        "effect",
+        "authority",
+        "controls",
+        "evidence",
+        "hashes"
+      ],
+      "title": "CapabilityFactV1",
+      "type": "object"
+    },
+    "CapabilityHashes": {
+      "additionalProperties": false,
+      "description": "Separate hashes for the future lock/diff substrate.",
+      "properties": {
+        "authority_hash": {
+          "title": "Authority Hash",
+          "type": "string"
+        },
+        "control_hash": {
+          "title": "Control Hash",
+          "type": "string"
+        },
+        "effect_hash": {
+          "title": "Effect Hash",
+          "type": "string"
+        },
+        "evidence_hash": {
+          "title": "Evidence Hash",
+          "type": "string"
+        },
+        "identity_hash": {
+          "title": "Identity Hash",
+          "type": "string"
+        },
+        "risk_hash": {
+          "title": "Risk Hash",
+          "type": "string"
+        },
+        "schema_hash": {
+          "title": "Schema Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_hash",
+        "effect_hash",
+        "authority_hash",
+        "control_hash",
+        "schema_hash",
+        "risk_hash",
+        "evidence_hash"
+      ],
+      "title": "CapabilityHashes",
+      "type": "object"
+    },
+    "CapabilityIdentity": {
+      "additionalProperties": false,
+      "description": "Stable semantic identity for an agent capability.",
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "resource": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resource",
+          "type": "array"
+        },
+        "scope": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scope",
+          "type": "array"
+        },
+        "subject_kind": {
+          "default": "action",
+          "enum": [
+            "tool",
+            "action",
+            "scope",
+            "policy",
+            "ci",
+            "baseline",
+            "agent_instruction",
+            "manifest",
+            "unknown"
+          ],
+          "title": "Subject Kind",
+          "type": "string"
+        },
+        "tool_id": {
+          "title": "Tool Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "tool_id",
+        "tool_name",
+        "provider",
+        "operation"
+      ],
+      "title": "CapabilityIdentity",
+      "type": "object"
+    },
+    "CapabilityLockFileV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/CapabilityFactV1"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "capability_lock_schema_version": {
+          "const": "0.3",
+          "default": "0.3",
+          "title": "Capability Lock Schema Version",
+          "type": "string"
+        },
+        "cli_version": {
+          "title": "Cli Version",
+          "type": "string"
+        },
+        "experimental": {
+          "const": false,
+          "default": false,
+          "title": "Experimental",
+          "type": "boolean"
+        },
+        "hashes": {
+          "$ref": "#/$defs/CapabilityLockHashes"
+        },
+        "source": {
+          "$ref": "#/$defs/CapabilityLockSource"
+        },
+        "summary": {
+          "$ref": "#/$defs/CapabilityLockSummary"
+        }
+      },
+      "required": [
+        "cli_version",
+        "source",
+        "summary",
+        "hashes"
+      ],
+      "title": "CapabilityLockFileV1",
+      "type": "object"
+    },
+    "CapabilityLockHashes": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_set_hash": {
+          "title": "Evidence Set Hash",
+          "type": "string"
+        },
+        "semantic_capability_set_hash": {
+          "title": "Semantic Capability Set Hash",
+          "type": "string"
+        },
+        "source_set_hash": {
+          "title": "Source Set Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "semantic_capability_set_hash",
+        "evidence_set_hash",
+        "source_set_hash"
+      ],
+      "title": "CapabilityLockHashes",
+      "type": "object"
+    },
+    "CapabilityLockSource": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "agent_name": {
+          "title": "Agent Name",
+          "type": "string"
+        },
+        "config_path": {
+          "title": "Config Path",
+          "type": "string"
+        },
+        "environment_target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment Target"
+        },
+        "manifest_dir": {
+          "title": "Manifest Dir",
+          "type": "string"
+        },
+        "plugins_enabled": {
+          "default": true,
+          "title": "Plugins Enabled",
+          "type": "boolean"
+        },
+        "project_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Name"
+        },
+        "source_count": {
+          "default": 0,
+          "title": "Source Count",
+          "type": "integer"
+        },
+        "source_warning_count": {
+          "default": 0,
+          "title": "Source Warning Count",
+          "type": "integer"
+        },
+        "tool_count": {
+          "default": 0,
+          "title": "Tool Count",
+          "type": "integer"
+        },
+        "toolkit_bound_count": {
+          "default": 0,
+          "title": "Toolkit Bound Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "config_path",
+        "manifest_dir",
+        "agent_id",
+        "agent_name"
+      ],
+      "title": "CapabilityLockSource",
+      "type": "object"
+    },
+    "CapabilityLockSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "broad_scope_count": {
+          "default": 0,
+          "title": "Broad Scope Count",
+          "type": "integer"
+        },
+        "capability_count": {
+          "default": 0,
+          "title": "Capability Count",
+          "type": "integer"
+        },
+        "code_execution_count": {
+          "default": 0,
+          "title": "Code Execution Count",
+          "type": "integer"
+        },
+        "external_communication_count": {
+          "default": 0,
+          "title": "External Communication Count",
+          "type": "integer"
+        },
+        "financial_count": {
+          "default": 0,
+          "title": "Financial Count",
+          "type": "integer"
+        },
+        "high_risk_count": {
+          "default": 0,
+          "title": "High Risk Count",
+          "type": "integer"
+        },
+        "write_count": {
+          "default": 0,
+          "title": "Write Count",
+          "type": "integer"
+        }
+      },
+      "title": "CapabilityLockSummary",
+      "type": "object"
+    },
+    "EffectSemanticEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/SemanticClaimEvidence"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/SemanticIssueEvidence"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "declared",
+            "structural",
+            "protocol_default",
+            "inferred",
+            "unknown",
+            "conflicting"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ],
+      "title": "EffectSemanticEvidence",
+      "type": "object"
+    },
+    "SemanticClaimEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "dimension": {
+          "enum": [
+            "effect",
+            "authority"
+          ],
+          "title": "Dimension",
+          "type": "string"
+        },
+        "evidence": {
+          "additionalProperties": true,
+          "title": "Evidence",
+          "type": "object"
+        },
+        "provenance_kind": {
+          "enum": [
+            "static_declaration",
+            "ast_extraction",
+            "keyword_heuristic",
+            "regex_heuristic",
+            "policy_pack",
+            "runtime_trace"
+          ],
+          "title": "Provenance Kind",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pointer"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dimension",
+        "value",
+        "confidence",
+        "provenance_kind",
+        "source"
+      ],
+      "title": "SemanticClaimEvidence",
+      "type": "object"
+    },
+    "SemanticIssueEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension": {
+          "enum": [
+            "effect",
+            "authority"
+          ],
+          "title": "Dimension",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "incomplete_surface",
+            "missing_effect_evidence",
+            "inferred_effect_only",
+            "conflicting_effect_evidence",
+            "missing_authority_evidence",
+            "partial_authority_evidence",
+            "conflicting_authority_evidence",
+            "invalid_semantic_annotation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "source_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pointer"
+        }
+      },
+      "required": [
+        "kind",
+        "dimension",
+        "message"
+      ],
+      "title": "SemanticIssueEvidence",
+      "type": "object"
+    },
+    "ToolSemanticEvidence": {
+      "additionalProperties": false,
+      "description": "Public semantic assessment attached to action and capability facts.",
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/AuthoritySemanticEvidence"
+        },
+        "conservative_effect": {
+          "enum": [
+            "read",
+            "write",
+            "destructive",
+            "external_communication",
+            "financial_write",
+            "production_operation",
+            "privileged_data_access",
+            "code_execution",
+            "identity_access"
+          ],
+          "title": "Conservative Effect",
+          "type": "string"
+        },
+        "effect": {
+          "$ref": "#/$defs/EffectSemanticEvidence"
+        },
+        "pass_eligible": {
+          "title": "Pass Eligible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "conservative_effect",
+        "effect",
+        "authority",
+        "pass_eligible"
+      ],
+      "title": "ToolSemanticEvidence",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.3.json",
+  "$ref": "#/$defs/CapabilityLockFileV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Stable JSON Schema for static capability lock artifacts. Generated from agents_shipgate.schemas.capabilities. It is non-gating and is not part of report.json; release_decision.decision remains the only gate.",
+  "title": "Agents Shipgate Capability Lock v0.3"
+}

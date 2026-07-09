@@ -10,6 +10,27 @@ maps to `apply-patches --confidence` flag semantics.
 
 ---
 
+## Semantic evidence gaps are outside the patch system
+
+Starting with report v0.29, effect and authority evidence gaps live under
+`release_decision.evidence_coverage.evidence_gaps[]`; they are not Findings and
+never carry a `Patch`. Their `next_action` may show a reviewed declaration
+template, accepted values, manifest path, and rerun command, but always carries
+`suggested_patch_kind: "manual"`, `auto_apply: false`, and
+`requires_human_review: true`.
+
+An agent may route `declare_action_effect`, `declare_action_authority`,
+`provide_complete_inventory`, or `resolve_semantic_conflict` to a human. It
+must never invent or auto-fill the declaration. These two assertions are
+published as `action_effect` and `action_authority` in contract v11's
+`do_not_auto_assert[]`. Baselines, suppressions, severity overrides,
+`--no-heuristics`, and human acknowledgement cannot close a semantic gap.
+
+The Finding classes below apply only after this separate evidence-coverage
+boundary has been checked.
+
+---
+
 ## The four classes
 
 Every active finding falls into one of four classes. The class is
@@ -220,7 +241,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.28.json`](report-schema.v0.28.json) — current JSON
+- [`report-schema.v0.29.json`](report-schema.v0.29.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

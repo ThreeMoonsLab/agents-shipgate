@@ -20,6 +20,16 @@ permissions:
   scopes:
     - docs:read
 
+action_surface:
+  actions:
+    - tool: docs.lookup
+      effect: read
+      scopes: [docs:read]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: delegated
+
 ci:
   mode: advisory
 

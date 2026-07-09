@@ -79,8 +79,9 @@ work is complete.
   `insufficient_evidence`, or `human_review_required` unless the user
   explicitly accepts human review.
 - Do not use `summary.status` for gating; it is legacy and baseline-blind.
-- Do not invent approval, confirmation, idempotency, prohibited-action,
-  broad-scope, human acknowledgement, or runtime trace evidence.
+- Do not invent action effect, action authority, approval, confirmation,
+  idempotency, prohibited-action, broad-scope, human acknowledgement, or
+  runtime trace evidence.
 - Do not commit `agents-shipgate-reports/`.
 
 ## Verification

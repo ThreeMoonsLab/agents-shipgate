@@ -9,6 +9,7 @@ from agents_shipgate.core.domain import (
     Tool,
     ToolRiskHint,
 )
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.common import (
     confidence_rank,
     parse_confidence,
@@ -111,9 +112,7 @@ _KEYWORD_GATED_SOURCE_TYPES = {
 }
 
 
-def enrich_tools_with_risk_hints(
-    manifest: AgentsShipgateManifest, tools: list[Tool]
-) -> list[Tool]:
+def enrich_tools_with_risk_hints(manifest: AgentsShipgateManifest, tools: list[Tool]) -> list[Tool]:
     enriched = [tool.model_copy(deep=True) for tool in tools]
     for tool in enriched:
         _add_automatic_hints(tool)
@@ -135,32 +134,42 @@ def has_risk_tag(tool: Tool, tags: Iterable[str], min_confidence: str | None = N
 def risk_tags(tool: Tool, min_confidence: str | None = None) -> list[str]:
     threshold = confidence_rank(min_confidence) if min_confidence else 0
     return sorted(
-        {
-            hint.tag
-            for hint in tool.risk_hints
-            if confidence_rank(hint.confidence) >= threshold
-        }
+        {hint.tag for hint in tool.risk_hints if confidence_rank(hint.confidence) >= threshold}
     )
 
 
 def is_effectively_read_only(tool: Tool) -> bool:
-    if tool.annotations.get("readOnlyHint") is True:
-        return True
-    return has_risk_tag(tool, {"read_only"}, min_confidence="high") and not has_risk_tag(
-        tool, WRITE_TAGS, min_confidence="medium"
+    # Compatibility projection; effect semantics live only in the resolver.
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+    return (
+        assessment.conservative_effect == "read"
+        and assessment.effect.status in {"declared", "structural"}
+        and not assessment.effect.issues
     )
 
 
 def is_high_risk_tool(tool: Tool) -> bool:
-    if is_effectively_read_only(tool):
-        return False
-    return has_risk_tag(tool, HIGH_RISK_TAGS, min_confidence="medium")
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+    return assessment.conservative_effect in {
+        "destructive",
+        "external_communication",
+        "financial_write",
+        "production_operation",
+        "privileged_data_access",
+        "code_execution",
+        "identity_access",
+    }
 
 
 def is_write_tool(tool: Tool) -> bool:
-    if is_effectively_read_only(tool):
-        return False
-    return has_risk_tag(tool, WRITE_TAGS, min_confidence="medium")
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+    return assessment.conservative_effect != "read"
 
 
 def _tokenize(text: str) -> set[str]:
@@ -177,15 +186,11 @@ def _add_automatic_hints(tool: Tool) -> None:
     # rely on is_effectively_read_only short-circuiting. A function named
     # *_preview that does not declare an HTTP method is treated as read-only
     # at high confidence and exempt from name-keyword write inference.
-    is_sdk_preview = (
-        tool.source_type == "sdk_function" and "preview" in tokens and not method
-    )
+    is_sdk_preview = tool.source_type == "sdk_function" and "preview" in tokens and not method
     if is_sdk_preview:
         _add_hint(tool, "read_only", "keyword", "high", {"preview_only": True})
 
-    keyword_eligible = (
-        tool.source_type in _KEYWORD_GATED_SOURCE_TYPES and not is_sdk_preview
-    )
+    keyword_eligible = tool.source_type in _KEYWORD_GATED_SOURCE_TYPES and not is_sdk_preview
     keyword_source = (
         "openai_api_keyword"
         if tool.source_type == "openai_api"
@@ -210,7 +215,11 @@ def _add_automatic_hints(tool: Tool) -> None:
         _add_hint(
             tool,
             "destructive",
-            "openapi_method" if method else "keyword",
+            # Only DELETE is structural protocol evidence. A risky name or
+            # description on GET/POST remains heuristic even though the tool
+            # also has an HTTP method; labeling it openapi_method would make
+            # the central resolver discard the keyword claim as a duplicate.
+            "openapi_method" if method == "DELETE" else "keyword",
             "high" if method == "DELETE" else "medium",
             {"method": method or None},
         )
@@ -235,20 +244,11 @@ def _add_automatic_hints(tool: Tool) -> None:
         )
     if COMMS_KEYWORDS & (tokens | scope_tokens):
         confidence = (
-            "high"
-            if is_write_tool(tool)
-            else "low"
-            if is_effectively_read_only(tool)
-            else "medium"
+            "high" if is_write_tool(tool) else "low" if is_effectively_read_only(tool) else "medium"
         )
         _add_hint(tool, "customer_communication", "keyword", confidence, {"method": method or None})
-        if (
-            not is_effectively_read_only(tool)
-            and EXTERNAL_ACTION_KEYWORDS & tokens
-        ):
-            _add_hint(
-                tool, "external_write", "keyword", confidence, {"method": method or None}
-            )
+        if not is_effectively_read_only(tool) and EXTERNAL_ACTION_KEYWORDS & tokens:
+            _add_hint(tool, "external_write", "keyword", confidence, {"method": method or None})
     if SENSITIVE_KEYWORDS & (tokens | scope_tokens):
         _add_hint(tool, "sensitive_data_access", "keyword", "medium", {})
     if CODE_EXEC_KEYWORDS & tokens:
@@ -272,7 +272,26 @@ def _apply_manual_override(manifest: AgentsShipgateManifest, tool: Tool) -> None
         tool.owner = override.owner
     if override.remove_tags:
         remove = set(override.remove_tags)
-        tool.risk_hints = [hint for hint in tool.risk_hints if hint.tag not in remove]
+        protected = sorted(
+            {
+                f"{hint.tag} ({hint.source})"
+                for hint in tool.risk_hints
+                if hint.tag in remove and not _is_removable_heuristic_hint(hint)
+            }
+        )
+        if protected:
+            raise ConfigError(
+                "risk_overrides.tools."
+                f"{tool.name}.remove_tags may remove keyword/regex hints only; "
+                "structural or manually declared evidence cannot be removed: "
+                + ", ".join(protected)
+                + "."
+            )
+        tool.risk_hints = [
+            hint
+            for hint in tool.risk_hints
+            if hint.tag not in remove or not _is_removable_heuristic_hint(hint)
+        ]
     for tag in override.tags:
         _add_hint(
             tool,
@@ -281,6 +300,11 @@ def _apply_manual_override(manifest: AgentsShipgateManifest, tool: Tool) -> None
             "high",
             {"reason": override.reason, "confidence": override.confidence},
         )
+
+
+def _is_removable_heuristic_hint(hint: ToolRiskHint) -> bool:
+    source = hint.source.lower()
+    return source == "keyword" or source == "regex" or source.endswith("_keyword")
 
 
 def _add_hint(
@@ -385,9 +409,13 @@ def tool_side_effect(tool: Tool) -> SideEffect:
     so the action-surface path (which may override ``effect`` via a
     manifest declaration) cannot drift from this tool-context path.
     """
+    # Local import avoids a module cycle while keeping the resolver as the
+    # sole implementation of effect semantics.
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+
     tags = set(canonical_risk_tags(tool))
-    method = str(tool.annotations.get("httpMethod") or "").upper()
-    effect = _derive_effect(tags, method)
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+    effect = assessment.conservative_effect
     return derive_side_effect(
         effect=effect,
         risk_tags=tags,
@@ -450,11 +478,7 @@ def derive_side_effect(
         code_execution=("code_execution" in tag_set or effect == "code_execution"),
         reversibility=(
             "irreversible"
-            if (
-                "destructive" in tag_set
-                or "irreversible" in tag_set
-                or effect == "destructive"
-            )
+            if ("destructive" in tag_set or "irreversible" in tag_set or effect == "destructive")
             else "reversible"
             if "read_only" in tag_set and "writes_data" not in tag_set
             else "unknown"
@@ -494,7 +518,7 @@ def _derive_effect(tags: set[str], method: str) -> ActionEffect:
         return "write"
     if method == "DELETE":
         return "destructive"
-    return "read"
+    return "write"
 
 
 def _derive_idempotency_known(tool: Tool) -> bool | None:

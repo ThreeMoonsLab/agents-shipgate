@@ -13,7 +13,11 @@ from agents_shipgate.ci.release_decision import (
 )
 from agents_shipgate.core.domain import (
     AuthInfo,
+    AuthoritySemanticAssessment,
+    EffectSemanticAssessment,
+    SemanticIssue,
     Tool,
+    ToolSemanticAssessment,
 )
 from agents_shipgate.schemas.report import (
     BaselineSummary,
@@ -46,13 +50,29 @@ def _finding(
     )
 
 
-def _tool(*, name: str = "t1", confidence: str = "high") -> Tool:
+def _tool(
+    *,
+    name: str = "t1",
+    confidence: str = "high",
+    semantic_assessment: ToolSemanticAssessment | None | bool = True,
+) -> Tool:
+    assessment = (
+        ToolSemanticAssessment(
+            conservative_effect="read",
+            effect=EffectSemanticAssessment(status="declared", confidence="high"),
+            authority=AuthoritySemanticAssessment(status="declared", mode="none"),
+            pass_eligible=True,
+        )
+        if semantic_assessment is True
+        else semantic_assessment
+    )
     return Tool(
         id=f"tool-{name}",
         name=name,
         source_type="manual",
-        auth=AuthInfo(),
+        auth=AuthInfo(mode="none", explicit=True),
         extraction_confidence=confidence,
+        semantic_assessment=assessment,
     )
 
 
@@ -81,9 +101,7 @@ def _report(
             human_review_recommended=human_review_recommended,
             evidence_coverage=evidence_coverage,
         ),
-        tool_surface=ToolSurfaceSummary(
-            total_tools=len(tools), high_risk_tools=0
-        ),
+        tool_surface=ToolSurfaceSummary(total_tools=len(tools), high_risk_tools=0),
         baseline=baseline,
         findings=findings,
         source_warnings=source_warnings or [],
@@ -161,6 +179,98 @@ def test_clean_scan_with_high_confidence_tools_passes():
     assert decision.fail_policy.would_fail_ci is False
 
 
+def test_missing_semantic_assessment_is_zero_tolerance_ie_and_strict_failure():
+    tool = _tool(semantic_assessment=None)
+    report = _report(tools=[tool], summary_status="no_release_blockers_detected")
+
+    decision = _build(report, ci_mode="strict", tools=[tool])
+
+    assert decision.decision == "insufficient_evidence"
+    assert decision.evidence_coverage.semantic_coverage.model_dump() == {
+        "total_actions": 1,
+        "pass_eligible_actions": 0,
+        "gap_count": 1,
+        "review_concern_count": 0,
+        "reason_counts": {"incomplete_surface": 1},
+    }
+    gap = decision.evidence_coverage.evidence_gaps[0]
+    assert gap.kind == "incomplete_surface"
+    assert gap.subject == "t1"
+    assert gap.next_action.kind == "provide_complete_inventory"
+    assert decision.fail_policy.exit_code == GATE_FAILURE_EXIT_CODE
+    assert decision.fail_policy.would_fail_ci is True
+
+
+@pytest.mark.parametrize("safe_count", [1, 2, 10, 100])
+def test_one_semantic_gap_cannot_be_diluted_by_safe_tools(safe_count: int):
+    tools = [
+        *[_tool(name=f"safe-{index}") for index in range(safe_count)],
+        _tool(name="unresolved", semantic_assessment=None),
+    ]
+    decision = _build(_report(tools=tools), tools=tools)
+
+    assert decision.decision == "insufficient_evidence"
+    assert decision.evidence_coverage.semantic_coverage.gap_count == 1
+    assert decision.evidence_coverage.semantic_coverage.pass_eligible_actions == safe_count
+
+
+def test_semantic_gap_has_human_declaration_remediation():
+    issue = SemanticIssue(
+        kind="missing_authority_evidence",
+        dimension="authority",
+        message="No explicit authority evidence was found.",
+        source="mcp",
+        source_pointer="/tools/0",
+    )
+    assessment = ToolSemanticAssessment(
+        conservative_effect="write",
+        effect=EffectSemanticAssessment(status="structural", confidence="high"),
+        authority=AuthoritySemanticAssessment(status="unknown", mode="unknown", issues=[issue]),
+        pass_eligible=False,
+    )
+    tool = _tool(name="process_order", semantic_assessment=assessment)
+
+    decision = _build(_report(tools=[tool]), tools=[tool])
+
+    assert decision.decision == "insufficient_evidence"
+    gap = decision.evidence_coverage.evidence_gaps[0]
+    assert gap.kind == "missing_authority_evidence"
+    assert gap.source_ref == "/tools/0"
+    assert gap.next_action.kind == "declare_action_authority"
+    assert gap.next_action.suggested_patch_kind == "manual"
+    assert gap.next_action.path == ("shipgate.yaml#action_surface.actions[tool='process_order']")
+    assert gap.next_action.accepted_values == [
+        "none",
+        "scoped",
+        "unscoped",
+        "ambient",
+    ]
+    assert gap.next_action.declaration_template == {
+        "tool": "process_order",
+        "authority": {"mode": "<REVIEW_REQUIRED>"},
+    }
+    assert gap.next_action.auto_apply is False
+    assert gap.next_action.requires_human_review is True
+
+
+def test_known_unscoped_authority_routes_to_review_not_ie():
+    assessment = ToolSemanticAssessment(
+        conservative_effect="write",
+        effect=EffectSemanticAssessment(status="declared", confidence="high"),
+        authority=AuthoritySemanticAssessment(
+            status="declared", mode="unscoped", auth_type="api_key"
+        ),
+        pass_eligible=False,
+    )
+    tool = _tool(name="process_order", semantic_assessment=assessment)
+
+    decision = _build(_report(tools=[tool]), tools=[tool])
+
+    assert decision.decision == "review_required"
+    assert decision.evidence_coverage.semantic_coverage.gap_count == 0
+    assert decision.evidence_coverage.semantic_coverage.review_concern_count == 1
+
+
 def test_all_tools_low_confidence_is_insufficient_evidence():
     """Under the v0.14 ratio rule (ceil(N * 0.5) with min 1), a 1-of-1
     low-confidence scan trips the gate — 0-of-1 confidence rate is
@@ -172,9 +282,7 @@ def test_all_tools_low_confidence_is_insufficient_evidence():
         summary_status="human_review_recommended",
         human_review_recommended=True,
     )
-    decision = _build(
-        report, ci_mode="strict", tools=[_tool(confidence="low")]
-    )
+    decision = _build(report, ci_mode="strict", tools=[_tool(confidence="low")])
     assert decision.decision == "insufficient_evidence"
     assert decision.review_items == []
     assert decision.evidence_coverage.low_confidence_tool_count == 1
@@ -223,9 +331,7 @@ def test_four_source_warnings_is_insufficient_evidence():
         tools=[_tool(confidence="high")],
         source_warnings=["w1", "w2", "w3", "w4"],
     )
-    decision = _build(
-        report, ci_mode="strict", tools=[_tool(confidence="high")]
-    )
+    decision = _build(report, ci_mode="strict", tools=[_tool(confidence="high")])
     assert decision.decision == "insufficient_evidence"
     assert decision.evidence_coverage.source_warning_count == 4
     assert "4 source warning(s)" in decision.reason
@@ -239,9 +345,7 @@ def test_three_source_warnings_is_review_required():
         tools=[_tool(confidence="high")],
         source_warnings=["w1", "w2", "w3"],
     )
-    decision = _build(
-        report, ci_mode="strict", tools=[_tool(confidence="high")]
-    )
+    decision = _build(report, ci_mode="strict", tools=[_tool(confidence="high")])
     assert decision.decision == "review_required"
     assert decision.evidence_coverage.source_warning_count == 3
 
@@ -257,9 +361,7 @@ def test_one_source_warning_is_review_required():
         human_review_recommended=False,
         source_warnings=["w1"],
     )
-    decision = _build(
-        report, ci_mode="strict", tools=[_tool(confidence="high")]
-    )
+    decision = _build(report, ci_mode="strict", tools=[_tool(confidence="high")])
     assert decision.decision == "review_required"
     assert decision.evidence_coverage.source_warning_count == 1
     assert "source-loader" in decision.reason
@@ -273,9 +375,7 @@ def test_zero_source_warnings_clean_scan_passes():
         summary_status="no_release_blockers_detected",
         human_review_recommended=False,
     )
-    decision = _build(
-        report, ci_mode="strict", tools=[_tool(confidence="high")]
-    )
+    decision = _build(report, ci_mode="strict", tools=[_tool(confidence="high")])
     assert decision.decision == "passed"
 
 
@@ -392,15 +492,12 @@ def test_fail_policy_exit_code_matches_exit_code_for_report():
     ]
     for ci_mode, fail_on, new_only, findings in matrix:
         report = _report(findings=findings)
-        decision = _build(
-            report, ci_mode=ci_mode, fail_on=fail_on, new_findings_only=new_only
-        )
+        decision = _build(report, ci_mode=ci_mode, fail_on=fail_on, new_findings_only=new_only)
         expected = exit_code_for_report(
             report, ci_mode, fail_on=fail_on, new_findings_only=new_only
         )
         assert decision.fail_policy.exit_code == expected, (
-            f"mismatch for ci_mode={ci_mode}, fail_on={fail_on}, "
-            f"new_findings_only={new_only}"
+            f"mismatch for ci_mode={ci_mode}, fail_on={fail_on}, new_findings_only={new_only}"
         )
         assert decision.fail_policy.would_fail_ci == (expected != 0)
 
@@ -447,7 +544,12 @@ def test_blockers_and_review_items_use_reference_only_shape():
 @pytest.mark.parametrize(
     "decision_branch,findings_kwargs,build_kwargs,expected_keyword",
     [
-        ("blocked", {"severity": "critical", "baseline_status": "new"}, {"ci_mode": "strict"}, "block"),
+        (
+            "blocked",
+            {"severity": "critical", "baseline_status": "new"},
+            {"ci_mode": "strict"},
+            "block",
+        ),
         (
             "review_required_matched",
             {"severity": "critical", "baseline_status": "matched"},
@@ -592,9 +694,7 @@ def _policy_finding(
             "review_required_low_with_human_review_flag",
             # severity below review tier but requires_human_review=True
             # explicitly routes to review_items.
-            lambda: _finding(
-                severity="low", baseline_status="new", requires_human_review=True
-            ),
+            lambda: _finding(severity="low", baseline_status="new", requires_human_review=True),
             {"ci_mode": "advisory"},
             "review_item",
             "review_required",
@@ -623,9 +723,7 @@ def _policy_finding(
         # ---- suppressed ------------------------------------------------
         (
             "suppressed_critical_excluded",
-            lambda: _finding(
-                severity="critical", baseline_status="new", suppressed=True
-            ),
+            lambda: _finding(severity="critical", baseline_status="new", suppressed=True),
             {"ci_mode": "strict"},
             "excluded",
             "suppressed",
@@ -687,9 +785,7 @@ def test_contribution_rules_audit_row_per_finding():
         _finding(check_id="c1", severity="critical", baseline_status="new"),
         _finding(check_id="c2", severity="high", baseline_status="matched"),
         _finding(check_id="c3", severity="low", baseline_status="new"),
-        _finding(
-            check_id="c4", severity="critical", baseline_status="new", suppressed=True
-        ),
+        _finding(check_id="c4", severity="critical", baseline_status="new", suppressed=True),
     ]
     report = _report(findings=findings)
     decision = _build(report, ci_mode="strict")
@@ -752,9 +848,7 @@ def test_contribution_rules_audit_works_without_finding_id():
     assert len(decision.contribution_rules) == 2
     by_check = {r.check_id: r for r in decision.contribution_rules}
     # Fingerprint fallback when id is None but fingerprint is set.
-    assert (
-        by_check["SHIP-UNIT-TEST-CHECK"].finding_id == "fp_unit_test_fingerprint"
-    )
+    assert by_check["SHIP-UNIT-TEST-CHECK"].finding_id == "fp_unit_test_fingerprint"
     # check_id fallback when both id and fingerprint are None.
     assert by_check["SHIP-UNIT-TEST-NOID"].finding_id == "SHIP-UNIT-TEST-NOID"
     # finding_id is never the empty string.
@@ -820,8 +914,11 @@ def test_evidence_gaps_low_confidence_tool_points_at_inventory():
     decision = _build(_report(tools=tools), tools=tools)
 
     gaps = decision.evidence_coverage.evidence_gaps
-    assert len(gaps) == 1
-    gap = gaps[0]
+    assert [gap.kind for gap in gaps] == [
+        "incomplete_surface",
+        "low_confidence_tool",
+    ]
+    gap = gaps[1]
     assert gap.kind == "low_confidence_tool"
     assert gap.subject == "lookup_case"
     assert gap.source_type == "langchain_function"
@@ -843,9 +940,7 @@ def test_evidence_gaps_non_inventory_source_gets_provide_source():
 def test_evidence_gaps_include_source_warnings_in_report_order():
     tools = [_tool(name="a")]
     warnings = ["warning B about source", "warning A about source"]
-    decision = _build(
-        _report(tools=tools, source_warnings=warnings), tools=tools
-    )
+    decision = _build(_report(tools=tools, source_warnings=warnings), tools=tools)
 
     gaps = decision.evidence_coverage.evidence_gaps
     assert [gap.kind for gap in gaps] == ["source_warning", "source_warning"]
@@ -853,26 +948,23 @@ def test_evidence_gaps_include_source_warnings_in_report_order():
     assert all(gap.next_action.kind == "review_warning" for gap in gaps)
 
 
-def test_evidence_gaps_are_projection_only_decision_unchanged():
-    """Gap rows never gate: the decision is derived from the counts alone."""
+def test_semantic_gaps_gate_independently_of_extraction_ratio():
+    """Semantic gaps are zero-tolerance; extraction rows remain explanatory."""
     tools = [_langchain_tool("a"), _langchain_tool("b")]
     decision = _build(_report(tools=tools), tools=tools)
     assert decision.decision == "insufficient_evidence"
-    assert len(decision.evidence_coverage.evidence_gaps) == 2
+    assert len(decision.evidence_coverage.evidence_gaps) == 4
 
-    # Sub-threshold low confidence (no warnings, no findings, no
-    # human-review flag) keeps the pre-v0.26 decision — and the gap row
-    # is still listed, proving gaps are advisory, not gating.
+    # One unresolved action cannot be diluted by two healthy actions even
+    # though the legacy extraction-confidence ratio is sub-threshold.
     tools = [_langchain_tool("a"), _tool(name="b"), _tool(name="c")]
     decision = _build(_report(tools=tools), tools=tools)
-    assert decision.decision == "passed"
-    assert len(decision.evidence_coverage.evidence_gaps) == 1
+    assert decision.decision == "insufficient_evidence"
+    assert len(decision.evidence_coverage.evidence_gaps) == 2
 
 
 def test_evidence_gaps_deterministic_ordering():
     tools = [_langchain_tool("zeta"), _langchain_tool("alpha")]
     decision = _build(_report(tools=tools), tools=tools)
-    subjects = [
-        gap.subject for gap in decision.evidence_coverage.evidence_gaps
-    ]
-    assert subjects == ["alpha", "zeta"]
+    subjects = [gap.subject for gap in decision.evidence_coverage.evidence_gaps]
+    assert subjects == ["alpha", "zeta", "alpha", "zeta"]

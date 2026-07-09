@@ -5,3 +5,9 @@ HITL_RUNTIME_CONTROL_DISCLAIMER = (
     "does not prove a runtime control is absent, and present local evidence "
     "does not certify runtime enforcement."
 )
+
+STATIC_VERDICT_DISCLAIMER = (
+    "This verdict covers deterministic static evidence only. Agents Shipgate "
+    "did not execute the agent or prove runtime behavior, tool routing, "
+    "credential enforcement, or safety."
+)

@@ -36,6 +36,8 @@ def test_github_step_summary_is_written(monkeypatch, tmp_path):
     assert "Evidence coverage:" in summary
     assert "Next action:" in summary
     assert "Fail policy:" in summary
+    assert "Static-verdict boundary:" in summary
+    assert "did not execute the agent or prove runtime behavior" in summary
 
 
 def test_github_step_summary_escapes_diff_highlights(monkeypatch, tmp_path):

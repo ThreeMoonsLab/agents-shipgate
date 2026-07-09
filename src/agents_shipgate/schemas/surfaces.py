@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agents_shipgate.schemas.common import BaselineStatus, Confidence, Severity
+from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 
 ToolSurfaceDiffBaseKind = Literal["none", "report", "baseline"]
 ToolSurfaceChangeKind = Literal["added", "removed", "changed"]
@@ -313,6 +314,9 @@ class ActionFact(BaseModel):
     source_pointer: str | None = None
     operation: str
     effect: ActionEffect
+    # v0.29: explicit evidence behind the conservative effect and authority.
+    # Optional only so frozen pre-v0.29 reports remain readable.
+    semantic_assessment: ToolSemanticEvidence | None = None
     risk_tags: list[str] = Field(default_factory=list)
     required_scopes: list[str] = Field(default_factory=list)
     approval_policy: ActionApprovalFact = Field(default_factory=ActionApprovalFact)

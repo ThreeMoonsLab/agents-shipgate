@@ -10,7 +10,7 @@ from agents_shipgate.core.capability_lattice import (
     is_secret_env_name,
     mcp_permission_risk_hints,
 )
-from agents_shipgate.core.domain import AuthInfo, LoadedToolSource, Tool
+from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     load_structured_file_with_positions,
@@ -18,7 +18,7 @@ from agents_shipgate.inputs.common import (
     schema_to_parameters,
     stable_tool_id,
 )
-from agents_shipgate.inputs.mcp import load_mcp_tools
+from agents_shipgate.inputs.mcp import _mcp_auth_info, load_mcp_tools
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 _ENABLED_TOOL_KEYS = (
@@ -54,7 +54,8 @@ class NormalizedMcpTool:
     input_schema: dict[str, Any] = field(default_factory=dict)
     output_schema: dict[str, Any] = field(default_factory=dict)
     annotations: dict[str, Any] = field(default_factory=dict)
-    auth: dict[str, Any] = field(default_factory=dict)
+    auth: Any = None
+    auth_explicit: bool = False
     owner: str | None = None
     source_pointer: str | None = None
     source_start_line: int | None = None
@@ -317,13 +318,13 @@ def _normalized_tools_for_server(
                 server_name=server_name,
                 name=name,
                 approval_mode=_text_or_none(
-                    config.get("approval_mode")
-                    or server.get("default_tools_approval_mode")
+                    config.get("approval_mode") or server.get("default_tools_approval_mode")
                 ),
                 input_schema=input_schema,
                 output_schema=output_schema,
                 annotations=annotations,
-                auth=config.get("auth") if isinstance(config.get("auth"), dict) else {},
+                auth=config.get("auth"),
+                auth_explicit="auth" in config,
                 owner=_text_or_none(config.get("owner")),
                 source_pointer=f"{source_pointer}/tools/{name}",
                 unknown_schema=unknown_schema,
@@ -339,8 +340,6 @@ def _tool_from_normalized(
     annotations = dict(normalized.annotations)
     if normalized.approval_mode:
         annotations["mcp_approval_mode"] = normalized.approval_mode
-    auth = normalized.auth
-    scopes = auth.get("scopes") if isinstance(auth, dict) else []
     return Tool(
         id=stable_tool_id(normalized.name),
         name=normalized.name,
@@ -356,12 +355,7 @@ def _tool_from_normalized(
         output_schema=normalized.output_schema,
         parameters=schema_to_parameters(normalized.input_schema),
         annotations=annotations,
-        auth=AuthInfo(
-            type=auth.get("type") if isinstance(auth, dict) else None,
-            scopes=list(scopes) if isinstance(scopes, list) else [],
-            credential_mode=auth.get("credential_mode") if isinstance(auth, dict) else None,
-            source="mcp",
-        ),
+        auth=_mcp_auth_info(normalized.auth, explicit=normalized.auth_explicit),
         owner=normalized.owner,
         extraction_confidence="medium" if normalized.unknown_schema else "high",
         extraction={
@@ -574,7 +568,11 @@ def _iter_mcp_candidate_files(root: Path) -> list[Path]:
             if not child.is_file():
                 continue
             rel = _relative(child, root)
-            if rel == ".codex/config.toml" or rel.endswith("/.codex/config.toml") or child.name == ".mcp.json":
+            if (
+                rel == ".codex/config.toml"
+                or rel.endswith("/.codex/config.toml")
+                or child.name == ".mcp.json"
+            ):
                 candidates.append(child)
     return sorted(candidates)
 

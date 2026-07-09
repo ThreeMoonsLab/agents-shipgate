@@ -5,6 +5,7 @@ import shutil
 import textwrap
 from pathlib import Path
 
+from agents_shipgate import __version__
 from agents_shipgate.cli.discovery.agent_instructions.renderers import render_codex_skill_files
 from agents_shipgate.cli.scan import run_scan
 
@@ -19,7 +20,7 @@ def test_agents_shipgate_codex_plugin_manifest_is_skill_only() -> None:
     )
 
     assert manifest["name"] == "agents-shipgate"
-    assert manifest["version"] == "0.15.0"
+    assert manifest["version"] == __version__
     assert manifest["skills"] == "./skills/"
     assert "apps" not in manifest
     assert "mcpServers" not in manifest

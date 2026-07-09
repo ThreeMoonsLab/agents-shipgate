@@ -88,22 +88,26 @@ def test_frozen_v025_report_schema_does_not_backport_v026_action_fact_sources() 
     v26 = _report_schema_action_fact_properties("0.26")
     v27 = _report_schema_action_fact_properties("0.27")
     v28 = _report_schema_action_fact_properties("0.28")
+    v29 = _report_schema_action_fact_properties("0.29")
 
     assert ACTION_FACT_SOURCE_FIELDS.isdisjoint(v25)
     assert ACTION_FACT_SOURCE_FIELDS.issubset(v26)
     assert ACTION_FACT_SOURCE_FIELDS.issubset(v27)
     assert ACTION_FACT_SOURCE_FIELDS.issubset(v28)
+    assert ACTION_FACT_SOURCE_FIELDS.issubset(v29)
 
 
 def test_frozen_v026_report_schema_does_not_backport_v027_policy_pack_metadata() -> None:
     v26 = _loaded_policy_pack_properties("0.26")
     v27 = _loaded_policy_pack_properties("0.27")
     v28 = _loaded_policy_pack_properties("0.28")
+    v29 = _loaded_policy_pack_properties("0.29")
     v27_fields = {"source", "sha256", "sha256_status", "owner"}
 
     assert v27_fields.isdisjoint(v26)
     assert v27_fields.issubset(v27)
     assert v27_fields.issubset(v28)
+    assert v27_fields.issubset(v29)
 
 
 def test_frozen_v027_report_schema_does_not_backport_v028_policy_routing() -> None:
@@ -112,6 +116,79 @@ def test_frozen_v027_report_schema_does_not_backport_v028_policy_routing() -> No
 
     assert "policy_routing" not in v27
     assert "policy_routing" in v28
+
+
+def test_frozen_v028_report_schema_does_not_backport_v029_semantic_evidence() -> None:
+    v28_action = _report_schema_action_fact_properties("0.28")
+    v29_action = _report_schema_action_fact_properties("0.29")
+    v28_capability = _report_schema_definition_properties("0.28", "CapabilityFact")
+    v29_capability = _report_schema_definition_properties("0.29", "CapabilityFact")
+    v28_coverage = _report_schema_definition_properties(
+        "0.28", "EvidenceCoverageDecision"
+    )
+    v29_coverage = _report_schema_definition_properties(
+        "0.29", "EvidenceCoverageDecision"
+    )
+    v28_decision = _report_schema_definition_properties("0.28", "ReleaseDecision")
+    v29_decision = _report_schema_definition_properties("0.29", "ReleaseDecision")
+    v28_gap_action = _report_schema_definition_properties("0.28", "EvidenceGapAction")
+    v29_gap_action = _report_schema_definition_properties("0.29", "EvidenceGapAction")
+    static_boundary = {
+        "static_analysis_only",
+        "runtime_behavior_verified",
+        "static_verdict_disclaimer",
+    }
+
+    assert "semantic_assessment" not in v28_action
+    assert "semantic_assessment" in v29_action
+    assert "semantic_assessment" not in v28_capability
+    assert "semantic_assessment" in v29_capability
+    assert "semantic_coverage" not in v28_coverage
+    assert "semantic_coverage" in v29_coverage
+    assert static_boundary.isdisjoint(v28_decision)
+    assert static_boundary.issubset(v29_decision)
+    assert "suggested_patch_kind" not in v28_gap_action
+    assert "suggested_patch_kind" in v29_gap_action
+
+
+def test_frozen_v07_packet_schema_does_not_backport_v08_static_boundary() -> None:
+    v7 = _packet_schema_definition_properties("0.7", "ReleaseDecisionSection")
+    v8 = _packet_schema_definition_properties("0.8", "ReleaseDecisionSection")
+    static_boundary = {
+        "static_analysis_only",
+        "runtime_behavior_verified",
+        "static_verdict_disclaimer",
+    }
+
+    assert static_boundary.isdisjoint(v7)
+    assert static_boundary.issubset(v8)
+    v7_gap_action = _packet_schema_definition_properties("0.7", "EvidenceGapAction")
+    v8_gap_action = _packet_schema_definition_properties("0.8", "EvidenceGapAction")
+    assert "suggested_patch_kind" not in v7_gap_action
+    assert "suggested_patch_kind" in v8_gap_action
+
+
+def test_controller_schemas_publish_the_static_verdict_boundary() -> None:
+    verifier = json.loads(
+        (REPO_ROOT / "docs" / "verifier-schema.v0.1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    handoff = json.loads(
+        (REPO_ROOT / "docs" / "agent-handoff-schema.v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    boundary = {
+        "static_analysis_only",
+        "runtime_behavior_verified",
+        "static_verdict_disclaimer",
+    }
+
+    assert boundary.issubset(verifier["properties"])
+    assert boundary.issubset(handoff["$defs"]["AgentHandoffGate"]["properties"])
+    assert verifier["properties"]["static_analysis_only"]["const"] is True
+    assert verifier["properties"]["runtime_behavior_verified"]["const"] is False
 
 
 def _report_schema_action_fact_properties(version: str) -> set[str]:
@@ -139,6 +216,24 @@ def _finding_properties(version: str) -> set[str]:
         )
     )
     return set(schema["$defs"]["Finding"]["properties"])
+
+
+def _report_schema_definition_properties(version: str, definition: str) -> set[str]:
+    schema = json.loads(
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return set(schema["$defs"][definition]["properties"])
+
+
+def _packet_schema_definition_properties(version: str, definition: str) -> set[str]:
+    schema = json.loads(
+        (REPO_ROOT / "docs" / f"packet-schema.v{version}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return set(schema["$defs"][definition]["properties"])
 
 
 def _collect_removed_schema_imports(path: Path, offenders: list[str]) -> None:
@@ -179,7 +274,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.28"
+    assert report_payload["report_schema_version"] == "0.29"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -257,7 +352,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         not_proven=NotProvenSection(headline="not proven"),
     )
     packet_payload = serialize_packet_json(packet)
-    assert packet_payload["packet_schema_version"] == "0.7"
+    assert packet_payload["packet_schema_version"] == "0.8"
     assert "generated_at" not in packet_payload
     assert "action_surface_diff" in packet_payload
     assert report_payload["capability_runtime_evidence"]["enabled"] is False
@@ -296,20 +391,20 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="10",
+        contract_version="11",
         cli_version="0.0.0",
-        report_schema_version="0.28",
-        packet_schema_version="0.7",
+        report_schema_version="0.29",
+        packet_schema_version="0.8",
         verifier_schema_version="0.1",
         verify_run_schema_version="shipgate.verify_run/v1",
         agent_handoff_schema_version="shipgate.agent_handoff/v1",
         agent_handoff_schema_path="docs/agent-handoff-schema.v1.json",
         agent_handoff_artifact="agents-shipgate-reports/agent-handoff.json",
         codex_boundary_result_schema_version="shipgate.codex_boundary_result/v1",
-        capability_lock_schema_version="0.2",
-        capability_lock_diff_schema_version="0.3",
+        capability_lock_schema_version="0.3",
+        capability_lock_diff_schema_version="0.4",
         preflight_schema_version="0.2",
-        capability_standard_version="0.1",
+        capability_standard_version="0.2",
         governance_benchmark_catalog_schema_version="0.2",
         governance_benchmark_result_schema_version="0.2",
         attestation_schema_version="0.4",
@@ -345,20 +440,20 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         release_decisions=["passed", "blocked"],
         do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
-        "contract_version": "10",
+        "contract_version": "11",
         "cli_version": "0.0.0",
-        "report_schema_version": "0.28",
-        "packet_schema_version": "0.7",
+        "report_schema_version": "0.29",
+        "packet_schema_version": "0.8",
         "verifier_schema_version": "0.1",
         "verify_run_schema_version": "shipgate.verify_run/v1",
         "agent_handoff_schema_version": "shipgate.agent_handoff/v1",
         "agent_handoff_schema_path": "docs/agent-handoff-schema.v1.json",
         "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
         "codex_boundary_result_schema_version": "shipgate.codex_boundary_result/v1",
-        "capability_lock_schema_version": "0.2",
-        "capability_lock_diff_schema_version": "0.3",
+        "capability_lock_schema_version": "0.3",
+        "capability_lock_diff_schema_version": "0.4",
         "preflight_schema_version": "0.2",
-        "capability_standard_version": "0.1",
+        "capability_standard_version": "0.2",
         "governance_benchmark_catalog_schema_version": "0.2",
         "governance_benchmark_result_schema_version": "0.2",
         "attestation_schema_version": "0.4",

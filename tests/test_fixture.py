@@ -74,10 +74,18 @@ def test_cli_fixture_run(tmp_path: Path):
             str(out),
         ],
     )
-    # exit code may be 0 or 20 depending on findings; either is "the
-    # fixture ran"
-    assert result.exit_code in (0, 20), result.output
+    assert result.exit_code == 0, result.output
     assert (out / "report.json").is_file()
+    payload = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert payload["release_decision"]["decision"] == "passed"
+    semantic = payload["release_decision"]["evidence_coverage"]["semantic_coverage"]
+    assert semantic == {
+        "total_actions": 1,
+        "pass_eligible_actions": 1,
+        "gap_count": 0,
+        "review_concern_count": 0,
+        "reason_counts": {},
+    }
 
 
 def test_cli_fixture_run_ai_generated_refund_pr_writes_verifier_artifacts(tmp_path: Path):
@@ -101,6 +109,14 @@ def test_cli_fixture_run_ai_generated_refund_pr_writes_verifier_artifacts(tmp_pa
     payload = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
     assert payload["merge_verdict"] == "blocked"
     assert payload["can_merge_without_human"] is False
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    blocker_checks = {
+        item["check_id"] for item in report["release_decision"]["blockers"]
+    }
+    assert "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING" in blocker_checks
+    semantic = report["release_decision"]["evidence_coverage"]["semantic_coverage"]
+    assert semantic["gap_count"] == 0
+    assert semantic["pass_eligible_actions"] == semantic["total_actions"]
 
 
 def test_cli_fixture_copy(tmp_path: Path):

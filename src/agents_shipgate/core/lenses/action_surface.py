@@ -16,6 +16,7 @@ from agents_shipgate.core.risk_hints import (
     is_effectively_read_only,
     risk_tags,
 )
+from agents_shipgate.core.semantic_assessment import assess_tool_semantics
 from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
@@ -26,6 +27,7 @@ from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
 )
 from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import (
     ActionApprovalFact,
     ActionEvidenceFact,
@@ -135,9 +137,7 @@ def build_action_surface_facts(
             if entry.id or entry.provider or entry.operation
         }
         warnings.extend(
-            _disambiguate_duplicate_action_ids(
-                actions, explicit_tool_names=explicit_tool_names
-            )
+            _disambiguate_duplicate_action_ids(actions, explicit_tool_names=explicit_tool_names)
         )
     return ActionSurfaceFacts(actions=sorted(actions, key=lambda item: item.action_id))
 
@@ -217,9 +217,7 @@ def compute_action_surface_diff(
         current_by_id = _actions_by_id(current.actions)
         base_by_id = _actions_by_id(base.actions)
     else:
-        current_by_id = _actions_by_id_fail_soft(
-            current.actions, side="current", warnings=warnings
-        )
+        current_by_id = _actions_by_id_fail_soft(current.actions, side="current", warnings=warnings)
         base_by_id = _actions_by_id_fail_soft(
             base.actions, side="base reference", warnings=warnings
         )
@@ -295,7 +293,16 @@ def evaluate_action_surface_policies(
             )
         )
 
-    findings.extend(_builtin_policy_findings(diff, by_action, agent_id=agent_id))
+    findings.extend(
+        _builtin_policy_findings(
+            manifest,
+            facts,
+            diff,
+            by_action,
+            agent_id=agent_id,
+            tools=tools,
+        )
+    )
     for policy in manifest.action_surface.policies:
         for action in facts.actions:
             if not _policy_matches(policy, action):
@@ -316,19 +323,13 @@ def evaluate_action_surface_policies(
                     _finding(
                         check_id="SHIP-ACTION-POLICY-VIOLATION",
                         title=policy.message
-                        or (
-                            f"Action surface policy {policy.id} failed for "
-                            f"{action.tool_name}"
-                        ),
+                        or (f"Action surface policy {policy.id} failed for {action.tool_name}"),
                         severity=policy.severity,
                         action=action,
                         agent_id=agent_id,
                         evidence=evidence,
                         recommendation=policy.recommendation
-                        or (
-                            f"Satisfy action surface policy {policy.id} for "
-                            f"{action.tool_name}."
-                        ),
+                        or (f"Satisfy action surface policy {policy.id} for {action.tool_name}."),
                         blocks_release=policy.block,
                     )
                 )
@@ -390,25 +391,32 @@ def build_action(
         if declaration and declaration.id
         else f"{agent_id}:{tool.source_type}:{provider}:{operation}"
     )
+    # Live scans resolve semantics exactly once after extraction and manifest
+    # enrichment. Direct unit callers may still provide an unattached Tool,
+    # so retain a compatibility fallback without creating a second live path.
+    semantic_assessment = tool.semantic_assessment or assess_tool_semantics(tool, declaration)
     inferred_tags = _normalized_risk_tags(tool)
-    risk_tag_values = (
-        _normalize_risk_tag_values(declaration.risk_tags)
-        if declaration and declaration.risk_tags
-        else inferred_tags
+    declared_tags = (
+        _normalize_risk_tag_values(declaration.risk_tags) if declaration is not None else []
     )
+    risk_tag_values = sorted(set(inferred_tags) | set(declared_tags))
     scope_strings = (
         _normalize_strings(declaration.scopes)
         if declaration and declaration.scopes
         else _normalize_strings(tool.auth.scopes)
     )
-    # Wire-format effect (string) follows the declaration override, then
-    # falls back to the legacy ``_infer_effect`` so byte-identical hashes
-    # are preserved during the migration window. The typed ``SideEffect``
-    # built below carries the same effect plus structural fields.
-    effect = (
-        declaration.effect
-        if declaration and declaration.effect
-        else _infer_effect(tool, risk_tag_values)
+    effect = semantic_assessment.conservative_effect
+    semantic_effects = {
+        claim.value
+        for claim in semantic_assessment.effect.claims
+        if claim.confidence == "high"
+        and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
+        and claim.value in ACTION_EFFECT_RANK
+    }
+    risk_tag_values = sorted(
+        set(risk_tag_values)
+        | {_risk_tag_for_effect(effect)}
+        | {_risk_tag_for_effect(value) for value in semantic_effects}
     )
     approval = _approval_fact(manifest, tool, declaration)
     safeguards = _safeguards_fact(manifest, tool, declaration)
@@ -460,9 +468,8 @@ def build_action(
         input_fields=input_fields,
         required_input_fields=required_input_fields,
         input_schema=tool.input_schema,
-        parameters_for_hash=[
-            parameter.model_dump(mode="json") for parameter in tool.parameters
-        ],
+        parameters_for_hash=[parameter.model_dump(mode="json") for parameter in tool.parameters],
+        semantic_assessment=semantic_assessment,
     )
 
 
@@ -520,9 +527,7 @@ def action_to_fact(action: Action) -> ActionFact:
         runbook=action.evidence_runbook,
         approval_ticket=action.evidence_approval_ticket,
     )
-    schema_hash = public_action_schema_hash(
-        action.input_fields, action.required_input_fields
-    )
+    schema_hash = public_action_schema_hash(action.input_fields, action.required_input_fields)
     policy_hash = _stable_hash(
         {
             "approval": approval.model_dump(mode="json"),
@@ -535,7 +540,17 @@ def action_to_fact(action: Action) -> ActionFact:
             "effect": action.effect,
             "risk_tags": action.risk_tags,
             "required_scopes": action.scope_strings,
+            "semantic_assessment": (
+                action.semantic_assessment.model_dump(mode="json")
+                if action.semantic_assessment is not None
+                else None
+            ),
         }
+    )
+    semantic_evidence = (
+        ToolSemanticEvidence.model_validate(action.semantic_assessment.model_dump(mode="python"))
+        if action.semantic_assessment is not None
+        else None
     )
     return ActionFact(
         action_id=action.action_id,
@@ -554,6 +569,7 @@ def action_to_fact(action: Action) -> ActionFact:
         source_pointer=action.source_pointer,
         operation=action.operation,
         effect=action.effect,
+        semantic_assessment=semantic_evidence,
         risk_tags=action.risk_tags,
         required_scopes=action.scope_strings,
         approval_policy=approval,
@@ -612,9 +628,7 @@ def _actions_by_id_fail_soft(
     disambiguator produces, so a degraded base lines up with a fresh head
     instead of flagging the whole surface as churned.
     """
-    for message in _disambiguate_duplicate_action_ids(
-        actions, explicit_tool_names=set()
-    ):
+    for message in _disambiguate_duplicate_action_ids(actions, explicit_tool_names=set()):
         warnings.append(
             f"action_surface_diff ({side}): {message} The colliding ids were "
             "read from an engine-generated snapshot, typically a --diff-from "
@@ -677,9 +691,7 @@ def _disambiguate_duplicate_action_ids(
     by_id: dict[str, list[ActionFact]] = {}
     for action in actions:
         by_id.setdefault(action.action_id, []).append(action)
-    colliding = {
-        action_id: group for action_id, group in by_id.items() if len(group) > 1
-    }
+    colliding = {action_id: group for action_id, group in by_id.items() if len(group) > 1}
 
     # Hard-fail any collision that touches an explicitly declared id. These
     # are not third-party quirks the engine should silently rewrite.
@@ -712,9 +724,7 @@ def _disambiguate_duplicate_action_ids(
                 suffix = f"{suffix}#{seen}"
             new_id = f"{action_id}#{suffix}"
             action.action_id = new_id
-            action.hashes = action.hashes.model_copy(
-                update={"identity_hash": _stable_hash(new_id)}
-            )
+            action.hashes = action.hashes.model_copy(update={"identity_hash": _stable_hash(new_id)})
     return warnings
 
 
@@ -805,18 +815,22 @@ def _declaration_downgrade_findings(
             )
         )
         if declaration.effect is not None:
-            inferred_effect = _strongest_effect(
-                [
-                    _infer_effect(tool, _normalized_risk_tags(tool)),
-                    _infer_effect(
-                        tool,
-                        _normalize_risk_tag_values(declaration.risk_tags)
-                        if declaration.risk_tags
-                        else _normalized_risk_tags(tool),
-                    ),
-                ]
-            )
-            if ACTION_EFFECT_RANK[declaration.effect] < ACTION_EFFECT_RANK[inferred_effect]:
+            source_assessment = assess_tool_semantics(tool)
+            source_effect = source_assessment.conservative_effect
+            action_assessment = action.semantic_assessment
+            if (
+                action_assessment is not None
+                and action_assessment.effect.status == "conflicting"
+                and ACTION_EFFECT_RANK[action.effect] > ACTION_EFFECT_RANK[source_effect]
+            ):
+                source_effect = action.effect
+            if (
+                source_assessment.effect.status == "structural"
+                or (
+                    action_assessment is not None
+                    and action_assessment.effect.status == "conflicting"
+                )
+            ) and ACTION_EFFECT_RANK[declaration.effect] < ACTION_EFFECT_RANK[source_effect]:
                 findings.append(
                     _finding(
                         check_id="SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED",
@@ -829,12 +843,12 @@ def _declaration_downgrade_findings(
                         agent_id=agent_id,
                         evidence={
                             "action_id": action.action_id,
-                            "inferred_effect": inferred_effect,
+                            "inferred_effect": source_effect,
                             "declared_effect": declaration.effect,
                         },
                         recommendation=(
                             "Set action_surface.actions[].effect for "
-                            f"{action.tool_name} to {inferred_effect}, or remove "
+                            f"{action.tool_name} to {source_effect}, or remove "
                             "the weaker declaration."
                         ),
                         blocks_release=True,
@@ -927,10 +941,6 @@ def _control_downgrade_finding(
     )
 
 
-def _strongest_effect(effects: list[str]) -> str:
-    return max(effects, key=lambda item: ACTION_EFFECT_RANK[item])
-
-
 def _evidence_fact(
     tool: Tool,
     declaration: ActionDeclarationConfig | None,
@@ -954,31 +964,25 @@ def _normalized_risk_tags(tool: Tool) -> list[str]:
 
 
 def _infer_effect(tool: Tool, tags: list[str]) -> str:
-    tag_set = set(tags)
-    if "destructive" in tag_set:
-        return "destructive"
-    if "financial_write" in tag_set:
-        return "financial_write"
-    if "external_communication" in tag_set:
-        return "external_communication"
-    if "production_ops" in tag_set:
-        return "production_operation"
-    if "code_execution" in tag_set:
-        return "code_execution"
-    if "identity_access" in tag_set:
-        return "identity_access"
-    if "privileged_data" in tag_set:
-        return "privileged_data_access"
-    if "unknown_side_effect" in tag_set:
-        return "write"
-    if "writes_data" in tag_set:
-        return "write"
-    method = str(tool.annotations.get("httpMethod") or "").upper()
-    if method in {"POST", "PUT", "PATCH"}:
-        return "write"
-    if method == "DELETE":
-        return "destructive"
-    return "read"
+    # Compatibility wrapper for external/private callers. The resolver is the
+    # only implementation of effect semantics; ``tags`` is retained in the
+    # signature during the 0.x migration but no longer drives a second model.
+    del tags
+    return assess_tool_semantics(tool).conservative_effect
+
+
+def _risk_tag_for_effect(effect: str) -> str:
+    return {
+        "read": "read_only",
+        "write": "writes_data",
+        "destructive": "destructive",
+        "external_communication": "external_communication",
+        "financial_write": "financial_write",
+        "production_operation": "production_ops",
+        "privileged_data_access": "privileged_data",
+        "code_execution": "code_execution",
+        "identity_access": "identity_access",
+    }[effect]
 
 
 def _action_added_change(action: ActionFact) -> ActionSurfaceChange:
@@ -1061,12 +1065,17 @@ def _modified_changes(current: ActionFact, base: ActionFact) -> list[ActionSurfa
             )
         )
     for field in _SAFEGUARD_FIELDS:
-        if getattr(base.safeguards, field) is True and getattr(current.safeguards, field) is not True:
+        if (
+            getattr(base.safeguards, field) is True
+            and getattr(current.safeguards, field) is not True
+        ):
             changes.append(
                 _change(
                     "SAFEGUARD_REMOVED",
                     current,
-                    "critical" if field == "rollback" and current.effect == "destructive" else "high",
+                    "critical"
+                    if field == "rollback" and current.effect == "destructive"
+                    else "high",
                     f"Action safeguard removed: {field}.",
                     before=base.safeguards.model_dump(mode="json"),
                     after=current.safeguards.model_dump(mode="json"),
@@ -1074,9 +1083,7 @@ def _modified_changes(current: ActionFact, base: ActionFact) -> list[ActionSurfa
                 )
             )
     added_fields = sorted(set(current.input_fields) - set(base.input_fields))
-    added_required = sorted(
-        set(current.required_input_fields) - set(base.required_input_fields)
-    )
+    added_required = sorted(set(current.required_input_fields) - set(base.required_input_fields))
     if added_fields or added_required:
         changes.append(
             _change(
@@ -1170,16 +1177,10 @@ def _summary(
         actions_removed=len(removed),
         actions_modified=len(modified_action_ids),
         scope_expansions=sum(1 for change in modified if change.type == "SCOPE_EXPANDED"),
-        effect_escalations=sum(
-            1 for change in modified if change.type == "EFFECT_ESCALATED"
-        ),
+        effect_escalations=sum(1 for change in modified if change.type == "EFFECT_ESCALATED"),
         risk_tags_added=sum(1 for change in modified if change.type == "RISK_TAG_ADDED"),
-        approvals_removed=sum(
-            1 for change in modified if change.type == "APPROVAL_REMOVED"
-        ),
-        safeguards_removed=sum(
-            1 for change in modified if change.type == "SAFEGUARD_REMOVED"
-        ),
+        approvals_removed=sum(1 for change in modified if change.type == "APPROVAL_REMOVED"),
+        safeguards_removed=sum(1 for change in modified if change.type == "SAFEGUARD_REMOVED"),
         input_schema_expansions=sum(
             1 for change in modified if change.type == "INPUT_SCHEMA_EXPANDED"
         ),
@@ -1187,19 +1188,39 @@ def _summary(
 
 
 def _builtin_policy_findings(
+    manifest: AgentsShipgateManifest,
+    facts: ActionSurfaceFacts,
     diff: ActionSurfaceDiff,
     by_action: dict[str, ActionFact],
     *,
     agent_id: str,
+    tools: list[Tool] | None,
 ) -> list[Finding]:
-    if not diff.enabled:
-        return []
     findings: list[Finding] = []
-    for change in diff.added:
-        action = by_action.get(change.action_id)
-        if action is None:
+    tools_by_id = {tool.id: tool for tool in tools or []}
+
+    # Built-in controls protect the CURRENT capability surface.  They must
+    # not disappear merely because the caller did not provide a diff base or
+    # because a risky action predates that base.  The diff loop below adds
+    # change-specific review context; it is not the source of truth for
+    # whether the current surface satisfies its controls.
+    for action in facts.actions:
+        tool = tools_by_id.get(action.tool_id)
+        if not _effect_can_drive_hard_controls(action, tool):
+            # An inferred/unknown/conflicting effect is an evidence gap.  It
+            # is routed through semantic coverage rather than laundered into
+            # a high-confidence policy blocker.
             continue
-        findings.extend(_added_action_policy_findings(action, agent_id=agent_id))
+        findings.extend(
+            _current_action_policy_findings(
+                manifest,
+                action,
+                agent_id=agent_id,
+            )
+        )
+
+    if not diff.enabled:
+        return findings
     for change in diff.modified:
         action = by_action.get(change.action_id)
         if action is None:
@@ -1276,8 +1297,14 @@ def _builtin_policy_findings(
     return findings
 
 
-def _added_action_policy_findings(action: ActionFact, *, agent_id: str) -> list[Finding]:
+def _current_action_policy_findings(
+    manifest: AgentsShipgateManifest,
+    action: ActionFact,
+    *,
+    agent_id: str,
+) -> list[Finding]:
     findings: list[Finding] = []
+    control_effects = _control_effects(action)
     if any(is_broad_scope(scope) for scope in action.required_scopes):
         findings.append(
             _finding(
@@ -1298,7 +1325,7 @@ def _added_action_policy_findings(action: ActionFact, *, agent_id: str) -> list[
                 blocks_release=True,
             )
         )
-    if "financial_write" in action.risk_tags or action.effect == "financial_write":
+    if "financial_write" in control_effects:
         missing = _missing_builtin_requirements(
             action,
             {
@@ -1311,7 +1338,7 @@ def _added_action_policy_findings(action: ActionFact, *, agent_id: str) -> list[
             findings.append(
                 _finding(
                     check_id="SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
-                    title=f"{action.tool_name} adds financial write capability without required controls",
+                    title=f"{action.tool_name} has financial write capability without required controls",
                     severity="critical",
                     action=action,
                     agent_id=agent_id,
@@ -1323,23 +1350,33 @@ def _added_action_policy_findings(action: ActionFact, *, agent_id: str) -> list[
                     blocks_release=True,
                 )
             )
-    if (
-        "external_communication" in action.risk_tags
-        or action.effect == "external_communication"
-    ) and action.safeguards.audit_log is not True:
-        findings.append(
-            _finding(
-                check_id="SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
-                title=f"{action.tool_name} adds external communication without audit evidence",
-                severity="high",
-                action=action,
-                agent_id=agent_id,
-                evidence={"action_id": action.action_id, "missing": ["safeguards.audit_log"]},
-                recommendation="Declare safeguards.audit_log for this external communication action.",
-                blocks_release=True,
-            )
+    if "external_communication" in control_effects:
+        missing = _missing_builtin_requirements(
+            action,
+            {"safeguards.audit_log": True},
         )
-    if "destructive" in action.risk_tags or action.effect == "destructive":
+        if action.tool_name not in manifest.policies.confirmation_tools():
+            missing.append("confirmation.required")
+        if missing:
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+                    title=(
+                        f"{action.tool_name} has external communication capability "
+                        "without required controls"
+                    ),
+                    severity="high",
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={"action_id": action.action_id, "missing": missing},
+                    recommendation=(
+                        "Declare confirmation policy and safeguards.audit_log for "
+                        "this external communication action."
+                    ),
+                    blocks_release=True,
+                )
+            )
+    if "destructive" in control_effects:
         missing = _missing_builtin_requirements(
             action,
             {
@@ -1347,20 +1384,100 @@ def _added_action_policy_findings(action: ActionFact, *, agent_id: str) -> list[
                 "safeguards.rollback": True,
             },
         )
+        if action.tool_name not in manifest.policies.confirmation_tools():
+            missing.append("confirmation.required")
         if missing:
             findings.append(
                 _finding(
                     check_id="SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
-                    title=f"{action.tool_name} adds destructive capability without rollback controls",
+                    title=f"{action.tool_name} has destructive capability without required controls",
                     severity="critical",
                     action=action,
                     agent_id=agent_id,
                     evidence={"action_id": action.action_id, "missing": missing},
-                    recommendation="Declare approval.required and safeguards.rollback for this destructive action.",
+                    recommendation=(
+                        "Declare approval.required, confirmation policy, and "
+                        "safeguards.rollback for this destructive action."
+                    ),
+                    blocks_release=True,
+                )
+            )
+    high_impact_effects = control_effects.intersection({"production_operation", "code_execution"})
+    if high_impact_effects:
+        missing = _missing_builtin_requirements(
+            action,
+            {"approval.required": True},
+        )
+        if missing:
+            findings.append(
+                _finding(
+                    check_id="SHIP-ACTION-POLICY-VIOLATION",
+                    title=(
+                        f"{action.tool_name} has "
+                        f"{', '.join(sorted(high_impact_effects))} capability "
+                        "without approval"
+                    ),
+                    severity="critical",
+                    action=action,
+                    agent_id=agent_id,
+                    evidence={
+                        "policy_id": "builtin-high-impact-approval",
+                        "action_id": action.action_id,
+                        "missing": [
+                            {
+                                "path": path,
+                                "expected": True,
+                            }
+                            for path in missing
+                        ],
+                    },
+                    recommendation=(
+                        "Declare approval.required for production-operation and "
+                        "code-execution actions."
+                    ),
                     blocks_release=True,
                 )
             )
     return findings
+
+
+def _control_effects(action: ActionFact) -> set[str]:
+    """Return the union of pass-eligible positive semantic effect claims."""
+
+    assessment = action.semantic_assessment
+    if assessment is None:
+        return {action.effect}
+    effects: set[str] = set()
+    if assessment.effect.status in {"declared", "structural"}:
+        effects.add(action.effect)
+    for claim in assessment.effect.claims:
+        if (
+            claim.confidence == "high"
+            and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
+            and claim.value in ACTION_EFFECT_RANK
+        ):
+            effects.add(claim.value)
+    return effects
+
+
+def _effect_can_drive_hard_controls(
+    action: ActionFact,
+    tool: Tool | None,
+) -> bool:
+    """Whether this tool's effect has non-heuristic static evidence.
+
+    Semantic assessments are attached by the scan pipeline.  Keeping this
+    helper defensive makes direct action-surface callers and old serialized
+    facts work during the 0.x migration while preventing keyword-only
+    classifications from being upgraded into high-confidence blockers.
+    """
+
+    assessment = action.semantic_assessment
+    if assessment is None and tool is not None:
+        assessment = getattr(tool, "semantic_assessment", None)
+    if assessment is None:
+        return True
+    return bool(_control_effects(action))
 
 
 def _missing_builtin_requirements(
@@ -1522,12 +1639,7 @@ def _normalize_strings(values: list[str]) -> list[str]:
 
 
 def _normalize_risk_tag_values(values: list[str]) -> list[str]:
-    return sorted(
-        {
-            _RISK_TAG_MAP.get(value, value)
-            for value in _normalize_strings(values)
-        }
-    )
+    return sorted({_RISK_TAG_MAP.get(value, value) for value in _normalize_strings(values)})
 
 
 def _normalize_token(value: str) -> str:
@@ -1568,7 +1680,11 @@ def _action_notes(
     notes = list(getattr(reference, "notes", ()) or ())
     if reference.facts is None:
         if reference.kind == "report":
-            notes.append("Reference report lacks action_surface_facts; action-surface diff disabled.")
+            notes.append(
+                "Reference report lacks action_surface_facts; action-surface diff disabled."
+            )
         elif reference.kind == "baseline":
-            notes.append("Reference baseline lacks action_surface_facts; action-surface diff disabled.")
+            notes.append(
+                "Reference baseline lacks action_surface_facts; action-surface diff disabled."
+            )
     return notes

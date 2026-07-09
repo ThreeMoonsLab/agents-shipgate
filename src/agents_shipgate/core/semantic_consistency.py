@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.domain import Tool, ToolSemanticAssessment
+from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.semantic import ToolSemanticEvidence
+
+
+class SemanticConsistencyError(RuntimeError):
+    """Raised when a public artifact diverges from the central assessment."""
+
+
+def validate_semantic_consistency(
+    report: ReadinessReport,
+    tools: list[Tool],
+) -> None:
+    """Fail closed when semantic evidence and public gate surfaces drift."""
+
+    decision = report.release_decision
+    if decision is None:
+        raise SemanticConsistencyError("emitted report has no release decision")
+    if (
+        decision.static_analysis_only is not True
+        or decision.runtime_behavior_verified is not False
+        or decision.static_verdict_disclaimer != STATIC_VERDICT_DISCLAIMER
+    ):
+        raise SemanticConsistencyError("release decision lost the static-verdict boundary")
+
+    assessments: dict[tuple[str, str | None, str | None], ToolSemanticAssessment] = {}
+    for tool in tools:
+        if tool.semantic_assessment is None:
+            raise SemanticConsistencyError(f"tool {tool.name!r} has no central semantic assessment")
+        key = (tool.id, tool.source_id, tool.source_ref)
+        if key in assessments:
+            raise SemanticConsistencyError(f"duplicate assessed tool identity for {tool.name!r}")
+        assessments[key] = tool.semantic_assessment
+
+    actions = {
+        (action.tool_id, action.source_id, action.source_ref): action
+        for action in report.action_surface_facts.actions
+    }
+    if set(actions) != set(assessments):
+        raise SemanticConsistencyError(
+            "action surface does not enumerate exactly the assessed tool surface"
+        )
+    for key, assessment in assessments.items():
+        action = actions[key]
+        tool_name = action.tool_name
+        expected_evidence = ToolSemanticEvidence.model_validate(
+            assessment.model_dump(mode="python")
+        )
+        if action.effect != assessment.conservative_effect:
+            raise SemanticConsistencyError(
+                f"action effect drift for {tool_name!r}: "
+                f"{action.effect!r} != {assessment.conservative_effect!r}"
+            )
+        if action.semantic_assessment is None or action.semantic_assessment != expected_evidence:
+            raise SemanticConsistencyError(f"action semantic evidence drift for {tool_name!r}")
+
+    for capability in report.capability_facts:
+        assessment = assessments.get(
+            (capability.tool_id or "", capability.source_id, capability.source_ref)
+        )
+        if assessment is None and capability.tool_id is None:
+            candidates = [
+                candidate
+                for (tool_id, source_id, source_ref), candidate in assessments.items()
+                if source_id == capability.source_id and source_ref == capability.source_ref
+            ]
+            assessment = candidates[0] if len(candidates) == 1 else None
+        if assessment is None:
+            raise SemanticConsistencyError(
+                f"capability {capability.id!r} references an unassessed tool"
+            )
+        if capability.effect != assessment.conservative_effect:
+            raise SemanticConsistencyError(f"capability effect drift for {capability.tool_name!r}")
+        if (
+            capability.semantic_assessment is None
+            or capability.semantic_assessment
+            != ToolSemanticEvidence.model_validate(assessment.model_dump(mode="python"))
+        ):
+            raise SemanticConsistencyError(
+                f"capability semantic evidence drift for {capability.tool_name!r}"
+            )
+
+    coverage = decision.evidence_coverage.semantic_coverage
+    pass_eligible = sum(1 for assessment in assessments.values() if assessment.pass_eligible)
+    if coverage.total_actions != len(assessments):
+        raise SemanticConsistencyError("semantic total_actions does not match tools")
+    if coverage.pass_eligible_actions != pass_eligible:
+        raise SemanticConsistencyError("semantic pass_eligible_actions does not match assessments")
+    if decision.decision == "passed" and (
+        coverage.gap_count or coverage.review_concern_count or pass_eligible != len(assessments)
+    ):
+        raise SemanticConsistencyError(
+            "passed requires every semantic assessment to be pass-eligible"
+        )
+    if (
+        decision.decision == "insufficient_evidence"
+        and decision.fail_policy.ci_mode == "strict"
+        and (decision.fail_policy.would_fail_ci is not True or decision.fail_policy.exit_code != 20)
+    ):
+        raise SemanticConsistencyError(
+            "strict insufficient_evidence must produce would_fail_ci=true, exit_code=20"
+        )
+
+
+__all__ = ["SemanticConsistencyError", "validate_semantic_consistency"]

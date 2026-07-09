@@ -91,7 +91,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     assert "Fail policy:" in result.output
 
 
-def test_cli_insufficient_evidence_summary_names_evidence_fix(tmp_path):
+def test_cli_review_summary_names_source_evidence_fix(tmp_path):
     result = runner.invoke(
         app,
         [
@@ -107,8 +107,9 @@ def test_cli_insufficient_evidence_summary_names_evidence_fix(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "Decision: insufficient_evidence" in result.output
-    assert "Improve evidence:" in result.output
+    assert "Decision: review_required" in result.output
+    assert "2 source-loader warnings; review evidence before shipping." in result.output
+    assert "2/2 actions pass-eligible" in result.output
     assert "Release ready" not in result.output
 
 
@@ -815,7 +816,8 @@ def test_cli_scan_workspace_continues_after_config_error(tmp_path):
     {
       "name": "docs.lookup",
       "description": "Look up internal documentation metadata.",
-      "annotations": {"readOnlyHint": true}
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
     }
   ]
 }
@@ -893,7 +895,7 @@ def test_cli_verbose_json_logs(tmp_path):
 
     assert result.exit_code == 0
     assert '"message": "loaded sources"' in result.output
-    assert '"source_count": 4' in result.output
+    assert '"source_count": 5' in result.output
 
 
 def test_cli_doctor_json_includes_baseline_status():
@@ -948,7 +950,10 @@ def test_cli_baseline_save_and_scan(tmp_path):
         ],
     )
 
-    assert scan.exit_code == 0
+    # Baselines accept finding debt, never semantic evidence gaps. The support
+    # fixture intentionally retains an unresolved wildcard surface, so strict
+    # mode must still fail even when every fingerprint is baseline-matched.
+    assert scan.exit_code == 20
     assert "Baseline delta: matched=" in scan.output
 
 

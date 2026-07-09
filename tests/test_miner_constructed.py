@@ -76,29 +76,77 @@ def test_live_engine_still_produces_the_constructed_verdicts() -> None:
 def test_ie_threshold_is_exercised_and_robust_on_the_labeled_coverage_fixture(
     tmp_path: Path,
 ) -> None:
-    """Calibration data point for the IE threshold (see CALIBRATION.md).
+    """Exercise the IE threshold with an intentionally ambiguous local surface.
 
-    ``openai_agents_sdk_agent`` is the one labeled constructed case that lands
-    on the IE threshold (a dynamic SDK toolset static extraction can't
-    resolve). It is ``insufficient_evidence`` because every tool is
-    low-confidence (ratio 1.0), well above the current threshold.
+    The public ``openai_agents_sdk_agent`` sample now carries a reviewed
+    inventory and must not be repurposed as ambiguity evidence. This test uses
+    a synthetic AST-only SDK function with no reviewed inventory instead: its
+    binding is deliberately incomplete, its one tool is low-confidence, and
+    the correct result is ``insufficient_evidence``.
 
-    What this guards: an **extraction change** for this fixture — if extraction
-    later resolves the dynamic surface, ``low`` drops, the verdict flips, and
-    this fails. It does NOT guard threshold edits: the point sits at the robust
-    extreme (low == total), so it stays ``low >= threshold`` for any ratio in
-    ``(0, 1]`` — which is exactly why one labeled point cannot *calibrate* the
-    constant. Freezing the constant itself is
+    This is a robustness regression, not a human-labeled calibration datum.
+    The point sits at the extreme (low == total), so it stays
+    ``low >= threshold`` for any ratio in ``(0, 1]`` and cannot justify moving
+    the constant. Freezing the constant itself is
     ``test_ie_threshold_constants_are_frozen`` in ``test_release_decision.py``.
     """
     from agents_shipgate.ci.release_decision import _low_confidence_tool_threshold
 
-    result = subprocess.run(
-        [sys.executable, "-m", "agents_shipgate", "fixture", "run",
-         "openai_agents_sdk_agent", "--out", str(tmp_path / "out")],
-        capture_output=True, text=True, timeout=180, env=cli_env(), check=False,
+    project = tmp_path / "ambiguous-sdk"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        '''from agents import function_tool
+
+
+@function_tool
+def inspect_record(record_id: str) -> dict:
+    """Inspect one local record by id."""
+    return {"record_id": record_id}
+''',
+        encoding="utf-8",
     )
-    report_path = tmp_path / "out" / "report.json"
+    (project / "shipgate.yaml").write_text(
+        """version: "0.1"
+project:
+  name: ambiguous-threshold-fixture
+agent:
+  name: ambiguity-probe
+  declared_purpose:
+    - exercise incomplete static tool enumeration
+environment:
+  target: local
+tool_sources:
+  - id: ambiguous_sdk
+    type: openai_agents_sdk
+    path: agent.py
+    mode: static
+ci:
+  mode: advisory
+""",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "agents_shipgate",
+            "scan",
+            "-c",
+            str(project / "shipgate.yaml"),
+            "--out",
+            str(out),
+            "--format",
+            "json",
+            "--no-packet",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=cli_env(),
+        check=False,
+    )
+    report_path = out / "report.json"
     assert report_path.is_file(), f"exit {result.returncode}: {result.stderr[:400]}"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     decision = report["release_decision"]

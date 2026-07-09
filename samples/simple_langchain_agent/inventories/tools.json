@@ -1,0 +1,28 @@
+{
+  "tools": [
+    {
+      "name": "lookup_case",
+      "description": "Look up read-only metadata for an existing support case.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"case_id": {"type": "string"}},
+        "required": ["case_id"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    },
+    {
+      "name": "summarize_case",
+      "description": "Summarize read-only support case metadata for reviewer context.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"case_id": {"type": "string"}},
+        "required": ["case_id"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    }
+  ]
+}

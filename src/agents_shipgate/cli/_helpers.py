@@ -15,6 +15,7 @@ from agents_shipgate.cli.diagnostics import (
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings.constants import SEVERITY_ORDER
 from agents_shipgate.report.summary_text import evidence_coverage_text
@@ -471,6 +472,7 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
             f"new_findings_only={str(fp.new_findings_only).lower()}, "
             f"would_fail_ci={str(fp.would_fail_ci).lower()}"
         )
+        typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
     else:
         typer.echo("Decision: (not recorded)")
     typer.echo("")

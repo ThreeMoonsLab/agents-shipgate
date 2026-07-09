@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 
+from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
@@ -86,13 +87,9 @@ def _human_summary_lines(
     lines.append(f"- Can merge without human: `{str(verifier.can_merge_without_human).lower()}`")
     if verifier.agent_controller is not None:
         lines.append(
-            "- Agent controller must stop: "
-            f"`{str(verifier.agent_controller.must_stop).lower()}`"
+            f"- Agent controller must stop: `{str(verifier.agent_controller.must_stop).lower()}`"
         )
-        lines.append(
-            "- Agent controller stop reason: "
-            f"`{verifier.agent_controller.stop_reason}`"
-        )
+        lines.append(f"- Agent controller stop reason: `{verifier.agent_controller.stop_reason}`")
 
     headline = _headline(verifier, report)
     if headline:
@@ -117,8 +114,7 @@ def _human_summary_lines(
     lines.append(f"- Release gate: `{decision.decision}`")
     lines.append(f"- Reason: {_escape(decision.reason)}")
     lines.append(
-        "- Capability delta: "
-        f"+{review.added}, {review.modified} modified, -{review.removed}"
+        f"- Capability delta: +{review.added}, {review.modified} modified, -{review.removed}"
     )
     if capability_lock_diff is not None:
         summary = capability_lock_diff.summary
@@ -134,6 +130,7 @@ def _human_summary_lines(
         f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
         f"(exit {decision.fail_policy.exit_code})"
     )
+    lines.append(f"- Static-verdict boundary: {_escape(STATIC_VERDICT_DISCLAIMER)}")
     lines.extend(_next_actor_lines(verifier))
     if review.top_changes:
         lines.append("- Top capability changes:")
@@ -223,9 +220,7 @@ def _agent_instruction_payload(
 ) -> dict[str, object]:
     verifier_json = verifier.artifacts.get("verifier_json")
     handoff_json = verifier.artifacts.get("agent_handoff_json")
-    fix_task = (
-        verifier.fix_task.model_dump(mode="json") if verifier.fix_task is not None else None
-    )
+    fix_task = verifier.fix_task.model_dump(mode="json") if verifier.fix_task is not None else None
     agent_controller = (
         verifier.agent_controller.model_dump(mode="json")
         if verifier.agent_controller is not None
@@ -254,9 +249,7 @@ def _agent_instruction_payload(
         "fix_task": fix_task,
         "agent_controller": agent_controller,
         "verification_command": (
-            verifier.fix_task.verification_command
-            if verifier.fix_task is not None
-            else None
+            verifier.fix_task.verification_command if verifier.fix_task is not None else None
         ),
     }
     return payload
@@ -333,24 +326,20 @@ def _render_findings_comment(
             "",
             f"Release gate: `{decision.decision}`",
             f"Reason: {_escape(decision.reason)}",
-            (
-                f"Blockers: {len(decision.blockers)} · "
-                f"Review items: {len(decision.review_items)}"
-            ),
+            (f"Blockers: {len(decision.blockers)} · Review items: {len(decision.review_items)}"),
             (
                 "Fail policy: "
                 f"would_fail_ci=`{str(decision.fail_policy.would_fail_ci).lower()}` "
                 f"(exit {decision.fail_policy.exit_code})"
             ),
+            f"Static-verdict boundary: {_escape(STATIC_VERDICT_DISCLAIMER)}",
         ]
     )
     if report.agent_summary and report.agent_summary.headline:
         lines.append(f"Summary: {_escape(report.agent_summary.headline)}")
     if report.reviewer_summary and report.reviewer_summary.first_recommended_surface:
         surface = report.reviewer_summary.first_recommended_surface
-        lines.append(
-            f"Reviewer start: `{surface.name}` - {_escape(surface.why)}"
-        )
+        lines.append(f"Reviewer start: `{surface.name}` - {_escape(surface.why)}")
 
     lines.extend(_diff_lines(report))
     top = _top_findings(report.findings)
@@ -434,6 +423,7 @@ def _capability_change_table(review: VerifierCapabilityReview) -> list[str]:
         )
     return lines
 
+
 def _capability_lock_diff_lines(diff: CapabilityLockDiffV1) -> list[str]:
     rendered = render_capability_lock_diff_markdown(
         diff,
@@ -461,22 +451,14 @@ def _trust_root_warning_lines(
         return []
     lines = ["", "### Trust-root warnings"]
     for row in protected_rows[:5]:
-        lines.append(
-            "- "
-            f"{_code(row.path)} ({_escape(row.kind)}): human review is required."
-        )
+        lines.append(f"- {_code(row.path)} ({_escape(row.kind)}): human review is required.")
     for finding in fallback_warnings[: max(0, 5 - len(protected_rows))]:
         evidence = finding.evidence or {}
         path = evidence.get("changed_file") or finding.title
         trust_root_class = evidence.get("trust_root_class") or "trust root"
-        lines.append(
-            "- "
-            f"{_code(path)} ({_escape(trust_root_class)}): human review is required."
-        )
+        lines.append(f"- {_code(path)} ({_escape(trust_root_class)}): human review is required.")
     if review.policy_weakened:
-        lines.append(
-            "- Release policy weakening was detected; a human must approve the change."
-        )
+        lines.append("- Release policy weakening was detected; a human must approve the change.")
     if protected_rows or fallback_warnings or review.policy_weakened:
         lines.append(
             "- Do not suppress findings, lower severity, or edit evidence just to make CI pass."
@@ -569,9 +551,7 @@ def _diff_lines(report: ReadinessReport) -> list[str]:
 def _top_findings(findings: list[Finding]) -> list[Finding]:
     severities = {"critical": 0, "high": 1}
     active = [
-        finding
-        for finding in findings
-        if not finding.suppressed and finding.severity in severities
+        finding for finding in findings if not finding.suppressed and finding.severity in severities
     ]
     return sorted(active, key=lambda item: (severities[item.severity], item.check_id))[:3]
 

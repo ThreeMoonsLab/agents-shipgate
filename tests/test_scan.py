@@ -39,11 +39,22 @@ def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
 
     assert exit_code == 0
     assert report.release_decision is not None
-    assert report.release_decision.decision == "insufficient_evidence"
+    assert report.release_decision.decision == "review_required"
+    assert report.release_decision.evidence_coverage.source_warning_count == 2
+    assert report.release_decision.evidence_coverage.semantic_coverage.model_dump() == {
+        "total_actions": 2,
+        "pass_eligible_actions": 2,
+        "gap_count": 0,
+        "review_concern_count": 0,
+        "reason_counts": {},
+    }
     inventory = {entry["name"]: entry for entry in report.tool_inventory}
     assert set(inventory) == {"support.lookup_case", "support.render_reply"}
-    assert inventory["support.lookup_case"]["source_ref"] == "agents/case_tools.py"
-    assert inventory["support.render_reply"]["source_ref"] == "agents/reply_tools.py"
+    assert inventory["support.lookup_case"]["source_ref"] == "inventories/tools.json"
+    assert inventory["support.render_reply"]["source_ref"] == "inventories/tools.json"
+    assert {entry["source_type"] for entry in inventory.values()} == {"mcp"}
+    assert {entry["confidence"] for entry in inventory.values()} == {"high"}
+    assert all("merged metadata from sdk_function" in warning for warning in report.source_warnings)
     assert {action.tool_name for action in report.action_surface_facts.actions} == {
         "support.lookup_case",
         "support.render_reply",
@@ -87,9 +98,7 @@ def test_artifact_registry_refactor_preserves_api_surface_json_shape(tmp_path):
         packet_formats=["json"],
     )
 
-    openai_payload = json.loads(
-        (tmp_path / "openai" / "report.json").read_text(encoding="utf-8")
-    )
+    openai_payload = json.loads((tmp_path / "openai" / "report.json").read_text(encoding="utf-8"))
     anthropic_payload = json.loads(
         (tmp_path / "anthropic" / "report.json").read_text(encoding="utf-8")
     )
@@ -167,6 +176,14 @@ tool_sources:
 policies:
   require_approval_for_tools:
     - dangerous.write
+  require_confirmation_for_tools:
+    - dangerous.write
+action_surface:
+  actions:
+    - tool: dangerous.write
+      effect: destructive
+      approval: {required: true}
+      safeguards: {rollback: true}
 ci:
   mode: advisory
   fail_on:
@@ -198,6 +215,7 @@ def test_agent_finding_does_not_emit_duplicate_policy_evidence_source(tmp_path):
     policy_evidence_source from the same manifest pointer.
     """
     import json as _json
+
     project = tmp_path / "project"
     project.mkdir()
     (project / "tools.json").write_text(
@@ -228,9 +246,7 @@ ci: {mode: advisory}
         formats=["json", "sarif"],
         ci_mode="advisory",
     )
-    broad = next(
-        f for f in report.findings if f.check_id == "SHIP-AUTH-MANIFEST-BROAD-SCOPE"
-    )
+    broad = next(f for f in report.findings if f.check_id == "SHIP-AUTH-MANIFEST-BROAD-SCOPE")
     # Primary source carries the manifest pointer.
     assert broad.source is not None
     assert broad.source.path == "shipgate.yaml"
@@ -238,12 +254,9 @@ ci: {mode: advisory}
     # Secondary is None — the agent-level finding has only one site.
     assert broad.policy_evidence_source is None
     # SARIF emits exactly one location, not two duplicates.
-    sarif = _json.loads(
-        (tmp_path / "out" / "report.sarif").read_text(encoding="utf-8")
-    )
+    sarif = _json.loads((tmp_path / "out" / "report.sarif").read_text(encoding="utf-8"))
     matches = [
-        r for r in sarif["runs"][0]["results"]
-        if r["ruleId"] == "SHIP-AUTH-MANIFEST-BROAD-SCOPE"
+        r for r in sarif["runs"][0]["results"] if r["ruleId"] == "SHIP-AUTH-MANIFEST-BROAD-SCOPE"
     ]
     assert matches and len(matches[0].get("locations", [])) == 1
 
@@ -304,9 +317,7 @@ ci:
         formats=["json"],
         ci_mode="advisory",
     )
-    approval = next(
-        f for f in report.findings if f.check_id == "SHIP-POLICY-APPROVAL-MISSING"
-    )
+    approval = next(f for f in report.findings if f.check_id == "SHIP-POLICY-APPROVAL-MISSING")
     assert approval.source is not None
     # Tool source intact: the MCP loader sets source.type to the tool
     # source type so the reviewer can jump to the tool definition.
@@ -315,9 +326,7 @@ ci:
     # exact YAML line where the missing-policy declaration belongs.
     assert approval.policy_evidence_source is not None
     assert approval.policy_evidence_source.type == "manifest"
-    assert approval.policy_evidence_source.pointer == (
-        "/policies/require_approval_for_tools"
-    )
+    assert approval.policy_evidence_source.pointer == ("/policies/require_approval_for_tools")
     assert approval.policy_evidence_source.path == "shipgate.yaml"
     # The pointer doesn't resolve (the manifest doesn't declare the
     # block), so ``start_line`` is None — the reviewer still gets the
@@ -327,19 +336,11 @@ ci:
     assert approval.capability_policy_evidence is not None
     assert approval.capability_policy_evidence.capability_id in approval.capability_refs
     assert approval.capability_policy_evidence.identity["tool_name"] == "dangerous.write"
-    assert approval.capability_policy_evidence.matched_predicates[
-        "missing_approval_policy"
-    ] is True
+    assert approval.capability_policy_evidence.matched_predicates["missing_approval_policy"] is True
 
 
-def test_mixed_read_write_tool_still_requires_policy_controls(tmp_path):
-    """A read verb plus a mutating verb must not become effectively read-only.
-
-    Capability-native policy matching delegates to the canonical risk helper so
-    medium-confidence read-only keyword hints do not mask destructive/write
-    hints. This preserves the old built-in approval/confirmation findings for
-    common mixed names like ``get_or_delete_record``.
-    """
+def test_mixed_name_does_not_launder_keyword_effect_into_policy_blocker(tmp_path):
+    """A risky name raises uncertainty but cannot create a hard control finding."""
 
     project = tmp_path / "project"
     project.mkdir()
@@ -400,10 +401,18 @@ ci:
         for finding in report.findings
         if finding.tool_name == "get_or_delete_record"
     }
-    assert "SHIP-POLICY-APPROVAL-MISSING" in findings
-    assert "SHIP-POLICY-CONFIRMATION-MISSING" in findings
-    assert findings["SHIP-POLICY-APPROVAL-MISSING"].capability_refs
-    assert findings["SHIP-POLICY-CONFIRMATION-MISSING"].capability_refs
+    assert "SHIP-POLICY-APPROVAL-MISSING" not in findings
+    assert "SHIP-POLICY-CONFIRMATION-MISSING" not in findings
+    action = report.action_surface_facts.actions[0]
+    assert action.semantic_assessment is not None
+    assert action.semantic_assessment.effect.status == "inferred"
+    assert action.effect == "destructive"
+    assert report.release_decision is not None
+    assert report.release_decision.decision == "review_required"
+    assert any(
+        gap.kind == "inferred_effect_only"
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+    )
 
 
 def test_policy_evidence_source_resolves_existing_pointer_line(tmp_path):
@@ -460,13 +469,9 @@ ci:
         formats=["json"],
         ci_mode="advisory",
     )
-    approval = next(
-        f for f in report.findings if f.check_id == "SHIP-POLICY-APPROVAL-MISSING"
-    )
+    approval = next(f for f in report.findings if f.check_id == "SHIP-POLICY-APPROVAL-MISSING")
     assert approval.policy_evidence_source is not None
-    assert approval.policy_evidence_source.pointer == (
-        "/policies/require_approval_for_tools"
-    )
+    assert approval.policy_evidence_source.pointer == ("/policies/require_approval_for_tools")
     # Block IS declared, so the position index resolves a line number.
     assert approval.policy_evidence_source.start_line is not None
     assert approval.policy_evidence_source.start_line > 0
@@ -574,14 +579,12 @@ ci:
         ci_mode="advisory",
     )
 
-    placeholder_warnings = [
-        warning for warning in report.source_warnings if "CHANGE_ME" in warning
-    ]
+    placeholder_warnings = [warning for warning in report.source_warnings if "CHANGE_ME" in warning]
     assert placeholder_warnings, report.source_warnings
     assert any("shipgate.yaml:" in warning for warning in placeholder_warnings)
     assert report.release_decision is not None
     assert report.release_decision.evidence_coverage.source_warning_count >= 1
-    assert report.release_decision.decision == "review_required"
+    assert report.release_decision.decision == "insufficient_evidence"
     # advisory mode does not fail CI, but the gate above is still routed.
     assert exit_code == 0
 
@@ -747,16 +750,17 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
     assert baseline.tool_surface_facts is not None
     assert baseline.action_surface_facts is not None
     assert first_report.run_id == second_report.run_id
-    assert exit_code == 0
+    # Baseline matching cannot waive the fixture's intentional semantic gaps.
+    assert exit_code == 20
     assert second_report.baseline is not None
     assert second_report.baseline.matched_count > 0
     assert second_report.baseline.new_count == 0
+    assert (
+        second_report.release_decision.evidence_coverage.semantic_coverage.gap_count > 0
+    )
     assert second_report.tool_surface_diff.enabled is True
     assert second_report.tool_surface_diff.base.kind == "baseline"
-    assert all(
-        finding.baseline_status in {None, "matched"}
-        for finding in second_report.findings
-    )
+    assert all(finding.baseline_status in {None, "matched"} for finding in second_report.findings)
 
 
 def test_baseline_save_is_idempotent_for_unchanged_findings(tmp_path):
@@ -808,6 +812,96 @@ def test_scan_diff_from_prior_report_does_not_change_release_gate(tmp_path):
     assert with_diff.release_decision.decision == without_diff.release_decision.decision
     assert with_diff.tool_surface_diff.enabled is True
     assert with_diff.tool_surface_diff.base.kind == "report"
+
+
+def test_pre_v029_diff_reference_requires_regeneration_instead_of_effect_deltas(
+    tmp_path,
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "process_order",
+                        "description": "Process an order using reviewed inputs.",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def write_manifest(effect: str) -> None:
+        (project / "shipgate.yaml").write_text(
+            f"""version: "0.1"
+project: {{name: legacy-diff-compat}}
+agent:
+  name: legacy-diff-agent
+  declared_purpose: [process reviewed orders]
+environment: {{target: local}}
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+action_surface:
+  actions:
+    - tool: process_order
+      effect: {effect}
+      authority:
+        mode: none
+""",
+            encoding="utf-8",
+        )
+
+    write_manifest("read")
+    base_report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "base",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert base_report.release_decision is not None
+    assert base_report.release_decision.decision == "passed"
+
+    base_path = tmp_path / "base" / "report.json"
+    payload = json.loads(base_path.read_text(encoding="utf-8"))
+    payload["report_schema_version"] = "0.28"
+    payload["action_surface_facts"]["actions"][0]["effect"] = "read"
+    base_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    write_manifest("write")
+    report, exit_code = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "head",
+        formats=["json"],
+        ci_mode="advisory",
+        diff_from_path=base_path,
+        packet_enabled=False,
+    )
+
+    assert exit_code == 0
+    assert report.action_surface_facts.actions[0].effect == "write"
+    assert report.action_surface_diff.enabled is False
+    assert report.action_surface_diff.summary.effect_escalations == 0
+    assert report.tool_surface_diff.enabled is False
+    assert report.release_decision is not None
+    assert report.release_decision.decision == "insufficient_evidence"
+    warning = next(
+        item for item in report.source_warnings if "not comparable with --diff-from" in item
+    )
+    assert "uses report schema 0.28" in warning
+    assert "agents-shipgate scan -c shipgate.yaml --format json" in warning
+    gap = next(
+        item
+        for item in report.release_decision.evidence_coverage.evidence_gaps
+        if item.subject == warning
+    )
+    assert gap.next_action.kind == "provide_source"
+    assert gap.next_action.command == ("agents-shipgate scan -c shipgate.yaml --format json")
 
 
 def test_baseline_scan_fails_only_on_new_findings(tmp_path):
@@ -933,7 +1027,9 @@ def test_manual_risk_override_sets_tags_and_owner(tmp_path):
         ci_mode="advisory",
     )
 
-    refund_tool = next(item for item in report.tool_inventory if item["name"] == "stripe.create_refund")
+    refund_tool = next(
+        item for item in report.tool_inventory if item["name"] == "stripe.create_refund"
+    )
 
     assert refund_tool["owner"] == "payments-platform"
     assert "financial_action" in refund_tool["risk_tags"]
@@ -1012,7 +1108,9 @@ tool_sources:
     assert report.tool_inventory[0]["source_type"] == "openapi"
     assert report.tool_inventory[0]["auth_scopes"] == ["shared:read"]
     assert report.tool_inventory[0]["owner"] == "support-platform"
-    assert any("Duplicate tool name 'shared.lookup'" in warning for warning in report.source_warnings)
+    assert any(
+        "Duplicate tool name 'shared.lookup'" in warning for warning in report.source_warnings
+    )
 
 
 def test_manifest_scope_checks_read_only_purpose_with_write_tool(tmp_path):
@@ -1078,10 +1176,7 @@ policies:
         formats=["json"],
     )
 
-    assert any(
-        finding.check_id == "SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE"
-        for finding in report.findings
-    )
+    assert any(finding.check_id == "SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE" for finding in report.findings)
 
 
 def test_run_id_and_source_paths_are_reproducible_without_absolute_source_refs(tmp_path):
@@ -1268,9 +1363,47 @@ checks:
 LANGCHAIN_SAMPLE = Path("samples/simple_langchain_agent/shipgate.yaml")
 
 
+def _write_unreviewed_langchain_project(root: Path) -> Path:
+    project = root / "unreviewed-langchain"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        '''
+from langchain_core.tools import tool
+
+@tool
+def lookup_case(case_id: str) -> dict:
+    """Look up read-only support case metadata."""
+    return {"case_id": case_id}
+
+agent = create_agent(model=None, tools=[lookup_case])
+''',
+        encoding="utf-8",
+    )
+    config = project / "shipgate.yaml"
+    config.write_text(
+        '''
+version: "0.1"
+project:
+  name: unreviewed-langchain
+agent:
+  name: support-reader
+  declared_purpose: [read support metadata]
+environment:
+  target: local
+tool_sources:
+  - id: langchain
+    type: langchain
+    path: agent.py
+''',
+        encoding="utf-8",
+    )
+    return config
+
+
 def test_scan_writes_suggested_inventory_for_low_confidence_tools(tmp_path):
+    config = _write_unreviewed_langchain_project(tmp_path)
     report, _ = run_scan(
-        config_path=LANGCHAIN_SAMPLE,
+        config_path=config,
         output_dir=tmp_path,
         formats=["json"],
         ci_mode="advisory",
@@ -1286,9 +1419,7 @@ def test_scan_writes_suggested_inventory_for_low_confidence_tools(tmp_path):
     assert "note" in skeleton
     names = [entry["name"] for entry in skeleton["tools"]]
     assert names == sorted(names)
-    low_confidence_subjects = {
-        gap.subject for gap in gaps if gap.kind == "low_confidence_tool"
-    }
+    low_confidence_subjects = {gap.subject for gap in gaps if gap.kind == "low_confidence_tool"}
     assert set(names) == low_confidence_subjects
     # Every entry has at least a name and a non-empty description.
     for entry in skeleton["tools"]:
@@ -1302,17 +1433,16 @@ def test_suggested_inventory_loads_as_mcp_inventory(tmp_path):
     from agents_shipgate.inputs.mcp import load_mcp_tools
     from agents_shipgate.schemas.manifest import ToolSourceConfig
 
+    config = _write_unreviewed_langchain_project(tmp_path)
     run_scan(
-        config_path=LANGCHAIN_SAMPLE,
+        config_path=config,
         output_dir=tmp_path,
         formats=["json"],
         ci_mode="advisory",
         packet_enabled=False,
     )
     loaded = load_mcp_tools(
-        ToolSourceConfig(
-            id="suggested", type="mcp", path="suggested-inventory.json"
-        ),
+        ToolSourceConfig(id="suggested", type="mcp", path="suggested-inventory.json"),
         tmp_path,
     )
     assert loaded.tools, "skeleton should load as a non-empty inventory"
@@ -1418,8 +1548,7 @@ tool_sources:
     # The collision is surfaced as a source_warning (routes to
     # review_required), not swallowed.
     assert any(
-        "Duplicate action_surface action_id" in warning
-        for warning in report.source_warnings
+        "Duplicate action_surface action_id" in warning for warning in report.source_warnings
     ), f"Expected an action_id collision warning; got: {report.source_warnings}"
 
 
@@ -1518,7 +1647,6 @@ tool_sources:
     assert exit_code == 0
     assert report.action_surface_diff.enabled
     assert any(
-        "base reference" in warning
-        and "Duplicate action_surface action_id" in warning
+        "base reference" in warning and "Duplicate action_surface action_id" in warning
         for warning in report.source_warnings
     ), f"Expected a base-side collision warning; got: {report.source_warnings}"

@@ -223,7 +223,7 @@ def test_scenario_committed_base_lock_emits_semantic_capability_diff(
     )
     reports = repo / "agents-shipgate-reports"
     diff_payload = json.loads((reports / "capability-lock-diff.json").read_text(encoding="utf-8"))
-    assert diff_payload["capability_lock_diff_schema_version"] == "0.3"
+    assert diff_payload["capability_lock_diff_schema_version"] == "0.4"
     assert diff_payload["summary"]["added"] == 1
     assert diff_payload["summary"]["changed"] == 0
     assert diff_payload["added"][0]["identity"]["tool_name"] == "stripe.create_refund"
@@ -316,7 +316,10 @@ def test_scenario_docs_only_with_shipgate_yaml_force_runs(tmp_path: Path) -> Non
 _EMAIL_TOOL = {
     "name": "messaging.send_customer_email",
     "description": "Send an email to a customer's email address.",
-    "annotations": {"readOnlyHint": False},
+    "annotations": {
+        "readOnlyHint": False,
+        "x-agents-shipgate-permissions": ["external"],
+    },
     "inputSchema": {
         "type": "object",
         "required": ["to", "subject", "body"],

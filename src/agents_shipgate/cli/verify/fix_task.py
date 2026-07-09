@@ -240,6 +240,21 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     not invent one.
     """
     out: list[str] = []
+    decision = report.release_decision
+    assert decision is not None
+    for gap in decision.evidence_coverage.evidence_gaps:
+        if gap.kind in {"low_confidence_tool", "source_warning"}:
+            continue
+        action = gap.next_action
+        accepted = (
+            f" Accepted values: {', '.join(action.accepted_values)}."
+            if action.accepted_values
+            else ""
+        )
+        target = f" at {action.path}" if action.path else ""
+        out.append(
+            f"{gap.subject}: {gap.why} {action.expects}{target}.{accepted}"
+        )
     by_source: dict[tuple[str, str], int] = {}
     for tool in report.tool_inventory:
         if str(tool.get("confidence") or "") == "high":
@@ -345,6 +360,24 @@ def _human_repairs(
                 kind="review_trust_root_change",
                 target="manifest, CI gate, agent instructions, or trigger catalog",
                 reason="A human must review the touched release trust root before merge.",
+            )
+        )
+    for gap in decision.evidence_coverage.evidence_gaps:
+        if gap.kind in {"low_confidence_tool", "source_warning"}:
+            continue
+        action = gap.next_action
+        repairs.append(
+            VerifierRepair(
+                id=f"semantic_{gap.kind}_{len(repairs) + 1}",
+                actor="human",
+                kind=action.kind,
+                target=(
+                    f"{gap.subject} ({action.path})"
+                    if action.path
+                    else gap.subject
+                ),
+                command=action.command,
+                reason=f"{gap.why} {action.expects}",
             )
         )
     for finding in gating:

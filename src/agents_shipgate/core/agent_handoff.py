@@ -38,6 +38,9 @@ def build_agent_handoff(
     release_decision = _release_decision(verifier_payload, report_payload)
     operation = _operation(verifier_payload)
     gate = AgentHandoffGate(
+        static_analysis_only=verifier_model.static_analysis_only,
+        runtime_behavior_verified=verifier_model.runtime_behavior_verified,
+        static_verdict_disclaimer=verifier_model.static_verdict_disclaimer,
         decision=release_decision.get("decision"),
         merge_verdict=verifier_model.merge_verdict,
         applicability=verifier_model.applicability,

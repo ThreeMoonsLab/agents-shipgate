@@ -29,15 +29,16 @@ from agents_shipgate.inputs.n8n._common import (
 def _auth_info(item: _NodeItem) -> AuthInfo:
     refs = _credential_refs(item)
     credential_type = refs[0]["type"] if refs else None
-    scopes: list[str] = []
-    for ref in refs:
-        if ref.get("type"):
-            scopes.append(f"n8n:{ref['type']}")
+    # Credential references identify an authentication mechanism, not an
+    # enumerable operation grant. Treat them as known unscoped authority;
+    # the artifact bag retains the redacted credential references for review.
     return AuthInfo(
         type=credential_type,
-        scopes=scopes,
+        scopes=[],
         credential_mode="n8n_credential" if refs else None,
         source="n8n_credentials",
+        mode="unscoped" if refs else "unknown",
+        explicit=bool(refs),
     )
 
 
@@ -97,8 +98,7 @@ def _risk_hints(item: _NodeItem, *, method: str | None) -> list[ToolRiskHint]:
                 {"credential_type": ref.get("type")},
             )
         if any(
-            token in credential_type
-            for token in ("aws", "azure", "gcp", "kubernetes", "github")
+            token in credential_type for token in ("aws", "azure", "gcp", "kubernetes", "github")
         ):
             _add_hint(
                 hints,

@@ -463,6 +463,9 @@ def test_hitl_evidence_sample_reports_expected_findings_and_packet(tmp_path):
     assert exit_code == 0
     assert payload["summary"]["critical_count"] == 0
     assert payload["release_decision"]["decision"] == "review_required"
+    semantic = payload["release_decision"]["evidence_coverage"]["semantic_coverage"]
+    assert semantic["gap_count"] == 0
+    assert semantic["pass_eligible_actions"] == semantic["total_actions"]
     assert {
         "SHIP-EVIDENCE-APPROVAL-TRACE-MISSING",
         "SHIP-EVIDENCE-OVERRIDE-REASON-MISSING",
@@ -510,6 +513,11 @@ def test_hitl_evidence_covered_sample_reports_provenance(tmp_path):
 
     assert exit_code == 0
     assert not any(finding.check_id.startswith("SHIP-EVIDENCE-") for finding in report.findings)
+    assert report.release_decision is not None
+    assert report.release_decision.decision == "passed"
+    semantic = report.release_decision.evidence_coverage.semantic_coverage
+    assert semantic.gap_count == 0
+    assert semantic.pass_eligible_actions == semantic.total_actions
     packet = json.loads((tmp_path / "packet.json").read_text(encoding="utf-8"))
     hitl = packet["human_in_the_loop"]
     assert hitl["status"] == "covered"

@@ -24,6 +24,26 @@ permissions:
     - support:kb:read
   credential_mode: service_account
 
+action_surface:
+  actions:
+    - tool: support.search_kb
+      effect: read
+      scopes: [support:kb:read]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+    # Dormant in the base fixture. The verifier's head export activates this
+    # reviewed declaration so the unsafe capability fails on missing controls.
+    - tool: stripe.create_refund
+      effect: destructive
+      risk_tags: [financial_action]
+      scopes: ["stripe:*"]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: service_account
+
 ci:
   mode: advisory
   pr_comment: true

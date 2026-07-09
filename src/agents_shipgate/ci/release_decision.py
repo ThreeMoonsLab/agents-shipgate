@@ -6,7 +6,7 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
-from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.domain import SemanticIssueKind, Tool
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
     BaselineDelta,
@@ -21,6 +21,7 @@ from agents_shipgate.schemas.report import (
     ReleaseDecision,
     ReleaseDecisionItem,
     ReleaseDecisionStatus,
+    SemanticCoverageDecision,
 )
 
 # Thresholds for the `insufficient_evidence` decision state. Private
@@ -41,9 +42,7 @@ def _low_confidence_tool_threshold(tool_count: int) -> int:
     return max(1, math.ceil(tool_count * _LOW_CONFIDENCE_TOOL_RATIO))
 
 
-def evidence_below_ie_threshold(
-    evidence: EvidenceCoverageDecision, *, tool_count: int
-) -> bool:
+def evidence_below_ie_threshold(evidence: EvidenceCoverageDecision, *, tool_count: int) -> bool:
     """True when extraction evidence is too weak to gate release on its own.
 
     This is the exact predicate `build_release_decision` uses to raise the
@@ -56,7 +55,14 @@ def evidence_below_ie_threshold(
     non-mergeable verdicts they landed on.
     """
     return (
-        evidence.low_confidence_tool_count >= _low_confidence_tool_threshold(tool_count)
+        evidence.semantic_coverage.gap_count > 0
+        or any(
+            gap.kind == "source_warning"
+            and gap.next_action.path == "--diff-from"
+            and gap.next_action.command == "agents-shipgate scan -c shipgate.yaml --format json"
+            for gap in evidence.evidence_gaps
+        )
+        or evidence.low_confidence_tool_count >= _low_confidence_tool_threshold(tool_count)
         or evidence.source_warning_count > _MAX_TOLERATED_SOURCE_WARNINGS
     )
 
@@ -98,6 +104,24 @@ def build_release_decision(
     # acceptance silently consumed it).
     for finding in report.findings:
         if finding.suppressed:
+            if _is_mandatory_current_control(finding):
+                # A suppression explains accepted noise; it cannot satisfy a
+                # mandatory current-surface control. Keep built-in control
+                # blockers non-waivable so a missing rollback/approval/etc.
+                # cannot be converted into `passed` by checks.ignore.
+                blockers.append(_to_item(finding))
+                contribution_rules.append(
+                    _rule(
+                        finding,
+                        category="blocker",
+                        rule="policy_block_new",
+                        rationale=(
+                            "blocks_release=true; suppression cannot waive a "
+                            "mandatory current-surface control."
+                        ),
+                    )
+                )
+                continue
             contribution_rules.append(
                 _rule(
                     finding,
@@ -124,10 +148,7 @@ def build_release_decision(
             )
             continue
         # Branch 2: severity in active blocker tier, not baseline-matched.
-        if (
-            finding.baseline_status != "matched"
-            and finding.severity in blocker_severities
-        ):
+        if finding.baseline_status != "matched" and finding.severity in blocker_severities:
             blockers.append(_to_item(finding))
             contribution_rules.append(
                 _rule(
@@ -153,10 +174,7 @@ def build_release_decision(
             or finding.requires_human_review is True
         ):
             review_items.append(_to_item(finding))
-            if (
-                finding.severity in {"critical", "high"}
-                and finding.baseline_status != "matched"
-            ):
+            if finding.severity in {"critical", "high"} and finding.baseline_status != "matched":
                 has_active_high_review = True
             contribution_rules.append(
                 _rule(
@@ -179,15 +197,17 @@ def build_release_decision(
             )
         )
 
-    low_confidence_tool_count = sum(
-        1 for tool in tools if tool.extraction_confidence != "high"
-    )
+    low_confidence_tool_count = sum(1 for tool in tools if tool.extraction_confidence != "high")
+    semantic_coverage, semantic_gaps = _semantic_coverage(tools)
     evidence = EvidenceCoverageDecision(
         level=report.summary.evidence_coverage,
         human_review_recommended=report.summary.human_review_recommended,
         source_warning_count=len(report.source_warnings),
         low_confidence_tool_count=low_confidence_tool_count,
-        evidence_gaps=_evidence_gaps(report, tools),
+        # Semantic gaps lead because they are zero-tolerance gate inputs;
+        # extraction/source gaps retain their existing deterministic order.
+        evidence_gaps=[*semantic_gaps, *_evidence_gaps(report, tools)],
+        semantic_coverage=semantic_coverage,
     )
 
     if report.baseline is None:
@@ -201,21 +221,9 @@ def build_release_decision(
             resolved_count=report.baseline.resolved_count,
         )
 
-    exit_code = exit_code_for_report(
-        report,
-        ci_mode,
-        fail_on=fail_on,
-        new_findings_only=new_findings_only,
-    )
-    fail_policy = FailPolicy(
-        ci_mode=ci_mode,
-        fail_on=fail_on_resolved,
-        new_findings_only=new_findings_only,
-        would_fail_ci=(exit_code != 0),
-        exit_code=exit_code,
-    )
-
     evidence_is_degraded = evidence_below_ie_threshold(evidence, tool_count=len(tools))
+    has_semantic_gaps = semantic_coverage.gap_count > 0
+    has_semantic_review_concerns = semantic_coverage.review_concern_count > 0
 
     decision: ReleaseDecisionStatus
     if blockers:
@@ -233,10 +241,17 @@ def build_release_decision(
         # a human via evidence_below_ie_threshold (the same predicate), so the
         # elevation never opens an auto-fix path on weak evidence.
         decision = "review_required"
+    elif has_semantic_gaps:
+        # v0.29: semantic gaps are not Findings. This makes them immune to
+        # baselines, suppressions, severity overrides, human acknowledgement,
+        # and --no-heuristics. One unresolved action is sufficient; healthy
+        # actions never dilute it.
+        decision = "insufficient_evidence"
     elif evidence_is_degraded:
         decision = "insufficient_evidence"
     elif (
         review_items
+        or has_semantic_review_concerns
         or evidence.human_review_recommended
         or evidence.source_warning_count > 0
     ):
@@ -252,6 +267,25 @@ def build_release_decision(
 
     reason = _decision_reason(decision, blockers, review_items, evidence)
 
+    # The canonical decision is computed before FailPolicy. Semantic gaps
+    # remain strict-CI failures even when a higher-precedence named concern
+    # labels the decision review_required instead of insufficient_evidence.
+    exit_code = exit_code_for_report(
+        report,
+        ci_mode,
+        fail_on=fail_on,
+        new_findings_only=new_findings_only,
+        release_decision=decision,
+        has_semantic_gaps=has_semantic_gaps,
+    )
+    fail_policy = FailPolicy(
+        ci_mode=ci_mode,
+        fail_on=fail_on_resolved,
+        new_findings_only=new_findings_only,
+        would_fail_ci=(exit_code != 0),
+        exit_code=exit_code,
+    )
+
     return ReleaseDecision(
         decision=decision,
         reason=reason,
@@ -261,6 +295,15 @@ def build_release_decision(
         baseline_delta=baseline_delta,
         fail_policy=fail_policy,
         contribution_rules=contribution_rules,
+    )
+
+
+def _is_mandatory_current_control(finding: Finding) -> bool:
+    if finding.check_id in _MANDATORY_CURRENT_CONTROL_CHECKS:
+        return True
+    return (
+        finding.check_id == "SHIP-ACTION-POLICY-VIOLATION"
+        and finding.evidence.get("policy_id") == "builtin-high-impact-approval"
     )
 
 
@@ -279,6 +322,229 @@ _INVENTORY_MANIFEST_KEYS: tuple[tuple[str, str], ...] = (
 # low-confidence tools exist (see cli/scan/writing.py). Referenced here
 # so the gap rows and the artifact never drift apart.
 SUGGESTED_INVENTORY_FILENAME = "suggested-inventory.json"
+_SEMANTIC_RERUN_COMMAND = (
+    "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json"
+)
+_ACTION_EFFECT_VALUES = [
+    "read",
+    "write",
+    "destructive",
+    "external_communication",
+    "financial_write",
+    "production_operation",
+    "privileged_data_access",
+    "code_execution",
+    "identity_access",
+]
+_AUTHORITY_MODE_VALUES = ["none", "scoped", "unscoped", "ambient"]
+_MANDATORY_CURRENT_CONTROL_CHECKS = frozenset(
+    {
+        "SHIP-ACTION-WILDCARD-SCOPE",
+        "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
+    }
+)
+
+
+def _semantic_coverage(
+    tools: list[Tool],
+) -> tuple[SemanticCoverageDecision, list[EvidenceGap]]:
+    """Project normalized tool assessments into zero-tolerance gate evidence."""
+
+    gaps: list[EvidenceGap] = []
+    reason_counts: dict[str, int] = {}
+    pass_eligible_actions = 0
+    review_concern_count = 0
+
+    for tool in sorted(tools, key=lambda item: (item.name, item.source_type, item.id)):
+        assessment = tool.semantic_assessment
+        if assessment is None:
+            gap = _semantic_gap(
+                tool,
+                kind="incomplete_surface",
+                why=(
+                    "No normalized semantic assessment was produced for this "
+                    "tool; effect and authority evidence were not evaluated."
+                ),
+            )
+            gaps.append(gap)
+            _increment(reason_counts, gap.kind)
+            continue
+
+        issues = sorted(
+            [*assessment.effect.issues, *assessment.authority.issues],
+            key=lambda issue: (
+                issue.kind,
+                issue.dimension,
+                issue.source or "",
+                issue.source_pointer or "",
+                issue.message,
+            ),
+        )
+        seen_issues: set[tuple[str, str, str | None, str | None, str]] = set()
+        for issue in issues:
+            key = (
+                issue.kind,
+                issue.dimension,
+                issue.source,
+                issue.source_pointer,
+                issue.message,
+            )
+            if key in seen_issues:
+                continue
+            seen_issues.add(key)
+            gap = _semantic_gap(
+                tool,
+                kind=issue.kind,
+                why=issue.message,
+                source_ref=issue.source_pointer or issue.source,
+            )
+            gaps.append(gap)
+            _increment(reason_counts, gap.kind)
+
+        mode = assessment.authority.mode
+        if mode in {"unscoped", "ambient"}:
+            review_concern_count += 1
+            _increment(reason_counts, f"{mode}_authority")
+
+        if (
+            assessment.pass_eligible
+            and not seen_issues
+            and mode
+            not in {
+                "unscoped",
+                "ambient",
+            }
+        ):
+            pass_eligible_actions += 1
+        elif not seen_issues and mode not in {"unscoped", "ambient"}:
+            # Defensive invariant: a non-pass-eligible assessment must explain
+            # itself. If a future resolver violates that contract, fail closed.
+            gap = _semantic_gap(
+                tool,
+                kind="invalid_semantic_annotation",
+                why=(
+                    "The semantic resolver marked this tool non-pass-eligible "
+                    "without an actionable issue."
+                ),
+            )
+            gaps.append(gap)
+            _increment(reason_counts, gap.kind)
+
+    return (
+        SemanticCoverageDecision(
+            total_actions=len(tools),
+            pass_eligible_actions=pass_eligible_actions,
+            gap_count=len(gaps),
+            review_concern_count=review_concern_count,
+            reason_counts=dict(sorted(reason_counts.items())),
+        ),
+        gaps,
+    )
+
+
+def _increment(counts: dict[str, int], reason: str) -> None:
+    counts[reason] = counts.get(reason, 0) + 1
+
+
+def _semantic_gap(
+    tool: Tool,
+    *,
+    kind: SemanticIssueKind,
+    why: str,
+    source_ref: str | None = None,
+) -> EvidenceGap:
+    action_kind: str
+    accepted_values: list[str]
+    declaration_template: dict[str, object] | None = None
+    if kind == "incomplete_surface":
+        action_kind = "provide_complete_inventory"
+        accepted_values = [
+            "complete_mcp_export",
+            "openapi_spec",
+            "reviewed_explicit_inventory",
+        ]
+        action_why = "The complete statically-bound tool surface must be enumerable."
+        expects = (
+            "Provide a complete MCP export, OpenAPI spec, or reviewed explicit "
+            "tool inventory, then rerun verification."
+        )
+    elif kind in {
+        "missing_effect_evidence",
+        "inferred_effect_only",
+    }:
+        action_kind = "declare_action_effect"
+        accepted_values = list(_ACTION_EFFECT_VALUES)
+        action_why = "A reviewed or structural effect is required for an evidence-backed pass."
+        expects = (
+            "Declare the conservative effect under action_surface.actions in "
+            "shipgate.yaml, then rerun verification."
+        )
+        declaration_template = {
+            "tool": tool.name,
+            "effect": "<REVIEW_REQUIRED>",
+        }
+    elif kind in {
+        "missing_authority_evidence",
+        "partial_authority_evidence",
+    }:
+        action_kind = "declare_action_authority"
+        accepted_values = list(_AUTHORITY_MODE_VALUES)
+        action_why = "A complete authority mode and grant are required."
+        expects = (
+            "Declare reviewed authority under action_surface.actions in "
+            "shipgate.yaml, then rerun verification."
+        )
+        declaration_template = {
+            "tool": tool.name,
+            "authority": {"mode": "<REVIEW_REQUIRED>"},
+        }
+    else:
+        action_kind = "resolve_semantic_conflict"
+        if kind == "conflicting_effect_evidence":
+            accepted_values = list(_ACTION_EFFECT_VALUES)
+        elif kind == "conflicting_authority_evidence":
+            accepted_values = list(_AUTHORITY_MODE_VALUES)
+        else:
+            accepted_values = [
+                "exact_boolean:true",
+                "exact_boolean:false",
+                *_ACTION_EFFECT_VALUES,
+                *_AUTHORITY_MODE_VALUES,
+            ]
+        action_why = "Conflicting or invalid semantic evidence cannot be auto-resolved."
+        expects = (
+            "Correct the source declaration or add a conservative reviewed action "
+            "declaration, then rerun verification."
+        )
+
+    return EvidenceGap(
+        kind=kind,
+        subject=tool.name,
+        source_type=tool.source_type,
+        source_ref=(
+            source_ref
+            or tool.source_location
+            or tool.source_ref
+            or tool.source_path
+            or tool.source_pointer
+        ),
+        why=why,
+        next_action=EvidenceGapAction(
+            kind=action_kind,  # type: ignore[arg-type]
+            command=_SEMANTIC_RERUN_COMMAND,
+            path=(
+                "shipgate.yaml#tool_sources"
+                if kind == "incomplete_surface"
+                else f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+            ),
+            why=action_why,
+            expects=expects,
+            accepted_values=accepted_values,
+            declaration_template=declaration_template,
+        ),
+    )
 
 
 def _inventory_manifest_key(source_type: str) -> str | None:
@@ -321,10 +587,7 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
         else:
             action = EvidenceGapAction(
                 kind="provide_source",
-                why=(
-                    f"{tool.source_type} extraction could not fully "
-                    "enumerate this tool surface."
-                ),
+                why=(f"{tool.source_type} extraction could not fully enumerate this tool surface."),
                 expects=(
                     "Provide a complete MCP export, OpenAPI spec, or "
                     "explicit local tool inventory for this source, then "
@@ -345,19 +608,38 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
             )
         )
     for warning in report.source_warnings:
+        if (
+            "predates report schema 0.29 semantic evidence" in warning
+            and "not comparable with --diff-from" in warning
+        ):
+            action = EvidenceGapAction(
+                kind="provide_source",
+                command="agents-shipgate scan -c shipgate.yaml --format json",
+                path="--diff-from",
+                why=(
+                    "The base report must be regenerated by the current "
+                    "semantic engine before any capability delta is computed."
+                ),
+                expects=(
+                    "Regenerate report.json in the base source workspace, then "
+                    "rerun the head scan with --diff-from pointing to that report."
+                ),
+            )
+        else:
+            action = EvidenceGapAction(
+                kind="review_warning",
+                why="The warning text names the degraded source.",
+                expects=(
+                    "Fix or re-declare the named source so the loader "
+                    "stops warning, then rerun the scan."
+                ),
+            )
         gaps.append(
             EvidenceGap(
                 kind="source_warning",
                 subject=warning,
                 why="A source loader degraded while reading declared inputs.",
-                next_action=EvidenceGapAction(
-                    kind="review_warning",
-                    why="The warning text names the degraded source.",
-                    expects=(
-                        "Fix or re-declare the named source so the loader "
-                        "stops warning, then rerun the scan."
-                    ),
-                ),
+                next_action=action,
             )
         )
     return gaps
@@ -391,9 +673,7 @@ def _rule(
     )
 
 
-def _review_rule_for(
-    finding: Finding, blocker_severities: set[Severity]
-) -> ContributionRuleName:
+def _review_rule_for(finding: Finding, blocker_severities: set[Severity]) -> ContributionRuleName:
     """Disambiguate the rule name when a finding lands in review_items.
 
     Three cases reach the review-tier branch in build_release_decision:
@@ -408,36 +688,25 @@ def _review_rule_for(
     """
     if finding.blocks_release and finding.baseline_status == "matched":
         return "policy_baseline_accepted"
-    if (
-        finding.baseline_status == "matched"
-        and finding.severity in blocker_severities
-    ):
+    if finding.baseline_status == "matched" and finding.severity in blocker_severities:
         return "severity_baseline_accepted"
     return "review_required"
 
 
-def _review_rationale_for(
-    finding: Finding, blocker_severities: set[Severity]
-) -> str:
+def _review_rationale_for(finding: Finding, blocker_severities: set[Severity]) -> str:
     if finding.blocks_release and finding.baseline_status == "matched":
         return (
             "blocks_release=true and baseline_status=matched; "
             "accepted as policy debt and routed to review_items."
         )
-    if (
-        finding.baseline_status == "matched"
-        and finding.severity in blocker_severities
-    ):
+    if finding.baseline_status == "matched" and finding.severity in blocker_severities:
         return (
             f"severity={finding.severity} is in blocker tier "
             f"({sorted(blocker_severities)}) but baseline_status=matched; "
             "accepted as debt."
         )
     if finding.requires_human_review is True:
-        return (
-            f"requires_human_review=true (severity={finding.severity}); "
-            "routed to review_items."
-        )
+        return f"requires_human_review=true (severity={finding.severity}); routed to review_items."
     return (
         f"severity={finding.severity}; below active blocker tier "
         f"({sorted(blocker_severities)}) but in review tier "
@@ -445,9 +714,7 @@ def _review_rationale_for(
     )
 
 
-def _excluded_rule_for(
-    finding: Finding, blocker_severities: set[Severity]
-) -> ContributionRuleName:
+def _excluded_rule_for(finding: Finding, blocker_severities: set[Severity]) -> ContributionRuleName:
     """Disambiguate the rule name when a finding falls through to excluded.
 
     Two reachable cases:
@@ -461,35 +728,24 @@ def _excluded_rule_for(
     """
     if finding.blocks_release and finding.baseline_status == "matched":
         return "policy_baseline_accepted"
-    if (
-        finding.baseline_status == "matched"
-        and finding.severity in blocker_severities
-    ):
+    if finding.baseline_status == "matched" and finding.severity in blocker_severities:
         return "severity_baseline_accepted"
     return "sub_threshold"
 
 
-def _excluded_rationale_for(
-    finding: Finding, blocker_severities: set[Severity]
-) -> str:
+def _excluded_rationale_for(finding: Finding, blocker_severities: set[Severity]) -> str:
     if finding.blocks_release and finding.baseline_status == "matched":
         return (
             "blocks_release=true and baseline_status=matched, but "
             f"severity={finding.severity} is below review tier; "
             "excluded from blockers and review_items."
         )
-    if (
-        finding.baseline_status == "matched"
-        and finding.severity in blocker_severities
-    ):
+    if finding.baseline_status == "matched" and finding.severity in blocker_severities:
         return (
             f"severity={finding.severity} in blocker tier with "
             "baseline_status=matched, but below review tier; excluded."
         )
-    return (
-        f"severity={finding.severity}; below active blocker tier and "
-        "below review tier."
-    )
+    return f"severity={finding.severity}; below active blocker tier and below review tier."
 
 
 def _to_item(finding: Finding) -> ReleaseDecisionItem:
@@ -525,14 +781,12 @@ def _decision_reason(
         return f"{n} active {noun} {verb} release."
     if decision == "insufficient_evidence":
         parts: list[str] = []
+        if evidence.semantic_coverage.gap_count > 0:
+            parts.append(f"{evidence.semantic_coverage.gap_count} semantic evidence gap(s)")
         if evidence.low_confidence_tool_count > 0:
-            parts.append(
-                f"{evidence.low_confidence_tool_count} low-confidence tool(s)"
-            )
+            parts.append(f"{evidence.low_confidence_tool_count} low-confidence tool(s)")
         if evidence.source_warning_count > 0:
-            parts.append(
-                f"{evidence.source_warning_count} source warning(s)"
-            )
+            parts.append(f"{evidence.source_warning_count} source warning(s)")
         detail = " and ".join(parts) if parts else "degraded evidence"
         return (
             f"Evidence coverage below threshold ({detail}); "
@@ -551,33 +805,30 @@ def _decision_reason(
         # so using it here would falsely claim evidence gaps for clean
         # static scans that simply have high-severity findings.
         has_evidence_gaps = (
-            evidence.low_confidence_tool_count > 0
+            evidence.semantic_coverage.gap_count > 0
+            or evidence.low_confidence_tool_count > 0
             or evidence.source_warning_count > 0
         )
-        if (
-            review_items
-            and matched_criticals == n_reviews
-            and matched_criticals > 0
-        ):
+        if review_items and matched_criticals == n_reviews and matched_criticals > 0:
             return (
-                "All critical findings are baseline-matched; review "
-                "accepted debt before shipping."
+                "All critical findings are baseline-matched; review accepted debt before shipping."
             )
         if review_items and has_evidence_gaps:
             noun = "finding" if n_reviews == 1 else "findings"
-            return (
-                f"{n_reviews} {noun} need review and evidence coverage "
-                "is incomplete."
-            )
+            return f"{n_reviews} {noun} need review and evidence coverage is incomplete."
         if review_items:
             noun = "finding" if n_reviews == 1 else "findings"
             verb = "requires" if n_reviews == 1 else "require"
             return f"{n_reviews} {noun} {verb} human review before shipping."
-        if evidence.low_confidence_tool_count > 0:
+        if evidence.semantic_coverage.review_concern_count > 0:
+            n = evidence.semantic_coverage.review_concern_count
+            noun = "action" if n == 1 else "actions"
             return (
-                "Static-only scan with low-confidence evidence; human "
-                "review recommended."
+                f"{n} {noun} use known unscoped or ambient authority; "
+                "human review is required before shipping."
             )
+        if evidence.low_confidence_tool_count > 0:
+            return "Static-only scan with low-confidence evidence; human review recommended."
         if evidence.source_warning_count > 0:
             # Reachable when no review_items and human_review_recommended
             # is False but source warnings tipped us into review_required
@@ -592,4 +843,8 @@ def _decision_reason(
         # measurable evidence gaps. summarize_findings doesn't produce
         # this combination today, but cover the case explicitly.
         return "Human review recommended."
-    return "No active blockers and evidence coverage is full."
+    return (
+        "All in-scope actions have complete, conflict-free explicit or "
+        "structural static effect and authority evidence; no active blockers. "
+        "Runtime behavior was not verified."
+    )

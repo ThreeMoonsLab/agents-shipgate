@@ -394,6 +394,10 @@ action_surface:
         - external_communication
       scopes:
         - refunds:create
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: delegated
       approval:
         required: true
         threshold: "amount <= 100"
@@ -418,20 +422,39 @@ action_surface:
       block: true
 ```
 
-`actions[]` entries are keyed by loaded tool name through `tool`. Explicit
-declarations override inferred operation, effect, risk tags, scopes, approval,
-safeguards, and evidence, but weaker declarations are visible: declaring a
-lower-risk effect than Shipgate inferred emits
-`SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED`, and setting inherited approval or
-safeguards from `true` to `false` emits `SHIP-ACTION-CONTROL-DOWNGRADE`.
+`actions[]` entries are keyed by loaded tool name through `tool`. Starting with
+contract v11/report v0.29, `effect` and `authority` are reviewed static evidence
+used to establish pass eligibility. Agents Shipgate never auto-writes them.
+Scopes remain on `actions[].scopes`; do not duplicate them under `authority`.
+Authority modes are:
+
+- `none` — requires empty scopes and no `auth_type`;
+- `scoped` — requires `auth_type` and non-empty concrete scopes;
+- `unscoped` — requires `auth_type`, empty scopes, and a non-empty `reason`;
+- `ambient` — requires empty scopes and a non-empty `reason`.
+
+`none` and `scoped` can be pass-eligible after policy checks. `unscoped` and
+`ambient` always require review. Omitted, partial, invalid, or conflicting
+authority produces `insufficient_evidence`. Global `permissions.scopes` proves
+manifest coverage only; it does not fill missing per-action authority.
+
+Explicit declarations enrich operation, scopes, approval, safeguards, and
+evidence. Effect resolution remains monotonic across source and declaration
+claims: a declared effect may conservatively strengthen structural evidence,
+but a weaker declaration emits `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` and
+cannot erase the stronger effect. Manual positive risk tags may escalate risk,
+but cannot prove read-only safety or independently close an effect gap. Setting
+inherited approval or safeguards from `true` to `false` emits
+`SHIP-ACTION-CONTROL-DOWNGRADE`.
 Agents Shipgate still creates an action fact for every loaded tool when no
 declaration is present; set
 `require_explicit_actions: true` to emit `SHIP-ACTION-UNDECLARED` for tools
 that lack an explicit action declaration.
 
-Action facts are derived from the loaded tool records after static risk-hint
-enrichment and before finding evaluation. Checks and policies consume those
-facts; they do not mutate the action surface snapshot.
+Action facts are derived from loaded tool records after manifest enrichment and
+one normalized semantic assessment. Checks, policies, capability facts, and the
+release decision consume that same assessment; they do not independently infer
+a safer effect or mutate the action surface snapshot.
 
 Action IDs are deterministic. By default they use:
 
@@ -451,9 +474,11 @@ components. You may set `actions[].id` when you need a stable explicit action
 ID across source refactors.
 
 `policies[]` rules match actions by `action_ids`, `tools`, `effects`,
-`risk_tags`, or `scopes`. User-declared policies are evaluated against the full
-current action surface even when `--diff-from` is enabled; built-in escalation
-policies remain change-based. The `require` map uses dot paths over the action
+`risk_tags`, or `scopes`. User-declared policies and built-in control policies
+are evaluated against the full current action surface even when no base diff
+exists. Diff checks add change-specific findings for expansions, escalations,
+and removed controls; they do not decide whether current controls are
+evaluated. The `require` map uses dot paths over the action
 fact, with aliases for `approval.required`, `approval.threshold`, and `scopes`.
 Known `require` paths are type-checked at manifest load time; boolean controls
 such as `safeguards.audit_log` must use YAML booleans (`true`/`false`), not
@@ -511,10 +536,12 @@ Known `policies[].require` paths:
 | `operation` | string |
 | `input_schema_hash` | string |
 
-Built-in action policies cover new financial writes without approval/audit/
-idempotency, destructive actions without rollback, external communication
-without audit evidence, wildcard/admin scopes, effect escalation, declared
-effect/control downgrades, approval removal, and safeguard removal.
+Built-in current-surface action policies require approval, audit logging, and
+idempotency for financial writes; approval, confirmation, and rollback for
+destructive actions; confirmation and audit logging for external communication;
+and approval for production operations and code execution. They also cover
+wildcard/admin scopes. Diff-only findings add severity for effect escalation,
+declared effect/control downgrades, approval removal, and safeguard removal.
 
 ## Validation Evidence Artifacts
 
@@ -805,9 +832,17 @@ risk_overrides:
       reason: "This endpoint only reads refund status."
 ```
 
+`remove_tags` may remove keyword/regex hints only. Attempting to remove an
+HTTP-method, protocol, scope, typed-provider, or manually declared risk claim
+is a configuration error. Removing a heuristic tag does not remove the
+underlying semantic claim or make an uncertain action pass-eligible.
+
 ## CI Failure Policy
 
-`ci.mode: advisory` exits `0` by default. `ci.mode: strict` exits `20` on unsuppressed `critical` findings by default. Configuration, input parsing, and internal scanner errors use `2`, `3`, and `4`.
+`ci.mode: advisory` exits `0` by default. `ci.mode: strict` exits `20` on
+unsuppressed `critical` findings by default and on a semantic
+`insufficient_evidence` decision regardless of finding severity. Configuration,
+input parsing, and internal scanner errors use `2`, `3`, and `4`.
 
 Override the failing severities with `ci.fail_on`:
 

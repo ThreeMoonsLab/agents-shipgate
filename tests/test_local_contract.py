@@ -121,6 +121,8 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert "blocked" in payload["merge_verdicts"]
     assert "passed" in payload["release_decisions"]
     assert "approval" in payload["do_not_auto_assert"]
+    assert "action_effect" in payload["do_not_auto_assert"]
+    assert "action_authority" in payload["do_not_auto_assert"]
 
 
 def test_local_agent_contract_renders_stable_pretty_json() -> None:

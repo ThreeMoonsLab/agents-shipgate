@@ -373,6 +373,9 @@ def _build_release_decision(decision: ReleaseDecision) -> ReleaseDecisionSection
         evidence_coverage=decision.evidence_coverage,
         baseline_delta=decision.baseline_delta,
         fail_policy=decision.fail_policy,
+        static_analysis_only=decision.static_analysis_only,
+        runtime_behavior_verified=decision.runtime_behavior_verified,
+        static_verdict_disclaimer=decision.static_verdict_disclaimer,
     )
 
 

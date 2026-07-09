@@ -6,14 +6,15 @@ Target: local
 
 ## Release Decision
 
-Decision: insufficient_evidence
-Reason: Evidence coverage below threshold \(3 low-confidence tool\(s\) and 1 source warning\(s\)\); scan results are not trustworthy enough to gate release.
+Decision: review_required
+Reason: 1 finding need review and evidence coverage is incomplete.
 
 Blockers (0): none
 
-Review items (0): none
+Review items (1):
+- HIGH SHIP-AUTH-MISSING-SCOPE — FileReadTool lacks declared auth scopes
 
-Evidence coverage: mixed (3 low-confidence tool(s); 1 source warning(s); human review recommended)
+Evidence coverage: static (4 source warning(s); 1 semantic review concern(s); 2/3 actions pass-eligible; human review recommended)
 
 Baseline delta: not enabled
 
@@ -22,15 +23,17 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 ## Summary
 
 - Critical: 0
-- High: 0
+- High: 1
 - Medium: 0
 - Low: 0
 - Suppressed: 0
-- Status: Human review recommended (legacy; see Release Decision above)
+- Status: Warnings detected (legacy; see Release Decision above)
 
 ## Top Findings
 
-No critical or high findings.
+1. FileReadTool lacks declared auth scopes
+   Evidence: risk\_tags=\['read\_only'\]
+   Recommendation: Declare operation-specific auth scopes for FileReadTool, or explicitly declare anonymous authority when the operation requires no credentials.
 
 ## Finding Provenance
 
@@ -38,7 +41,7 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 
 | Provenance kind | Active findings |
 | --- | ---: |
-| `static_declaration` | 0 |
+| `static_declaration` | 1 |
 | `ast_extraction` | 0 |
 | `keyword_heuristic` | 0 |
 | `regex_heuristic` | 0 |
@@ -49,15 +52,39 @@ Suppressed findings excluded: 0
 
 ## Capability <-> Intent Diff
 
-No capability/intent misalignments detected from static evidence.
+Agent intent:
+
+- declared\_purpose: look up and summarize read-only support case metadata (tags: none)
+
+Actual capabilities:
+
+- FileReadTool: capability=read\_only, risk=read\_only, control=partial
+
+Policy/control gaps:
+
+- HIGH scope\_drift \[FileReadTool\]: FileReadTool lacks declared auth scopes. (at inventories/tools.json)
+  Requires: Scope-requiring tools must declare operation-specific auth scopes.
+  Release implication: Release reviewers cannot assess least privilege.
+
+Release implication:
+
+- Decision: review\_required
+- 1 release-relevant finding\(s\) require release review before shipping.
+
+Next validation:
+
+- Least-privilege scope review: Manifest and tool scopes match the narrow permissions needed for the release.
 
 ## Recommended Next Actions
 
-No action required from static findings.
+- Declare operation-specific auth scopes for FileReadTool, or explicitly declare anonymous authority when the operation requires no credentials.
 
 ## Source Warnings
 
 - CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.
+- Duplicate tool name 'lookup\_case'; kept crewai\_inventory source 'crewai\_inventory:inventories/tools.json' and merged metadata from crewai\_class\_tool source 'crewai\_agent'.
+- Duplicate tool name 'summarize\_case'; kept crewai\_inventory source 'crewai\_inventory:inventories/tools.json' and merged metadata from crewai\_function source 'crewai\_agent'.
+- Duplicate tool name 'FileReadTool'; kept crewai\_inventory source 'crewai\_inventory:inventories/tools.json' and merged metadata from crewai\_prebuilt\_tool source 'crewai\_agent'.
 
 ## Tool Surface Summary
 
@@ -65,7 +92,7 @@ No action required from static findings.
 - High-risk tools: 0
 - Wildcard tools: 0
 - Missing descriptions: 0
-- Sources: crewai_class_tool=1, crewai_function=1, crewai_prebuilt_tool=1
+- Sources: crewai_inventory=3
 
 ## Action Surface Diff
 
@@ -90,7 +117,7 @@ No local runtime trace artifacts were declared for capability evidence.
 - Class tools: 1
 - Prebuilt tools: 1
 - Dynamic or unresolved tool surfaces: 0
-- Tool inventory files: 0
+- Tool inventory files: 1
 
 CrewAI warnings:
 
@@ -98,15 +125,17 @@ CrewAI warnings:
 
 ## Findings By Category
 
-No findings.
+### Auth
+
+- HIGH: SHIP-AUTH-MISSING-SCOPE [FileReadTool] - FileReadTool lacks declared auth scopes
 
 ## Appendix: Normalized Tool Inventory
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |
-| FileReadTool | crewai\_prebuilt\_tool | \- | \- | \- | \- |
-| lookup\_case | crewai\_class\_tool | read\_only | read\_only=medium | \- | \- |
-| summarize\_case | crewai\_function | \- | \- | \- | \- |
+| FileReadTool | crewai\_inventory | read\_only | read\_only=high | \- | \- |
+| lookup\_case | crewai\_inventory | read\_only | read\_only=high | \- | \- |
+| summarize\_case | crewai\_inventory | read\_only | read\_only=high | \- | \- |
 
 
 ## Disclaimer

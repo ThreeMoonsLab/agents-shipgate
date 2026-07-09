@@ -15,3 +15,26 @@ tool_sources:
   - id: crewai_agent
     type: crewai
     path: crew.py
+
+crewai:
+  # Explicit reviewed inventory resolves the prebuilt FileReadTool stub and
+  # the AST-only binding without claiming its ambient filesystem authority is
+  # safe for unattended use.
+  tool_inventories:
+    - inventories/tools.json
+
+action_surface:
+  actions:
+    - tool: lookup_case
+      effect: read
+      authority:
+        mode: none
+    - tool: summarize_case
+      effect: read
+      authority:
+        mode: none
+    - tool: FileReadTool
+      effect: read
+      authority:
+        mode: ambient
+        reason: uses the host process filesystem authority

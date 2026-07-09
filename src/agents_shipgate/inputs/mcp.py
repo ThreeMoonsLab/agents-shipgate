@@ -3,11 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from agents_shipgate.core.domain import (
-    AuthInfo,
-    LoadedToolSource,
-    Tool,
-)
+from agents_shipgate.core.domain import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     load_structured_file_with_positions,
@@ -50,9 +46,7 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
             # branch so reviewers jump to the offending line — `wildcard:
             # true` and `tools: '*'` are different signals on different
             # lines.
-            wildcard_pointer = (
-                "/wildcard" if data.get("wildcard") is True else "/tools"
-            )
+            wildcard_pointer = "/wildcard" if data.get("wildcard") is True else "/tools"
             wildcard_pos = positions.lookup(wildcard_pointer)
             wildcard_start_line: int | None = None
             wildcard_start_column: int | None = None
@@ -104,7 +98,8 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
         input_schema = _first_present(raw, ["inputSchema", "input_schema"]) or {}
         output_schema = _first_present(raw, ["outputSchema", "output_schema"]) or {}
         annotations = raw.get("annotations") or {}
-        auth = raw.get("auth") or {}
+        raw_auth = raw.get("auth")
+        auth_explicit = "auth" in raw
         pointer = f"{pointer_prefix}/{index}"
         pos = positions.lookup(pointer)
         source_start_line: int | None = None
@@ -129,12 +124,7 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
             output_schema=output_schema if isinstance(output_schema, dict) else {},
             parameters=schema_to_parameters(input_schema),
             annotations=annotations if isinstance(annotations, dict) else {},
-            auth=AuthInfo(
-                type=auth.get("type") if isinstance(auth, dict) else None,
-                scopes=list(auth.get("scopes") or []) if isinstance(auth, dict) else [],
-                credential_mode=auth.get("credential_mode") if isinstance(auth, dict) else None,
-                source="mcp",
-            ),
+            auth=_mcp_auth_info(raw_auth, explicit=auth_explicit),
             owner=raw.get("owner"),
             extraction_confidence="high",
             extraction={"method": "mcp_json", "confidence": "high"},
@@ -154,6 +144,86 @@ def _first_present(raw: dict[str, Any], names: list[str]) -> Any:
         if name in raw:
             return raw[name]
     return None
+
+
+def _mcp_auth_info(raw_auth: Any, *, explicit: bool) -> AuthInfo:
+    invalid: list[str] = []
+    if not explicit:
+        return AuthInfo(source="mcp")
+    if not isinstance(raw_auth, dict):
+        return AuthInfo(
+            source="mcp",
+            explicit=True,
+            invalid_annotations=["auth must be an object"],
+        )
+
+    raw_type = raw_auth.get("type")
+    auth_type = raw_type.strip() if isinstance(raw_type, str) else None
+    if raw_type is not None and not auth_type:
+        invalid.append("auth.type must be a non-blank string")
+
+    raw_scopes = raw_auth.get("scopes", [])
+    scopes: list[str] = []
+    if not isinstance(raw_scopes, list):
+        invalid.append("auth.scopes must be a list of non-blank strings")
+    else:
+        for raw_scope in raw_scopes:
+            if not isinstance(raw_scope, str) or not raw_scope.strip():
+                invalid.append("auth.scopes must contain non-blank strings")
+                continue
+            scopes.append(raw_scope.strip())
+
+    required = raw_auth.get("required")
+    if "required" in raw_auth and type(required) is not bool:
+        invalid.append("auth.required must be an exact boolean")
+
+    raw_credential_mode = raw_auth.get("credential_mode")
+    credential_mode = (
+        raw_credential_mode.strip()
+        if isinstance(raw_credential_mode, str)
+        else None
+    )
+    if raw_credential_mode is not None and not credential_mode:
+        invalid.append("auth.credential_mode must be a non-blank string")
+
+    raw_mode = raw_auth.get("mode")
+    valid_modes = {"none", "scoped", "unscoped", "ambient"}
+    if raw_mode is not None and (not isinstance(raw_mode, str) or raw_mode not in valid_modes):
+        invalid.append("auth.mode must be one of none, scoped, unscoped, ambient")
+        mode = "unknown"
+    elif isinstance(raw_mode, str):
+        mode = raw_mode
+    elif required is False:
+        mode = "none"
+    elif auth_type and scopes:
+        mode = "scoped"
+    elif auth_type:
+        mode = "unscoped"
+    else:
+        mode = "unknown"
+
+    if mode == "none" and (required is True or auth_type or scopes):
+        invalid.append("auth.mode none conflicts with required credentials")
+    elif required is False and mode != "none":
+        invalid.append("auth.required false conflicts with authenticated mode")
+    elif mode == "scoped" and (not auth_type or not scopes):
+        invalid.append("auth.mode scoped requires auth.type and concrete scopes")
+    elif mode == "unscoped" and (not auth_type or scopes):
+        invalid.append("auth.mode unscoped requires auth.type and empty scopes")
+    elif mode == "ambient" and scopes:
+        invalid.append("auth.mode ambient requires empty scopes")
+
+    if invalid:
+        mode = "unknown"
+    return AuthInfo(
+        type=auth_type,
+        scopes=scopes,
+        credential_mode=credential_mode,
+        source="mcp",
+        mode=mode,
+        explicit=True,
+        invalid_annotations=invalid,
+    )
 
 
 class MCPAdapter:

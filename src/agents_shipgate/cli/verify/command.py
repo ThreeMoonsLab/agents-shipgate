@@ -14,6 +14,7 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
+from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.schemas.diagnostics import NextAction
@@ -312,6 +313,7 @@ def verify(
         typer.echo(f"Trigger: {verifier.trigger.get('rationale')}")
         typer.echo(f"Base status: {verifier.base_status}")
         typer.echo(f"Exit code: {exit_code}")
+        typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
     raise typer.Exit(exit_code)
 
 

@@ -89,6 +89,14 @@ Per-agent guides cover [Codex](agents/use-with-codex.md),
 [Claude Code](agents/use-with-claude-code.md), and
 [Cursor](agents/use-with-cursor.md).
 
+The current source tree is `0.16.0b1` (runtime contract v11); the latest
+published release remains `v0.15.0` until that beta is cut. In report v0.29,
+`passed` is an evidence-backed static verdict: every in-scope action has
+complete, conflict-free surface, effect, and authority evidence, all applicable
+controls were evaluated, and no policy condition requires review. It does not
+prove runtime behavior or enforcement. See the
+[`passed` verdict contract](passed-verdict-contract.md).
+
 In discovery metadata, `positioning.not_for[]` uses snake_case enum-like values
 for stable machine matching. `recommended_github_topics[]` uses GitHub topic
 slug format, so those values are kebab-case.
@@ -159,6 +167,6 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema (current): [`report-schema.v0.28.json`](report-schema.v0.28.json) (v0.27 frozen at [`report-schema.v0.27.json`](report-schema.v0.27.json), v0.26 frozen at [`report-schema.v0.26.json`](report-schema.v0.26.json), v0.25 frozen at [`report-schema.v0.25.json`](report-schema.v0.25.json), v0.24 frozen at [`report-schema.v0.24.json`](report-schema.v0.24.json), v0.23 frozen at [`report-schema.v0.23.json`](report-schema.v0.23.json), v0.22 frozen at [`report-schema.v0.22.json`](report-schema.v0.22.json))
-- Packet schema (current): [`packet-schema.v0.7.json`](packet-schema.v0.7.json) (v0.6 frozen at [`packet-schema.v0.6.json`](packet-schema.v0.6.json))
+- Report schema (current): [`report-schema.v0.29.json`](report-schema.v0.29.json) (v0.28 frozen at [`report-schema.v0.28.json`](report-schema.v0.28.json), v0.27 frozen at [`report-schema.v0.27.json`](report-schema.v0.27.json))
+- Packet schema (current): [`packet-schema.v0.8.json`](packet-schema.v0.8.json) (v0.7 frozen at [`packet-schema.v0.7.json`](packet-schema.v0.7.json))
 - Check catalog: [`checks.json`](checks.json)

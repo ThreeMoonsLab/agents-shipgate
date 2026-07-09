@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
+from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 from .agent_builder import _build_agent
@@ -37,6 +38,10 @@ def _build_tools_and_agent(
     # and the artifact bag; keep report warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
     tools = enrich_tools_with_risk_hints(manifest, tools)
+    tools = attach_semantic_assessments(
+        tools,
+        {entry.tool: entry for entry in manifest.action_surface.actions},
+    )
     logger.debug(
         "risk hints generated",
         extra={

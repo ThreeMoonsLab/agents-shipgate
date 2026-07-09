@@ -48,6 +48,8 @@ Do not synthesize an action from lower-level fields when `agent_action` exists.
 
 Never auto-assert these categories:
 
+- action effect declarations
+- action authority declarations
 - approval policy
 - confirmation policy
 - idempotency evidence

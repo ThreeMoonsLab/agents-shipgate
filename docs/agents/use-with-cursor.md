@@ -104,8 +104,8 @@ Cursor must not claim the change is complete when `merge_verdict` is `blocked`,
 `insufficient_evidence`, or `human_review_required` unless the user has
 explicitly accepted the human-review requirement. When `first_next_action.actor`
 or `fix_task.actor` is `human`, surface the decision for a person rather than
-inventing approval, confirmation, idempotency, waiver, baseline, or policy
-evidence.
+inventing action effect, action authority, approval, confirmation,
+idempotency, waiver, baseline, or policy evidence.
 
 Never weaken `shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`, policy
 packs, baselines, waivers, or suppressions just to make Shipgate pass — that
@@ -137,7 +137,9 @@ See [`prompts/README.md`](../../prompts/README.md) for the full convention.
 Cursor must follow the same boundary as any other agent driving Shipgate:
 
 - **What it may do mechanically** — install, detect, init, doctor, scan, summarize, add advisory CI, apply high-confidence mechanical patches (`apply-patches --confidence high --apply`), add `agents-shipgate-reports/` to `.gitignore`.
-- **What it must not assert without human review** — approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime trace evidence.
+- **What it must not assert without human review** — action effect, action
+  authority, approval, confirmation, idempotency, broad-scope,
+  prohibited-action, or runtime trace evidence.
 
 Both are spelled out in [`agent-autofix-boundary.md`](../agent-autofix-boundary.md). For ongoing PRs, read `agent-handoff.json.gate.merge_verdict` first, then `report.json.release_decision.decision`; see [`report-reading-for-agents.md`](../report-reading-for-agents.md).
 

@@ -114,9 +114,9 @@ remains the release gate.
 
 Do not self-resolve authority gaps. If `first_next_action.actor` or
 `fix_task.actor` is `human`, the coding agent must surface that item for a
-person rather than inventing approval, confirmation, idempotency,
-broad-scope, prohibited-action, waiver, baseline, suppression, or
-policy-weakening evidence.
+person rather than inventing action effect, action authority, approval,
+confirmation, idempotency, broad-scope, prohibited-action, waiver, baseline,
+suppression, or policy-weakening evidence.
 
 ## Partner Agent Prompt
 
@@ -154,9 +154,9 @@ Use the v0.15.0 verifier-first path:
 7. Ensure agents-shipgate-reports/ is ignored and not committed.
 
 Do not enable strict CI, save a baseline, suppress findings, weaken Shipgate
-policy, remove Shipgate CI, or auto-assert approval, confirmation,
-idempotency, broad-scope, prohibited-action, waiver, baseline, suppression, or
-runtime-trace evidence.
+policy, remove Shipgate CI, or auto-assert action effect, action authority,
+approval, confirmation, idempotency, broad-scope, prohibited-action, waiver,
+baseline, suppression, or runtime-trace evidence.
 ```
 
 If the partner wants the Codex skill bundle, use

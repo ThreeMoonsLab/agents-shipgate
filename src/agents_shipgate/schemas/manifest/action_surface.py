@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
@@ -125,6 +125,24 @@ class ActionEvidenceConfig(BaseModel):
     approval_ticket: str | None = None
 
 
+ActionAuthorityMode = Literal["none", "scoped", "unscoped", "ambient"]
+
+
+class ActionAuthorityConfig(BaseModel):
+    """Reviewed authority evidence for one declared action.
+
+    Scopes intentionally remain on ``ActionDeclarationConfig.scopes`` so
+    there is one canonical permission list in the manifest.
+    """
+
+    model_config = STRICT_MODEL_CONFIG
+
+    mode: ActionAuthorityMode
+    auth_type: str | None = None
+    credential_mode: str | None = None
+    reason: str | None = None
+
+
 class ActionDeclarationConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -135,9 +153,73 @@ class ActionDeclarationConfig(BaseModel):
     effect: ActionEffect | None = None
     risk_tags: list[ActionRiskTag] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
+    authority: ActionAuthorityConfig | None = None
     approval: ActionApprovalConfig | None = None
     safeguards: ActionSafeguardsConfig | None = None
     evidence: ActionEvidenceConfig | None = None
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_concrete_scopes(cls, scopes: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for scope in scopes:
+            value = scope.strip()
+            if not value:
+                raise ValueError(
+                    "action_surface.actions[].scopes must contain concrete, non-blank scope strings"
+                )
+            normalized.append(value)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_authority(self) -> ActionDeclarationConfig:
+        authority = self.authority
+        if authority is None:
+            return self
+
+        auth_type = (authority.auth_type or "").strip()
+        reason = (authority.reason or "").strip()
+        if authority.mode == "none":
+            if self.scopes:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'none' requires empty scopes"
+                )
+            if auth_type:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'none' requires no auth_type"
+                )
+        elif authority.mode == "scoped":
+            if not auth_type:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'scoped' requires auth_type"
+                )
+            if not self.scopes:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'scoped' requires non-empty scopes"
+                )
+        elif authority.mode == "unscoped":
+            if not auth_type:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'unscoped' requires auth_type"
+                )
+            if self.scopes:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'unscoped' requires empty scopes"
+                )
+            if not reason:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'unscoped' requires reason"
+                )
+        elif authority.mode == "ambient":
+            if self.scopes:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'ambient' requires empty scopes"
+                )
+            if not reason:
+                raise ValueError(
+                    "action_surface.actions[].authority.mode 'ambient' requires reason"
+                )
+        return self
 
 
 class ActionPolicyMatchConfig(BaseModel):
@@ -169,18 +251,15 @@ class ActionPolicyConfig(BaseModel):
                 continue
             if path in _ACTION_REQUIRE_BOOL_PATHS and type(expected) is not bool:
                 raise ValueError(
-                    "action_surface.policies.require "
-                    f"{raw_path!r} must be a boolean value"
+                    f"action_surface.policies.require {raw_path!r} must be a boolean value"
                 )
             if path in _ACTION_REQUIRE_STR_PATHS and not isinstance(expected, str):
                 raise ValueError(
-                    "action_surface.policies.require "
-                    f"{raw_path!r} must be a string value"
+                    f"action_surface.policies.require {raw_path!r} must be a string value"
                 )
             if path in _ACTION_REQUIRE_STR_LIST_PATHS and not _is_string_list(expected):
                 raise ValueError(
-                    "action_surface.policies.require "
-                    f"{raw_path!r} must be a list of strings"
+                    f"action_surface.policies.require {raw_path!r} must be a list of strings"
                 )
             if path == "effect" and (
                 not isinstance(expected, str) or expected not in _ACTION_EFFECT_VALUES

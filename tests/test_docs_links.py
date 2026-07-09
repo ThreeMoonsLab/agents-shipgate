@@ -242,7 +242,8 @@ def test_target_repo_snippets_pin_advisory_agent_contract():
     assert 'pr_comment: "true"' in text
     assert "apply-patches" in text
     assert "--confidence high --apply" in text
-    assert "Do not auto-assert approval" in text
+    assert "Do not auto-assert action effect" in text
+    assert "action authority, approval" in text
     assert "confirmation" in text
     assert "idempotency" in text
     assert "broad-scope" in text
@@ -262,7 +263,7 @@ def test_readme_onboarding_copy_pins_agent_contract():
     assert "agents-shipgate contract --json" in text
     assert "apply-patches" in text
     assert "--confidence high --apply" in text
-    assert "Do not auto-assert approval" in text
+    assert "auto-assert action effect, action authority" in text
     assert "confirmation" in text
     assert "idempotency" in text
     assert "broad-scope" in text

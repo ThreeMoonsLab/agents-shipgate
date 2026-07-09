@@ -96,6 +96,7 @@ def _dual_citation(primary: object | None, secondary: object | None) -> str:
         return primary_text
     return primary_text + secondary_text
 
+
 _STATUS_LABEL: dict[SectionStatus, str] = {
     "covered": "covered",
     "partial": "partial",
@@ -191,6 +192,22 @@ def _append_release_decision(lines: list[str], section: ReleaseDecisionSection) 
             "",
         ]
     )
+    semantic = section.evidence_coverage.semantic_coverage
+    lines.extend(
+        [
+            "### Static semantic coverage",
+            "",
+            (f"- Pass-eligible actions: {semantic.pass_eligible_actions}/{semantic.total_actions}"),
+            f"- Evidence gaps: {semantic.gap_count}",
+            f"- Known authority review concerns: {semantic.review_concern_count}",
+        ]
+    )
+    if semantic.reason_counts:
+        reasons = ", ".join(
+            f"{_escape(key)}={count}" for key, count in sorted(semantic.reason_counts.items())
+        )
+        lines.append(f"- Reasons: {reasons}")
+    lines.append("")
     if section.blockers:
         lines.append("### Blockers")
         lines.append("")
@@ -298,14 +315,8 @@ def _append_capability_intent(lines: list[str], section: CapabilityIntentDiff) -
     if section.divergence_findings:
         lines.append("### Divergences")
         lines.append("")
-        divergent_tools = sorted(
-            {tool for row in section.rows for tool in row.divergent}
-        )
-        suffix = (
-            f" on `{_escape(', '.join(divergent_tools))}`"
-            if divergent_tools
-            else ""
-        )
+        divergent_tools = sorted({tool for row in section.rows for tool in row.divergent})
+        suffix = f" on `{_escape(', '.join(divergent_tools))}`" if divergent_tools else ""
         for item in section.divergence_findings:
             lines.append(
                 f"- `{_escape(item.check_id)}`{suffix}: "
@@ -318,9 +329,7 @@ def _append_capability_intent(lines: list[str], section: CapabilityIntentDiff) -
 def _append_high_risk_surface(lines: list[str], section: HighRiskSurfaceSection) -> None:
     lines.append(_section_heading(3, "High-risk tool surface", section.status))
     lines.append("")
-    lines.append(
-        f"- Total tools: {section.total_tools} · High-risk: {section.high_risk_count}"
-    )
+    lines.append(f"- Total tools: {section.total_tools} · High-risk: {section.high_risk_count}")
     lines.append("")
     if section.tools:
         lines.append("| Tool | Source | Risk tags | Approval | Idempotency |")
@@ -340,9 +349,7 @@ def _append_high_risk_surface(lines: list[str], section: HighRiskSurfaceSection)
         lines.append("")
 
 
-def _append_tool_surface_diff(
-    lines: list[str], section: ToolSurfaceDiffSection
-) -> None:
+def _append_tool_surface_diff(lines: list[str], section: ToolSurfaceDiffSection) -> None:
     lines.append(f"## §3A Tool-surface diff — {_STATUS_LABEL[section.status]}")
     lines.append("")
     if not section.enabled:
@@ -379,9 +386,7 @@ def _append_tool_surface_diff(
     lines.append("")
 
 
-def _append_action_surface_diff(
-    lines: list[str], section: ActionSurfaceDiffSection
-) -> None:
+def _append_action_surface_diff(lines: list[str], section: ActionSurfaceDiffSection) -> None:
     lines.append(f"## §3B Action-surface diff — {_STATUS_LABEL[section.status]}")
     lines.append("")
     if not section.enabled:
@@ -424,9 +429,7 @@ def _append_action_surface_diff(
     lines.append("")
 
 
-def _append_approval_coverage(
-    lines: list[str], section: ApprovalCoverageSection
-) -> None:
+def _append_approval_coverage(lines: list[str], section: ApprovalCoverageSection) -> None:
     lines.append(_section_heading(4, "Approval policy coverage", section.status))
     lines.append("")
     if section.rows:
@@ -436,30 +439,20 @@ def _append_approval_coverage(
             declared = "yes" if row.declared else "no"
             source = _escape_table_cell(row.source or "—")
             gaps = _escape_table_cell(", ".join(row.gap_finding_ids) or "—")
-            lines.append(
-                f"| `{_escape_table_cell(row.tool)}` | {declared} "
-                f"| {source} | {gaps} |"
-            )
+            lines.append(f"| `{_escape_table_cell(row.tool)}` | {declared} | {source} | {gaps} |")
         lines.append("")
     else:
-        lines.append(
-            "- No high-risk tools require approval policy review for this scan."
-        )
+        lines.append("- No high-risk tools require approval policy review for this scan.")
         lines.append("")
     if section.gap_findings:
         lines.append("### Gap findings")
         lines.append("")
         for item in section.gap_findings:
-            lines.append(
-                f"- `{_escape(item.check_id)}` ({item.severity}): "
-                f"{_escape(item.title)}"
-            )
+            lines.append(f"- `{_escape(item.check_id)}` ({item.severity}): {_escape(item.title)}")
         lines.append("")
 
 
-def _append_idempotency_risk(
-    lines: list[str], section: IdempotencyRiskSection
-) -> None:
+def _append_idempotency_risk(lines: list[str], section: IdempotencyRiskSection) -> None:
     lines.append(_section_heading(5, "Idempotency / retry risk", section.status))
     lines.append("")
     retry_label = "declared" if section.retry_policy_declared else "not declared"
@@ -472,24 +465,16 @@ def _append_idempotency_risk(
             declared = "yes" if row.declared else "no"
             source = _escape_table_cell(row.source or "—")
             gaps = _escape_table_cell(", ".join(row.gap_finding_ids) or "—")
-            lines.append(
-                f"| `{_escape_table_cell(row.tool)}` | {declared} "
-                f"| {source} | {gaps} |"
-            )
+            lines.append(f"| `{_escape_table_cell(row.tool)}` | {declared} | {source} | {gaps} |")
         lines.append("")
     else:
-        lines.append(
-            "- No write-class tools require idempotency review for this scan."
-        )
+        lines.append("- No write-class tools require idempotency review for this scan.")
         lines.append("")
     if section.gap_findings:
         lines.append("### Gap findings")
         lines.append("")
         for item in section.gap_findings:
-            lines.append(
-                f"- `{_escape(item.check_id)}` ({item.severity}): "
-                f"{_escape(item.title)}"
-            )
+            lines.append(f"- `{_escape(item.check_id)}` ({item.severity}): {_escape(item.title)}")
         lines.append("")
 
 
@@ -510,13 +495,8 @@ def _append_scope_coverage(lines: list[str], section: ScopeCoverageSection) -> N
         lines.append("|---|---|---|")
         for row in section.rows:
             declared = "yes" if row.declared else "no"
-            used = (
-                ", ".join(f"`{_escape_table_cell(tool)}`" for tool in row.used_by_tools)
-                or "—"
-            )
-            lines.append(
-                f"| `{_escape_table_cell(row.scope)}` | {declared} | {used} |"
-            )
+            used = ", ".join(f"`{_escape_table_cell(tool)}`" for tool in row.used_by_tools) or "—"
+            lines.append(f"| `{_escape_table_cell(row.scope)}` | {declared} | {used} |")
         lines.append("")
     if section.unused_declared:
         lines.append("### Unused declared scopes")
@@ -534,10 +514,7 @@ def _append_scope_coverage(lines: list[str], section: ScopeCoverageSection) -> N
         lines.append("### Gap findings")
         lines.append("")
         for item in section.gap_findings:
-            lines.append(
-                f"- `{_escape(item.check_id)}` ({item.severity}): "
-                f"{_escape(item.title)}"
-            )
+            lines.append(f"- `{_escape(item.check_id)}` ({item.severity}): {_escape(item.title)}")
         lines.append("")
 
 
@@ -548,15 +525,12 @@ def _append_memory_isolation(lines: list[str], section: MemoryIsolationStatus) -
     lines.append("")
 
 
-def _append_human_in_the_loop(
-    lines: list[str], section: HumanInTheLoopEvidence
-) -> None:
+def _append_human_in_the_loop(lines: list[str], section: HumanInTheLoopEvidence) -> None:
     lines.append(_section_heading(8, "Human-in-the-loop evidence", section.status))
     lines.append("")
     lines.append(f"- Configured: {'yes' if section.is_configured else 'no'}")
     lines.append(
-        "- Human review recommended: "
-        f"{'yes' if section.human_review_recommended else 'no'}"
+        f"- Human review recommended: {'yes' if section.human_review_recommended else 'no'}"
     )
     lines.append(f"- Provenance mode: `{_escape(section.provenance_mode)}`")
     summary = section.capability_trace_summary
@@ -589,8 +563,7 @@ def _append_human_in_the_loop(
                 else ""
             )
             lines.append(
-                f"- `{_escape(item.check_id)}` ({item.severity}): "
-                f"{_escape(item.title)}{ref_suffix}"
+                f"- `{_escape(item.check_id)}` ({item.severity}): {_escape(item.title)}{ref_suffix}"
             )
         lines.append("")
     if section.capability_trace_refs:
@@ -622,34 +595,23 @@ def _append_human_in_the_loop(
             "full-fidelity provenance."
         )
         lines.append("")
-    if (
-        not section.is_configured
-        and not section.human_review_recommended
-    ):
-        lines.append(
-            "- No human-in-the-loop evidence configured — see §10."
-        )
+    if not section.is_configured and not section.human_review_recommended:
+        lines.append("- No human-in-the-loop evidence configured — see §10.")
         lines.append("")
 
 
-def _append_dynamic_scenarios(
-    lines: list[str], section: DynamicScenariosSection
-) -> None:
+def _append_dynamic_scenarios(lines: list[str], section: DynamicScenariosSection) -> None:
     lines.append(_section_heading(9, "Required dynamic scenarios", section.status))
     lines.append("")
     if section.scenarios:
         for scenario in section.scenarios:
-            lines.append(
-                f"- **{_escape(scenario.scenario)}** — {_escape(scenario.why)}"
-            )
+            lines.append(f"- **{_escape(scenario.scenario)}** — {_escape(scenario.why)}")
             if scenario.finding_ids:
                 ids = ", ".join(_escape(i) for i in scenario.finding_ids)
                 lines.append(f"  - Related finding(s): {ids}")
         lines.append("")
     else:
-        lines.append(
-            "- No additional dynamic scenarios are required from this scan."
-        )
+        lines.append("- No additional dynamic scenarios are required from this scan.")
         lines.append("")
 
 
@@ -670,9 +632,7 @@ def _append_not_proven(lines: list[str], section: NotProvenSection) -> None:
     else:
         lines.append("- Source warnings: none")
     if section.low_confidence_tools:
-        names = ", ".join(
-            f"`{_escape(name)}`" for name in section.low_confidence_tools
-        )
+        names = ", ".join(f"`{_escape(name)}`" for name in section.low_confidence_tools)
         lines.append(f"- Low-confidence tool extractions: {names}")
     else:
         lines.append("- Low-confidence tool extractions: none")

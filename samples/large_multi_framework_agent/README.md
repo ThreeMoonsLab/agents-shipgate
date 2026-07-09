@@ -3,12 +3,14 @@
 A production-shape retail-ops AI assistant for exercising Agents Shipgate at
 real scale. Most other samples are deliberately small (5–15 tools) so the
 golden reports stay scannable. This sample is the opposite: it ships ~65 tools
-across five tool sources to exercise the pipeline's merge, scope-coverage,
+across six declared tool sources to exercise the pipeline's merge, scope-coverage,
 risk-enrichment, and release-decision paths under realistic load.
 
 ## What it scans
 
-Five tool sources, all loaded statically:
+Six tool sources, all loaded statically. The reviewed inventory overlaps the
+five SDK functions intentionally: it proves the complete binding and semantic
+surface while the Python source still exercises conservative AST extraction.
 
 | Source                                   | Adapter              | Tools | Risk shape                                                    |
 | ---------------------------------------- | -------------------- | ----- | -------------------------------------------------------------- |
@@ -17,6 +19,7 @@ Five tool sources, all loaded statically:
 | [`mcp/crm-tools.json`](mcp/crm-tools.json)                           | `mcp`                | 15    | Customer comms (email/sms/in-app) + GDPR compliance ops.       |
 | [`mcp/internal-tools.json`](mcp/internal-tools.json)                 | `mcp`                | 10    | Warehouse inventory reads/writes + admin (`drain_warehouse`).  |
 | [`agents/ops_assistant.py`](agents/ops_assistant.py)                 | `openai_agents_sdk`  |  5    | SDK function tools: previews, computations, escalation.        |
+| [`inventories/ops-sdk-tools.json`](inventories/ops-sdk-tools.json)  | `mcp`                |  5    | Reviewed inventory for the same bound SDK tools; closes AST-only completeness gaps. |
 
 ## What it intentionally exercises
 

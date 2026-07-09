@@ -57,8 +57,8 @@ host-grants inventory before changing MCP servers, permission rules, hooks, or
 workflow scopes.
 
 Use `apply-patches --confidence high --apply` only for high-confidence safe
-patches. Approval, confirmation, idempotency, broad-scope, and prohibited-action
-changes require human review.
+patches. Action effect, action authority, approval, confirmation, idempotency,
+broad-scope, and prohibited-action changes require human review.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent

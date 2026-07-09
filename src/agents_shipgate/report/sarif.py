@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.core.domain import SemanticIssueKind
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.schemas.checks import CheckMetadata
 from agents_shipgate.schemas.report import (
+    EvidenceGap,
     Finding,
     ReadinessReport,
 )
@@ -16,6 +19,7 @@ from agents_shipgate.schemas.report import (
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 MAX_EVIDENCE_ITEMS = 20
 MAX_EVIDENCE_STRING_LENGTH = 1000
+SEMANTIC_GAP_RULE_PREFIX = "SHIP-SEMANTIC-"
 
 
 def write_sarif_report(report: ReadinessReport, path: Path) -> None:
@@ -29,9 +33,8 @@ def write_sarif_report(report: ReadinessReport, path: Path) -> None:
 def render_sarif_report(report: ReadinessReport) -> dict[str, Any]:
     report = sanitize_report(report)
     active_findings = [finding for finding in report.findings if not finding.suppressed]
-    metadata_by_id = {
-        metadata.id: metadata for metadata in check_catalog(plugins_enabled=False)
-    }
+    semantic_gaps = _semantic_gaps(report)
+    metadata_by_id = {metadata.id: metadata for metadata in check_catalog(plugins_enabled=False)}
     return {
         "$schema": SARIF_SCHEMA,
         "version": "2.1.0",
@@ -42,12 +45,86 @@ def render_sarif_report(report: ReadinessReport) -> dict[str, Any]:
                         "name": "Agents Shipgate",
                         "semanticVersion": __version__,
                         "informationUri": "https://github.com/ThreeMoonsLab/agents-shipgate",
-                        "rules": _rules(active_findings, metadata_by_id),
+                        "rules": [
+                            *_rules(active_findings, metadata_by_id),
+                            *_semantic_gap_rules(semantic_gaps),
+                        ],
                     }
                 },
-                "results": [_result(finding) for finding in active_findings],
+                "results": [
+                    *[_result(finding) for finding in active_findings],
+                    *[_semantic_gap_result(gap) for gap in semantic_gaps],
+                ],
+                "properties": {
+                    "release_decision": (
+                        report.release_decision.decision
+                        if report.release_decision is not None
+                        else None
+                    ),
+                    "static_analysis_only": True,
+                    "runtime_behavior_verified": False,
+                    "static_verdict_disclaimer": STATIC_VERDICT_DISCLAIMER,
+                },
             }
         ],
+    }
+
+
+def _semantic_gaps(report: ReadinessReport) -> list[EvidenceGap]:
+    if report.release_decision is None:
+        return []
+    semantic_kinds = set(get_args(SemanticIssueKind))
+    return [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind in semantic_kinds
+    ]
+
+
+def _semantic_gap_rule_id(kind: str) -> str:
+    return f"{SEMANTIC_GAP_RULE_PREFIX}{kind.replace('_', '-').upper()}"
+
+
+def _semantic_gap_rules(gaps: list[EvidenceGap]) -> list[dict[str, Any]]:
+    kinds = sorted({gap.kind for gap in gaps})
+    return [
+        {
+            "id": _semantic_gap_rule_id(kind),
+            "name": _semantic_gap_rule_id(kind),
+            "shortDescription": {
+                "text": f"Static semantic evidence gap: {kind.replace('_', ' ')}."
+            },
+            "fullDescription": {
+                "text": (
+                    "This action cannot contribute to an evidence-backed pass until "
+                    "its static effect and authority evidence is complete and "
+                    "conflict-free."
+                )
+            },
+            "defaultConfiguration": {"level": "error"},
+            "properties": {
+                "category": "semantic_evidence",
+                "tags": ["insufficient_evidence", "semantic_evidence"],
+            },
+        }
+        for kind in kinds
+    ]
+
+
+def _semantic_gap_result(gap: EvidenceGap) -> dict[str, Any]:
+    return {
+        "ruleId": _semantic_gap_rule_id(gap.kind),
+        "level": "error",
+        "message": {"text": f"{gap.subject}: {gap.why}"},
+        "properties": {
+            "category": "semantic_evidence",
+            "evidence_gap_kind": gap.kind,
+            "subject": gap.subject,
+            "source_type": gap.source_type,
+            "source_ref": gap.source_ref,
+            "next_action": gap.next_action.model_dump(mode="json"),
+            "runtime_behavior_verified": False,
+        },
     }
 
 
@@ -66,9 +143,7 @@ def _rules(
         metadata = metadata_by_id.get(finding.check_id)
         description = metadata.description if metadata else finding.check_id
         full_description = (
-            metadata.rationale or metadata.description
-            if metadata
-            else finding.recommendation
+            metadata.rationale or metadata.description if metadata else finding.recommendation
         )
         severity = metadata.default_severity if metadata else finding.severity
         tags = _sarif_tags(finding, category=metadata.category if metadata else None)
@@ -89,9 +164,7 @@ def _rules(
             rule["helpUri"] = metadata.docs_url
         if metadata and metadata.recommendation:
             rule["help"] = {"text": metadata.recommendation}
-        rules.append(
-            rule
-        )
+        rules.append(rule)
     return rules
 
 
@@ -182,9 +255,7 @@ def _policy_evidence_location(finding: Finding) -> dict[str, Any] | None:
     )
 
 
-def _source_to_location(
-    source: Any, logical_name: str | None
-) -> dict[str, Any] | None:
+def _source_to_location(source: Any, logical_name: str | None) -> dict[str, Any] | None:
     """Shared rendering core for primary and secondary source pointers.
 
     Both ``_location`` and ``_policy_evidence_location`` defer here so
@@ -273,9 +344,7 @@ def _summarize_evidence(value: Any) -> Any:
             return [_summarize_evidence(item) for item in value]
         return {
             "count": len(value),
-            "sample": [
-                _summarize_evidence(item) for item in value[:MAX_EVIDENCE_ITEMS]
-            ],
+            "sample": [_summarize_evidence(item) for item in value[:MAX_EVIDENCE_ITEMS]],
         }
     if isinstance(value, tuple | set):
         return _summarize_evidence(list(value))
