@@ -226,7 +226,58 @@ The other 10 (2 `needs_human` stripe skill PRs, adk#1975, and 7 `safe` stripe/op
   added engagement escalates some safe PRs, dominated by the cold-start
   whole-surface measurement artifact rather than a product precision regression.
   The next real-history leg is severity (review → block on a true `must_block`)
-  and a scoped-manifest re-eval that measures adopter-realistic escalation.
+  and a scoped-manifest re-eval that measures adopter-realistic escalation —
+  worked below.
+
+### 2026-W27 follow-up — adopter-realistic scoping closes the severity gap
+
+Chasing the two next legs — "turn a true `must_block` from review into block"
+and "measure escalation under an adopter-realistic scope instead of the
+whole-monorepo cold-start" — collapses them into **one lever: manifest scope.**
+It is **not** a severity problem. The engine already carries a `critical`,
+release-blocking diff check for least-privilege weakening,
+`SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED` (`checks/verify_capability_scope.py`);
+`blocked` needs a `critical` finding, and this is one. The W27
+`human_review_required` on stripe/ai#232 is a **scoping artifact**, measured on
+the real clone trees:
+
+| stripe/ai#232, real trees | source scope | base→head verdict | blocker | review items |
+|---|---|---|---|---|
+| **adopter-scoped** | the one agent file (`support_agent.py`) | **`blocked`** | `SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED` (critical, `scope_bound_removed`: `[billing_portal_sessions:create, customers:read, invoices:read] → []`) | 3 |
+| whole-repo cold-start | `init` auto-emits 16+ sources (every example agent + the toolkit library itself) | `review_required` → `human_review_required` | none (only review-tier `SHIP-SCOPE-TOOLKIT-UNBOUNDED`) | 8–9 |
+
+- **The severity gap is scope.** A manifest scoped to the agent an adopter
+  actually ships — `type: openai_agents_sdk`, `path: support_agent.py`, the file
+  that constructs the toolkit — resolves the base-side bound
+  (`StripeAgentToolkit(configuration={"actions": …})`) and the head-side removal
+  (`create_stripe_agent_toolkit(secret_key=…)`), so the critical removal check
+  fires → **`blocked`**. Real-history `blocked_recall` goes **0 → 1** under
+  adopter-realistic scoping. Pinned by `tests/test_verify_capability_scope.py`
+  (`test_pr232_bound_removal_blocks_release`).
+- **The escalation is the same scope.** The scoped verdict carries **3**
+  agent-local review items; the whole-monorepo cold-start carried 8–9 here and
+  150+ on the large repos (openai enumerating test fixtures, goose its whole MCP
+  API — the W27 `benign_escalation_rate` 0.286). Co-scanned neighbours don't mask
+  the removal (adding the toolkit library or sibling example files still blocks);
+  it is the *full* 16-source breadth that dilutes the signal and floods the
+  verdict. Scoping to the agent fixes both at once. Pinned by
+  `test_pr232_scoped_verdict_is_precise_not_whole_surface`.
+- **Honest boundary — the other `must_block` does not block under any scope.**
+  crewAIInc#169 *adds* new flow projects (not a removal), so it is outside the
+  removal check by design (`test_new_toolkit_only_in_head_emits_nothing`), and
+  its Slack/Trello write authority is flow-level `requests.post` /
+  `client.chat_postMessage` helpers in `utils/`, called from `main.py` — **not**
+  crewAI agent tools the static extractor enumerates. So adopter-scoped
+  real-history `blocked_recall` is **1/2**, not 2/2; closing the other half is an
+  extraction-coverage limit plus a policy question (should net-new flow-level
+  external-write authority hard-block, or route to review?), not a scoping fix.
+- **Follow-ups.** (1) The measurement apparatus should match the adopter: the
+  miner's cold-start scopes at the changed-files union / repo root, so its own
+  `blocked_recall` understates a scoped adopter's — a scoped miner mode is the
+  clean way to publish an adopter-realistic corpus number. (2) `init` and the
+  docs should steer adopters to scope each source at their agent
+  (directory or file), not the repo root, so the gate they get is the precise,
+  blocking one.
 
 ### 2026-W26 findings — deepen run over agent apps/toolkits
 

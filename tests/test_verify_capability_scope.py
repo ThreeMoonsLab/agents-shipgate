@@ -433,6 +433,47 @@ def test_pr232_bound_removal_blocks_release(tmp_path):
     assert finding.evidence["provider"] == "stripe"
 
 
+def test_pr232_scoped_verdict_is_precise_not_whole_surface(tmp_path):
+    """Adopter-realistic scoping fixes BOTH W27 legs at once.
+
+    The 2026-W27 re-eval showed stripe/ai#232 landing ``human_review_required``
+    (not ``blocked``) and safe PRs escalating to review — both traced to the
+    miner's whole-monorepo cold-start (``init`` emits 16+ sources: every example
+    agent + the toolkit library itself), which dilutes the base→head bound
+    removal below the ``blocked`` bar and floods the verdict with whole-surface
+    review items. A manifest scoped to the ONE agent file — what a real Stripe
+    adopter of this example would write, and what this fixture uses — makes the
+    critical removal check the sole blocker and keeps the finding set tiny
+    (agent-local), so the verdict is a precise ``blocked`` rather than a noisy
+    ``review``. This pins the precision half; the block half is pinned above.
+    """
+    base_report, _ = run_scan(
+        config_path=_cfg("base"),
+        output_dir=tmp_path / "base",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    head_report, _ = run_scan(
+        config_path=_cfg("head"),
+        output_dir=tmp_path / "head",
+        formats=["json"],
+        ci_mode="advisory",
+        diff_from_path=tmp_path / "base" / "report.json",
+        verification_context=VerificationContext(changed_files=["support_agent.py"]),
+        packet_enabled=False,
+    )
+    decision = head_report.release_decision
+    assert decision.decision == "blocked"
+    # The critical scope-broadened check is the ONLY thing gating release —
+    # no whole-surface policy/schema blockers piling on.
+    assert {b.check_id for b in decision.blockers} == {CHECK_ID}
+    # Precise, agent-local finding set — nothing like the 150+ review items the
+    # whole-monorepo cold-start produced on this same PR (the benign-escalation
+    # artifact). A generous ceiling keeps this robust to minor check additions.
+    assert len(head_report.findings) <= 8, [f.check_id for f in head_report.findings]
+
+
 def test_base_report_carries_toolkit_bound_policy_fact(tmp_path):
     base_report, _ = run_scan(
         config_path=_cfg("base"),

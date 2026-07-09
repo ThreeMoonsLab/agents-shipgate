@@ -30,12 +30,17 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 > released **v0.15.0** engine (`2026-W27-reeval`), the gate **never auto-passed
 > an unsafe change** — both real `must_block` PRs and every `needs_human` PR are
 > held for human review (`must_block_caught` / `needs_human_caught` = 1.0). **But
-> it routes to review, it does not block:** real-history `blocked_recall` is
-> still **0.0** — both `must_block` PRs return `human_review_required` /
-> `review_required`, not `blocked`. v0.15.0 cleared the 4 scan crashes and moved
-> both `must_block` PRs off abstention (`insufficient_evidence` → review), at the
-> cost of escalating 4 of 14 safe PRs to review (`benign_escalation_rate` 0.286 —
-> largely a cold-start whole-repo-surface measurement artifact on large repos).
+> it routes to review, it does not block** on the whole-monorepo cold-start:
+> real-history `blocked_recall` is **0.0** there — both `must_block` PRs return
+> `human_review_required` / `review_required`, not `blocked`. That 0.0 is a
+> **scoping artifact**: under an adopter-realistic scoped manifest (source at the
+> agent, not the repo), the stripe/ai#232 least-privilege removal **blocks** via
+> the critical `SHIP-VERIFY-CAPABILITY-SCOPE-BROADENED` check (real trees;
+> `blocked_recall` 0 → 1) — the other `must_block`, a net-new flow-level write,
+> stays review. v0.15.0 cleared the 4 scan crashes and moved both `must_block`
+> PRs off abstention (`insufficient_evidence` → review), at the cost of escalating
+> 4 of 14 safe PRs to review (`benign_escalation_rate` 0.286 — the same
+> cold-start whole-repo-surface artifact; it collapses under scoping).
 > Reliable blocked-recall (1.0) and zero benign escalation are proven on the
 > constructed-adversarial stratum, not yet on real history. Labels are
 > AI-adjudicated (0 disagreement), pending human spot-check. Treat it as an
