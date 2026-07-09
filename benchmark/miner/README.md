@@ -90,7 +90,7 @@ python -m benchmark.miner evaluate \
 | [`2026-W24-mined.csv`](results/2026-W24-mined.csv) | 2026-06-12 | stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples | 121 (latest 40 merged PRs each + stripe/ai#232) | Schema v0.2 (re-run with baseline-gated `verify_*` receipts; supersedes the v0.1 artifact in place). **Labeled + scored** (see W24–W25 section; first real `must_block` rows). Findings below. |
 | [`2026-W25-mined.csv`](results/2026-W25-mined.csv) | 2026-06-12 | google/adk-samples, langchain-ai/langgraph, modelcontextprotocol/servers | 120 (latest 40 merged PRs each) | Widen run over 3 new framework families. Schema v0.2. **Labeled + scored** (see W24–W25 section). Findings below. |
 | [`2026-W26-mined.csv`](results/2026-W26-mined.csv) | 2026-06-16 | stripe/agent-toolkit → **stripe/ai** (see note), block/goose, pydantic/pydantic-ai | 120 (latest 40 merged PRs each) | Deepen run over agent **apps/toolkits**. First run with `tools_scanned` captured (#223); decided rows are cold-start `head_decision=review_required` but `verify`-effective `insufficient_evidence`. Schema v0.2. Findings below. |
-| [`2026-W27-reeval.csv`](results/2026-W27-reeval.csv) | 2026-07-08 | the 19 labeled PRs (stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples, google/adk-samples, block/goose) | 19 (re-eval at fixed SHAs, not a fresh mine) | **v0.15.0 delta on the labeled corpus.** Same PRs / same base→head SHAs as W24–W26, re-run on the released engine. Clears the 4 scan crashes; both `must_block` move abstain→review but `blocked_recall` stays 0.0. Off the `*-mined` glob by design. Findings below. |
+| [`2026-W27-reeval.csv`](results/2026-W27-reeval.csv) | 2026-07-08 | the 19 labeled PRs (stripe/ai, openai/openai-agents-python, crewAIInc/crewAI-examples, google/adk-samples, aaif-goose/goose — formerly block/goose) | 19 (re-eval at fixed SHAs, not a fresh mine) | **v0.15.0 delta on the labeled corpus.** Same PRs / same base→head SHAs as W24–W26, re-run on the released engine. Clears the 4 scan crashes; both `must_block` move abstain→review but `blocked_recall` stays 0.0. Off the `*-mined` glob by design. Findings below. |
 
 > **W26 repo note (data-integrity):** `gh pr list --repo stripe/agent-toolkit`
 > follows GitHub's transfer redirect — `stripe/agent-toolkit` was folded into the
@@ -174,10 +174,10 @@ Per-PR delta (9 of 19 moved):
 |---|---|---|---|
 | stripe/ai#232 | `must_block` | insufficient_evidence | **human_review_required** |
 | crewAIInc/crewAI-examples#169 | `must_block` | insufficient_evidence | **review_required** |
-| block/goose#9637 | `safe` | scan_failed | insufficient_evidence |
-| block/goose#9684 | `safe` | scan_failed | insufficient_evidence |
-| block/goose#9717 | `safe` | scan_failed | **human_review_required** |
-| block/goose#9798 | `safe` | scan_failed | insufficient_evidence |
+| aaif-goose/goose#9637 | `safe` | scan_failed | insufficient_evidence |
+| aaif-goose/goose#9684 | `safe` | scan_failed | insufficient_evidence |
+| aaif-goose/goose#9717 | `safe` | scan_failed | **human_review_required** |
+| aaif-goose/goose#9798 | `safe` | scan_failed | insufficient_evidence |
 | crewAIInc/crewAI-examples#184 | `safe` | insufficient_evidence | **review_required** |
 | openai/openai-agents-python#3461 | `safe` | insufficient_evidence | **human_review_required** |
 | openai/openai-agents-python#3518 | `safe` | insufficient_evidence | **human_review_required** |
@@ -185,9 +185,9 @@ Per-PR delta (9 of 19 moved):
 The other 10 (2 `needs_human` stripe skill PRs, adk#1975, and 7 `safe` stripe/openai/adk PRs) stay `insufficient_evidence` on both engines.
 
 - **1. Scan crashes cleared (4/4).** The goose `Duplicate action_surface
-  action_id` crash-degrade (#256) holds on real history: all four `block/goose`
-  `scan_failed` rows now evaluate (three → IE, one → human review). This is the
-  clean, unambiguous win.
+  action_id` crash-degrade (#256) holds on real history: all four
+  `aaif-goose/goose` `scan_failed` rows now evaluate (three → IE, one → human
+  review). This is the clean, unambiguous win.
 - **2. Both real `must_block` PRs move off abstention — to review, not block.**
   stripe/ai#232 goes IE → `human_review_required` on a **clean verify receipt**
   (`can_merge_without_human=false`); crewAIInc#169 goes IE → `review_required`
@@ -219,9 +219,9 @@ The other 10 (2 `needs_human` stripe skill PRs, adk#1975, and 7 `safe` stripe/op
   not the whole monorepo + tests) would not see most of these, so **0.286
   overstates** the escalation a real adopter would experience.
 - **Reading.** v0.15.0 does what its fixes intended: no more hard crashes, and
-  the gate now **engages** real capability-bearing changes — both `must_block`
-  PRs and four more — instead of abstaining, and on the #232 anchor the concrete
-  finding is correct. That is a real improvement in "never silently pass." It is
+  the gate now **engages** rather than abstains on more of the corpus — both
+  `must_block` PRs and four additional (`safe`) rows — and on the #232 anchor the
+  concrete finding is substantively correct. That is a real improvement in "never silently pass." It is
   **not** yet a *blocking* gate on real history (`blocked_recall` 0.0), and the
   added engagement escalates some safe PRs, dominated by the cold-start
   whole-surface measurement artifact rather than a product precision regression.
