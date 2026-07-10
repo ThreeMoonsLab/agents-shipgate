@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.29",
+  "report_schema_version": "0.30",
   "run_id": "agents_shipgate_d748e20410a8653a",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {

@@ -11,9 +11,10 @@ agents-shipgate contract --json
 ```
 
 Runtime contract v11 makes `passed` an evidence-backed static verdict and
-publishes report v0.29, packet v0.8, capability standard v0.2, capability lock
-v0.3, and capability-lock diff v0.4. Report fields are additive over v0.28,
-but the pre-1.0 meaning of `passed` is deliberately stricter. v10 added
+publishes report v0.30, packet v0.8, capability standard v0.2, capability lock
+v0.3, and capability-lock diff v0.4. Report v0.30 fields are additive over
+v0.29; the stricter pre-1.0 meaning of `passed` introduced in v0.29 is
+unchanged. v10 added
 `verify_required` to `agent_result_control_fields` and to the boundary result.
 The runtime contract also exposes the local agent command spec:
 `primary_commands{}`, `commands{}`, `default_paths{}`, `artifacts{}`,
@@ -42,7 +43,7 @@ Downstream repos generated with
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b1` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `11`
-- Current report schema: `0.29` — [`docs/report-schema.v0.29.json`](report-schema.v0.29.json)
+- Current report schema: `0.30` — [`docs/report-schema.v0.30.json`](report-schema.v0.30.json)
 - Current packet schema: `0.8` — [`docs/packet-schema.v0.8.json`](packet-schema.v0.8.json)
 - Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
 - Current verify-run schema: `shipgate.verify_run/v1` — [`docs/verify-run-schema.v1.json`](verify-run-schema.v1.json)
@@ -58,7 +59,7 @@ Downstream repos generated with
 - Current host-grants inventory schema: `0.1` — [`docs/host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
-- Frozen-reference report schemas: frozen [`v0.28`](report-schema.v0.28.json), frozen [`v0.27`](report-schema.v0.27.json), frozen [`v0.26`](report-schema.v0.26.json), frozen [`v0.25`](report-schema.v0.25.json), frozen [`v0.24`](report-schema.v0.24.json), frozen [`v0.23`](report-schema.v0.23.json), frozen [`v0.22`](report-schema.v0.22.json), frozen [`v0.21`](report-schema.v0.21.json), frozen [`v0.20`](report-schema.v0.20.json), frozen [`v0.19`](report-schema.v0.19.json), frozen [`v0.18`](report-schema.v0.18.json), frozen [`v0.17`](report-schema.v0.17.json), frozen [`v0.16`](report-schema.v0.16.json), frozen [`v0.15`](report-schema.v0.15.json), frozen [`v0.14`](report-schema.v0.14.json), frozen [`v0.13`](report-schema.v0.13.json), frozen [`v0.12`](report-schema.v0.12.json), frozen [`v0.11`](report-schema.v0.11.json), frozen [`v0.10`](report-schema.v0.10.json), frozen [`v0.9`](report-schema.v0.9.json), frozen [`v0.8`](report-schema.v0.8.json), frozen [`v0.7`](report-schema.v0.7.json), frozen [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: frozen [`v0.29`](report-schema.v0.29.json), frozen [`v0.28`](report-schema.v0.28.json), frozen [`v0.27`](report-schema.v0.27.json), frozen [`v0.26`](report-schema.v0.26.json), frozen [`v0.25`](report-schema.v0.25.json), frozen [`v0.24`](report-schema.v0.24.json), frozen [`v0.23`](report-schema.v0.23.json), frozen [`v0.22`](report-schema.v0.22.json), frozen [`v0.21`](report-schema.v0.21.json), frozen [`v0.20`](report-schema.v0.20.json), frozen [`v0.19`](report-schema.v0.19.json), frozen [`v0.18`](report-schema.v0.18.json), frozen [`v0.17`](report-schema.v0.17.json), frozen [`v0.16`](report-schema.v0.16.json), frozen [`v0.15`](report-schema.v0.15.json), frozen [`v0.14`](report-schema.v0.14.json), frozen [`v0.13`](report-schema.v0.13.json), frozen [`v0.12`](report-schema.v0.12.json), frozen [`v0.11`](report-schema.v0.11.json), frozen [`v0.10`](report-schema.v0.10.json), frozen [`v0.9`](report-schema.v0.9.json), frozen [`v0.8`](report-schema.v0.8.json), frozen [`v0.7`](report-schema.v0.7.json), frozen [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 - Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
@@ -557,7 +558,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.29.json`](report-schema.v0.29.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.30.json`](report-schema.v0.30.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.8.json`](packet-schema.v0.8.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.

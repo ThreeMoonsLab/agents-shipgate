@@ -191,6 +191,7 @@ def _sanitize_for_output(
             inputs.langchain,
             inputs.crewai,
             inputs.n8n,
+            inputs.conductor,
         ),
         stats=privacy_stats,
         path="frameworks",

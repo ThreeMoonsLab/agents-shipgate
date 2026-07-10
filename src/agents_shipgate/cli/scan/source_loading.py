@@ -293,6 +293,7 @@ def _source_priority(tool: Tool) -> int:
         "n8n_code_tool": 10,
         "n8n_http_tool": 10,
         "n8n_mcp_client_tool": 10,
+        "conductor_mcp_call": 10,
         "sdk_function": 10,
         "google_adk_config": 5,
         "crewai_prebuilt_tool": 5,

@@ -387,6 +387,46 @@ class N8nArtifacts(BaseModel):
             "warnings": self.warnings,
         }
 
+
+class ConductorArtifacts(BaseModel):
+    """Sanitized static facts extracted from Conductor OSS workflow JSON."""
+
+    model_config = ConfigDict(extra="allow")
+
+    workflow_files: list[str] = Field(default_factory=list)
+    workflows: list[dict[str, Any]] = Field(default_factory=list)
+    task_count: int = 0
+    llm_tasks: list[dict[str, Any]] = Field(default_factory=list)
+    llm_advertised_tools: list[dict[str, Any]] = Field(default_factory=list)
+    mcp_discovery_tasks: list[dict[str, Any]] = Field(default_factory=list)
+    mcp_call_tasks: list[dict[str, Any]] = Field(default_factory=list)
+    human_checkpoints: list[dict[str, Any]] = Field(default_factory=list)
+    sub_workflows: list[dict[str, Any]] = Field(default_factory=list)
+    dynamic_tool_surfaces: list[dict[str, Any]] = Field(default_factory=list)
+    unsupported_capabilities: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    def surface_summary(self) -> dict[str, Any]:
+        structurally_gated = sum(
+            1
+            for item in self.mcp_call_tasks
+            if item.get("preceding_checkpoint_refs")
+        )
+        return {
+            "workflow_file_count": len(self.workflow_files),
+            "workflow_count": len(self.workflows),
+            "task_count": self.task_count,
+            "llm_task_count": len(self.llm_tasks),
+            "mcp_discovery_task_count": len(self.mcp_discovery_tasks),
+            "mcp_call_task_count": len(self.mcp_call_tasks),
+            "human_checkpoint_count": len(self.human_checkpoints),
+            "structurally_gated_mcp_call_count": structurally_gated,
+            "sub_workflow_task_count": len(self.sub_workflows),
+            "dynamic_tool_surface_count": len(self.dynamic_tool_surfaces),
+            "unsupported_capability_count": len(self.unsupported_capabilities),
+            "warnings": self.warnings,
+        }
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []

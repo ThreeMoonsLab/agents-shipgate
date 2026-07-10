@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Conductor OSS workflow JSON adapter.** A built-in, per-scan `conductor`
+  source statically enumerates literal MCP calls and records MCP discovery,
+  LLM tool advertisements, HUMAN checkpoints, nested control-flow tasks, and
+  local sub-workflows. Dynamic or unresolved tool surfaces emit
+  `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE`; unsupported worker,
+  HTTP, A2A, provider-native, and runtime-generated capabilities remain
+  explicit evidence gaps. Report schema advances to v0.30; manifest v0.1,
+  packet v0.8, and runtime contract v11 remain unchanged. `conductor` is now a
+  reserved built-in `tool_sources[].type` and may conflict with a third-party
+  adapter that previously used the same source type.
 - **Evidence-backed `passed` verdict (`0.16.0b1`).** `passed` now requires
   complete, conflict-free static surface, effect, and authority evidence for
   every in-scope action, evaluation of all applicable controls, and no policy

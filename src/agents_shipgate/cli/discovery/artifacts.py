@@ -40,6 +40,15 @@ N8N_WORKFLOW_PATTERNS = (
     "n8n/**/*.json",
     "*workflow*.json",
 )
+CONDUCTOR_WORKFLOW_PATTERNS = (
+    "workflows/*.json",
+    "workflows/**/*.json",
+    "conductor/*.json",
+    "conductor/**/*.json",
+    "ai/examples/*.json",
+    "ai/examples/**/*.json",
+    "*workflow*.json",
+)
 N8N_CREDENTIAL_STUB_PATTERNS = (
     "credentials/*.json",
     "credentials/**/*.json",
@@ -131,6 +140,17 @@ def probe_suggested_source(workspace: Path, rel_path: str, source_type: str) -> 
         from agents_shipgate.inputs.mcp import load_mcp_tools as loader
     elif source_type == "openapi":
         from agents_shipgate.inputs.openapi import load_openapi_tools as loader
+    elif source_type == "conductor":
+        from agents_shipgate.inputs.common import load_structured_file
+        from agents_shipgate.inputs.conductor import conductor_agent_task_types
+
+        try:
+            data = load_structured_file((workspace / rel_path).resolve())
+        except InputParseError as exc:
+            return _probe_failure_reason(workspace, rel_path, source_type, str(exc))
+        if not conductor_agent_task_types(data):
+            return "not a Conductor AI/MCP workflow JSON document"
+        return None
     else:
         return None
     source = ToolSourceConfig(id=f"probe_{source_type}", type=source_type, path=rel_path)
@@ -203,6 +223,21 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
                 {
                     "id": _source_id(path, "mcp"),
                     "type": "mcp",
+                    "path": rel,
+                }
+            )
+    for pattern in CONDUCTOR_WORKFLOW_PATTERNS:
+        for path in _candidate_files_matching(workspace, (pattern,)):
+            if path in seen:
+                continue
+            rel = _relative(path, workspace)
+            if probe_suggested_source(workspace, rel, "conductor") is not None:
+                continue
+            seen.add(path)
+            sources.append(
+                {
+                    "id": _source_id(path, "conductor"),
+                    "type": "conductor",
                     "path": rel,
                 }
             )

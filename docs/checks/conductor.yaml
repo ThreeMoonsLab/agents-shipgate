@@ -1,0 +1,15 @@
+# Check catalog · category: conductor
+checks:
+- id: SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+  default_severity: high
+  mvp_tier: adapter
+  description: Conductor tool surface cannot be statically enumerated.
+  rationale: |-
+    Runtime MCP targets, dynamic LLM tool advertisements, generated tasks, and unresolved sub-workflows prevent a deterministic release review from enumerating the action surface.
+  fires_when: |-
+    A Conductor workflow uses a dynamic or missing MCP method/server, a dynamic LLM tool advertisement, a runtime-generated task, or a sub-workflow target that cannot be resolved from local workflow JSON.
+  evidence_fields:
+  - surface
+  - explicit_inventory
+  recommendation: |-
+    Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.

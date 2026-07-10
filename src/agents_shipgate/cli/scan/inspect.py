@@ -7,6 +7,7 @@ from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
+    ConductorArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
@@ -92,6 +93,7 @@ def inspect_sources(
     langchain_artifacts = artifact_bag.get("langchain", LangChainArtifacts)
     crewai_artifacts = artifact_bag.get("crewai", CrewAiArtifacts)
     n8n_artifacts = artifact_bag.get("n8n", N8nArtifacts)
+    conductor_artifacts = artifact_bag.get("conductor", ConductorArtifacts)
     api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
     anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
     codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
@@ -128,6 +130,7 @@ def inspect_sources(
             langchain_artifacts,
             crewai_artifacts,
             n8n_artifacts,
+            conductor_artifacts,
         ),
         "codex_plugin_surface": (
             codex_plugin_artifacts.surface_summary().model_dump(mode="json")

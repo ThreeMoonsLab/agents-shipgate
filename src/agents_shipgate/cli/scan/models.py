@@ -7,6 +7,7 @@ from typing import Any
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
+    ConductorArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
@@ -68,6 +69,7 @@ class _LoadedInputs:
     langchain: LangChainArtifacts | None
     crewai: CrewAiArtifacts | None
     n8n: N8nArtifacts | None
+    conductor: ConductorArtifacts | None
     api: OpenAIApiArtifacts | None
     anthropic: AnthropicArtifacts | None
     codex_plugin: CodexPluginArtifacts | None

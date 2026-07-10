@@ -227,7 +227,7 @@ def test_governance_benchmark_schemas_validate_catalog_and_result(tmp_path: Path
 
 
 def test_governance_benchmark_preserves_public_schema_boundaries() -> None:
-    assert ReadinessReport.model_fields["report_schema_version"].default == "0.29"
+    assert ReadinessReport.model_fields["report_schema_version"].default == "0.30"
     assert CAPABILITY_LOCK_SCHEMA_VERSION == "0.3"
     assert CAPABILITY_LOCK_DIFF_SCHEMA_VERSION == "0.4"
     assert GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION == "0.2"

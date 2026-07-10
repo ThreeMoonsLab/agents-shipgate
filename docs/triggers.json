@@ -111,6 +111,21 @@
       "rationale": "n8n workflow JSON declares an AI tool surface (AI Agent tool sub-nodes, MCP client/server tools, HTTP Request tools); `n8n-nodes-*` node-type tokens are the stable in-diff marker. Changes need a tool-use readiness check."
     },
     {
+      "id": "TRIGGER-CONDUCTOR-WORKFLOW-CHANGED",
+      "agents_md_row": "Adds/changes Conductor OSS workflow JSON with AI/MCP tasks",
+      "when": {
+        "any_of": [
+          {"diff_contains": "CALL_MCP_TOOL"},
+          {"diff_contains": "LIST_MCP_TOOLS"},
+          {"diff_contains": "LLM_CHAT_COMPLETE"},
+          {"glob": "**/conductor/**/*.json"},
+          {"glob": "**/ai/examples/**/*.json"}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "Conductor OSS workflow JSON can declare runtime MCP discovery/calls and LLM tool-selection surfaces; changes need deterministic static review."
+    },
+    {
       "id": "TRIGGER-FUNCTION-TOOL-DECORATOR",
       "agents_md_row": "Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK)",
       "when": {
@@ -170,7 +185,8 @@
           {"diff_contains": "openai-agents"},
           {"diff_contains": "langchain"},
           {"diff_contains": "crewai"},
-          {"diff_contains": "google-adk"}
+          {"diff_contains": "google-adk"},
+          {"diff_contains": "conductor-oss"}
         ]
       },
       "action": "dry_run",

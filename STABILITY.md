@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.29`) is still additive-versioned and
+(`report_schema_version`, currently `0.30`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -16,6 +16,12 @@ for reproducible CI.
 <a id="migration-note-0-16-0b1"></a>
 
 ## Migration Note: 0.16.0b1
+
+The built-in Conductor OSS workflow adapter additively advances the report
+schema `0.29 → 0.30` by defining `frameworks.conductor` count and warning
+fields. Report v0.29 remains frozen; the semantic pass contract introduced in
+v0.29 is unchanged. Manifest schema `0.1`, packet schema `0.8`, and runtime
+contract `11` are unchanged.
 
 `0.16.0b1` is a pre-release of the `0.16` contract line. It deliberately
 tightens the meaning of `release_decision.decision: "passed"`: every in-scope

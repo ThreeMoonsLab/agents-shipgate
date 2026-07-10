@@ -31,6 +31,7 @@ _DEFAULT_FIXTURES = (
     "google_adk_agent",
     "simple_langchain_agent",
     "simple_crewai_agent",
+    "conductor_agent",
 )
 
 

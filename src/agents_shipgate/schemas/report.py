@@ -889,7 +889,7 @@ class ReadinessReport(BaseModel):
     # The release gate is unchanged; these are org-governance audit fields.
     # v0.29: additive semantic assessments and zero-tolerance semantic
     # evidence coverage make ``passed`` evidence-backed.
-    report_schema_version: str = "0.29"
+    report_schema_version: str = "0.30"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

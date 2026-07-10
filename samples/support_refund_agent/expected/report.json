@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.29",
-  "run_id": "agents_shipgate_2b95e86d86e1621c",
+  "report_schema_version": "0.30",
+  "run_id": "agents_shipgate_eae2aebe6f2524ce",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
@@ -984,7 +984,7 @@
               "source": "risk_hint:manual",
               "source_pointer": "/tools/1",
               "evidence": {
-                "tag": "external_write",
+                "tag": "customer_communication",
                 "hint_source": "manual",
                 "reason": "Communicates refund status but cannot move funds.",
                 "confidence": "manual"
@@ -998,7 +998,7 @@
               "source": "risk_hint:manual",
               "source_pointer": "/tools/1",
               "evidence": {
-                "tag": "customer_communication",
+                "tag": "external_write",
                 "hint_source": "manual",
                 "reason": "Communicates refund status but cannot move funds.",
                 "confidence": "manual"
@@ -1264,6 +1264,19 @@
               "source": "openapi_method",
               "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
               "evidence": {
+                "method": "POST"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+              "evidence": {
+                "tag": "destructive",
+                "hint_source": "keyword",
                 "method": "POST"
               }
             }
@@ -3014,7 +3027,7 @@
                 "source": "risk_hint:manual",
                 "source_pointer": "/tools/1",
                 "evidence": {
-                  "tag": "external_write",
+                  "tag": "customer_communication",
                   "hint_source": "manual",
                   "reason": "Communicates refund status but cannot move funds.",
                   "confidence": "manual"
@@ -3028,7 +3041,7 @@
                 "source": "risk_hint:manual",
                 "source_pointer": "/tools/1",
                 "evidence": {
-                  "tag": "customer_communication",
+                  "tag": "external_write",
                   "hint_source": "manual",
                   "reason": "Communicates refund status but cannot move funds.",
                   "confidence": "manual"
@@ -3764,6 +3777,19 @@
                 "source": "openapi_method",
                 "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
                 "evidence": {
+                  "method": "POST"
+                }
+              },
+              {
+                "dimension": "effect",
+                "value": "destructive",
+                "confidence": "medium",
+                "provenance_kind": "keyword_heuristic",
+                "source": "risk_hint:keyword",
+                "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+                "evidence": {
+                  "tag": "destructive",
+                  "hint_source": "keyword",
                   "method": "POST"
                 }
               }

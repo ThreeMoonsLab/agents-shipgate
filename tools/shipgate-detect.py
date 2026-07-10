@@ -64,7 +64,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "0.2.1"
+SCRIPT_VERSION = "0.2.2"
 
 # Framework signal vocabulary (mirror of cli/discovery/signals.py).
 LANGCHAIN_IMPORTS = {
@@ -93,11 +93,12 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
     "anthropic": ("anthropic",),
     "openai_agents_sdk": ("openai-agents", "openai_agents", "agents"),
     "n8n": ("n8n", "@n8n/n8n-nodes-langchain"),
+    "conductor": ("conductor-client", "conductor-server", "conductor-oss"),
     "openai_api": (),
 }
 FRAMEWORKS = (
     "langchain", "crewai", "google_adk", "anthropic",
-    "openai_agents_sdk", "n8n", "openai_api",
+    "openai_agents_sdk", "n8n", "conductor", "openai_api",
 )
 OPENAPI_PATTERNS = (
     "*openapi*.yaml", "*openapi*.yml", "*openapi*.json",
@@ -109,6 +110,12 @@ ANTHROPIC_POLICY_PATTERNS = ("policies/*anthropic*.yaml", "policies/anthropic-po
 N8N_WORKFLOW_PATTERNS = (
     "workflows/*.json", "workflows/**/*.json",
     "n8n/*.json", "n8n/**/*.json",
+    "*workflow*.json",
+)
+CONDUCTOR_WORKFLOW_PATTERNS = (
+    "workflows/*.json", "workflows/**/*.json",
+    "conductor/*.json", "conductor/**/*.json",
+    "ai/examples/*.json", "ai/examples/**/*.json",
     "*workflow*.json",
 )
 OPENAI_API_PATTERNS = (
@@ -205,6 +212,37 @@ def _looks_like_n8n_workflow(path: Path) -> bool:
     return False
 
 
+def _conductor_agent_markers(data: Any) -> set[str]:
+    candidates = data if isinstance(data, list) else [data]
+    if not candidates:
+        return set()
+    for item in candidates:
+        if not (
+            isinstance(item, dict)
+            and isinstance(item.get("name"), str)
+            and bool(item["name"].strip())
+            and isinstance(item.get("tasks"), list)
+            and bool(item["tasks"])
+            and item.get("schemaVersion", 2) == 2
+        ):
+            return set()
+    markers: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            task_type = value.get("type")
+            if task_type in {"CALL_MCP_TOOL", "LIST_MCP_TOOLS", "LLM_CHAT_COMPLETE"}:
+                markers.add(str(task_type))
+            for nested in value.values():
+                walk(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                walk(nested)
+
+    walk(data)
+    return markers
+
+
 def _probe_suggested(workspace: Path, rel: str, kind: str) -> str | None:
     """Return ``None`` if the input adapters would accept ``rel`` as a
     ``kind`` tool source, else a one-line reason ``scan`` would reject it.
@@ -229,6 +267,10 @@ def _probe_suggested(workspace: Path, rel: str, kind: str) -> str | None:
         return None  # Non-JSON we can't read — conservative keep.
     if kind == "mcp":
         return _probe_mcp(data)
+    if kind == "conductor":
+        return None if _conductor_agent_markers(data) else (
+            "not a Conductor AI/MCP workflow JSON document"
+        )
     return _probe_openapi(data)
 
 
@@ -402,6 +444,20 @@ def detect(workspace: Path) -> dict[str, Any]:
     for p in _glob(workspace, files, N8N_WORKFLOW_PATTERNS):
         if _looks_like_n8n_workflow(workspace / p):
             _add(scores, "n8n", 2.0, "strong", f"n8n workflow: {p}")
+    for p in _glob(workspace, files, CONDUCTOR_WORKFLOW_PATTERNS):
+        try:
+            data = json.loads((workspace / p).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        markers = _conductor_agent_markers(data)
+        if markers:
+            _add(
+                scores,
+                "conductor",
+                2.0,
+                "strong",
+                f"Conductor AI/MCP workflow: {p} ({', '.join(sorted(markers))})",
+            )
 
     present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
     for fw in FRAMEWORKS:
@@ -449,7 +505,11 @@ def detect(workspace: Path) -> dict[str, Any]:
     # is reported under excluded_sources instead. Mirrors signals.py.
     candidates: list[tuple[str, str]] = []
     seen_cand: set[tuple[str, str]] = set()
-    for kind, patterns in (("openapi", OPENAPI_PATTERNS), ("mcp", MCP_PATTERNS)):
+    for kind, patterns in (
+        ("openapi", OPENAPI_PATTERNS),
+        ("mcp", MCP_PATTERNS),
+        ("conductor", CONDUCTOR_WORKFLOW_PATTERNS),
+    ):
         for p in _glob(workspace, files, patterns):
             if kind == "mcp" and Path(p).name == ".mcp.json":
                 continue

@@ -4,7 +4,7 @@
 
 A manifest is valid when it declares at least one of:
 
-- `tool_sources` for MCP, OpenAPI, optional OpenAI Agents SDK metadata, Google ADK static metadata, LangChain/LangGraph Python, or CrewAI Python.
+- `tool_sources` for MCP, OpenAPI, optional OpenAI Agents SDK metadata, Google ADK static metadata, LangChain/LangGraph Python, CrewAI Python, or Conductor OSS workflow JSON.
 - `openai_api` for simple OpenAI API apps that use prompt files, OpenAI tool schemas, and structured output schemas directly.
 - `google_adk` for explicit Google ADK Agent Config, eval, trace, or inventory artifacts.
 - `langchain` and `crewai` for supplemental Python entrypoints and explicit local tool inventories.
@@ -299,6 +299,33 @@ adapter-specific display text; the structured navigation fields are
 Human-review nodes such as n8n Send-and-Wait are recorded for reviewer context
 only. They do not satisfy `policies.approval`; high-risk n8n tools need
 explicit policy declarations in the manifest.
+
+## Conductor OSS
+
+Conductor OSS MCP/AI workflows use ordinary `tool_sources`; there is no
+top-level `conductor:` block.
+
+```yaml
+tool_sources:
+  - id: conductor_workflows
+    type: conductor
+    path: workflows/
+    optional: false
+```
+
+`path` may be one JSON workflow, a bulk array of workflows, or a directory
+recursively containing JSON. The adapter accepts `schemaVersion: 2` (or an
+omitted schema version), enumerates literal `CALL_MCP_TOOL.method` call sites,
+and records MCP discovery, LLM, HUMAN, branch/loop/fork, and sub-workflow facts.
+It never starts Conductor, connects to MCP/model endpoints, executes workflow
+expressions, or imports custom workers.
+
+Dynamic MCP targets, runtime-generated tasks, and unresolved sub-workflows are
+reported as non-enumerable surfaces. HTTP, custom worker, A2A, inline-code, and
+provider-native execution are recognized but intentionally unsupported in the
+MCP-core v1 adapter; their source warnings prevent a silent `passed` result.
+`HUMAN` is structural checkpoint evidence only and never satisfies an approval
+policy by itself.
 
 ## OpenAI API Artifacts
 

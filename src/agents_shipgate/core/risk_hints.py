@@ -109,6 +109,7 @@ _KEYWORD_GATED_SOURCE_TYPES = {
     "n8n_http_tool",
     "n8n_mcp_client_tool",
     "n8n_inventory",
+    "conductor_mcp_call",
 }
 
 

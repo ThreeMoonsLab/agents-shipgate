@@ -35,7 +35,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.29.json`](report-schema.v0.29.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.29"`, normalized semantic assessments, zero-tolerance semantic evidence coverage for `passed`, and an explicit static-only verdict boundary)
+- [`report-schema.v0.30.json`](report-schema.v0.30.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.30"` and add the Conductor OSS framework summary)
+- [`report-schema.v0.29.json`](report-schema.v0.29.json) — frozen v0.29 reference schema; introduced normalized semantic assessments, zero-tolerance semantic evidence coverage for `passed`, and an explicit static-only verdict boundary
 - [`report-schema.v0.28.json`](report-schema.v0.28.json) — frozen v0.28 reference schema; pre-v0.29 reports validate against this
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this

@@ -2,7 +2,8 @@ name: Agents Shipgate
 description: >-
   The deterministic merge gate for AI-generated agent capability changes.
   Verifies PRs that change MCP, OpenAPI, OpenAI Agents SDK, Anthropic,
-  Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, and n8n
+  Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n,
+  and Conductor OSS workflow JSON
   artifacts. Writes verifier.json, report.json, pr-comment.md, capability
   lock/diff review artifacts, and SARIF before your agent-capability change
   lands. Local-first and

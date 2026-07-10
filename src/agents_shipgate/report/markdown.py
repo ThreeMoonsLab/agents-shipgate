@@ -832,6 +832,24 @@ def _append_frameworks(lines: list[str], report: ReadinessReport) -> None:
                 ("Tool inventory files", "tool_inventory_file_count"),
             ],
         ),
+        (
+            "conductor",
+            "Conductor OSS",
+            "## Conductor OSS Surface Summary",
+            [
+                ("Workflow files", "workflow_file_count"),
+                ("Workflows", "workflow_count"),
+                ("Tasks", "task_count"),
+                ("LLM tasks", "llm_task_count"),
+                ("MCP discovery tasks", "mcp_discovery_task_count"),
+                ("MCP call tasks", "mcp_call_task_count"),
+                ("Human checkpoints", "human_checkpoint_count"),
+                ("Structurally checkpointed MCP calls", "structurally_gated_mcp_call_count"),
+                ("Sub-workflow tasks", "sub_workflow_task_count"),
+                ("Dynamic or unresolved tool surfaces", "dynamic_tool_surface_count"),
+                ("Unsupported capabilities", "unsupported_capability_count"),
+            ],
+        ),
     ]
     for framework_key, label, title, fields in specs:
         surface = report.frameworks.get(framework_key)

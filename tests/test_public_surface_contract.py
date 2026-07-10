@@ -67,7 +67,7 @@ LATEST_PUBLISHED_VERSION = "0.15.0"
 # Frozen report schemas that still appear in public surfaces must be labeled as
 # frozen/legacy/older instead of being mistaken for the current schema.
 LEGACY_REPORT_SCHEMA_PATTERN = re.compile(
-    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28)\.json"
+    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29)\.json"
 )
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")

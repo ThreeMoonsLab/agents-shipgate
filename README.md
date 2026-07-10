@@ -84,7 +84,7 @@ deterministic projection of it. Five-minute version:
 Agents Shipgate is an open-source CLI and GitHub Action for local-first,
 static Tool-Use Readiness review. It scans MCP, OpenAPI, OpenAI Agents SDK,
 Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API,
-Codex repo config, Codex plugin, and n8n artifacts, then writes a deterministic **Tool-Use
+Codex repo config, Codex plugin, n8n, and Conductor OSS workflow artifacts, then writes a deterministic **Tool-Use
 Readiness Report** before your agent gets production-like permissions.
 
 Within agent release readiness, Agents Shipgate's wedge is Tool-Use
@@ -508,6 +508,7 @@ and pre-commit equivalents.
 | LangChain/LangGraph static Python inputs | Supported |
 | CrewAI static Python inputs | Supported |
 | n8n workflow JSON and source-control stubs | Supported |
+| Conductor OSS workflow JSON | Supported |
 | OpenAI API artifacts | Supported |
 | Codex repo config | Supported |
 | Codex plugin packages and marketplaces | Supported |
@@ -567,7 +568,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **`agents-shipgate install-hooks --target claude-code --write`** — deterministic Claude Code hooks: a PreToolUse trust-root guard, a cheap trigger check after `Edit|Write|MultiEdit`, and a full `verify` at `Stop`, so the gate runs even when instruction files lose attention on long sessions. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md#hooks-the-deterministic-path-recommended).
 - **`agents-shipgate mcp-serve`** (`[mcp]` extra) — read-only stdio MCP server exposing `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, `shipgate.capabilities`, and `shipgate.handoff` for agents without comfortable shell access. It is static-only and not a general MCP permission broker. See [`docs/mcp-server.md`](docs/mcp-server.md).
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.29.json`](docs/report-schema.v0.29.json)** + **[`docs/agent-handoff-schema.v1.json`](docs/agent-handoff-schema.v1.json)** + **[`docs/preflight-schema.v0.2.json`](docs/preflight-schema.v0.2.json)** — JSON Schemas for live editor validation and agent routing. Reports carry `report_schema_version: "0.29"`; v0.29 adds normalized semantic assessments and zero-tolerance evidence coverage so `passed` requires complete static effect and authority evidence, evaluation of all applicable controls, and no policy condition requiring review. Every release decision carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and a canonical static-verdict disclaimer; packet §1 mirrors them. Read `release_decision.decision` for gating and [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact non-runtime claim. v0.28 is frozen. The per-version history lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md) and [`STABILITY.md`](STABILITY.md).
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json)** + **[`docs/agent-handoff-schema.v1.json`](docs/agent-handoff-schema.v1.json)** + **[`docs/preflight-schema.v0.2.json`](docs/preflight-schema.v0.2.json)** — JSON Schemas for live editor validation and agent routing. Reports carry `report_schema_version: "0.30"`; v0.30 adds the Conductor OSS framework summary while preserving the v0.29 evidence-backed static verdict contract. Every release decision carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and a canonical static-verdict disclaimer; packet §1 mirrors them. Read `release_decision.decision` for gating and [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact non-runtime claim. v0.29 is frozen. The per-version history lives in [`docs/agent-contract-current.md`](docs/agent-contract-current.md) and [`STABILITY.md`](STABILITY.md).
 - **[`docs/capability-lock-schema.v0.3.json`](docs/capability-lock-schema.v0.3.json)** + **[`docs/capability-lock-diff-schema.v0.4.json`](docs/capability-lock-diff-schema.v0.4.json)** — current capability standard v0.2 schemas for the static capability envelope and semantic diff; non-gating and separate from `report.json`.
 - **[`docs/attestation-schema.v0.4.json`](docs/attestation-schema.v0.4.json)** + **[`docs/org-governance-schema.v0.1.json`](docs/org-governance-schema.v0.1.json)** + **[`docs/org-evidence-bundle-schema.v1.json`](docs/org-evidence-bundle-schema.v1.json)** + **[`docs/registry-schema.v0.3.json`](docs/registry-schema.v0.3.json)** + **[`docs/host-grants-inventory-schema.v0.1.json`](docs/host-grants-inventory-schema.v0.1.json)** — deterministic local attestation, organization governance, org evidence bundle, append-only registry, and host-grant inventory schemas for multi-repo governance.
 - **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.
@@ -658,8 +659,8 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 - It does not run agents, call tools, invoke LLMs, or verify model availability by default (static-by-default; see [Trust Model](#trust-model) and [`ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)).
 - It does not verify runtime behavior, latency, prompt quality, or routing decisions.
 - It does not replace dynamic security testing or human security review of the underlying systems.
-- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
-- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.29"`; normalized semantic gaps are non-waivable release evidence rather than Findings, while v0.28 remains frozen for archived reports.
+- It only inspects what is declared in `shipgate.yaml`, local OpenAPI specs, MCP exports, Anthropic/OpenAI API artifacts, optional SDK AST metadata, static Google ADK/LangChain/CrewAI/n8n/Conductor OSS inputs, Codex repo config, and static Codex plugin package metadata; tools that are not declared or statically discoverable are not scanned.
+- The manifest remains `version: "0.1"` so existing configs keep working. Current reports carry `report_schema_version: "0.30"`; normalized semantic gaps remain non-waivable release evidence rather than Findings, while v0.29 remains frozen for archived reports.
 
 See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
@@ -709,7 +710,8 @@ readers and AI search ingest.
 - [Check catalog](docs/checks.md)
 - [Policy packs](docs/policy-packs.md)
 - [Baseline workflow](docs/baseline.md)
-- [JSON report schema v0.29](docs/report-schema.v0.29.json)
+- [JSON report schema v0.30](docs/report-schema.v0.30.json)
+- [JSON report schema v0.29 (frozen)](docs/report-schema.v0.29.json)
 - [Capability standard](docs/capability-standard.md)
 - [Capability lock schema v0.3](docs/capability-lock-schema.v0.3.json)
 - [Capability lock diff schema v0.4](docs/capability-lock-diff-schema.v0.4.json)

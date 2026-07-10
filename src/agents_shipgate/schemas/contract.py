@@ -87,6 +87,12 @@ SUPPORTED_INPUTS: dict[str, tuple[str, ...]] = {
     "codex_config": ("Codex repo config", "Codex config"),
     "codex_plugin": ("Codex plugin packages and marketplaces", "Codex plugin"),
     "n8n": ("n8n",),
+    "conductor": (
+        "Conductor OSS workflow JSON",
+        "Netflix Conductor",
+        "Conductor OSS",
+        "Conductor",
+    ),
 }
 MANUAL_REVIEW_SIGNALS: tuple[str, ...] = (
     "release_decision.review_items",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from agents_shipgate.core.artifact_models import (
+    ConductorArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
@@ -32,6 +33,7 @@ def _frameworks_surface(
     langchain_artifacts: LangChainArtifacts | None = None,
     crewai_artifacts: CrewAiArtifacts | None = None,
     n8n_artifacts: N8nArtifacts | None = None,
+    conductor_artifacts: ConductorArtifacts | None = None,
 ) -> dict[str, object]:
     surface: dict[str, object] = {}
     if adk_artifacts:
@@ -42,6 +44,8 @@ def _frameworks_surface(
         surface["crewai"] = crewai_artifacts.surface_summary()
     if n8n_artifacts:
         surface["n8n"] = n8n_artifacts.surface_summary()
+    if conductor_artifacts:
+        surface["conductor"] = conductor_artifacts.surface_summary()
     return surface
 
 
