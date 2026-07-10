@@ -79,3 +79,18 @@ protected `pypi` environment variables. See
 [`docs/distribution.md`](../../docs/distribution.md#protected-qualification-inputs)
 for the exact six-variable contract. The tag workflow verifies the signer,
 production result, tag/version, and wheel digest before it can publish.
+
+The release workflow treats the configured signer identity and the signed
+qualification result as trust inputs. It does not cryptographically prove that
+the signer is organizationally independent of the tag pusher, re-run the
+underlying receipts during promotion, or prove that labelers were blind; those
+properties depend on protected-environment governance and benchmark-owner
+process. Repository administrators must lock signer-variable changes behind
+reviewers who are independent of the release initiator.
+
+The production policy's `minimum_qualified_origins = 40` accepts a combined
+count of real-history, rejected/reverted, and design-partner cases. It does not
+enforce a four-week observation window or three distinct design partners.
+Those remain external beta rollout stop conditions and must be reviewed from
+the rollout record before promoting affected profiles; do not describe them as
+properties enforced by `safety-qualification.json`.

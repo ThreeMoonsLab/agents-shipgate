@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core import semantic_assessment as semantic_assessment_module
 from agents_shipgate.core.baseline import write_baseline
 from agents_shipgate.core.domain import (
     Tool,
@@ -19,6 +20,7 @@ from agents_shipgate.core.lenses.action_surface import (
     enrich_action_surface_diff_with_source,
     evaluate_action_surface_policies,
 )
+from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import Finding
 from agents_shipgate.schemas.surfaces import (
@@ -1048,7 +1050,7 @@ def test_action_declaration_control_downgrade_blocks_release():
     )
 
 
-def test_action_declaration_effect_downgrade_blocks_release():
+def test_action_declaration_effect_downgrade_blocks_release(monkeypatch):
     manifest = _manifest(
         {
             "action_surface": {
@@ -1069,10 +1071,27 @@ def test_action_declaration_effect_downgrade_blocks_release():
         annotations={"httpMethod": "POST", "path": "/tickets"},
         extraction_confidence="high",
     )
+    tools = attach_semantic_assessments(
+        [tool],
+        {entry.tool: entry for entry in manifest.action_surface.actions},
+    )
     facts = build_action_surface_facts(
         manifest,
         agent_id="agent:action-test/agent",
-        tools=[tool],
+        tools=tools,
+    )
+
+    def unexpected_recompute(*args, **kwargs):
+        raise AssertionError("attached semantic assessment was recomputed")
+
+    monkeypatch.setattr(
+        "agents_shipgate.core.lenses.action_surface.assess_tool_semantics",
+        unexpected_recompute,
+    )
+    monkeypatch.setattr(
+        semantic_assessment_module,
+        "assess_tool_semantics",
+        unexpected_recompute,
     )
 
     findings = evaluate_action_surface_policies(
@@ -1080,7 +1099,7 @@ def test_action_declaration_effect_downgrade_blocks_release():
         facts,
         ActionSurfaceDiff(),
         agent_id="agent:action-test/agent",
-        tools=[tool],
+        tools=tools,
     )
 
     finding = next(

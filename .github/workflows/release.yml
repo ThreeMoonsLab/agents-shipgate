@@ -89,7 +89,7 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip install "uv==0.11.7"
 
-      - name: Download independently qualified release inputs
+      - name: Download configured qualification inputs
         env:
           QUALIFIED_WHEEL_URL: ${{ vars.SAFETY_QUALIFICATION_WHEEL_URL }}
           QUALIFIED_WHEEL_FILENAME: ${{ vars.SAFETY_QUALIFICATION_WHEEL_FILENAME }}
@@ -113,7 +113,7 @@ jobs:
           echo "QUALIFIED_WHEEL=qualified-dist/${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
           echo "QUALIFIED_WHEEL_FILENAME=${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
 
-      - name: Verify independent qualification signature
+      - name: Verify configured qualification signature
         env:
           QUALIFICATION_SIGNER_IDENTITY: ${{ vars.SAFETY_QUALIFICATION_SIGNER_IDENTITY }}
           QUALIFICATION_OIDC_ISSUER: ${{ vars.SAFETY_QUALIFICATION_OIDC_ISSUER }}

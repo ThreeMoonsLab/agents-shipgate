@@ -47,6 +47,26 @@ def _enrich(tool: Tool) -> Tool:
     return enrich_tools_with_risk_hints(_manifest(), [tool])[0]
 
 
+def test_hint_enrichment_does_not_run_semantic_resolver(monkeypatch):
+    def unexpected_assessment(*args, **kwargs):
+        raise AssertionError("hint enrichment must precede the central assessment")
+
+    monkeypatch.setattr(
+        "agents_shipgate.core.semantic_assessment.assess_tool_semantics",
+        unexpected_assessment,
+    )
+
+    enriched = _enrich(
+        _tool(
+            name="send_customer_refund_message",
+            description="Send a customer a message about a refund.",
+        )
+    )
+
+    assert has_risk_tag(enriched, {"financial_action"})
+    assert has_risk_tag(enriched, {"customer_communication"})
+
+
 def test_sdk_keyword_classifier_tags_update_function_as_write():
     tool = _enrich(_tool(name="update_seat", description="Change a seat assignment."))
 

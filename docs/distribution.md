@@ -41,7 +41,7 @@ exact wheel and signs `safety-qualification.json`:
 | `SAFETY_QUALIFICATION_WHEEL_FILENAME` | Safe wheel basename, for example `agents_shipgate-0.16.0b1-py3-none-any.whl` |
 | `SAFETY_QUALIFICATION_JSON_URL` | HTTPS URL for the production-qualified JSON artifact |
 | `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | HTTPS URL for that JSON artifact's Sigstore bundle |
-| `SAFETY_QUALIFICATION_SIGNER_IDENTITY` | Exact trusted certificate identity for the independent qualification signer |
+| `SAFETY_QUALIFICATION_SIGNER_IDENTITY` | Exact trusted certificate identity configured for qualification promotion |
 | `SAFETY_QUALIFICATION_OIDC_ISSUER` | Trusted OIDC issuer, normally `https://token.actions.githubusercontent.com` for GitHub Actions |
 
 The release workflow verifies the signature identity first, then validates
@@ -51,6 +51,13 @@ package after qualification. Missing variables, non-HTTPS URLs, an unsafe
 filename, an invalid signature, a non-production result, or any binding
 mismatch stops before PyPI publication. Protect variable updates with required
 environment reviewers who are independent of the release initiator.
+
+This is a configured trust root, not proof of organizational independence.
+The promotion job trusts the signed qualification summary and does not replay
+its underlying verifier receipts. The four-week, three-design-partner rollout
+is likewise an external beta stop condition; the machine gate enforces only
+the qualification artifact's combined minimum of 40 real-history,
+rejected/reverted, or design-partner origins.
 
 ## Marketplace And Site
 

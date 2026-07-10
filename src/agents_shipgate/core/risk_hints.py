@@ -226,12 +226,27 @@ def _add_automatic_hints(tool: Tool) -> None:
     if method in {"POST", "PUT", "PATCH", "DELETE"}:
         _add_hint(tool, "write", "openapi_method", "high", {"method": method})
 
+    # Hint generation precedes the one declaration-aware semantic assessment.
+    # Calling the full resolver from inside its own input-enrichment phase used
+    # to evaluate each tool up to five times and made later hints depend on
+    # partially-built semantic output.  These local projections preserve the
+    # legacy classifier decisions using only the hints available at this point;
+    # the central resolver remains the sole authority for the final effect.
+    has_read_hint = has_risk_tag(tool, {"read_only"})
+    has_write_hint = has_risk_tag(tool, WRITE_TAGS)
+    provisional_conservative_read = has_read_hint and not has_write_hint
+    provisional_effectively_read_only = (
+        method in {"GET", "HEAD", "OPTIONS"}
+        or tool.annotations.get("readOnlyHint") is True
+    ) and provisional_conservative_read
+    provisional_write = not provisional_conservative_read
+
     financial_in_text = bool(FINANCIAL_KEYWORDS & tokens)
     financial_in_scope = bool(FINANCIAL_KEYWORDS & scope_tokens)
     if financial_in_text or financial_in_scope:
-        if is_effectively_read_only(tool):
+        if provisional_effectively_read_only:
             confidence = "low"
-        elif is_write_tool(tool) or "write" in scope_tokens:
+        elif provisional_write or "write" in scope_tokens:
             confidence = "high"
         else:
             confidence = "low"
@@ -243,11 +258,21 @@ def _add_automatic_hints(tool: Tool) -> None:
             {"scopes": tool.auth.scopes, "method": method or None},
         )
     if COMMS_KEYWORDS & (tokens | scope_tokens):
+        # The previous staged resolver saw a just-added financial hint as a
+        # positive effect before classifying communication; preserve that
+        # ordering without performing another assessment.
+        comms_write = provisional_write or financial_in_text or financial_in_scope
+        comms_read_only = provisional_effectively_read_only and not (
+            financial_in_text or financial_in_scope
+        )
         confidence = (
-            "high" if is_write_tool(tool) else "low" if is_effectively_read_only(tool) else "medium"
+            "high" if comms_write else "low" if comms_read_only else "medium"
         )
         _add_hint(tool, "customer_communication", "keyword", confidence, {"method": method or None})
-        if not is_effectively_read_only(tool) and EXTERNAL_ACTION_KEYWORDS & tokens:
+        # Once customer_communication existed, the former staged assessment
+        # was no longer effectively read-only, even when its confidence was
+        # low. Preserve that exact hint set without invoking the resolver.
+        if EXTERNAL_ACTION_KEYWORDS & tokens:
             _add_hint(tool, "external_write", "keyword", confidence, {"method": method or None})
     if SENSITIVE_KEYWORDS & (tokens | scope_tokens):
         _add_hint(tool, "sensitive_data_access", "keyword", "medium", {})

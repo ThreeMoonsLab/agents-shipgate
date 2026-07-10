@@ -338,6 +338,10 @@ def test_attach_is_deterministic_and_does_not_mutate_input() -> None:
 
     assert original.semantic_assessment is None
     assert first[0].semantic_assessment == second[0].semantic_assessment
+    # Attaching an immutable top-level assessment must not recursively copy
+    # the already-owned nested tool graph on every scan.
+    assert first[0].parameters is original.parameters
+    assert first[0].annotations is original.annotations
     assert "semantic_assessment" not in first[0].model_dump(mode="json")
 
 

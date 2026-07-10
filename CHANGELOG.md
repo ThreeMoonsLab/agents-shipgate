@@ -25,6 +25,14 @@
   assessment. Runtime contract advances to v11; the source-tree package is
   `0.16.0b1` while install examples remain pinned to the latest published tag,
   `v0.15.0`, until the beta is released.
+- **Qualification trust boundary is explicit.** Beta promotion verifies an
+  internally consistent production-qualification summary, its configured
+  Sigstore identity, and exact wheel/tag binding. Organizational signer
+  independence, blind labeling, receipt replay, and the four-week,
+  three-design-partner rollout remain governed external controls rather than
+  guarantees made by the promotion code. The machine policy enforces a
+  combined minimum of 40 real-history, rejected/reverted, or design-partner
+  origins.
 
 ## 0.15.0 - 2026-07-07
 

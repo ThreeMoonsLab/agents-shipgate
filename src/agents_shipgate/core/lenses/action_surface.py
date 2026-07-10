@@ -815,22 +815,35 @@ def _declaration_downgrade_findings(
             )
         )
         if declaration.effect is not None:
-            source_assessment = assess_tool_semantics(tool)
-            source_effect = source_assessment.conservative_effect
             action_assessment = action.semantic_assessment
+            # The scan pipeline attached the declaration-aware central
+            # assessment once after enrichment.  Re-running the resolver here
+            # was both divergent and a measurable O(tools) latency regression.
+            # Its claims retain source provenance, so exclude only claims
+            # authored by this action declaration and recover the conservative
+            # source bound without a second semantic evaluation.
+            if action_assessment is None:
+                action_assessment = assess_tool_semantics(tool, declaration)
+            source_effects = [
+                claim.value
+                for claim in action_assessment.effect.claims
+                if claim.source
+                not in {
+                    "action_surface_declaration",
+                    "action_scope",
+                    "action_risk_tag_declaration",
+                }
+                and claim.value in ACTION_EFFECT_RANK
+            ]
+            source_effect = max(
+                source_effects or ["write"],
+                key=ACTION_EFFECT_RANK.__getitem__,
+            )
             if (
-                action_assessment is not None
-                and action_assessment.effect.status == "conflicting"
-                and ACTION_EFFECT_RANK[action.effect] > ACTION_EFFECT_RANK[source_effect]
+                action_assessment.effect.status == "conflicting"
+                and ACTION_EFFECT_RANK[declaration.effect]
+                < ACTION_EFFECT_RANK[source_effect]
             ):
-                source_effect = action.effect
-            if (
-                source_assessment.effect.status == "structural"
-                or (
-                    action_assessment is not None
-                    and action_assessment.effect.status == "conflicting"
-                )
-            ) and ACTION_EFFECT_RANK[declaration.effect] < ACTION_EFFECT_RANK[source_effect]:
                 findings.append(
                     _finding(
                         check_id="SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED",
@@ -968,7 +981,8 @@ def _infer_effect(tool: Tool, tags: list[str]) -> str:
     # only implementation of effect semantics; ``tags`` is retained in the
     # signature during the 0.x migration but no longer drives a second model.
     del tags
-    return assess_tool_semantics(tool).conservative_effect
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+    return assessment.conservative_effect
 
 
 def _risk_tag_for_effect(effect: str) -> str:
