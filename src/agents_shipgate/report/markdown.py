@@ -59,13 +59,26 @@ HITL_EVIDENCE_CHECKS = {
 }
 
 
-def write_markdown_report(report: ReadinessReport, path: Path) -> None:
+def write_markdown_report(
+    report: ReadinessReport,
+    path: Path,
+    *,
+    sanitize_output: bool = True,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_markdown_report(report), encoding="utf-8")
+    path.write_text(
+        render_markdown_report(report, sanitize_output=sanitize_output),
+        encoding="utf-8",
+    )
 
 
-def render_markdown_report(report: ReadinessReport) -> str:
-    report = sanitize_report(report)
+def render_markdown_report(
+    report: ReadinessReport,
+    *,
+    sanitize_output: bool = True,
+) -> str:
+    if sanitize_output:
+        report = sanitize_report(report)
     lines: list[str] = []
     summary = report.summary
     lines.extend(

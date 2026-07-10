@@ -100,6 +100,31 @@ SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
     "xox",
 )
 
+# The logging precheck intentionally excludes generic ``bearer`` prose to
+# avoid serializing every ordinary log payload. Full output redaction still
+# needs to consider bearer credentials before applying the exact length- and
+# alphabet-constrained regular expression.
+REDACTION_SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
+    *SECRET_PRECHECK_MARKERS,
+    "bearer ",
+)
+
+LABELED_SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
+    "api-key",
+    "api_key",
+    "apikey",
+    "password",
+    "secret",
+    "token",
+)
+
+REDACTION_SECRET_PRECHECK_RE = re.compile(
+    "|".join(re.escape(marker) for marker in REDACTION_SECRET_PRECHECK_MARKERS)
+)
+LABELED_SECRET_PRECHECK_RE = re.compile(
+    "|".join(re.escape(marker) for marker in LABELED_SECRET_PRECHECK_MARKERS)
+)
+
 LABELED_SECRET_PATTERN = re.compile(
     r"(?i)(['\"]?)(password|secret|token|api[_-]?key)\1"
     r"(\s*[:=]\s*)(['\"]?)([A-Za-z0-9_./+=-]{20,})\4"
@@ -155,15 +180,19 @@ def redact_text(
 ) -> str | None:
     if value is None:
         return None
-    if _is_known_marker(value.strip()):
+    stripped = value.strip()
+    if stripped.startswith("[REDACTED:") and _is_known_marker(stripped):
         return value
 
     redacted = value
-    for kind, pattern in SECRET_PATTERNS:
-        redacted, count = pattern.subn(_marker(kind), redacted)
-        if count and stats is not None:
-            stats.record(path, kind, count)
-    redacted = _redact_labeled_secret(redacted, stats=stats, path=path)
+    lowered = value.lower()
+    if REDACTION_SECRET_PRECHECK_RE.search(lowered) is not None:
+        for kind, pattern in SECRET_PATTERNS:
+            redacted, count = pattern.subn(_marker(kind), redacted)
+            if count and stats is not None:
+                stats.record(path, kind, count)
+    if LABELED_SECRET_PRECHECK_RE.search(lowered) is not None:
+        redacted = _redact_labeled_secret(redacted, stats=stats, path=path)
     if force_kind and redacted == value and value:
         if stats is not None:
             stats.record(path, force_kind)

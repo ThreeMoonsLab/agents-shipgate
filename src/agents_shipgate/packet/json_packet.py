@@ -20,7 +20,11 @@ class PacketSchemaError(ValueError):
     """
 
 
-def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
+def serialize_packet_json(
+    packet: EvidencePacket,
+    *,
+    sanitize_output: bool = True,
+) -> dict[str, Any]:
     """Return the packet as a JSON-ready dict (compatible with
     ``json.dumps``).
 
@@ -32,18 +36,25 @@ def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
     in the JSON so the contract shape is stable.
     """
 
-    payload = sanitize_packet_payload(packet.model_dump(mode="json"))
+    payload = packet.model_dump(mode="json")
+    if sanitize_output:
+        payload = sanitize_packet_payload(payload)
     _strip_report_only_fields(payload)
     if payload.get("generated_at") is None:
         payload.pop("generated_at", None)
     return payload
 
 
-def write_packet_json(packet: EvidencePacket, path: Path) -> None:
+def write_packet_json(
+    packet: EvidencePacket,
+    path: Path,
+    *,
+    sanitize_output: bool = True,
+) -> None:
     """Write ``packet.json`` to ``path``. Parent dirs are created."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = serialize_packet_json(packet)
+    payload = serialize_packet_json(packet, sanitize_output=sanitize_output)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
