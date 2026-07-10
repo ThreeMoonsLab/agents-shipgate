@@ -19,10 +19,7 @@ from agents_shipgate.core.baseline_audit import (
     read_audit_log,
     utc_now_isoformat,
 )
-from agents_shipgate.core.check_ids import (
-    LEGACY_CHECK_ID_ALIASES,
-    expands_to_check_id,
-)
+from agents_shipgate.core.check_ids import LEGACY_CHECK_ID_ALIASES
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
 from agents_shipgate.schemas.baseline import (
@@ -123,7 +120,9 @@ def baseline_from_report(
             BaselineFinding(
                 fingerprint=fingerprint,
                 check_id=finding.check_id,
+                tool_id=finding.tool_id,
                 tool_name=finding.tool_name,
+                fingerprint_version="2",
                 severity=finding.severity,
                 title=finding.title,
                 provenance=provenance,
@@ -364,6 +363,10 @@ def apply_baseline(
     }
     current_active_fingerprints: set[str] = set()
     matched_legacy_fingerprints: set[str] = set()
+    tool_ids_by_name: dict[str, set[str]] = {}
+    for item in findings:
+        if item.tool_name and item.tool_id:
+            tool_ids_by_name.setdefault(item.tool_name, set()).add(item.tool_id)
     matched = 0
     new = 0
     for index, finding in enumerate(findings):
@@ -374,8 +377,15 @@ def apply_baseline(
             legacy_fingerprints,
             index,
         )
+        legacy_identity_unambiguous = (
+            finding.tool_name is None
+            or len(tool_ids_by_name.get(finding.tool_name, set())) <= 1
+        )
+        if not legacy_identity_unambiguous:
+            legacy_candidates.clear()
         if policy_routing_fingerprint := legacy_policy_routing_fingerprint(finding):
-            legacy_candidates.add(policy_routing_fingerprint)
+            if legacy_identity_unambiguous:
+                legacy_candidates.add(policy_routing_fingerprint)
         if not fingerprint:
             continue
         current_active_fingerprints.add(fingerprint)
@@ -386,10 +396,6 @@ def apply_baseline(
             finding.baseline_status = "matched"
             matched += 1
             matched_legacy_fingerprints.update(legacy_matches)
-        elif legacy_match := _legacy_baseline_match(finding, baseline.findings):
-            finding.baseline_status = "matched"
-            matched += 1
-            matched_legacy_fingerprints.add(legacy_match.fingerprint)
         else:
             finding.baseline_status = "new"
             new += 1
@@ -421,21 +427,6 @@ def _legacy_fingerprint_candidates(
     if isinstance(legacy, str):
         return {legacy} if legacy else set()
     return {fingerprint for fingerprint in legacy if fingerprint}
-
-
-def _legacy_baseline_match(
-    finding: Finding, baseline_findings: list[BaselineFinding]
-) -> BaselineFinding | None:
-    for baseline_finding in baseline_findings:
-        if not expands_to_check_id(baseline_finding.check_id, finding.check_id):
-            continue
-        if (
-            baseline_finding.tool_name is not None
-            and baseline_finding.tool_name != finding.tool_name
-        ):
-            continue
-        return baseline_finding
-    return None
 
 
 def _preserve_created_at_when_content_matches(
@@ -575,6 +566,10 @@ def baseline_resolved_fingerprints(
     }
     active: set[str] = set()
     legacy_matched: set[str] = set()
+    tool_ids_by_name: dict[str, set[str]] = {}
+    for item in findings:
+        if item.tool_name and item.tool_id:
+            tool_ids_by_name.setdefault(item.tool_name, set()).add(item.tool_id)
     for index, finding in enumerate(findings):
         if finding.suppressed:
             continue
@@ -583,8 +578,15 @@ def baseline_resolved_fingerprints(
             legacy_fingerprints,
             index,
         )
+        legacy_identity_unambiguous = (
+            finding.tool_name is None
+            or len(tool_ids_by_name.get(finding.tool_name, set())) <= 1
+        )
+        if not legacy_identity_unambiguous:
+            legacy_candidates.clear()
         if policy_routing_fingerprint := legacy_policy_routing_fingerprint(finding):
-            legacy_candidates.add(policy_routing_fingerprint)
+            if legacy_identity_unambiguous:
+                legacy_candidates.add(policy_routing_fingerprint)
         if not fingerprint:
             continue
         active.add(fingerprint)
@@ -593,9 +595,6 @@ def baseline_resolved_fingerprints(
         if legacy_matches := baseline_fingerprints & legacy_candidates:
             legacy_matched.update(legacy_matches)
             continue
-        match = _legacy_baseline_match(finding, baseline.findings)
-        if match is not None:
-            legacy_matched.add(match.fingerprint)
     resolved = baseline_fingerprints - active - legacy_matched
     if not resolved:
         return []

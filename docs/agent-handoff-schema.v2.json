@@ -1,0 +1,573 @@
+{
+  "$defs": {
+    "AgentHandoffBlockedBy": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Status"
+        },
+        "blocks_release": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocks Release"
+        },
+        "bucket": {
+          "enum": [
+            "blocker",
+            "review_item"
+          ],
+          "title": "Bucket",
+          "type": "string"
+        },
+        "capability_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Refs",
+          "type": "array"
+        },
+        "capability_trace_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Trace Refs",
+          "type": "array"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bucket",
+        "check_id",
+        "severity",
+        "title"
+      ],
+      "title": "AgentHandoffBlockedBy",
+      "type": "object"
+    },
+    "AgentHandoffController": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "forbidden_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Actions",
+          "type": "array"
+        },
+        "forbidden_file_edits": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden File Edits",
+          "type": "array"
+        },
+        "must_stop": {
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Reason"
+        }
+      },
+      "title": "AgentHandoffController",
+      "type": "object"
+    },
+    "AgentHandoffGate": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applicability"
+        },
+        "can_merge_without_human": {
+          "default": false,
+          "title": "Can Merge Without Human",
+          "type": "boolean"
+        },
+        "ci_would_fail": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci Would Fail"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "gating_signal": {
+          "const": "release_decision.decision",
+          "default": "release_decision.decision",
+          "title": "Gating Signal",
+          "type": "string"
+        },
+        "merge_verdict": {
+          "title": "Merge Verdict",
+          "type": "string"
+        },
+        "runtime_behavior_verified": {
+          "const": false,
+          "default": false,
+          "title": "Runtime Behavior Verified",
+          "type": "boolean"
+        },
+        "static_analysis_only": {
+          "const": true,
+          "default": true,
+          "title": "Static Analysis Only",
+          "type": "boolean"
+        },
+        "static_verdict_disclaimer": {
+          "default": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
+          "title": "Static Verdict Disclaimer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "merge_verdict"
+      ],
+      "title": "AgentHandoffGate",
+      "type": "object"
+    },
+    "AgentHandoffRemediationStep": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor"
+        },
+        "check_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Id"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "patch": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Patch"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "safety": {
+          "enum": [
+            "allowed",
+            "forbidden",
+            "patch"
+          ],
+          "title": "Safety",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        }
+      },
+      "required": [
+        "safety",
+        "kind",
+        "reason"
+      ],
+      "title": "AgentHandoffRemediationStep",
+      "type": "object"
+    },
+    "AgentHandoffReproducibility": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_sha256": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Artifact Sha256",
+          "type": "object"
+        },
+        "baseline_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Sha256"
+        },
+        "config_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Sha256"
+        },
+        "policy_packs": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Policy Packs",
+          "type": "array"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        }
+      },
+      "title": "AgentHandoffReproducibility",
+      "type": "object"
+    },
+    "AgentHandoffSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "changed_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Files",
+          "type": "array"
+        },
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "head_ref": {
+          "default": "HEAD",
+          "title": "Head Ref",
+          "type": "string"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "config"
+      ],
+      "title": "AgentHandoffSubject",
+      "type": "object"
+    },
+    "AgentHandoffTool": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "agents-shipgate",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "default": "0.16.0b1",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "AgentHandoffTool",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for agents-shipgate-reports/agent-handoff.json. Generated from agents_shipgate.schemas.agent_handoff.AgentHandoffArtifact. It is a compact projection for coding agents and does not gate releases; release_decision.decision remains the only gate.",
+  "properties": {
+    "artifacts": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Artifacts",
+      "type": "object"
+    },
+    "blocked_by": {
+      "items": {
+        "$ref": "#/$defs/AgentHandoffBlockedBy"
+      },
+      "title": "Blocked By",
+      "type": "array"
+    },
+    "capability_review": {
+      "additionalProperties": true,
+      "title": "Capability Review",
+      "type": "object"
+    },
+    "contract_version": {
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "controller": {
+      "$ref": "#/$defs/AgentHandoffController"
+    },
+    "fix_task": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fix Task"
+    },
+    "gate": {
+      "$ref": "#/$defs/AgentHandoffGate"
+    },
+    "human_review": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Human Review"
+    },
+    "next_action": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Action"
+    },
+    "operation": {
+      "enum": [
+        "verify_pr",
+        "verify_local",
+        "verify_preview"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "remediation_plan": {
+      "items": {
+        "$ref": "#/$defs/AgentHandoffRemediationStep"
+      },
+      "title": "Remediation Plan",
+      "type": "array"
+    },
+    "reproducibility": {
+      "$ref": "#/$defs/AgentHandoffReproducibility"
+    },
+    "schema_version": {
+      "const": "shipgate.agent_handoff/v2",
+      "default": "shipgate.agent_handoff/v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "subject": {
+      "$ref": "#/$defs/AgentHandoffSubject"
+    },
+    "tool": {
+      "$ref": "#/$defs/AgentHandoffTool"
+    }
+  },
+  "required": [
+    "contract_version",
+    "operation",
+    "subject",
+    "gate",
+    "controller"
+  ],
+  "title": "Agents Shipgate Agent Handoff v2",
+  "type": "object"
+}

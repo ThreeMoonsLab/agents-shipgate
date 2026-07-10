@@ -5,4 +5,4 @@ fixture://support_refund_agent,must_block,refund tool missing approval policy an
 fixture://clean_read_only_agent,safe_to_merge,read-only tool surface; no risky actions by design
 fixture://hitl_evidence_covered_agent,safe_to_merge,refund domain with the approval/idempotency evidence a reviewer expects already covered
 fixture://hitl_evidence_agent,needs_human,authority-bearing refund surface a reviewer must sign off (human-in-the-loop evidence expected)
-fixture://openai_agents_sdk_agent,needs_human,dynamic OpenAI Agents SDK toolset; static extraction can't resolve the full surface (coverage gap)
+fixture://openai_agents_sdk_agent,safe_to_merge,reviewed inventory is explicitly bound to the static SDK observations with complete read-only semantics

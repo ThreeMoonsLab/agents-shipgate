@@ -12,6 +12,7 @@ from agents_shipgate.core.domain import (
     SemanticClaim,
     SemanticIssue,
     Tool,
+    ToolIdentityAssessment,
     ToolSemanticAssessment,
 )
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidence_rank
@@ -99,10 +100,12 @@ def assess_tool_semantics(
 
     effect, conservative_effect = _assess_effect(tool, declaration)
     authority = _assess_authority(tool, declaration)
+    identity = tool.identity_assessment or _compat_identity_assessment(tool)
     surface_complete = _surface_is_complete(tool)
     extraction_complete = tool.extraction_confidence == "high"
     pass_eligible = (
-        surface_complete
+        identity.pass_eligible
+        and surface_complete
         and extraction_complete
         and effect.status in {"declared", "structural"}
         and effect.confidence == "high"
@@ -113,6 +116,7 @@ def assess_tool_semantics(
     )
     return ToolSemanticAssessment(
         conservative_effect=conservative_effect,
+        identity=identity,
         effect=effect,
         authority=authority,
         pass_eligible=pass_eligible,
@@ -136,9 +140,35 @@ def attach_semantic_assessments(
     assessed: list[Tool] = []
     for original in tools:
         tool = original.model_copy()
-        tool.semantic_assessment = assess_tool_semantics(tool, by_tool.get(tool.name))
+        declaration = by_tool.get(tool.id) or by_tool.get(tool.name)
+        tool.semantic_assessment = assess_tool_semantics(tool, declaration)
         assessed.append(tool)
     return assessed
+
+
+def _compat_identity_assessment(tool: Tool) -> ToolIdentityAssessment:
+    """Identity for direct unit callers that bypass the extraction catalog."""
+
+    provider = tool.provider or tool.source_id or tool.source_type
+    observation_id = tool.observation_id or f"legacy:{tool.source_type}:{provider}:{tool.id}"
+    claim = SemanticClaim(
+        dimension="identity",
+        value=observation_id,
+        confidence="high",
+        provenance_kind="static_declaration",
+        source="compat_tool_identity",
+        source_pointer=tool.source_pointer or tool.source_ref,
+        evidence={"source_type": tool.source_type, "source_id": tool.source_id},
+    )
+    return ToolIdentityAssessment(
+        tool_id=tool.id,
+        status="structural",
+        provider=provider,
+        primary_observation_id=observation_id,
+        observation_ids=[observation_id],
+        claims=[claim],
+        pass_eligible=True,
+    )
 
 
 def _assess_effect(

@@ -8,8 +8,13 @@ from typing import Any
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.tool_identity import build_tool_identity_catalog
 from agents_shipgate.inputs.protocol import REGISTRY, LoadedAdapterResult, ToolSourceAdapter
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolIdentityConfig,
+    ToolSourceConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +150,7 @@ def _tool_source_index(
     tool list is empty so callers can rely on a boolean test.
     """
     return {
-        tool.name: (tool.source_path, tool.source_start_line)
+        tool.id: (tool.source_path, tool.source_start_line)
         for tool in tools
     }
 
@@ -246,26 +251,19 @@ def _invoke_per_source_adapter(
 
 def _flatten_and_deduplicate_tools(
     loaded_sources: list[LoadedToolSource],
+    identity_config: ToolIdentityConfig | None = None,
 ) -> tuple[list[Tool], list[str]]:
-    by_id: dict[str, Tool] = {}
-    warnings: list[str] = []
-    for loaded in loaded_sources:
-        for tool in loaded.tools:
-            existing = by_id.get(tool.id)
-            if not existing:
-                by_id[tool.id] = tool
-                continue
-            if _source_priority(tool) > _source_priority(existing):
-                kept, dropped = tool, existing
-            else:
-                kept, dropped = existing, tool
-            by_id[tool.id] = _merge_duplicate_tool_metadata(kept, dropped)
-            warnings.append(
-                "Duplicate tool name "
-                f"{tool.name!r}; kept {kept.source_type} source {kept.source_id!r} "
-                f"and merged metadata from {dropped.source_type} source {dropped.source_id!r}."
-            )
-    return list(by_id.values()), warnings
+    """Compatibility entry point for the provider-scoped identity catalog.
+
+    The historical name is retained for external imports, but the operation no
+    longer deduplicates by a name-derived ID. Same-name observations remain
+    distinct unless an explicit reviewed binding joins them.
+    """
+
+    return build_tool_identity_catalog(
+        loaded_sources,
+        identity_config or ToolIdentityConfig(),
+    )
 
 
 def _source_priority(tool: Tool) -> int:

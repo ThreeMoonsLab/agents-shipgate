@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from agents_shipgate.core.risk_hints import (
     risk_tags,
 )
 from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+from agents_shipgate.core.tool_identity import resolve_tool_selector
 from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
@@ -79,6 +81,18 @@ _SAFEGUARD_FIELDS = ("idempotency", "audit_log", "rollback", "dry_run")
 _MISSING_PATH = object()
 
 
+def _resolved_declarations_from_tools(
+    manifest: AgentsShipgateManifest,
+    tools: list[Tool],
+) -> dict[str, ActionDeclarationConfig]:
+    resolved: dict[str, ActionDeclarationConfig] = {}
+    for declaration in manifest.action_surface.actions:
+        match = resolve_tool_selector(tools, declaration)
+        if match.resolved:
+            resolved[match.matches[0].id] = declaration
+    return resolved
+
+
 @dataclass(frozen=True)
 class ActionSurfaceDiffReference:
     kind: str
@@ -111,15 +125,15 @@ def build_action_surface_facts(
     which has its own public-only ordinal disambiguator) pass no sink and
     keep the legacy hard :class:`ConfigError`.
     """
-    declarations = {entry.tool: entry for entry in manifest.action_surface.actions}
+    declarations = _resolved_declarations_from_tools(manifest, tools)
     actions = [
         _action_from_tool(
             manifest,
             agent_id=agent_id,
             tool=tool,
-            declaration=declarations.get(tool.name),
+            declaration=declarations.get(tool.id),
         )
-        for tool in sorted(tools, key=lambda item: item.name)
+        for tool in sorted(tools, key=lambda item: item.id)
     ]
     if warnings is None:
         _validate_unique_action_ids(actions)
@@ -132,9 +146,10 @@ def build_action_surface_facts(
         # declaration setting any of them is an explicit identity the engine
         # must never silently rewrite.
         explicit_tool_names = {
-            entry.tool
-            for entry in manifest.action_surface.actions
-            if entry.id or entry.provider or entry.operation
+            tool.name
+            for tool in tools
+            if (entry := declarations.get(tool.id)) is not None
+            and (entry.id or entry.provider or entry.operation)
         }
         warnings.extend(
             _disambiguate_duplicate_action_ids(actions, explicit_tool_names=explicit_tool_names)
@@ -174,7 +189,9 @@ def enrich_action_surface_diff_with_source(
     if not tool_source_index:
         return diff
     for row in (*diff.added, *diff.removed, *diff.modified):
-        entry = tool_source_index.get(row.tool_name or "")
+        entry = tool_source_index.get(row.tool_id or "")
+        if entry is None:
+            entry = tool_source_index.get(row.tool_name or "")
         if entry is None:
             continue
         path, line = entry
@@ -263,9 +280,24 @@ def evaluate_action_surface_policies(
     findings: list[Finding] = []
     by_action = {action.action_id: action for action in facts.actions}
     if manifest.action_surface.require_explicit_actions:
-        declared_tools = {entry.tool for entry in manifest.action_surface.actions}
+        if tools is not None:
+            declared_tools = set(_resolved_declarations_from_tools(manifest, tools))
+        else:
+            declared_tools = set()
+            for declaration in manifest.action_surface.actions:
+                candidates = [
+                    action
+                    for action in facts.actions
+                    if action.tool_name == declaration.tool
+                    and (not declaration.tool_id or action.tool_id == declaration.tool_id)
+                    and (not declaration.provider or action.provider == declaration.provider)
+                    and (not declaration.source_type or action.source_type == declaration.source_type)
+                    and (not declaration.source_id or action.source_id == declaration.source_id)
+                ]
+                if len(candidates) == 1:
+                    declared_tools.add(candidates[0].tool_id)
         for action in facts.actions:
-            if action.tool_name in declared_tools:
+            if action.tool_id in declared_tools:
                 continue
             findings.append(
                 _finding(
@@ -386,10 +418,11 @@ def build_action(
     """
     provider = _provider(tool, declaration)
     operation = _operation(tool, declaration)
-    action_id = (
-        declaration.id
-        if declaration and declaration.id
-        else f"{agent_id}:{tool.source_type}:{provider}:{operation}"
+    action_id = declaration.id if declaration and declaration.id else _canonical_action_id(
+        agent_id=agent_id,
+        tool_id=tool.id,
+        provider=provider,
+        operation=operation,
     )
     # Live scans resolve semantics exactly once after extraction and manifest
     # enrichment. Direct unit callers may still provide an unattached Tool,
@@ -729,11 +762,25 @@ def _disambiguate_duplicate_action_ids(
 
 
 def _provider(tool: Tool, declaration: ActionDeclarationConfig | None) -> str:
-    if declaration and declaration.provider:
-        return _normalize_token(declaration.provider)
+    if tool.provider:
+        return _normalize_token(tool.provider)
     if tool.source_id:
         return _normalize_token(tool.source_id)
     return _normalize_token(tool.source_type)
+
+
+def _canonical_action_id(*, agent_id: str, tool_id: str, provider: str, operation: str) -> str:
+    payload = json.dumps(
+        {
+            "agent_id": agent_id,
+            "tool_id": tool_id,
+            "provider": provider,
+            "operation": operation,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"{agent_id}:action_v2_{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
 
 def _operation(tool: Tool, declaration: ActionDeclarationConfig | None) -> str:
@@ -751,7 +798,7 @@ def _approval_fact(
     tool: Tool,
     declaration: ActionDeclarationConfig | None,
 ) -> ActionApprovalFact:
-    fact = ActionApprovalFact(required=tool.name in manifest.policies.approval_tools())
+    fact = ActionApprovalFact(required="approval" in tool.resolved_controls)
     if declaration and declaration.approval:
         update = {
             key: value
@@ -772,7 +819,7 @@ def _safeguards_fact(
         # Idempotency has several existing declarative sources; the other
         # safeguards stay nullable unless a source explicitly declares them.
         idempotency=(
-            tool.name in manifest.policies.idempotency_tools()
+            "idempotency" in tool.resolved_controls
             or annotations.get("idempotentHint") is True
             or any(parameter.name == "idempotency_key" for parameter in tool.parameters)
         ),
@@ -797,12 +844,25 @@ def _declaration_downgrade_findings(
     *,
     agent_id: str,
 ) -> list[Finding]:
-    declarations = {entry.tool: entry for entry in manifest.action_surface.actions}
-    by_tool = {action.tool_name: action for action in facts.actions}
+    declarations = _resolved_declarations_from_tools(manifest, tools)
+    controls_by_tool_id: dict[str, set[str]] = {}
+    for control, entries in (
+        ("approval", manifest.policies.require_approval_for_tools),
+        ("idempotency", manifest.policies.require_idempotency_for_tools),
+    ):
+        for entry in entries:
+            match = resolve_tool_selector(tools, entry)
+            if match.resolved:
+                controls_by_tool_id.setdefault(match.matches[0].id, set()).add(control)
+    by_tool = {action.tool_id: action for action in facts.actions}
     findings: list[Finding] = []
-    for tool in sorted(tools, key=lambda item: item.name):
-        declaration = declarations.get(tool.name)
-        action = by_tool.get(tool.name)
+    for original in sorted(tools, key=lambda item: item.id):
+        tool = original.model_copy()
+        tool.resolved_controls = sorted(
+            set(tool.resolved_controls) | controls_by_tool_id.get(tool.id, set())
+        )
+        declaration = declarations.get(tool.id)
+        action = by_tool.get(tool.id)
         if declaration is None or action is None:
             continue
         findings.extend(
@@ -879,9 +939,7 @@ def _control_downgrade_findings(
     agent_id: str,
 ) -> list[Finding]:
     findings: list[Finding] = []
-    inherited_approval = ActionApprovalFact(
-        required=tool.name in manifest.policies.approval_tools()
-    )
+    inherited_approval = ActionApprovalFact(required="approval" in tool.resolved_controls)
     if (
         inherited_approval.required is True
         and declaration.approval is not None
@@ -899,7 +957,7 @@ def _control_downgrade_findings(
 
     inherited_safeguards = ActionSafeguardsFact(
         idempotency=(
-            tool.name in manifest.policies.idempotency_tools()
+            "idempotency" in tool.resolved_controls
             or tool.annotations.get("idempotentHint") is True
             or any(parameter.name == "idempotency_key" for parameter in tool.parameters)
         ),
@@ -1004,6 +1062,7 @@ def _action_added_change(action: ActionFact) -> ActionSurfaceChange:
     return ActionSurfaceChange(
         type="ACTION_ADDED",
         action_id=action.action_id,
+        tool_id=action.tool_id,
         agent_id=action.agent_id,
         tool_name=action.tool_name,
         operation=action.operation,
@@ -1017,6 +1076,7 @@ def _action_removed_change(action: ActionFact) -> ActionSurfaceChange:
     return ActionSurfaceChange(
         type="ACTION_REMOVED",
         action_id=action.action_id,
+        tool_id=action.tool_id,
         agent_id=action.agent_id,
         tool_name=action.tool_name,
         operation=action.operation,
@@ -1144,6 +1204,7 @@ def _change(
     return ActionSurfaceChange(
         type=change_type,
         action_id=action.action_id,
+        tool_id=action.tool_id,
         agent_id=action.agent_id,
         tool_name=action.tool_name,
         operation=action.operation,
@@ -1369,7 +1430,10 @@ def _current_action_policy_findings(
             action,
             {"safeguards.audit_log": True},
         )
-        if action.tool_name not in manifest.policies.confirmation_tools():
+        if not _action_has_policy_control(
+            action,
+            manifest.policies.require_confirmation_for_tools,
+        ):
             missing.append("confirmation.required")
         if missing:
             findings.append(
@@ -1398,7 +1462,10 @@ def _current_action_policy_findings(
                 "safeguards.rollback": True,
             },
         )
-        if action.tool_name not in manifest.policies.confirmation_tools():
+        if not _action_has_policy_control(
+            action,
+            manifest.policies.require_confirmation_for_tools,
+        ):
             missing.append("confirmation.required")
         if missing:
             findings.append(
@@ -1455,6 +1522,30 @@ def _current_action_policy_findings(
     return findings
 
 
+def _action_has_policy_control(action: ActionFact, entries: list[Any]) -> bool:
+    """Return true only for an exact, non-ambiguous policy selector."""
+
+    identity_eligible = (
+        action.semantic_assessment is not None
+        and action.semantic_assessment.identity is not None
+        and action.semantic_assessment.identity.pass_eligible
+    )
+    for entry in entries:
+        if entry.tool_id:
+            if entry.tool_id != action.tool_id:
+                continue
+        elif entry.tool != action.tool_name or not identity_eligible:
+            continue
+        if entry.provider and entry.provider != action.provider:
+            continue
+        if entry.source_type and entry.source_type != action.source_type:
+            continue
+        if entry.source_id and entry.source_id != action.source_id:
+            continue
+        return True
+    return False
+
+
 def _control_effects(action: ActionFact) -> set[str]:
     """Return the union of pass-eligible positive semantic effect claims."""
 
@@ -1509,6 +1600,8 @@ def _missing_builtin_requirements(
 def _policy_matches(policy: ActionPolicyConfig, action: ActionFact) -> bool:
     match = policy.match
     if match.action_ids and action.action_id not in match.action_ids:
+        return False
+    if match.tool_ids and action.tool_id not in match.tool_ids:
         return False
     if match.tools and action.tool_name not in match.tools:
         return False

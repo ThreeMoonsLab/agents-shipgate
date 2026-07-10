@@ -233,9 +233,45 @@
           "title": "Scopes",
           "type": "array"
         },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
         "tool": {
           "title": "Tool",
           "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -415,6 +451,13 @@
             "type": "string"
           },
           "title": "Scopes",
+          "type": "array"
+        },
+        "tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tool Ids",
           "type": "array"
         },
         "tools": {
@@ -1526,6 +1569,18 @@
     "PolicyToolEntry": {
       "additionalProperties": false,
       "properties": {
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
         "reason": {
           "anyOf": [
             {
@@ -1538,9 +1593,45 @@
           "default": null,
           "title": "Reason"
         },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
         "tool": {
           "title": "Tool",
           "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -1590,6 +1681,13 @@
     "RiskOverridesConfig": {
       "additionalProperties": false,
       "properties": {
+        "selectors": {
+          "items": {
+            "$ref": "#/$defs/ToolRiskOverride"
+          },
+          "title": "Selectors",
+          "type": "array"
+        },
         "tools": {
           "additionalProperties": {
             "$ref": "#/$defs/ToolRiskOverride"
@@ -1692,9 +1790,45 @@
           "default": null,
           "title": "Owner"
         },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
         "reason": {
           "title": "Reason",
           "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
         },
         "tool": {
           "anyOf": [
@@ -1707,6 +1841,18 @@
           ],
           "default": null,
           "title": "Tool"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -1714,6 +1860,88 @@
         "reason"
       ],
       "title": "SuppressionConfig",
+      "type": "object"
+    },
+    "ToolIdentityBindingConfig": {
+      "additionalProperties": false,
+      "description": "Reviewed declaration that observations describe one capability.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/ToolObservationSelectorConfig"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "primary": {
+          "$ref": "#/$defs/ToolObservationSelectorConfig"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "provider",
+        "reason",
+        "primary"
+      ],
+      "title": "ToolIdentityBindingConfig",
+      "type": "object"
+    },
+    "ToolIdentityConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "items": {
+            "$ref": "#/$defs/ToolIdentityBindingConfig"
+          },
+          "title": "Bindings",
+          "type": "array"
+        }
+      },
+      "title": "ToolIdentityConfig",
+      "type": "object"
+    },
+    "ToolObservationSelectorConfig": {
+      "additionalProperties": false,
+      "description": "Exact selector for one extracted tool observation.",
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "tool"
+      ],
+      "title": "ToolObservationSelectorConfig",
       "type": "object"
     },
     "ToolRiskOverride": {
@@ -1736,6 +1964,18 @@
           "default": null,
           "title": "Owner"
         },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
         "reason": {
           "title": "Reason",
           "type": "string"
@@ -1747,12 +1987,60 @@
           "title": "Remove Tags",
           "type": "array"
         },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
         "tags": {
           "items": {
             "type": "string"
           },
           "title": "Tags",
           "type": "array"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -2048,6 +2336,9 @@
     },
     "risk_overrides": {
       "$ref": "#/$defs/RiskOverridesConfig"
+    },
+    "tool_identity": {
+      "$ref": "#/$defs/ToolIdentityConfig"
     },
     "tool_sources": {
       "items": {

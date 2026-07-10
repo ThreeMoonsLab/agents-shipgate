@@ -49,6 +49,7 @@ def _build_agent(
         declared_purpose=manifest.agent.declared_purpose,
         prohibited_actions=manifest.agent.prohibited_actions,
         tools=[tool.name for tool in tools],
+        tool_ids=[tool.id for tool in tools],
         guardrails={
             "input": "unknown",
             "output": "unknown",

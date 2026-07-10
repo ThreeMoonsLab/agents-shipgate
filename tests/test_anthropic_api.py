@@ -234,7 +234,7 @@ anthropic:
     assert "SHIP-POLICY-APPROVAL-MISSING" in bash_findings
     assert report.release_decision is not None
     assert any(
-        gap.subject == "bash" and gap.kind == "missing_authority_evidence"
+        gap.subject.startswith("bash [") and gap.kind == "missing_authority_evidence"
         for gap in report.release_decision.evidence_coverage.evidence_gaps
     )
     # The bash tool should be in the inventory (not skipped).

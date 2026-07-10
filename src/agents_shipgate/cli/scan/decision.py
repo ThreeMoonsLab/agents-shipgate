@@ -9,7 +9,7 @@ from agents_shipgate.core.capability_policy import build_capability_policy_subje
 from agents_shipgate.core.capability_traces import build_capability_runtime_evidence
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.dynamic_defaults import dynamic_check_defaults
-from agents_shipgate.core.findings.identity import dedupe_findings, finding_fingerprint
+from agents_shipgate.core.findings.identity import dedupe_findings, legacy_name_fingerprint
 from agents_shipgate.core.findings.mutations import (
     apply_no_heuristics_filter,
     apply_severity_overrides,
@@ -144,7 +144,7 @@ def _run_checks_and_decide(
         extra_known_check_defaults=effective_dynamic_defaults,
     )
     apply_severity_overrides(findings, override_resolution.override_by_check_id)
-    apply_suppressions(findings, manifest.checks.ignore)
+    apply_suppressions(findings, manifest.checks.ignore, tools_and_agent.tools)
     heuristics_filter = apply_no_heuristics_filter(
         findings,
         enabled=no_heuristics,
@@ -164,7 +164,7 @@ def _run_checks_and_decide(
         findings,
         _check_metadata_lookup(plugins_enabled=plugins_enabled),
     )
-    legacy_fingerprints = [finding_fingerprint(finding) for finding in findings]
+    legacy_fingerprints = [legacy_name_fingerprint(finding) for finding in findings]
     logger.debug(
         "checks completed",
         extra={

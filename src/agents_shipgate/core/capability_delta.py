@@ -376,7 +376,7 @@ def _reidentified_changes(
     list[CapabilityFactContext],
     list[CapabilityFactContext],
 ]:
-    added_by_key: dict[tuple[str, str, str, str, str], list[CapabilityFactContext]] = {}
+    added_by_key: dict[tuple[str, str, str, str, str, str], list[CapabilityFactContext]] = {}
     for ctx in added:
         added_by_key.setdefault(_lineage_key(ctx.fact), []).append(ctx)
     for contexts in added_by_key.values():
@@ -412,10 +412,11 @@ def _reidentified_changes(
     )
 
 
-def _lineage_key(fact: CapabilityFactV1) -> tuple[str, str, str, str, str]:
+def _lineage_key(fact: CapabilityFactV1) -> tuple[str, str, str, str, str, str]:
     identity = fact.identity
     return (
         identity.agent_id,
+        identity.tool_id,
         identity.provider,
         identity.operation,
         identity.tool_name,

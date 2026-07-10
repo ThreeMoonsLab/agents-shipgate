@@ -17,6 +17,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
+from agents_shipgate.core.tool_identity import resolve_tool_selector
 from agents_shipgate.core.toolkit_scope import toolkit_bound_facts
 from agents_shipgate.schemas.baseline import BaselineFile
 from agents_shipgate.schemas.capability_change import EffectivePolicy
@@ -53,7 +54,7 @@ from agents_shipgate.schemas.surfaces import (
 )
 
 _METADATA_FIELDS = {"owner", "description", "auth_scopes", "extraction_confidence"}
-_SEMANTIC_DIFF_REPORT_SCHEMA_VERSION = "0.29"
+_SEMANTIC_DIFF_REPORT_SCHEMA_VERSION = "0.30"
 _REGENERATE_DIFF_BASE_COMMAND = "agents-shipgate scan -c shipgate.yaml --format json"
 
 
@@ -88,7 +89,7 @@ def build_tool_surface_facts(
     return ToolSurfaceFacts(
         tools=_tool_facts(tools),
         scopes=_scope_facts(manifest, tools),
-        controls=_control_facts(manifest, api_artifacts, anthropic_artifacts),
+        controls=_control_facts(manifest, tools, api_artifacts, anthropic_artifacts),
         policies=_policy_facts_with_toolkit_bounds(
             manifest, api_artifacts, anthropic_artifacts, toolkit_bounds
         ),
@@ -148,13 +149,13 @@ def enrich_tool_surface_diff_with_source(
     if not tool_source_index:
         return diff
     for tool_change in diff.tools:
-        _attach_source(tool_change, tool_source_index.get(tool_change.name))
+        _attach_source(tool_change, tool_source_index.get(tool_change.tool_id or ""))
     for effect in diff.high_risk_effects:
-        _attach_source(effect, tool_source_index.get(effect.tool))
+        _attach_source(effect, tool_source_index.get(effect.tool_id or ""))
     for control in diff.controls:
         _attach_source(control, tool_source_index.get(control.tool))
     for metadata in diff.metadata_changes:
-        _attach_source(metadata, tool_source_index.get(metadata.tool))
+        _attach_source(metadata, tool_source_index.get(metadata.tool_id or ""))
     return diff
 
 
@@ -322,7 +323,9 @@ def disabled_tool_surface_diff(
 def _tool_facts(tools: list[Tool]) -> list[ToolSurfaceToolFact]:
     return [
         ToolSurfaceToolFact(
+            tool_id=tool.id,
             name=tool.name,
+            provider=tool.provider or tool.source_id or tool.source_type,
             source_type=tool.source_type,
             source_id=tool.source_id,
             source_ref=tool.source_ref,
@@ -340,7 +343,7 @@ def _tool_facts(tools: list[Tool]) -> list[ToolSurfaceToolFact]:
                 annotations=_stable_hash(tool.annotations),
             ),
         )
-        for tool in sorted(tools, key=lambda item: item.name)
+        for tool in sorted(tools, key=lambda item: item.id)
     ]
 
 
@@ -355,13 +358,13 @@ def _scope_facts(
     manifest: AgentsShipgateManifest,
     tools: list[Tool],
 ) -> list[ToolSurfaceScopeFact]:
-    by_scope: dict[tuple[ToolSurfaceFactScopeKind, str], set[str]] = {}
+    by_scope: dict[tuple[ToolSurfaceFactScopeKind, str], set[tuple[str, str]]] = {}
     for tool in tools:
         for scope in tool.auth.scopes:
             if not scope:
                 continue
             key: tuple[ToolSurfaceFactScopeKind, str] = ("tool_required", scope)
-            by_scope.setdefault(key, set()).add(tool.name)
+            by_scope.setdefault(key, set()).add((tool.id, tool.name))
     for scope in manifest.permissions.scopes:
         if not scope:
             continue
@@ -371,7 +374,8 @@ def _scope_facts(
         ToolSurfaceScopeFact(
             kind=kind,
             scope=scope,
-            tool_names=sorted(tool_names),
+            tool_names=sorted(name for _, name in tool_names),
+            tool_ids=sorted(tool_id for tool_id, _ in tool_names),
             broad=is_broad_scope(scope),
         )
         for (kind, scope), tool_names in sorted(by_scope.items())
@@ -380,6 +384,7 @@ def _scope_facts(
 
 def _control_facts(
     manifest: AgentsShipgateManifest,
+    tools: list[Tool],
     api_artifacts: OpenAIApiArtifacts | None,
     anthropic_artifacts: AnthropicArtifacts | None,
 ) -> list[ToolSurfaceControlFact]:
@@ -389,6 +394,7 @@ def _control_facts(
             "approval_policy",
             "manifest",
             manifest.policies.require_approval_for_tools,
+            tools,
         )
     )
     facts.extend(
@@ -396,6 +402,7 @@ def _control_facts(
             "confirmation_policy",
             "manifest",
             manifest.policies.require_confirmation_for_tools,
+            tools,
         )
     )
     facts.extend(
@@ -403,6 +410,7 @@ def _control_facts(
             "idempotency_evidence",
             "manifest",
             manifest.policies.require_idempotency_for_tools,
+            tools,
         )
     )
     if api_artifacts:
@@ -452,16 +460,24 @@ def _manifest_control_facts(
     kind: Literal["approval_policy", "confirmation_policy", "idempotency_evidence"],
     source: str,
     entries: list[PolicyToolEntry],
+    tools: list[Tool],
 ) -> list[ToolSurfaceControlFact]:
-    return [
-        ToolSurfaceControlFact(
-            kind=kind,
-            tool=entry.tool,
-            source=source,
-            reason=entry.reason,
+    facts: list[ToolSurfaceControlFact] = []
+    for entry in entries:
+        match = resolve_tool_selector(tools, entry)
+        if not match.resolved:
+            continue
+        tool = match.matches[0]
+        facts.append(
+            ToolSurfaceControlFact(
+                kind=kind,
+                tool=tool.name,
+                tool_id=tool.id,
+                source=source,
+                reason=entry.reason,
+            )
         )
-        for entry in entries
-    ]
+    return facts
 
 
 def _artifact_control_facts(
@@ -568,37 +584,43 @@ def _diff_tools(
     current: list[ToolSurfaceToolFact],
     base: list[ToolSurfaceToolFact],
 ) -> list[ToolSurfaceToolChange]:
-    current_by_name = {tool.name: tool for tool in current}
-    base_by_name = {tool.name: tool for tool in base}
+    current_by_name = {tool.tool_id: tool for tool in current}
+    base_by_name = {tool.tool_id: tool for tool in base}
     changes: list[ToolSurfaceToolChange] = []
-    for name in sorted(current_by_name.keys() - base_by_name.keys()):
-        tool = current_by_name[name]
+    for tool_id in sorted(current_by_name.keys() - base_by_name.keys()):
+        tool = current_by_name[tool_id]
         changes.append(
             ToolSurfaceToolChange(
                 kind="added",
-                name=name,
+                tool_id=tool_id,
+                name=tool.name,
+                provider=tool.provider,
                 source_type=tool.source_type,
                 source_id=tool.source_id,
             )
         )
-    for name in sorted(base_by_name.keys() - current_by_name.keys()):
-        tool = base_by_name[name]
+    for tool_id in sorted(base_by_name.keys() - current_by_name.keys()):
+        tool = base_by_name[tool_id]
         changes.append(
             ToolSurfaceToolChange(
                 kind="removed",
-                name=name,
+                tool_id=tool_id,
+                name=tool.name,
+                provider=tool.provider,
                 source_type=tool.source_type,
                 source_id=tool.source_id,
             )
         )
-    for name in sorted(current_by_name.keys() & base_by_name.keys()):
-        field_changes = _tool_field_changes(current_by_name[name], base_by_name[name])
+    for tool_id in sorted(current_by_name.keys() & base_by_name.keys()):
+        field_changes = _tool_field_changes(current_by_name[tool_id], base_by_name[tool_id])
         if field_changes:
-            tool = current_by_name[name]
+            tool = current_by_name[tool_id]
             changes.append(
                 ToolSurfaceToolChange(
                     kind="changed",
-                    name=name,
+                    tool_id=tool_id,
+                    name=tool.name,
+                    provider=tool.provider,
                     source_type=tool.source_type,
                     source_id=tool.source_id,
                     changes=field_changes,
@@ -615,11 +637,13 @@ def _tool_field_changes(
         (
             "source",
             {
+                "provider": base.provider,
                 "source_type": base.source_type,
                 "source_id": base.source_id,
                 "source_ref": base.source_ref,
             },
             {
+                "provider": current.provider,
                 "source_type": current.source_type,
                 "source_id": current.source_id,
                 "source_ref": current.source_ref,
@@ -649,15 +673,28 @@ def _diff_high_risk_effects(
     current_items = _high_risk_items(current)
     base_items = _high_risk_items(base)
     changes: list[ToolSurfaceHighRiskEffectChange] = []
-    for tool, tag in sorted(current_items - base_items):
-        changes.append(ToolSurfaceHighRiskEffectChange(kind="added", tool=tool, tag=tag))
-    for tool, tag in sorted(base_items - current_items):
-        changes.append(ToolSurfaceHighRiskEffectChange(kind="removed", tool=tool, tag=tag))
+    for tool_id, tool, tag in sorted(current_items - base_items):
+        changes.append(
+            ToolSurfaceHighRiskEffectChange(
+                kind="added", tool_id=tool_id, tool=tool, tag=tag
+            )
+        )
+    for tool_id, tool, tag in sorted(base_items - current_items):
+        changes.append(
+            ToolSurfaceHighRiskEffectChange(
+                kind="removed", tool_id=tool_id, tool=tool, tag=tag
+            )
+        )
     return changes
 
 
-def _high_risk_items(tools: list[ToolSurfaceToolFact]) -> set[tuple[str, str]]:
-    return {(tool.name, tag) for tool in tools for tag in tool.risk_tags if tag in HIGH_RISK_TAGS}
+def _high_risk_items(tools: list[ToolSurfaceToolFact]) -> set[tuple[str, str, str]]:
+    return {
+        (tool.tool_id, tool.name, tag)
+        for tool in tools
+        for tag in tool.risk_tags
+        if tag in HIGH_RISK_TAGS
+    }
 
 
 def _diff_scopes(
@@ -674,7 +711,11 @@ def _diff_scopes(
     for key in sorted(current_by_key.keys() & base_by_key.keys()):
         current_item = current_by_key[key]
         base_item = base_by_key[key]
-        if current_item.tool_names != base_item.tool_names or current_item.broad != base_item.broad:
+        if (
+            current_item.tool_ids != base_item.tool_ids
+            or current_item.tool_names != base_item.tool_names
+            or current_item.broad != base_item.broad
+        ):
             changes.append(_scope_change("changed", current_item))
     return changes
 
@@ -688,6 +729,7 @@ def _scope_change(
         scope=item.scope,
         scope_kind=item.kind,
         tool_names=item.tool_names,
+        tool_ids=item.tool_ids,
         broad=item.broad,
     )
 
@@ -717,6 +759,7 @@ def _control_change(
         kind=kind,
         control=item.kind,
         tool=item.tool,
+        tool_id=item.tool_id,
         source=item.source,
         reason=item.reason,
     )
@@ -735,6 +778,7 @@ def _metadata_changes(
             items.append(
                 ToolSurfaceMetadataChange(
                     kind=_change_kind(change.before, change.after),
+                    tool_id=tool_change.tool_id,
                     tool=tool_change.name,
                     metadata=change.field,
                     before=change.before,
@@ -982,7 +1026,7 @@ def _scope_key(item: ToolSurfaceScopeFact) -> tuple[str, str]:
 
 
 def _control_key(item: ToolSurfaceControlFact) -> tuple[str, str, str]:
-    return item.kind, item.tool, item.source
+    return item.kind, item.tool_id or item.tool, item.source
 
 
 def _policy_key(item: ToolSurfacePolicyFact) -> tuple[str, str]:

@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.29",
-  "run_id": "agents_shipgate_06f86b8b1d3c6bd1",
+  "report_schema_version": "0.30",
+  "run_id": "agents_shipgate_28870fb1e06fe1de",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
     "name": "simple-langchain-agent"
@@ -22,8 +22,12 @@
     ],
     "prohibited_actions": [],
     "tools": [
-      "lookup_case",
-      "summarize_case"
+      "summarize_case",
+      "lookup_case"
+    ],
+    "tool_ids": [
+      "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+      "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c"
     ],
     "handoffs": [],
     "guardrails": {
@@ -56,60 +60,30 @@
     "evidence_coverage": "static"
   },
   "release_decision": {
-    "decision": "review_required",
-    "reason": "2 source-loader warnings; review evidence before shipping.",
+    "decision": "passed",
+    "reason": "All in-scope actions have complete, conflict-free explicit or structural static effect and authority evidence; no active blockers. Runtime behavior was not verified.",
     "blockers": [],
     "review_items": [],
     "evidence_coverage": {
       "level": "static",
       "human_review_recommended": false,
-      "source_warning_count": 2,
+      "source_warning_count": 0,
       "low_confidence_tool_count": 0,
-      "evidence_gaps": [
-        {
-          "kind": "source_warning",
-          "subject": "Duplicate tool name 'lookup_case'; kept langchain_inventory source 'langchain_inventory:inventories/tools.json' and merged metadata from langchain_function source 'langchain_agent'.",
-          "source_type": null,
-          "source_ref": null,
-          "why": "A source loader degraded while reading declared inputs.",
-          "next_action": {
-            "kind": "review_warning",
-            "command": null,
-            "path": null,
-            "why": "The warning text names the degraded source.",
-            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
-            "accepted_values": [],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "source_warning",
-          "subject": "Duplicate tool name 'summarize_case'; kept langchain_inventory source 'langchain_inventory:inventories/tools.json' and merged metadata from langchain_structured_tool source 'langchain_agent'.",
-          "source_type": null,
-          "source_ref": null,
-          "why": "A source loader degraded while reading declared inputs.",
-          "next_action": {
-            "kind": "review_warning",
-            "command": null,
-            "path": null,
-            "why": "The warning text names the degraded source.",
-            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
-            "accepted_values": [],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        }
-      ],
+      "evidence_gaps": [],
       "semantic_coverage": {
         "total_actions": 2,
         "pass_eligible_actions": 2,
         "gap_count": 0,
         "review_concern_count": 0,
+        "reason_counts": {}
+      },
+      "identity_coverage": {
+        "total_observations": 4,
+        "canonical_tools": 2,
+        "bound_tools": 2,
+        "pass_eligible_tools": 2,
+        "ambiguous_name_count": 0,
+        "gap_count": 0,
         "reason_counts": {}
       }
     },
@@ -144,8 +118,8 @@
   ],
   "misalignments": [],
   "release_consequence": {
-    "decision": "review_required",
-    "summary": "0 release-relevant finding(s) require release review before shipping.",
+    "decision": "passed",
+    "summary": "No capability/intent misalignments require release action from static evidence.",
     "blocker_misalignment_count": 0,
     "review_misalignment_count": 0,
     "fail_policy": {
@@ -169,28 +143,9 @@
   "tool_surface_facts": {
     "tools": [
       {
-        "name": "lookup_case",
-        "source_type": "langchain_inventory",
-        "source_id": "langchain_inventory:inventories/tools.json",
-        "source_ref": "inventories/tools.json",
-        "risk_tags": [
-          "read_only"
-        ],
-        "auth_scopes": [],
-        "owner": null,
-        "extraction_confidence": "high",
-        "has_description": true,
-        "hashes": {
-          "source_ref": "3613cdb3d448a417",
-          "description": "5964fcbc6e4d1fd4",
-          "input_schema": "1b120897c7f6d6cd",
-          "output_schema": "44136fa355b3678a",
-          "parameters": "1b8bfe67ab58e766",
-          "annotations": "5e1f8cd38bd37762"
-        }
-      },
-      {
+        "tool_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
         "name": "summarize_case",
+        "provider": "langchain_agent",
         "source_type": "langchain_inventory",
         "source_id": "langchain_inventory:inventories/tools.json",
         "source_ref": "inventories/tools.json",
@@ -204,6 +159,29 @@
         "hashes": {
           "source_ref": "3613cdb3d448a417",
           "description": "f60def41dd0be85a",
+          "input_schema": "1b120897c7f6d6cd",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "1b8bfe67ab58e766",
+          "annotations": "5e1f8cd38bd37762"
+        }
+      },
+      {
+        "tool_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+        "name": "lookup_case",
+        "provider": "langchain_agent",
+        "source_type": "langchain_inventory",
+        "source_id": "langchain_inventory:inventories/tools.json",
+        "source_ref": "inventories/tools.json",
+        "risk_tags": [
+          "read_only"
+        ],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "3613cdb3d448a417",
+          "description": "5964fcbc6e4d1fd4",
           "input_schema": "1b120897c7f6d6cd",
           "output_schema": "44136fa355b3678a",
           "parameters": "1b8bfe67ab58e766",
@@ -257,14 +235,14 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.1",
+    "snapshot_version": "0.2",
     "actions": [
       {
-        "action_id": "agent:simple-langchain-agent/support-case-reader:langchain_inventory:langchain_inventory:inventories/tools.json:lookup_case",
+        "action_id": "agent:simple-langchain-agent/support-case-reader:action_v2_d0dd3e9ff4e2e56868595ef12e50a97b37c9619cad32007dd4155c3a8b5554a2",
         "agent_id": "agent:simple-langchain-agent/support-case-reader",
-        "tool_id": "tool:lookup_case",
+        "tool_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
         "tool_name": "lookup_case",
-        "provider": "langchain_inventory:inventories/tools.json",
+        "provider": "langchain_agent",
         "source_type": "langchain_inventory",
         "source_id": "langchain_inventory:inventories/tools.json",
         "source_ref": "inventories/tools.json",
@@ -278,6 +256,47 @@
         "effect": "read",
         "semantic_assessment": {
           "conservative_effect": "read",
+          "identity": {
+            "tool_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+            "status": "declared",
+            "provider": "langchain_agent",
+            "binding_id": "langchain_lookup_case",
+            "primary_observation_id": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+            "observation_ids": [
+              "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+              "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7"
+            ],
+            "claims": [
+              {
+                "dimension": "identity",
+                "value": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "source_type": "langchain_inventory",
+                  "source_id": "langchain_inventory:inventories/tools.json",
+                  "native_locator": "inventories/tools.json#lookup_case"
+                }
+              },
+              {
+                "dimension": "identity",
+                "value": "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "agent.py",
+                "evidence": {
+                  "source_type": "langchain_function",
+                  "source_id": "langchain_agent",
+                  "native_locator": "agent.py#lookup_case"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -370,18 +389,18 @@
         ],
         "input_schema_hash": "0fa6db8cd81aa4d6",
         "hashes": {
-          "identity_hash": "a483ccada7e7f557",
+          "identity_hash": "e5a403f36b0c5187",
           "schema_hash": "0fa6db8cd81aa4d6",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "70b0ab591723cb0f"
         }
       },
       {
-        "action_id": "agent:simple-langchain-agent/support-case-reader:langchain_inventory:langchain_inventory:inventories/tools.json:summarize_case",
+        "action_id": "agent:simple-langchain-agent/support-case-reader:action_v2_f49894ae7d65a40e818cfb40d70d92dfe753748f0c6ffeb7968607a8a155ce16",
         "agent_id": "agent:simple-langchain-agent/support-case-reader",
-        "tool_id": "tool:summarize_case",
+        "tool_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
         "tool_name": "summarize_case",
-        "provider": "langchain_inventory:inventories/tools.json",
+        "provider": "langchain_agent",
         "source_type": "langchain_inventory",
         "source_id": "langchain_inventory:inventories/tools.json",
         "source_ref": "inventories/tools.json",
@@ -395,6 +414,47 @@
         "effect": "read",
         "semantic_assessment": {
           "conservative_effect": "read",
+          "identity": {
+            "tool_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+            "status": "declared",
+            "provider": "langchain_agent",
+            "binding_id": "langchain_summarize_case",
+            "primary_observation_id": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+            "observation_ids": [
+              "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+              "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73"
+            ],
+            "claims": [
+              {
+                "dimension": "identity",
+                "value": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "source_type": "langchain_inventory",
+                  "source_id": "langchain_inventory:inventories/tools.json",
+                  "native_locator": "inventories/tools.json#summarize_case"
+                }
+              },
+              {
+                "dimension": "identity",
+                "value": "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "agent.py",
+                "evidence": {
+                  "source_type": "langchain_structured_tool",
+                  "source_id": "langchain_agent",
+                  "native_locator": "agent.py#summarize_case"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -487,7 +547,7 @@
         ],
         "input_schema_hash": "0fa6db8cd81aa4d6",
         "hashes": {
-          "identity_hash": "321c95fa85c01229",
+          "identity_hash": "ae660cea788b555a",
           "schema_hash": "0fa6db8cd81aa4d6",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "70b0ab591723cb0f"
@@ -520,7 +580,8 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
-    ]
+    ],
+    "tool_id": null
   },
   "capability_runtime_evidence": {
     "enabled": false,
@@ -566,24 +627,13 @@
   "loaded_adapters": [],
   "tool_inventory": [
     {
-      "name": "lookup_case",
-      "source_type": "langchain_inventory",
-      "source_ref": "inventories/tools.json",
-      "source_path": "inventories/tools.json",
-      "source_start_line": null,
-      "source_pointer": "/tools/0",
-      "risk_tags": [
-        "read_only"
-      ],
-      "risk_tag_confidence": {
-        "read_only": "high"
-      },
-      "auth_scopes": [],
-      "owner": null,
-      "confidence": "high"
-    },
-    {
+      "tool_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
       "name": "summarize_case",
+      "provider": "langchain_agent",
+      "observation_ids": [
+        "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+        "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73"
+      ],
       "source_type": "langchain_inventory",
       "source_ref": "inventories/tools.json",
       "source_path": "inventories/tools.json",
@@ -597,25 +647,257 @@
       },
       "auth_scopes": [],
       "owner": null,
-      "confidence": "high"
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+          "status": "declared",
+          "provider": "langchain_agent",
+          "binding_id": "langchain_summarize_case",
+          "primary_observation_id": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+          "observation_ids": [
+            "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+            "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "langchain_inventory",
+                "source_id": "langchain_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#summarize_case"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "agent.py",
+              "evidence": {
+                "source_type": "langchain_structured_tool",
+                "source_id": "langchain_agent",
+                "native_locator": "agent.py#summarize_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='summarize_case'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='summarize_case'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      }
+    },
+    {
+      "tool_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+      "name": "lookup_case",
+      "provider": "langchain_agent",
+      "observation_ids": [
+        "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+        "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7"
+      ],
+      "source_type": "langchain_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/0",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+          "status": "declared",
+          "provider": "langchain_agent",
+          "binding_id": "langchain_lookup_case",
+          "primary_observation_id": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+          "observation_ids": [
+            "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+            "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "langchain_inventory",
+                "source_id": "langchain_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#lookup_case"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "agent.py",
+              "evidence": {
+                "source_type": "langchain_function",
+                "source_id": "langchain_agent",
+                "native_locator": "agent.py#lookup_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      }
     }
   ],
-  "source_warnings": [
-    "Duplicate tool name 'lookup_case'; kept langchain_inventory source 'langchain_inventory:inventories/tools.json' and merged metadata from langchain_function source 'langchain_agent'.",
-    "Duplicate tool name 'summarize_case'; kept langchain_inventory source 'langchain_inventory:inventories/tools.json' and merged metadata from langchain_structured_tool source 'langchain_agent'."
-  ],
+  "source_warnings": [],
   "agent_summary": {
-    "verdict": "review_required",
-    "headline": "2 source-loader warnings; review evidence before shipping.",
+    "verdict": "passed",
+    "headline": "Release ready. All in-scope actions have complete, conflict-free explicit or structural static effect and authority evidence; no active blockers. Runtime behavior was not verified.",
     "blocker_count": 0,
     "review_item_count": 0,
     "auto_appliable_patches": 0,
     "needs_human_review": 0,
-    "first_recommended_action": {
-      "kind": "info",
-      "command": null,
-      "why": "2 source-loader warnings; review evidence before shipping. Surface this to the user and discuss whether to gather better evidence (e.g. add MCP/OpenAPI inputs, eval traces) or accept the static-only review posture; no machine-applicable fix is available."
-    }
+    "first_recommended_action": null
   },
   "policy_audit": {
     "severity_overrides_applied": []
@@ -645,8 +927,8 @@
     "filtered_by_kind": {}
   },
   "reviewer_summary": {
-    "verdict": "review_required",
-    "headline": "Review required: no reviewer signals (lenses + audits all clean). Start at release_decision.",
+    "verdict": "passed",
+    "headline": "Release ready: no reviewer signals (lenses + audits all clean).",
     "tool_surface_changes": 0,
     "capability_misalignments": 0,
     "action_surface_changes": 0,
@@ -655,12 +937,7 @@
     "severity_overrides_tier_crossed": 0,
     "privacy_redactions": 0,
     "baseline_integrity_issues": 0,
-    "first_recommended_surface": {
-      "kind": "release_decision",
-      "name": "release_decision",
-      "path": "report.release_decision",
-      "why": "Review is required (source warnings or evidence gap without specific lens/audit signals); read release_decision.reason for details."
-    }
+    "first_recommended_surface": null
   },
   "capability_change": {
     "enabled": false,
@@ -687,7 +964,7 @@
     "outstanding": []
   },
   "verifier_summary": {
-    "verdict": "review_required",
+    "verdict": "passed",
     "by_severity": {},
     "by_reason_code": {},
     "capability_delta_summary": {

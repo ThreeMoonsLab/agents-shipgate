@@ -41,7 +41,7 @@ An agent must not write into a PR comment, commit message, code comment, or summ
 - **Prohibited-action enforcement** — that an `agent.prohibited_actions[]` entry will not fire at runtime, or that a runtime guardrail blocks it.
 - **Runtime trace evidence** — that a recorded trace proves runtime control behavior, that `human_in_the_loop` evidence in the packet is runtime-enforcement proof, or that a trace finding has been "fixed" by editing the trace.
 
-The machine-readable source of truth is contract v11's
+The machine-readable source of truth is contract v12's
 `do_not_auto_assert[]`, which includes `action_effect` and `action_authority`.
 Runtime trace evidence is also non-automatable: flipping a trace patches the
 *evidence record*, not the runtime gate. See

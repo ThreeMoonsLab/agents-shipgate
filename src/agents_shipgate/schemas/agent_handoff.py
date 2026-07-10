@@ -8,8 +8,8 @@ from agents_shipgate import __version__
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.verifier import map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v1"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v1.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v2"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v2.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -106,7 +106,7 @@ class AgentHandoffArtifact(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.agent_handoff/v1"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v2"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation

@@ -11,6 +11,10 @@ class PolicyToolEntry(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     tool: str
+    tool_id: str | None = None
+    provider: str | None = None
+    source_type: str | None = None
+    source_id: str | None = None
     reason: str | None = None
 
 

@@ -22,9 +22,9 @@ Review items (15):
 - HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — zendesk.update\_ticket accepts broad free-form action input
 - HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — gmail.send\_customer\_email accepts broad free-form action input
 - HIGH SHIP-AUTH-MANIFEST-BROAD-SCOPE — Manifest declares broad permission scopes
-- HIGH SHIP-AUTH-MISSING-SCOPE — refund\_status\_lookup lacks declared auth scopes
 - HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — shopify.cancel\_order requires scopes not declared in the manifest
 - HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — support.search\_kb requires scopes not declared in the manifest
+- HIGH SHIP-AUTH-MISSING-SCOPE — refund\_status\_lookup lacks declared auth scopes
 - HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — gmail.send\_customer\_email requires scopes not declared in the manifest
 - HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — stripe.create\_refund appears to overlap with a prohibited action
 - HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — gmail.send\_customer\_email appears to overlap with a prohibited action
@@ -33,7 +33,7 @@ Review items (15):
 - HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — shopify.cancel\_order is high-risk but has no owner
 - MEDIUM SHIP-MANIFEST-UNUSED-SCOPE — Manifest declares unused permission scope zendesk:tickets:read
 
-Evidence coverage: static (2 source warning(s); 3 semantic evidence gap(s); 1 semantic review concern(s); 6/8 actions pass-eligible; human review recommended)
+Evidence coverage: static (1 source warning(s); 3 semantic evidence gap(s); 1 semantic review concern(s); 6/8 actions pass-eligible; human review recommended)
 
 Baseline delta: not enabled
 
@@ -51,7 +51,7 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 ## Top Findings
 
 1. stripe.create\_refund has financial write capability without required controls
-   Evidence: action\_id=agent:support-refund-agent/refund-assistant:openapi:support\_openapi:POST /refunds; missing=\['approval.required', 'safeguards.audit\_log', 'safeguards.idempotency'\]
+   Evidence: action\_id=agent:support-refund-agent/refund-assistant:action\_v2\_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca; missing=\['approval.required', 'safeguards.audit\_log', 'safeguards.idempotency'\]
    Recommendation: Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.
 
 2. stripe.create\_refund lacks a declared approval policy
@@ -63,11 +63,11 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
    Recommendation: Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create\_refund.
 
 4. gmail.send\_customer\_email has external communication capability without required controls
-   Evidence: action\_id=agent:support-refund-agent/refund-assistant:mcp:support\_mcp\_tools:gmail.send\_customer\_email; missing=\['safeguards.audit\_log', 'confirmation.required'\]
+   Evidence: action\_id=agent:support-refund-agent/refund-assistant:action\_v2\_49bfadd2eb7605a1065c24081f890481ee2f37e9718152ae533c8e43ddaab17a; missing=\['safeguards.audit\_log', 'confirmation.required'\]
    Recommendation: Declare confirmation policy and safeguards.audit\_log for this external communication action.
 
 5. stripe.create\_refund has external communication capability without required controls
-   Evidence: action\_id=agent:support-refund-agent/refund-assistant:openapi:support\_openapi:POST /refunds; missing=\['safeguards.audit\_log', 'confirmation.required'\]
+   Evidence: action\_id=agent:support-refund-agent/refund-assistant:action\_v2\_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca; missing=\['safeguards.audit\_log', 'confirmation.required'\]
    Recommendation: Declare confirmation policy and safeguards.audit\_log for this external communication action.
 
 ## Finding Provenance
@@ -152,7 +152,6 @@ Next validation:
 ## Source Warnings
 
 - MCP source declares wildcard tool exposure
-- Duplicate tool name 'send\_email\_preview'; kept mcp source 'reviewed\_sdk\_inventory' and merged metadata from sdk\_function source 'openai\_sdk\_static'.
 
 ## Tool Surface Summary
 
@@ -226,14 +225,14 @@ No local runtime trace artifacts were declared for capability evidence.
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |
-| gmail.send\_customer\_email | mcp | customer\_communication, external\_write | customer\_communication=high, external\_write=high | gmail:send | support-platform |
-| refund\_status\_lookup | openapi | read\_only | read\_only=high | \- | \- |
-| send\_email\_preview | mcp | read\_only | read\_only=high | \- | \- |
 | shopify.cancel\_order | openapi | destructive, write | destructive=high, write=high | shopify:orders:write | \- |
-| stripe.create\_refund | openapi | external\_write, financial\_action, write | external\_write=high, financial\_action=high, write=high | stripe:refunds:write | payments-platform |
+| send\_email\_preview | mcp | read\_only | read\_only=high | \- | \- |
 | support.search\_kb | mcp | read\_only | read\_only=high | support:kb:read | support-platform |
-| wildcard\_mcp\_tools.\* | mcp | \- | \- | \- | \- |
+| refund\_status\_lookup | openapi | read\_only | read\_only=high | \- | \- |
+| stripe.create\_refund | openapi | external\_write, financial\_action, write | external\_write=high, financial\_action=high, write=high | stripe:refunds:write | payments-platform |
 | zendesk.update\_ticket | openapi | write | write=high | zendesk:tickets:write | \- |
+| gmail.send\_customer\_email | mcp | customer\_communication, external\_write | customer\_communication=high, external\_write=high | gmail:send | support-platform |
+| wildcard\_mcp\_tools.\* | mcp | \- | \- | \- | \- |
 
 
 ## Disclaimer

@@ -11,9 +11,9 @@ they do not create a second verdict.
 
 ## Current Versions
 
-- Capability standard version: `0.2`
-- Capability lock schema: [`capability-lock-schema.v0.3.json`](capability-lock-schema.v0.3.json)
-- Capability lock diff schema: [`capability-lock-diff-schema.v0.4.json`](capability-lock-diff-schema.v0.4.json)
+- Capability standard version: `0.3`
+- Capability lock schema: [`capability-lock-schema.v0.4.json`](capability-lock-schema.v0.4.json)
+- Capability lock diff schema: [`capability-lock-diff-schema.v0.5.json`](capability-lock-diff-schema.v0.5.json)
 - Frozen lock reference: [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
 - Frozen lock-diff reference: [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
 - Frozen experimental lock reference: [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
@@ -77,8 +77,8 @@ Each fact has:
   broad scopes.
 - `controls` — approval, confirmation, safeguard, owner, and runbook signals.
 - `evidence` — static source provenance for the declaration or extraction.
-- `semantic_assessment` (v0.2) — normalized effect and authority claims,
-  issues, conservative effect, and pass-eligibility state. Newly emitted v0.3
+- `semantic_assessment` (v0.3) — normalized identity, effect, and authority
+  claims, issues, conservative effect, and pass-eligibility state. Newly emitted v0.4
   locks populate it; it is optional only so older fact payloads remain
   readable.
 - `risk_tags` — compatibility metadata for existing policy and review surfaces.
@@ -131,15 +131,16 @@ Capability lock diff matches facts by `CapabilityFactV1.id`.
 - `added` / `removed` — id exists only in head/base.
 - `changed` — same id, but one or more semantic hashes changed.
 - `reidentified` — scope or resource changed and the engine can pair the old
-  and new facts by agent/provider/operation/tool.
+  and new facts within the same canonical tool identity. Provider or source
+  changes are added/removed unless a reviewed binding proves continuity.
 - `evidence_changed` — only `evidence_hash` changed.
 
 Changed rows carry `changed_hashes`, `semantic_direction`, and
 `semantic_changes` so tools can explain whether the delta is broadened,
 narrowed, mixed, unknown, or evidence-only.
 
-See [`examples/capability-lock.v0.3.example.json`](examples/capability-lock.v0.3.example.json)
-and [`examples/capability-lock-diff.v0.4.example.json`](examples/capability-lock-diff.v0.4.example.json).
+See [`examples/capability-lock.v0.4.example.json`](examples/capability-lock.v0.4.example.json)
+and [`examples/capability-lock-diff.v0.5.example.json`](examples/capability-lock-diff.v0.5.example.json).
 
 ## Provenance Boundaries
 
@@ -154,15 +155,15 @@ static capability envelope.
 
 ## Compatibility
 
-New exports use `capability_lock_schema_version: "0.3"` and
+New exports use `capability_lock_schema_version: "0.4"` and
 `experimental: false`. `agents-shipgate capability diff` continues to accept
 old experimental `0.1` lock inputs and normalizes them before comparison.
 Diff metadata reports the normalized current lock schema version for such
 legacy inputs.
 
-New diffs use `capability_lock_diff_schema_version: "0.4"` and
-`experimental: false`. The v0.2 lock and v0.3 diff schemas remain frozen
+New diffs use `capability_lock_diff_schema_version: "0.5"` and
+`experimental: false`. The v0.3 lock and v0.4 diff schemas remain frozen
 references for archived artifacts; regenerate both sides with 0.16 before a
-current semantic comparison. The older combined
+current identity-aware semantic comparison. The older combined
 [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)
 remains a frozen reference.

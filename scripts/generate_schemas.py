@@ -21,7 +21,7 @@ Writes / verifies:
 - docs/verify-run-schema.v1.json
                                 (from agents_shipgate.schemas.verify_run.
                                  VerifyRunArtifact)
-- docs/agent-handoff-schema.v1.json
+- docs/agent-handoff-schema.v2.json
                                 (from agents_shipgate.schemas.agent_handoff.
                                  AgentHandoffArtifact)
 - docs/agent-result-schema.v1.json
@@ -43,10 +43,10 @@ Writes / verifies:
 - docs/host-grants-inventory-schema.v0.1.json
                                 (from agents_shipgate.schemas.host_grants.
                                  HostGrantsInventoryArtifactV1)
-- docs/capability-lock-schema.v0.3.json
+- docs/capability-lock-schema.v0.4.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
-- docs/capability-lock-diff-schema.v0.4.json
+- docs/capability-lock-diff-schema.v0.5.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockDiffArtifactV1)
 - docs/governance-benchmark-catalog-schema.v0.2.json
@@ -1309,17 +1309,21 @@ def build_verify_run_schema() -> tuple[Path, str]:
 
 
 def build_agent_handoff_schema() -> tuple[Path, str]:
-    """Generate docs/agent-handoff-schema.v1.json."""
+    """Generate the current agent-handoff schema."""
 
-    from agents_shipgate.schemas.agent_handoff import AgentHandoffArtifact
+    from agents_shipgate.schemas.agent_handoff import (
+        AGENT_HANDOFF_SCHEMA_VERSION,
+        AgentHandoffArtifact,
+    )
 
     schema = AgentHandoffArtifact.model_json_schema()
+    major = AGENT_HANDOFF_SCHEMA_VERSION.rsplit("/v", 1)[-1]
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-        "main/docs/agent-handoff-schema.v1.json"
+        f"main/docs/agent-handoff-schema.v{major}.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Agent Handoff v1"
+    schema["title"] = f"Agents Shipgate Agent Handoff v{major}"
     schema["description"] = (
         "JSON Schema for agents-shipgate-reports/agent-handoff.json. "
         "Generated from "
@@ -1327,7 +1331,7 @@ def build_agent_handoff_schema() -> tuple[Path, str]:
         "a compact projection for coding agents and does not gate releases; "
         "release_decision.decision remains the only gate."
     )
-    target = DOCS / "agent-handoff-schema.v1.json"
+    target = DOCS / f"agent-handoff-schema.v{major}.json"
     return target, _canonical_json(schema)
 
 

@@ -621,25 +621,6 @@ tool_sources:
     type: mcp
     path: tools.json
     trust: internal
-action_surface:
-  actions:
-    - tool: support.search_kb
-      effect: read
-      authority: {{mode: none}}
-    - tool: support.lookup_case
-      effect: read
-      authority: {{mode: none}}
-    - tool: stripe.create_refund
-      effect: destructive
-      risk_tags: [financial_action]
-      scopes: ["stripe:*"]
-      authority: {{mode: scoped, auth_type: oauth2, credential_mode: service_account}}
-    - tool: support.delete_case
-      effect: destructive
-      authority: {{mode: none}}
-    - tool: infra.deploy_production
-      effect: destructive
-      authority: {{mode: none}}
 ci:
   mode: {ci}
 """
@@ -664,10 +645,6 @@ tool_sources:
 permissions:
   scopes:
 {rendered_scopes}
-action_surface:
-  actions:
-    - tool: support.list_cases
-      effect: read
 ci:
   mode: advisory
 """
@@ -688,11 +665,6 @@ tool_sources:
     type: mcp
     path: tools.json
     trust: internal
-action_surface:
-  actions:
-    - tool: support.search_kb
-      effect: read
-      authority: {mode: none}
 ci:
   mode: strict
   fail_on:

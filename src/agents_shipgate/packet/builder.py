@@ -388,10 +388,17 @@ def _tool_source_index(
     consistent — when both sides are populated, the same suffix lands
     on machine-readable ``reason`` strings AND on packet markdown
     highlight bullets."""
-    return {
-        tool.name: (tool.source_path, tool.source_start_line)
+    index = {
+        tool.id: (tool.source_path, tool.source_start_line)
         for tool in tools
     }
+    counts: dict[str, int] = {}
+    for tool in tools:
+        counts[tool.name] = counts.get(tool.name, 0) + 1
+    for tool in tools:
+        if counts[tool.name] == 1:
+            index[tool.name] = (tool.source_path, tool.source_start_line)
+    return index
 
 
 def _source_suffix(
@@ -445,24 +452,24 @@ def _tool_surface_diff_highlights(
         if item.kind == "added":
             highlights.append(
                 f"New high-risk tag {item.tag} on {item.tool}"
-                f"{_source_suffix(tool_source_index.get(item.tool))}"
+                f"{_source_suffix(tool_source_index.get(item.tool_id or item.tool))}"
             )
     for item in diff.controls:
         if item.kind == "removed":
             highlights.append(
                 f"Removed {item.control} for {item.tool}"
-                f"{_source_suffix(tool_source_index.get(item.tool))}"
+                f"{_source_suffix(tool_source_index.get(item.tool_id or item.tool))}"
             )
     for item in diff.tools:
         if item.kind == "added":
             highlights.append(
                 f"Added tool {item.name}"
-                f"{_source_suffix(tool_source_index.get(item.name))}"
+                f"{_source_suffix(tool_source_index.get(item.tool_id or item.name))}"
             )
         elif item.kind == "removed":
             highlights.append(
                 f"Removed tool {item.name}"
-                f"{_source_suffix(tool_source_index.get(item.name))}"
+                f"{_source_suffix(tool_source_index.get(item.tool_id or item.name))}"
             )
     for item in diff.policy_drift:
         # Policy drift rows reference manifest keys, not tools; no
@@ -518,17 +525,17 @@ def _action_surface_diff_highlights(
     for item in diff.added:
         highlights.append(
             f"Added action {item.tool_name or item.action_id} ({item.severity})"
-            f"{_source_suffix(tool_source_index.get(item.tool_name or ''))}"
+            f"{_source_suffix(tool_source_index.get(item.tool_id or item.tool_name or ''))}"
         )
     for item in diff.modified:
         highlights.append(
             f"Modified action {item.tool_name or item.action_id}: {item.type} ({item.severity})"
-            f"{_source_suffix(tool_source_index.get(item.tool_name or ''))}"
+            f"{_source_suffix(tool_source_index.get(item.tool_id or item.tool_name or ''))}"
         )
     for item in diff.removed:
         highlights.append(
             f"Removed action {item.tool_name or item.action_id}"
-            f"{_source_suffix(tool_source_index.get(item.tool_name or ''))}"
+            f"{_source_suffix(tool_source_index.get(item.tool_id or item.tool_name or ''))}"
         )
     return highlights[:8]
 
@@ -591,6 +598,7 @@ def _build_capability_intent(
         declared_purpose=declared_purpose,
         prohibited_actions=prohibited,
         observed_tools=observed_tool_names,
+        observed_tool_ids=sorted(tool.id for tool in tools),
         rows=rows,
         divergence_findings=_to_decision_items(divergence),
     )
@@ -602,19 +610,30 @@ def _build_high_risk_surface(
     idempotency_declared: set[str],
 ) -> HighRiskSurfaceSection:
     entries: list[HighRiskToolEntry] = []
+    name_counts: dict[str, int] = {}
+    for tool in tools:
+        name_counts[tool.name] = name_counts.get(tool.name, 0) + 1
     for tool in tools:
         if not is_high_risk_tool(tool):
             continue
         entries.append(
             HighRiskToolEntry(
+                tool_id=tool.id,
                 name=tool.name,
+                provider=tool.provider or tool.source_id or tool.source_type,
                 source_type=tool.source_type,
                 risk_tags=risk_tags(tool, min_confidence="medium"),
-                has_approval_policy=tool.name in approval_declared,
-                has_idempotency_policy=tool.name in idempotency_declared,
+                has_approval_policy=(
+                    "approval" in tool.resolved_controls
+                    or (name_counts[tool.name] == 1 and tool.name in approval_declared)
+                ),
+                has_idempotency_policy=(
+                    "idempotency" in tool.resolved_controls
+                    or (name_counts[tool.name] == 1 and tool.name in idempotency_declared)
+                ),
             )
         )
-    entries.sort(key=lambda entry: entry.name)
+    entries.sort(key=lambda entry: (entry.name, entry.tool_id or ""))
 
     if not entries:
         status: SectionStatus = "informational"
@@ -650,8 +669,11 @@ def _build_approval_coverage(
 
     gap_findings = _findings_with_check(findings, APPROVAL_GAP_CHECKS)
     gap_by_tool: dict[str, list[str]] = {}
+    gap_by_tool_id: dict[str, list[str]] = {}
     for finding in gap_findings:
-        if finding.tool_name and finding.id:
+        if finding.tool_id and finding.id:
+            gap_by_tool_id.setdefault(finding.tool_id, []).append(finding.id)
+        elif finding.tool_name and finding.id:
             gap_by_tool.setdefault(finding.tool_name, []).append(finding.id)
 
     # Per the §4 contract: only include rows for tools where Shipgate has
@@ -660,23 +682,34 @@ def _build_approval_coverage(
     # SHIP-API-TRACE-APPROVAL-MISSING finding fired. High-risk tools that
     # need only confirmation (or no policy at all) are not approval gaps
     # and must not be reported as such.
-    relevant_names = set(declared_by_source) | set(gap_by_tool)
     rows: list[ApprovalCoverageRow] = []
     seen: set[str] = set()
-    for tool in sorted(tools, key=lambda t: t.name):
-        if tool.name not in relevant_names:
+    name_counts = _tool_name_counts(tools)
+    for tool in sorted(tools, key=lambda t: (t.name, t.id)):
+        declared_source = _control_source(
+            tool,
+            control="approval",
+            declared_by_source=declared_by_source,
+            name_counts=name_counts,
+        )
+        gap_ids = gap_by_tool_id.get(tool.id, [])
+        if name_counts[tool.name] == 1:
+            gap_ids = [*gap_ids, *gap_by_tool.get(tool.name, [])]
+        if declared_source is None and not gap_ids:
             continue
-        seen.add(tool.name)
+        seen.add(tool.id)
         rows.append(
             ApprovalCoverageRow(
                 tool=tool.name,
-                declared=tool.name in declared_by_source,
-                source=declared_by_source.get(tool.name),
-                gap_finding_ids=sorted(gap_by_tool.get(tool.name, [])),
+                tool_id=tool.id,
+                provider=tool.provider or tool.source_id or tool.source_type,
+                declared=declared_source is not None,
+                source=declared_source,
+                gap_finding_ids=sorted(gap_ids),
             )
         )
     for tool_name, ids in gap_by_tool.items():
-        if tool_name in seen:
+        if name_counts.get(tool_name) == 1:
             continue
         rows.append(
             ApprovalCoverageRow(
@@ -716,30 +749,44 @@ def _build_idempotency_risk(
 
     gap_findings = _findings_with_check(findings, IDEMPOTENCY_GAP_CHECKS)
     gap_by_tool: dict[str, list[str]] = {}
+    gap_by_tool_id: dict[str, list[str]] = {}
     for finding in gap_findings:
-        if finding.tool_name and finding.id:
+        if finding.tool_id and finding.id:
+            gap_by_tool_id.setdefault(finding.tool_id, []).append(finding.id)
+        elif finding.tool_name and finding.id:
             gap_by_tool.setdefault(finding.tool_name, []).append(finding.id)
 
     # Same rule as §4: only include rows where Shipgate has actual
     # idempotency evidence — declared or flagged. High-risk read-class
     # tools that don't need idempotency must not appear as gaps.
-    relevant_names = set(declared_by_source) | set(gap_by_tool)
     rows: list[IdempotencyRow] = []
     seen: set[str] = set()
-    for tool in sorted(tools, key=lambda t: t.name):
-        if tool.name not in relevant_names:
+    name_counts = _tool_name_counts(tools)
+    for tool in sorted(tools, key=lambda t: (t.name, t.id)):
+        declared_source = _control_source(
+            tool,
+            control="idempotency",
+            declared_by_source=declared_by_source,
+            name_counts=name_counts,
+        )
+        gap_ids = gap_by_tool_id.get(tool.id, [])
+        if name_counts[tool.name] == 1:
+            gap_ids = [*gap_ids, *gap_by_tool.get(tool.name, [])]
+        if declared_source is None and not gap_ids:
             continue
-        seen.add(tool.name)
+        seen.add(tool.id)
         rows.append(
             IdempotencyRow(
                 tool=tool.name,
-                declared=tool.name in declared_by_source,
-                source=declared_by_source.get(tool.name),
-                gap_finding_ids=sorted(gap_by_tool.get(tool.name, [])),
+                tool_id=tool.id,
+                provider=tool.provider or tool.source_id or tool.source_type,
+                declared=declared_source is not None,
+                source=declared_source,
+                gap_finding_ids=sorted(gap_ids),
             )
         )
     for tool_name, ids in gap_by_tool.items():
-        if tool_name in seen:
+        if name_counts.get(tool_name) == 1:
             continue
         rows.append(
             IdempotencyRow(
@@ -766,10 +813,10 @@ def _build_scope_coverage(
 ) -> ScopeCoverageSection:
     declared = list(dict.fromkeys(manifest.permissions.scopes))
 
-    used_by_scope: dict[str, list[str]] = {}
+    used_by_scope: dict[str, list[tuple[str, str]]] = {}
     for tool in tools:
         for scope in tool.auth.scopes:
-            used_by_scope.setdefault(scope, []).append(tool.name)
+            used_by_scope.setdefault(scope, []).append((tool.id, tool.name))
     for scopes in used_by_scope.values():
         scopes.sort()
 
@@ -789,7 +836,8 @@ def _build_scope_coverage(
         ScopeCoverageRow(
             scope=scope,
             declared=scope in declared_set or scope in covered_used,
-            used_by_tools=sorted(used_by_scope.get(scope, [])),
+            used_by_tools=sorted(name for _, name in used_by_scope.get(scope, [])),
+            used_by_tool_ids=sorted(tool_id for tool_id, _ in used_by_scope.get(scope, [])),
         )
         for scope in sorted(declared_set | used_set)
     ]
@@ -1213,6 +1261,27 @@ def _declared_with_sources(
     for name in anthropic_set:
         out.setdefault(name, "anthropic")
     return out
+
+
+def _tool_name_counts(tools: list[Tool]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for tool in tools:
+        counts[tool.name] = counts.get(tool.name, 0) + 1
+    return counts
+
+
+def _control_source(
+    tool: Tool,
+    *,
+    control: str,
+    declared_by_source: dict[str, str],
+    name_counts: dict[str, int],
+) -> str | None:
+    if control in tool.resolved_controls:
+        return "policies"
+    if name_counts.get(tool.name) == 1:
+        return declared_by_source.get(tool.name)
+    return None
 
 
 def _approval_declared(

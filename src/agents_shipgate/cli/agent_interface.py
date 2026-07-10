@@ -49,7 +49,7 @@ def handoff(
         help="Print the handoff JSON to stdout.",
     ),
 ) -> None:
-    """Render the shipgate.agent_handoff/v1 artifact from verifier outputs."""
+    """Render the shipgate.agent_handoff/v2 artifact from verifier outputs."""
 
     try:
         verifier_payload = _load_required_json(source, "verifier.json")

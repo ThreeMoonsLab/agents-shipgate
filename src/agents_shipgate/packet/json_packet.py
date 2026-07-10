@@ -72,12 +72,12 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
 
     version = payload_dict.get("packet_schema_version")
     legacy_version = (
-        version if version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"} else None
+        version if version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"} else None
     )
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.8",
+            "packet_schema_version": "0.9",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -92,35 +92,37 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.3":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.4":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.5":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.6":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.7":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
-    elif version != "0.8":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+    elif version == "0.8":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+    elif version != "0.9":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
             f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', "
-            "'0.6', '0.7', or '0.8'"
+            "'0.6', '0.7', '0.8', or '0.9'"
         )
 
     if legacy_version is not None:

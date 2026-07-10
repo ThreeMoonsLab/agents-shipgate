@@ -367,6 +367,37 @@ tool_output_schemas:
 
 Trace samples are JSON arrays or JSONL with simple normalized fields such as `tool_name`, `approved`, `confirmed`, `success`, and `error`. Unsupported raw logs produce source warnings rather than blockers.
 
+## Tool identity and reviewed bindings
+
+Tool names are display metadata, not identity. Each `tool_sources[].id` must be
+unique. Agents Shipgate derives a source-scoped observation identity from the
+source type, source ID, and adapter-native locator. Same-name tools from
+different sources/providers remain distinct.
+
+Declare a binding only when a human has reviewed that two extracted
+observations describe the same mounted capability:
+
+```yaml
+tool_identity:
+  bindings:
+    - id: support_lookup
+      provider: support-runtime
+      reason: reviewed inventory describes the bound LangChain function
+      primary:
+        source_id: reviewed_inventory
+        tool: lookup_case
+      members:
+        - source_id: langchain_agent
+          tool: lookup_case
+        - source_id: reviewed_inventory
+          tool: lookup_case
+```
+
+Every member and the primary must resolve exactly once; one observation may
+belong to at most one binding. Equal names or providers never imply
+equivalence. Invalid, overlapping, or structurally conflicting bindings join
+nothing and prevent `passed`.
+
 ## Action Surface Diff
 
 The optional top-level `action_surface:` block adds reviewer-facing action
@@ -422,8 +453,12 @@ action_surface:
       block: true
 ```
 
-`actions[]` entries are keyed by loaded tool name through `tool`. Starting with
-contract v11/report v0.29, `effect` and `authority` are reviewed static evidence
+`actions[]` entries are one-to-one selectors. `tool` remains the display-name
+selector; add `tool_id`, `provider`, `source_type`, or `source_id` when the name
+is not unique. Resolution must produce exactly one canonical tool. Zero or
+multiple matches apply no declaration and create an unsuppressible identity
+evidence gap; there is no fallback to the first matching name. Starting with
+contract v12/report v0.30, `effect` and `authority` are reviewed static evidence
 used to establish pass eligibility. Agents Shipgate never auto-writes them.
 Scopes remain on `actions[].scopes`; do not duplicate them under `authority`.
 Authority modes are:

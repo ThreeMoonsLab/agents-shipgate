@@ -8,6 +8,7 @@ from agents_shipgate.core.domain import Action, Scope, Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.lenses.action_surface import build_action
 from agents_shipgate.core.risk_hints import derive_side_effect
+from agents_shipgate.core.tool_identity import resolve_tool_selector
 from agents_shipgate.schemas.capabilities import (
     CapabilityAuthority,
     CapabilityControls,
@@ -99,21 +100,38 @@ def build_capability_facts(
 ) -> list[CapabilityFactV1]:
     """Build deterministic internal capability facts for a tool list."""
 
-    declarations = {entry.tool: entry for entry in manifest.action_surface.actions}
-    confirmation_tools = manifest.policies.confirmation_tools()
+    declarations = {}
+    for entry in manifest.action_surface.actions:
+        match = resolve_tool_selector(tools, entry)
+        if match.resolved:
+            declarations[match.matches[0].id] = entry
+    controls_by_tool_id: dict[str, set[str]] = {}
+    for control, entries in (
+        ("approval", manifest.policies.require_approval_for_tools),
+        ("confirmation", manifest.policies.require_confirmation_for_tools),
+        ("idempotency", manifest.policies.require_idempotency_for_tools),
+    ):
+        for entry in entries:
+            match = resolve_tool_selector(tools, entry)
+            if match.resolved:
+                controls_by_tool_id.setdefault(match.matches[0].id, set()).add(control)
     facts: list[CapabilityFactV1] = []
-    for tool in tools:
+    for original in tools:
+        tool = original.model_copy()
+        tool.resolved_controls = sorted(
+            set(tool.resolved_controls) | controls_by_tool_id.get(tool.id, set())
+        )
         action = build_action(
             manifest,
             agent_id=agent_id,
             tool=tool,
-            declaration=declarations.get(tool.name),
+            declaration=declarations.get(tool.id),
         )
         facts.append(
             capability_fact_from_action(
                 action,
                 tool,
-                confirmation_required=tool.name in confirmation_tools,
+                confirmation_required="confirmation" in tool.resolved_controls,
             )
         )
     _validate_unique_capability_ids(facts)

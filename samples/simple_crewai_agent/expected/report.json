@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.29",
-  "run_id": "agents_shipgate_d748e20410a8653a",
+  "report_schema_version": "0.30",
+  "run_id": "agents_shipgate_136deceabf653b25",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
@@ -22,9 +22,14 @@
     ],
     "prohibited_actions": [],
     "tools": [
-      "summarize_case",
       "lookup_case",
-      "FileReadTool"
+      "FileReadTool",
+      "summarize_case"
+    ],
+    "tool_ids": [
+      "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+      "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+      "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638"
     ],
     "handoffs": [],
     "guardrails": {
@@ -62,8 +67,8 @@
     "blockers": [],
     "review_items": [
       {
-        "id": "fp_f58e63a5e4e19471",
-        "fingerprint": "fp_f58e63a5e4e19471",
+        "id": "fp_a5c1748518789774",
+        "fingerprint": "fp_a5c1748518789774",
         "check_id": "SHIP-AUTH-MISSING-SCOPE",
         "severity": "high",
         "title": "FileReadTool lacks declared auth scopes",
@@ -87,69 +92,12 @@
     "evidence_coverage": {
       "level": "static",
       "human_review_recommended": true,
-      "source_warning_count": 4,
+      "source_warning_count": 1,
       "low_confidence_tool_count": 0,
       "evidence_gaps": [
         {
           "kind": "source_warning",
           "subject": "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.",
-          "source_type": null,
-          "source_ref": null,
-          "why": "A source loader degraded while reading declared inputs.",
-          "next_action": {
-            "kind": "review_warning",
-            "command": null,
-            "path": null,
-            "why": "The warning text names the degraded source.",
-            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
-            "accepted_values": [],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "source_warning",
-          "subject": "Duplicate tool name 'lookup_case'; kept crewai_inventory source 'crewai_inventory:inventories/tools.json' and merged metadata from crewai_class_tool source 'crewai_agent'.",
-          "source_type": null,
-          "source_ref": null,
-          "why": "A source loader degraded while reading declared inputs.",
-          "next_action": {
-            "kind": "review_warning",
-            "command": null,
-            "path": null,
-            "why": "The warning text names the degraded source.",
-            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
-            "accepted_values": [],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "source_warning",
-          "subject": "Duplicate tool name 'summarize_case'; kept crewai_inventory source 'crewai_inventory:inventories/tools.json' and merged metadata from crewai_function source 'crewai_agent'.",
-          "source_type": null,
-          "source_ref": null,
-          "why": "A source loader degraded while reading declared inputs.",
-          "next_action": {
-            "kind": "review_warning",
-            "command": null,
-            "path": null,
-            "why": "The warning text names the degraded source.",
-            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
-            "accepted_values": [],
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "source_warning",
-          "subject": "Duplicate tool name 'FileReadTool'; kept crewai_inventory source 'crewai_inventory:inventories/tools.json' and merged metadata from crewai_prebuilt_tool source 'crewai_agent'.",
           "source_type": null,
           "source_ref": null,
           "why": "A source loader degraded while reading declared inputs.",
@@ -175,6 +123,15 @@
         "reason_counts": {
           "ambient_authority": 1
         }
+      },
+      "identity_coverage": {
+        "total_observations": 6,
+        "canonical_tools": 3,
+        "bound_tools": 3,
+        "pass_eligible_tools": 3,
+        "ambiguous_name_count": 0,
+        "gap_count": 0,
+        "reason_counts": {}
       }
     },
     "baseline_delta": {
@@ -196,8 +153,8 @@
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "contribution_rules": [
       {
-        "finding_id": "fp_f58e63a5e4e19471",
-        "fingerprint": "fp_f58e63a5e4e19471",
+        "finding_id": "fp_a5c1748518789774",
+        "fingerprint": "fp_a5c1748518789774",
         "check_id": "SHIP-AUTH-MISSING-SCOPE",
         "category": "review_item",
         "rule": "review_required",
@@ -208,7 +165,7 @@
   "capability_facts": [
     {
       "id": "cap_e1583e1475adb63c",
-      "tool_id": "tool:FileReadTool",
+      "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
       "tool_name": "FileReadTool",
       "source_type": "crewai_inventory",
       "source_id": "crewai_inventory:inventories/tools.json",
@@ -217,6 +174,47 @@
       "effect": "read",
       "semantic_assessment": {
         "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+          "status": "declared",
+          "provider": "crewai_agent",
+          "binding_id": "crewai_file_read",
+          "primary_observation_id": "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+          "observation_ids": [
+            "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+            "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/2",
+              "evidence": {
+                "source_type": "crewai_inventory",
+                "source_id": "crewai_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#FileReadTool"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "crew.py",
+              "evidence": {
+                "source_type": "crewai_prebuilt_tool",
+                "source_id": "crewai_agent",
+                "native_locator": "crew.py#FileReadTool"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
         "effect": {
           "status": "declared",
           "confidence": "high",
@@ -290,7 +288,7 @@
       "included_reason": "referenced_by_high_finding",
       "control_status": "partial",
       "related_findings": [
-        "fp_f58e63a5e4e19471"
+        "fp_a5c1748518789774"
       ]
     }
   ],
@@ -305,7 +303,7 @@
   ],
   "misalignments": [
     {
-      "id": "mis_b702d0d08b48ec90",
+      "id": "mis_cd9aba42620bdb53",
       "kind": "scope_drift",
       "severity": "high",
       "tool_name": "FileReadTool",
@@ -314,7 +312,7 @@
       ],
       "intention_refs": [],
       "finding_refs": [
-        "fp_f58e63a5e4e19471"
+        "fp_a5c1748518789774"
       ],
       "policy_requirement": "Scope-requiring tools must declare operation-specific auth scopes.",
       "gap": "FileReadTool lacks declared auth scopes.",
@@ -336,16 +334,16 @@
   },
   "suggested_scenarios": [
     {
-      "id": "scn_85a3fd48a7d386ae",
+      "id": "scn_5e40b377ac34eb5b",
       "scenario_type": "least_privilege_scope",
       "title": "Least-privilege scope review",
       "given": "Exercise the release path for FileReadTool.",
       "expected_control": "Manifest and tool scopes match the narrow permissions needed for the release.",
       "source_misalignments": [
-        "mis_b702d0d08b48ec90"
+        "mis_cd9aba42620bdb53"
       ],
       "source_findings": [
-        "fp_f58e63a5e4e19471"
+        "fp_a5c1748518789774"
       ]
     }
   ],
@@ -361,28 +359,9 @@
   "tool_surface_facts": {
     "tools": [
       {
-        "name": "FileReadTool",
-        "source_type": "crewai_inventory",
-        "source_id": "crewai_inventory:inventories/tools.json",
-        "source_ref": "inventories/tools.json",
-        "risk_tags": [
-          "read_only"
-        ],
-        "auth_scopes": [],
-        "owner": null,
-        "extraction_confidence": "high",
-        "has_description": true,
-        "hashes": {
-          "source_ref": "3613cdb3d448a417",
-          "description": "5396f0cbd5d76a34",
-          "input_schema": "1559048086bd25a5",
-          "output_schema": "44136fa355b3678a",
-          "parameters": "9184ce0404bb30ae",
-          "annotations": "61954e0dde3b9ed2"
-        }
-      },
-      {
+        "tool_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
         "name": "lookup_case",
+        "provider": "crewai_agent",
         "source_type": "crewai_inventory",
         "source_id": "crewai_inventory:inventories/tools.json",
         "source_ref": "inventories/tools.json",
@@ -403,7 +382,32 @@
         }
       },
       {
+        "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+        "name": "FileReadTool",
+        "provider": "crewai_agent",
+        "source_type": "crewai_inventory",
+        "source_id": "crewai_inventory:inventories/tools.json",
+        "source_ref": "inventories/tools.json",
+        "risk_tags": [
+          "read_only"
+        ],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "high",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "3613cdb3d448a417",
+          "description": "5396f0cbd5d76a34",
+          "input_schema": "1559048086bd25a5",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "9184ce0404bb30ae",
+          "annotations": "61954e0dde3b9ed2"
+        }
+      },
+      {
+        "tool_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
         "name": "summarize_case",
+        "provider": "crewai_agent",
         "source_type": "crewai_inventory",
         "source_id": "crewai_inventory:inventories/tools.json",
         "source_ref": "inventories/tools.json",
@@ -470,248 +474,14 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.1",
+    "snapshot_version": "0.2",
     "actions": [
       {
-        "action_id": "agent:simple-crewai-agent/support-case-crew:crewai_inventory:crewai_inventory:inventories/tools.json:FileReadTool",
+        "action_id": "agent:simple-crewai-agent/support-case-crew:action_v2_56f5d7d377130876f26986bdadd25cd1ad47dd0138cba6da8dc11e7d06fe30e6",
         "agent_id": "agent:simple-crewai-agent/support-case-crew",
-        "tool_id": "tool:FileReadTool",
-        "tool_name": "FileReadTool",
-        "provider": "crewai_inventory:inventories/tools.json",
-        "source_type": "crewai_inventory",
-        "source_id": "crewai_inventory:inventories/tools.json",
-        "source_ref": "inventories/tools.json",
-        "source_location": null,
-        "source_path": "inventories/tools.json",
-        "source_start_line": null,
-        "source_end_line": null,
-        "source_start_column": null,
-        "source_pointer": "/tools/2",
-        "operation": "FileReadTool",
-        "effect": "read",
-        "semantic_assessment": {
-          "conservative_effect": "read",
-          "effect": {
-            "status": "declared",
-            "confidence": "high",
-            "claims": [
-              {
-                "dimension": "effect",
-                "value": "read",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "action_surface_declaration",
-                "source_pointer": "action_surface.actions[tool='FileReadTool'].effect",
-                "evidence": {}
-              },
-              {
-                "dimension": "effect",
-                "value": "read",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "mcp_annotation",
-                "source_pointer": "/tools/2",
-                "evidence": {
-                  "readOnlyHint": true
-                }
-              }
-            ],
-            "issues": []
-          },
-          "authority": {
-            "status": "declared",
-            "mode": "ambient",
-            "auth_type": null,
-            "credential_mode": null,
-            "scopes": [],
-            "claims": [
-              {
-                "dimension": "authority",
-                "value": "ambient",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "action_surface_declaration",
-                "source_pointer": "action_surface.actions[tool='FileReadTool'].authority",
-                "evidence": {
-                  "auth_type": null,
-                  "credential_mode": null,
-                  "scopes": []
-                }
-              },
-              {
-                "dimension": "authority",
-                "value": "ambient",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "mcp_authority",
-                "source_pointer": "/tools/2",
-                "evidence": {
-                  "auth_type": null,
-                  "scopes": [],
-                  "alternative_count": 0
-                }
-              }
-            ],
-            "issues": []
-          },
-          "pass_eligible": false
-        },
-        "risk_tags": [
-          "read_only"
-        ],
-        "required_scopes": [],
-        "approval_policy": {
-          "required": false,
-          "threshold": null
-        },
-        "safeguards": {
-          "idempotency": false,
-          "audit_log": null,
-          "rollback": null,
-          "dry_run": null
-        },
-        "evidence": {
-          "owner": null,
-          "runbook": null,
-          "approval_ticket": null
-        },
-        "input_fields": [
-          "file_path"
-        ],
-        "required_input_fields": [
-          "file_path"
-        ],
-        "input_schema_hash": "f8a12b0226871f4a",
-        "hashes": {
-          "identity_hash": "e24bb7660e1d30a7",
-          "schema_hash": "f8a12b0226871f4a",
-          "policy_hash": "99aa27a5e2ab49d6",
-          "risk_hash": "70b0ab591723cb0f"
-        }
-      },
-      {
-        "action_id": "agent:simple-crewai-agent/support-case-crew:crewai_inventory:crewai_inventory:inventories/tools.json:lookup_case",
-        "agent_id": "agent:simple-crewai-agent/support-case-crew",
-        "tool_id": "tool:lookup_case",
-        "tool_name": "lookup_case",
-        "provider": "crewai_inventory:inventories/tools.json",
-        "source_type": "crewai_inventory",
-        "source_id": "crewai_inventory:inventories/tools.json",
-        "source_ref": "inventories/tools.json",
-        "source_location": null,
-        "source_path": "inventories/tools.json",
-        "source_start_line": null,
-        "source_end_line": null,
-        "source_start_column": null,
-        "source_pointer": "/tools/0",
-        "operation": "lookup_case",
-        "effect": "read",
-        "semantic_assessment": {
-          "conservative_effect": "read",
-          "effect": {
-            "status": "declared",
-            "confidence": "high",
-            "claims": [
-              {
-                "dimension": "effect",
-                "value": "read",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "action_surface_declaration",
-                "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
-                "evidence": {}
-              },
-              {
-                "dimension": "effect",
-                "value": "read",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "mcp_annotation",
-                "source_pointer": "/tools/0",
-                "evidence": {
-                  "readOnlyHint": true
-                }
-              }
-            ],
-            "issues": []
-          },
-          "authority": {
-            "status": "declared",
-            "mode": "none",
-            "auth_type": null,
-            "credential_mode": null,
-            "scopes": [],
-            "claims": [
-              {
-                "dimension": "authority",
-                "value": "none",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "action_surface_declaration",
-                "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
-                "evidence": {
-                  "auth_type": null,
-                  "credential_mode": null,
-                  "scopes": []
-                }
-              },
-              {
-                "dimension": "authority",
-                "value": "none",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "mcp_authority",
-                "source_pointer": "/tools/0",
-                "evidence": {
-                  "auth_type": null,
-                  "scopes": [],
-                  "alternative_count": 0
-                }
-              }
-            ],
-            "issues": []
-          },
-          "pass_eligible": true
-        },
-        "risk_tags": [
-          "read_only"
-        ],
-        "required_scopes": [],
-        "approval_policy": {
-          "required": false,
-          "threshold": null
-        },
-        "safeguards": {
-          "idempotency": false,
-          "audit_log": null,
-          "rollback": null,
-          "dry_run": null
-        },
-        "evidence": {
-          "owner": null,
-          "runbook": null,
-          "approval_ticket": null
-        },
-        "input_fields": [
-          "case_id"
-        ],
-        "required_input_fields": [
-          "case_id"
-        ],
-        "input_schema_hash": "0fa6db8cd81aa4d6",
-        "hashes": {
-          "identity_hash": "8c52abc276989dd7",
-          "schema_hash": "0fa6db8cd81aa4d6",
-          "policy_hash": "99aa27a5e2ab49d6",
-          "risk_hash": "70b0ab591723cb0f"
-        }
-      },
-      {
-        "action_id": "agent:simple-crewai-agent/support-case-crew:crewai_inventory:crewai_inventory:inventories/tools.json:summarize_case",
-        "agent_id": "agent:simple-crewai-agent/support-case-crew",
-        "tool_id": "tool:summarize_case",
+        "tool_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
         "tool_name": "summarize_case",
-        "provider": "crewai_inventory:inventories/tools.json",
+        "provider": "crewai_agent",
         "source_type": "crewai_inventory",
         "source_id": "crewai_inventory:inventories/tools.json",
         "source_ref": "inventories/tools.json",
@@ -725,6 +495,47 @@
         "effect": "read",
         "semantic_assessment": {
           "conservative_effect": "read",
+          "identity": {
+            "tool_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+            "status": "declared",
+            "provider": "crewai_agent",
+            "binding_id": "crewai_summarize_case",
+            "primary_observation_id": "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+            "observation_ids": [
+              "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+              "obs_v1_8107b85e09d544636b259f216489e077ba0c6915829b5e4a0c708d960d9b00df"
+            ],
+            "claims": [
+              {
+                "dimension": "identity",
+                "value": "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "source_type": "crewai_inventory",
+                  "source_id": "crewai_inventory:inventories/tools.json",
+                  "native_locator": "inventories/tools.json#summarize_case"
+                }
+              },
+              {
+                "dimension": "identity",
+                "value": "obs_v1_8107b85e09d544636b259f216489e077ba0c6915829b5e4a0c708d960d9b00df",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "crew.py",
+                "evidence": {
+                  "source_type": "crewai_function",
+                  "source_id": "crewai_agent",
+                  "native_locator": "crew.py#summarize_case"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -817,8 +628,324 @@
         ],
         "input_schema_hash": "0fa6db8cd81aa4d6",
         "hashes": {
-          "identity_hash": "715e4a61cf80fe7d",
+          "identity_hash": "dd57e2b98901d0a4",
           "schema_hash": "0fa6db8cd81aa4d6",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "70b0ab591723cb0f"
+        }
+      },
+      {
+        "action_id": "agent:simple-crewai-agent/support-case-crew:action_v2_9e2004f61794bd05ce634f3732bdc1d4c77fdbc511fddd074600153cb5e06a64",
+        "agent_id": "agent:simple-crewai-agent/support-case-crew",
+        "tool_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+        "tool_name": "lookup_case",
+        "provider": "crewai_agent",
+        "source_type": "crewai_inventory",
+        "source_id": "crewai_inventory:inventories/tools.json",
+        "source_ref": "inventories/tools.json",
+        "source_location": null,
+        "source_path": "inventories/tools.json",
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/tools/0",
+        "operation": "lookup_case",
+        "effect": "read",
+        "semantic_assessment": {
+          "conservative_effect": "read",
+          "identity": {
+            "tool_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+            "status": "declared",
+            "provider": "crewai_agent",
+            "binding_id": "crewai_lookup_case",
+            "primary_observation_id": "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c",
+            "observation_ids": [
+              "obs_v1_75cdf97835473a87a94cced0791d82e93653eb17faa022f9fe39a5156b4de1be",
+              "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c"
+            ],
+            "claims": [
+              {
+                "dimension": "identity",
+                "value": "obs_v1_75cdf97835473a87a94cced0791d82e93653eb17faa022f9fe39a5156b4de1be",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "crew.py",
+                "evidence": {
+                  "source_type": "crewai_class_tool",
+                  "source_id": "crewai_agent",
+                  "native_locator": "crew.py#lookup_case"
+                }
+              },
+              {
+                "dimension": "identity",
+                "value": "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "source_type": "crewai_inventory",
+                  "source_id": "crewai_inventory:inventories/tools.json",
+                  "native_locator": "inventories/tools.json#lookup_case"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
+                "evidence": {}
+              },
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "mcp_annotation",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "readOnlyHint": true
+                }
+              }
+            ],
+            "issues": []
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "none",
+            "auth_type": null,
+            "credential_mode": null,
+            "scopes": [],
+            "claims": [
+              {
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
+                "evidence": {
+                  "auth_type": null,
+                  "credential_mode": null,
+                  "scopes": []
+                }
+              },
+              {
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "mcp_authority",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "auth_type": null,
+                  "scopes": [],
+                  "alternative_count": 0
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": true
+        },
+        "risk_tags": [
+          "read_only"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "case_id"
+        ],
+        "required_input_fields": [
+          "case_id"
+        ],
+        "input_schema_hash": "0fa6db8cd81aa4d6",
+        "hashes": {
+          "identity_hash": "30e2e2c6e41fe4aa",
+          "schema_hash": "0fa6db8cd81aa4d6",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "70b0ab591723cb0f"
+        }
+      },
+      {
+        "action_id": "agent:simple-crewai-agent/support-case-crew:action_v2_c1de6258e2cb65c9563eb46e7f4c7e13b6c1c471eb41641a3a80e02389c1b2d7",
+        "agent_id": "agent:simple-crewai-agent/support-case-crew",
+        "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+        "tool_name": "FileReadTool",
+        "provider": "crewai_agent",
+        "source_type": "crewai_inventory",
+        "source_id": "crewai_inventory:inventories/tools.json",
+        "source_ref": "inventories/tools.json",
+        "source_location": null,
+        "source_path": "inventories/tools.json",
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/tools/2",
+        "operation": "FileReadTool",
+        "effect": "read",
+        "semantic_assessment": {
+          "conservative_effect": "read",
+          "identity": {
+            "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+            "status": "declared",
+            "provider": "crewai_agent",
+            "binding_id": "crewai_file_read",
+            "primary_observation_id": "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+            "observation_ids": [
+              "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+              "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32"
+            ],
+            "claims": [
+              {
+                "dimension": "identity",
+                "value": "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "/tools/2",
+                "evidence": {
+                  "source_type": "crewai_inventory",
+                  "source_id": "crewai_inventory:inventories/tools.json",
+                  "native_locator": "inventories/tools.json#FileReadTool"
+                }
+              },
+              {
+                "dimension": "identity",
+                "value": "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "tool_identity_binding",
+                "source_pointer": "crew.py",
+                "evidence": {
+                  "source_type": "crewai_prebuilt_tool",
+                  "source_id": "crewai_agent",
+                  "native_locator": "crew.py#FileReadTool"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='FileReadTool'].effect",
+                "evidence": {}
+              },
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "mcp_annotation",
+                "source_pointer": "/tools/2",
+                "evidence": {
+                  "readOnlyHint": true
+                }
+              }
+            ],
+            "issues": []
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "ambient",
+            "auth_type": null,
+            "credential_mode": null,
+            "scopes": [],
+            "claims": [
+              {
+                "dimension": "authority",
+                "value": "ambient",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='FileReadTool'].authority",
+                "evidence": {
+                  "auth_type": null,
+                  "credential_mode": null,
+                  "scopes": []
+                }
+              },
+              {
+                "dimension": "authority",
+                "value": "ambient",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "mcp_authority",
+                "source_pointer": "/tools/2",
+                "evidence": {
+                  "auth_type": null,
+                  "scopes": [],
+                  "alternative_count": 0
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": false
+        },
+        "risk_tags": [
+          "read_only"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [
+          "file_path"
+        ],
+        "required_input_fields": [
+          "file_path"
+        ],
+        "input_schema_hash": "f8a12b0226871f4a",
+        "hashes": {
+          "identity_hash": "810d9df7a8bd82a1",
+          "schema_hash": "f8a12b0226871f4a",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "70b0ab591723cb0f"
         }
@@ -850,7 +977,8 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
-    ]
+    ],
+    "tool_id": null
   },
   "capability_runtime_evidence": {
     "enabled": false,
@@ -890,13 +1018,13 @@
   "baseline": null,
   "findings": [
     {
-      "id": "fp_f58e63a5e4e19471",
-      "fingerprint": "fp_f58e63a5e4e19471",
+      "id": "fp_a5c1748518789774",
+      "fingerprint": "fp_a5c1748518789774",
       "check_id": "SHIP-AUTH-MISSING-SCOPE",
       "title": "FileReadTool lacks declared auth scopes",
       "severity": "high",
       "category": "auth",
-      "tool_id": "tool:FileReadTool",
+      "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
       "tool_name": "FileReadTool",
       "agent_id": "agent:simple-crewai-agent/support-case-crew",
       "evidence": {
@@ -942,24 +1070,13 @@
   "loaded_adapters": [],
   "tool_inventory": [
     {
-      "name": "FileReadTool",
-      "source_type": "crewai_inventory",
-      "source_ref": "inventories/tools.json",
-      "source_path": "inventories/tools.json",
-      "source_start_line": null,
-      "source_pointer": "/tools/2",
-      "risk_tags": [
-        "read_only"
-      ],
-      "risk_tag_confidence": {
-        "read_only": "high"
-      },
-      "auth_scopes": [],
-      "owner": null,
-      "confidence": "high"
-    },
-    {
+      "tool_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
       "name": "lookup_case",
+      "provider": "crewai_agent",
+      "observation_ids": [
+        "obs_v1_75cdf97835473a87a94cced0791d82e93653eb17faa022f9fe39a5156b4de1be",
+        "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c"
+      ],
       "source_type": "crewai_inventory",
       "source_ref": "inventories/tools.json",
       "source_path": "inventories/tools.json",
@@ -973,10 +1090,255 @@
       },
       "auth_scopes": [],
       "owner": null,
-      "confidence": "high"
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+          "status": "declared",
+          "provider": "crewai_agent",
+          "binding_id": "crewai_lookup_case",
+          "primary_observation_id": "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c",
+          "observation_ids": [
+            "obs_v1_75cdf97835473a87a94cced0791d82e93653eb17faa022f9fe39a5156b4de1be",
+            "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_75cdf97835473a87a94cced0791d82e93653eb17faa022f9fe39a5156b4de1be",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "crew.py",
+              "evidence": {
+                "source_type": "crewai_class_tool",
+                "source_id": "crewai_agent",
+                "native_locator": "crew.py#lookup_case"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "crewai_inventory",
+                "source_id": "crewai_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#lookup_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      }
     },
     {
+      "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+      "name": "FileReadTool",
+      "provider": "crewai_agent",
+      "observation_ids": [
+        "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+        "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32"
+      ],
+      "source_type": "crewai_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/2",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+          "status": "declared",
+          "provider": "crewai_agent",
+          "binding_id": "crewai_file_read",
+          "primary_observation_id": "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+          "observation_ids": [
+            "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+            "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/2",
+              "evidence": {
+                "source_type": "crewai_inventory",
+                "source_id": "crewai_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#FileReadTool"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "crew.py",
+              "evidence": {
+                "source_type": "crewai_prebuilt_tool",
+                "source_id": "crewai_agent",
+                "native_locator": "crew.py#FileReadTool"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='FileReadTool'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/2",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "ambient",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "ambient",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='FileReadTool'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "ambient",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/2",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      }
+    },
+    {
+      "tool_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
       "name": "summarize_case",
+      "provider": "crewai_agent",
+      "observation_ids": [
+        "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+        "obs_v1_8107b85e09d544636b259f216489e077ba0c6915829b5e4a0c708d960d9b00df"
+      ],
       "source_type": "crewai_inventory",
       "source_ref": "inventories/tools.json",
       "source_path": "inventories/tools.json",
@@ -990,14 +1352,119 @@
       },
       "auth_scopes": [],
       "owner": null,
-      "confidence": "high"
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+          "status": "declared",
+          "provider": "crewai_agent",
+          "binding_id": "crewai_summarize_case",
+          "primary_observation_id": "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+          "observation_ids": [
+            "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+            "obs_v1_8107b85e09d544636b259f216489e077ba0c6915829b5e4a0c708d960d9b00df"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "crewai_inventory",
+                "source_id": "crewai_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#summarize_case"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_8107b85e09d544636b259f216489e077ba0c6915829b5e4a0c708d960d9b00df",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "crew.py",
+              "evidence": {
+                "source_type": "crewai_function",
+                "source_id": "crewai_agent",
+                "native_locator": "crew.py#summarize_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='summarize_case'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='summarize_case'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      }
     }
   ],
   "source_warnings": [
-    "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.",
-    "Duplicate tool name 'lookup_case'; kept crewai_inventory source 'crewai_inventory:inventories/tools.json' and merged metadata from crewai_class_tool source 'crewai_agent'.",
-    "Duplicate tool name 'summarize_case'; kept crewai_inventory source 'crewai_inventory:inventories/tools.json' and merged metadata from crewai_function source 'crewai_agent'.",
-    "Duplicate tool name 'FileReadTool'; kept crewai_inventory source 'crewai_inventory:inventories/tools.json' and merged metadata from crewai_prebuilt_tool source 'crewai_agent'."
+    "CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review."
   ],
   "agent_summary": {
     "verdict": "review_required",
@@ -1009,7 +1476,7 @@
     "first_recommended_action": {
       "kind": "info",
       "command": null,
-      "why": "1 finding need review and evidence coverage is incomplete. A human must review the active high/critical finding(s), and you should gather deeper evidence (e.g. MCP/OpenAPI inputs, eval traces, additional source files) before re-running the scan; applying patches does not clear the evidence gap."
+      "why": "Walk the 1 review item(s) starting with SHIP-AUTH-MISSING-SCOPE; release is allowed but the human reviewer should weigh in."
     }
   },
   "policy_audit": {

@@ -95,11 +95,14 @@ def build_capability_runtime_evidence(context) -> CapabilityRuntimeEvidence:
 
 
 def capability_refs_for_tool(context, tool_name: str) -> list[str]:
-    refs = [
-        fact.id
+    matching = [
+        fact
         for fact in sorted(context.capability_facts, key=capability_fact_sort_key)
         if fact.identity.tool_name == tool_name
     ]
+    if len({fact.identity.tool_id for fact in matching}) != 1:
+        return []
+    refs = [fact.id for fact in matching]
     return _unique_sorted(refs)
 
 
@@ -175,6 +178,16 @@ def _trace_evidence_row(
         match_reason = "missing_tool_name"
     else:
         candidate_facts = facts_by_tool.get(tool_name, [])
+        provider = _string_or_none(observed.get("provider"))
+        operation = _string_or_none(observed.get("operation"))
+        if provider:
+            candidate_facts = [
+                fact for fact in candidate_facts if fact.identity.provider == provider
+            ]
+        if operation:
+            candidate_facts = [
+                fact for fact in candidate_facts if fact.identity.operation == operation
+            ]
         if len(candidate_facts) == 1:
             matched_fact = candidate_facts[0]
             match_reason = "tool_name"

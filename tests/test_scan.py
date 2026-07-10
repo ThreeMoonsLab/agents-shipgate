@@ -39,8 +39,8 @@ def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
 
     assert exit_code == 0
     assert report.release_decision is not None
-    assert report.release_decision.decision == "review_required"
-    assert report.release_decision.evidence_coverage.source_warning_count == 2
+    assert report.release_decision.decision == "passed"
+    assert report.release_decision.evidence_coverage.source_warning_count == 0
     assert report.release_decision.evidence_coverage.semantic_coverage.model_dump() == {
         "total_actions": 2,
         "pass_eligible_actions": 2,
@@ -54,7 +54,7 @@ def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
     assert inventory["support.render_reply"]["source_ref"] == "inventories/tools.json"
     assert {entry["source_type"] for entry in inventory.values()} == {"mcp"}
     assert {entry["confidence"] for entry in inventory.values()} == {"high"}
-    assert all("merged metadata from sdk_function" in warning for warning in report.source_warnings)
+    assert report.source_warnings == []
     assert {action.tool_name for action in report.action_surface_facts.actions} == {
         "support.lookup_case",
         "support.render_reply",
@@ -746,7 +746,7 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
         baseline_path=baseline_path,
     )
 
-    assert baseline.schema_version == "0.6"
+    assert baseline.schema_version == "0.7"
     assert baseline.tool_surface_facts is not None
     assert baseline.action_surface_facts is not None
     assert first_report.run_id == second_report.run_id
@@ -1036,7 +1036,7 @@ def test_manual_risk_override_sets_tags_and_owner(tmp_path):
     assert "external_write" in refund_tool["risk_tags"]
 
 
-def test_duplicate_tools_are_deduplicated_with_warning(tmp_path):
+def test_same_name_tools_from_different_providers_remain_distinct(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     (project / "openapi.yaml").write_text(
@@ -1104,13 +1104,14 @@ tool_sources:
         ci_mode="advisory",
     )
 
-    assert report.tool_surface.total_tools == 1
-    assert report.tool_inventory[0]["source_type"] == "openapi"
-    assert report.tool_inventory[0]["auth_scopes"] == ["shared:read"]
-    assert report.tool_inventory[0]["owner"] == "support-platform"
-    assert any(
-        "Duplicate tool name 'shared.lookup'" in warning for warning in report.source_warnings
-    )
+    assert report.tool_surface.total_tools == 2
+    rows = {row["provider"]: row for row in report.tool_inventory}
+    assert rows["api"]["auth_scopes"] == []
+    assert rows["api"]["owner"] is None
+    assert rows["mcp"]["auth_scopes"] == ["shared:read"]
+    assert rows["mcp"]["owner"] == "support-platform"
+    assert len({row["tool_id"] for row in rows.values()}) == 2
+    assert not any("Duplicate tool name" in warning for warning in report.source_warnings)
 
 
 def test_manifest_scope_checks_read_only_purpose_with_write_tool(tmp_path):
@@ -1336,25 +1337,14 @@ checks:
     )
 
     warnings = report.source_warnings
-    dup_idx = next(
-        (i for i, w in enumerate(warnings) if "Duplicate tool name 'shared.lookup'" in w),
-        None,
-    )
     pp_idx = next(
         (i for i, w in enumerate(warnings) if "missing-pack.yaml" in w and "failed to load" in w),
         None,
     )
 
-    assert dup_idx is not None, (
-        f"Expected a duplicate-tool warning in source_warnings; got: {warnings}"
-    )
+    assert not any("Duplicate tool name" in warning for warning in warnings)
     assert pp_idx is not None, (
         f"Expected an optional-policy-pack warning in source_warnings; got: {warnings}"
-    )
-    assert dup_idx < pp_idx, (
-        f"Duplicate-tool warning (index {dup_idx}) must appear before "
-        f"policy-pack warning (index {pp_idx}) in report.source_warnings. "
-        f"Full list: {warnings}"
     )
 
 
@@ -1420,7 +1410,9 @@ def test_scan_writes_suggested_inventory_for_low_confidence_tools(tmp_path):
     names = [entry["name"] for entry in skeleton["tools"]]
     assert names == sorted(names)
     low_confidence_subjects = {gap.subject for gap in gaps if gap.kind == "low_confidence_tool"}
-    assert set(names) == low_confidence_subjects
+    assert set(names) == {
+        subject.rsplit(" [", 1)[0] for subject in low_confidence_subjects
+    }
     # Every entry has at least a name and a non-empty description.
     for entry in skeleton["tools"]:
         assert entry["name"]
@@ -1545,11 +1537,11 @@ tool_sources:
         "get_session",
         "get_session_detail",
     }
-    # The collision is surfaced as a source_warning (routes to
-    # review_required), not swallowed.
-    assert any(
+    # Provider-scoped v2 identities prevent the former normalized-path
+    # collision, so no fail-soft collision warning is needed.
+    assert not any(
         "Duplicate action_surface action_id" in warning for warning in report.source_warnings
-    ), f"Expected an action_id collision warning; got: {report.source_warnings}"
+    )
 
 
 def test_diff_from_report_with_duplicate_base_action_ids_degrades(tmp_path):

@@ -28,6 +28,7 @@ from agents_shipgate.schemas.manifest.severity_overrides import (
     OverrideAcknowledgement,
     SeverityOverrideEntry,
 )
+from agents_shipgate.schemas.manifest.tool_identity import ToolIdentityConfig
 from agents_shipgate.schemas.manifest.tool_sources import ToolSourceConfig
 from agents_shipgate.schemas.manifest.validation import ValidationConfig
 
@@ -40,6 +41,7 @@ class AgentsShipgateManifest(BaseModel):
     agent: AgentConfig
     environment: EnvironmentConfig
     tool_sources: list[ToolSourceConfig] = Field(default_factory=list)
+    tool_identity: ToolIdentityConfig = Field(default_factory=ToolIdentityConfig)
     openai_api: OpenAIApiConfig | None = None
     anthropic: AnthropicConfig | None = None
     google_adk: GoogleAdkConfig | None = None
@@ -65,6 +67,9 @@ class AgentsShipgateManifest(BaseModel):
 
     @model_validator(mode="after")
     def require_sources_and_scope_text(self) -> AgentsShipgateManifest:
+        source_ids = [source.id for source in self.tool_sources]
+        if len(set(source_ids)) != len(source_ids):
+            raise ValueError("tool_sources[].id values must be unique")
         has_google_adk = (
             any(source.type == "google_adk" for source in self.tool_sources)
             or self.google_adk is not None

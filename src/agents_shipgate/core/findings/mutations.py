@@ -6,6 +6,7 @@ from agents_shipgate.core.check_ids import (
     UNSUPPRESSIBLE_FINDING_CATEGORIES,
     expands_to_check_id,
 )
+from agents_shipgate.core.domain import Tool
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest import SuppressionConfig
 from agents_shipgate.schemas.report import (
@@ -18,7 +19,7 @@ NO_HEURISTICS_SUPPRESSION_REASON = "filtered by --no-heuristics"
 
 
 def apply_suppressions(
-    findings: list[Finding], suppressions: list[SuppressionConfig]
+    findings: list[Finding], suppressions: list[SuppressionConfig], tools: list[Tool] | None = None
 ) -> list[Finding]:
     for finding in findings:
         # Trust-root / verify findings are the reward-hacking guard and
@@ -27,7 +28,7 @@ def apply_suppressions(
         # UNSUPPRESSIBLE_FINDING_CATEGORIES.
         if finding.category in UNSUPPRESSIBLE_FINDING_CATEGORIES:
             continue
-        match = _matching_suppression(finding, suppressions)
+        match = _matching_suppression(finding, suppressions, tools=tools)
         if match:
             finding.suppressed = True
             finding.suppression_reason = match.reason
@@ -78,20 +79,32 @@ def apply_no_heuristics_filter(
 
 
 def _matching_suppression(
-    finding: Finding, suppressions: list[SuppressionConfig]
+    finding: Finding,
+    suppressions: list[SuppressionConfig],
+    *,
+    tools: list[Tool] | None = None,
 ) -> SuppressionConfig | None:
     for suppression in suppressions:
         if not expands_to_check_id(suppression.check_id, finding.check_id):
             continue
-        if not suppression.tool:
+        if not suppression.tool and not suppression.tool_id:
             return suppression
-        possible_tools = {
-            finding.tool_name,
-            finding.tool_id,
-            finding.tool_id.replace("tool:", "") if finding.tool_id else None,
-        }
-        if suppression.tool in possible_tools:
-            return suppression
+        if suppression.tool_id:
+            if suppression.tool_id != finding.tool_id:
+                continue
+        elif suppression.tool:
+            if suppression.tool != finding.tool_name:
+                continue
+            if tools is not None and sum(tool.name == suppression.tool for tool in tools) != 1:
+                continue
+        tool = next((item for item in tools or [] if item.id == finding.tool_id), None)
+        if suppression.provider and (tool is None or tool.provider != suppression.provider):
+            continue
+        if suppression.source_type and (tool is None or tool.source_type != suppression.source_type):
+            continue
+        if suppression.source_id and (tool is None or tool.source_id != suppression.source_id):
+            continue
+        return suppression
     return None
 
 

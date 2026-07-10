@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts, ToolSurfaceFacts
 
-BASELINE_SCHEMA_VERSION = "0.6"
+BASELINE_SCHEMA_VERSION = "0.7"
 # v0.6 adds optional `provenance.owner` — the human who accepted the
 # debt — settable via `baseline save --owner/--reason/--expires`
 # (v0.5 documented reviewer-set `reason`/`expires` but offered no CLI
@@ -50,7 +50,9 @@ class BaselineFinding(BaseModel):
 
     fingerprint: str
     check_id: str
+    tool_id: str | None = None
     tool_name: str | None = None
+    fingerprint_version: Literal["1", "2"] = "1"
     severity: Severity
     title: str
     # v0.5 additive: when None, the entry pre-dates the v0.5 provenance
@@ -62,7 +64,7 @@ class BaselineFinding(BaseModel):
 class BaselineFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6"] = BASELINE_SCHEMA_VERSION
+    schema_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7"] = BASELINE_SCHEMA_VERSION
     project: dict[str, object] = Field(default_factory=dict)
     agent: dict[str, object] = Field(default_factory=dict)
     created_at: str

@@ -106,7 +106,7 @@ def test_save_metadata_stamped_on_new_entries() -> None:
         reason="accepted pending Q3 fix",
         expires=date(2026, 9, 30),
     )
-    assert baseline.schema_version == "0.6"
+    assert baseline.schema_version == "0.7"
     provenance = baseline.findings[0].provenance
     assert provenance.owner == "alice"
     assert provenance.reason == "accepted pending Q3 fix"

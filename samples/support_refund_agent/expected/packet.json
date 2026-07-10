@@ -62,15 +62,25 @@
       "static_extract": true,
       "type": "openai-agents"
     },
+    "tool_ids": [
+      "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+      "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+      "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+      "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+      "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+      "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+      "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac"
+    ],
     "tools": [
+      "shopify.cancel_order",
+      "send_email_preview",
+      "support.search_kb",
       "refund_status_lookup",
       "stripe.create_refund",
-      "shopify.cancel_order",
       "zendesk.update_ticket",
-      "support.search_kb",
       "gmail.send_customer_email",
-      "wildcard_mcp_tools.*",
-      "send_email_preview"
+      "wildcard_mcp_tools.*"
     ]
   },
   "approval_coverage": {
@@ -79,12 +89,12 @@
         "baseline_status": null,
         "blocks_release": false,
         "capability_refs": [
-          "cap_c80f118600dfb076"
+          "cap_578e492c26fd4656"
         ],
         "capability_trace_refs": [],
         "check_id": "SHIP-POLICY-APPROVAL-MISSING",
-        "fingerprint": "fp_f092940f62fbb012",
-        "id": "fp_f092940f62fbb012",
+        "fingerprint": "fp_973ea0ef2110ca9a",
+        "id": "fp_973ea0ef2110ca9a",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -92,7 +102,7 @@
           "pointer": "/policies/require_approval_for_tools",
           "ref": "shipgate.yaml#/policies/require_approval_for_tools",
           "start_column": null,
-          "start_line": 54,
+          "start_line": 64,
           "type": "manifest"
         },
         "severity": "critical",
@@ -113,16 +123,20 @@
       {
         "declared": true,
         "gap_finding_ids": [],
+        "provider": "support_openapi",
         "source": "policies",
-        "tool": "shopify.cancel_order"
+        "tool": "shopify.cancel_order",
+        "tool_id": "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
       },
       {
         "declared": false,
         "gap_finding_ids": [
-          "fp_f092940f62fbb012"
+          "fp_973ea0ef2110ca9a"
         ],
+        "provider": "support_openapi",
         "source": null,
-        "tool": "stripe.create_refund"
+        "tool": "stripe.create_refund",
+        "tool_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
       }
     ],
     "status": "partial"
@@ -140,8 +154,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "fingerprint": "fp_12985c36a06026de",
-        "id": "fp_12985c36a06026de",
+        "fingerprint": "fp_6f8e1ebab65f3607",
+        "id": "fp_6f8e1ebab65f3607",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -171,8 +185,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "fingerprint": "fp_e090c62e390e70ab",
-        "id": "fp_e090c62e390e70ab",
+        "fingerprint": "fp_5faaaee860bcec8b",
+        "id": "fp_5faaaee860bcec8b",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -196,6 +210,16 @@
         },
         "title": "gmail.send_customer_email appears to overlap with a prohibited action"
       }
+    ],
+    "observed_tool_ids": [
+      "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+      "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+      "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+      "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+      "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+      "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+      "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac"
     ],
     "observed_tools": [
       "gmail.send_customer_email",
@@ -255,104 +279,104 @@
     "scenarios": [
       {
         "finding_ids": [
-          "fp_3c8cac2cb8af37ec",
-          "fp_ad46dcc15d8c2969"
+          "fp_1c94d2d2693dccdf",
+          "fp_e042ce7813b97a2d"
         ],
         "scenario": "Manual review for SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
         "why": "Declare confirmation policy and safeguards.audit_log for this external communication action."
       },
       {
         "finding_ids": [
-          "fp_3e9d5016edc50f97"
+          "fp_dfa27ad5b52d8fd6"
         ],
         "scenario": "Manual review for SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
         "why": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency for this financial write action."
       },
       {
         "finding_ids": [
-          "fp_d27325cbdbbf5483"
+          "fp_df4a990cca9f936b"
         ],
         "scenario": "Manual review for SHIP-AUTH-MANIFEST-BROAD-SCOPE",
         "why": "Replace broad manifest permission scopes with the narrowest scopes needed for this release."
       },
       {
         "finding_ids": [
-          "fp_8e1328bd648028d3"
+          "fp_519cb82f038efd10"
         ],
         "scenario": "Manual review for SHIP-AUTH-MISSING-SCOPE",
         "why": "Declare operation-specific auth scopes for refund_status_lookup, or explicitly declare anonymous authority when the operation requires no credentials."
       },
       {
         "finding_ids": [
-          "fp_1f6cfd6b7daa9b7c",
-          "fp_83852fbd6b440524",
-          "fp_d8e6d1865dae97cc"
+          "fp_095f3a5337124f6e",
+          "fp_1fd01b4ed2e41d51",
+          "fp_24d610b0d4324190"
         ],
         "scenario": "Manual review for SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "why": "Add the required scopes for shopify.cancel_order to permissions.scopes or narrow the tool's declared auth requirements."
       },
       {
         "finding_ids": [
-          "fp_fc02d8ecd30f2578"
+          "fp_a00e34cdb33a5596"
         ],
         "scenario": "Manual review for SHIP-INVENTORY-WILDCARD-TOOLS",
         "why": "Replace wildcard tool exposure with an explicit tool allowlist before release review."
       },
       {
         "finding_ids": [
-          "fp_fd2577850cef1f87"
+          "fp_674fa79ae9993422"
         ],
         "scenario": "Manual review for SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
         "why": "Declare an owner for each high-risk production tool in risk_overrides.tools."
       },
       {
         "finding_ids": [
-          "fp_39b9ae878f343d1b"
+          "fp_609d62f4dc434961"
         ],
         "scenario": "Manual review for SHIP-MANIFEST-UNUSED-SCOPE",
         "why": "Remove unused manifest scopes or add tool metadata showing why they are required."
       },
       {
         "finding_ids": [
-          "fp_f092940f62fbb012"
+          "fp_973ea0ef2110ca9a"
         ],
         "scenario": "Manual review for SHIP-POLICY-APPROVAL-MISSING",
         "why": "Declare an approval policy for stripe.create_refund or remove this tool from the release."
       },
       {
         "finding_ids": [
-          "fp_8e08a4fe6b0917f6",
-          "fp_a62ca2fd9a68a1d1"
+          "fp_c762eebfadaf39d9",
+          "fp_fae2921fd2d0cbd5"
         ],
         "scenario": "Manual review for SHIP-POLICY-CONFIRMATION-MISSING",
         "why": "Declare a user confirmation policy for stripe.create_refund or remove this action from the release."
       },
       {
         "finding_ids": [
-          "fp_acd63b899d49aa1c",
-          "fp_ff2f028953d1c220"
+          "fp_d58657d9b1c91a84",
+          "fp_ea4f18e4707f8e1d"
         ],
         "scenario": "Manual review for SHIP-SCHEMA-BROAD-FREE-TEXT",
         "why": "Constrain zendesk.update_ticket.updates with an enum, structured schema, or narrower field-specific parameters."
       },
       {
         "finding_ids": [
-          "fp_ab60b01cb53cfcbe"
+          "fp_60fdf92126ba8844"
         ],
         "scenario": "Manual review for SHIP-SCHEMA-MISSING-BOUNDS",
         "why": "Add a maximum bound to stripe.create_refund.amount or document an equivalent limit in the tool policy."
       },
       {
         "finding_ids": [
-          "fp_12985c36a06026de",
-          "fp_e090c62e390e70ab"
+          "fp_5faaaee860bcec8b",
+          "fp_6f8e1ebab65f3607"
         ],
         "scenario": "Manual review for SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "why": "Remove stripe.create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other."
       },
       {
         "finding_ids": [
-          "fp_dac8011e14c53777"
+          "fp_2cf0d6c77d9c3eee"
         ],
         "scenario": "Manual review for SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "why": "Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create_refund."
@@ -396,8 +420,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
-            "fingerprint": "fp_fc02d8ecd30f2578",
-            "id": "fp_fc02d8ecd30f2578",
+            "fingerprint": "fp_a00e34cdb33a5596",
+            "id": "fp_a00e34cdb33a5596",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -435,8 +459,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-            "fingerprint": "fp_ab60b01cb53cfcbe",
-            "id": "fp_ab60b01cb53cfcbe",
+            "fingerprint": "fp_60fdf92126ba8844",
+            "id": "fp_60fdf92126ba8844",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -457,8 +481,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-            "fingerprint": "fp_ff2f028953d1c220",
-            "id": "fp_ff2f028953d1c220",
+            "fingerprint": "fp_ea4f18e4707f8e1d",
+            "id": "fp_ea4f18e4707f8e1d",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -479,8 +503,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-            "fingerprint": "fp_acd63b899d49aa1c",
-            "id": "fp_acd63b899d49aa1c",
+            "fingerprint": "fp_d58657d9b1c91a84",
+            "id": "fp_d58657d9b1c91a84",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -509,9 +533,9 @@
         ],
         "missing_controls": [
           "SHIP-AUTH-MANIFEST-BROAD-SCOPE: Manifest declares broad permission scopes",
-          "SHIP-AUTH-MISSING-SCOPE on refund_status_lookup: refund_status_lookup lacks declared auth scopes",
           "SHIP-AUTH-SCOPE-COVERAGE-MISSING on shopify.cancel_order: shopify.cancel_order requires scopes not declared in the manifest",
           "SHIP-AUTH-SCOPE-COVERAGE-MISSING on support.search_kb: support.search_kb requires scopes not declared in the manifest",
+          "SHIP-AUTH-MISSING-SCOPE on refund_status_lookup: refund_status_lookup lacks declared auth scopes",
           "SHIP-AUTH-SCOPE-COVERAGE-MISSING on gmail.send_customer_email: gmail.send_customer_email requires scopes not declared in the manifest",
           "SHIP-MANIFEST-UNUSED-SCOPE: Manifest declares unused permission scope zendesk:tickets:read"
         ],
@@ -522,8 +546,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
-            "fingerprint": "fp_d27325cbdbbf5483",
-            "id": "fp_d27325cbdbbf5483",
+            "fingerprint": "fp_df4a990cca9f936b",
+            "id": "fp_df4a990cca9f936b",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -533,7 +557,7 @@
               "pointer": "/permissions/scopes",
               "ref": "shipgate.yaml",
               "start_column": null,
-              "start_line": 63,
+              "start_line": 73,
               "type": "manifest"
             },
             "title": "Manifest declares broad permission scopes"
@@ -543,31 +567,9 @@
             "blocks_release": false,
             "capability_refs": [],
             "capability_trace_refs": [],
-            "check_id": "SHIP-AUTH-MISSING-SCOPE",
-            "fingerprint": "fp_8e1328bd648028d3",
-            "id": "fp_8e1328bd648028d3",
-            "policy_evidence_source": null,
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": "specs/support-tools.openapi.yaml",
-              "pointer": "/paths/~1refunds~1{payment_id}~1status/get",
-              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
-              "start_column": 5,
-              "start_line": 72,
-              "type": "openapi"
-            },
-            "title": "refund_status_lookup lacks declared auth scopes"
-          },
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
             "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-            "fingerprint": "fp_83852fbd6b440524",
-            "id": "fp_83852fbd6b440524",
+            "fingerprint": "fp_1fd01b4ed2e41d51",
+            "id": "fp_1fd01b4ed2e41d51",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -588,8 +590,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-            "fingerprint": "fp_d8e6d1865dae97cc",
-            "id": "fp_d8e6d1865dae97cc",
+            "fingerprint": "fp_24d610b0d4324190",
+            "id": "fp_24d610b0d4324190",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -609,9 +611,31 @@
             "blocks_release": false,
             "capability_refs": [],
             "capability_trace_refs": [],
+            "check_id": "SHIP-AUTH-MISSING-SCOPE",
+            "fingerprint": "fp_519cb82f038efd10",
+            "id": "fp_519cb82f038efd10",
+            "policy_evidence_source": null,
+            "severity": "high",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "specs/support-tools.openapi.yaml",
+              "pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
+              "start_column": 5,
+              "start_line": 72,
+              "type": "openapi"
+            },
+            "title": "refund_status_lookup lacks declared auth scopes"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "capability_refs": [],
+            "capability_trace_refs": [],
             "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-            "fingerprint": "fp_1f6cfd6b7daa9b7c",
-            "id": "fp_1f6cfd6b7daa9b7c",
+            "fingerprint": "fp_095f3a5337124f6e",
+            "id": "fp_095f3a5337124f6e",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -632,8 +656,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
-            "fingerprint": "fp_39b9ae878f343d1b",
-            "id": "fp_39b9ae878f343d1b",
+            "fingerprint": "fp_609d62f4dc434961",
+            "id": "fp_609d62f4dc434961",
             "policy_evidence_source": null,
             "severity": "medium",
             "source": {
@@ -656,12 +680,12 @@
             "baseline_status": null,
             "blocks_release": false,
             "capability_refs": [
-              "cap_c80f118600dfb076"
+              "cap_578e492c26fd4656"
             ],
             "capability_trace_refs": [],
             "check_id": "SHIP-POLICY-APPROVAL-MISSING",
-            "fingerprint": "fp_f092940f62fbb012",
-            "id": "fp_f092940f62fbb012",
+            "fingerprint": "fp_973ea0ef2110ca9a",
+            "id": "fp_973ea0ef2110ca9a",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -669,7 +693,7 @@
               "pointer": "/policies/require_approval_for_tools",
               "ref": "shipgate.yaml#/policies/require_approval_for_tools",
               "start_column": null,
-              "start_line": 54,
+              "start_line": 64,
               "type": "manifest"
             },
             "severity": "critical",
@@ -691,8 +715,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
-            "fingerprint": "fp_3e9d5016edc50f97",
-            "id": "fp_3e9d5016edc50f97",
+            "fingerprint": "fp_dfa27ad5b52d8fd6",
+            "id": "fp_dfa27ad5b52d8fd6",
             "policy_evidence_source": null,
             "severity": "critical",
             "source": {
@@ -739,12 +763,12 @@
             "baseline_status": null,
             "blocks_release": false,
             "capability_refs": [
-              "cap_c80f118600dfb076"
+              "cap_578e492c26fd4656"
             ],
             "capability_trace_refs": [],
             "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
-            "fingerprint": "fp_a62ca2fd9a68a1d1",
-            "id": "fp_a62ca2fd9a68a1d1",
+            "fingerprint": "fp_fae2921fd2d0cbd5",
+            "id": "fp_fae2921fd2d0cbd5",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -752,7 +776,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 57,
+              "start_line": 67,
               "type": "manifest"
             },
             "severity": "high",
@@ -772,12 +796,12 @@
             "baseline_status": null,
             "blocks_release": false,
             "capability_refs": [
-              "cap_9a24e125c9388b17"
+              "cap_e9991ea05213172f"
             ],
             "capability_trace_refs": [],
             "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
-            "fingerprint": "fp_8e08a4fe6b0917f6",
-            "id": "fp_8e08a4fe6b0917f6",
+            "fingerprint": "fp_c762eebfadaf39d9",
+            "id": "fp_c762eebfadaf39d9",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -785,7 +809,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 57,
+              "start_line": 67,
               "type": "manifest"
             },
             "severity": "high",
@@ -811,8 +835,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-            "fingerprint": "fp_dac8011e14c53777",
-            "id": "fp_dac8011e14c53777",
+            "fingerprint": "fp_2cf0d6c77d9c3eee",
+            "id": "fp_2cf0d6c77d9c3eee",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -820,7 +844,7 @@
               "pointer": "/policies/require_idempotency_for_tools",
               "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
               "start_column": null,
-              "start_line": 59,
+              "start_line": 69,
               "type": "manifest"
             },
             "severity": "critical",
@@ -842,8 +866,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
-            "fingerprint": "fp_3e9d5016edc50f97",
-            "id": "fp_3e9d5016edc50f97",
+            "fingerprint": "fp_dfa27ad5b52d8fd6",
+            "id": "fp_dfa27ad5b52d8fd6",
             "policy_evidence_source": null,
             "severity": "critical",
             "source": {
@@ -879,12 +903,12 @@
             "baseline_status": null,
             "blocks_release": false,
             "capability_refs": [
-              "cap_c80f118600dfb076"
+              "cap_578e492c26fd4656"
             ],
             "capability_trace_refs": [],
             "check_id": "SHIP-POLICY-APPROVAL-MISSING",
-            "fingerprint": "fp_f092940f62fbb012",
-            "id": "fp_f092940f62fbb012",
+            "fingerprint": "fp_973ea0ef2110ca9a",
+            "id": "fp_973ea0ef2110ca9a",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -892,7 +916,7 @@
               "pointer": "/policies/require_approval_for_tools",
               "ref": "shipgate.yaml#/policies/require_approval_for_tools",
               "start_column": null,
-              "start_line": 54,
+              "start_line": 64,
               "type": "manifest"
             },
             "severity": "critical",
@@ -914,8 +938,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-            "fingerprint": "fp_dac8011e14c53777",
-            "id": "fp_dac8011e14c53777",
+            "fingerprint": "fp_2cf0d6c77d9c3eee",
+            "id": "fp_2cf0d6c77d9c3eee",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -923,7 +947,7 @@
               "pointer": "/policies/require_idempotency_for_tools",
               "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
               "start_column": null,
-              "start_line": 59,
+              "start_line": 69,
               "type": "manifest"
             },
             "severity": "critical",
@@ -945,8 +969,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
-            "fingerprint": "fp_ad46dcc15d8c2969",
-            "id": "fp_ad46dcc15d8c2969",
+            "fingerprint": "fp_1c94d2d2693dccdf",
+            "id": "fp_1c94d2d2693dccdf",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -967,8 +991,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
-            "fingerprint": "fp_3c8cac2cb8af37ec",
-            "id": "fp_3c8cac2cb8af37ec",
+            "fingerprint": "fp_e042ce7813b97a2d",
+            "id": "fp_e042ce7813b97a2d",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -989,8 +1013,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
-            "fingerprint": "fp_3e9d5016edc50f97",
-            "id": "fp_3e9d5016edc50f97",
+            "fingerprint": "fp_dfa27ad5b52d8fd6",
+            "id": "fp_dfa27ad5b52d8fd6",
             "policy_evidence_source": null,
             "severity": "critical",
             "source": {
@@ -1032,8 +1056,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-            "fingerprint": "fp_ff2f028953d1c220",
-            "id": "fp_ff2f028953d1c220",
+            "fingerprint": "fp_ea4f18e4707f8e1d",
+            "id": "fp_ea4f18e4707f8e1d",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -1054,8 +1078,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-            "fingerprint": "fp_acd63b899d49aa1c",
-            "id": "fp_acd63b899d49aa1c",
+            "fingerprint": "fp_d58657d9b1c91a84",
+            "id": "fp_d58657d9b1c91a84",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -1074,12 +1098,12 @@
             "baseline_status": null,
             "blocks_release": false,
             "capability_refs": [
-              "cap_c80f118600dfb076"
+              "cap_578e492c26fd4656"
             ],
             "capability_trace_refs": [],
             "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
-            "fingerprint": "fp_a62ca2fd9a68a1d1",
-            "id": "fp_a62ca2fd9a68a1d1",
+            "fingerprint": "fp_fae2921fd2d0cbd5",
+            "id": "fp_fae2921fd2d0cbd5",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -1087,7 +1111,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 57,
+              "start_line": 67,
               "type": "manifest"
             },
             "severity": "high",
@@ -1107,12 +1131,12 @@
             "baseline_status": null,
             "blocks_release": false,
             "capability_refs": [
-              "cap_9a24e125c9388b17"
+              "cap_e9991ea05213172f"
             ],
             "capability_trace_refs": [],
             "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
-            "fingerprint": "fp_8e08a4fe6b0917f6",
-            "id": "fp_8e08a4fe6b0917f6",
+            "fingerprint": "fp_c762eebfadaf39d9",
+            "id": "fp_c762eebfadaf39d9",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -1120,7 +1144,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 57,
+              "start_line": 67,
               "type": "manifest"
             },
             "severity": "high",
@@ -1178,8 +1202,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-            "fingerprint": "fp_12985c36a06026de",
-            "id": "fp_12985c36a06026de",
+            "fingerprint": "fp_6f8e1ebab65f3607",
+            "id": "fp_6f8e1ebab65f3607",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -1209,8 +1233,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-            "fingerprint": "fp_e090c62e390e70ab",
-            "id": "fp_e090c62e390e70ab",
+            "fingerprint": "fp_5faaaee860bcec8b",
+            "id": "fp_5faaaee860bcec8b",
             "policy_evidence_source": {
               "end_line": null,
               "location": null,
@@ -1262,8 +1286,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
-            "fingerprint": "fp_ad46dcc15d8c2969",
-            "id": "fp_ad46dcc15d8c2969",
+            "fingerprint": "fp_1c94d2d2693dccdf",
+            "id": "fp_1c94d2d2693dccdf",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -1284,8 +1308,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
-            "fingerprint": "fp_3c8cac2cb8af37ec",
-            "id": "fp_3c8cac2cb8af37ec",
+            "fingerprint": "fp_e042ce7813b97a2d",
+            "id": "fp_e042ce7813b97a2d",
             "policy_evidence_source": null,
             "severity": "high",
             "source": {
@@ -1306,8 +1330,8 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
-            "fingerprint": "fp_3e9d5016edc50f97",
-            "id": "fp_3e9d5016edc50f97",
+            "fingerprint": "fp_dfa27ad5b52d8fd6",
+            "id": "fp_dfa27ad5b52d8fd6",
             "policy_evidence_source": null,
             "severity": "critical",
             "source": {
@@ -1349,32 +1373,38 @@
         "has_approval_policy": false,
         "has_idempotency_policy": false,
         "name": "gmail.send_customer_email",
+        "provider": "support_mcp_tools",
         "risk_tags": [
           "customer_communication",
           "external_write"
         ],
-        "source_type": "mcp"
+        "source_type": "mcp",
+        "tool_id": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
       },
       {
         "has_approval_policy": true,
         "has_idempotency_policy": true,
         "name": "shopify.cancel_order",
+        "provider": "support_openapi",
         "risk_tags": [
           "destructive",
           "write"
         ],
-        "source_type": "openapi"
+        "source_type": "openapi",
+        "tool_id": "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
       },
       {
         "has_approval_policy": false,
         "has_idempotency_policy": false,
         "name": "stripe.create_refund",
+        "provider": "support_openapi",
         "risk_tags": [
           "external_write",
           "financial_action",
           "write"
         ],
-        "source_type": "openapi"
+        "source_type": "openapi",
+        "tool_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
       }
     ],
     "total_tools": 8
@@ -1413,8 +1443,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-        "fingerprint": "fp_dac8011e14c53777",
-        "id": "fp_dac8011e14c53777",
+        "fingerprint": "fp_2cf0d6c77d9c3eee",
+        "id": "fp_2cf0d6c77d9c3eee",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -1422,7 +1452,7 @@
           "pointer": "/policies/require_idempotency_for_tools",
           "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
           "start_column": null,
-          "start_line": 59,
+          "start_line": 69,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1444,16 +1474,20 @@
       {
         "declared": true,
         "gap_finding_ids": [],
+        "provider": "support_openapi",
         "source": "policies",
-        "tool": "shopify.cancel_order"
+        "tool": "shopify.cancel_order",
+        "tool_id": "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
       },
       {
         "declared": false,
         "gap_finding_ids": [
-          "fp_dac8011e14c53777"
+          "fp_2cf0d6c77d9c3eee"
         ],
+        "provider": "support_openapi",
         "source": null,
-        "tool": "stripe.create_refund"
+        "tool": "stripe.create_refund",
+        "tool_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
       }
     ],
     "status": "partial"
@@ -1471,8 +1505,7 @@
     "headline": "Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generated agent capability changes, run as a local-first, static Tool-Use Readiness review. The packet below is derived from a scan; it does not, by itself, prove the following properties:",
     "low_confidence_tools": [],
     "source_warnings": [
-      "MCP source declares wildcard tool exposure",
-      "Duplicate tool name 'send_email_preview'; kept mcp source 'reviewed_sdk_inventory' and merged metadata from sdk_function source 'openai_sdk_static'."
+      "MCP source declares wildcard tool exposure"
     ],
     "suppressed_finding_ids": [],
     "unconditional": [
@@ -1494,7 +1527,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.8",
+  "packet_schema_version": "0.9",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -1513,12 +1546,12 @@
         "baseline_status": null,
         "blocks_release": false,
         "capability_refs": [
-          "cap_c80f118600dfb076"
+          "cap_578e492c26fd4656"
         ],
         "capability_trace_refs": [],
         "check_id": "SHIP-POLICY-APPROVAL-MISSING",
-        "fingerprint": "fp_f092940f62fbb012",
-        "id": "fp_f092940f62fbb012",
+        "fingerprint": "fp_973ea0ef2110ca9a",
+        "id": "fp_973ea0ef2110ca9a",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -1526,7 +1559,7 @@
           "pointer": "/policies/require_approval_for_tools",
           "ref": "shipgate.yaml#/policies/require_approval_for_tools",
           "start_column": null,
-          "start_line": 54,
+          "start_line": 64,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1548,8 +1581,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-        "fingerprint": "fp_dac8011e14c53777",
-        "id": "fp_dac8011e14c53777",
+        "fingerprint": "fp_2cf0d6c77d9c3eee",
+        "id": "fp_2cf0d6c77d9c3eee",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -1557,7 +1590,7 @@
           "pointer": "/policies/require_idempotency_for_tools",
           "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
           "start_column": null,
-          "start_line": 59,
+          "start_line": 69,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1579,8 +1612,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
-        "fingerprint": "fp_ad46dcc15d8c2969",
-        "id": "fp_ad46dcc15d8c2969",
+        "fingerprint": "fp_1c94d2d2693dccdf",
+        "id": "fp_1c94d2d2693dccdf",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1601,8 +1634,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
-        "fingerprint": "fp_3c8cac2cb8af37ec",
-        "id": "fp_3c8cac2cb8af37ec",
+        "fingerprint": "fp_e042ce7813b97a2d",
+        "id": "fp_e042ce7813b97a2d",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1623,8 +1656,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
-        "fingerprint": "fp_3e9d5016edc50f97",
-        "id": "fp_3e9d5016edc50f97",
+        "fingerprint": "fp_dfa27ad5b52d8fd6",
+        "id": "fp_dfa27ad5b52d8fd6",
         "policy_evidence_source": null,
         "severity": "critical",
         "source": {
@@ -1663,7 +1696,7 @@
           },
           "source_ref": "/wildcard",
           "source_type": "mcp",
-          "subject": "wildcard_mcp_tools.*",
+          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
           "why": "tool surface enumeration is incomplete or not high confidence"
         },
         {
@@ -1692,7 +1725,7 @@
           },
           "source_ref": "/wildcard",
           "source_type": "mcp",
-          "subject": "wildcard_mcp_tools.*",
+          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
           "why": "tool has no explicit or structural authority evidence"
         },
         {
@@ -1724,7 +1757,7 @@
           },
           "source_ref": "/wildcard",
           "source_type": "mcp",
-          "subject": "wildcard_mcp_tools.*",
+          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
           "why": "MCP tool has no explicit or structural effect evidence"
         },
         {
@@ -1745,28 +1778,18 @@
           "source_type": null,
           "subject": "MCP source declares wildcard tool exposure",
           "why": "A source loader degraded while reading declared inputs."
-        },
-        {
-          "kind": "source_warning",
-          "next_action": {
-            "accepted_values": [],
-            "auto_apply": false,
-            "command": null,
-            "declaration_template": null,
-            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
-            "kind": "review_warning",
-            "path": null,
-            "requires_human_review": true,
-            "suggested_patch_kind": "manual",
-            "why": "The warning text names the degraded source."
-          },
-          "source_ref": null,
-          "source_type": null,
-          "subject": "Duplicate tool name 'send_email_preview'; kept mcp source 'reviewed_sdk_inventory' and merged metadata from sdk_function source 'openai_sdk_static'.",
-          "why": "A source loader degraded while reading declared inputs."
         }
       ],
       "human_review_recommended": true,
+      "identity_coverage": {
+        "ambiguous_name_count": 0,
+        "bound_tools": 1,
+        "canonical_tools": 8,
+        "gap_count": 0,
+        "pass_eligible_tools": 8,
+        "reason_counts": {},
+        "total_observations": 9
+      },
       "level": "static",
       "low_confidence_tool_count": 0,
       "semantic_coverage": {
@@ -1781,7 +1804,7 @@
         "review_concern_count": 1,
         "total_actions": 8
       },
-      "source_warning_count": 2
+      "source_warning_count": 1
     },
     "fail_policy": {
       "ci_mode": "advisory",
@@ -1798,8 +1821,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
-        "fingerprint": "fp_fc02d8ecd30f2578",
-        "id": "fp_fc02d8ecd30f2578",
+        "fingerprint": "fp_a00e34cdb33a5596",
+        "id": "fp_a00e34cdb33a5596",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1820,8 +1843,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-        "fingerprint": "fp_ab60b01cb53cfcbe",
-        "id": "fp_ab60b01cb53cfcbe",
+        "fingerprint": "fp_60fdf92126ba8844",
+        "id": "fp_60fdf92126ba8844",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1842,8 +1865,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-        "fingerprint": "fp_ff2f028953d1c220",
-        "id": "fp_ff2f028953d1c220",
+        "fingerprint": "fp_ea4f18e4707f8e1d",
+        "id": "fp_ea4f18e4707f8e1d",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1864,8 +1887,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-        "fingerprint": "fp_acd63b899d49aa1c",
-        "id": "fp_acd63b899d49aa1c",
+        "fingerprint": "fp_d58657d9b1c91a84",
+        "id": "fp_d58657d9b1c91a84",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1886,8 +1909,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
-        "fingerprint": "fp_d27325cbdbbf5483",
-        "id": "fp_d27325cbdbbf5483",
+        "fingerprint": "fp_df4a990cca9f936b",
+        "id": "fp_df4a990cca9f936b",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1897,7 +1920,7 @@
           "pointer": "/permissions/scopes",
           "ref": "shipgate.yaml",
           "start_column": null,
-          "start_line": 63,
+          "start_line": 73,
           "type": "manifest"
         },
         "title": "Manifest declares broad permission scopes"
@@ -1907,31 +1930,9 @@
         "blocks_release": false,
         "capability_refs": [],
         "capability_trace_refs": [],
-        "check_id": "SHIP-AUTH-MISSING-SCOPE",
-        "fingerprint": "fp_8e1328bd648028d3",
-        "id": "fp_8e1328bd648028d3",
-        "policy_evidence_source": null,
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": "specs/support-tools.openapi.yaml",
-          "pointer": "/paths/~1refunds~1{payment_id}~1status/get",
-          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
-          "start_column": 5,
-          "start_line": 72,
-          "type": "openapi"
-        },
-        "title": "refund_status_lookup lacks declared auth scopes"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-        "fingerprint": "fp_83852fbd6b440524",
-        "id": "fp_83852fbd6b440524",
+        "fingerprint": "fp_1fd01b4ed2e41d51",
+        "id": "fp_1fd01b4ed2e41d51",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1952,8 +1953,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-        "fingerprint": "fp_d8e6d1865dae97cc",
-        "id": "fp_d8e6d1865dae97cc",
+        "fingerprint": "fp_24d610b0d4324190",
+        "id": "fp_24d610b0d4324190",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1973,9 +1974,31 @@
         "blocks_release": false,
         "capability_refs": [],
         "capability_trace_refs": [],
+        "check_id": "SHIP-AUTH-MISSING-SCOPE",
+        "fingerprint": "fp_519cb82f038efd10",
+        "id": "fp_519cb82f038efd10",
+        "policy_evidence_source": null,
+        "severity": "high",
+        "source": {
+          "end_line": null,
+          "location": null,
+          "path": "specs/support-tools.openapi.yaml",
+          "pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
+          "start_column": 5,
+          "start_line": 72,
+          "type": "openapi"
+        },
+        "title": "refund_status_lookup lacks declared auth scopes"
+      },
+      {
+        "baseline_status": null,
+        "blocks_release": false,
+        "capability_refs": [],
+        "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-        "fingerprint": "fp_1f6cfd6b7daa9b7c",
-        "id": "fp_1f6cfd6b7daa9b7c",
+        "fingerprint": "fp_095f3a5337124f6e",
+        "id": "fp_095f3a5337124f6e",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -1996,8 +2019,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "fingerprint": "fp_12985c36a06026de",
-        "id": "fp_12985c36a06026de",
+        "fingerprint": "fp_6f8e1ebab65f3607",
+        "id": "fp_6f8e1ebab65f3607",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -2027,8 +2050,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "fingerprint": "fp_e090c62e390e70ab",
-        "id": "fp_e090c62e390e70ab",
+        "fingerprint": "fp_5faaaee860bcec8b",
+        "id": "fp_5faaaee860bcec8b",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -2056,12 +2079,12 @@
         "baseline_status": null,
         "blocks_release": false,
         "capability_refs": [
-          "cap_c80f118600dfb076"
+          "cap_578e492c26fd4656"
         ],
         "capability_trace_refs": [],
         "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
-        "fingerprint": "fp_a62ca2fd9a68a1d1",
-        "id": "fp_a62ca2fd9a68a1d1",
+        "fingerprint": "fp_fae2921fd2d0cbd5",
+        "id": "fp_fae2921fd2d0cbd5",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -2069,7 +2092,7 @@
           "pointer": "/policies/require_confirmation_for_tools",
           "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
           "start_column": null,
-          "start_line": 57,
+          "start_line": 67,
           "type": "manifest"
         },
         "severity": "high",
@@ -2089,12 +2112,12 @@
         "baseline_status": null,
         "blocks_release": false,
         "capability_refs": [
-          "cap_9a24e125c9388b17"
+          "cap_e9991ea05213172f"
         ],
         "capability_trace_refs": [],
         "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
-        "fingerprint": "fp_8e08a4fe6b0917f6",
-        "id": "fp_8e08a4fe6b0917f6",
+        "fingerprint": "fp_c762eebfadaf39d9",
+        "id": "fp_c762eebfadaf39d9",
         "policy_evidence_source": {
           "end_line": null,
           "location": null,
@@ -2102,7 +2125,7 @@
           "pointer": "/policies/require_confirmation_for_tools",
           "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
           "start_column": null,
-          "start_line": 57,
+          "start_line": 67,
           "type": "manifest"
         },
         "severity": "high",
@@ -2124,8 +2147,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
-        "fingerprint": "fp_fd2577850cef1f87",
-        "id": "fp_fd2577850cef1f87",
+        "fingerprint": "fp_674fa79ae9993422",
+        "id": "fp_674fa79ae9993422",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -2146,8 +2169,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
-        "fingerprint": "fp_39b9ae878f343d1b",
-        "id": "fp_39b9ae878f343d1b",
+        "fingerprint": "fp_609d62f4dc434961",
+        "id": "fp_609d62f4dc434961",
         "policy_evidence_source": null,
         "severity": "medium",
         "source": {
@@ -2168,7 +2191,7 @@
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "verdict": "BLOCKED"
   },
-  "run_id": "agents_shipgate_eae2aebe6f2524ce",
+  "run_id": "agents_shipgate_7429a94499efb630",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",
@@ -2182,8 +2205,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-        "fingerprint": "fp_83852fbd6b440524",
-        "id": "fp_83852fbd6b440524",
+        "fingerprint": "fp_1fd01b4ed2e41d51",
+        "id": "fp_1fd01b4ed2e41d51",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -2204,8 +2227,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-        "fingerprint": "fp_d8e6d1865dae97cc",
-        "id": "fp_d8e6d1865dae97cc",
+        "fingerprint": "fp_24d610b0d4324190",
+        "id": "fp_24d610b0d4324190",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -2226,8 +2249,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-SCOPE-COVERAGE-MISSING",
-        "fingerprint": "fp_1f6cfd6b7daa9b7c",
-        "id": "fp_1f6cfd6b7daa9b7c",
+        "fingerprint": "fp_095f3a5337124f6e",
+        "id": "fp_095f3a5337124f6e",
         "policy_evidence_source": null,
         "severity": "high",
         "source": {
@@ -2248,8 +2271,8 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-MANIFEST-UNUSED-SCOPE",
-        "fingerprint": "fp_39b9ae878f343d1b",
-        "id": "fp_39b9ae878f343d1b",
+        "fingerprint": "fp_609d62f4dc434961",
+        "id": "fp_609d62f4dc434961",
         "policy_evidence_source": null,
         "severity": "medium",
         "source": {
@@ -2274,6 +2297,9 @@
       {
         "declared": false,
         "scope": "gmail:send",
+        "used_by_tool_ids": [
+          "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+        ],
         "used_by_tools": [
           "gmail.send_customer_email"
         ]
@@ -2281,6 +2307,9 @@
       {
         "declared": false,
         "scope": "shopify:orders:write",
+        "used_by_tool_ids": [
+          "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
+        ],
         "used_by_tools": [
           "shopify.cancel_order"
         ]
@@ -2288,11 +2317,15 @@
       {
         "declared": true,
         "scope": "stripe:*",
+        "used_by_tool_ids": [],
         "used_by_tools": []
       },
       {
         "declared": true,
         "scope": "stripe:refunds:write",
+        "used_by_tool_ids": [
+          "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
+        ],
         "used_by_tools": [
           "stripe.create_refund"
         ]
@@ -2300,6 +2333,9 @@
       {
         "declared": false,
         "scope": "support:kb:read",
+        "used_by_tool_ids": [
+          "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
+        ],
         "used_by_tools": [
           "support.search_kb"
         ]
@@ -2307,11 +2343,15 @@
       {
         "declared": true,
         "scope": "zendesk:tickets:read",
+        "used_by_tool_ids": [],
         "used_by_tools": []
       },
       {
         "declared": true,
         "scope": "zendesk:tickets:write",
+        "used_by_tool_ids": [
+          "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33"
+        ],
         "used_by_tools": [
           "zendesk.update_ticket"
         ]
