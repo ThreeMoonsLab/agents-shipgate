@@ -32,9 +32,9 @@ environment:
   promotion_from: staging
   promotion_to: production
 
-# Five tool sources exercising every per-source adapter that scales: two
-# large OpenAPI specs, two MCP exports, and one SDK Python file. ~65 tools
-# total after extraction.
+# Six declared tool sources exercising every per-source adapter that scales:
+# two large OpenAPI specs, two MCP exports, one SDK Python file, and one
+# reviewed inventory for the same SDK bindings. ~65 unique tools after merge.
 tool_sources:
   - id: payments_openapi
     type: openapi
@@ -57,6 +57,147 @@ tool_sources:
     path: agents/ops_assistant.py
     mode: static
     optional: true
+  - id: reviewed_ops_sdk_inventory
+    type: mcp
+    path: inventories/ops-sdk-tools.json
+
+# Reviewed declarations resolve conservative semantics that cannot be proven
+# from names/descriptions alone. Tools with already-complete OpenAPI/MCP
+# structural evidence intentionally do not need duplicate declarations here.
+action_surface:
+  actions:
+    - tool: crm.lookup_customer
+      effect: read
+      scopes: [crm:customers:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: crm.send_customer_message
+      effect: external_communication
+      scopes: [crm:customers:communicate]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: crm.send_customer_email
+      effect: external_communication
+      scopes: [crm:customers:communicate]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: crm.send_customer_sms
+      effect: external_communication
+      scopes: [crm:customers:communicate]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: crm.delete_customer_data
+      effect: destructive
+      scopes: [crm:customers:admin]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: create_shipment
+      effect: external_communication
+      scopes: [fulfillment:shipments:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: cancel_shipment
+      effect: destructive
+      scopes: [fulfillment:shipments:cancel]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: bulk_cancel_shipments
+      effect: destructive
+      scopes: [fulfillment:shipments:cancel]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: expedite_shipment
+      effect: financial_write
+      scopes: [fulfillment:shipments:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: reroute_shipment
+      effect: financial_write
+      scopes: [fulfillment:shipments:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+
+    - tool: list_charges
+      effect: read
+      scopes: [payments:charges:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: get_charge
+      effect: read
+      scopes: [payments:charges:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: list_customers
+      effect: read
+      scopes: [payments:customers:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: get_customer
+      effect: read
+      scopes: [payments:customers:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: list_disputes
+      effect: read
+      scopes: [payments:disputes:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: get_dispute
+      effect: read
+      scopes: [payments:disputes:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: list_refunds
+      effect: read
+      scopes: [payments:refunds:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: get_refund
+      effect: read
+      scopes: [payments:refunds:read]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: update_customer
+      effect: financial_write
+      scopes: [payments:customers:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: terminate_account
+      effect: destructive
+      scopes: [payments:account:admin]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: create_charge
+      effect: financial_write
+      scopes: [payments:charges:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: capture_charge
+      effect: financial_write
+      scopes: [payments:charges:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: void_authorization
+      effect: destructive
+      risk_tags: [financial_action]
+      scopes: [payments:charges:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: create_customer
+      effect: financial_write
+      scopes: [payments:customers:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: submit_dispute_evidence
+      effect: financial_write
+      scopes: [payments:disputes:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: create_refund
+      effect: financial_write
+      scopes: [payments:refunds:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+    - tool: cancel_subscription
+      effect: destructive
+      risk_tags: [financial_action]
+      scopes: [payments:subscriptions:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+
+    - tool: internal.drain_warehouse
+      effect: destructive
+      scopes: [inventory:admin]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: service_account}
+
+    - tool: render_customer_email_preview
+      effect: read
+      authority: {mode: none}
+    - tool: calculate_refund_total
+      effect: read
+      authority: {mode: none}
+    - tool: generate_shipping_label_pdf
+      effect: write
+      authority: {mode: none}
+    - tool: schedule_internal_callback
+      effect: write
+      authority: {mode: none}
+    - tool: escalate_to_human
+      effect: write
+      authority: {mode: none}
 
 policies:
   require_approval_for_tools:

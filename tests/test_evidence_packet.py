@@ -148,15 +148,13 @@ def test_packet_emits_alongside_report_by_default(tmp_path):
     out, packet = _scan_with_packet(tmp_path)
     for name in ("packet.md", "packet.json", "packet.html"):
         assert (out / name).exists(), name
-    assert packet.packet_schema_version == "0.7"
+    assert packet.packet_schema_version == "0.8"
 
 
 def test_packet_v07_keeps_capability_refs_on_release_items():
     payload = {
         "release_decision": {
-            "blockers": [
-                {"check_id": "SHIP-TEST", "capability_refs": ["cap_release"]}
-            ],
+            "blockers": [{"check_id": "SHIP-TEST", "capability_refs": ["cap_release"]}],
             "review_items": [],
         },
         "evidence_matrix": {
@@ -172,19 +170,15 @@ def test_packet_v07_keeps_capability_refs_on_release_items():
                 }
             ]
         },
-        "future_packet_section": {
-            "misalignment": {"capability_refs": ["cap_misalignment"]}
-        },
+        "future_packet_section": {"misalignment": {"capability_refs": ["cap_misalignment"]}},
     }
 
     _strip_report_only_fields(payload)
 
-    assert payload["release_decision"]["blockers"][0]["capability_refs"] == [
-        "cap_release"
+    assert payload["release_decision"]["blockers"][0]["capability_refs"] == ["cap_release"]
+    assert payload["evidence_matrix"]["rows"][0]["blocking_findings"][0]["capability_refs"] == [
+        "cap_matrix"
     ]
-    assert payload["evidence_matrix"]["rows"][0]["blocking_findings"][0][
-        "capability_refs"
-    ] == ["cap_matrix"]
     assert payload["future_packet_section"]["misalignment"]["capability_refs"] == [
         "cap_misalignment"
     ]
@@ -246,7 +240,9 @@ def test_evidence_matrix_covers_expected_domains_and_renders(tmp_path):
     ]
     approval = next(row for row in packet.evidence_matrix.rows if row.domain == "Approval")
     assert any("SHIP-POLICY-APPROVAL-MISSING" in item for item in approval.missing_controls)
-    assert any(item.check_id == "SHIP-POLICY-APPROVAL-MISSING" for item in approval.blocking_findings)
+    assert any(
+        item.check_id == "SHIP-POLICY-APPROVAL-MISSING" for item in approval.blocking_findings
+    )
 
     md = (out / "packet.md").read_text(encoding="utf-8")
     html = (out / "packet.html").read_text(encoding="utf-8")
@@ -357,9 +353,7 @@ def test_not_proven_low_confidence_residuals_match_release_decision_count():
         new_findings_only=False,
     )
 
-    assert decision.evidence_coverage.low_confidence_tool_count == len(
-        section.low_confidence_tools
-    )
+    assert decision.evidence_coverage.low_confidence_tool_count == len(section.low_confidence_tools)
 
     packet = _minimal_packet_with_not_proven(
         section,
@@ -486,9 +480,7 @@ def test_evidence_matrix_confidence_aggregation_and_baseline_debt():
         "release_decision.baseline_delta",
         "findings[]",
     ]
-    assert [item.check_id for item in baseline.review_items] == [
-        "SHIP-AUTH-SCOPE-COVERAGE-MISSING"
-    ]
+    assert [item.check_id for item in baseline.review_items] == ["SHIP-AUTH-SCOPE-COVERAGE-MISSING"]
 
 
 def test_evidence_matrix_source_only_rows_use_medium_confidence():
@@ -501,9 +493,7 @@ def test_evidence_matrix_source_only_rows_use_medium_confidence():
     }
 
     matrix = build_evidence_matrix(payload)
-    action_surface = next(
-        row for row in matrix.rows if row.domain == "Action-surface policy"
-    )
+    action_surface = next(row for row in matrix.rows if row.domain == "Action-surface policy")
 
     assert action_surface.evidence_present == "covered"
     assert action_surface.evidence_source == ["action_surface_facts.actions"]
@@ -611,18 +601,12 @@ def test_evidence_matrix_action_surface_uses_blocks_release_for_action_finding()
     }
 
     matrix = build_evidence_matrix(payload)
-    action_surface = next(
-        row for row in matrix.rows if row.domain == "Action-surface policy"
-    )
+    action_surface = next(row for row in matrix.rows if row.domain == "Action-surface policy")
 
     assert "findings[].blocks_release" in action_surface.evidence_source
-    assert any(
-        "SHIP-ACTION-CONTROL-DOWNGRADE" in item
-        for item in action_surface.missing_controls
-    )
+    assert any("SHIP-ACTION-CONTROL-DOWNGRADE" in item for item in action_surface.missing_controls)
     assert not any(
-        "SHIP-POLICY-APPROVAL-MISSING" in item
-        for item in action_surface.missing_controls
+        "SHIP-POLICY-APPROVAL-MISSING" in item for item in action_surface.missing_controls
     )
     assert [item.check_id for item in action_surface.blocking_findings] == [
         "SHIP-ACTION-CONTROL-DOWNGRADE"
@@ -641,6 +625,9 @@ def test_verdict_derives_from_release_decision_not_fail_policy(tmp_path):
     assert section.fail_policy.exit_code == 0
     assert section.decision == "blocked"
     assert section.verdict == "BLOCKED"
+    assert section.static_analysis_only is True
+    assert section.runtime_behavior_verified is False
+    assert "did not execute the agent" in section.static_verdict_disclaimer
 
 
 def test_capability_intent_diff_lists_observed_tools(tmp_path):
@@ -649,8 +636,10 @@ def test_capability_intent_diff_lists_observed_tools(tmp_path):
     assert section.declared_purpose
     assert "stripe.create_refund" in section.observed_tools
     # SHIP-SCOPE-PROHIBITED-TOOL-PRESENT fires twice on this fixture.
-    assert any(item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
-               for item in section.divergence_findings)
+    assert any(
+        item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+        for item in section.divergence_findings
+    )
 
 
 def test_high_risk_surface_includes_high_risk_tools(tmp_path):
@@ -670,19 +659,13 @@ def test_approval_coverage_separates_declared_and_gap(tmp_path):
     by_tool = {row.tool: row for row in section.rows}
     assert by_tool["shopify.cancel_order"].declared is True
     assert by_tool["stripe.create_refund"].declared is False
-    assert any(
-        item.check_id == "SHIP-POLICY-APPROVAL-MISSING"
-        for item in section.gap_findings
-    )
+    assert any(item.check_id == "SHIP-POLICY-APPROVAL-MISSING" for item in section.gap_findings)
 
 
 def test_idempotency_risk_reports_retry_policy_and_gaps(tmp_path):
     _, packet = _scan_with_packet(tmp_path)
     section = packet.idempotency_risk
-    assert any(
-        item.check_id == "SHIP-SIDEFX-IDEMPOTENCY-MISSING"
-        for item in section.gap_findings
-    )
+    assert any(item.check_id == "SHIP-SIDEFX-IDEMPOTENCY-MISSING" for item in section.gap_findings)
 
 
 def test_scope_coverage_finds_missing_declared(tmp_path):
@@ -815,8 +798,7 @@ def test_html_escapes_user_controlled_strings():
         not_proven=NotProvenSection(
             headline=PACKET_NON_PROOF_HEADLINE,
             unconditional=[
-                NotProvenItem(label=label, body=body)
-                for label, body in PACKET_NON_PROOF
+                NotProvenItem(label=label, body=body) for label, body in PACKET_NON_PROOF
             ],
             source_warnings=["<svg/onload=alert(1)>"],
         ),
@@ -910,8 +892,7 @@ def test_insufficient_evidence_verdict_renders_in_packet():
         not_proven=NotProvenSection(
             headline=PACKET_NON_PROOF_HEADLINE,
             unconditional=[
-                NotProvenItem(label=label, body=body)
-                for label, body in PACKET_NON_PROOF
+                NotProvenItem(label=label, body=body) for label, body in PACKET_NON_PROOF
             ],
         ),
     )
@@ -954,7 +935,7 @@ def test_load_packet_json_upgrades_v02_hitl_fields(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.7"
+    assert upgraded.packet_schema_version == "0.8"
     assert upgraded.evidence_matrix.notes
     assert upgraded.action_surface_diff.status == "not_declared"
     assert upgraded.action_surface_diff.enabled is False
@@ -977,7 +958,7 @@ def test_load_packet_json_upgrades_v01_to_v05(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.7"
+    assert upgraded.packet_schema_version == "0.8"
     assert upgraded.evidence_matrix.notes
     assert upgraded.tool_surface_diff.status == "not_declared"
     assert upgraded.tool_surface_diff.enabled is False
@@ -998,7 +979,7 @@ def test_load_packet_json_upgrades_v04_action_surface_section(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.7"
+    assert upgraded.packet_schema_version == "0.8"
     assert upgraded.action_surface_diff.status == "not_declared"
     assert upgraded.action_surface_diff.enabled is False
     assert upgraded.evidence_matrix.notes
@@ -1012,9 +993,63 @@ def test_load_packet_json_upgrades_v05_evidence_matrix(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.7"
+    assert upgraded.packet_schema_version == "0.8"
     assert len(upgraded.evidence_matrix.rows) == 13
     assert any("older packet schema" in note for note in upgraded.evidence_matrix.notes)
+
+
+@pytest.mark.parametrize(
+    "legacy_version",
+    ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"],
+)
+@pytest.mark.parametrize(
+    ("ci_mode", "would_fail_ci", "expected_exit_code"),
+    [("advisory", False, 0), ("strict", True, 20)],
+)
+def test_legacy_passed_packet_downgrades_to_actionable_insufficient_evidence(
+    tmp_path,
+    legacy_version,
+    ci_mode,
+    would_fail_ci,
+    expected_exit_code,
+):
+    _, packet = _scan_with_packet(tmp_path)
+    payload = serialize_packet_json(packet)
+    payload["packet_schema_version"] = legacy_version
+    release = payload["release_decision"]
+    release.update(
+        {
+            "decision": "passed",
+            "verdict": "PASSED",
+            "reason": "Legacy static scan passed.",
+            "blockers": [],
+            "review_items": [],
+        }
+    )
+    release["fail_policy"].update(
+        {"ci_mode": ci_mode, "would_fail_ci": False, "exit_code": 0}
+    )
+    release["evidence_coverage"].pop("semantic_coverage", None)
+    release["evidence_coverage"]["evidence_gaps"] = []
+
+    upgraded = load_packet_json(payload)
+
+    assert upgraded.packet_schema_version == "0.8"
+    assert upgraded.release_decision.decision == "insufficient_evidence"
+    assert upgraded.release_decision.verdict == "INSUFFICIENT EVIDENCE"
+    assert "not a v0.8 safety statement" in upgraded.release_decision.reason
+    assert f"Packet schema {legacy_version}" in upgraded.release_decision.reason
+    semantic = upgraded.release_decision.evidence_coverage.semantic_coverage
+    assert semantic.pass_eligible_actions == 0
+    assert semantic.gap_count == 1
+    assert semantic.reason_counts == {"legacy_packet_requires_regeneration": 1}
+    gap = upgraded.release_decision.evidence_coverage.evidence_gaps[-1]
+    assert gap.kind == "incomplete_surface"
+    assert gap.next_action.kind == "provide_complete_inventory"
+    assert gap.next_action.command == ("agents-shipgate scan -c shipgate.yaml --format json")
+    assert upgraded.release_decision.fail_policy.would_fail_ci is would_fail_ci
+    assert upgraded.release_decision.fail_policy.exit_code == expected_exit_code
+    assert "INSUFFICIENT EVIDENCE" in render_packet_markdown(upgraded)
 
 
 def test_evidence_packet_cli_accepts_report_json(tmp_path):
@@ -1089,9 +1124,7 @@ def test_evidence_packet_from_report_preserves_evidence_matrix(tmp_path):
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["evidence_matrix"] == serialize_packet_json(fresh_packet)[
-        "evidence_matrix"
-    ]
+    assert payload["evidence_matrix"] == serialize_packet_json(fresh_packet)["evidence_matrix"]
 
 
 def test_evidence_packet_from_report_rebuilds_hitl_gap_provenance(tmp_path):
@@ -1118,10 +1151,7 @@ def test_evidence_packet_from_report_rebuilds_hitl_gap_provenance(tmp_path):
     payload = json.loads(result.output)
     hitl = payload["human_in_the_loop"]
     assert hitl["provenance_mode"] == "rebuilt_from_findings"
-    assert any(
-        item["status"] == "expected_but_absent"
-        for item in hitl["source_provenance"]
-    )
+    assert any(item["status"] == "expected_but_absent" for item in hitl["source_provenance"])
 
 
 def test_evidence_packet_from_report_marks_covered_hitl_provenance_unavailable(tmp_path):
@@ -1177,8 +1207,7 @@ def test_evidence_packet_from_clean_report_does_not_invent_scope_gaps(tmp_path):
     scope_findings = [
         f
         for f in fresh_report.findings
-        if f.check_id
-        in {"SHIP-AUTH-SCOPE-COVERAGE-MISSING", "SHIP-MANIFEST-UNUSED-SCOPE"}
+        if f.check_id in {"SHIP-AUTH-SCOPE-COVERAGE-MISSING", "SHIP-MANIFEST-UNUSED-SCOPE"}
     ]
     assert scope_findings == [], (
         f"clean fixture unexpectedly produced scope findings: "
@@ -1203,9 +1232,7 @@ def test_evidence_packet_from_clean_report_does_not_invent_scope_gaps(tmp_path):
         ],
     )
     assert result.exit_code == 0, result.output
-    rebuilt_packet = load_packet_json(
-        (rebuilt_dir / "packet.json").read_text(encoding="utf-8")
-    )
+    rebuilt_packet = load_packet_json((rebuilt_dir / "packet.json").read_text(encoding="utf-8"))
 
     assert fresh_packet.scope_coverage.missing_declared == []
     assert rebuilt_packet.scope_coverage.missing_declared == []
@@ -1243,12 +1270,10 @@ def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
     # The written packet.json must round-trip.
     payload = (target / "packet.json").read_text(encoding="utf-8")
     reloaded = load_packet_json(payload)
-    assert reloaded.packet_schema_version == "0.7"
+    assert reloaded.packet_schema_version == "0.8"
 
 
-def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(
-    tmp_path, monkeypatch
-):
+def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(tmp_path, monkeypatch):
     """Regression for PR #43 review: ``--format pdf`` is the only requested
     output and WeasyPrint is unavailable. The packet contract treats PDF
     as a documented graceful-skip (matches the scan path), so the CLI
@@ -1275,9 +1300,7 @@ def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(
     assert not (target / "packet.pdf").exists()
 
 
-def test_evidence_packet_pdf_skip_does_not_block_other_outputs(
-    tmp_path, monkeypatch
-):
+def test_evidence_packet_pdf_skip_does_not_block_other_outputs(tmp_path, monkeypatch):
     """``--format md,pdf`` with WeasyPrint missing must still emit
     packet.md and exit 0. The PDF skip is informational; the rest of
     the format set is unaffected."""
@@ -1374,7 +1397,7 @@ def test_evidence_packet_cli_round_trips(tmp_path):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["packet_schema_version"] == "0.7"
+    assert payload["packet_schema_version"] == "0.8"
     assert payload["run_id"] == packet.run_id
 
 

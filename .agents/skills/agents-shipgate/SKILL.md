@@ -21,7 +21,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 6. For local agent control, run `shipgate check --agent codex --workspace . --format codex-boundary-json` and read the stdout `shipgate.codex_boundary_result/v1` object. Switch on `decision`; follow `first_next_action`, `repair`, and `human_review`.
 7. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, plan to run `agents-shipgate verify` before completion and route trust-root review to a human when the verifier requires it.
 8. For full PR verification, read `agents-shipgate-reports/agent-handoff.json` first, then `verifier.json` for detailed controller state, then `verify-run.json` for reproducibility metadata, then `report.json` for reviewer detail; `report.json.release_decision.decision` remains the release gate.
-9. Auto-apply only high-confidence safe patches. Do not auto-assert approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
+9. Auto-apply only high-confidence safe patches. Do not auto-assert action effect, action authority, approval, confirmation, idempotency, broad-scope, prohibited-action, or runtime-trace evidence.
 10. Ensure `.gitignore` covers `agents-shipgate-reports/` before committing.
 
 ## Fast Paths

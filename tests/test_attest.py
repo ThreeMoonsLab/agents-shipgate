@@ -288,7 +288,7 @@ def test_artifact_hashes_resolve_siblings_of_verifier(tmp_path: Path) -> None:
 
 def test_capability_artifact_bindings_resolve_siblings(tmp_path: Path) -> None:
     lock_payload = {
-        "capability_lock_schema_version": "0.2",
+        "capability_lock_schema_version": "0.3",
         "summary": {"capability_count": 2},
         "hashes": {
             "semantic_capability_set_hash": "sem_head",
@@ -297,7 +297,7 @@ def test_capability_artifact_bindings_resolve_siblings(tmp_path: Path) -> None:
         },
     }
     diff_payload = {
-        "capability_lock_diff_schema_version": "0.3",
+        "capability_lock_diff_schema_version": "0.4",
         "base": {"semantic_capability_set_hash": "sem_base"},
         "head": {"semantic_capability_set_hash": "sem_head"},
         "summary": {
@@ -326,7 +326,7 @@ def test_capability_artifact_bindings_resolve_siblings(tmp_path: Path) -> None:
     assert att["capability_lock"] == {
         "path": "capabilities.lock.json",
         "sha256": hashlib.sha256(lock_text.encode("utf-8")).hexdigest(),
-        "capability_lock_schema_version": "0.2",
+        "capability_lock_schema_version": "0.3",
         "semantic_capability_set_hash": "sem_head",
         "evidence_set_hash": "ev_head",
         "source_set_hash": "src_head",
@@ -336,7 +336,7 @@ def test_capability_artifact_bindings_resolve_siblings(tmp_path: Path) -> None:
     assert att["capability_diff"]["sha256"] == hashlib.sha256(
         diff_text.encode("utf-8")
     ).hexdigest()
-    assert att["capability_diff"]["capability_lock_diff_schema_version"] == "0.3"
+    assert att["capability_diff"]["capability_lock_diff_schema_version"] == "0.4"
     assert att["capability_diff"]["base_semantic_capability_set_hash"] == "sem_base"
     assert att["capability_diff"]["head_semantic_capability_set_hash"] == "sem_head"
     assert att["capability_diff"]["summary"]["added"] == 1

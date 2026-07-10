@@ -6,14 +6,14 @@ Target: local
 
 ## Release Decision
 
-Decision: insufficient_evidence
-Reason: Evidence coverage below threshold \(2 low-confidence tool\(s\)\); scan results are not trustworthy enough to gate release.
+Decision: review_required
+Reason: 2 source-loader warnings; review evidence before shipping.
 
 Blockers (0): none
 
 Review items (0): none
 
-Evidence coverage: mixed (2 low-confidence tool(s); human review recommended)
+Evidence coverage: static (2 source warning(s); 2/2 actions pass-eligible)
 
 Baseline delta: not enabled
 
@@ -26,7 +26,7 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 - Medium: 0
 - Low: 0
 - Suppressed: 0
-- Status: Human review recommended (legacy; see Release Decision above)
+- Status: No release blockers detected (legacy; see Release Decision above)
 
 ## Top Findings
 
@@ -55,13 +55,18 @@ No capability/intent misalignments detected from static evidence.
 
 No action required from static findings.
 
+## Source Warnings
+
+- Duplicate tool name 'lookup\_case'; kept langchain\_inventory source 'langchain\_inventory:inventories/tools.json' and merged metadata from langchain\_function source 'langchain\_agent'.
+- Duplicate tool name 'summarize\_case'; kept langchain\_inventory source 'langchain\_inventory:inventories/tools.json' and merged metadata from langchain\_structured\_tool source 'langchain\_agent'.
+
 ## Tool Surface Summary
 
 - Total tools: 2
 - High-risk tools: 0
 - Wildcard tools: 0
 - Missing descriptions: 0
-- Sources: langchain_function=1, langchain_structured_tool=1
+- Sources: langchain_inventory=2
 
 ## Action Surface Diff
 
@@ -85,7 +90,7 @@ No local runtime trace artifacts were declared for capability evidence.
 - Tool nodes: 0
 - Agent tool bindings: 1
 - Dynamic or unresolved tool surfaces: 0
-- Tool inventory files: 0
+- Tool inventory files: 1
 
 ## Findings By Category
 
@@ -95,8 +100,8 @@ No findings.
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |
-| lookup\_case | langchain\_function | read\_only | read\_only=medium | \- | \- |
-| summarize\_case | langchain\_structured\_tool | \- | \- | \- | \- |
+| lookup\_case | langchain\_inventory | read\_only | read\_only=high | \- | \- |
+| summarize\_case | langchain\_inventory | read\_only | read\_only=high | \- | \- |
 
 
 ## Disclaimer

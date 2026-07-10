@@ -4,12 +4,17 @@ Agents Shipgate checks are deterministic static checks. They do not certify safe
 
 ## Severity Contract
 
-- `critical`: strict CI exits `20` unless the finding is explicitly suppressed with a reason.
+- `critical`: strict CI exits `20` unless the finding is explicitly suppressed
+  with a reason (suppression-immune checks remain active).
 - `high`: requires human review but does not fail CI by default.
 - `medium`: review during release hardening.
 - `low` and `info`: informational.
 
-Only unsuppressed `critical` findings block strict mode. Suppressed findings remain in JSON with `suppressed: true` and are excluded from active severity counts.
+Among Findings, only unsuppressed `critical` findings block strict mode by
+default. Independently, report v0.29 semantic `insufficient_evidence` also
+exits `20` in strict mode; semantic gaps are not Findings and cannot be
+suppressed. Suppressed Findings remain in JSON with `suppressed: true` and are
+excluded from active severity counts.
 
 ## Evidence Coverage
 

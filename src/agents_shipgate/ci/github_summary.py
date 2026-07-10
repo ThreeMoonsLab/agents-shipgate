@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.report.markdown import _safe_markdown_text
 from agents_shipgate.report.summary_text import evidence_coverage_text
@@ -51,6 +52,7 @@ def write_github_step_summary(report: ReadinessReport) -> None:
             f"would_fail_ci=`{str(fp.would_fail_ci).lower()}` "
             f"(exit `{fp.exit_code}`)"
         )
+        lines.append(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
     else:
         # Defensive fallback for older reports loaded without
         # release_decision (e.g., baselines from <v0.8).

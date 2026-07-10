@@ -20,12 +20,15 @@ from agents_shipgate.schemas.report import (
     AgentSummaryAction,
     BaselineDelta,
     EvidenceCoverageDecision,
+    EvidenceGap,
+    EvidenceGapAction,
     FailPolicy,
     Finding,
     ReadinessReport,
     ReleaseDecision,
     ReleaseDecisionItem,
     ReportSummary,
+    SemanticCoverageDecision,
     ToolSurfaceSummary,
 )
 from agents_shipgate.schemas.verifier import (
@@ -76,6 +79,8 @@ def _report(
     low_confidence_tool_count: int = 0,
     source_warning_count: int = 0,
     tool_inventory=None,
+    evidence_gaps=(),
+    semantic_gap_count: int = 0,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id="r",
@@ -93,6 +98,16 @@ def _report(
                 human_review_recommended=False,
                 source_warning_count=source_warning_count,
                 low_confidence_tool_count=low_confidence_tool_count,
+                evidence_gaps=list(evidence_gaps),
+                semantic_coverage=SemanticCoverageDecision(
+                    total_actions=semantic_gap_count,
+                    gap_count=semantic_gap_count,
+                    reason_counts=(
+                        {"missing_authority_evidence": semantic_gap_count}
+                        if semantic_gap_count
+                        else {}
+                    ),
+                ),
             ),
             baseline_delta=BaselineDelta(enabled=False),
             fail_policy=FailPolicy(
@@ -143,6 +158,45 @@ def test_mergeable_has_no_fix_task() -> None:
         )
         is None
     )
+
+
+def test_semantic_gap_routes_human_with_structured_declaration_repair() -> None:
+    gap = EvidenceGap(
+        kind="missing_authority_evidence",
+        subject="process_order",
+        source_type="mcp",
+        source_ref="/tools/0",
+        why="No explicit authority evidence was found.",
+        next_action=EvidenceGapAction(
+            kind="declare_action_authority",
+            command="agents-shipgate verify --workspace . --config shipgate.yaml",
+            path="shipgate.yaml#action_surface.actions",
+            why="A complete authority declaration is required.",
+            expects="Declare a reviewed authority mode and rerun verification.",
+            accepted_values=["none", "scoped", "unscoped", "ambient"],
+        ),
+    )
+    report = _report(
+        decision="insufficient_evidence",
+        findings=[],
+        evidence_gaps=[gap],
+        semantic_gap_count=1,
+    )
+
+    task = _fix_task(report)
+
+    assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
+    assert gap.next_action.suggested_patch_kind == "manual"
+    repair = next(
+        repair
+        for repair in task.allowed_repairs
+        if repair.kind == "declare_action_authority"
+    )
+    assert "process_order" in (repair.target or "")
+    assert repair.command == gap.next_action.command
+    assert any("Accepted values" in instruction for instruction in task.instructions)
 
 
 def test_mechanical_review_routes_to_coding_agent() -> None:

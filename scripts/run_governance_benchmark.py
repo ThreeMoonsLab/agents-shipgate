@@ -621,6 +621,25 @@ tool_sources:
     type: mcp
     path: tools.json
     trust: internal
+action_surface:
+  actions:
+    - tool: support.search_kb
+      effect: read
+      authority: {{mode: none}}
+    - tool: support.lookup_case
+      effect: read
+      authority: {{mode: none}}
+    - tool: stripe.create_refund
+      effect: destructive
+      risk_tags: [financial_action]
+      scopes: ["stripe:*"]
+      authority: {{mode: scoped, auth_type: oauth2, credential_mode: service_account}}
+    - tool: support.delete_case
+      effect: destructive
+      authority: {{mode: none}}
+    - tool: infra.deploy_production
+      effect: destructive
+      authority: {{mode: none}}
 ci:
   mode: {ci}
 """
@@ -645,6 +664,10 @@ tool_sources:
 permissions:
   scopes:
 {rendered_scopes}
+action_surface:
+  actions:
+    - tool: support.list_cases
+      effect: read
 ci:
   mode: advisory
 """
@@ -665,6 +688,11 @@ tool_sources:
     type: mcp
     path: tools.json
     trust: internal
+action_surface:
+  actions:
+    - tool: support.search_kb
+      effect: read
+      authority: {mode: none}
 ci:
   mode: strict
   fail_on:
@@ -687,6 +715,7 @@ _READ_TOOL = {
     "name": "support.search_kb",
     "description": "Search support knowledge base articles without changing records.",
     "annotations": {"readOnlyHint": True, "idempotentHint": True},
+    "auth": {"mode": "none"},
     "inputSchema": {
         "type": "object",
         "properties": {"q": {"type": "string"}},
@@ -697,6 +726,7 @@ _SAFE_LOOKUP_TOOL = {
     "name": "support.lookup_case",
     "description": "Look up one support case by id without modifying any records.",
     "annotations": {"readOnlyHint": True, "idempotentHint": True},
+    "auth": {"mode": "none"},
     "inputSchema": {
         "type": "object",
         "required": ["case_id"],
@@ -723,6 +753,7 @@ _DELETE_TOOL = {
     "name": "support.delete_case",
     "description": "Permanently delete a customer support case.",
     "annotations": {"readOnlyHint": False, "destructiveHint": True},
+    "auth": {"mode": "none"},
     "inputSchema": {
         "type": "object",
         "required": ["case_id"],
@@ -734,6 +765,7 @@ _DEPLOY_TOOL = {
     "name": "infra.deploy_production",
     "description": "Deploy application code to the production environment.",
     "annotations": {"readOnlyHint": False, "destructiveHint": True},
+    "auth": {"mode": "none"},
     "inputSchema": {
         "type": "object",
         "required": ["version"],

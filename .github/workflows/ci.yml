@@ -44,6 +44,12 @@ jobs:
         # The companion live-load tests in tests/test_fixture_no_import.py
         # run as part of the main Test step below.
 
+      - name: Evidence-backed pass safety canaries (64/64 exact outcomes)
+        run: python -m pytest tests/test_p0_safety_canaries.py -q
+        # This is deliberately separate from the aggregate test run. A P0
+        # verdict regression should fail with a named canary before coverage,
+        # integration, or performance noise can obscure the safety signal.
+
       - name: Test
         # v0.21 (E7): bumped from 75 → 85. Actual aggregate coverage on
         # current main is ~88%, so the gate is +10pp tighter with ~3pp
@@ -88,10 +94,10 @@ jobs:
           path: sbom.json
 
   release-tag-consistency:
-    # Public surfaces (ROADMAP.md's latest-release line, the README
-    # Action pin, install snippets) all name `v{pyproject version}` and
-    # move in lockstep — tests/test_public_surface_contract.py enforces
-    # that. What no test could catch: the whole repo moving in lockstep
+    # Public install surfaces follow
+    # `.well-known.release_status.latest_release`, while pyproject may be
+    # ahead on a source-tree pre-release. Public-surface tests enforce that
+    # split. What no local test could catch: the install surfaces moving
     # to a version that was never actually released. That happened with
     # v0.14.0 (pyproject and the README `@v0.14.0` Action pin landed on
     # main a day before the tag existed, so the copy-paste workflow
@@ -129,18 +135,17 @@ jobs:
 
       - name: Verify the claimed latest release tag exists on origin
         run: |
-          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
-          if [ -z "${version}" ]; then
-            echo "::error::Could not read version from pyproject.toml."
+          latest_release="$(python3 -c 'import json; print(json.load(open(".well-known/agents-shipgate.json"))["release_status"]["latest_release"])')"
+          if [ -z "${latest_release}" ]; then
+            echo "::error::Could not read release_status.latest_release from .well-known/agents-shipgate.json."
             exit 1
           fi
-          echo "pyproject.toml version: ${version}"
-          if git ls-remote --exit-code --tags origin "refs/tags/v${version}" > /dev/null; then
-            echo "OK: tag v${version} exists on origin."
+          echo "Claimed latest published release: ${latest_release}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${latest_release}" > /dev/null; then
+            echo "OK: tag ${latest_release} exists on origin."
           else
-            echo "::error::Public surfaces claim v${version} as the latest release, but tag v${version} does not exist on origin."
-            echo "Cut the release:  git tag -a v${version} <release-sha> && git push origin v${version}"
+            echo "::error::Public install surfaces claim ${latest_release} as the latest release, but that tag does not exist on origin."
+            echo "Cut the release or restore release_status.latest_release to the latest published tag."
             echo "then use 'Re-run failed jobs' on this run — pushing the tag triggers release.yml, not a retest of this run, but a re-run re-checks origin's live tag list. The check also clears on the next push to main."
-            echo "…or revert the version claim until the release is actually cut."
             exit 1
           fi

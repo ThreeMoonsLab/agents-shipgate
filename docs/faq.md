@@ -102,9 +102,13 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.28, current). Always parse this for programmatic use.
+  (schema v0.29, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
-  `summary.status` field is baseline-blind (kept for v0.7 callers).
+  `summary.status` field is baseline-blind (kept for v0.7 callers). A
+  `passed` decision requires complete, conflict-free static surface, effect,
+  and authority evidence for every action, evaluation of all applicable
+  controls, and no policy condition requiring review. It is not runtime proof;
+  see the [evidence-backed verdict contract](passed-verdict-contract.md).
 - **SARIF** — `agents-shipgate-reports/report.sarif`, compatible with
   GitHub's code-scanning UI on the Files Changed view.
 - **Release Evidence Packet** — `agents-shipgate-reports/packet.{md,json,html}`
@@ -114,16 +118,20 @@ schema.
 ## What is the Release Evidence Packet?
 
 A reviewer-shaped synthesis of the scan, emitted alongside the report by
-default. The packet is governed by [`docs/packet-schema.v0.7.json`](packet-schema.v0.7.json)
+default. The packet is governed by [`docs/packet-schema.v0.8.json`](packet-schema.v0.8.json)
 and has fixed reviewer sections (release decision, evidence matrix, capability/intent,
 high-risk surface, tool-surface diff, action-surface diff, approval coverage,
 idempotency risk, scope coverage, memory isolation, human-in-the-loop,
 dynamic scenarios, and a
 `not_proven` section that always lists prompt robustness, runtime
 behavior, model correctness, and adversarial resistance verbatim). See
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v07).
-Packet schema `0.7` adds capability-linked local trace evidence summary and
-trace refs under the human-in-the-loop section. Packet schema `0.6` preserved
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v08).
+Packet schema `0.8` adds semantic coverage and gap remediation, and packet §1
+mirrors the report's `static_analysis_only: true`,
+`runtime_behavior_verified: false`, and canonical
+`static_verdict_disclaimer`. Frozen packet
+schema `0.7` added capability-linked local trace evidence summary and trace
+refs under the human-in-the-loop section. Frozen schema `0.6` preserved
 the v0.5 `action_surface_diff` section and added two additive extensions:
 `evidence_matrix`, a compact packet-only review aid derived from public
 `report.json` fields (never contributes to `release_decision`, CI exit
@@ -137,9 +145,10 @@ Skip emission with `--no-packet`; re-render later with
 
 ## Is it production-ready?
 
-v0.15.0 is the current pre-1.0 beta contract version. The manifest schema is
-stable across the 0.x series; see [`STABILITY.md`](../STABILITY.md). Used by
-early design partners. Public preview.
+v0.15.0 is the latest published pre-1.0 beta. The in-tree runtime is
+`0.16.0b1`, which introduces the evidence-backed `passed` contract for beta
+qualification. The manifest schema remains stable across the 0.x series; see
+[`STABILITY.md`](../STABILITY.md). Public preview.
 
 ## How do I add it to GitHub Actions?
 

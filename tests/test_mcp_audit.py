@@ -14,11 +14,14 @@ runner = CliRunner()
 
 def test_mcp_audit_acceptance_corpus(tmp_path: Path) -> None:
     cases = {
-        "env_secret": ("require_review", ["MCP-ENV-SECRET-PASSTHROUGH"]),
-        "auto_approve_write": ("block", ["MCP-AUTO-APPROVE-SIDE-EFFECT"]),
+        "env_secret": (
+            "require_review",
+            ["MCP-ENV-SECRET-PASSTHROUGH", "MCP-UNKNOWN-TOOL-SCHEMA"],
+        ),
+        "auto_approve_write": ("require_review", ["MCP-UNKNOWN-TOOL-SCHEMA"]),
         "restrict_write_to_read": ("allow", []),
         "unknown_schema": ("require_review", ["MCP-UNKNOWN-TOOL-SCHEMA"]),
-        "read_only_docs": ("warn", ["MCP-READONLY-SERVER-ADDED"]),
+        "read_only_docs": ("require_review", ["MCP-UNKNOWN-TOOL-SCHEMA"]),
     }
     for case, (decision, rule_ids) in cases.items():
         result = runner.invoke(
@@ -60,8 +63,8 @@ def test_mcp_audit_agent_json(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["schema_version"] == "agent_result_v1"
-    assert payload["decision"] == "block"
-    assert payload["first_next_action"]["kind"] == "stop"
+    assert payload["decision"] == "require_review"
+    assert payload["first_next_action"]["kind"] == "review"
 
 
 def test_mcp_audit_reads_mcp_json_diff(tmp_path: Path) -> None:
@@ -81,10 +84,8 @@ def test_mcp_audit_reads_mcp_json_diff(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["decision"] == "block"
-    assert [item["id"] for item in payload["violated_rules"]] == [
-        "MCP-AUTO-APPROVE-SIDE-EFFECT"
-    ]
+    assert payload["decision"] == "require_review"
+    assert [item["id"] for item in payload["violated_rules"]] == ["MCP-UNKNOWN-TOOL-SCHEMA"]
 
 
 def test_mcp_audit_policy_override_changes_decision(tmp_path: Path) -> None:
@@ -93,7 +94,7 @@ def test_mcp_audit_policy_override_changes_decision(tmp_path: Path) -> None:
         """
 version: "test-policy"
 rules:
-  - id: MCP-READONLY-SERVER-ADDED
+  - id: MCP-UNKNOWN-TOOL-SCHEMA
     action: block
     risk_level: critical
 """,
@@ -135,7 +136,7 @@ def test_mcp_audit_default_policy_resolution_ignores_cwd(
         """
 version: "cwd-policy"
 rules:
-  - id: MCP-READONLY-SERVER-ADDED
+  - id: MCP-UNKNOWN-TOOL-SCHEMA
     action: block
     risk_level: critical
 """,
@@ -159,11 +160,9 @@ rules:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["decision"] == "warn"
+    assert payload["decision"] == "require_review"
     assert payload["policy_version"] != "cwd-policy"
-    assert [
-        item for item in payload["diagnostics"] if item["code"] == "mcp_policy_missing"
-    ] == []
+    assert [item for item in payload["diagnostics"] if item["code"] == "mcp_policy_missing"] == []
 
 
 def test_mcp_audit_relative_policy_resolves_under_workspace(tmp_path: Path) -> None:
@@ -173,7 +172,7 @@ def test_mcp_audit_relative_policy_resolves_under_workspace(tmp_path: Path) -> N
         """
 version: "workspace-policy"
 rules:
-  - id: MCP-READONLY-SERVER-ADDED
+  - id: MCP-UNKNOWN-TOOL-SCHEMA
     action: block
     risk_level: critical
 """,

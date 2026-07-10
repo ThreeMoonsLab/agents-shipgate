@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.28",
-  "run_id": "agents_shipgate_587541de1c2da61f",
+  "report_schema_version": "0.29",
+  "run_id": "agents_shipgate_ecdea90ffb56d344",
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
@@ -47,8 +47,8 @@
     "target": "production_like"
   },
   "summary": {
-    "status": "warnings_detected",
-    "critical_count": 0,
+    "status": "release_blockers_detected",
+    "critical_count": 1,
     "high_count": 15,
     "medium_count": 5,
     "low_count": 0,
@@ -58,9 +58,54 @@
     "evidence_coverage": "static"
   },
   "release_decision": {
-    "decision": "review_required",
-    "reason": "20 findings require human review before shipping.",
-    "blockers": [],
+    "decision": "blocked",
+    "reason": "2 active findings block release.",
+    "blockers": [
+      {
+        "id": "fp_04ba453985ee9758",
+        "fingerprint": "fp_04ba453985ee9758",
+        "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        "severity": "high",
+        "title": "send_customer_email has external communication capability without required controls",
+        "baseline_status": null,
+        "blocks_release": true,
+        "source": {
+          "type": "openai_api",
+          "ref": "tools/openai-tools.json#1",
+          "location": null,
+          "path": "tools/openai-tools.json",
+          "start_line": null,
+          "end_line": null,
+          "start_column": null,
+          "pointer": "/tools/1"
+        },
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
+      },
+      {
+        "id": "fp_5d0a663885221aa2",
+        "fingerprint": "fp_5d0a663885221aa2",
+        "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        "severity": "critical",
+        "title": "create_refund has financial write capability without required controls",
+        "baseline_status": null,
+        "blocks_release": true,
+        "source": {
+          "type": "openai_api",
+          "ref": "tools/openai-tools.json#0",
+          "location": null,
+          "path": "tools/openai-tools.json",
+          "start_line": null,
+          "end_line": null,
+          "start_column": null,
+          "pointer": "/tools/0"
+        },
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
+      }
+    ],
     "review_items": [
       {
         "id": "fp_c2d773062468ceac",
@@ -229,37 +274,6 @@
           "end_line": null,
           "start_column": null,
           "pointer": "/tools/0"
-        },
-        "policy_evidence_source": {
-          "type": "manifest",
-          "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
-          "location": null,
-          "path": "shipgate.yaml",
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/policies/require_idempotency_for_tools"
-        },
-        "capability_refs": [],
-        "capability_trace_refs": []
-      },
-      {
-        "id": "fp_4466eb2871434dc5",
-        "fingerprint": "fp_4466eb2871434dc5",
-        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-        "severity": "high",
-        "title": "send_customer_email lacks idempotency evidence",
-        "baseline_status": null,
-        "blocks_release": false,
-        "source": {
-          "type": "openai_api",
-          "ref": "tools/openai-tools.json#1",
-          "location": null,
-          "path": "tools/openai-tools.json",
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/tools/1"
         },
         "policy_evidence_source": {
           "type": "manifest",
@@ -548,7 +562,16 @@
       "human_review_recommended": true,
       "source_warning_count": 0,
       "low_confidence_tool_count": 0,
-      "evidence_gaps": []
+      "evidence_gaps": [],
+      "semantic_coverage": {
+        "total_actions": 2,
+        "pass_eligible_actions": 0,
+        "gap_count": 0,
+        "review_concern_count": 2,
+        "reason_counts": {
+          "unscoped_authority": 2
+        }
+      }
     },
     "baseline_delta": {
       "enabled": false,
@@ -564,6 +587,9 @@
       "would_fail_ci": false,
       "exit_code": 0
     },
+    "static_analysis_only": true,
+    "runtime_behavior_verified": false,
+    "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "contribution_rules": [
       {
         "finding_id": "fp_c2d773062468ceac",
@@ -616,14 +642,6 @@
       {
         "finding_id": "fp_e9d63903757dfe07",
         "fingerprint": "fp_e9d63903757dfe07",
-        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-        "category": "review_item",
-        "rule": "review_required",
-        "rationale": "requires_human_review=true (severity=high); routed to review_items."
-      },
-      {
-        "finding_id": "fp_4466eb2871434dc5",
-        "fingerprint": "fp_4466eb2871434dc5",
         "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "category": "review_item",
         "rule": "review_required",
@@ -724,23 +742,110 @@
         "category": "review_item",
         "rule": "review_required",
         "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_04ba453985ee9758",
+        "fingerprint": "fp_04ba453985ee9758",
+        "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        "category": "blocker",
+        "rule": "policy_block_new",
+        "rationale": "blocks_release=true and baseline_status=null; explicit policy blocker."
+      },
+      {
+        "finding_id": "fp_5d0a663885221aa2",
+        "fingerprint": "fp_5d0a663885221aa2",
+        "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        "category": "blocker",
+        "rule": "policy_block_new",
+        "rationale": "blocks_release=true and baseline_status=null; explicit policy blocker."
       }
     ]
   },
   "capability_facts": [
     {
       "id": "cap_1936b581aee1c411",
+      "tool_id": "tool:create_refund",
       "tool_name": "create_refund",
       "source_type": "openai_api",
+      "source_id": "openai_api",
       "source_ref": "tools/openai-tools.json#0",
       "capability": "financial_action",
+      "effect": "financial_write",
+      "semantic_assessment": {
+        "conservative_effect": "financial_write",
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='create_refund'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "financial_action",
+                "hint_source": "keyword",
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:openai_api_keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "write",
+                "hint_source": "openai_api_keyword"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "unscoped",
+          "auth_type": "api_key",
+          "credential_mode": "service_account",
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "unscoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='create_refund'].authority",
+              "evidence": {
+                "auth_type": "api_key",
+                "credential_mode": "service_account",
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
       "risk_tags": [
         "financial_action",
         "write"
       ],
       "auth_scopes": [],
       "owner": null,
-      "included_reason": "referenced_by_high_finding",
+      "included_reason": "referenced_by_critical_finding",
       "control_status": "missing",
       "related_findings": [
         "fp_1b64e136ace3472a_6f6fb033",
@@ -749,6 +854,7 @@
         "fp_28483a22a9ed40cb",
         "fp_2bf957380e89863f",
         "fp_58b3202c0a4d9793",
+        "fp_5d0a663885221aa2",
         "fp_9675d1799680d81d",
         "fp_a8a615b5a4f2597b",
         "fp_b8df99c94ef3aa60",
@@ -759,10 +865,92 @@
     },
     {
       "id": "cap_e809417ee4da1160",
+      "tool_id": "tool:send_customer_email",
       "tool_name": "send_customer_email",
       "source_type": "openai_api",
+      "source_id": "openai_api",
       "source_ref": "tools/openai-tools.json#1",
       "capability": "external_write",
+      "effect": "external_communication",
+      "semantic_assessment": {
+        "conservative_effect": "external_communication",
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='send_customer_email'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:openai_api_keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "write",
+                "hint_source": "openai_api_keyword"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "unscoped",
+          "auth_type": "api_key",
+          "credential_mode": "service_account",
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "unscoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='send_customer_email'].authority",
+              "evidence": {
+                "auth_type": "api_key",
+                "credential_mode": "service_account",
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
       "risk_tags": [
         "customer_communication",
         "external_write",
@@ -773,12 +961,12 @@
       "included_reason": "referenced_by_high_finding",
       "control_status": "missing",
       "related_findings": [
+        "fp_04ba453985ee9758",
         "fp_07538ba8f9532359",
         "fp_1b64e136ace3472a_6f6fb033",
         "fp_1b64e136ace3472a_d6a46917",
         "fp_28483a22a9ed40cb",
         "fp_29e718b3bbde0e7d",
-        "fp_4466eb2871434dc5",
         "fp_45ef3ff3ce2cf187",
         "fp_a95adeb6338f8b3e",
         "fp_cf260ff7c72d64b7",
@@ -817,6 +1005,25 @@
     }
   ],
   "misalignments": [
+    {
+      "id": "mis_81255aff98f7c686",
+      "kind": "undetected_gap",
+      "severity": "critical",
+      "tool_name": "create_refund",
+      "capability_refs": [
+        "cap_1936b581aee1c411"
+      ],
+      "intention_refs": [
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
+      ],
+      "finding_refs": [
+        "fp_5d0a663885221aa2"
+      ],
+      "policy_requirement": "Static review requires deterministic evidence for release gaps.",
+      "gap": "create_refund has financial write capability without required controls.",
+      "release_implication": "Human review is required to interpret this finding."
+    },
     {
       "id": "mis_0d313eb8b061d7b1",
       "kind": "control_missing",
@@ -891,24 +1098,6 @@
       ],
       "policy_requirement": "Risky write tools need idempotency evidence before retryable release.",
       "gap": "create_refund lacks idempotency evidence.",
-      "release_implication": "Retries could duplicate financial, destructive, or external effects."
-    },
-    {
-      "id": "mis_0170081d6e670785",
-      "kind": "control_missing",
-      "severity": "high",
-      "tool_name": "send_customer_email",
-      "capability_refs": [
-        "cap_e809417ee4da1160"
-      ],
-      "intention_refs": [
-        "int_bf9d4ad9100fcc59"
-      ],
-      "finding_refs": [
-        "fp_4466eb2871434dc5"
-      ],
-      "policy_requirement": "Risky write tools need idempotency evidence before retryable release.",
-      "gap": "send_customer_email lacks idempotency evidence.",
       "release_implication": "Retries could duplicate financial, destructive, or external effects."
     },
     {
@@ -1097,6 +1286,24 @@
       "release_implication": "Human review is required to interpret this finding."
     },
     {
+      "id": "mis_80d0430a0603de57",
+      "kind": "undetected_gap",
+      "severity": "high",
+      "tool_name": "send_customer_email",
+      "capability_refs": [
+        "cap_e809417ee4da1160"
+      ],
+      "intention_refs": [
+        "int_bf9d4ad9100fcc59"
+      ],
+      "finding_refs": [
+        "fp_04ba453985ee9758"
+      ],
+      "policy_requirement": "Static review requires deterministic evidence for release gaps.",
+      "gap": "send_customer_email has external communication capability without required controls.",
+      "release_implication": "Human review is required to interpret this finding."
+    },
+    {
       "id": "mis_814ae81d339e1ea1",
       "kind": "undetected_gap",
       "severity": "high",
@@ -1243,10 +1450,10 @@
     }
   ],
   "release_consequence": {
-    "decision": "review_required",
-    "summary": "20 release-relevant finding(s) require release review before shipping.",
-    "blocker_misalignment_count": 0,
-    "review_misalignment_count": 20,
+    "decision": "blocked",
+    "summary": "2 release-relevant finding(s) map to active release blockers; resolve required controls or remove the capability.",
+    "blocker_misalignment_count": 2,
+    "review_misalignment_count": 19,
     "fail_policy": {
       "ci_mode": "advisory",
       "fail_on": [],
@@ -1293,17 +1500,15 @@
       ]
     },
     {
-      "id": "scn_2271827c06f0eb07",
+      "id": "scn_2b529ecf63eff9b9",
       "scenario_type": "idempotency_retry",
       "title": "Retry behavior for risky write",
-      "given": "Exercise the release path for create_refund, send_customer_email.",
+      "given": "Exercise the release path for create_refund.",
       "expected_control": "Retries use idempotency evidence or the side effect is not retried.",
       "source_misalignments": [
-        "mis_0170081d6e670785",
         "mis_a9df78c48e082dd0"
       ],
       "source_findings": [
-        "fp_4466eb2871434dc5",
         "fp_e9d63903757dfe07"
       ]
     },
@@ -1528,6 +1733,74 @@
         "source_pointer": "/tools/0",
         "operation": "create_refund",
         "effect": "financial_write",
+        "semantic_assessment": {
+          "conservative_effect": "financial_write",
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "dimension": "effect",
+                "value": "financial_write",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='create_refund'].effect",
+                "evidence": {}
+              },
+              {
+                "dimension": "effect",
+                "value": "financial_write",
+                "confidence": "high",
+                "provenance_kind": "keyword_heuristic",
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "tag": "financial_action",
+                  "hint_source": "keyword",
+                  "scopes": []
+                }
+              },
+              {
+                "dimension": "effect",
+                "value": "write",
+                "confidence": "medium",
+                "provenance_kind": "keyword_heuristic",
+                "source": "risk_hint:openai_api_keyword",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "tag": "write",
+                  "hint_source": "openai_api_keyword"
+                }
+              }
+            ],
+            "issues": []
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "unscoped",
+            "auth_type": "api_key",
+            "credential_mode": "service_account",
+            "scopes": [],
+            "claims": [
+              {
+                "dimension": "authority",
+                "value": "unscoped",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='create_refund'].authority",
+                "evidence": {
+                  "auth_type": "api_key",
+                  "credential_mode": "service_account",
+                  "scopes": []
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": false
+        },
         "risk_tags": [
           "financial_write",
           "writes_data"
@@ -1581,6 +1854,85 @@
         "source_pointer": "/tools/1",
         "operation": "send_customer_email",
         "effect": "external_communication",
+        "semantic_assessment": {
+          "conservative_effect": "external_communication",
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='send_customer_email'].effect",
+                "evidence": {}
+              },
+              {
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "keyword_heuristic",
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "tag": "customer_communication",
+                  "hint_source": "keyword"
+                }
+              },
+              {
+                "dimension": "effect",
+                "value": "external_communication",
+                "confidence": "high",
+                "provenance_kind": "keyword_heuristic",
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "tag": "external_write",
+                  "hint_source": "keyword"
+                }
+              },
+              {
+                "dimension": "effect",
+                "value": "write",
+                "confidence": "medium",
+                "provenance_kind": "keyword_heuristic",
+                "source": "risk_hint:openai_api_keyword",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "tag": "write",
+                  "hint_source": "openai_api_keyword"
+                }
+              }
+            ],
+            "issues": []
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "unscoped",
+            "auth_type": "api_key",
+            "credential_mode": "service_account",
+            "scopes": [],
+            "claims": [
+              {
+                "dimension": "authority",
+                "value": "unscoped",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='send_customer_email'].authority",
+                "evidence": {
+                  "auth_type": "api_key",
+                  "credential_mode": "service_account",
+                  "scopes": []
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": false
+        },
         "risk_tags": [
           "external_communication",
           "writes_data"
@@ -1637,7 +1989,7 @@
       "approvals_removed": 0,
       "safeguards_removed": 0,
       "input_schema_expansions": 0,
-      "blocking_findings": 0
+      "blocking_findings": 2
     },
     "added": [],
     "removed": [],
@@ -1815,7 +2167,7 @@
           "write"
         ]
       },
-      "confidence": "medium",
+      "confidence": "high",
       "provenance_kind": "static_declaration",
       "source": {
         "type": "openai_api",
@@ -1829,7 +2181,7 @@
       "capability_policy_evidence": null,
       "policy_routing": null,
       "capability_trace_refs": [],
-      "recommendation": "Declare auth scopes for create_refund in OpenAPI, MCP metadata, or the manifest before release review.",
+      "recommendation": "Declare operation-specific auth scopes for create_refund, or explicitly declare anonymous authority when the operation requires no credentials.",
       "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
@@ -1857,7 +2209,7 @@
           "write"
         ]
       },
-      "confidence": "medium",
+      "confidence": "high",
       "provenance_kind": "static_declaration",
       "source": {
         "type": "openai_api",
@@ -1871,7 +2223,7 @@
       "capability_policy_evidence": null,
       "policy_routing": null,
       "capability_trace_refs": [],
-      "recommendation": "Declare auth scopes for send_customer_email in OpenAPI, MCP metadata, or the manifest before release review.",
+      "recommendation": "Declare operation-specific auth scopes for send_customer_email, or explicitly declare anonymous authority when the operation requires no credentials.",
       "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
@@ -2026,58 +2378,6 @@
       "policy_routing": null,
       "capability_trace_refs": [],
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for create_refund.",
-      "blocks_release": false,
-      "suppressed": false,
-      "suppression_reason": null,
-      "baseline_status": null,
-      "autofix_safe": false,
-      "requires_human_review": true,
-      "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-sidefx-idempotency-missing",
-      "agent_action": "escalate_to_human"
-    },
-    {
-      "id": "fp_4466eb2871434dc5",
-      "fingerprint": "fp_4466eb2871434dc5",
-      "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-      "title": "send_customer_email lacks idempotency evidence",
-      "severity": "high",
-      "category": "side_effects",
-      "tool_id": "tool:send_customer_email",
-      "tool_name": "send_customer_email",
-      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
-      "evidence": {
-        "risk_tags": [
-          "customer_communication",
-          "external_write",
-          "write"
-        ],
-        "retry_policy_known": false
-      },
-      "confidence": "medium",
-      "provenance_kind": "static_declaration",
-      "source": {
-        "type": "openai_api",
-        "ref": "tools/openai-tools.json#1",
-        "location": null,
-        "path": "tools/openai-tools.json",
-        "pointer": "/tools/1"
-      },
-      "policy_evidence_source": {
-        "type": "manifest",
-        "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
-        "location": null,
-        "path": "shipgate.yaml",
-        "start_line": null,
-        "end_line": null,
-        "start_column": null,
-        "pointer": "/policies/require_idempotency_for_tools"
-      },
-      "capability_refs": [],
-      "capability_policy_evidence": null,
-      "policy_routing": null,
-      "capability_trace_refs": [],
-      "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for send_customer_email.",
       "blocks_release": false,
       "suppressed": false,
       "suppression_reason": null,
@@ -2596,20 +2896,106 @@
       "suggested_patch_kind": "manual",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-high-risk-owner-missing",
       "agent_action": "escalate_to_human"
+    },
+    {
+      "id": "fp_04ba453985ee9758",
+      "fingerprint": "fp_04ba453985ee9758",
+      "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+      "title": "send_customer_email has external communication capability without required controls",
+      "severity": "high",
+      "category": "action_surface",
+      "tool_id": "tool:send_customer_email",
+      "tool_name": "send_customer_email",
+      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
+      "evidence": {
+        "action_id": "agent:simple-openai-api-agent/api-refund-assistant:openai_api:openai_api:send_customer_email",
+        "missing": [
+          "safeguards.audit_log",
+          "confirmation.required"
+        ]
+      },
+      "confidence": "high",
+      "provenance_kind": "static_declaration",
+      "source": {
+        "type": "openai_api",
+        "ref": "tools/openai-tools.json#1",
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
+      },
+      "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "capability_trace_refs": [],
+      "recommendation": "Declare confirmation policy and safeguards.audit_log for this external communication action.",
+      "blocks_release": true,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-external-communication-audit-missing",
+      "agent_action": "escalate_to_human"
+    },
+    {
+      "id": "fp_5d0a663885221aa2",
+      "fingerprint": "fp_5d0a663885221aa2",
+      "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+      "title": "create_refund has financial write capability without required controls",
+      "severity": "critical",
+      "category": "action_surface",
+      "tool_id": "tool:create_refund",
+      "tool_name": "create_refund",
+      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
+      "evidence": {
+        "action_id": "agent:simple-openai-api-agent/api-refund-assistant:openai_api:openai_api:create_refund",
+        "missing": [
+          "approval.required",
+          "safeguards.audit_log",
+          "safeguards.idempotency"
+        ]
+      },
+      "confidence": "high",
+      "provenance_kind": "static_declaration",
+      "source": {
+        "type": "openai_api",
+        "ref": "tools/openai-tools.json#0",
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
+      },
+      "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "capability_trace_refs": [],
+      "recommendation": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency for this financial write action.",
+      "blocks_release": true,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-action-financial-write-control-missing",
+      "agent_action": "escalate_to_human"
     }
   ],
   "recommended_actions": [
+    "Declare approval.required, safeguards.audit_log, and safeguards.idempotency for this financial write action.",
+    "Declare confirmation policy and safeguards.audit_log for this external communication action.",
     "Make create_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
     "Make send_customer_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
     "Align prompt scope with enabled tools or remove write/high-risk tools.",
     "Add idempotency evidence for create_refund or avoid retrying this side effect.",
     "Add idempotency evidence for send_customer_email or avoid retrying this side effect.",
-    "Declare auth scopes for create_refund in OpenAPI, MCP metadata, or the manifest before release review.",
-    "Declare auth scopes for send_customer_email in OpenAPI, MCP metadata, or the manifest before release review.",
-    "Declare an owner for each high-risk production tool in risk_overrides.tools."
+    "Declare operation-specific auth scopes for create_refund, or explicitly declare anonymous authority when the operation requires no credentials."
   ],
   "generated_reports": {
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp.klkty3Baqf/simple_openai_api_agent/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -2658,16 +3044,16 @@
   ],
   "source_warnings": [],
   "agent_summary": {
-    "verdict": "review_required",
-    "headline": "20 finding(s) require human review. 20 findings require human review before shipping.",
-    "blocker_count": 0,
-    "review_item_count": 20,
+    "verdict": "blocked",
+    "headline": "2 active finding(s) block release; 19 review item(s) accepted as debt.",
+    "blocker_count": 2,
+    "review_item_count": 19,
     "auto_appliable_patches": 0,
-    "needs_human_review": 20,
+    "needs_human_review": 21,
     "first_recommended_action": {
       "kind": "info",
       "command": null,
-      "why": "Walk the 20 review item(s) starting with SHIP-API-FUNCTION-SCHEMA-STRICTNESS; release is allowed but the human reviewer should weigh in."
+      "why": "Surface SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on create_refund to the user; release is blocked and no auto-applicable patch is available."
     }
   },
   "policy_audit": {
@@ -2680,7 +3066,8 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json"
+      "json",
+      "markdown"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
@@ -2697,10 +3084,10 @@
     "filtered_by_kind": {}
   },
   "reviewer_summary": {
-    "verdict": "review_required",
-    "headline": "Review required: 23 lens changes. Start at capability_intent_diff.",
+    "verdict": "blocked",
+    "headline": "Release blocked: 24 lens changes. Start at release_decision.",
     "tool_surface_changes": 0,
-    "capability_misalignments": 23,
+    "capability_misalignments": 24,
     "action_surface_changes": 0,
     "evidence_matrix_gaps": 0,
     "severity_overrides_applied": 0,
@@ -2708,10 +3095,10 @@
     "privacy_redactions": 0,
     "baseline_integrity_issues": 0,
     "first_recommended_surface": {
-      "kind": "lens",
-      "name": "capability_intent_diff",
-      "path": "report.misalignments",
-      "why": "The capability/intent diff surfaced misalignments between declared agent purpose and observed tool surface; read misalignments[] for the specifics."
+      "kind": "release_decision",
+      "name": "release_decision",
+      "path": "report.release_decision",
+      "why": "Release is blocked; read release_decision.blockers[] for the gating findings."
     }
   },
   "capability_change": {
@@ -2739,12 +3126,15 @@
     "outstanding": []
   },
   "verifier_summary": {
-    "verdict": "review_required",
+    "verdict": "blocked",
     "by_severity": {
+      "critical": 1,
       "high": 15,
       "medium": 5
     },
     "by_reason_code": {
+      "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING": 1,
+      "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING": 1,
       "SHIP-API-FUNCTION-SCHEMA-STRICTNESS": 2,
       "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH": 2,
       "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY": 2,
@@ -2757,7 +3147,7 @@
       "SHIP-SCHEMA-BROAD-FREE-TEXT": 1,
       "SHIP-SCHEMA-MISSING-BOUNDS": 1,
       "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT": 2,
-      "SHIP-SIDEFX-IDEMPOTENCY-MISSING": 2
+      "SHIP-SIDEFX-IDEMPOTENCY-MISSING": 1
     },
     "capability_delta_summary": {
       "added": 0,
@@ -2770,6 +3160,10 @@
     "human_ack_required": false,
     "human_ack_satisfied": true,
     "top_reason_codes": [
+      {
+        "reason_code": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        "count": 1
+      },
       {
         "reason_code": "SHIP-API-FUNCTION-SCHEMA-STRICTNESS",
         "count": 2
@@ -2784,10 +3178,6 @@
       },
       {
         "reason_code": "SHIP-AUTH-MISSING-SCOPE",
-        "count": 2
-      },
-      {
-        "reason_code": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
         "count": 2
       }
     ]

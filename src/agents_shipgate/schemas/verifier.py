@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
+from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 
 VerifierBaseStatus = Literal[
     "not_requested",
@@ -278,6 +279,9 @@ class VerifierArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     verifier_schema_version: Literal["0.1"] = "0.1"
+    static_analysis_only: Literal[True] = True
+    runtime_behavior_verified: Literal[False] = False
+    static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
     workspace: str
     config: str
     base_ref: str | None = None
@@ -347,7 +351,22 @@ class VerifierArtifact(BaseModel):
         — is left unconstrained: there is no substrate to project.)
         """
         if self.release_decision is None:
+            if self.static_verdict_disclaimer != STATIC_VERDICT_DISCLAIMER:
+                raise ValueError("VerifierArtifact must preserve the static-verdict disclaimer")
             return self
+        if self.static_verdict_disclaimer != STATIC_VERDICT_DISCLAIMER:
+            raise ValueError("VerifierArtifact must preserve the static-verdict disclaimer")
+        if self.release_decision.get("static_analysis_only", True) is not True:
+            raise ValueError("VerifierArtifact release_decision must be static-analysis-only")
+        if self.release_decision.get("runtime_behavior_verified", False) is not False:
+            raise ValueError("VerifierArtifact cannot claim runtime behavior was verified")
+        release_disclaimer = self.release_decision.get(
+            "static_verdict_disclaimer", STATIC_VERDICT_DISCLAIMER
+        )
+        if release_disclaimer != self.static_verdict_disclaimer:
+            raise ValueError(
+                "VerifierArtifact static-verdict disclaimer must match release_decision"
+            )
         substrate = self.release_decision.get("decision")
         if self.decision != substrate:
             raise ValueError(

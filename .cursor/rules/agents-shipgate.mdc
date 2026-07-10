@@ -72,8 +72,8 @@ For coding-agent host grants, run:
 Read the host-grants inventory before changing MCP servers, permission rules,
 hooks, or workflow scopes.
 
-Apply only high-confidence safe patches. Do not invent approval, confirmation,
-or idempotency evidence.
+Apply only high-confidence safe patches. Do not invent action effect, action
+authority, approval, confirmation, or idempotency evidence.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent

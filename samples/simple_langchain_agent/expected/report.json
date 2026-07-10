@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.28",
-  "run_id": "agents_shipgate_785cc45e038e4687",
+  "report_schema_version": "0.29",
+  "run_id": "agents_shipgate_06f86b8b1d3c6bd1",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
     "name": "simple-langchain-agent"
@@ -45,56 +45,73 @@
     "target": "local"
   },
   "summary": {
-    "status": "human_review_recommended",
+    "status": "no_release_blockers_detected",
     "critical_count": 0,
     "high_count": 0,
     "medium_count": 0,
     "low_count": 0,
     "info_count": 0,
     "suppressed_count": 0,
-    "human_review_recommended": true,
-    "evidence_coverage": "mixed"
+    "human_review_recommended": false,
+    "evidence_coverage": "static"
   },
   "release_decision": {
-    "decision": "insufficient_evidence",
-    "reason": "Evidence coverage below threshold (2 low-confidence tool(s)); scan results are not trustworthy enough to gate release.",
+    "decision": "review_required",
+    "reason": "2 source-loader warnings; review evidence before shipping.",
     "blockers": [],
     "review_items": [],
     "evidence_coverage": {
-      "level": "mixed",
-      "human_review_recommended": true,
-      "source_warning_count": 0,
-      "low_confidence_tool_count": 2,
+      "level": "static",
+      "human_review_recommended": false,
+      "source_warning_count": 2,
+      "low_confidence_tool_count": 0,
       "evidence_gaps": [
         {
-          "kind": "low_confidence_tool",
-          "subject": "lookup_case",
-          "source_type": "langchain_function",
-          "source_ref": "agent.py:14",
-          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "kind": "source_warning",
+          "subject": "Duplicate tool name 'lookup_case'; kept langchain_inventory source 'langchain_inventory:inventories/tools.json' and merged metadata from langchain_function source 'langchain_agent'.",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
           "next_action": {
-            "kind": "declare_tool_inventory",
+            "kind": "review_warning",
             "command": null,
-            "path": "suggested-inventory.json",
-            "why": "langchain_function extraction is static-only; an explicit local tool inventory is the supported way to raise this tool to high confidence.",
-            "expects": "Review the skeleton written next to report.json, save it in your repo, reference it from `langchain.tool_inventories` in shipgate.yaml, then rerun the scan."
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
+            "accepted_values": [],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
           }
         },
         {
-          "kind": "low_confidence_tool",
-          "subject": "summarize_case",
-          "source_type": "langchain_structured_tool",
-          "source_ref": "agent.py:19",
-          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "kind": "source_warning",
+          "subject": "Duplicate tool name 'summarize_case'; kept langchain_inventory source 'langchain_inventory:inventories/tools.json' and merged metadata from langchain_structured_tool source 'langchain_agent'.",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
           "next_action": {
-            "kind": "declare_tool_inventory",
+            "kind": "review_warning",
             "command": null,
-            "path": "suggested-inventory.json",
-            "why": "langchain_structured_tool extraction is static-only; an explicit local tool inventory is the supported way to raise this tool to high confidence.",
-            "expects": "Review the skeleton written next to report.json, save it in your repo, reference it from `langchain.tool_inventories` in shipgate.yaml, then rerun the scan."
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
+            "accepted_values": [],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
           }
         }
-      ]
+      ],
+      "semantic_coverage": {
+        "total_actions": 2,
+        "pass_eligible_actions": 2,
+        "gap_count": 0,
+        "review_concern_count": 0,
+        "reason_counts": {}
+      }
     },
     "baseline_delta": {
       "enabled": false,
@@ -110,6 +127,9 @@
       "would_fail_ci": false,
       "exit_code": 0
     },
+    "static_analysis_only": true,
+    "runtime_behavior_verified": false,
+    "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "contribution_rules": []
   },
   "capability_facts": [],
@@ -124,8 +144,8 @@
   ],
   "misalignments": [],
   "release_consequence": {
-    "decision": "insufficient_evidence",
-    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal \u2014 gather deeper sources before shipping.",
+    "decision": "review_required",
+    "summary": "0 release-relevant finding(s) require release review before shipping.",
     "blocker_misalignment_count": 0,
     "review_misalignment_count": 0,
     "fail_policy": {
@@ -141,8 +161,7 @@
     "total_tools": 2,
     "high_risk_tools": 0,
     "sources": {
-      "langchain_function": 1,
-      "langchain_structured_tool": 1
+      "langchain_inventory": 2
     },
     "wildcard_tools": 0,
     "missing_descriptions": 0
@@ -151,42 +170,44 @@
     "tools": [
       {
         "name": "lookup_case",
-        "source_type": "langchain_function",
-        "source_id": "langchain_agent",
-        "source_ref": "agent.py",
+        "source_type": "langchain_inventory",
+        "source_id": "langchain_inventory:inventories/tools.json",
+        "source_ref": "inventories/tools.json",
         "risk_tags": [
           "read_only"
         ],
         "auth_scopes": [],
         "owner": null,
-        "extraction_confidence": "medium",
+        "extraction_confidence": "high",
         "has_description": true,
         "hashes": {
-          "source_ref": "5739a14a33cd4e83",
+          "source_ref": "3613cdb3d448a417",
           "description": "5964fcbc6e4d1fd4",
-          "input_schema": "15aa3ad548f35e11",
-          "output_schema": "ff419ebbeba438f6",
-          "parameters": "27a4ea845d60ed09",
-          "annotations": "c130e86ec513819b"
+          "input_schema": "1b120897c7f6d6cd",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "1b8bfe67ab58e766",
+          "annotations": "5e1f8cd38bd37762"
         }
       },
       {
         "name": "summarize_case",
-        "source_type": "langchain_structured_tool",
-        "source_id": "langchain_agent",
-        "source_ref": "agent.py",
-        "risk_tags": [],
+        "source_type": "langchain_inventory",
+        "source_id": "langchain_inventory:inventories/tools.json",
+        "source_ref": "inventories/tools.json",
+        "risk_tags": [
+          "read_only"
+        ],
         "auth_scopes": [],
         "owner": null,
-        "extraction_confidence": "medium",
+        "extraction_confidence": "high",
         "has_description": true,
         "hashes": {
-          "source_ref": "5739a14a33cd4e83",
+          "source_ref": "3613cdb3d448a417",
           "description": "f60def41dd0be85a",
-          "input_schema": "2d62471dcaa30290",
-          "output_schema": "ff419ebbeba438f6",
-          "parameters": "f5d7d1b59ebbfed2",
-          "annotations": "c130e86ec513819b"
+          "input_schema": "1b120897c7f6d6cd",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "1b8bfe67ab58e766",
+          "annotations": "5e1f8cd38bd37762"
         }
       }
     ],
@@ -239,22 +260,89 @@
     "snapshot_version": "0.1",
     "actions": [
       {
-        "action_id": "agent:simple-langchain-agent/support-case-reader:langchain_function:langchain_agent:lookup_case",
+        "action_id": "agent:simple-langchain-agent/support-case-reader:langchain_inventory:langchain_inventory:inventories/tools.json:lookup_case",
         "agent_id": "agent:simple-langchain-agent/support-case-reader",
         "tool_id": "tool:lookup_case",
         "tool_name": "lookup_case",
-        "provider": "langchain_agent",
-        "source_type": "langchain_function",
-        "source_id": "langchain_agent",
-        "source_ref": "agent.py",
-        "source_location": "agent.py:14",
-        "source_path": null,
+        "provider": "langchain_inventory:inventories/tools.json",
+        "source_type": "langchain_inventory",
+        "source_id": "langchain_inventory:inventories/tools.json",
+        "source_ref": "inventories/tools.json",
+        "source_location": null,
+        "source_path": "inventories/tools.json",
         "source_start_line": null,
         "source_end_line": null,
         "source_start_column": null,
-        "source_pointer": null,
+        "source_pointer": "/tools/0",
         "operation": "lookup_case",
         "effect": "read",
+        "semantic_assessment": {
+          "conservative_effect": "read",
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
+                "evidence": {}
+              },
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "mcp_annotation",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "readOnlyHint": true
+                }
+              }
+            ],
+            "issues": []
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "none",
+            "auth_type": null,
+            "credential_mode": null,
+            "scopes": [],
+            "claims": [
+              {
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
+                "evidence": {
+                  "auth_type": null,
+                  "credential_mode": null,
+                  "scopes": []
+                }
+              },
+              {
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "mcp_authority",
+                "source_pointer": "/tools/0",
+                "evidence": {
+                  "auth_type": null,
+                  "scopes": [],
+                  "alternative_count": 0
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": true
+        },
         "risk_tags": [
           "read_only"
         ],
@@ -282,30 +370,99 @@
         ],
         "input_schema_hash": "0fa6db8cd81aa4d6",
         "hashes": {
-          "identity_hash": "465a306ce67e4800",
+          "identity_hash": "a483ccada7e7f557",
           "schema_hash": "0fa6db8cd81aa4d6",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "70b0ab591723cb0f"
         }
       },
       {
-        "action_id": "agent:simple-langchain-agent/support-case-reader:langchain_structured_tool:langchain_agent:summarize_case",
+        "action_id": "agent:simple-langchain-agent/support-case-reader:langchain_inventory:langchain_inventory:inventories/tools.json:summarize_case",
         "agent_id": "agent:simple-langchain-agent/support-case-reader",
         "tool_id": "tool:summarize_case",
         "tool_name": "summarize_case",
-        "provider": "langchain_agent",
-        "source_type": "langchain_structured_tool",
-        "source_id": "langchain_agent",
-        "source_ref": "agent.py",
-        "source_location": "agent.py:19",
-        "source_path": null,
+        "provider": "langchain_inventory:inventories/tools.json",
+        "source_type": "langchain_inventory",
+        "source_id": "langchain_inventory:inventories/tools.json",
+        "source_ref": "inventories/tools.json",
+        "source_location": null,
+        "source_path": "inventories/tools.json",
         "source_start_line": null,
         "source_end_line": null,
         "source_start_column": null,
-        "source_pointer": null,
+        "source_pointer": "/tools/1",
         "operation": "summarize_case",
         "effect": "read",
-        "risk_tags": [],
+        "semantic_assessment": {
+          "conservative_effect": "read",
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='summarize_case'].effect",
+                "evidence": {}
+              },
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "mcp_annotation",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "readOnlyHint": true
+                }
+              }
+            ],
+            "issues": []
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "none",
+            "auth_type": null,
+            "credential_mode": null,
+            "scopes": [],
+            "claims": [
+              {
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='summarize_case'].authority",
+                "evidence": {
+                  "auth_type": null,
+                  "credential_mode": null,
+                  "scopes": []
+                }
+              },
+              {
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "mcp_authority",
+                "source_pointer": "/tools/1",
+                "evidence": {
+                  "auth_type": null,
+                  "scopes": [],
+                  "alternative_count": 0
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": true
+        },
+        "risk_tags": [
+          "read_only"
+        ],
         "required_scopes": [],
         "approval_policy": {
           "required": false,
@@ -330,10 +487,10 @@
         ],
         "input_schema_hash": "0fa6db8cd81aa4d6",
         "hashes": {
-          "identity_hash": "3c4b9c3b8e0f3f98",
+          "identity_hash": "321c95fa85c01229",
           "schema_hash": "0fa6db8cd81aa4d6",
           "policy_hash": "99aa27a5e2ab49d6",
-          "risk_hash": "4b93b7ea9c7e351c"
+          "risk_hash": "70b0ab591723cb0f"
         }
       }
     ]
@@ -392,7 +549,7 @@
       "tool_node_count": 0,
       "agent_tool_binding_count": 1,
       "dynamic_tool_surface_count": 0,
-      "tool_inventory_file_count": 0,
+      "tool_inventory_file_count": 1,
       "warnings": []
     }
   },
@@ -401,7 +558,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "json": "/private/var/folders/_n/xw32gm0n7f957mtdq1mwfl3c0000gn/T/tmp.klkty3Baqf/simple_langchain_agent/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -409,39 +567,46 @@
   "tool_inventory": [
     {
       "name": "lookup_case",
-      "source_type": "langchain_function",
-      "source_ref": "agent.py",
-      "source_path": null,
+      "source_type": "langchain_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
       "source_start_line": null,
-      "source_pointer": null,
+      "source_pointer": "/tools/0",
       "risk_tags": [
         "read_only"
       ],
       "risk_tag_confidence": {
-        "read_only": "medium"
+        "read_only": "high"
       },
       "auth_scopes": [],
       "owner": null,
-      "confidence": "medium"
+      "confidence": "high"
     },
     {
       "name": "summarize_case",
-      "source_type": "langchain_structured_tool",
-      "source_ref": "agent.py",
-      "source_path": null,
+      "source_type": "langchain_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
       "source_start_line": null,
-      "source_pointer": null,
-      "risk_tags": [],
-      "risk_tag_confidence": {},
+      "source_pointer": "/tools/1",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
       "auth_scopes": [],
       "owner": null,
-      "confidence": "medium"
+      "confidence": "high"
     }
   ],
-  "source_warnings": [],
+  "source_warnings": [
+    "Duplicate tool name 'lookup_case'; kept langchain_inventory source 'langchain_inventory:inventories/tools.json' and merged metadata from langchain_function source 'langchain_agent'.",
+    "Duplicate tool name 'summarize_case'; kept langchain_inventory source 'langchain_inventory:inventories/tools.json' and merged metadata from langchain_structured_tool source 'langchain_agent'."
+  ],
   "agent_summary": {
-    "verdict": "insufficient_evidence",
-    "headline": "Evidence coverage below threshold (2 low-confidence tool(s)); scan results are not trustworthy enough to gate release.",
+    "verdict": "review_required",
+    "headline": "2 source-loader warnings; review evidence before shipping.",
     "blocker_count": 0,
     "review_item_count": 0,
     "auto_appliable_patches": 0,
@@ -449,7 +614,7 @@
     "first_recommended_action": {
       "kind": "info",
       "command": null,
-      "why": "Evidence coverage below threshold (2 low-confidence tool(s)); scan results are not trustworthy enough to gate release. Surface this to the user and gather deeper evidence (e.g. MCP/OpenAPI inputs, eval traces, additional source files) before re-running the scan; applying patches does not clear an evidence verdict, so no machine-applicable fix is available."
+      "why": "2 source-loader warnings; review evidence before shipping. Surface this to the user and discuss whether to gather better evidence (e.g. add MCP/OpenAPI inputs, eval traces) or accept the static-only review posture; no machine-applicable fix is available."
     }
   },
   "policy_audit": {
@@ -462,7 +627,8 @@
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
     "output_surfaces": [
-      "json"
+      "json",
+      "markdown"
     ],
     "notes": [
       "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
@@ -479,8 +645,8 @@
     "filtered_by_kind": {}
   },
   "reviewer_summary": {
-    "verdict": "insufficient_evidence",
-    "headline": "Evidence coverage below threshold: no reviewer signals (lenses + audits all clean). Start at release_decision.",
+    "verdict": "review_required",
+    "headline": "Review required: no reviewer signals (lenses + audits all clean). Start at release_decision.",
     "tool_surface_changes": 0,
     "capability_misalignments": 0,
     "action_surface_changes": 0,
@@ -493,7 +659,7 @@
       "kind": "release_decision",
       "name": "release_decision",
       "path": "report.release_decision",
-      "why": "Evidence coverage is below threshold; read release_decision.reason and evidence_coverage."
+      "why": "Review is required (source warnings or evidence gap without specific lens/audit signals); read release_decision.reason for details."
     }
   },
   "capability_change": {
@@ -521,7 +687,7 @@
     "outstanding": []
   },
   "verifier_summary": {
-    "verdict": "insufficient_evidence",
+    "verdict": "review_required",
     "by_severity": {},
     "by_reason_code": {},
     "capability_delta_summary": {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from agents_shipgate.core.domain import Agent, Tool
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_SCHEMA_VERSION,
+    CAPABILITY_STANDARD_VERSION,
     CapabilityFactV1,
     CapabilityLockChangedFact,
     CapabilityLockDiffSummary,
@@ -30,9 +32,7 @@ from agents_shipgate.schemas.capabilities import (
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 DEFAULT_CAPABILITY_LOCK_PATH = Path(".agents-shipgate") / "capabilities.lock.json"
-DEFAULT_CAPABILITY_LOCK_REPORT_PATH = (
-    Path("agents-shipgate-reports") / "capabilities.lock.json"
-)
+DEFAULT_CAPABILITY_LOCK_REPORT_PATH = Path("agents-shipgate-reports") / "capabilities.lock.json"
 
 
 def build_capability_lock(
@@ -95,9 +95,19 @@ def load_capability_lock(path: Path) -> CapabilityLockFileV1:
 def load_capability_lock_json(content: str, *, source: str) -> CapabilityLockFileV1:
     try:
         payload = json.loads(content)
+        source_schema_version: str | None = None
         if isinstance(payload, dict):
+            raw_version = payload.get("capability_lock_schema_version")
+            source_schema_version = raw_version if isinstance(raw_version, str) else None
             payload = _normalize_capability_lock_payload(payload)
-        return CapabilityLockFileV1.model_validate(payload)
+        lock = CapabilityLockFileV1.model_validate(payload)
+        # Normalization keeps old locks readable, but a lock diff must still
+        # know which capability standard produced each side.  Store the
+        # source version as a private runtime attribute: it never enters the
+        # public lock JSON or its hashes.
+        if source_schema_version is not None:
+            lock._source_capability_lock_schema_version = source_schema_version  # type: ignore[attr-defined]
+        return lock
     except (ValidationError, ValueError, TypeError) as exc:
         raise InputParseError(f"Invalid capability lock file {source}: {exc}") from exc
 
@@ -109,6 +119,12 @@ def diff_capability_locks(
     base_path: Path | None = None,
     head_path: Path | None = None,
 ) -> CapabilityLockDiffV1:
+    _require_comparable_capability_standards(
+        base,
+        head,
+        base_path=base_path,
+        head_path=head_path,
+    )
     semantic_diff = diff_capability_fact_sets(base.capabilities, head.capabilities)
     added = _sort_facts([ctx.fact for ctx in semantic_diff.added])
     removed = _sort_facts([ctx.fact for ctx in semantic_diff.removed])
@@ -173,8 +189,7 @@ def _lock_hashes(
         evidence_set_hash=_sha256(
             {
                 "capabilities": [
-                    {"id": fact.id, "evidence_hash": fact.hashes.evidence_hash}
-                    for fact in facts
+                    {"id": fact.id, "evidence_hash": fact.hashes.evidence_hash} for fact in facts
                 ]
             }
         ),
@@ -213,12 +228,71 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
 
 def _normalize_capability_lock_payload(payload: dict[str, Any]) -> dict[str, Any]:
     version = payload.get("capability_lock_schema_version")
-    if version == "0.1":
+    if version in {"0.1", "0.2"}:
         normalized = dict(payload)
         normalized["capability_lock_schema_version"] = CAPABILITY_LOCK_SCHEMA_VERSION
         normalized["experimental"] = False
         return normalized
     return payload
+
+
+_CAPABILITY_STANDARD_BY_LOCK_SCHEMA = {
+    "0.1": "0.1",
+    "0.2": "0.1",
+    CAPABILITY_LOCK_SCHEMA_VERSION: CAPABILITY_STANDARD_VERSION,
+}
+
+
+def _require_comparable_capability_standards(
+    base: CapabilityLockFileV1,
+    head: CapabilityLockFileV1,
+    *,
+    base_path: Path | None,
+    head_path: Path | None,
+) -> None:
+    base_standard = _source_capability_standard(base)
+    head_standard = _source_capability_standard(head)
+    if base_standard == head_standard:
+        return
+
+    if base_standard != CAPABILITY_STANDARD_VERSION:
+        stale_side = "base"
+        stale_lock = base
+        stale_path = base_path
+    else:
+        stale_side = "head"
+        stale_lock = head
+        stale_path = head_path
+
+    output_path = stale_path or DEFAULT_CAPABILITY_LOCK_PATH
+    command = " ".join(
+        [
+            "agents-shipgate capability export",
+            "--config",
+            shlex.quote(stale_lock.source.config_path),
+            "--out",
+            shlex.quote(str(output_path)),
+            "--no-report-copy",
+        ]
+    )
+    raise InputParseError(
+        "Mixed capability-standard lock diff is not comparable "
+        f"(base={base_standard}, head={head_standard}). Re-export the "
+        f"{stale_side} lock from its source workspace with the current engine "
+        f"using exactly: `{command}`. Then rerun the capability diff."
+    )
+
+
+def _source_capability_standard(lock: CapabilityLockFileV1) -> str:
+    source_schema_version = getattr(
+        lock,
+        "_source_capability_lock_schema_version",
+        lock.capability_lock_schema_version,
+    )
+    return _CAPABILITY_STANDARD_BY_LOCK_SCHEMA.get(
+        source_schema_version,
+        CAPABILITY_STANDARD_VERSION,
+    )
 
 
 def _lock_changed_fact(row: CapabilityDeltaRow) -> CapabilityLockChangedFact:
@@ -256,9 +330,7 @@ def _lock_ref_path(path: Path | None) -> str | None:
 
 def _sha256(value: Any) -> str:
     return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode(
-            "utf-8"
-        )
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
 
 

@@ -86,6 +86,11 @@ def _run_checks_and_decide(
     if diffs.diff_reference_error:
         action_surface_diff.enabled = False
         action_surface_diff.notes = [diffs.diff_reference_error]
+        # A requested diff that cannot be compared is evidence degradation,
+        # not a cosmetic renderer note. Carry it through the existing source-
+        # warning channel so release_decision exposes a human-routed
+        # regeneration action and cannot silently emit ``passed``.
+        action_surface_warnings.append(diffs.diff_reference_error)
     context = ScanContext(
         manifest=manifest,
         agent=tools_and_agent.agent,
@@ -111,9 +116,7 @@ def _run_checks_and_decide(
         context,
         plugins_enabled=plugins_enabled,
         loaded_plugins=loaded_plugins,
-        extra_known_check_ids={
-            resolved.rule.id for resolved in inputs.policy_packs.rules
-        },
+        extra_known_check_ids={resolved.rule.id for resolved in inputs.policy_packs.rules},
     )
     findings.extend(run_policy_pack_rules(context, inputs.policy_packs))
     findings.extend(

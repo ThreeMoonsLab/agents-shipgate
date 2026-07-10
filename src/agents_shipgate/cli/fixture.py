@@ -15,6 +15,7 @@ import typer
 
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.verify.orchestrator import run_verify
+from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.fixtures import (
     FixtureNotFoundError,
@@ -131,6 +132,7 @@ def fixture_run(
         f"high={report.summary.high_count} medium={report.summary.medium_count}"
     )
     typer.echo(f"Reports: {out_dir}")
+    typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
     _finish_fixture_copy(
         workdir=workdir,
         target=target,
@@ -348,6 +350,7 @@ def _run_verify_pr_fixture(
     typer.echo(f"Reports: {out_dir}")
     typer.echo(f"Verifier: {out_dir / 'verifier.json'}")
     typer.echo(f"PR comment: {out_dir / 'pr-comment.md'}")
+    typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
     _finish_fixture_copy(
         workdir=workdir,
         target=target,

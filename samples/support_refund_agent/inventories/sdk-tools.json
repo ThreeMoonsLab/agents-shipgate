@@ -1,0 +1,20 @@
+{
+  "tools": [
+    {
+      "name": "send_email_preview",
+      "description": "Render a customer email preview locally without sending it.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "recipient": {"type": "string", "format": "email"},
+          "subject": {"type": "string"},
+          "body": {"type": "string"}
+        },
+        "required": ["recipient", "subject", "body"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    }
+  ]
+}

@@ -19,7 +19,39 @@ tool_sources:
 google_adk:
   eval_sets:
     - evals/support.eval.json
+  # Reviewed inventory resolves the otherwise AST-only function binding.
+  tool_inventories:
+    - inventories/function-tools.json
+
+action_surface:
+  actions:
+    - tool: lookup_case
+      effect: read
+      authority:
+        mode: none
+    - tool: request_refund_approval
+      effect: write
+      authority:
+        mode: none
+      approval:
+        required: true
+    - tool: support.search
+      effect: read
+      authority:
+        mode: none
+    - tool: support.get_case
+      effect: read
+      authority:
+        mode: none
 
 policies:
   require_approval_for_tools:
     - request_refund_approval
+
+risk_overrides:
+  tools:
+    request_refund_approval:
+      tags: [write]
+      remove_tags: [financial_action]
+      confidence: manual
+      reason: creates an internal approval request and does not issue a refund

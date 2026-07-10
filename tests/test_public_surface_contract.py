@@ -33,6 +33,7 @@ from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
     CAPABILITY_LOCK_SCHEMA_VERSION,
+    CAPABILITY_STANDARD_VERSION,
 )
 from agents_shipgate.schemas.contract import (
     CONTRACT_VERSION,
@@ -42,6 +43,7 @@ from agents_shipgate.schemas.contract import (
     build_contract_payload,
 )
 from agents_shipgate.schemas.diagnostics import NextActionKind
+from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
@@ -59,14 +61,17 @@ CURRENT_REPORT_SCHEMA_VERSION = str(ReadinessReport.model_fields["report_schema_
 CURRENT_REPORT_SCHEMA = f"report-schema.v{CURRENT_REPORT_SCHEMA_VERSION}.json"
 CURRENT_PACKET_SCHEMA_VERSION = str(EvidencePacket.model_fields["packet_schema_version"].default)
 CURRENT_PACKET_SCHEMA = f"packet-schema.v{CURRENT_PACKET_SCHEMA_VERSION}.json"
+# The source tree is on the 0.16 beta line while install snippets and Action
+# examples must continue to name the latest tag that actually exists.
+LATEST_PUBLISHED_VERSION = "0.15.0"
 # Frozen report schemas that still appear in public surfaces must be labeled as
 # frozen/legacy/older instead of being mistaken for the current schema.
 LEGACY_REPORT_SCHEMA_PATTERN = re.compile(
-    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26)\.json"
+    r"report-schema\.v0\.(?:7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28)\.json"
 )
 ANY_REPORT_SCHEMA_PATTERN = re.compile(r"report-schema\.v0\.\d+\.json")
 ANY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v\d+\.\d+\.json")
-LEGACY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v0\.(?:1|2|3|4|5)\.json")
+LEGACY_PACKET_SCHEMA_PATTERN = re.compile(r"packet-schema\.v0\.(?:1|2|3|4|5|6|7)\.json")
 PACKET_ANCHOR_PATTERN = re.compile(r"#release-evidence-packet-v(\d+)")
 SUMMARY_STATUS_PATTERN = re.compile(r"summary\.status\b|summary\.\{[^}]*status[^}]*\}")
 LEGACY_CONTEXT_WORDS = re.compile(
@@ -90,9 +95,9 @@ UVX_PIN_PATTERN = re.compile(rf"agents-shipgate@({VERSION_RE})")
 SHIPGATE_VERSION_INPUT_PATTERN = re.compile(rf"shipgate_version:\s*['\"]({VERSION_RE})['\"]")
 # Surfaces that name the *latest released* version inline (not as an
 # Action / pip / shipgate_version pin) and must move with the package
-# version on every bump. Each entry is a (path, regex) pair where the
-# regex's first capture group is the version literal to compare against
-# pyproject.toml. The regexes are anchored to surrounding phrasing so
+# version when a public tag is cut. Each entry is a (path, regex) pair where
+# the regex's first capture group is compared with LATEST_PUBLISHED_VERSION.
+# The regexes are anchored to surrounding phrasing so
 # historical version mentions in the same file (e.g. ROADMAP.md's
 # release-history list, faq.md's older v0.x narrative) are not matched.
 VERSION_LITERAL_TARGETS = (
@@ -106,7 +111,7 @@ VERSION_LITERAL_TARGETS = (
     ),
     (
         "docs/faq.md",
-        re.compile(rf"v({VERSION_RE}) is the current pre-1\.0 beta contract version"),
+        re.compile(rf"v({VERSION_RE}) is the latest published pre-1\.0 beta"),
     ),
     (
         "ROADMAP.md",
@@ -322,7 +327,10 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("version") == contract["cli_version"]
     package = data.get("package", {})
     assert package.get("github_action") == (
-        f"ThreeMoonsLab/agents-shipgate@v{contract['cli_version']}"
+        f"ThreeMoonsLab/agents-shipgate@v{LATEST_PUBLISHED_VERSION}"
+    )
+    assert data.get("release_status", {}).get("latest_release") == (
+        f"v{LATEST_PUBLISHED_VERSION}"
     )
     outputs = data.get("outputs", [])
     for expected in (
@@ -352,6 +360,14 @@ def test_well_known_metadata_lists_packet_outputs():
         "don't fall back to summary.status."
     )
     assert data.get("contract_version") == CONTRACT_VERSION
+    assert data.get("static_analysis_only") is True
+    assert data.get("runtime_behavior_verified") is False
+    assert data.get("static_verdict_disclaimer") == STATIC_VERDICT_DISCLAIMER
+    assert data.get("passed_verdict_contract", "").endswith(
+        "/docs/passed-verdict-contract.md"
+    )
+    assert data.get("report_schema_version") == contract["report_schema_version"]
+    assert data.get("packet_schema_version") == contract["packet_schema_version"]
     assert data.get("agent_result_schema_version") == contract["agent_result_schema_version"]
     assert data.get("agent_result_schema_path") == contract["agent_result_schema_path"]
     assert data.get("agent_result_control_fields") == contract["agent_result_control_fields"]
@@ -363,8 +379,18 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("codex_boundary_result_schema_version") == (
         contract["codex_boundary_result_schema_version"]
     )
+    assert data.get("capability_standard_version") == CAPABILITY_STANDARD_VERSION
+    assert data.get("capability_lock_schema_version") == (
+        contract["capability_lock_schema_version"]
+    )
+    assert data.get("capability_lock_diff_schema_version") == (
+        contract["capability_lock_diff_schema_version"]
+    )
     assert data.get("agent_read_order") == contract["agent_read_order"]
     assert data.get("verifier_read_order") == contract["verifier_read_order"]
+    assert data.get("do_not_auto_assert") == contract["do_not_auto_assert"]
+    assert "action_effect" in contract["do_not_auto_assert"]
+    assert "action_authority" in contract["do_not_auto_assert"]
     assert data.get("agent_interface_operations") == contract["agent_interface_operations"]
     assert data.get("exit_code_policy") == contract["exit_code_policy"]
     assert data.get("mcp_tools") == contract["mcp_tools"]
@@ -479,7 +505,10 @@ def test_agent_contract_current_doc_is_canonical():
         f"contract version `{CONTRACT_VERSION}`."
     )
     assert __version__ == contract["cli_version"]
-    assert f"Latest release: `v{contract['cli_version']}`" in text, (
+    assert f"Latest release: `v{LATEST_PUBLISHED_VERSION}`" in text, (
+        "docs/agent-contract-current.md must name the latest published tag."
+    )
+    assert f"In-tree runtime: `{contract['cli_version']}`" in text, (
         "docs/agent-contract-current.md must agree with the runtime contract's cli_version."
     )
     assert CURRENT_REPORT_SCHEMA in text, (
@@ -539,9 +568,9 @@ def test_architecture_doc_contract_stamp_matches_runtime():
         "`agents-shipgate contract --json`: runtime contract `N`, "
         "report schema `vX.Y`, packet schema `vX.Y`.'"
     )
-    assert stamp.group("date") == "2026-06-08", (
+    assert stamp.group("date") == "2026-07-09", (
         "docs/architecture.md contract-check date must stay pinned to "
-        "2026-06-08 until a deliberate architecture-doc refresh moves it."
+        "2026-07-09 until a deliberate architecture-doc refresh moves it."
     )
     assert stamp.group("contract") == CONTRACT_VERSION, (
         f"docs/architecture.md says runtime contract "
@@ -593,6 +622,7 @@ def test_constants_match_contract_doc():
     report_match = re.search(r"Current report schema:\s*`(\d+\.\d+)`", text)
     packet_match = re.search(r"Current packet schema:\s*`(\d+\.\d+)`", text)
     release_match = re.search(rf"Latest release:\s*`v({VERSION_RE})`", text)
+    runtime_match = re.search(rf"In-tree runtime:\s*`({VERSION_RE})`", text)
     assert report_match, (
         "docs/agent-contract-current.md must declare 'Current report "
         "schema: `X.Y`' so the test constants can be cross-checked."
@@ -601,6 +631,7 @@ def test_constants_match_contract_doc():
         "docs/agent-contract-current.md must declare 'Current packet schema: `X.Y`'."
     )
     assert release_match, "docs/agent-contract-current.md must declare 'Latest release: `vX.Y.Z`'."
+    assert runtime_match, "docs/agent-contract-current.md must declare 'In-tree runtime: `X.Y.Z`'."
     assert report_match.group(1) == CURRENT_REPORT_SCHEMA_VERSION, (
         f"contract doc says report schema is "
         f"{report_match.group(1)!r}; test constant says "
@@ -611,18 +642,23 @@ def test_constants_match_contract_doc():
         f"{packet_match.group(1)!r}; test constant says "
         f"{CURRENT_PACKET_SCHEMA_VERSION!r}. Update both together."
     )
-    assert release_match.group(1) == _load_pyproject_version(), (
+    assert release_match.group(1) == LATEST_PUBLISHED_VERSION, (
         f"contract doc says latest release is "
-        f"v{release_match.group(1)}; pyproject.toml says "
-        f"v{_load_pyproject_version()}. Update both together."
+        f"v{release_match.group(1)}; expected the latest published tag "
+        f"v{LATEST_PUBLISHED_VERSION}."
+    )
+    assert runtime_match.group(1) == _load_pyproject_version(), (
+        f"contract doc says in-tree runtime is {runtime_match.group(1)}; "
+        f"pyproject.toml says {_load_pyproject_version()}."
     )
 
 
-def test_pyproject_version_propagates_to_metadata_surfaces():
-    """pyproject.toml [project].version is the single source of truth
-    for the package version. Every public metadata surface must echo it
-    exactly. Catches a stale .well-known, llms.txt, contract doc, or
-    src/__init__ when the package version bumps."""
+def test_runtime_and_published_versions_propagate_to_metadata_surfaces():
+    """Keep the in-tree runtime and latest published tag distinct.
+
+    Pre-release source metadata follows pyproject.toml; install snippets and
+    release discovery continue to name the latest tag that actually exists.
+    """
     expected = _load_pyproject_version()
 
     # src/agents_shipgate/__init__.__version__
@@ -634,7 +670,7 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
         f"{expected!r}. Update src/agents_shipgate/__init__.py."
     )
 
-    # .well-known/agents-shipgate.json
+    # .well-known distinguishes the source-tree runtime from installable tags.
     well_known = json.loads(_read(".well-known/agents-shipgate.json"))
     assert well_known["version"] == expected, (
         f".well-known/agents-shipgate.json `version` is "
@@ -647,35 +683,54 @@ def test_pyproject_version_propagates_to_metadata_surfaces():
         f".well-known package.github_action {action_pin!r} does not "
         "match the expected ThreeMoonsLab/agents-shipgate@vX.Y.Z form."
     )
-    assert action_match.group(1) == expected, (
+    assert action_match.group(1) == LATEST_PUBLISHED_VERSION, (
         f".well-known package.github_action pins "
-        f"v{action_match.group(1)}; pyproject.toml says v{expected}."
+        f"v{action_match.group(1)}; latest published is v{LATEST_PUBLISHED_VERSION}."
+    )
+    assert well_known["release_status"]["latest_release"] == (
+        f"v{LATEST_PUBLISHED_VERSION}"
     )
 
-    # llms.txt — both the "Latest public release" line and the
-    # GitHub Action line must echo the package version.
+    # llms.txt install/release guidance must name the published tag.
     llms_text = _read("llms.txt")
     llms_release = re.search(rf"Latest public release:\s*v({VERSION_RE})", llms_text)
     assert llms_release, "llms.txt must declare 'Latest public release: vX.Y.Z'."
-    assert llms_release.group(1) == expected, (
+    assert llms_release.group(1) == LATEST_PUBLISHED_VERSION, (
         f"llms.txt 'Latest public release' is "
-        f"v{llms_release.group(1)}; pyproject.toml says v{expected}."
+        f"v{llms_release.group(1)}; latest published is v{LATEST_PUBLISHED_VERSION}."
     )
     llms_action = ACTION_PIN_PATTERN.search(llms_text)
     assert llms_action, (
         "llms.txt must include a ThreeMoonsLab/agents-shipgate@vX.Y.Z "
         "Action pin so coding agents know the canonical version."
     )
-    assert llms_action.group(1) == expected, (
-        f"llms.txt Action pin is v{llms_action.group(1)}; pyproject.toml says v{expected}."
+    assert llms_action.group(1) == LATEST_PUBLISHED_VERSION, (
+        f"llms.txt Action pin is v{llms_action.group(1)}; latest published is "
+        f"v{LATEST_PUBLISHED_VERSION}."
     )
 
     # docs/agent-contract-current.md
     contract_text = _read("docs/agent-contract-current.md")
     contract_release = re.search(rf"Latest release:\s*`v({VERSION_RE})`", contract_text)
-    assert contract_release and contract_release.group(1) == expected, (
-        f"docs/agent-contract-current.md 'Latest release' must be `v{expected}`."
+    assert contract_release and contract_release.group(1) == LATEST_PUBLISHED_VERSION, (
+        "docs/agent-contract-current.md 'Latest release' must name the latest "
+        f"published tag `v{LATEST_PUBLISHED_VERSION}`."
     )
+    assert f"In-tree runtime: `{expected}`" in contract_text
+
+
+def test_release_tag_consistency_checks_published_tag_not_prerelease_runtime():
+    """Main may carry a beta runtime before its release tag exists.
+
+    The origin-tag check must validate the explicit latest-published field,
+    otherwise every pre-release version bump makes main red by construction.
+    """
+
+    workflow = _read(".github/workflows/ci.yml")
+    assert '.well-known/agents-shipgate.json' in workflow
+    assert '["release_status"]["latest_release"]' in workflow
+    assert 'refs/tags/${latest_release}' in workflow
+    assert 'refs/tags/v${version}' not in workflow
 
 
 def _file_lines_with_pin(path: str, pattern: re.Pattern[str]):
@@ -688,38 +743,37 @@ def _file_lines_with_pin(path: str, pattern: re.Pattern[str]):
 
 
 @pytest.mark.parametrize("relpath", ACTION_PIN_FILES)
-def test_action_pins_match_pyproject_version(relpath):
+def test_action_pins_match_latest_published_version(relpath):
     """Every `ThreeMoonsLab/agents-shipgate@vX.Y.Z` pin in a public
-    surface must equal the package version. Catches stale Action pins
-    that point at a tag that doesn't exist (e.g., @v0.10.0 before the
-    bump) or that lag behind the bump."""
-    expected = _load_pyproject_version()
+    surface must equal the latest published tag. In-tree pre-release versions
+    must not leak into install snippets before their tag exists."""
+    expected = LATEST_PUBLISHED_VERSION
     for line_number, line, found in _file_lines_with_pin(relpath, ACTION_PIN_PATTERN):
         assert found == expected, (
             f"{relpath}:{line_number} pins "
-            f"ThreeMoonsLab/agents-shipgate@v{found}; pyproject.toml "
-            f"says v{expected}. Update the pin to @v{expected} or "
-            f"bump pyproject.toml.\n  line: {line.strip()!r}"
+            f"ThreeMoonsLab/agents-shipgate@v{found}; latest published "
+            f"is v{expected}. Update only after that tag exists.\n  "
+            f"line: {line.strip()!r}"
         )
 
 
 @pytest.mark.parametrize("relpath", ACTION_PIN_FILES)
-def test_pip_pins_match_pyproject_version(relpath):
+def test_pip_pins_match_latest_published_version(relpath):
     """Every `agents-shipgate==X.Y.Z` install pin in a public surface
-    must equal the package version. Same drift guard as the Action
+    must equal the latest published version. Same drift guard as the Action
     pin test, for pip-based CI examples."""
-    expected = _load_pyproject_version()
+    expected = LATEST_PUBLISHED_VERSION
     for line_number, line, found in _file_lines_with_pin(relpath, PIP_PIN_PATTERN):
         assert found == expected, (
             f"{relpath}:{line_number} pins agents-shipgate=={found}; "
-            f"pyproject.toml says {expected}. Update the pin to "
-            f"=={expected} or bump pyproject.toml.\n  line: "
+            f"latest published is {expected}. Update the pin only after "
+            f"that release exists.\n  line: "
             f"{line.strip()!r}"
         )
 
 
 @pytest.mark.parametrize("relpath", ACTION_PIN_FILES)
-def test_uvx_pins_match_pyproject_version(relpath):
+def test_uvx_pins_match_latest_published_version(relpath):
     """Every ``uvx agents-shipgate@X.Y.Z`` zero-install pin in a public
     surface must equal the package version. The agent-facing install
     snippets recommend this pinned runner so a coding agent never shells
@@ -728,40 +782,40 @@ def test_uvx_pins_match_pyproject_version(relpath):
     prompt. The ``pipx run agents-shipgate==X.Y.Z`` form is already
     covered by ``PIP_PIN_PATTERN`` and the ``@v`` Action form by
     ``ACTION_PIN_PATTERN``."""
-    expected = _load_pyproject_version()
+    expected = LATEST_PUBLISHED_VERSION
     for line_number, line, found in _file_lines_with_pin(relpath, UVX_PIN_PATTERN):
         assert found == expected, (
             f"{relpath}:{line_number} pins uvx agents-shipgate@{found}; "
-            f"pyproject.toml says {expected}. Update the pin to "
-            f"@{expected} or bump pyproject.toml.\n  line: "
+            f"latest published is {expected}. Update the pin only after "
+            f"that release exists.\n  line: "
             f"{line.strip()!r}"
         )
 
 
 @pytest.mark.parametrize("relpath", ACTION_PIN_FILES)
-def test_shipgate_version_inputs_match_pyproject_version(relpath):
+def test_shipgate_version_inputs_match_latest_published_version(relpath):
     """The `shipgate_version: '<version>'` Action input in workflow
     examples must match the package version too. Catches a stale
     matrix where the Action pin is updated but the CLI install
     version inside it is left behind."""
-    expected = _load_pyproject_version()
+    expected = LATEST_PUBLISHED_VERSION
     for line_number, line, found in _file_lines_with_pin(relpath, SHIPGATE_VERSION_INPUT_PATTERN):
         assert found == expected, (
             f"{relpath}:{line_number} sets shipgate_version: "
-            f"'{found}'; pyproject.toml says {expected}.\n  line: "
+            f"'{found}'; latest published is {expected}.\n  line: "
             f"{line.strip()!r}"
         )
 
 
 @pytest.mark.parametrize("relpath,pattern", VERSION_LITERAL_TARGETS)
-def test_version_literals_match_pyproject_version(relpath, pattern):
+def test_version_literals_match_latest_published_version(relpath, pattern):
     """Plain release-version literals on these public surfaces (the
     bug-report placeholder, distribution.md's release-tag list,
     faq.md's 'latest released version' line, ROADMAP.md's latest-release
-    line) must move with pyproject.toml on every bump. The
+    line) must move with the latest published tag. The
     Action / pip / shipgate_version pin tests don't catch these
     because the literals aren't pins."""
-    expected = _load_pyproject_version()
+    expected = LATEST_PUBLISHED_VERSION
     text = _read(relpath)
     match = pattern.search(text)
     assert match, (
@@ -772,8 +826,8 @@ def test_version_literals_match_pyproject_version(relpath, pattern):
     )
     assert match.group(1) == expected, (
         f"{relpath} names release version v{match.group(1)} in "
-        f"public copy; pyproject.toml says v{expected}. Bump the "
-        "literal in this file or align pyproject.toml.\n  match: "
+        f"public copy; latest published is v{expected}. Bump the "
+        "literal only after that tag exists.\n  match: "
         f"{match.group(0)!r}"
     )
 

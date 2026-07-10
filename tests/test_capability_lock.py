@@ -20,18 +20,26 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
-from agents_shipgate.schemas.capabilities import CapabilityFactV1
+from agents_shipgate.schemas.capabilities import (
+    CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
+    CAPABILITY_LOCK_SCHEMA_VERSION,
+    CapabilityFactV1,
+)
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCK_SCHEMA = json.loads(
-    (REPO_ROOT / "docs/capability-lock-schema.v0.2.json").read_text(encoding="utf-8")
-)
-DIFF_SCHEMA = json.loads(
-    (REPO_ROOT / "docs/capability-lock-diff-schema.v0.3.json").read_text(
+    (REPO_ROOT / f"docs/capability-lock-schema.v{CAPABILITY_LOCK_SCHEMA_VERSION}.json").read_text(
         encoding="utf-8"
     )
+)
+DIFF_SCHEMA = json.loads(
+    (
+        REPO_ROOT
+        / "docs"
+        / f"capability-lock-diff-schema.v{CAPABILITY_LOCK_DIFF_SCHEMA_VERSION}.json"
+    ).read_text(encoding="utf-8")
 )
 
 
@@ -134,7 +142,7 @@ def test_exported_lock_is_deterministic_and_has_no_timestamp() -> None:
     assert "semantic_direction" not in first
     assert "semantic_changes" not in first
     payload = json.loads(first)
-    assert payload["capability_lock_schema_version"] == "0.2"
+    assert payload["capability_lock_schema_version"] == CAPABILITY_LOCK_SCHEMA_VERSION
     assert payload["experimental"] is False
     assert payload["summary"]["capability_count"] == 1
     assert payload["hashes"]["semantic_capability_set_hash"]
@@ -206,9 +214,7 @@ def test_source_location_only_changes_land_in_evidence_changed() -> None:
 
 
 def test_scope_change_reidentifies_capability_instead_of_unrelated_add_remove() -> None:
-    base = _lock(
-        [_tool("refunds.create", scopes=["payments:write"], hints=[("write", "high")])]
-    )
+    base = _lock([_tool("refunds.create", scopes=["payments:write"], hints=[("write", "high")])])
     head = _lock(
         [
             _tool(
@@ -242,12 +248,9 @@ def test_non_scope_authority_change_lands_in_changed() -> None:
 
     assert diff.summary.reidentified == 0
     assert diff.summary.changed == 1
-    assert diff.changed[0].changed_hashes == ("authority_hash",)
+    assert diff.changed[0].changed_hashes == ("authority_hash", "evidence_hash")
     assert diff.changed[0].semantic_direction == "unknown"
-    assert any(
-        change.field == "authority.auth_type"
-        for change in diff.changed[0].semantic_changes
-    )
+    assert any(change.field == "authority.auth_type" for change in diff.changed[0].semantic_changes)
 
 
 def test_semantic_hash_changes_land_in_changed() -> None:
@@ -331,14 +334,12 @@ def test_capability_lock_and_diff_validate_against_schema() -> None:
 
     jsonschema.validate(json.loads(render_capability_lock_json(base)), LOCK_SCHEMA)
     jsonschema.validate(json.loads(render_capability_lock_diff_json(diff)), DIFF_SCHEMA)
-    assert diff.capability_lock_diff_schema_version == "0.3"
+    assert diff.capability_lock_diff_schema_version == CAPABILITY_LOCK_DIFF_SCHEMA_VERSION
     assert diff.experimental is False
 
 
 def test_capability_lock_diff_markdown_is_stable_and_semantic() -> None:
-    base = _lock(
-        [_tool("refunds.create", scopes=["payments:write"], hints=[("write", "high")])]
-    )
+    base = _lock([_tool("refunds.create", scopes=["payments:write"], hints=[("write", "high")])])
     head = _lock(
         [
             _tool(
@@ -357,7 +358,7 @@ def test_capability_lock_diff_markdown_is_stable_and_semantic() -> None:
     assert "## Capability Diff" in first
     assert "Summary: +0, -0, 0 changed, 1 reidentified" in first
     assert "| refunds.create | support_api | refunds.create |" in first
-    assert "| broadened | identity_hash, authority_hash |" in first
+    assert "| broadened | identity_hash, authority_hash, evidence_hash |" in first
     assert "payments:admin" in first
 
 
@@ -365,33 +366,32 @@ def test_capability_lock_diff_markdown_marks_evidence_only() -> None:
     base = _lock([_tool("cases.search", scopes=["cases:read"], source_start_line=10)])
     head = _lock([_tool("cases.search", scopes=["cases:read"], source_start_line=20)])
 
-    markdown = render_capability_lock_diff_markdown(
-        diff_capability_locks(base, head)
-    )
+    markdown = render_capability_lock_diff_markdown(diff_capability_locks(base, head))
 
     assert "### Evidence-Only" in markdown
     assert "Provenance-only changes; static capability semantics did not drift." in markdown
-    assert (
-        "| cases.search | support_api | cases.search | cases:read | evidence_only |"
-        in markdown
-    )
+    assert "| cases.search | support_api | cases.search | cases:read | evidence_only |" in markdown
 
 
 def test_capability_standard_examples_validate() -> None:
     lock_example = json.loads(
-        (REPO_ROOT / "docs/examples/capability-lock.v0.2.example.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            REPO_ROOT
+            / "docs"
+            / "examples"
+            / f"capability-lock.v{CAPABILITY_LOCK_SCHEMA_VERSION}.example.json"
+        ).read_text(encoding="utf-8")
     )
     diff_example = json.loads(
         (
-            REPO_ROOT / "docs/examples/capability-lock-diff.v0.3.example.json"
+            REPO_ROOT
+            / "docs"
+            / "examples"
+            / (f"capability-lock-diff.v{CAPABILITY_LOCK_DIFF_SCHEMA_VERSION}.example.json")
         ).read_text(encoding="utf-8")
     )
     fact_example = json.loads(
-        (REPO_ROOT / "docs/examples/capability-fact.v0.1.example.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "docs/examples/capability-fact.v0.2.example.json").read_text(encoding="utf-8")
     )
 
     jsonschema.validate(lock_example, LOCK_SCHEMA)
@@ -410,10 +410,13 @@ def test_legacy_v01_lock_loads_and_diffs(tmp_path: Path) -> None:
     base_payload = json.loads(render_capability_lock_json(base))
     base_payload["capability_lock_schema_version"] = "0.1"
     base_payload["experimental"] = True
+    head_payload = json.loads(render_capability_lock_json(head))
+    head_payload["capability_lock_schema_version"] = "0.1"
+    head_payload["experimental"] = True
     base_path = tmp_path / "base.v01.lock.json"
     head_path = tmp_path / "head.lock.json"
     base_path.write_text(json.dumps(base_payload, indent=2) + "\n", encoding="utf-8")
-    head_path.write_text(render_capability_lock_json(head), encoding="utf-8")
+    head_path.write_text(json.dumps(head_payload, indent=2) + "\n", encoding="utf-8")
 
     loaded_base = load_capability_lock(base_path)
     loaded_head = load_capability_lock(head_path)
@@ -424,10 +427,59 @@ def test_legacy_v01_lock_loads_and_diffs(tmp_path: Path) -> None:
         head_path=head_path,
     )
 
-    assert loaded_base.capability_lock_schema_version == "0.2"
+    assert loaded_base.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION
     assert loaded_base.experimental is False
     assert diff.summary.added == 1
-    assert diff.base.capability_lock_schema_version == "0.2"
+    assert diff.base.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION
+
+
+def test_legacy_v02_lock_remains_readable(tmp_path: Path) -> None:
+    lock = _lock([_tool("alpha.read", scopes=["alpha:read"])])
+    payload = json.loads(render_capability_lock_json(lock))
+    payload["capability_lock_schema_version"] = "0.2"
+    path = tmp_path / "legacy.v02.lock.json"
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    loaded = load_capability_lock(path)
+
+    assert loaded.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION
+    assert loaded.summary.capability_count == 1
+    assert loaded.capabilities[0].identity.tool_name == "alpha.read"
+
+
+def test_mixed_capability_standard_diff_requires_exact_reexport(
+    tmp_path: Path,
+) -> None:
+    base = _lock([_tool("alpha.read", scopes=["alpha:read"])])
+    head = _lock([_tool("alpha.read", scopes=["alpha:read"])])
+    base_payload = json.loads(render_capability_lock_json(base))
+    base_payload["capability_lock_schema_version"] = "0.2"
+    base_path = tmp_path / "base.v02.lock.json"
+    head_path = tmp_path / "head.v03.lock.json"
+    base_path.write_text(json.dumps(base_payload, indent=2) + "\n", encoding="utf-8")
+    head_path.write_text(render_capability_lock_json(head), encoding="utf-8")
+
+    loaded_base = load_capability_lock(base_path)
+    loaded_head = load_capability_lock(head_path)
+
+    command = (
+        "agents-shipgate capability export --config shipgate.yaml "
+        f"--out {base_path} --no-report-copy"
+    )
+    with pytest.raises(InputParseError) as exc_info:
+        diff_capability_locks(
+            loaded_base,
+            loaded_head,
+            base_path=base_path,
+            head_path=head_path,
+        )
+
+    assert str(exc_info.value) == (
+        "Mixed capability-standard lock diff is not comparable "
+        "(base=0.1, head=0.2). Re-export the base lock from its source "
+        "workspace with the current engine using exactly: "
+        f"`{command}`. Then rerun the capability diff."
+    )
 
 
 def test_capability_export_writes_default_lock_and_report_copy(
@@ -442,9 +494,7 @@ def test_capability_export_writes_default_lock_and_report_copy(
     assert result.exit_code == 0, result.output
     committed = tmp_path / ".agents-shipgate" / "capabilities.lock.json"
     report_copy = tmp_path / "agents-shipgate-reports" / "capabilities.lock.json"
-    assert committed.read_text(encoding="utf-8") == report_copy.read_text(
-        encoding="utf-8"
-    )
+    assert committed.read_text(encoding="utf-8") == report_copy.read_text(encoding="utf-8")
     payload = json.loads(committed.read_text(encoding="utf-8"))
     assert payload["summary"]["capability_count"] == 2
     assert "Wrote capability lock" in result.output

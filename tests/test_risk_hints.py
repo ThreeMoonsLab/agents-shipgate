@@ -1,7 +1,10 @@
+import pytest
+
 from agents_shipgate.core.domain import (
     AuthInfo,
     Tool,
 )
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.risk_hints import (
     enrich_tools_with_risk_hints,
     has_risk_tag,
@@ -9,6 +12,7 @@ from agents_shipgate.core.risk_hints import (
     is_high_risk_tool,
     is_write_tool,
 )
+from agents_shipgate.core.semantic_assessment import assess_tool_semantics
 from agents_shipgate.schemas.manifest import (
     AgentConfig,
     AgentsShipgateManifest,
@@ -43,6 +47,26 @@ def _enrich(tool: Tool) -> Tool:
     return enrich_tools_with_risk_hints(_manifest(), [tool])[0]
 
 
+def test_hint_enrichment_does_not_run_semantic_resolver(monkeypatch):
+    def unexpected_assessment(*args, **kwargs):
+        raise AssertionError("hint enrichment must precede the central assessment")
+
+    monkeypatch.setattr(
+        "agents_shipgate.core.semantic_assessment.assess_tool_semantics",
+        unexpected_assessment,
+    )
+
+    enriched = _enrich(
+        _tool(
+            name="send_customer_refund_message",
+            description="Send a customer a message about a refund.",
+        )
+    )
+
+    assert has_risk_tag(enriched, {"financial_action"})
+    assert has_risk_tag(enriched, {"customer_communication"})
+
+
 def test_sdk_keyword_classifier_tags_update_function_as_write():
     tool = _enrich(_tool(name="update_seat", description="Change a seat assignment."))
 
@@ -57,7 +81,7 @@ def test_sdk_keyword_classifier_tags_get_function_as_read():
     assert not is_write_tool(tool)
 
 
-def test_get_endpoint_with_infrastructure_keyword_is_effectively_read_only():
+def test_get_endpoint_with_infrastructure_keyword_stays_conservatively_uncertain():
     tool = _enrich(
         _tool(
             id="tool:get_v2_kubernetes_clusters",
@@ -69,13 +93,15 @@ def test_get_endpoint_with_infrastructure_keyword_is_effectively_read_only():
     )
 
     assert has_risk_tag(tool, {"infrastructure_change"}, min_confidence="medium")
-    assert is_effectively_read_only(tool), (
-        "GET listing should be effectively read-only despite the infra keyword"
-    )
-    assert not is_high_risk_tool(tool)
+    assert not is_effectively_read_only(tool)
+    assessment = assess_tool_semantics(tool)
+    assert assessment.conservative_effect == "production_operation"
+    assert assessment.effect.status == "inferred"
+    assert assessment.pass_eligible is False
+    assert is_high_risk_tool(tool)
 
 
-def test_read_only_financial_endpoint_with_risky_nouns_is_not_high_risk():
+def test_financial_nouns_raise_a_structural_get_to_semantic_review():
     tool = _enrich(
         _tool(
             id="tool:get_billing_invoices",
@@ -87,12 +113,13 @@ def test_read_only_financial_endpoint_with_risky_nouns_is_not_high_risk():
         )
     )
 
-    assert is_effectively_read_only(tool)
-    assert not is_write_tool(tool)
-    assert not is_high_risk_tool(tool)
+    assert not is_effectively_read_only(tool)
+    assert is_write_tool(tool)
+    assert is_high_risk_tool(tool)
+    assert assess_tool_semantics(tool).effect.status == "inferred"
 
 
-def test_mcp_read_only_hint_keeps_risky_nouns_reviewable_not_blocking():
+def test_mcp_read_only_hint_does_not_erase_inferred_financial_risk():
     tool = _enrich(
         _tool(
             id="tool:mcp_billing_invoices_list",
@@ -103,9 +130,46 @@ def test_mcp_read_only_hint_keeps_risky_nouns_reviewable_not_blocking():
         )
     )
 
-    assert is_effectively_read_only(tool)
-    assert not is_write_tool(tool)
-    assert not is_high_risk_tool(tool)
+    assert not is_effectively_read_only(tool)
+    assert is_write_tool(tool)
+    assert is_high_risk_tool(tool)
+    assert assess_tool_semantics(tool).effect.status == "inferred"
+
+
+def test_read_only_hint_cannot_hide_structural_delete():
+    tool = _enrich(
+        _tool(
+            id="tool:delete_record",
+            name="delete_record",
+            source_type="openapi",
+            annotations={"httpMethod": "DELETE", "readOnlyHint": True},
+        )
+    )
+
+    assert not is_effectively_read_only(tool)
+    assert is_write_tool(tool)
+
+
+def test_risk_override_cannot_remove_structural_method_evidence():
+    payload = _manifest().model_dump(mode="python")
+    payload["risk_overrides"] = {
+        "tools": {
+            "delete_record": {
+                "remove_tags": ["destructive"],
+                "reason": "attempt to hide a structural delete",
+            }
+        }
+    }
+    manifest = AgentsShipgateManifest.model_validate(payload)
+    tool = _tool(
+        id="tool:delete_record",
+        name="delete_record",
+        source_type="openapi",
+        annotations={"httpMethod": "DELETE"},
+    )
+
+    with pytest.raises(ConfigError, match="keyword/regex hints only"):
+        enrich_tools_with_risk_hints(manifest, [tool])
 
 
 def test_deployments_token_does_not_match_deploy_keyword():
@@ -179,8 +243,6 @@ def test_interview_does_not_falsely_match_view():
     )
 
     read_only_keyword_hints = [
-        hint
-        for hint in tool.risk_hints
-        if hint.tag == "read_only" and hint.source == "sdk_keyword"
+        hint for hint in tool.risk_hints if hint.tag == "read_only" and hint.source == "sdk_keyword"
     ]
     assert not read_only_keyword_hints

@@ -1,0 +1,35 @@
+{
+  "tools": [
+    {
+      "name": "support.lookup_case",
+      "description": "Look up read-only support case metadata.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {"type": "string"},
+          "tags": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["case_id"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    },
+    {
+      "name": "support.render_reply",
+      "description": "Render a local support reply draft for human review.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {"type": "string"},
+          "include_private_notes": {"type": "boolean", "default": false},
+          "tone": {"type": "string", "default": "concise"}
+        },
+        "required": ["case_id"]
+      },
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"}
+    }
+  ]
+}

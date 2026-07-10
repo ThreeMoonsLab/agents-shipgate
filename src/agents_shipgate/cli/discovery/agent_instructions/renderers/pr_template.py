@@ -31,8 +31,9 @@ capability changes — a local-first, static Tool-Use Readiness review.
 - [ ] If this PR touches a protected surface, I ran
       `agents-shipgate preflight --workspace . --plan - --json` and routed
       human-review items to a human.
-- [ ] I did not auto-assert approval, confirmation, idempotency, broad-scope,
-      or prohibited-action policy decisions.
+- [ ] I did not auto-assert action effect, action authority, approval,
+      confirmation, idempotency, broad-scope, or prohibited-action policy
+      decisions.
 
 <sub>Managed by agents-shipgate; rerun `agents-shipgate init --write --agent-instructions=pr-template` to refresh.</sub>
 """

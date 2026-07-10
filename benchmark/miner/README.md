@@ -140,6 +140,14 @@ trigger-skips) and the real-history **extraction-coverage** (`insufficient_evide
 
 ## 2026-W27 re-eval — the v0.15.0 delta on the labeled corpus
 
+> **Required before `0.16` beta claims:** re-run these fixed-SHA cases with the
+> `0.16.0b1` wheel and preserve their unaugmented cold-start inputs. The
+> evidence-backed pass contract intentionally makes AST-only framework
+> surfaces ineligible for `passed`; regenerated sample goldens and the
+> synthetic cold-start fixture cannot measure the resulting real-history IE
+> rate. Do not publish an accuracy or migration-burden claim for `0.16` until
+> that re-evaluation (and the independently governed beta corpus) exists.
+
 **What this is.** Not a fresh mine: the **same 19 labeled PRs**, the **same
 `base→head` SHAs** from W24–W26, re-run through the released **v0.15.0** engine
 (this checkout's `src/` is byte-identical to the `v0.15.0` tag). The only

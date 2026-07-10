@@ -50,8 +50,8 @@ Use `agents-shipgate-reports/report.json` as the source of truth. Prefer
 Use `agents-shipgate-reports/verifier.json` only for trigger/base orchestration
 status, not as a second verdict.
 
-Apply only high-confidence safe patches. Do not invent approval, confirmation,
-or idempotency evidence.
+Apply only high-confidence safe patches. Do not invent action effect, action
+authority, approval, confirmation, or idempotency evidence.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent

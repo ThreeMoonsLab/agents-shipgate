@@ -45,10 +45,10 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "52607a7b0ed5b83f4512618bbb9f277b77649943e66aa120dcf38aca7bfe1e16"
+        "451032c1c35f91d1b9025b92533a852a131a6f279b057c43551cf55b593db5dd"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "b6f87f58f70b5920442f342b5118419ef685ad9f4ff8b0ff87c2729a92929786"
+        "b2e42bce1eb6892c5207890bd53ab987d0beaac7c9fa2d9de8ba07033a3f2f60"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
         "b3a3273bf68c3f49abd32585f8ce6e9f562c49be520f8d3f381e39afa4712280"
@@ -75,12 +75,12 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
     ),
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
-        "e72ab77443032dbbef9a7236ad0d859a291cb764e30c9eb37f8f1b037c0751b4"
+        "ba3ecb47655593dd3b595e5b22ae0179fe2251cefe1c591d0dc4b4ca1d91ef4b"
     ),
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "8d5080cf5c4c429a6920b466fe5c3415d89fec3434760b549883ee9a458a48ac"
+        "d2d6549ca3bde2ec2581e8712419ace340afc5be3078f2255884670f4a8db870"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -89,10 +89,10 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "89580914407edd5516db10c8d7725f22c1a919e827e9b820115007a7a6caab31"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "f32d0046473377705e0ba487e19cfcf918edfe33a96a0666147cbbd1ea3f0de7"
+        "11ca246d0add15e22bf8c3196b45ce3407f6c9ddff26bb604f4305251036f529"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "6d2848f3436f6e246bf553e6cf061c990888d6ff39eb82fec9a41f291b2e94fe"
+        "7baeb0715e59daf92cf78fb9fee6e4f659174f5fcb6c9a1e3eca9f73fc697503"
     ),
 }
 
@@ -165,7 +165,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "2"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "10"
+    assert payload["contract_version"] == "11"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
@@ -343,7 +343,8 @@ def test_codex_skill_has_required_surfaces() -> None:
     skill = files[".agents/skills/agents-shipgate/SKILL.md"]
     assert "release_decision.decision" in skill
     assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
-    assert "Do not auto-assert approval" in skill
+    assert "Do not auto-assert action effect, action authority" in skill
+    assert "approval, confirmation" in skill
     assert "agents-shipgate verify" in skill
     assert "agents-shipgate --version" in skill
     assert "agents-shipgate contract --json" in skill

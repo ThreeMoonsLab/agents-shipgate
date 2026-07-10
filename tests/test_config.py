@@ -16,7 +16,7 @@ def test_load_sample_manifest():
     assert manifest.version == "0.1"
     assert manifest.project.name == "support-refund-agent"
     assert manifest.agent.name == "refund-assistant"
-    assert len(manifest.tool_sources) == 4
+    assert len(manifest.tool_sources) == 5
 
 
 def test_requires_suppression_reason(tmp_path):

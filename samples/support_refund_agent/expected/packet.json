@@ -13,7 +13,7 @@
       "actions_modified": 0,
       "actions_removed": 0,
       "approvals_removed": 0,
-      "blocking_findings": 0,
+      "blocking_findings": 3,
       "effect_escalations": 0,
       "input_schema_expansions": 0,
       "risk_tags_added": 0,
@@ -92,7 +92,7 @@
           "pointer": "/policies/require_approval_for_tools",
           "ref": "shipgate.yaml#/policies/require_approval_for_tools",
           "start_column": null,
-          "start_line": 51,
+          "start_line": 54,
           "type": "manifest"
         },
         "severity": "critical",
@@ -255,10 +255,32 @@
     "scenarios": [
       {
         "finding_ids": [
+          "fp_3c8cac2cb8af37ec",
+          "fp_ad46dcc15d8c2969"
+        ],
+        "scenario": "Manual review for SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        "why": "Declare confirmation policy and safeguards.audit_log for this external communication action."
+      },
+      {
+        "finding_ids": [
+          "fp_3e9d5016edc50f97"
+        ],
+        "scenario": "Manual review for SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        "why": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency for this financial write action."
+      },
+      {
+        "finding_ids": [
           "fp_d27325cbdbbf5483"
         ],
         "scenario": "Manual review for SHIP-AUTH-MANIFEST-BROAD-SCOPE",
         "why": "Replace broad manifest permission scopes with the narrowest scopes needed for this release."
+      },
+      {
+        "finding_ids": [
+          "fp_8e1328bd648028d3"
+        ],
+        "scenario": "Manual review for SHIP-AUTH-MISSING-SCOPE",
+        "why": "Declare operation-specific auth scopes for refund_status_lookup, or explicitly declare anonymous authority when the operation requires no credentials."
       },
       {
         "finding_ids": [
@@ -315,13 +337,6 @@
       },
       {
         "finding_ids": [
-          "fp_85f8513ad72cd9ea"
-        ],
-        "scenario": "Manual review for SHIP-SCHEMA-FREEFORM-OUTPUT",
-        "why": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context."
-      },
-      {
-        "finding_ids": [
           "fp_ab60b01cb53cfcbe"
         ],
         "scenario": "Manual review for SHIP-SCHEMA-MISSING-BOUNDS",
@@ -337,7 +352,6 @@
       },
       {
         "finding_ids": [
-          "fp_0f8aaa912d589cf0",
           "fp_dac8011e14c53777"
         ],
         "scenario": "Manual review for SHIP-SIDEFX-IDEMPOTENCY-MISSING",
@@ -347,11 +361,6 @@
         "finding_ids": [],
         "scenario": "Re-run scan after resolving source warnings",
         "why": "Source loaders emitted warnings; some tool surfaces may have been parsed with reduced confidence."
-      },
-      {
-        "finding_ids": [],
-        "scenario": "Verify low-confidence tool extractions",
-        "why": "One or more tools were extracted with low confidence; confirm against the upstream source before release."
       }
     ],
     "status": "partial"
@@ -417,8 +426,7 @@
         "missing_controls": [
           "SHIP-SCHEMA-MISSING-BOUNDS on stripe.create_refund: stripe.create_refund.amount has no maximum bound",
           "SHIP-SCHEMA-BROAD-FREE-TEXT on zendesk.update_ticket: zendesk.update_ticket accepts broad free-form action input",
-          "SHIP-SCHEMA-BROAD-FREE-TEXT on gmail.send_customer_email: gmail.send_customer_email accepts broad free-form action input",
-          "SHIP-SCHEMA-FREEFORM-OUTPUT on send_email_preview: send_email_preview returns free-form text output"
+          "SHIP-SCHEMA-BROAD-FREE-TEXT on gmail.send_customer_email: gmail.send_customer_email accepts broad free-form action input"
         ],
         "review_items": [
           {
@@ -486,28 +494,6 @@
               "type": "mcp"
             },
             "title": "gmail.send_customer_email accepts broad free-form action input"
-          },
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
-            "fingerprint": "fp_85f8513ad72cd9ea",
-            "id": "fp_85f8513ad72cd9ea",
-            "policy_evidence_source": null,
-            "severity": "medium",
-            "source": {
-              "end_line": null,
-              "location": "agents/refund_agent.py:5",
-              "path": null,
-              "pointer": null,
-              "ref": "agents/refund_agent.py",
-              "start_column": null,
-              "start_line": null,
-              "type": "sdk_function"
-            },
-            "title": "send_email_preview returns free-form text output"
           }
         ]
       },
@@ -523,6 +509,7 @@
         ],
         "missing_controls": [
           "SHIP-AUTH-MANIFEST-BROAD-SCOPE: Manifest declares broad permission scopes",
+          "SHIP-AUTH-MISSING-SCOPE on refund_status_lookup: refund_status_lookup lacks declared auth scopes",
           "SHIP-AUTH-SCOPE-COVERAGE-MISSING on shopify.cancel_order: shopify.cancel_order requires scopes not declared in the manifest",
           "SHIP-AUTH-SCOPE-COVERAGE-MISSING on support.search_kb: support.search_kb requires scopes not declared in the manifest",
           "SHIP-AUTH-SCOPE-COVERAGE-MISSING on gmail.send_customer_email: gmail.send_customer_email requires scopes not declared in the manifest",
@@ -546,10 +533,32 @@
               "pointer": "/permissions/scopes",
               "ref": "shipgate.yaml",
               "start_column": null,
-              "start_line": 60,
+              "start_line": 63,
               "type": "manifest"
             },
             "title": "Manifest declares broad permission scopes"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-AUTH-MISSING-SCOPE",
+            "fingerprint": "fp_8e1328bd648028d3",
+            "id": "fp_8e1328bd648028d3",
+            "policy_evidence_source": null,
+            "severity": "high",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "specs/support-tools.openapi.yaml",
+              "pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
+              "start_column": 5,
+              "start_line": 72,
+              "type": "openapi"
+            },
+            "title": "refund_status_lookup lacks declared auth scopes"
           },
           {
             "baseline_status": null,
@@ -660,7 +669,7 @@
               "pointer": "/policies/require_approval_for_tools",
               "ref": "shipgate.yaml#/policies/require_approval_for_tools",
               "start_column": null,
-              "start_line": 51,
+              "start_line": 54,
               "type": "manifest"
             },
             "severity": "critical",
@@ -675,6 +684,28 @@
               "type": "openapi"
             },
             "title": "stripe.create_refund lacks a declared approval policy"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": true,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+            "fingerprint": "fp_3e9d5016edc50f97",
+            "id": "fp_3e9d5016edc50f97",
+            "policy_evidence_source": null,
+            "severity": "critical",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "specs/support-tools.openapi.yaml",
+              "pointer": "/paths/~1refunds/post",
+              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+              "start_column": 5,
+              "start_line": 97,
+              "type": "openapi"
+            },
+            "title": "stripe.create_refund has financial write capability without required controls"
           }
         ],
         "confidence": "high",
@@ -685,7 +716,8 @@
           "findings[]"
         ],
         "missing_controls": [
-          "SHIP-POLICY-APPROVAL-MISSING on stripe.create_refund: stripe.create_refund lacks a declared approval policy"
+          "SHIP-POLICY-APPROVAL-MISSING on stripe.create_refund: stripe.create_refund lacks a declared approval policy",
+          "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create_refund: stripe.create_refund has financial write capability without required controls"
         ],
         "review_items": []
       },
@@ -720,7 +752,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 54,
+              "start_line": 57,
               "type": "manifest"
             },
             "severity": "high",
@@ -740,7 +772,7 @@
             "baseline_status": null,
             "blocks_release": false,
             "capability_refs": [
-              "cap_744255729df4139a"
+              "cap_9a24e125c9388b17"
             ],
             "capability_trace_refs": [],
             "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
@@ -753,7 +785,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 54,
+              "start_line": 57,
               "type": "manifest"
             },
             "severity": "high",
@@ -788,7 +820,7 @@
               "pointer": "/policies/require_idempotency_for_tools",
               "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
               "start_column": null,
-              "start_line": 56,
+              "start_line": 59,
               "type": "manifest"
             },
             "severity": "critical",
@@ -803,9 +835,31 @@
               "type": "openapi"
             },
             "title": "stripe.create_refund lacks idempotency evidence"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": true,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+            "fingerprint": "fp_3e9d5016edc50f97",
+            "id": "fp_3e9d5016edc50f97",
+            "policy_evidence_source": null,
+            "severity": "critical",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "specs/support-tools.openapi.yaml",
+              "pointer": "/paths/~1refunds/post",
+              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+              "start_column": 5,
+              "start_line": 97,
+              "type": "openapi"
+            },
+            "title": "stripe.create_refund has financial write capability without required controls"
           }
         ],
-        "confidence": "mixed",
+        "confidence": "high",
         "domain": "Idempotency",
         "evidence_present": "partial",
         "evidence_source": [
@@ -815,41 +869,9 @@
         ],
         "missing_controls": [
           "SHIP-SIDEFX-IDEMPOTENCY-MISSING on stripe.create_refund: stripe.create_refund lacks idempotency evidence",
-          "SHIP-SIDEFX-IDEMPOTENCY-MISSING on gmail.send_customer_email: gmail.send_customer_email lacks idempotency evidence"
+          "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create_refund: stripe.create_refund has financial write capability without required controls"
         ],
-        "review_items": [
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-            "fingerprint": "fp_0f8aaa912d589cf0",
-            "id": "fp_0f8aaa912d589cf0",
-            "policy_evidence_source": {
-              "end_line": null,
-              "location": null,
-              "path": "shipgate.yaml",
-              "pointer": "/policies/require_idempotency_for_tools",
-              "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
-              "start_column": null,
-              "start_line": 56,
-              "type": "manifest"
-            },
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": ".agents-shipgate/mcp-tools.json",
-              "pointer": "/tools/1",
-              "ref": ".agents-shipgate/mcp-tools.json",
-              "start_column": null,
-              "start_line": null,
-              "type": "mcp"
-            },
-            "title": "gmail.send_customer_email lacks idempotency evidence"
-          }
-        ]
+        "review_items": []
       },
       {
         "blocking_findings": [
@@ -870,7 +892,7 @@
               "pointer": "/policies/require_approval_for_tools",
               "ref": "shipgate.yaml#/policies/require_approval_for_tools",
               "start_column": null,
-              "start_line": 51,
+              "start_line": 54,
               "type": "manifest"
             },
             "severity": "critical",
@@ -901,7 +923,7 @@
               "pointer": "/policies/require_idempotency_for_tools",
               "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
               "start_column": null,
-              "start_line": 56,
+              "start_line": 59,
               "type": "manifest"
             },
             "severity": "critical",
@@ -916,6 +938,72 @@
               "type": "openapi"
             },
             "title": "stripe.create_refund lacks idempotency evidence"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": true,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+            "fingerprint": "fp_ad46dcc15d8c2969",
+            "id": "fp_ad46dcc15d8c2969",
+            "policy_evidence_source": null,
+            "severity": "high",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": ".agents-shipgate/mcp-tools.json",
+              "pointer": "/tools/1",
+              "ref": ".agents-shipgate/mcp-tools.json",
+              "start_column": null,
+              "start_line": null,
+              "type": "mcp"
+            },
+            "title": "gmail.send_customer_email has external communication capability without required controls"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": true,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+            "fingerprint": "fp_3c8cac2cb8af37ec",
+            "id": "fp_3c8cac2cb8af37ec",
+            "policy_evidence_source": null,
+            "severity": "high",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "specs/support-tools.openapi.yaml",
+              "pointer": "/paths/~1refunds/post",
+              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+              "start_column": 5,
+              "start_line": 97,
+              "type": "openapi"
+            },
+            "title": "stripe.create_refund has external communication capability without required controls"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": true,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+            "fingerprint": "fp_3e9d5016edc50f97",
+            "id": "fp_3e9d5016edc50f97",
+            "policy_evidence_source": null,
+            "severity": "critical",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "specs/support-tools.openapi.yaml",
+              "pointer": "/paths/~1refunds/post",
+              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+              "start_column": 5,
+              "start_line": 97,
+              "type": "openapi"
+            },
+            "title": "stripe.create_refund has financial write capability without required controls"
           }
         ],
         "confidence": "mixed",
@@ -933,7 +1021,9 @@
           "SHIP-POLICY-CONFIRMATION-MISSING on stripe.create_refund: stripe.create_refund lacks a declared confirmation policy",
           "SHIP-POLICY-CONFIRMATION-MISSING on gmail.send_customer_email: gmail.send_customer_email lacks a declared confirmation policy",
           "SHIP-SIDEFX-IDEMPOTENCY-MISSING on stripe.create_refund: stripe.create_refund lacks idempotency evidence",
-          "SHIP-SIDEFX-IDEMPOTENCY-MISSING on gmail.send_customer_email: gmail.send_customer_email lacks idempotency evidence"
+          "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on gmail.send_customer_email: gmail.send_customer_email has external communication capability without required controls",
+          "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on stripe.create_refund: stripe.create_refund has external communication capability without required controls",
+          "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create_refund: stripe.create_refund has financial write capability without required controls"
         ],
         "review_items": [
           {
@@ -997,7 +1087,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 54,
+              "start_line": 57,
               "type": "manifest"
             },
             "severity": "high",
@@ -1017,7 +1107,7 @@
             "baseline_status": null,
             "blocks_release": false,
             "capability_refs": [
-              "cap_744255729df4139a"
+              "cap_9a24e125c9388b17"
             ],
             "capability_trace_refs": [],
             "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
@@ -1030,7 +1120,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 54,
+              "start_line": 57,
               "type": "manifest"
             },
             "severity": "high",
@@ -1045,37 +1135,6 @@
               "type": "mcp"
             },
             "title": "gmail.send_customer_email lacks a declared confirmation policy"
-          },
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-            "fingerprint": "fp_0f8aaa912d589cf0",
-            "id": "fp_0f8aaa912d589cf0",
-            "policy_evidence_source": {
-              "end_line": null,
-              "location": null,
-              "path": "shipgate.yaml",
-              "pointer": "/policies/require_idempotency_for_tools",
-              "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
-              "start_column": null,
-              "start_line": 56,
-              "type": "manifest"
-            },
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": ".agents-shipgate/mcp-tools.json",
-              "pointer": "/tools/1",
-              "ref": ".agents-shipgate/mcp-tools.json",
-              "start_column": null,
-              "start_line": null,
-              "type": "mcp"
-            },
-            "title": "gmail.send_customer_email lacks idempotency evidence"
           }
         ]
       },
@@ -1196,14 +1255,87 @@
         "review_items": []
       },
       {
-        "blocking_findings": [],
-        "confidence": "medium",
-        "domain": "Action-surface policy",
-        "evidence_present": "covered",
-        "evidence_source": [
-          "action_surface_facts.actions"
+        "blocking_findings": [
+          {
+            "baseline_status": null,
+            "blocks_release": true,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+            "fingerprint": "fp_ad46dcc15d8c2969",
+            "id": "fp_ad46dcc15d8c2969",
+            "policy_evidence_source": null,
+            "severity": "high",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": ".agents-shipgate/mcp-tools.json",
+              "pointer": "/tools/1",
+              "ref": ".agents-shipgate/mcp-tools.json",
+              "start_column": null,
+              "start_line": null,
+              "type": "mcp"
+            },
+            "title": "gmail.send_customer_email has external communication capability without required controls"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": true,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+            "fingerprint": "fp_3c8cac2cb8af37ec",
+            "id": "fp_3c8cac2cb8af37ec",
+            "policy_evidence_source": null,
+            "severity": "high",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "specs/support-tools.openapi.yaml",
+              "pointer": "/paths/~1refunds/post",
+              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+              "start_column": 5,
+              "start_line": 97,
+              "type": "openapi"
+            },
+            "title": "stripe.create_refund has external communication capability without required controls"
+          },
+          {
+            "baseline_status": null,
+            "blocks_release": true,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+            "fingerprint": "fp_3e9d5016edc50f97",
+            "id": "fp_3e9d5016edc50f97",
+            "policy_evidence_source": null,
+            "severity": "critical",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "specs/support-tools.openapi.yaml",
+              "pointer": "/paths/~1refunds/post",
+              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+              "start_column": 5,
+              "start_line": 97,
+              "type": "openapi"
+            },
+            "title": "stripe.create_refund has financial write capability without required controls"
+          }
         ],
-        "missing_controls": [],
+        "confidence": "high",
+        "domain": "Action-surface policy",
+        "evidence_present": "partial",
+        "evidence_source": [
+          "action_surface_facts.actions",
+          "findings[].blocks_release",
+          "findings[]"
+        ],
+        "missing_controls": [
+          "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on gmail.send_customer_email: gmail.send_customer_email has external communication capability without required controls",
+          "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on stripe.create_refund: stripe.create_refund has external communication capability without required controls",
+          "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create_refund: stripe.create_refund has financial write capability without required controls"
+        ],
         "review_items": []
       }
     ]
@@ -1290,7 +1422,7 @@
           "pointer": "/policies/require_idempotency_for_tools",
           "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
           "start_column": null,
-          "start_line": 56,
+          "start_line": 59,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1305,49 +1437,10 @@
           "type": "openapi"
         },
         "title": "stripe.create_refund lacks idempotency evidence"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-        "fingerprint": "fp_0f8aaa912d589cf0",
-        "id": "fp_0f8aaa912d589cf0",
-        "policy_evidence_source": {
-          "end_line": null,
-          "location": null,
-          "path": "shipgate.yaml",
-          "pointer": "/policies/require_idempotency_for_tools",
-          "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
-          "start_column": null,
-          "start_line": 56,
-          "type": "manifest"
-        },
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": ".agents-shipgate/mcp-tools.json",
-          "pointer": "/tools/1",
-          "ref": ".agents-shipgate/mcp-tools.json",
-          "start_column": null,
-          "start_line": null,
-          "type": "mcp"
-        },
-        "title": "gmail.send_customer_email lacks idempotency evidence"
       }
     ],
     "retry_policy_declared": false,
     "rows": [
-      {
-        "declared": false,
-        "gap_finding_ids": [
-          "fp_0f8aaa912d589cf0"
-        ],
-        "source": null,
-        "tool": "gmail.send_customer_email"
-      },
       {
         "declared": true,
         "gap_finding_ids": [],
@@ -1373,14 +1466,13 @@
   "not_proven": {
     "additional_residuals": [
       "Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available.",
-      "6 active finding(s) came from heuristic provenance (keyword_heuristic=6, regex_heuristic=0); review the finding evidence before acting."
+      "5 active finding(s) came from heuristic provenance (keyword_heuristic=5, regex_heuristic=0); review the finding evidence before acting."
     ],
     "headline": "Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generated agent capability changes, run as a local-first, static Tool-Use Readiness review. The packet below is derived from a scan; it does not, by itself, prove the following properties:",
-    "low_confidence_tools": [
-      "send_email_preview"
-    ],
+    "low_confidence_tools": [],
     "source_warnings": [
-      "MCP source declares wildcard tool exposure"
+      "MCP source declares wildcard tool exposure",
+      "Duplicate tool name 'send_email_preview'; kept mcp source 'reviewed_sdk_inventory' and merged metadata from sdk_function source 'openai_sdk_static'."
     ],
     "suppressed_finding_ids": [],
     "unconditional": [
@@ -1402,7 +1494,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.7",
+  "packet_schema_version": "0.8",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -1434,7 +1526,7 @@
           "pointer": "/policies/require_approval_for_tools",
           "ref": "shipgate.yaml#/policies/require_approval_for_tools",
           "start_column": null,
-          "start_line": 51,
+          "start_line": 54,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1465,7 +1557,7 @@
           "pointer": "/policies/require_idempotency_for_tools",
           "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
           "start_column": null,
-          "start_line": 56,
+          "start_line": 59,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1480,44 +1572,216 @@
           "type": "openapi"
         },
         "title": "stripe.create_refund lacks idempotency evidence"
+      },
+      {
+        "baseline_status": null,
+        "blocks_release": true,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        "fingerprint": "fp_ad46dcc15d8c2969",
+        "id": "fp_ad46dcc15d8c2969",
+        "policy_evidence_source": null,
+        "severity": "high",
+        "source": {
+          "end_line": null,
+          "location": null,
+          "path": ".agents-shipgate/mcp-tools.json",
+          "pointer": "/tools/1",
+          "ref": ".agents-shipgate/mcp-tools.json",
+          "start_column": null,
+          "start_line": null,
+          "type": "mcp"
+        },
+        "title": "gmail.send_customer_email has external communication capability without required controls"
+      },
+      {
+        "baseline_status": null,
+        "blocks_release": true,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "check_id": "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING",
+        "fingerprint": "fp_3c8cac2cb8af37ec",
+        "id": "fp_3c8cac2cb8af37ec",
+        "policy_evidence_source": null,
+        "severity": "high",
+        "source": {
+          "end_line": null,
+          "location": null,
+          "path": "specs/support-tools.openapi.yaml",
+          "pointer": "/paths/~1refunds/post",
+          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+          "start_column": 5,
+          "start_line": 97,
+          "type": "openapi"
+        },
+        "title": "stripe.create_refund has external communication capability without required controls"
+      },
+      {
+        "baseline_status": null,
+        "blocks_release": true,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "check_id": "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+        "fingerprint": "fp_3e9d5016edc50f97",
+        "id": "fp_3e9d5016edc50f97",
+        "policy_evidence_source": null,
+        "severity": "critical",
+        "source": {
+          "end_line": null,
+          "location": null,
+          "path": "specs/support-tools.openapi.yaml",
+          "pointer": "/paths/~1refunds/post",
+          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+          "start_column": 5,
+          "start_line": 97,
+          "type": "openapi"
+        },
+        "title": "stripe.create_refund has financial write capability without required controls"
       }
     ],
     "decision": "blocked",
     "evidence_coverage": {
       "evidence_gaps": [
         {
-          "kind": "low_confidence_tool",
+          "kind": "incomplete_surface",
           "next_action": {
-            "command": null,
-            "expects": "Provide a complete MCP export, OpenAPI spec, or explicit local tool inventory for this source, then rerun the scan.",
-            "kind": "provide_source",
-            "path": null,
-            "why": "sdk_function extraction could not fully enumerate this tool surface."
+            "accepted_values": [
+              "complete_mcp_export",
+              "openapi_spec",
+              "reviewed_explicit_inventory"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Provide a complete MCP export, OpenAPI spec, or reviewed explicit tool inventory, then rerun verification.",
+            "kind": "provide_complete_inventory",
+            "path": "shipgate.yaml#tool_sources",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "The complete statically-bound tool surface must be enumerable."
           },
-          "source_ref": "agents/refund_agent.py:5",
-          "source_type": "sdk_function",
-          "subject": "send_email_preview",
-          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface."
+          "source_ref": "/wildcard",
+          "source_type": "mcp",
+          "subject": "wildcard_mcp_tools.*",
+          "why": "tool surface enumeration is incomplete or not high confidence"
+        },
+        {
+          "kind": "missing_authority_evidence",
+          "next_action": {
+            "accepted_values": [
+              "none",
+              "scoped",
+              "unscoped",
+              "ambient"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": {
+              "authority": {
+                "mode": "<REVIEW_REQUIRED>"
+              },
+              "tool": "wildcard_mcp_tools.*"
+            },
+            "expects": "Declare reviewed authority under action_surface.actions in shipgate.yaml, then rerun verification.",
+            "kind": "declare_action_authority",
+            "path": "shipgate.yaml#action_surface.actions[tool='wildcard_mcp_tools.*']",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "A complete authority mode and grant are required."
+          },
+          "source_ref": "/wildcard",
+          "source_type": "mcp",
+          "subject": "wildcard_mcp_tools.*",
+          "why": "tool has no explicit or structural authority evidence"
+        },
+        {
+          "kind": "missing_effect_evidence",
+          "next_action": {
+            "accepted_values": [
+              "read",
+              "write",
+              "destructive",
+              "external_communication",
+              "financial_write",
+              "production_operation",
+              "privileged_data_access",
+              "code_execution",
+              "identity_access"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": {
+              "effect": "<REVIEW_REQUIRED>",
+              "tool": "wildcard_mcp_tools.*"
+            },
+            "expects": "Declare the conservative effect under action_surface.actions in shipgate.yaml, then rerun verification.",
+            "kind": "declare_action_effect",
+            "path": "shipgate.yaml#action_surface.actions[tool='wildcard_mcp_tools.*']",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "A reviewed or structural effect is required for an evidence-backed pass."
+          },
+          "source_ref": "/wildcard",
+          "source_type": "mcp",
+          "subject": "wildcard_mcp_tools.*",
+          "why": "MCP tool has no explicit or structural effect evidence"
         },
         {
           "kind": "source_warning",
           "next_action": {
+            "accepted_values": [],
+            "auto_apply": false,
             "command": null,
+            "declaration_template": null,
             "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
             "kind": "review_warning",
             "path": null,
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
             "why": "The warning text names the degraded source."
           },
           "source_ref": null,
           "source_type": null,
           "subject": "MCP source declares wildcard tool exposure",
           "why": "A source loader degraded while reading declared inputs."
+        },
+        {
+          "kind": "source_warning",
+          "next_action": {
+            "accepted_values": [],
+            "auto_apply": false,
+            "command": null,
+            "declaration_template": null,
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
+            "kind": "review_warning",
+            "path": null,
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "The warning text names the degraded source."
+          },
+          "source_ref": null,
+          "source_type": null,
+          "subject": "Duplicate tool name 'send_email_preview'; kept mcp source 'reviewed_sdk_inventory' and merged metadata from sdk_function source 'openai_sdk_static'.",
+          "why": "A source loader degraded while reading declared inputs."
         }
       ],
       "human_review_recommended": true,
-      "level": "mixed",
-      "low_confidence_tool_count": 1,
-      "source_warning_count": 1
+      "level": "static",
+      "low_confidence_tool_count": 0,
+      "semantic_coverage": {
+        "gap_count": 3,
+        "pass_eligible_actions": 6,
+        "reason_counts": {
+          "incomplete_surface": 1,
+          "missing_authority_evidence": 1,
+          "missing_effect_evidence": 1,
+          "unscoped_authority": 1
+        },
+        "review_concern_count": 1,
+        "total_actions": 8
+      },
+      "source_warning_count": 2
     },
     "fail_policy": {
       "ci_mode": "advisory",
@@ -1526,7 +1790,7 @@
       "new_findings_only": false,
       "would_fail_ci": false
     },
-    "reason": "2 active findings block release.",
+    "reason": "5 active findings block release.",
     "review_items": [
       {
         "baseline_status": null,
@@ -1621,28 +1885,6 @@
         "blocks_release": false,
         "capability_refs": [],
         "capability_trace_refs": [],
-        "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
-        "fingerprint": "fp_85f8513ad72cd9ea",
-        "id": "fp_85f8513ad72cd9ea",
-        "policy_evidence_source": null,
-        "severity": "medium",
-        "source": {
-          "end_line": null,
-          "location": "agents/refund_agent.py:5",
-          "path": null,
-          "pointer": null,
-          "ref": "agents/refund_agent.py",
-          "start_column": null,
-          "start_line": null,
-          "type": "sdk_function"
-        },
-        "title": "send_email_preview returns free-form text output"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
         "fingerprint": "fp_d27325cbdbbf5483",
         "id": "fp_d27325cbdbbf5483",
@@ -1655,10 +1897,32 @@
           "pointer": "/permissions/scopes",
           "ref": "shipgate.yaml",
           "start_column": null,
-          "start_line": 60,
+          "start_line": 63,
           "type": "manifest"
         },
         "title": "Manifest declares broad permission scopes"
+      },
+      {
+        "baseline_status": null,
+        "blocks_release": false,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "check_id": "SHIP-AUTH-MISSING-SCOPE",
+        "fingerprint": "fp_8e1328bd648028d3",
+        "id": "fp_8e1328bd648028d3",
+        "policy_evidence_source": null,
+        "severity": "high",
+        "source": {
+          "end_line": null,
+          "location": null,
+          "path": "specs/support-tools.openapi.yaml",
+          "pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
+          "start_column": 5,
+          "start_line": 72,
+          "type": "openapi"
+        },
+        "title": "refund_status_lookup lacks declared auth scopes"
       },
       {
         "baseline_status": null,
@@ -1805,7 +2069,7 @@
           "pointer": "/policies/require_confirmation_for_tools",
           "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
           "start_column": null,
-          "start_line": 54,
+          "start_line": 57,
           "type": "manifest"
         },
         "severity": "high",
@@ -1825,7 +2089,7 @@
         "baseline_status": null,
         "blocks_release": false,
         "capability_refs": [
-          "cap_744255729df4139a"
+          "cap_9a24e125c9388b17"
         ],
         "capability_trace_refs": [],
         "check_id": "SHIP-POLICY-CONFIRMATION-MISSING",
@@ -1838,7 +2102,7 @@
           "pointer": "/policies/require_confirmation_for_tools",
           "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
           "start_column": null,
-          "start_line": 54,
+          "start_line": 57,
           "type": "manifest"
         },
         "severity": "high",
@@ -1853,37 +2117,6 @@
           "type": "mcp"
         },
         "title": "gmail.send_customer_email lacks a declared confirmation policy"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
-        "fingerprint": "fp_0f8aaa912d589cf0",
-        "id": "fp_0f8aaa912d589cf0",
-        "policy_evidence_source": {
-          "end_line": null,
-          "location": null,
-          "path": "shipgate.yaml",
-          "pointer": "/policies/require_idempotency_for_tools",
-          "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
-          "start_column": null,
-          "start_line": 56,
-          "type": "manifest"
-        },
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": ".agents-shipgate/mcp-tools.json",
-          "pointer": "/tools/1",
-          "ref": ".agents-shipgate/mcp-tools.json",
-          "start_column": null,
-          "start_line": null,
-          "type": "mcp"
-        },
-        "title": "gmail.send_customer_email lacks idempotency evidence"
       },
       {
         "baseline_status": null,
@@ -1930,9 +2163,12 @@
         "title": "Manifest declares unused permission scope zendesk:tickets:read"
       }
     ],
+    "runtime_behavior_verified": false,
+    "static_analysis_only": true,
+    "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "verdict": "BLOCKED"
   },
-  "run_id": "agents_shipgate_33cced54c422d1e8",
+  "run_id": "agents_shipgate_eae2aebe6f2524ce",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

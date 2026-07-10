@@ -142,9 +142,9 @@ def test_crewai_markdown_report_matches_golden(tmp_path):
 @pytest.mark.parametrize(
     "sample_dir, expected_decision",
     [
-        ("samples/simple_openai_api_agent", "review_required"),
-        ("samples/simple_langchain_agent", "insufficient_evidence"),
-        ("samples/simple_crewai_agent", "insufficient_evidence"),
+        ("samples/simple_openai_api_agent", "blocked"),
+        ("samples/simple_langchain_agent", "review_required"),
+        ("samples/simple_crewai_agent", "review_required"),
         ("samples/support_refund_agent", "blocked"),
     ],
 )
@@ -271,10 +271,14 @@ def test_capability_intent_diff_support_refund_fixture(tmp_path):
     assert {"financial_action", "external_write"} <= set(stripe["risk_tags"])
     assert stripe["included_reason"] == "referenced_by_critical_finding"
     assert stripe["control_status"] == "missing"
-    assert not any(
-        fact["tool_name"] == "refund_status_lookup"
+    refund_lookup = next(
+        fact
         for fact in payload["capability_facts"]
+        if fact["tool_name"] == "refund_status_lookup"
     )
+    assert refund_lookup["effect"] == "read"
+    assert refund_lookup["semantic_assessment"]["authority"]["mode"] == "unscoped"
+    assert refund_lookup["semantic_assessment"]["pass_eligible"] is False
 
     refund_intentions = [
         intention
@@ -443,7 +447,7 @@ def test_capability_diff_release_consequence_mirrors_release_decision(tmp_path):
     )
     assert payload["release_consequence"]["blocker_misalignment_count"] >= 1
     blockers = payload["release_decision"]["blockers"]
-    assert len(blockers) == 2
+    assert len(blockers) == 5
     # Identity, classification, and release-blocking shape are pinned.
     identity_fields = (
         "id",
@@ -1209,6 +1213,12 @@ tool_sources:
   - id: docs
     type: mcp
     path: tools.json
+action_surface:
+  actions:
+    - tool: docs.lookup
+      effect: read
+      authority:
+        mode: none
 """,
         encoding="utf-8",
     )

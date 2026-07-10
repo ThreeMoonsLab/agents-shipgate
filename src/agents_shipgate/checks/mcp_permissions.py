@@ -31,17 +31,14 @@ def run(context: ScanContext) -> list[Finding]:
         return []
 
     findings: list[Finding] = []
-    fact_by_tool = _current_fact_by_tool(
-        _mcp_capability_facts(context.capability_facts)
-    )
+    fact_by_tool = _current_fact_by_tool(_mcp_capability_facts(context.capability_facts))
     tool_by_key = {_tool_key(tool): tool for tool in mcp_tools}
 
     findings.extend(_env_secret_findings(context, mcp_tools, fact_by_tool))
     findings.extend(_auto_approve_findings(context, mcp_tools, fact_by_tool))
 
     diff_available = (
-        context.diff_reference is not None
-        and context.diff_reference.action_facts is not None
+        context.diff_reference is not None and context.diff_reference.action_facts is not None
     )
     if not diff_available:
         findings.extend(
@@ -60,18 +57,14 @@ def run(context: ScanContext) -> list[Finding]:
     if not fact_by_tool:
         fact_by_tool = _current_fact_by_tool([ctx.fact for ctx in current_contexts])
     base_contexts = (
-        _mcp_capability_contexts(context.diff_reference.action_facts)
-        if diff_available
-        else []
+        _mcp_capability_contexts(context.diff_reference.action_facts) if diff_available else []
     )
     diff = diff_capability_fact_sets(base_contexts, current_contexts)
     added_ids = {ctx.fact.id for ctx in diff.added}
     changed_rows = [*diff.reidentified, *diff.changed]
     changed_ids = {row.after.id for row in changed_rows}
     broadened_rows = [
-        row
-        for row in changed_rows
-        if row.semantic_direction in {"broadened", "mixed", "unknown"}
+        row for row in changed_rows if row.semantic_direction in {"broadened", "mixed", "unknown"}
     ]
 
     findings.extend(
@@ -110,7 +103,9 @@ def _env_secret_findings(
     findings: list[Finding] = []
     seen_servers: set[tuple[str | None, tuple[str, ...]]] = set()
     for tool in tools:
-        secret_names = tuple(str(item) for item in tool.annotations.get("mcp_env_secret_names") or [])
+        secret_names = tuple(
+            str(item) for item in tool.annotations.get("mcp_env_secret_names") or []
+        )
         if not secret_names:
             continue
         key = (tool.source_id, secret_names)
@@ -155,7 +150,7 @@ def _auto_approve_findings(
         if not any(
             item in {"write", "destructive", "external", "financial", "production"}
             for item in profile.classes
-        ):
+        ) or not _has_structural_side_effect(tool):
             continue
         finding = tool_finding(
             tool=tool,
@@ -194,12 +189,9 @@ def _unknown_schema_findings(
         if tool.annotations.get("mcp_unknown_schema") is not True:
             continue
         profile = classify_tool_permission(tool)
-        if (
-            str(tool.annotations.get("mcp_approval_mode") or "").lower() == "approve"
-            and any(
-                item in {"write", "destructive", "external", "financial", "production"}
-                for item in profile.classes
-            )
+        if str(tool.annotations.get("mcp_approval_mode") or "").lower() == "approve" and any(
+            item in {"write", "destructive", "external", "financial", "production"}
+            for item in profile.classes
         ):
             continue
         fact = fact_by_tool.get(_tool_key(tool))
@@ -357,6 +349,18 @@ def _is_mcp_tool(tool: Tool) -> bool:
     if tool.source_type in MCP_SOURCE_TYPES:
         return True
     return tool.annotations.get("mcp_server") is True
+
+
+def _has_structural_side_effect(tool: Tool) -> bool:
+    assessment = tool.semantic_assessment
+    if assessment is None:
+        return False
+    return any(
+        claim.value != "read"
+        and claim.confidence == "high"
+        and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
+        for claim in assessment.effect.claims
+    )
 
 
 def _dedupe(findings: list[Finding]) -> list[Finding]:

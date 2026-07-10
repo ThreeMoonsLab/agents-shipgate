@@ -1,4 +1,4 @@
-# Stability Contract · 0.15.0
+# Stability Contract · 0.16.0b1
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -6,10 +6,64 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.28`) is still additive-versioned and
+(`report_schema_version`, currently `0.29`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-0-16-0b1"></a>
+
+## Migration Note: 0.16.0b1
+
+`0.16.0b1` is a pre-release of the `0.16` contract line. It deliberately
+tightens the meaning of `release_decision.decision: "passed"`: every in-scope
+action must now have complete, conflict-free static surface, effect, and
+authority evidence; all applicable controls must have been evaluated; and no
+policy condition may require review. This is a conservative static-evidence
+statement, not proof of runtime behavior or enforcement.
+
+The runtime contract advances `10 → 11`. The versioned artifacts advance:
+
+- report schema `0.28 → 0.29`;
+- Release Evidence Packet schema `0.7 → 0.8`;
+- capability standard `0.1 → 0.2`;
+- capability lock schema `0.2 → 0.3`; and
+- capability lock diff schema `0.3 → 0.4`.
+
+Report v0.29 adds normalized semantic assessments to action and capability
+facts plus
+`release_decision.evidence_coverage.semantic_coverage`. Semantic gaps are
+structured under `evidence_gaps[]`, but are intentionally not Findings: a
+baseline, suppression, waiver, severity override, `--no-heuristics`, or human
+acknowledgement cannot convert missing evidence into a pass. Any semantic gap
+prevents `passed`; `unknown`, `inferred`, `protocol_default`, `partial`, or
+`conflicting` required evidence routes to `insufficient_evidence`. Known
+unscoped or ambient authority routes to `review_required`. In strict mode a
+semantic `insufficient_evidence` decision exits `20`; advisory mode still exits
+`0` while preserving the non-pass decision in JSON.
+
+Every emitted v0.29 release decision makes the boundary machine-readable with
+`static_analysis_only=true`, `runtime_behavior_verified=false`, and the
+canonical `static_verdict_disclaimer`. Packet v0.8 §1 mirrors those values.
+They are additive parser defaults for old artifacts, but current emitters must
+always serialize them.
+
+Manifest `action_surface.actions[]` now accepts reviewed `authority` evidence.
+Agents Shipgate never auto-writes effect or authority declarations. See
+[`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the
+complete pass contract and migration workflow.
+
+Contract v11 also adds the stable `action_effect` and `action_authority` IDs to
+`do_not_auto_assert[]`. Agents may route the corresponding evidence-gap next
+actions, but these declarations are human assertions and must never be
+invented or auto-filled.
+
+The v0.28 report, v0.7 packet, v0.2 capability lock, and v0.3 lock-diff schemas
+remain frozen references. Regenerate current reports and capability locks
+before comparison; a pre-v0.29 artifact cannot establish current semantic pass
+eligibility.
 
 ---
 
@@ -98,7 +152,7 @@ PR automation; it is not a second release gate.
 
 ### CLI command surface
 
-These commands and flags are stable across the current `0.14.x`
+These commands and flags are stable across the current `0.16.x`
 contract line. Future `0.x` versions may make deliberate breaking
 changes only by bumping `contract_version` and updating this file.
 
@@ -318,9 +372,13 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 
 - `report_schema_version` — bumps minor on additive changes, major on breaking
 - `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+)
+- `release_decision.evidence_coverage.semantic_coverage.{total_actions, pass_eligible_actions, gap_count, review_concern_count, reason_counts}` (v0.29+) — zero-tolerance semantic pass coverage. It is derived from normalized action assessments and contributes directly to the release decision; it is not suppressible or baseline-able.
+- `release_decision.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}` (v0.29+) — explicit machine boundary for every verdict. Current emitted values are `true`, `false`, and the canonical disclaimer that the static scan did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.
+- `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+; semantic gap kinds added v0.29) — deterministic, human-routed remediation rows. v0.29 adds `incomplete_surface`, `missing_effect_evidence`, `inferred_effect_only`, `conflicting_effect_evidence`, `missing_authority_evidence`, `partial_authority_evidence`, `conflicting_authority_evidence`, and `invalid_semantic_annotation`, plus next-action kinds `declare_action_effect`, `declare_action_authority`, `provide_complete_inventory`, and `resolve_semantic_conflict`. Semantic declaration placeholders always carry `suggested_patch_kind="manual"`, `auto_apply=false`, and `requires_human_review=true`; they never enter `apply-patches`.
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, would_fail_ci, exit_code}`
 - `release_decision.blockers[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release, capability_refs, capability_trace_refs}` and `release_decision.review_items[].{id, fingerprint, check_id, severity, title, baseline_status, blocks_release, capability_refs, capability_trace_refs}` (reference-only — both arrays share the same item shape; full Finding payload is in `findings[]`; `capability_refs` is v0.24+ audit metadata and is empty when no capability-policy subject matched; `capability_trace_refs` is v0.25+ local trace-evidence audit metadata and is empty when no local trace row matched)
 - `capability_facts[].{id, tool_name, source_type, source_ref, capability, risk_tags, auth_scopes, owner, included_reason, control_status, related_findings}` (v0.9+)
+- `capability_facts[].semantic_assessment` and `action_surface_facts.actions[].semantic_assessment` (v0.29+) — the normalized static claims, issues, conservative effect, authority mode, and pass-eligibility bit consumed by the gate. The action effect, capability effect, and assessment conservative effect must agree.
 - `declared_intentions[].{id, kind, text, source, intent_tags}` (v0.9+)
 - `misalignments[].{id, kind, severity, tool_name, capability_refs, intention_refs, finding_refs, policy_requirement, gap, release_implication}` (v0.9+)
 - `release_consequence.{decision, summary, blocker_misalignment_count, review_misalignment_count, fail_policy}` (v0.9+)
@@ -500,6 +558,18 @@ Concretely: a scan with one baseline-matched critical and zero new findings prod
 Finding blockers take precedence over evidence quality. If
 `release_decision.blockers[]` is non-empty, the decision is `blocked` even when
 the scan also has low-confidence tools or source warnings.
+
+Starting in report v0.29, semantic evidence has zero tolerance. Every action
+must carry a pass-eligible normalized effect and authority assessment. One
+`unknown`, `inferred`, `protocol_default`, `partial`, `conflicting`, invalid,
+or incomplete required dimension prevents `passed`, regardless of the number
+of fully described actions. These gaps are recorded under
+`evidence_coverage.evidence_gaps[]` and
+`evidence_coverage.semantic_coverage`; they are not Findings and therefore
+cannot be suppressed, baselined, severity-overridden, waived by
+`--no-heuristics`, or satisfied by `human_ack`. A semantic gap routes to
+`insufficient_evidence`; a known unscoped or ambient authority concern routes
+to `review_required`.
 
 When there are no blockers, `insufficient_evidence` means the static inputs are
 not strong enough for Shipgate to gate release confidently. It does **not**
@@ -877,6 +947,10 @@ additive). It remains an orchestration artifact: `release_decision.decision` in
 a mirror or a deterministic projection of report data. Stable additive fields a
 consumer may read:
 
+- `static_analysis_only`, `runtime_behavior_verified`, and
+  `static_verdict_disclaimer` — locked to `true`, `false`, and the canonical
+  static-only disclaimer. When an embedded release decision is present, the
+  verifier model rejects any disagreement.
 - `merge_verdict` — `mergeable` / `human_review_required` /
   `insufficient_evidence` / `blocked` / `unknown`. A deterministic projection of
   `release_decision.decision` (`passed`→`mergeable`,
@@ -986,18 +1060,21 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.7)
+### Release Evidence Packet (v0.8)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
-artifact governed by [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json).
-v0.7 adds capability-linked local trace evidence summary and trace refs under
-`human_in_the_loop`. v0.6 stays as the frozen reference at
-[`docs/packet-schema.v0.6.json`](docs/packet-schema.v0.6.json); pre-v0.7 packets
-validate against it. v0.6 added the top-level `evidence_matrix` section and the
+artifact governed by [`docs/packet-schema.v0.8.json`](docs/packet-schema.v0.8.json).
+v0.8 carries report v0.29 semantic coverage and evidence-gap remediation under
+the release-decision evidence coverage. v0.7 stays as the frozen reference at
+[`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json); pre-v0.8 packets
+validate against the matching frozen schema. v0.7 added capability-linked
+local trace evidence under `human_in_the_loop`; v0.6 added the top-level
+`evidence_matrix` section and the
 optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source`
 pointers for reviewer-grade dual-source provenance on top of v0.5. Within `0.x`:
 
 - `packet_schema_version` is a real field on every emitted packet; minor bumps are additive.
+- `release_decision.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}` mirrors the report release decision exactly; current emitted values are `true`, `false`, and the canonical static-verdict disclaimer.
 - The reviewer sections (release_decision, evidence_matrix, capability_intent, high_risk_surface, tool_surface_diff, action_surface_diff, approval_coverage, idempotency_risk, scope_coverage, memory_isolation, human_in_the_loop, dynamic_scenarios, not_proven) are always present.
 - `evidence_matrix.rows[]` is a compact, packet-only review summary derived from public `report.json` fields. It never contributes to `release_decision`, CI exit behavior, severity, suppression, baseline matching, or `agent_summary`; its blocker and review-item references are copied from `release_decision`.
 - The 13 `evidence_matrix.rows[].domain` identities are stable within `0.x`. Adding source paths or check mappings is additive; removing a row, renaming a domain, or dropping an existing check/source mapping requires a packet schema bump.
@@ -1028,9 +1105,11 @@ schema is
 The handoff artifact is derived only from `verifier.json`, `verify-run.json`,
 and `report.json`. It mirrors `release_decision.decision`,
 `verifier.json.merge_verdict`, and
-`verifier.json.agent_controller.completion_allowed`; construction fails if
-those mirrors disagree. It never computes a separate release verdict, does not
-contain LLM-generated prose, and does not replace
+`verifier.json.agent_controller.completion_allowed`. Its
+`gate.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}`
+also mirrors the verifier/report boundary; construction fails if any mirror
+disagrees. It never computes a separate release verdict, does not contain
+LLM-generated prose, and does not replace
 `report.json.release_decision.decision` as the release gate.
 
 Use `agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json
@@ -1114,15 +1193,15 @@ those identities should not be recorded.
 envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
 `agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
-[`docs/capability-lock-schema.v0.2.json`](docs/capability-lock-schema.v0.2.json)
-and emitted locks carry `capability_lock_schema_version: "0.2"` plus
+[`docs/capability-lock-schema.v0.3.json`](docs/capability-lock-schema.v0.3.json)
+and emitted locks carry `capability_lock_schema_version: "0.3"` plus
 `experimental: false`.
 
 `agents-shipgate capability diff` compares two lockfiles and emits added,
 removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
 current diff schema is
-[`docs/capability-lock-diff-schema.v0.3.json`](docs/capability-lock-diff-schema.v0.3.json)
-and emitted diffs carry `capability_lock_diff_schema_version: "0.3"` plus
+[`docs/capability-lock-diff-schema.v0.4.json`](docs/capability-lock-diff-schema.v0.4.json)
+and emitted diffs carry `capability_lock_diff_schema_version: "0.4"` plus
 `experimental: false`. `reidentified` is the scope/resource case: scope is part
 of capability identity, so a scope escalation changes the id and is paired by
 agent/provider/operation/tool instead of being reported as unrelated add/remove
@@ -1138,7 +1217,10 @@ hashes.
 Capability lock/diff artifacts are deterministic and carry no wall-clock
 timestamp. They are stable non-gating artifacts for external integrations and
 research; they are not emitted in `report.json` and do not gate.
-`release_decision.decision` remains the only gate. Old experimental
+`release_decision.decision` remains the only gate. Capability standard v0.2
+adds each fact's optional normalized `semantic_assessment`; newly emitted v0.3
+locks populate it. The v0.2 lock and v0.3 diff schemas remain frozen references
+for archived artifacts. Old experimental
 `capability_lock_schema_version: "0.1"` lock files remain readable by
 `agents-shipgate capability diff`; the old combined schema remains a frozen
 reference at

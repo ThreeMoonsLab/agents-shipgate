@@ -31,6 +31,63 @@
       "title": "ActionApprovalConfig",
       "type": "object"
     },
+    "ActionAuthorityConfig": {
+      "additionalProperties": false,
+      "description": "Reviewed authority evidence for one declared action.\n\nScopes intentionally remain on ``ActionDeclarationConfig.scopes`` so\nthere is one canonical permission list in the manifest.",
+      "properties": {
+        "auth_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Type"
+        },
+        "credential_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Mode"
+        },
+        "mode": {
+          "enum": [
+            "none",
+            "scoped",
+            "unscoped",
+            "ambient"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "ActionAuthorityConfig",
+      "type": "object"
+    },
     "ActionDeclarationConfig": {
       "additionalProperties": false,
       "properties": {
@@ -38,6 +95,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ActionApprovalConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "authority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionAuthorityConfig"
             },
             {
               "type": "null"

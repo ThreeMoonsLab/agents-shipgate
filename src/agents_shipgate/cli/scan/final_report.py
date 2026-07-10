@@ -15,6 +15,7 @@ from agents_shipgate.core.lenses.effective_policy import (
     accepted_debt_fingerprints,
     build_effective_policy_snapshot,
 )
+from agents_shipgate.core.semantic_consistency import validate_semantic_consistency
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import ReadinessReport
@@ -110,5 +111,6 @@ def _build_final_report(
     )
     report.human_ack = build_human_ack(report, sanitized.manifest)
     report.verifier_summary = build_verifier_summary(report)
+    validate_semantic_consistency(report, sanitized.tools)
     public_report_payload = report_json_payload(report)
     return report, public_report_payload

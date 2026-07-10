@@ -17,6 +17,7 @@
         "readOnlyHint": true
       },
       "auth": {
+        "type": "oauth2",
         "scopes": ["docs:read"]
       },
       "owner": "docs-platform"

@@ -24,6 +24,7 @@ from agents_shipgate.schemas.report import (
     SuggestedScenario,
     SuggestedScenarioType,
 )
+from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 
 RISK_TAG_PRIORITY = (
     "financial_action",
@@ -61,6 +62,7 @@ INTENT_TAG_ALIASES: dict[str, tuple[str, ...]] = {
 NEGATION_TOKENS = {"without", "no", "not", "never", "non"}
 
 RELEASE_RELEVANT_CATEGORIES = {
+    "action_surface",
     "adk",
     "api",
     "auth",
@@ -325,7 +327,7 @@ def _build_diff_records(
     report: ReadinessReport,
     tools: list[Tool],
 ) -> tuple[list[CapabilityFact], list[DeclaredIntention], list[MisalignmentRecord]]:
-    active_findings = _active_relevant_findings(report.findings)
+    active_findings = _active_relevant_findings(report)
     tool_lookup = {tool.name: tool for tool in tools}
     findings_by_tool = _findings_by_tool(active_findings, tool_lookup.keys())
 
@@ -355,13 +357,35 @@ def _build_diff_records(
     return capability_facts, declared_intentions, records
 
 
-def _active_relevant_findings(findings: list[Finding]) -> list[Finding]:
+def _active_relevant_findings(report: ReadinessReport) -> list[Finding]:
+    """Return lens inputs without dropping anything in the canonical gate.
+
+    The category/severity filter remains for non-gating explanatory findings,
+    but every release-decision blocker/review item is included by identity.
+    This also preserves mandatory current-surface controls that a manifest
+    attempted to suppress: the release gate correctly keeps them active, so
+    the capability/intent consequence must not silently erase them.
+    """
+
+    decision_refs: set[str] = set()
+    if report.release_decision is not None:
+        decision_refs = {
+            ref
+            for item in [
+                *report.release_decision.blockers,
+                *report.release_decision.review_items,
+            ]
+            if (ref := _decision_ref(item)) is not None
+        }
     return [
         finding
-        for finding in findings
-        if not finding.suppressed
-        and finding.severity in RELEASE_RELEVANT_SEVERITIES
-        and finding.category in RELEASE_RELEVANT_CATEGORIES
+        for finding in report.findings
+        if _finding_ref(finding) in decision_refs
+        or (
+            not finding.suppressed
+            and finding.severity in RELEASE_RELEVANT_SEVERITIES
+            and finding.category in RELEASE_RELEVANT_CATEGORIES
+        )
     ]
 
 
@@ -387,8 +411,18 @@ def _include_tool(tool: Tool, related_findings: list[Finding]) -> bool:
 
 def _capability_fact(tool: Tool, related_findings: list[Finding]) -> CapabilityFact:
     tags = risk_tags(tool, min_confidence="medium")
-    capability = "wildcard_tool_surface" if tool.annotations.get("wildcard_tools") is True else _capability(tags)
+    capability = (
+        "wildcard_tool_surface"
+        if tool.annotations.get("wildcard_tools") is True
+        else _capability(tags)
+    )
     related_refs = sorted(_finding_ref(finding) for finding in related_findings)
+    assessment = tool.semantic_assessment
+    semantic_evidence = (
+        ToolSemanticEvidence.model_validate(assessment.model_dump(mode="python"))
+        if assessment is not None
+        else None
+    )
     # ``source_ref`` is a stable contract per STABILITY.md and
     # existing OpenAPI refs can already contain JSON-pointer fragments
     # (e.g. ``api.yaml#/paths/~1pets/get``). Appending ``#L{line}``
@@ -407,10 +441,14 @@ def _capability_fact(tool: Tool, related_findings: list[Finding]) -> CapabilityF
             capability,
             sorted(tags),
         ),
+        tool_id=tool.id,
         tool_name=tool.name,
         source_type=tool.source_type,
+        source_id=tool.source_id,
         source_ref=tool.source_ref,
         capability=capability,
+        effect=(assessment.conservative_effect if assessment is not None else None),
+        semantic_assessment=semantic_evidence,
         risk_tags=tags,
         auth_scopes=tool.auth.scopes,
         owner=tool.owner,
@@ -495,7 +533,9 @@ def _intent_tags(text: str) -> list[str]:
         if index > 0 and tokens[index - 1] in NEGATION_TOKENS:
             continue
         tags.update(INTENT_TAG_ALIASES.get(token, ()))
-    return sorted(tags, key=lambda tag: RISK_TAG_PRIORITY.index(tag) if tag in RISK_TAG_PRIORITY else 99)
+    return sorted(
+        tags, key=lambda tag: RISK_TAG_PRIORITY.index(tag) if tag in RISK_TAG_PRIORITY else 99
+    )
 
 
 def _misalignment_records(
@@ -624,9 +664,7 @@ def _intention_refs(
         )
     if finding.check_id == "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH":
         refs.update(
-            intention.id
-            for intention in intentions
-            if intention.kind == "instruction_preview"
+            intention.id for intention in intentions if intention.kind == "instruction_preview"
         )
     return sorted(refs)
 
@@ -638,8 +676,7 @@ def _suggested_scenarios(records: list[MisalignmentRecord]) -> list[SuggestedSce
             grouped[record.scenario_type].append(record.misalignment)
 
     scenarios = [
-        _scenario(scenario_type, misalignments)
-        for scenario_type, misalignments in grouped.items()
+        _scenario(scenario_type, misalignments) for scenario_type, misalignments in grouped.items()
     ]
     order = {record.misalignment.id: index for index, record in enumerate(records)}
     scenarios.sort(
@@ -658,11 +695,7 @@ def _scenario(
 ) -> SuggestedScenario:
     source_misalignments = sorted(misalignment.id for misalignment in misalignments)
     source_findings = sorted(
-        {
-            finding_ref
-            for misalignment in misalignments
-            for finding_ref in misalignment.finding_refs
-        }
+        {finding_ref for misalignment in misalignments for finding_ref in misalignment.finding_refs}
     )
     scope = _scenario_scope(misalignments)
     title, expected_control = _scenario_text(scenario_type)
@@ -734,17 +767,12 @@ def _release_consequence(
     decision = report.release_decision
     if decision is None:
         return None
-    blocker_refs = {
-        ref for item in decision.blockers if (ref := _decision_ref(item)) is not None
-    }
+    blocker_refs = {ref for item in decision.blockers if (ref := _decision_ref(item)) is not None}
     review_refs = {
         ref for item in decision.review_items if (ref := _decision_ref(item)) is not None
     }
     blocker_finding_refs = {
-        ref
-        for item in misalignments
-        for ref in item.finding_refs
-        if ref in blocker_refs
+        ref for item in misalignments for ref in item.finding_refs if ref in blocker_refs
     }
     review_finding_refs = {
         ref
@@ -772,10 +800,7 @@ def _release_summary(decision: str, blocker_count: int, review_count: int) -> st
             "release blockers; resolve required controls or remove the capability."
         )
     if decision == "review_required":
-        return (
-            f"{review_count} release-relevant finding(s) require release review "
-            "before shipping."
-        )
+        return f"{review_count} release-relevant finding(s) require release review before shipping."
     if decision == "insufficient_evidence":
         return (
             "Static evidence is incomplete; capability/intent analysis "

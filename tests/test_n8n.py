@@ -186,7 +186,9 @@ permissions:
     assert dynamic_finding.source.type == "n8n_workflow"
     assert dynamic_finding.source.path == "workflow.json"
     assert dynamic_finding.source.pointer is not None
-    n8n_findings = [finding for finding in report.findings if finding.check_id.startswith("SHIP-N8N-")]
+    n8n_findings = [
+        finding for finding in report.findings if finding.check_id.startswith("SHIP-N8N-")
+    ]
     assert n8n_findings
     assert {finding.agent_action for finding in n8n_findings} == {"escalate_to_human"}
 
@@ -223,7 +225,9 @@ n8n:
     assert frameworks["mcp_server_exposed_tool_count"] == 1
     tool = next(item for item in report.tool_inventory if item["name"] == "Lookup Case")
     assert tool["source_type"] == "mcp"
-    loaded_tool = next(item for item in report.tool_surface_facts.tools if item.name == "Lookup Case")
+    loaded_tool = next(
+        item for item in report.tool_surface_facts.tools if item.name == "Lookup Case"
+    )
     assert loaded_tool.source_type == "mcp"
 
 
@@ -259,7 +263,9 @@ n8n:
     )
 
     assert report.frameworks["n8n"]["workflow_file_count"] == 2
-    assert [tool["name"] for tool in report.tool_inventory if tool["name"] in {"A Tool", "B Tool"}] == [
+    assert [
+        tool["name"] for tool in report.tool_inventory if tool["name"] in {"A Tool", "B Tool"}
+    ] == [
         "A Tool",
         "B Tool",
     ]
@@ -280,7 +286,11 @@ def test_n8n_directory_mode_keeps_source_warnings_local(tmp_path):
                     "id": "clean-tool",
                     "name": "clean_tool",
                     "type": "n8n-nodes-langchain.toolHttpRequest",
-                    "parameters": {"description": "Clean tool.", "method": "GET", "url": "https://example.com"},
+                    "parameters": {
+                        "description": "Clean tool.",
+                        "method": "GET",
+                        "url": "https://example.com",
+                    },
                 }
             )
         ),
@@ -447,8 +457,7 @@ n8n:
 
     assert report.frameworks["n8n"]["human_review_node_count"] == 0
     assert any(
-        finding.check_id == "SHIP-POLICY-APPROVAL-MISSING"
-        and finding.tool_name == "Run Audit Code"
+        finding.check_id == "SHIP-POLICY-APPROVAL-MISSING" and finding.tool_name == "Run Audit Code"
         for finding in report.findings
     )
 
@@ -617,8 +626,7 @@ n8n:
     assert report.frameworks["n8n"]["code_tool_count"] == 0
     assert report.frameworks["n8n"]["credential_ref_count"] == 0
     assert not any(
-        finding.check_id == "SHIP-POLICY-APPROVAL-MISSING"
-        and finding.tool_name == "disabled_code"
+        finding.check_id == "SHIP-POLICY-APPROVAL-MISSING" and finding.tool_name == "disabled_code"
         for finding in report.findings
     )
 
@@ -702,8 +710,7 @@ n8n:
     assert report.frameworks["n8n"]["workflow_count"] == 1
     assert report.tool_inventory[0]["name"] == "Community Tool"
     assert any(
-        "no first-party node types" in warning
-        for warning in report.frameworks["n8n"]["warnings"]
+        "no first-party node types" in warning for warning in report.frameworks["n8n"]["warnings"]
     )
     assert any(
         finding.check_id == "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
@@ -976,9 +983,10 @@ n8n:
         for finding in report.findings
         if finding.check_id == "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
     ]
-    assert {
-        finding.evidence["surface"]["kind"] for finding in dynamic_findings
-    } == {"runtime_tool_name", "unresolved_workflow"}
+    assert {finding.evidence["surface"]["kind"] for finding in dynamic_findings} == {
+        "runtime_tool_name",
+        "unresolved_workflow",
+    }
     for finding in dynamic_findings:
         assert finding.evidence["explicit_inventory"] is True
         assert finding.source is not None
@@ -1296,9 +1304,7 @@ n8n:
     assert artifacts is not None
     artifact_payload = artifacts.model_dump(mode="json")
     tool_payload = [
-        tool.model_dump(mode="json")
-        for source in loaded_sources
-        for tool in source.tools
+        tool.model_dump(mode="json") for source in loaded_sources for tool in source.tools
     ]
     serialized = json.dumps(
         {"artifacts": artifact_payload, "tools": tool_payload},
@@ -1318,15 +1324,12 @@ n8n:
     assert artifacts.ingress[0]["name"] == "Webhook [REDACTED:openai_api_key]"
     assert artifacts.ingress[0]["httpMethod"] == "POST"
     assert "public_path_hash" not in artifacts.ingress[0]
-    assert artifacts.human_review_nodes[0]["name"] == (
-        "Send [REDACTED:openai_api_key]"
-    )
+    assert artifacts.human_review_nodes[0]["name"] == ("Send [REDACTED:openai_api_key]")
     workflow_tool = next(tool for tool in tool_payload if tool["name"] == "Run External Workflow")
     schema_properties = workflow_tool["input_schema"]["properties"]
     assert "[REDACTED:openai_api_key]" in schema_properties
     assert (
-        schema_properties["[REDACTED:openai_api_key]"]["description"]
-        == "[REDACTED:bearer_token]"
+        schema_properties["[REDACTED:openai_api_key]"]["description"] == "[REDACTED:bearer_token]"
     )
     output_schema = workflow_tool["output_schema"]["properties"]
     assert output_schema["result"]["description"] == "[REDACTED:bearer_token]"
@@ -1473,14 +1476,18 @@ n8n:
         "maxTries": 5,
     }
     assert tool.annotations["n8n_error_workflow"] == "billing-cleanup"
-    side_effect_finding = next(
+    control_finding = next(
         finding
         for finding in report.findings
-        if finding.check_id == "SHIP-SIDEFX-IDEMPOTENCY-MISSING"
+        if finding.check_id == "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING"
         and finding.tool_name == "Delete Billing Record"
     )
-    assert side_effect_finding.severity == "critical"
-    assert side_effect_finding.evidence["retry_policy_known"] is True
+    assert control_finding.severity == "critical"
+    assert control_finding.evidence["missing"] == [
+        "approval.required",
+        "safeguards.rollback",
+        "confirmation.required",
+    ]
 
 
 def test_n8n_ai_tool_classification_uses_parameter_signature(tmp_path):
@@ -1523,12 +1530,8 @@ def test_n8n_ai_tool_classification_uses_parameter_signature(tmp_path):
             },
         ],
         "connections": {
-            "Signature HTTP": {
-                "ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]
-            },
-            "Signature Code": {
-                "ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]
-            },
+            "Signature HTTP": {"ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]},
+            "Signature Code": {"ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]},
             "Signature Workflow Tool": {
                 "ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]
             },
@@ -1626,13 +1629,9 @@ def _workflow(
     header = "Bearer abcdefghijklmnop" if include_secret else "Bearer ${N8N_TOKEN}"
     stripe_key = "sk" + "_live_" + ("a" * 24)
     workflow_name = (
-        "Support Agent sk-workflowaaaaaaaaaaaaaaaa"
-        if include_secret
-        else "Support Agent"
+        "Support Agent sk-workflowaaaaaaaaaaaaaaaa" if include_secret else "Support Agent"
     )
-    webhook_name = (
-        "Webhook sk-webhookaaaaaaaaaaaaaaaaa" if include_secret else "Webhook"
-    )
+    webhook_name = "Webhook sk-webhookaaaaaaaaaaaaaaaaa" if include_secret else "Webhook"
     human_name = "Send sk-humanaaaaaaaaaaaaaaaaaaa" if include_secret else "Send and Wait"
     code = (
         "const key = 'sk-aaaaaaaaaaaaaaaaaaaaaaaa'; "
@@ -1823,9 +1822,7 @@ def _minimal_agent_workflow(tool_node):
             },
         ],
         "connections": {
-            tool_node["name"]: {
-                "ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]
-            }
+            tool_node["name"]: {"ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]}
         },
     }
 

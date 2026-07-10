@@ -23,10 +23,25 @@ tool_sources:
     type: openai_agents_sdk
     path: agents
     mode: static
+  # The AST adapter remains exercised, while this reviewed inventory proves
+  # the complete bound tool surface used for release gating.
+  - id: reviewed_sdk_inventory
+    type: mcp
+    path: inventories/tools.json
+
+action_surface:
+  actions:
+    - tool: support.lookup_case
+      effect: read
+      authority:
+        mode: none
+    - tool: support.render_reply
+      effect: read
+      authority:
+        mode: none
 
 checks:
   ignore:
     - check_id: SHIP-SCHEMA-FREEFORM-OUTPUT
       tool: support.render_reply
       reason: "Fixture keeps a string draft output to exercise SDK extraction."
-

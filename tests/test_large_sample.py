@@ -1,11 +1,11 @@
 """Latency budget + structural regression tests for the large sample.
 
 This sample (``samples/large_multi_framework_agent``) ships ~65 tools across
-five tool sources to exercise the pipeline at realistic scale:
+six tool sources to exercise the pipeline at realistic scale:
 
 * OpenAPI × 2 (payments + fulfillment),
 * MCP × 2 (CRM + internal warehouse),
-* OpenAI Agents SDK × 1.
+* OpenAI Agents SDK × 1 plus its reviewed MCP-shaped inventory × 1.
 
 Two concerns motivate the tests in this file:
 
@@ -59,8 +59,10 @@ MAX_TOTAL_FINDINGS = 200
 MIN_CRITICAL_FINDINGS = 3   # at minimum, the financial-action approval gaps
 MIN_BLOCKERS = 3
 MIN_REVIEW_ITEMS = 20
-# Five tool sources are declared; all five should load successfully.
-EXPECTED_SOURCE_COUNT = 5
+# Six tool sources are declared; the reviewed inventory intentionally outranks
+# the five duplicate SDK tools while the merge receipts prove the AST adapter
+# still contributed metadata.
+EXPECTED_SOURCE_COUNT = 6
 
 
 @pytest.fixture(scope="module")
@@ -115,8 +117,8 @@ def test_scan_completes_within_latency_budget(tmp_path: Path) -> None:
 # --- structural shape ------------------------------------------------------
 
 
-def test_all_five_tool_sources_load(scanned_sample: ReadinessReport) -> None:
-    """Every declared source contributes at least one tool.
+def test_all_six_tool_sources_load(scanned_sample: ReadinessReport) -> None:
+    """Every declared source contributes tools or deterministic merge receipts.
 
     Catches the "n8n/codex_plugin/whatever adapter accidentally lost its
     artifact wiring" class of regression at the loader level. Matches on
@@ -125,9 +127,9 @@ def test_all_five_tool_sources_load(scanned_sample: ReadinessReport) -> None:
     inventory-shape differences are normal and not a regression by
     themselves.
     """
-    # Collapse OpenAPI refs (``specs/x.yaml#/paths/...``) and SDK refs
-    # (``agents/foo.py``) to their file-path prefix so we can compare on
-    # a single key.
+    # Collapse OpenAPI refs (``specs/x.yaml#/paths/...``) to their file-path
+    # prefix. The reviewed inventory outranks duplicate SDK facts in the final
+    # inventory, so the SDK contribution is asserted through merge receipts.
     seen_files: set[str] = set()
     for entry in scanned_sample.tool_inventory:
         ref = entry.get("source_ref") or ""
@@ -140,10 +142,10 @@ def test_all_five_tool_sources_load(scanned_sample: ReadinessReport) -> None:
         "specs/fulfillment.openapi.yaml",
         "mcp/crm-tools.json",
         "mcp/internal-tools.json",
-        "agents/ops_assistant.py",
+        "inventories/ops-sdk-tools.json",
     }
     assert expected.issubset(seen_files), (
-        f"Expected all five declared sources to contribute tools; missing: "
+        f"Expected all inventory-owning sources to contribute tools; missing: "
         f"{sorted(expected - seen_files)}. Found: {sorted(seen_files)}."
     )
 
@@ -151,10 +153,16 @@ def test_all_five_tool_sources_load(scanned_sample: ReadinessReport) -> None:
     # surface type. This catches a different regression — a source still
     # loading but emitting tools with the wrong source_type tag.
     source_types = {entry.get("source_type") for entry in scanned_sample.tool_inventory}
-    assert {"openapi", "mcp", "sdk_function"}.issubset(source_types), (
-        f"Expected source_types to include openapi + mcp + sdk_function; "
+    assert {"openapi", "mcp"}.issubset(source_types), (
+        f"Expected source_types to include openapi + mcp; "
         f"got {sorted(source_types)}."
     )
+    sdk_merge_receipts = [
+        warning
+        for warning in scanned_sample.source_warnings
+        if "merged metadata from sdk_function source 'ops_sdk'" in warning
+    ]
+    assert len(sdk_merge_receipts) == 5
 
 
 def test_tool_inventory_is_in_expected_band(scanned_sample: ReadinessReport) -> None:

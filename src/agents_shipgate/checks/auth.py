@@ -3,7 +3,7 @@ from __future__ import annotations
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.heuristics import is_broad_scope
-from agents_shipgate.core.risk_hints import has_risk_tag, is_write_tool, risk_tags
+from agents_shipgate.core.risk_hints import is_write_tool, risk_tags
 
 
 def run(context: ScanContext):
@@ -22,12 +22,21 @@ def run(context: ScanContext):
                 confidence="high",
                 recommendation="Replace broad manifest permission scopes with the narrowest scopes needed for this release.",
                 context=context,
-                provenance_kind="keyword_heuristic",
+                provenance_kind="static_declaration",
                 policy_evidence_pointer="/permissions/scopes",
             )
         )
     for tool in context.tools:
-        if _tool_requires_scope(tool) and not tool.auth.scopes:
+        authority = getattr(getattr(tool, "semantic_assessment", None), "authority", None)
+        effective_scopes = (
+            list(authority.scopes) if authority is not None else list(tool.auth.scopes)
+        )
+        missing_scope_mode = (
+            authority is not None and authority.mode in {"unscoped", "ambient"}
+        ) or (
+            authority is None and _tool_requires_scope(tool) and not effective_scopes
+        )
+        if missing_scope_mode:
             findings.append(
                 tool_finding(
                     tool=tool,
@@ -35,16 +44,23 @@ def run(context: ScanContext):
                     title=f"{tool.name} lacks declared auth scopes",
                     severity="high",
                     category="auth",
+                    # Keep the legacy fingerprint evidence stable. Typed
+                    # authority details live on action/capability semantic
+                    # evidence and release_decision.evidence_coverage.
                     evidence={"risk_tags": risk_tags(tool, min_confidence="medium")},
-                    confidence="medium",
-                    recommendation=f"Declare auth scopes for {tool.name} in OpenAPI, MCP metadata, or the manifest before release review.",
+                    confidence="high" if authority is not None else "medium",
+                    recommendation=(
+                        f"Declare operation-specific auth scopes for {tool.name}, "
+                        "or explicitly declare anonymous authority when the operation "
+                        "requires no credentials."
+                    ),
                     context=context,
                     provenance_kind="static_declaration",
                 )
             )
         missing_scopes = [
             scope
-            for scope in tool.auth.scopes
+            for scope in effective_scopes
             if not _scope_covered(scope, context.manifest.permissions.scopes)
         ]
         if missing_scopes:
@@ -56,7 +72,7 @@ def run(context: ScanContext):
                     severity="high",
                     category="auth",
                     evidence={
-                        "tool_scopes": tool.auth.scopes,
+                        "tool_scopes": effective_scopes,
                         "manifest_scopes": context.manifest.permissions.scopes,
                         "missing_scopes": missing_scopes,
                     },
@@ -69,7 +85,7 @@ def run(context: ScanContext):
                     provenance_kind="static_declaration",
                 )
             )
-        broad_scopes = [scope for scope in tool.auth.scopes if is_broad_scope(scope)]
+        broad_scopes = [scope for scope in effective_scopes if is_broad_scope(scope)]
         if broad_scopes:
             findings.append(
                 tool_finding(
@@ -82,7 +98,7 @@ def run(context: ScanContext):
                     confidence="high",
                     recommendation=f"Replace broad scopes for {tool.name} with narrower operation-specific scopes.",
                     context=context,
-                    provenance_kind="keyword_heuristic",
+                    provenance_kind="static_declaration",
                     # Tool source already points at the OpenAPI/MCP/etc.
                     # location where the broad scope is declared; the
                     # manifest pointer below is intentionally
@@ -94,11 +110,7 @@ def run(context: ScanContext):
     return findings
 
 def _tool_requires_scope(tool) -> bool:
-    return is_write_tool(tool) or has_risk_tag(
-        tool,
-        {"sensitive_data_access"},
-        min_confidence="medium",
-    )
+    return is_write_tool(tool)
 
 
 def _scope_covered(required_scope: str, manifest_scopes: list[str]) -> bool:

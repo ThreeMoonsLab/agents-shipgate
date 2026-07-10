@@ -21,8 +21,11 @@ from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
 )
+from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.patches import Patch
+from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import (
+    ActionEffect,
     ActionSurfaceDiff,
     ActionSurfaceFacts,
     ToolSurfaceDiff,
@@ -106,9 +109,7 @@ class CapabilityRuntimeEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    summary: CapabilityTraceEvidenceSummary = Field(
-        default_factory=CapabilityTraceEvidenceSummary
-    )
+    summary: CapabilityTraceEvidenceSummary = Field(default_factory=CapabilityTraceEvidenceSummary)
     matched: list[CapabilityTraceEvidenceV1] = Field(default_factory=list)
     unmatched: list[CapabilityTraceEvidenceV1] = Field(default_factory=list)
     source_provenance: list[SourceReference] = Field(default_factory=list)
@@ -308,11 +309,31 @@ class EvidenceGapAction(BaseModel):
     one routing vocabulary across error recovery and evidence repair.
     """
 
-    kind: Literal["declare_tool_inventory", "provide_source", "review_warning"]
+    kind: Literal[
+        "declare_tool_inventory",
+        "provide_source",
+        "review_warning",
+        "declare_action_effect",
+        "declare_action_authority",
+        "provide_complete_inventory",
+        "resolve_semantic_conflict",
+    ]
     command: str | None = None
     path: str | None = None
     why: str
     expects: str
+    # v0.29: semantic-evidence repairs are human assertions, never
+    # auto-applied patches. These fields make the required declaration
+    # mechanically discoverable without asking an agent to infer authority.
+    accepted_values: list[str] = Field(default_factory=list)
+    # Human-reviewed declaration skeleton only. It is deliberately not a
+    # machine-applicable Patch object and is never consumed by apply-patches.
+    # The explicit kind keeps agent consumers from mistaking structured YAML
+    # guidance for authorization to write it.
+    suggested_patch_kind: Literal["manual"] = "manual"
+    declaration_template: dict[str, Any] | None = None
+    auto_apply: Literal[False] = False
+    requires_human_review: Literal[True] = True
 
 
 class EvidenceGap(BaseModel):
@@ -324,12 +345,41 @@ class EvidenceGap(BaseModel):
     still uses only the counts (the gap list is a projection of them).
     """
 
-    kind: Literal["low_confidence_tool", "source_warning"]
+    kind: Literal[
+        "low_confidence_tool",
+        "source_warning",
+        "incomplete_surface",
+        "missing_effect_evidence",
+        "inferred_effect_only",
+        "conflicting_effect_evidence",
+        "missing_authority_evidence",
+        "partial_authority_evidence",
+        "conflicting_authority_evidence",
+        "invalid_semantic_annotation",
+    ]
     subject: str
     source_type: str | None = None
     source_ref: str | None = None
     why: str
     next_action: EvidenceGapAction
+
+
+class SemanticCoverageDecision(BaseModel):
+    """v0.29 pass eligibility across the normalized action surface.
+
+    Unlike extraction-confidence thresholds, semantic gaps are
+    zero-tolerance: any non-pass-eligible unknown/partial/conflicting
+    dimension prevents ``passed``. Known authority review concerns (for
+    example ambient or unscoped credentials) are counted separately so
+    they deterministically route to ``review_required`` rather than
+    ``insufficient_evidence``.
+    """
+
+    total_actions: int = 0
+    pass_eligible_actions: int = 0
+    gap_count: int = 0
+    review_concern_count: int = 0
+    reason_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class EvidenceCoverageDecision(BaseModel):
@@ -341,6 +391,10 @@ class EvidenceCoverageDecision(BaseModel):
     # projection of the two counts above. Default empty so older
     # payloads load as baselines unchanged.
     evidence_gaps: list[EvidenceGap] = Field(default_factory=list)
+    # v0.29: evidence-backed pass coverage. Default empty preserves
+    # round-tripping of frozen pre-v0.29 reports while emitted reports
+    # always populate it from Tool.semantic_assessment.
+    semantic_coverage: SemanticCoverageDecision = Field(default_factory=SemanticCoverageDecision)
 
 
 class BaselineDelta(BaseModel):
@@ -417,6 +471,12 @@ class ReleaseDecision(BaseModel):
     evidence_coverage: EvidenceCoverageDecision
     baseline_delta: BaselineDelta
     fail_policy: FailPolicy
+    # v0.29: make the verdict boundary explicit for machine consumers.
+    # ``passed`` is an evidence-backed static verdict; it must never be
+    # interpreted as proof of runtime behavior or enforcement.
+    static_analysis_only: Literal[True] = True
+    runtime_behavior_verified: Literal[False] = False
+    static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
     # v0.17: deterministic per-finding audit of how each finding
     # contributed to the decision. Always present (defaults to []) so
     # consumers that read `release_decision.contribution_rules` never
@@ -461,10 +521,17 @@ SuggestedScenarioType = Literal[
 
 class CapabilityFact(BaseModel):
     id: str
+    tool_id: str | None = None
     tool_name: str
     source_type: str
+    source_id: str | None = None
     source_ref: str | None = None
     capability: str
+    # v0.29: the normalized conservative effect and its evidence travel with
+    # the reviewer-facing capability projection. Defaults preserve older
+    # report readers while every newly emitted fact populates both fields.
+    effect: ActionEffect | None = None
+    semantic_assessment: ToolSemanticEvidence | None = None
     risk_tags: list[str] = Field(default_factory=list)
     auth_scopes: list[str] = Field(default_factory=list)
     owner: str | None = None
@@ -510,6 +577,7 @@ class SuggestedScenario(BaseModel):
     expected_control: str
     source_misalignments: list[str] = Field(default_factory=list)
     source_findings: list[str] = Field(default_factory=list)
+
 
 class LoadedPolicyPack(BaseModel):
     id: str
@@ -697,9 +765,7 @@ class PolicyAudit(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    severity_overrides_applied: list[SeverityOverrideAuditEntry] = Field(
-        default_factory=list
-    )
+    severity_overrides_applied: list[SeverityOverrideAuditEntry] = Field(default_factory=list)
 
 
 class RedactedPathSummary(BaseModel):
@@ -821,7 +887,9 @@ class ReadinessReport(BaseModel):
     # v0.28: policy-pack rule owner/reviewer/approval routing metadata
     # moved out of ``Finding.evidence`` into ``Finding.policy_routing``.
     # The release gate is unchanged; these are org-governance audit fields.
-    report_schema_version: str = "0.28"
+    # v0.29: additive semantic assessments and zero-tolerance semantic
+    # evidence coverage make ``passed`` evidence-backed.
+    report_schema_version: str = "0.29"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -921,9 +989,7 @@ class ReadinessReport(BaseModel):
     # touched; the ordinary SHIP-VERIFY-* findings are what gate. Always
     # present on emitted scans (empty list when no verification context /
     # no trust root touched). Optional in Python for older fixtures.
-    protected_surface_changes: list[ProtectedSurfaceChange] = Field(
-        default_factory=list
-    )
+    protected_surface_changes: list[ProtectedSurfaceChange] = Field(default_factory=list)
     # v0.22: normalized effective-policy snapshot. A semantic (not text)
     # view of the policy surface so the verify comparator can answer
     # "was the gate weakened?". Always present on emitted scans

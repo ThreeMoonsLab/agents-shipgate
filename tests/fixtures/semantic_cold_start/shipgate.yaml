@@ -1,0 +1,17 @@
+version: "0.1"
+
+project:
+  name: semantic-cold-start
+
+agent:
+  name: unaugmented-langchain-agent
+  declared_purpose:
+    - inspect support cases
+
+environment:
+  target: local
+
+tool_sources:
+  - id: unaugmented_agent
+    type: langchain
+    path: agent.py

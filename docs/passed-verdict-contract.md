@@ -1,0 +1,92 @@
+# Evidence-backed `passed` verdict
+
+Starting with the Agents Shipgate `0.16.0b1` runtime (contract v11, report
+schema v0.29), `release_decision.decision: passed` means
+that every in-scope capability has complete, conflict-free static surface,
+effect, and authority evidence, all applicable controls were evaluated, and no
+policy condition requires review. It does not prove runtime agent behavior or
+runtime enforcement.
+
+## Pass eligibility
+
+An action is pass-eligible only when all of the following hold:
+
+- its source surface is completely enumerable and extracted at high confidence;
+- its effect is established by a reviewed manifest declaration or a structural
+  source fact such as an OpenAPI method or an explicit MCP annotation;
+- its authority is explicitly `none` or concretely scoped;
+- no semantic claims conflict and all annotation values are valid; and
+- controls required by the normalized effect are present.
+
+Names, descriptions, schema keywords, regular expressions, and protocol
+defaults may raise the conservative risk bound, but they never establish
+safety. A capability with only inferred, defaulted, partial, or missing
+evidence is `insufficient_evidence`, regardless of how many fully described
+capabilities are present alongside it.
+
+Semantic evidence is part of the release decision, not a Finding. It cannot be
+suppressed, baseline-matched, waived through a severity override, or converted
+to known evidence by `--no-heuristics` or `human_ack`.
+
+Machine consumers should inspect
+`release_decision.evidence_coverage.semantic_coverage` and
+`evidence_gaps[]`. Packet schema v0.8 mirrors this contract, while capability
+standard v0.2 carries the same normalized assessment in capability lock v0.3
+and lock-diff v0.4 artifacts.
+
+The release decision also carries an explicit machine boundary:
+
+- `static_analysis_only: true`;
+- `runtime_behavior_verified: false`; and
+- `static_verdict_disclaimer`, the canonical statement that Agents Shipgate
+  did not execute the agent or prove runtime behavior, tool routing,
+  credential enforcement, or safety.
+
+Packet §1 mirrors these three fields exactly. Consumers must preserve them in
+summaries and must not translate `passed` into “runtime safe” or “runtime
+verified.”
+
+## Declaring missing semantics
+
+Use `action_surface.actions` to close a reviewed evidence gap:
+
+```yaml
+action_surface:
+  actions:
+    - tool: process_order
+      effect: write
+      scopes: [orders:write]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: delegated
+```
+
+Authority modes are:
+
+- `none`: no authority is required; scopes and auth type must be empty.
+- `scoped`: authority and concrete scopes are declared.
+- `unscoped`: authenticated but not operation-scoped; a reason is required and
+  human review remains mandatory.
+- `ambient`: inherited process, user, or host authority; a reason is required
+  and human review remains mandatory.
+
+Agents Shipgate never auto-writes these declarations. They assert what an
+agent can do and therefore require human review. Semantic next actions carry
+`suggested_patch_kind: manual`, `auto_apply: false`, and
+`requires_human_review: true`; a `declaration_template` is a placeholder for
+human review, not an executable Patch.
+
+## CI behavior
+
+Advisory mode continues to exit zero while reporting the non-pass verdict.
+Strict mode exits 20 when semantic evidence is insufficient. Existing CI
+files are not silently rewritten; repositories opt into blocking policy after
+a human has reviewed the migrated surface.
+
+## Migration from 0.15
+
+There is no legacy `default_read` switch. Pin 0.15 temporarily if migration
+cannot be completed immediately. Old reports and baselines remain readable,
+but an old report without semantic evidence cannot prove a current action safe.
+Regenerate base reports and capability locks with 0.16 before comparing them.

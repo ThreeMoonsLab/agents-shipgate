@@ -43,18 +43,18 @@ The `support_refund_agent` fixture also includes the Release Evidence Packet at
 | [`ai_generated_refund_pr`](ai_generated_refund_pr/) | Verify-native base/head PR fixture for the blocked refund capability story. |
 | [`agent_weakens_gate`](agent_weakens_gate/) | Trust-root demo: the head commit deletes the Shipgate CI gate and the verifier blocks the merge. |
 | [`support_refund_agent`](support_refund_agent/) | Production-like support/refund agent with MCP, OpenAPI, and SDK tools. |
-| [`openai_agents_sdk_agent`](openai_agents_sdk_agent/) | OpenAI Agents SDK static extraction from a directory of Python tools. |
+| [`openai_agents_sdk_agent`](openai_agents_sdk_agent/) | OpenAI Agents SDK static extraction paired with a reviewed bound-tool inventory. |
 | [`clean_read_only_agent`](clean_read_only_agent/) | Low-risk read-only fixture for clean scans. |
 | [`simple_openai_api_agent`](simple_openai_api_agent/) | OpenAI Agents API artifacts: prompts, tools, schemas, tests, traces. |
 | [`simple_anthropic_agent`](simple_anthropic_agent/) | Anthropic Messages API tool-use artifacts. |
 | [`google_adk_agent`](google_adk_agent/) | Google ADK Python and YAML config. |
 | [`hitl_evidence_agent`](hitl_evidence_agent/) | HITL validation evidence gaps for limited auto-approval review posture. |
 | [`hitl_evidence_covered_agent`](hitl_evidence_covered_agent/) | HITL validation evidence with local provenance for limited auto-approval review posture. |
-| [`simple_langchain_agent`](simple_langchain_agent/) | LangChain/LangGraph static Python extraction. |
-| [`simple_crewai_agent`](simple_crewai_agent/) | CrewAI static Python extraction. |
+| [`simple_langchain_agent`](simple_langchain_agent/) | LangChain/LangGraph static Python extraction plus a reviewed tool inventory. |
+| [`simple_crewai_agent`](simple_crewai_agent/) | CrewAI static Python extraction plus a reviewed inventory; ambient `FileReadTool` authority remains a review concern. |
 | [`multi_agent_workspace`](multi_agent_workspace/) | Multiple manifests in one workspace. |
 | [`baseline_workflow`](baseline_workflow/) | Baseline adoption before strict CI. |
-| [`large_multi_framework_agent`](large_multi_framework_agent/) | Production-shape retail-ops agent with ~65 tools across 5 sources. Exercises the pipeline at scale and pins the CI latency budget. No committed goldens — see the per-sample README. |
+| [`large_multi_framework_agent`](large_multi_framework_agent/) | Production-shape retail-ops agent with ~65 unique tools across 6 declared sources, including a reviewed SDK inventory. Exercises the pipeline at scale and pins the CI latency budget. No committed goldens — see the per-sample README. |
 | [`_anti_patterns`](_anti_patterns/) | Intentionally unsafe or invalid examples for tests and docs. |
 
 ## Direct scans

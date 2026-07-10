@@ -346,7 +346,8 @@ def test_capability_fact_from_action_supports_missing_tool_context() -> None:
     fact = capability_fact_from_action(action, None)
 
     assert fact.identity.tool_name == "cases.update"
-    assert fact.authority.auth_type is None
+    assert fact.authority.auth_type == "oauth"
+    assert fact.authority.credential_mode == "delegated"
     assert fact.authority.scopes == ("cases:write",)
     assert fact.evidence.source_type == "openapi"
     assert fact.evidence.source_id == "support_api"
@@ -388,4 +389,4 @@ def test_building_capability_facts_does_not_change_action_fact_output() -> None:
 
 
 def test_capability_substrate_uses_current_report_schema_version() -> None:
-    assert ReadinessReport.model_fields["report_schema_version"].default == "0.28"
+    assert ReadinessReport.model_fields["report_schema_version"].default == "0.29"

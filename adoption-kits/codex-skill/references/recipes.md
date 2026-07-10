@@ -108,7 +108,8 @@ overwriting it.
 2. Pick the first blocker, then highest-severity review item.
 3. Auto-apply only high-confidence safe patches.
 4. For policy/evidence gaps, propose the exact human decision needed. Do not
-   fabricate approval, confirmation, idempotency, broad-scope,
+   fabricate action effect, action authority, approval, confirmation,
+   idempotency, broad-scope,
    prohibited-action, or runtime-trace evidence.
 5. Re-run `agents-shipgate verify` and report the new merge verdict, release
    decision, blocker count, and review-item count.

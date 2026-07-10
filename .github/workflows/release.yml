@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Verify tag matches package version
-        # Fail fast before the test/build/publish pipeline if the tag
+        # Fail fast before the test/qualification/publish pipeline if the tag
         # was cut on a commit whose pyproject.toml disagrees (e.g. a
         # v0.15.0 tag pushed while main still says 0.14.0). PyPI
         # uploads are immutable, so this is the last cheap moment to
@@ -33,6 +33,51 @@ jobs:
           fi
           echo "OK: ${GITHUB_REF_NAME} matches pyproject.toml (${version})."
 
+      - name: Require protected safety qualification inputs
+        env:
+          QUALIFIED_WHEEL_URL: ${{ vars.SAFETY_QUALIFICATION_WHEEL_URL }}
+          QUALIFIED_WHEEL_FILENAME: ${{ vars.SAFETY_QUALIFICATION_WHEEL_FILENAME }}
+          QUALIFICATION_JSON_URL: ${{ vars.SAFETY_QUALIFICATION_JSON_URL }}
+          QUALIFICATION_BUNDLE_URL: ${{ vars.SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL }}
+          QUALIFICATION_SIGNER_IDENTITY: ${{ vars.SAFETY_QUALIFICATION_SIGNER_IDENTITY }}
+          QUALIFICATION_OIDC_ISSUER: ${{ vars.SAFETY_QUALIFICATION_OIDC_ISSUER }}
+        run: |
+          missing=0
+          for name in \
+            QUALIFIED_WHEEL_URL \
+            QUALIFIED_WHEEL_FILENAME \
+            QUALIFICATION_JSON_URL \
+            QUALIFICATION_BUNDLE_URL \
+            QUALIFICATION_SIGNER_IDENTITY \
+            QUALIFICATION_OIDC_ISSUER
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Protected pypi environment variable ${name} is required; refusing to release."
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+          for url in \
+            "${QUALIFIED_WHEEL_URL}" \
+            "${QUALIFICATION_JSON_URL}" \
+            "${QUALIFICATION_BUNDLE_URL}"
+          do
+            case "${url}" in
+              https://*) ;;
+              *) echo "::error::Qualification artifact URLs must use HTTPS."; exit 1 ;;
+            esac
+          done
+          case "${QUALIFIED_WHEEL_FILENAME}" in
+            *.whl) ;;
+            *) echo "::error::SAFETY_QUALIFICATION_WHEEL_FILENAME must be a wheel basename."; exit 1 ;;
+          esac
+          if [[ ! "${QUALIFIED_WHEEL_FILENAME}" =~ ^[A-Za-z0-9_.+-]+\.whl$ ]]; then
+            echo "::error::Qualified wheel filename contains unsafe characters or path components."
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
@@ -44,6 +89,49 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip install "uv==0.11.7"
 
+      - name: Download configured qualification inputs
+        env:
+          QUALIFIED_WHEEL_URL: ${{ vars.SAFETY_QUALIFICATION_WHEEL_URL }}
+          QUALIFIED_WHEEL_FILENAME: ${{ vars.SAFETY_QUALIFICATION_WHEEL_FILENAME }}
+          QUALIFICATION_JSON_URL: ${{ vars.SAFETY_QUALIFICATION_JSON_URL }}
+          QUALIFICATION_BUNDLE_URL: ${{ vars.SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL }}
+        run: |
+          if [ -e qualified-dist ] || [ -L qualified-dist ]; then
+            echo "::error::qualified-dist must not pre-exist in the release checkout."
+            exit 1
+          fi
+          mkdir -p qualified-dist
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output "qualified-dist/${QUALIFIED_WHEEL_FILENAME}" \
+            "${QUALIFIED_WHEEL_URL}"
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output qualified-dist/safety-qualification.json \
+            "${QUALIFICATION_JSON_URL}"
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output qualified-dist/safety-qualification.sigstore.json \
+            "${QUALIFICATION_BUNDLE_URL}"
+          echo "QUALIFIED_WHEEL=qualified-dist/${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
+          echo "QUALIFIED_WHEEL_FILENAME=${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
+
+      - name: Verify configured qualification signature
+        env:
+          QUALIFICATION_SIGNER_IDENTITY: ${{ vars.SAFETY_QUALIFICATION_SIGNER_IDENTITY }}
+          QUALIFICATION_OIDC_ISSUER: ${{ vars.SAFETY_QUALIFICATION_OIDC_ISSUER }}
+        run: |
+          sigstore verify identity \
+            --bundle qualified-dist/safety-qualification.sigstore.json \
+            --cert-identity "${QUALIFICATION_SIGNER_IDENTITY}" \
+            --cert-oidc-issuer "${QUALIFICATION_OIDC_ISSUER}" \
+            qualified-dist/safety-qualification.json
+
+      - name: Verify production qualification and exact wheel binding
+        run: |
+          python scripts/verify_safety_qualification_release.py \
+            --wheel "${QUALIFIED_WHEEL}" \
+            --qualification qualified-dist/safety-qualification.json \
+            --tag "${GITHUB_REF_NAME}"
+          python -m twine check "${QUALIFIED_WHEEL}"
+
       - name: Lint and test
         # v0.21 (E7): coverage threshold bumped from 75 → 85, matching
         # CI gate so release cannot bypass the tighter floor.
@@ -52,22 +140,31 @@ jobs:
           python -m compileall -q src tests
           python -m pytest --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
 
-      - name: Build package
-        run: |
-          python -m build
-          python -m twine check dist/*
-
       - name: Dependency audit
         run: python -m pip_audit .
 
       - name: Generate SBOM
-        run: cyclonedx-py environment --pyproject pyproject.toml -o dist/agents-shipgate-sbom.json
+        run: |
+          if [ -e dist ] || [ -L dist ]; then
+            echo "::error::dist must not pre-exist before qualified artifact promotion."
+            exit 1
+          fi
+          mkdir -p dist
+          cp -- "${QUALIFIED_WHEEL}" "dist/${QUALIFIED_WHEEL_FILENAME}"
+          cp -- qualified-dist/safety-qualification.json dist/safety-qualification.json
+          cp -- qualified-dist/safety-qualification.sigstore.json \
+            dist/safety-qualification.sigstore.json
+          cmp -- "${QUALIFIED_WHEEL}" "dist/${QUALIFIED_WHEEL_FILENAME}"
+          cyclonedx-py environment --pyproject pyproject.toml -o dist/agents-shipgate-sbom.json
 
       - name: Sign release artifacts
-        run: sigstore sign --output-directory dist --overwrite dist/*.whl dist/*.tar.gz dist/agents-shipgate-sbom.json
+        run: |
+          sigstore sign --output-directory dist --overwrite \
+            "dist/${QUALIFIED_WHEEL_FILENAME}" \
+            dist/agents-shipgate-sbom.json
 
       - name: Publish to PyPI with Trusted Publishing
-        run: uv publish --trusted-publishing always dist/*.whl dist/*.tar.gz
+        run: uv publish --trusted-publishing always "dist/${QUALIFIED_WHEEL_FILENAME}"
 
       - name: Create GitHub release
         env:

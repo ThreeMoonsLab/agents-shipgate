@@ -24,10 +24,10 @@
         "idempotentHint": true
       },
       "auth": {
+        "type": "oauth2",
         "scopes": ["refunds:write"]
       },
       "owner": "support-ops"
     }
   ]
 }
-

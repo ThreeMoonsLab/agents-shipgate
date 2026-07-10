@@ -11,11 +11,12 @@ from agents_shipgate.schemas.capability_semantics import (
     CapabilitySemanticDirection,
 )
 from agents_shipgate.schemas.common import Confidence
+from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-CAPABILITY_LOCK_SCHEMA_VERSION = "0.2"
-CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.3"
-CAPABILITY_STANDARD_VERSION = "0.1"
+CAPABILITY_LOCK_SCHEMA_VERSION = "0.3"
+CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.4"
+CAPABILITY_STANDARD_VERSION = "0.2"
 CapabilityEvidenceProvenanceKind = Literal[
     "static_declaration",
     "ast_extraction",
@@ -127,8 +128,34 @@ class CapabilityFactV1(BaseModel):
     authority: CapabilityAuthority
     controls: CapabilityControls
     evidence: CapabilityEvidence
+    # Capability standard v0.2: normalized semantic evidence is carried
+    # alongside the legacy effect/authority projections. Optional for old
+    # lock readers; newly emitted v0.3 locks populate it.
+    semantic_assessment: ToolSemanticEvidence | None = None
     risk_tags: tuple[str, ...] = Field(default_factory=tuple)
     hashes: CapabilityHashes
+
+    @model_validator(mode="after")
+    def _semantic_projection_is_consistent(self) -> CapabilityFactV1:
+        semantic = self.semantic_assessment
+        if semantic is None:
+            return self
+        if self.effect.effect != semantic.conservative_effect:
+            raise ValueError(
+                "CapabilityFactV1.effect.effect must equal "
+                "semantic_assessment.conservative_effect"
+            )
+        if self.authority.auth_type != semantic.authority.auth_type:
+            raise ValueError(
+                "CapabilityFactV1.authority.auth_type must project semantic authority"
+            )
+        if self.authority.credential_mode != semantic.authority.credential_mode:
+            raise ValueError(
+                "CapabilityFactV1.authority.credential_mode must project semantic authority"
+            )
+        if self.authority.scopes != tuple(sorted(set(semantic.authority.scopes))):
+            raise ValueError("CapabilityFactV1.authority.scopes must project semantic authority")
+        return self
 
 
 def capability_fact_sort_key(
@@ -183,7 +210,7 @@ class CapabilityLockHashes(BaseModel):
 class CapabilityLockFileV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_schema_version: Literal["0.2"] = CAPABILITY_LOCK_SCHEMA_VERSION
+    capability_lock_schema_version: Literal["0.3"] = CAPABILITY_LOCK_SCHEMA_VERSION
     experimental: Literal[False] = False
     cli_version: str
     source: CapabilityLockSource
@@ -235,7 +262,7 @@ class CapabilityLockChangedFact(BaseModel):
 class CapabilityLockDiffV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_diff_schema_version: Literal["0.3"] = (
+    capability_lock_diff_schema_version: Literal["0.4"] = (
         CAPABILITY_LOCK_DIFF_SCHEMA_VERSION
     )
     experimental: Literal[False] = False

@@ -4,7 +4,7 @@ from agents_shipgate.core.capability_lattice import (
     classify_tool_permission,
     mcp_permission_risk_hints,
 )
-from agents_shipgate.core.domain import AuthInfo, Tool
+from agents_shipgate.core.domain import AuthInfo, Tool, ToolRiskHint
 
 
 def _tool(
@@ -12,6 +12,7 @@ def _tool(
     *,
     annotations: dict[str, object] | None = None,
     scopes: list[str] | None = None,
+    risk_hints: list[ToolRiskHint] | None = None,
 ) -> Tool:
     return Tool(
         id=f"tool:{name}",
@@ -19,6 +20,7 @@ def _tool(
         source_type="mcp",
         annotations=annotations or {},
         auth=AuthInfo(scopes=scopes or []),
+        risk_hints=risk_hints or [],
         extraction_confidence="high",
     )
 
@@ -27,14 +29,33 @@ def test_lattice_classifies_read_write_and_destructive() -> None:
     assert classify_tool_permission(
         _tool("read_docs", annotations={"readOnlyHint": True})
     ).classes == ("read",)
-    assert "write" in classify_tool_permission(_tool("write_file")).classes
-    assert "destructive" in classify_tool_permission(_tool("delete_record")).classes
+    assert (
+        "write"
+        in classify_tool_permission(
+            _tool("write_file", annotations={"permission_classes": ["write"]})
+        ).classes
+    )
+    assert (
+        "destructive"
+        in classify_tool_permission(
+            _tool(
+                "delete_record",
+                annotations={"permission_classes": ["destructive"]},
+            )
+        ).classes
+    )
 
 
 def test_lattice_maps_external_financial_and_production() -> None:
-    external = classify_tool_permission(_tool("send_email"))
-    financial = classify_tool_permission(_tool("create_refund"))
-    production = classify_tool_permission(_tool("deploy_cluster"))
+    external = classify_tool_permission(
+        _tool("send_email", annotations={"permission_classes": ["external"]})
+    )
+    financial = classify_tool_permission(
+        _tool("create_refund", annotations={"permission_classes": ["financial"]})
+    )
+    production = classify_tool_permission(
+        _tool("deploy_cluster", annotations={"permission_classes": ["production"]})
+    )
 
     assert external.effect == "external_communication"
     assert financial.effect == "financial_write"
@@ -52,6 +73,15 @@ def test_lattice_unknown_side_effect_fails_closed() -> None:
     assert profile.risk_level in {"high", "critical"}
 
 
+def test_lattice_neutral_mcp_tool_has_unknown_effect_not_default_read() -> None:
+    profile = classify_tool_permission(_tool("process_order"))
+
+    assert profile.classes == ("unknown",)
+    assert profile.effect == "write"
+    assert profile.side_effect_unknown is True
+    assert "missing_effect_evidence" in profile.reasons
+
+
 def test_lattice_modifiers_raise_risk_score() -> None:
     plain = classify_tool_permission(_tool("write_file"))
     approved = classify_tool_permission(
@@ -61,18 +91,26 @@ def test_lattice_modifiers_raise_risk_score() -> None:
     assert approved.risk_score > plain.risk_score
 
 
-def test_lattice_preserves_ordered_name_prefix_for_read_tools() -> None:
+def test_lattice_does_not_treat_a_read_name_as_safety_evidence() -> None:
     profile = classify_tool_permission(_tool("read_deployments"))
 
-    assert profile.classes == ("read",)
-    assert "name_description" in profile.reasons
+    assert profile.classes == ("unknown",)
+    assert profile.effect == "write"
+    assert profile.side_effect_unknown is True
 
 
-def test_read_only_hint_confidence_distinguishes_explicit_from_inferred() -> None:
-    inferred = next(
-        hint
-        for hint in mcp_permission_risk_hints(_tool("read_docs"))
-        if hint.tag == "read_only"
+def test_inferred_read_never_becomes_a_read_only_permission_hint() -> None:
+    inferred = mcp_permission_risk_hints(
+        _tool(
+            "read_docs",
+            risk_hints=[
+                ToolRiskHint(
+                    tag="read_only",
+                    source="keyword",
+                    confidence="medium",
+                )
+            ],
+        )
     )
     explicit = next(
         hint
@@ -82,5 +120,5 @@ def test_read_only_hint_confidence_distinguishes_explicit_from_inferred() -> Non
         if hint.tag == "read_only"
     )
 
-    assert inferred.confidence == "medium"
+    assert all(hint.tag != "read_only" for hint in inferred)
     assert explicit.confidence == "high"

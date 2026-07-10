@@ -5,5 +5,8 @@ parses local Python files with AST, extracts `@function_tool` declarations, and
 does not import user code. Directory scanning is non-recursive: only immediate
 `*.py` files under `agents/` are scanned in sorted order.
 `agents/dynamic_tools.py` intentionally contains a runtime factory that is
-ignored; provide MCP, OpenAPI, or inventory artifacts when a real agent builds
-tools dynamically.
+ignored. [`inventories/tools.json`](inventories/tools.json) is the reviewed
+inventory for the two bound static tools: it lets the fixture exercise AST
+extraction without pretending AST alone proves a complete framework binding
+graph. Real agents that build tools dynamically must provide a reviewed MCP,
+OpenAPI, or inventory artifact before they can qualify for `passed`.

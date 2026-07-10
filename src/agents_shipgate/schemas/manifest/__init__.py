@@ -26,6 +26,8 @@ from agents_shipgate.schemas.manifest._artifacts import (
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 from agents_shipgate.schemas.manifest.action_surface import (
     ActionApprovalConfig,
+    ActionAuthorityConfig,
+    ActionAuthorityMode,
     ActionDeclarationConfig,
     ActionEffect,
     ActionEvidenceConfig,
@@ -106,6 +108,8 @@ __all__ = [
     "STRICT_MODEL_CONFIG",
     # action_surface
     "ActionApprovalConfig",
+    "ActionAuthorityConfig",
+    "ActionAuthorityMode",
     "ActionDeclarationConfig",
     "ActionEffect",
     "ActionEvidenceConfig",

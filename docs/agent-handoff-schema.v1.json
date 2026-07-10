@@ -198,6 +198,23 @@
         "merge_verdict": {
           "title": "Merge Verdict",
           "type": "string"
+        },
+        "runtime_behavior_verified": {
+          "const": false,
+          "default": false,
+          "title": "Runtime Behavior Verified",
+          "type": "boolean"
+        },
+        "static_analysis_only": {
+          "const": true,
+          "default": true,
+          "title": "Static Analysis Only",
+          "type": "boolean"
+        },
+        "static_verdict_disclaimer": {
+          "default": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
+          "title": "Static Verdict Disclaimer",
+          "type": "string"
         }
       },
       "required": [
@@ -430,7 +447,7 @@
           "type": "string"
         },
         "version": {
-          "default": "0.15.0",
+          "default": "0.16.0b1",
           "title": "Version",
           "type": "string"
         }

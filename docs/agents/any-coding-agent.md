@@ -79,8 +79,9 @@ See [`../mcp-server.md`](../mcp-server.md).
 ## Forbidden shortcuts
 
 Regardless of harness: do not suppress findings (`checks.ignore`), lower
-severities, expand baselines or waivers, fabricate approval / idempotency /
-confirmation evidence, weaken `shipgate.yaml` or agent instructions, or
+severities, expand baselines or waivers, fabricate action-effect /
+action-authority / approval / idempotency / confirmation evidence, weaken
+`shipgate.yaml` or agent instructions, or
 remove Shipgate CI to make a verdict pass. Trust-root and boundary checks
 are suppression-immune; the cheapest reward-hack is also the most visible
 one.

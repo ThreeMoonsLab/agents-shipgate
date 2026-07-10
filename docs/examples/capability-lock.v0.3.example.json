@@ -1,0 +1,152 @@
+{
+  "capability_lock_schema_version": "0.3",
+  "experimental": false,
+  "cli_version": "0.16.0b1",
+  "source": {
+    "config_path": "shipgate.yaml",
+    "manifest_dir": ".",
+    "project_name": "support-agent",
+    "agent_id": "agent:support",
+    "agent_name": "Support Agent",
+    "environment_target": "production",
+    "tool_count": 1,
+    "toolkit_bound_count": 0,
+    "source_count": 1,
+    "source_warning_count": 0,
+    "plugins_enabled": true
+  },
+  "summary": {
+    "capability_count": 1,
+    "high_risk_count": 0,
+    "broad_scope_count": 0,
+    "write_count": 0,
+    "external_communication_count": 0,
+    "financial_count": 0,
+    "code_execution_count": 0
+  },
+  "hashes": {
+    "semantic_capability_set_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+    "evidence_set_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+    "source_set_hash": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "capabilities": [
+    {
+      "id": "cap_aaaaaaaaaaaa",
+      "identity": {
+        "agent_id": "agent:support",
+        "tool_id": "tool:cases.search",
+        "tool_name": "cases.search",
+        "provider": "openapi",
+        "operation": "read",
+        "subject_kind": "action",
+        "resource": [
+          "case"
+        ],
+        "scope": [
+          "cases:read"
+        ]
+      },
+      "effect": {
+        "effect": "read",
+        "externally_visible": false,
+        "handles_sensitive_data": false,
+        "financial": false,
+        "code_execution": false,
+        "reversibility": "reversible",
+        "idempotency_known": true,
+        "high_risk": false
+      },
+      "authority": {
+        "auth_type": "oauth2",
+        "credential_mode": "delegated",
+        "source": "openapi",
+        "scopes": [
+          "cases:read"
+        ],
+        "broad_scopes": []
+      },
+      "controls": {
+        "approval_required": false,
+        "approval_threshold": null,
+        "confirmation_required": false,
+        "safeguard_idempotency": true,
+        "safeguard_audit_log": true,
+        "safeguard_rollback": null,
+        "safeguard_dry_run": null,
+        "evidence_owner": "support-platform",
+        "evidence_runbook": "runbooks/cases.md",
+        "evidence_approval_ticket": null
+      },
+      "evidence": {
+        "source_type": "openapi",
+        "source_id": "support_api",
+        "source_ref": "tools/support.openapi.yaml",
+        "source_location": null,
+        "source_path": "tools/support.openapi.yaml",
+        "source_start_line": 42,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/paths/~1cases/get",
+        "provenance_kind": "static_declaration",
+        "confidence": "high"
+      },
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "effect": {
+          "status": "structural",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi.method",
+              "source_pointer": "/paths/~1cases/get",
+              "evidence": {
+                "method": "GET"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "structural",
+          "mode": "scoped",
+          "auth_type": "oauth2",
+          "credential_mode": "delegated",
+          "scopes": [
+            "cases:read"
+          ],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi.security",
+              "source_pointer": "/paths/~1cases/get/security",
+              "evidence": {
+                "scopes": [
+                  "cases:read"
+                ]
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      },
+      "risk_tags": [],
+      "hashes": {
+        "identity_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "effect_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "authority_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "control_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "schema_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "risk_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "evidence_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    }
+  ]
+}

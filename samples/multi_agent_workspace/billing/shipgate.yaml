@@ -19,3 +19,18 @@ tool_sources:
 policies:
   require_approval_for_tools:
     - billing.refund_preview
+
+action_surface:
+  actions:
+    - tool: billing.refund_preview
+      effect: read
+      authority:
+        mode: none
+
+risk_overrides:
+  tools:
+    billing.refund_preview:
+      tags: [read_only]
+      remove_tags: [financial_action]
+      confidence: manual
+      reason: computes a preview and never submits a refund

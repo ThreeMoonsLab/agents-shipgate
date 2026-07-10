@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- **Evidence-backed `passed` verdict (`0.16.0b1`).** `passed` now requires
+  complete, conflict-free static surface, effect, and authority evidence for
+  every in-scope action, evaluation of all applicable controls, and no policy
+  condition requiring review. Unknown, inferred-only, protocol-defaulted,
+  partial, invalid, or conflicting semantics route to
+  `insufficient_evidence`; known ambient/unscoped authority routes to review.
+  Semantic gaps are not Findings and cannot be suppressed or baselined. This
+  remains a static claim, not proof of runtime behavior or enforcement.
+- **Normalized semantic evidence contract.** Report schema v0.29 and packet
+  schema v0.8 add per-action/per-capability assessments, semantic coverage,
+  and typed human-routed gap remediation. Manifest action declarations can
+  provide reviewed `effect` and `authority` evidence; Agents Shipgate never
+  auto-writes those assertions. Contract v11 exposes this boundary as
+  `do_not_auto_assert: [action_effect, action_authority, ...]`.
+- **Machine-readable static-verdict boundary.** Report release decisions,
+  verifier artifacts, and agent-handoff gates now expose
+  `static_analysis_only: true`, `runtime_behavior_verified: false`, and the
+  canonical `static_verdict_disclaimer`; packet v0.8 §1 mirrors the report.
+- **Capability standard v0.2.** Capability lock schema advances to v0.3 and
+  diff schema to v0.4 so static capability facts carry the normalized semantic
+  assessment. Runtime contract advances to v11; the source-tree package is
+  `0.16.0b1` while install examples remain pinned to the latest published tag,
+  `v0.15.0`, until the beta is released.
+- **Qualification trust boundary is explicit.** Beta promotion verifies an
+  internally consistent production-qualification summary, its configured
+  Sigstore identity, and exact wheel/tag binding. Organizational signer
+  independence, blind labeling, receipt replay, and the four-week,
+  three-design-partner rollout remain governed external controls rather than
+  guarantees made by the promotion code. The machine policy enforces a
+  combined minimum of 40 real-history, rejected/reverted, or design-partner
+  origins.
+
 ## 0.15.0 - 2026-07-07
 
 - **First real-history accuracy numbers, published.** The 2026-W26 mined

@@ -19,3 +19,13 @@ tool_sources:
 permissions:
   scopes:
     - support:read
+
+action_surface:
+  actions:
+    - tool: support.ticket_lookup
+      effect: read
+      scopes: [support:read]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: delegated

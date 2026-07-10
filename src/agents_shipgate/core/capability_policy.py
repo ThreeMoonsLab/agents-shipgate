@@ -13,7 +13,6 @@ from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.domain import Tool, ToolParameter
 from agents_shipgate.core.risk_hints import (
     CANONICAL_RISK_TAG_MAP,
-    is_effectively_read_only,
     risk_tags,
 )
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
@@ -66,9 +65,7 @@ def build_capability_policy_subjects(
 ) -> tuple[list[CapabilityFactV1], list[CapabilityPolicySubject]]:
     facts = build_capability_facts(manifest, agent_id=agent_id, tools=tools)
     facts_by_tool_id = {fact.identity.tool_id: fact for fact in facts}
-    actions_by_tool_id = {
-        action.tool_id: action for action in action_surface_facts.actions
-    }
+    actions_by_tool_id = {action.tool_id: action for action in action_surface_facts.actions}
     approval_tools = _approval_tools(manifest, artifact_bag)
     confirmation_tools = _confirmation_tools(manifest, artifact_bag)
     idempotency_tools = _idempotency_tools(manifest, artifact_bag)
@@ -87,12 +84,10 @@ def build_capability_policy_subjects(
                 parameters=tuple(tool.parameters),
                 legacy_risk_tags=tuple(sorted(set(risk_tags(tool, min_confidence="medium")))),
                 effective_approval_required=(
-                    fact.controls.approval_required is True
-                    or tool.name in approval_tools
+                    fact.controls.approval_required is True or tool.name in approval_tools
                 ),
                 effective_confirmation_required=(
-                    fact.controls.confirmation_required is True
-                    or tool.name in confirmation_tools
+                    fact.controls.confirmation_required is True or tool.name in confirmation_tools
                 ),
                 effective_idempotency_known=(
                     fact.effect.idempotency_known is True
@@ -162,9 +157,7 @@ def match_policy_pack_subject(
         evidence["missing_idempotency_policy"] = missing
         matched_predicates["missing_idempotency_policy"] = missing
     if rule_match.parameters:
-        matched_parameters = matched_parameters_for_subject(
-            subject, rule_match.parameters
-        )
+        matched_parameters = matched_parameters_for_subject(subject, rule_match.parameters)
         if len(matched_parameters) != len(rule_match.parameters):
             return None
         evidence["parameters"] = matched_parameters
@@ -206,9 +199,7 @@ def match_policy_pack_subject(
     if rule_match.none_of:
         for sub_match in rule_match.none_of:
             if (
-                match_policy_pack_subject(
-                    subject, sub_match, environment_target=environment_target
-                )
+                match_policy_pack_subject(subject, sub_match, environment_target=environment_target)
                 is not None
             ):
                 return None
@@ -226,34 +217,51 @@ def match_policy_pack_subject(
 
 
 def subject_requires_approval_review(subject: CapabilityPolicySubject) -> bool:
-    return (
-        not _subject_is_effectively_read_only(subject)
-        and _subject_has_any_risk_tag(
-            subject,
-            {
-                "financial_action",
-                "destructive",
-                "infrastructure_change",
-                "code_execution",
-            },
-        )
-        and _missing_approval_policy(subject)
-    )
+    return bool(
+        _subject_control_effects(subject)
+        & {
+            "financial_write",
+            "destructive",
+            "production_operation",
+            "code_execution",
+        }
+    ) and _missing_approval_policy(subject)
 
 
 def subject_requires_confirmation_review(subject: CapabilityPolicySubject) -> bool:
-    return (
-        not _subject_is_effectively_read_only(subject)
-        and _subject_has_any_risk_tag(
-            subject,
-            {
+    return bool(
+        _subject_control_effects(subject) & {"destructive", "external_communication"}
+    ) and _missing_confirmation_policy(subject)
+
+
+def _subject_control_effects(subject: CapabilityPolicySubject) -> set[str]:
+    """Project non-heuristic positive effect claims for hard controls."""
+
+    assessment = getattr(subject.tool, "semantic_assessment", None)
+    if assessment is None:
+        return {subject.fact.effect.effect}
+    effects: set[str] = set()
+    if assessment.effect.status in {"declared", "structural"}:
+        effects.add(assessment.conservative_effect)
+    for claim in assessment.effect.claims:
+        if (
+            claim.confidence == "high"
+            and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
+            and claim.value
+            in {
+                "read",
+                "write",
                 "destructive",
-                "external_write",
-                "customer_communication",
-            },
-        )
-        and _missing_confirmation_policy(subject)
-    )
+                "external_communication",
+                "financial_write",
+                "production_operation",
+                "privileged_data_access",
+                "code_execution",
+                "identity_access",
+            }
+        ):
+            effects.add(claim.value)
+    return effects
 
 
 def capability_policy_evidence_for_subject(
@@ -326,9 +334,7 @@ def _match_capability_selector(
             return None
         matched["risk_tags"] = risk_matches
     if selector.scopes:
-        scope_matches = sorted(
-            set(fact.identity.scope).intersection(selector.scopes)
-        )
+        scope_matches = sorted(set(fact.identity.scope).intersection(selector.scopes))
         if not scope_matches:
             return None
         matched["scopes"] = scope_matches
@@ -374,9 +380,7 @@ def _match_capability_selector(
             return None
         matched[field] = actual
     if selector.parameters:
-        matched_parameters = matched_parameters_for_subject(
-            subject, selector.parameters
-        )
+        matched_parameters = matched_parameters_for_subject(subject, selector.parameters)
         if len(matched_parameters) != len(selector.parameters):
             return None
         matched["parameters"] = matched_parameters
@@ -401,14 +405,10 @@ def _parameter_matches(
     if predicate.required is not None and parameter.required is not predicate.required:
         return False
     if predicate.maximum_above is not None:
-        if parameter.maximum is None or not (
-            float(parameter.maximum) > predicate.maximum_above
-        ):
+        if parameter.maximum is None or not (float(parameter.maximum) > predicate.maximum_above):
             return False
     if predicate.minimum_below is not None:
-        if parameter.minimum is None or not (
-            float(parameter.minimum) < predicate.minimum_below
-        ):
+        if parameter.minimum is None or not (float(parameter.minimum) < predicate.minimum_below):
             return False
     return True
 
@@ -427,22 +427,9 @@ def _matched_capability_risk_tags(
 ) -> list[str]:
     canonical_subject_tags = {_canonical_risk_tag(tag) for tag in subject.fact.risk_tags}
     matched = [
-        tag
-        for tag in sorted(set(requested))
-        if _canonical_risk_tag(tag) in canonical_subject_tags
+        tag for tag in sorted(set(requested)) if _canonical_risk_tag(tag) in canonical_subject_tags
     ]
     return matched
-
-
-def _subject_has_any_risk_tag(
-    subject: CapabilityPolicySubject,
-    requested: Iterable[str],
-) -> bool:
-    return bool(_matched_risk_tags(subject, requested))
-
-
-def _subject_is_effectively_read_only(subject: CapabilityPolicySubject) -> bool:
-    return is_effectively_read_only(subject.tool)
 
 
 def _missing_owner(subject: CapabilityPolicySubject) -> bool:
