@@ -555,18 +555,6 @@
         },
         "summary": {
           "$ref": "#/$defs/ActionSurfaceDiffSummary"
-        },
-        "tool_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tool Id"
         }
       },
       "required": [

@@ -17,7 +17,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
-from agents_shipgate.core.tool_identity import resolve_tool_selector
+from agents_shipgate.core.tool_identity import ToolSelectorIndex
 from agents_shipgate.core.toolkit_scope import toolkit_bound_facts
 from agents_shipgate.schemas.baseline import BaselineFile
 from agents_shipgate.schemas.capability_change import EffectivePolicy
@@ -389,12 +389,13 @@ def _control_facts(
     anthropic_artifacts: AnthropicArtifacts | None,
 ) -> list[ToolSurfaceControlFact]:
     facts: list[ToolSurfaceControlFact] = []
+    selector_index = ToolSelectorIndex.build(tools)
     facts.extend(
         _manifest_control_facts(
             "approval_policy",
             "manifest",
             manifest.policies.require_approval_for_tools,
-            tools,
+            selector_index,
         )
     )
     facts.extend(
@@ -402,7 +403,7 @@ def _control_facts(
             "confirmation_policy",
             "manifest",
             manifest.policies.require_confirmation_for_tools,
-            tools,
+            selector_index,
         )
     )
     facts.extend(
@@ -410,7 +411,7 @@ def _control_facts(
             "idempotency_evidence",
             "manifest",
             manifest.policies.require_idempotency_for_tools,
-            tools,
+            selector_index,
         )
     )
     if api_artifacts:
@@ -460,11 +461,11 @@ def _manifest_control_facts(
     kind: Literal["approval_policy", "confirmation_policy", "idempotency_evidence"],
     source: str,
     entries: list[PolicyToolEntry],
-    tools: list[Tool],
+    selector_index: ToolSelectorIndex,
 ) -> list[ToolSurfaceControlFact]:
     facts: list[ToolSurfaceControlFact] = []
     for entry in entries:
-        match = resolve_tool_selector(tools, entry)
+        match = selector_index.resolve(entry)
         if not match.resolved:
             continue
         tool = match.matches[0]

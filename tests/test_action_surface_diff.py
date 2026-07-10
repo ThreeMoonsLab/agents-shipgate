@@ -1068,7 +1068,7 @@ def test_action_declaration_effect_downgrade_blocks_release(monkeypatch):
     )
     tools = attach_semantic_assessments(
         [tool],
-        {entry.tool: entry for entry in manifest.action_surface.actions},
+        {tool.id: manifest.action_surface.actions[0]},
     )
     facts = build_action_surface_facts(
         manifest,

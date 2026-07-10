@@ -39,6 +39,71 @@ class SelectorResolution:
         return len(self.matches) == 1 and self.kind is None
 
 
+@dataclass(frozen=True)
+class ToolSelectorIndex:
+    """One-pass lookup index for repeated manifest selector resolution."""
+
+    tools: tuple[Tool, ...]
+    by_id: dict[str, Tool]
+    by_name: dict[str, tuple[Tool, ...]]
+
+    @classmethod
+    def build(cls, tools: Sequence[Tool]) -> ToolSelectorIndex:
+        by_name: dict[str, list[Tool]] = defaultdict(list)
+        for tool in tools:
+            by_name[tool.name].append(tool)
+        return cls(
+            tools=tuple(tools),
+            by_id={tool.id: tool for tool in tools},
+            by_name={
+                name: tuple(sorted(matches, key=lambda tool: tool.id))
+                for name, matches in by_name.items()
+            },
+        )
+
+    def resolve(self, selector: Any) -> SelectorResolution:
+        tool_id = _selector_value(selector, "tool_id")
+        name = _selector_value(selector, "tool")
+        provider = _selector_value(selector, "provider")
+        source_type = _selector_value(selector, "source_type")
+        source_id = _selector_value(selector, "source_id")
+
+        if tool_id:
+            match = self.by_id.get(tool_id)
+            candidates: Sequence[Tool] = (match,) if match is not None else ()
+        elif name:
+            candidates = self.by_name.get(name, ())
+        else:
+            return SelectorResolution(
+                (),
+                "unresolved_tool_selector",
+                "selector has no tool or tool_id",
+            )
+        if provider:
+            candidates = tuple(tool for tool in candidates if tool.provider == provider)
+        if source_type:
+            candidates = tuple(
+                tool for tool in candidates if tool.source_type == source_type
+            )
+        if source_id:
+            candidates = tuple(tool for tool in candidates if tool.source_id == source_id)
+
+        if len(candidates) == 1:
+            return SelectorResolution((candidates[0],))
+        rendered = _render_selector(selector)
+        if not candidates:
+            return SelectorResolution(
+                (),
+                "unresolved_tool_selector",
+                f"Tool selector {rendered} matched no canonical tool",
+            )
+        return SelectorResolution(
+            tuple(candidates),
+            "ambiguous_tool_selector",
+            f"Tool selector {rendered} matched {len(candidates)} canonical tools",
+        )
+
+
 def build_tool_identity_catalog(
     loaded_sources: list[LoadedToolSource],
     config: ToolIdentityConfig,
@@ -173,40 +238,7 @@ def build_tool_identity_catalog(
 def resolve_tool_selector(tools: Sequence[Tool], selector: Any) -> SelectorResolution:
     """Resolve a one-to-one manifest selector with no name fallback."""
 
-    tool_id = _selector_value(selector, "tool_id")
-    name = _selector_value(selector, "tool")
-    provider = _selector_value(selector, "provider")
-    source_type = _selector_value(selector, "source_type")
-    source_id = _selector_value(selector, "source_id")
-
-    candidates = list(tools)
-    if tool_id:
-        candidates = [tool for tool in candidates if tool.id == tool_id]
-    elif name:
-        candidates = [tool for tool in candidates if tool.name == name]
-    else:
-        return SelectorResolution((), "unresolved_tool_selector", "selector has no tool or tool_id")
-    if provider:
-        candidates = [tool for tool in candidates if tool.provider == provider]
-    if source_type:
-        candidates = [tool for tool in candidates if tool.source_type == source_type]
-    if source_id:
-        candidates = [tool for tool in candidates if tool.source_id == source_id]
-
-    if len(candidates) == 1:
-        return SelectorResolution((candidates[0],))
-    rendered = _render_selector(selector)
-    if not candidates:
-        return SelectorResolution(
-            (),
-            "unresolved_tool_selector",
-            f"Tool selector {rendered} matched no canonical tool",
-        )
-    return SelectorResolution(
-        tuple(sorted(candidates, key=lambda tool: tool.id)),
-        "ambiguous_tool_selector",
-        f"Tool selector {rendered} matched {len(candidates)} canonical tools",
-    )
+    return ToolSelectorIndex.build(tools).resolve(selector)
 
 
 def resolve_selectors_by_tool_id(
@@ -222,20 +254,10 @@ def resolve_selectors_by_tool_id(
 
     resolved: dict[str, Any] = {}
     mutable = [tool.model_copy() for tool in tools] if copy_tools else tools
-    by_id = {tool.id: tool for tool in mutable}
-    by_name: dict[str, list[Tool]] = defaultdict(list)
-    for tool in mutable:
-        by_name[tool.name].append(tool)
+    selector_index = ToolSelectorIndex.build(mutable)
+    by_id = selector_index.by_id
     for index, selector in enumerate(selectors):
-        selector_id = _selector_value(selector, "tool_id")
-        selector_name = _selector_value(selector, "tool")
-        if selector_id:
-            candidates = [by_id[selector_id]] if selector_id in by_id else []
-        elif selector_name:
-            candidates = by_name.get(selector_name, [])
-        else:
-            candidates = []
-        result = resolve_tool_selector(candidates, selector)
+        result = selector_index.resolve(selector)
         if result.resolved:
             tool = result.matches[0]
             if tool.id in resolved:
@@ -538,6 +560,7 @@ def _stable_id(prefix: str, value: dict[str, Any]) -> str:
 
 __all__ = [
     "SelectorResolution",
+    "ToolSelectorIndex",
     "build_tool_identity_catalog",
     "resolve_selectors_by_tool_id",
     "resolve_tool_selector",

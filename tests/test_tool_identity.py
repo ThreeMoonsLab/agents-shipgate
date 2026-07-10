@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.baseline import apply_baseline
 from agents_shipgate.core.domain import AuthInfo, LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
@@ -248,6 +249,59 @@ def test_ambiguous_name_suppression_applies_nowhere() -> None:
     )
 
     assert not any(finding.suppressed for finding in findings)
+
+
+def test_stale_suppression_routes_to_catalog_review_not_identity_gap(tmp_path) -> None:
+    (tmp_path / "tools.json").write_text(
+        """{
+  "tools": [
+    {
+      "name": "lookup_case",
+      "description": "Look up one support case without modifying it.",
+      "annotations": {"readOnlyHint": true},
+      "auth": {"mode": "none"},
+      "inputSchema": {"type": "object", "properties": {}}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        """version: "0.1"
+project: {name: stale-suppression}
+agent:
+  name: stale-suppression-agent
+  declared_purpose: [look up support cases]
+environment: {target: local}
+tool_sources:
+  - id: support
+    type: mcp
+    path: tools.json
+checks:
+  ignore:
+    - check_id: SHIP-DOC-MISSING-DESCRIPTION
+      tool: removed_tool
+      reason: historical debt for a removed capability
+""",
+        encoding="utf-8",
+    )
+
+    report, exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        packet_enabled=False,
+    )
+
+    assert exit_code == 0
+    assert report.release_decision.decision == "review_required"
+    assert any(
+        finding.check_id == "SHIP-MANIFEST-STALE-SUPPRESSION"
+        for finding in report.findings
+    )
+    assert report.release_decision.evidence_coverage.semantic_coverage.pass_eligible_actions == 1
+    assert report.release_decision.evidence_coverage.identity_coverage.gap_count == 0
 
 
 @pytest.mark.parametrize("safe_provider_count", [1, 2, 10, 100])

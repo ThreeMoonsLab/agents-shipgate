@@ -777,7 +777,14 @@ If `wildcard: true` is combined with a non-empty `tools` array, the source is re
 
 ## Suppressions
 
-Suppressions require a reason and match by `check_id` plus optional `tool` name.
+Suppressions require a reason and match by `check_id` plus an optional tool
+selector (`tool`, `tool_id`, `provider`, `source_type`, or `source_id`). They
+operate only on Findings; unlike action declarations and control policies, an
+unresolved or ambiguous suppression selector is an inert no-op and does not
+create a semantic identity gap on an unrelated tool. Existing stale-
+suppression checks still surface the configuration as a catalog-level review
+finding, and the underlying target finding remains active, so a typo cannot
+hide a finding or make the verdict more permissive.
 
 ```yaml
 checks:

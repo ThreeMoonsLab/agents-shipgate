@@ -18,7 +18,7 @@ from agents_shipgate.core.risk_hints import (
     risk_tags,
 )
 from agents_shipgate.core.semantic_assessment import assess_tool_semantics
-from agents_shipgate.core.tool_identity import resolve_tool_selector
+from agents_shipgate.core.tool_identity import ToolSelectorIndex
 from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
@@ -84,10 +84,13 @@ _MISSING_PATH = object()
 def _resolved_declarations_from_tools(
     manifest: AgentsShipgateManifest,
     tools: list[Tool],
+    *,
+    selector_index: ToolSelectorIndex | None = None,
 ) -> dict[str, ActionDeclarationConfig]:
+    selector_index = selector_index or ToolSelectorIndex.build(tools)
     resolved: dict[str, ActionDeclarationConfig] = {}
     for declaration in manifest.action_surface.actions:
-        match = resolve_tool_selector(tools, declaration)
+        match = selector_index.resolve(declaration)
         if match.resolved:
             resolved[match.matches[0].id] = declaration
     return resolved
@@ -844,22 +847,32 @@ def _declaration_downgrade_findings(
     *,
     agent_id: str,
 ) -> list[Finding]:
-    declarations = _resolved_declarations_from_tools(manifest, tools)
+    selector_index = ToolSelectorIndex.build(tools)
+    declarations = _resolved_declarations_from_tools(
+        manifest,
+        tools,
+        selector_index=selector_index,
+    )
     controls_by_tool_id: dict[str, set[str]] = {}
     for control, entries in (
         ("approval", manifest.policies.require_approval_for_tools),
         ("idempotency", manifest.policies.require_idempotency_for_tools),
     ):
         for entry in entries:
-            match = resolve_tool_selector(tools, entry)
+            match = selector_index.resolve(entry)
             if match.resolved:
                 controls_by_tool_id.setdefault(match.matches[0].id, set()).add(control)
     by_tool = {action.tool_id: action for action in facts.actions}
     findings: list[Finding] = []
     for original in sorted(tools, key=lambda item: item.id):
-        tool = original.model_copy()
-        tool.resolved_controls = sorted(
-            set(tool.resolved_controls) | controls_by_tool_id.get(tool.id, set())
+        resolved_controls = sorted(
+            set(original.resolved_controls)
+            | controls_by_tool_id.get(original.id, set())
+        )
+        tool = (
+            original
+            if resolved_controls == original.resolved_controls
+            else original.model_copy(update={"resolved_controls": resolved_controls})
         )
         declaration = declarations.get(tool.id)
         action = by_tool.get(tool.id)

@@ -406,5 +406,3 @@ class ActionSurfaceDiff(BaseModel):
     removed: list[ActionSurfaceChange] = Field(default_factory=list)
     modified: list[ActionSurfaceChange] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
-    tool_id: str | None = None
-    tool_id: str | None = None

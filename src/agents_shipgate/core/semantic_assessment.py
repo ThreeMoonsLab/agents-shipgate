@@ -126,21 +126,23 @@ def assess_tool_semantics(
 def attach_semantic_assessments(
     tools: list[Tool],
     declarations: Mapping[str, ActionDeclarationConfig] | None = None,
+    *,
+    copy_tools: bool = True,
 ) -> list[Tool]:
-    """Copy tools and attach one declaration-aware assessment to each.
+    """Attach one declaration-aware assessment keyed strictly by tool ID.
 
     Risk-hint enrichment already owns a deep-copied tool graph.  This boundary
-    only adds an immutable top-level assessment, so another recursive copy is
-    both unnecessary and expensive for schemas with large nested parameters.
-    A shallow Pydantic copy preserves the public non-mutation contract while
-    keeping the resolver cost proportional to the evidence it evaluates.
+    only adds an immutable top-level assessment. Direct callers retain the
+    non-mutation default; the scan pipeline sets ``copy_tools=False`` because
+    it exclusively owns the enriched objects. Name-keyed declaration maps are
+    intentionally ignored so same-name providers can never share evidence.
     """
 
     by_tool = declarations or {}
     assessed: list[Tool] = []
     for original in tools:
-        tool = original.model_copy()
-        declaration = by_tool.get(tool.id) or by_tool.get(tool.name)
+        tool = original.model_copy() if copy_tools else original
+        declaration = by_tool.get(tool.id)
         tool.semantic_assessment = assess_tool_semantics(tool, declaration)
         assessed.append(tool)
     return assessed
