@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -8,8 +7,13 @@ from typing import Any
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.tool_identity import build_tool_identity_catalog
 from agents_shipgate.inputs.protocol import REGISTRY, LoadedAdapterResult, ToolSourceAdapter
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
+from agents_shipgate.schemas.manifest import (
+    AgentsShipgateManifest,
+    ToolIdentityConfig,
+    ToolSourceConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +86,8 @@ def _load_sources(
     # Pass 1 — per-source adapters only, in tool_sources declared
     # order. Per-scan source types (langchain, crewai, etc.) are
     # skipped here; pass 2 invokes them in canonical registry order
-    # regardless of where they appear in tool_sources. This protects
-    # the dedup tie-break in _flatten_and_deduplicate_tools from
-    # changing based on user-facing tool_sources ordering.
+    # regardless of where they appear in tool_sources. Keeping adapter
+    # invocation deterministic also keeps observation and warning order stable.
     for source in manifest.tool_sources:
         adapter = registry.require(source.type, plugins_enabled=plugins_enabled)
         if adapter.scope != "per_source":
@@ -145,7 +148,7 @@ def _tool_source_index(
     tool list is empty so callers can rely on a boolean test.
     """
     return {
-        tool.name: (tool.source_path, tool.source_start_line)
+        tool.id: (tool.source_path, tool.source_start_line)
         for tool in tools
     }
 
@@ -244,92 +247,22 @@ def _invoke_per_source_adapter(
         raise
 
 
+def _build_canonical_tools(
+    loaded_sources: list[LoadedToolSource],
+    identity_config: ToolIdentityConfig | None = None,
+) -> tuple[list[Tool], list[str]]:
+    """Build the provider-scoped identity catalog and return identity warnings."""
+
+    return build_tool_identity_catalog(
+        loaded_sources,
+        identity_config or ToolIdentityConfig(),
+    )
+
+
 def _flatten_and_deduplicate_tools(
     loaded_sources: list[LoadedToolSource],
+    identity_config: ToolIdentityConfig | None = None,
 ) -> tuple[list[Tool], list[str]]:
-    by_id: dict[str, Tool] = {}
-    warnings: list[str] = []
-    for loaded in loaded_sources:
-        for tool in loaded.tools:
-            existing = by_id.get(tool.id)
-            if not existing:
-                by_id[tool.id] = tool
-                continue
-            if _source_priority(tool) > _source_priority(existing):
-                kept, dropped = tool, existing
-            else:
-                kept, dropped = existing, tool
-            by_id[tool.id] = _merge_duplicate_tool_metadata(kept, dropped)
-            warnings.append(
-                "Duplicate tool name "
-                f"{tool.name!r}; kept {kept.source_type} source {kept.source_id!r} "
-                f"and merged metadata from {dropped.source_type} source {dropped.source_id!r}."
-            )
-    return list(by_id.values()), warnings
+    """Deprecated compatibility alias for pre-v0.30 internal callers."""
 
-
-def _source_priority(tool: Tool) -> int:
-    # Anthropic and OpenAI artifacts are equally authoritative; on duplicate
-    # tool names across them the first-loaded entry wins (OpenAI is loaded
-    # first in run_scan), and a `Duplicate tool name` warning surfaces.
-    return {
-        "openai_api": 40,
-        "anthropic_api": 40,
-        "openapi": 30,
-        "google_adk_inventory": 25,
-        "langchain_inventory": 25,
-        "crewai_inventory": 25,
-        "codex_plugin_mcp_inventory": 25,
-        "n8n_inventory": 25,
-        "mcp": 20,
-        "codex_config_mcp": 18,
-        "google_adk_function": 10,
-        "langchain_function": 10,
-        "langchain_structured_tool": 10,
-        "crewai_function": 10,
-        "crewai_class_tool": 10,
-        "n8n_ai_tool": 10,
-        "n8n_workflow_tool": 10,
-        "n8n_code_tool": 10,
-        "n8n_http_tool": 10,
-        "n8n_mcp_client_tool": 10,
-        "sdk_function": 10,
-        "google_adk_config": 5,
-        "crewai_prebuilt_tool": 5,
-    }.get(tool.source_type, 0)
-
-
-def _merge_duplicate_tool_metadata(kept: Tool, dropped: Tool) -> Tool:
-    merged = kept.model_copy(deep=True)
-    merged.annotations = {**dropped.annotations, **merged.annotations}
-    seen_hints = {_risk_hint_key(hint) for hint in merged.risk_hints}
-    for hint in dropped.risk_hints:
-        key = _risk_hint_key(hint)
-        if key in seen_hints:
-            continue
-        merged.risk_hints.append(hint.model_copy(deep=True))
-        seen_hints.add(key)
-    merged.auth = merged.auth.model_copy(deep=True)
-    merged.auth.scopes = _merge_string_values(merged.auth.scopes, dropped.auth.scopes)
-    if not merged.auth.type:
-        merged.auth.type = dropped.auth.type
-    if not merged.auth.credential_mode:
-        merged.auth.credential_mode = dropped.auth.credential_mode
-    if not merged.auth.source and dropped.auth.source:
-        merged.auth.source = dropped.auth.source
-    if merged.owner is None:
-        merged.owner = dropped.owner
-    return merged
-
-
-def _risk_hint_key(hint) -> tuple[str, str, str, str]:
-    evidence = json.dumps(hint.evidence, sort_keys=True, default=str)
-    return hint.tag, hint.source, hint.confidence, evidence
-
-
-def _merge_string_values(primary: list[str], secondary: list[str]) -> list[str]:
-    merged: list[str] = []
-    for value in [*primary, *secondary]:
-        if value not in merged:
-            merged.append(value)
-    return merged
+    return _build_canonical_tools(loaded_sources, identity_config)

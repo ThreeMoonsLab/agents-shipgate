@@ -271,7 +271,7 @@ def _assert_action_facts(
     for action in facts.actions:
         tool = by_tool_id[action.tool_id]
         assert action.action_id.startswith(f"{agent_id}:")
-        assert action.action_id.count(":") >= 3
+        assert ":action_v2_" in action.action_id
         assert action.tool_name == tool.name
         assert action.source_type == tool.source_type
         assert action.source_id == tool.source_id

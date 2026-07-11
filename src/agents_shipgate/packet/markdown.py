@@ -106,10 +106,15 @@ _STATUS_LABEL: dict[SectionStatus, str] = {
 }
 
 
-def render_packet_markdown(packet: EvidencePacket) -> str:
+def render_packet_markdown(
+    packet: EvidencePacket,
+    *,
+    sanitize_output: bool = True,
+) -> str:
     """Return the packet rendered as Markdown."""
 
-    packet = sanitize_packet(packet)
+    if sanitize_output:
+        packet = sanitize_packet(packet)
     lines: list[str] = []
     _append_header(lines, packet)
     _append_release_decision(lines, packet.release_decision)
@@ -128,9 +133,17 @@ def render_packet_markdown(packet: EvidencePacket) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_packet_markdown(packet: EvidencePacket, path: Path) -> None:
+def write_packet_markdown(
+    packet: EvidencePacket,
+    path: Path,
+    *,
+    sanitize_output: bool = True,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_packet_markdown(packet), encoding="utf-8")
+    path.write_text(
+        render_packet_markdown(packet, sanitize_output=sanitize_output),
+        encoding="utf-8",
+    )
 
 
 def _append_header(lines: list[str], packet: EvidencePacket) -> None:

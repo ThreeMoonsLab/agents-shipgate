@@ -21,6 +21,7 @@ PACKET_FORMAT_NAMES = {"md", "json", "html", "pdf"}
 
 logger = logging.getLogger(__name__)
 
+
 def _planned_generated_paths(
     out_dir: Path,
     formats: list[str],
@@ -48,26 +49,34 @@ def _planned_generated_paths(
 
 
 def _write_reports(
-    report: ReadinessReport, paths: dict[str, Path], formats: list[str]
+    report: ReadinessReport,
+    paths: dict[str, Path],
+    formats: list[str],
+    *,
+    sanitized_payload: dict | None = None,
 ) -> None:
     if "markdown" in formats and "markdown" in paths:
-        write_markdown_report(report, paths["markdown"])
+        write_markdown_report(report, paths["markdown"], sanitize_output=False)
     if "json" in formats and "json" in paths:
-        write_json_report(report, paths["json"])
+        write_json_report(
+            report,
+            paths["json"],
+            sanitized_payload=sanitized_payload,
+        )
     if "sarif" in formats and "sarif" in paths:
         write_sarif_report(report, paths["sarif"])
 
 
 def _write_packet(packet, paths: dict[str, Path], packet_formats: set[str]) -> None:
     if "md" in packet_formats and "packet_md" in paths:
-        write_packet_markdown(packet, paths["packet_md"])
+        write_packet_markdown(packet, paths["packet_md"], sanitize_output=False)
     if "json" in packet_formats and "packet_json" in paths:
-        write_packet_json(packet, paths["packet_json"])
+        write_packet_json(packet, paths["packet_json"], sanitize_output=False)
     if "html" in packet_formats and "packet_html" in paths:
-        write_packet_html(packet, paths["packet_html"])
+        write_packet_html(packet, paths["packet_html"], sanitize_output=False)
     if "pdf" in packet_formats and "packet_pdf" in paths:
         try:
-            render_packet_pdf(packet, paths["packet_pdf"])
+            render_packet_pdf(packet, paths["packet_pdf"], sanitize_output=False)
         except PdfRendererUnavailable as exc:
             logger.warning("packet.pdf skipped: %s", exc)
 

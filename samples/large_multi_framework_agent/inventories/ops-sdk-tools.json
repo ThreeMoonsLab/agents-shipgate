@@ -71,10 +71,9 @@
         "additionalProperties": false,
         "properties": {
           "reason": {"type": "string"},
-          "severity": {"type": "string"},
-          "context": {"type": "object"}
+          "severity": {"type": "string"}
         },
-        "required": ["reason", "severity", "context"]
+        "required": ["reason", "severity"]
       },
       "permission_class": "write",
       "auth": {"mode": "none"}

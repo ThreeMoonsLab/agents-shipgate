@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.findings.identity import finding_fingerprint
+from agents_shipgate.core.findings.identity import (
+    finding_fingerprint,
+    legacy_name_fingerprint,
+)
 from agents_shipgate.schemas.report import Finding
 
 V015_FINGERPRINTS = {
@@ -30,7 +33,8 @@ def test_v015_unchanged_finding_fingerprints_remain_stable(tmp_path: Path) -> No
     )
 
     observed = {
-        (finding.check_id, finding.tool_name): finding.fingerprint for finding in report.findings
+        (finding.check_id, finding.tool_name): legacy_name_fingerprint(finding)
+        for finding in report.findings
     }
     assert {key: observed.get(key) for key in V015_FINGERPRINTS} == V015_FINGERPRINTS
 
@@ -56,4 +60,5 @@ def test_v015_freeform_output_fingerprint_remains_stable_after_sample_migration(
         ),
     )
 
-    assert finding_fingerprint(finding) == "fp_85f8513ad72cd9ea"
+    assert legacy_name_fingerprint(finding) == "fp_85f8513ad72cd9ea"
+    assert finding_fingerprint(finding) != "fp_85f8513ad72cd9ea"

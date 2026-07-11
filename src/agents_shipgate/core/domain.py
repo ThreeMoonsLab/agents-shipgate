@@ -8,7 +8,14 @@ from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, parse_confidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-SemanticDimension = Literal["effect", "authority"]
+SemanticDimension = Literal["identity", "effect", "authority"]
+IdentityEvidenceStatus = Literal[
+    "declared",
+    "structural",
+    "partial",
+    "unknown",
+    "conflicting",
+]
 EffectEvidenceStatus = Literal[
     "declared",
     "structural",
@@ -26,6 +33,12 @@ AuthorityEvidenceStatus = Literal[
 ]
 AuthorityMode = Literal["none", "scoped", "unscoped", "ambient", "unknown"]
 SemanticIssueKind = Literal[
+    "incomplete_tool_identity",
+    "conflicting_tool_identity",
+    "unresolved_tool_selector",
+    "ambiguous_tool_selector",
+    "ambiguous_legacy_tool_identity",
+    "invalid_tool_binding",
     "incomplete_surface",
     "missing_effect_evidence",
     "inferred_effect_only",
@@ -84,12 +97,40 @@ class AuthoritySemanticAssessment(BaseModel):
     issues: list[SemanticIssue] = Field(default_factory=list)
 
 
+class ToolIdentityAssessment(BaseModel):
+    """Canonical identity and provenance for one capability."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_id: str
+    status: IdentityEvidenceStatus
+    provider: str
+    binding_id: str | None = None
+    primary_observation_id: str
+    observation_ids: list[str] = Field(default_factory=list)
+    claims: list[SemanticClaim] = Field(default_factory=list)
+    issues: list[SemanticIssue] = Field(default_factory=list)
+    pass_eligible: bool
+
+
+def _legacy_direct_identity() -> ToolIdentityAssessment:
+    return ToolIdentityAssessment(
+        tool_id="legacy_direct",
+        status="structural",
+        provider="legacy_direct",
+        primary_observation_id="legacy_direct",
+        observation_ids=["legacy_direct"],
+        pass_eligible=True,
+    )
+
+
 class ToolSemanticAssessment(BaseModel):
     """Pass-eligibility result for one statically extracted tool/action."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     conservative_effect: ActionEffect
+    identity: ToolIdentityAssessment = Field(default_factory=_legacy_direct_identity)
     effect: EffectSemanticAssessment
     authority: AuthoritySemanticAssessment
     pass_eligible: bool
@@ -159,6 +200,10 @@ class Tool(BaseModel):
 
     id: str
     name: str
+    provider: str | None = None
+    native_locator: str | None = None
+    observation_id: str | None = None
+    observation_ids: list[str] = Field(default_factory=list)
     description: str | None = None
     source_type: str
     source_id: str | None = None
@@ -185,6 +230,11 @@ class Tool(BaseModel):
         default=None,
         exclude=True,
     )
+    identity_assessment: ToolIdentityAssessment | None = Field(
+        default=None,
+        exclude=True,
+    )
+    resolved_controls: list[str] = Field(default_factory=list, exclude=True)
 
     @model_validator(mode="after")
     def normalize_extraction_confidence(self) -> Tool:
@@ -206,6 +256,7 @@ class Agent(BaseModel):
     declared_purpose: list[str] = Field(default_factory=list)
     prohibited_actions: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
+    tool_ids: list[str] = Field(default_factory=list)
     handoffs: list[str] = Field(default_factory=list)
     guardrails: dict[str, Any] = Field(default_factory=dict)
     extraction: dict[str, Any] = Field(default_factory=dict)

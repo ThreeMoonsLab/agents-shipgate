@@ -17,6 +17,7 @@ from agents_shipgate.schemas.report import (
     EvidenceGapAction,
     FailPolicy,
     Finding,
+    IdentityCoverageDecision,
     ReadinessReport,
     ReleaseDecision,
     ReleaseDecisionItem,
@@ -199,6 +200,7 @@ def build_release_decision(
 
     low_confidence_tool_count = sum(1 for tool in tools if tool.extraction_confidence != "high")
     semantic_coverage, semantic_gaps = _semantic_coverage(tools)
+    identity_coverage = _identity_coverage(tools)
     evidence = EvidenceCoverageDecision(
         level=report.summary.evidence_coverage,
         human_review_recommended=report.summary.human_review_recommended,
@@ -208,6 +210,7 @@ def build_release_decision(
         # extraction/source gaps retain their existing deterministic order.
         evidence_gaps=[*semantic_gaps, *_evidence_gaps(report, tools)],
         semantic_coverage=semantic_coverage,
+        identity_coverage=identity_coverage,
     )
 
     if report.baseline is None:
@@ -373,7 +376,11 @@ def _semantic_coverage(
             continue
 
         issues = sorted(
-            [*assessment.effect.issues, *assessment.authority.issues],
+            [
+                *assessment.identity.issues,
+                *assessment.effect.issues,
+                *assessment.authority.issues,
+            ],
             key=lambda issue: (
                 issue.kind,
                 issue.dimension,
@@ -444,6 +451,38 @@ def _semantic_coverage(
     )
 
 
+def _identity_coverage(tools: list[Tool]) -> IdentityCoverageDecision:
+    names: dict[str, int] = {}
+    reasons: dict[str, int] = {}
+    total_observations = 0
+    bound_tools = 0
+    eligible = 0
+    gaps = 0
+    for tool in tools:
+        names[tool.name] = names.get(tool.name, 0) + 1
+        identity = tool.identity_assessment
+        if identity is None:
+            gaps += 1
+            _increment(reasons, "incomplete_tool_identity")
+            total_observations += 1
+            continue
+        total_observations += len(identity.observation_ids)
+        bound_tools += int(identity.binding_id is not None)
+        eligible += int(identity.pass_eligible)
+        gaps += len(identity.issues)
+        for issue in identity.issues:
+            _increment(reasons, issue.kind)
+    return IdentityCoverageDecision(
+        total_observations=total_observations,
+        canonical_tools=len(tools),
+        bound_tools=bound_tools,
+        pass_eligible_tools=eligible,
+        ambiguous_name_count=sum(1 for count in names.values() if count > 1),
+        gap_count=gaps,
+        reason_counts=dict(sorted(reasons.items())),
+    )
+
+
 def _increment(counts: dict[str, int], reason: str) -> None:
     counts[reason] = counts.get(reason, 0) + 1
 
@@ -458,7 +497,32 @@ def _semantic_gap(
     action_kind: str
     accepted_values: list[str]
     declaration_template: dict[str, object] | None = None
-    if kind == "incomplete_surface":
+    if kind in {"incomplete_tool_identity"}:
+        action_kind = "declare_source_identity"
+        accepted_values = ["unique_source_id", "stable_native_locator"]
+        action_why = "A stable source-scoped identity is required for every observation."
+        expects = "Declare a unique source identity and regenerate the report."
+    elif kind in {"unresolved_tool_selector", "ambiguous_tool_selector", "ambiguous_legacy_tool_identity"}:
+        action_kind = "qualify_tool_selector"
+        accepted_values = ["tool_id", "provider", "source_type", "source_id"]
+        action_why = "A one-to-one selector must resolve before policy or evidence can apply."
+        expects = "Add tool_id or source/provider qualifiers, then rerun verification."
+        declaration_template = {
+            "tool": tool.name,
+            "tool_id": tool.id,
+            "provider": tool.provider,
+        }
+    elif kind == "invalid_tool_binding":
+        action_kind = "provide_tool_binding"
+        accepted_values = ["exact_primary", "exact_members", "unique_binding_id"]
+        action_why = "Cross-source equivalence requires an exact reviewed binding."
+        expects = "Correct tool_identity.bindings so every member resolves exactly once."
+    elif kind == "conflicting_tool_identity":
+        action_kind = "resolve_tool_identity_conflict"
+        accepted_values = ["split_binding", "align_schema", "align_authority", "align_annotations"]
+        action_why = "Conflicting bound observations cannot share one canonical capability."
+        expects = "Split the binding or reconcile its structural evidence, then rerun verification."
+    elif kind == "incomplete_surface":
         action_kind = "provide_complete_inventory"
         accepted_values = [
             "complete_mcp_export",
@@ -521,7 +585,7 @@ def _semantic_gap(
 
     return EvidenceGap(
         kind=kind,
-        subject=tool.name,
+        subject=f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]",
         source_type=tool.source_type,
         source_ref=(
             source_ref
@@ -537,7 +601,18 @@ def _semantic_gap(
             path=(
                 "shipgate.yaml#tool_sources"
                 if kind == "incomplete_surface"
-                else f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+                else (
+                    "shipgate.yaml#tool_identity"
+                    if kind in {
+                        "incomplete_tool_identity",
+                        "conflicting_tool_identity",
+                        "unresolved_tool_selector",
+                        "ambiguous_tool_selector",
+                        "ambiguous_legacy_tool_identity",
+                        "invalid_tool_binding",
+                    }
+                    else f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+                )
             ),
             why=action_why,
             expects=expects,
@@ -597,7 +672,7 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
         gaps.append(
             EvidenceGap(
                 kind="low_confidence_tool",
-                subject=tool.name,
+                subject=f"{tool.name} [{tool.provider or tool.source_id or tool.source_type}]",
                 source_type=tool.source_type,
                 source_ref=tool.source_location or tool.source_ref,
                 why=(
@@ -609,7 +684,8 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
         )
     for warning in report.source_warnings:
         if (
-            "predates report schema 0.29 semantic evidence" in warning
+            "predates report schema" in warning
+            and "semantic evidence" in warning
             and "not comparable with --diff-from" in warning
         ):
             action = EvidenceGapAction(

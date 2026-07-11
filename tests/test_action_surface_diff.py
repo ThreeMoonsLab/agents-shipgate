@@ -13,6 +13,7 @@ from agents_shipgate.core.domain import (
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.findings import assign_finding_ids
 from agents_shipgate.core.lenses.action_surface import (
+    _canonical_action_id,
     _dedupe_findings,
     _stable_hash,
     build_action_surface_facts,
@@ -121,6 +122,7 @@ def test_action_surface_facts_normalize_mcp_and_explicit_metadata():
         name="refund_customer",
         source_type="mcp",
         source_id="stripe-mcp",
+        provider="stripe",
         auth={"scopes": ["refunds:write"]},
         risk_hints=[
             ToolRiskHint(
@@ -140,7 +142,7 @@ def test_action_surface_facts_normalize_mcp_and_explicit_metadata():
     )
 
     action = facts.actions[0]
-    assert action.action_id == "agent:action-test/agent:mcp:stripe:refund_customer"
+    assert action.action_id.startswith("agent:action-test/agent:action_v2_")
     assert action.effect == "financial_write"
     assert action.risk_tags == [
         "external_communication",
@@ -174,7 +176,7 @@ def test_action_surface_facts_normalize_openapi_operation():
 
     action = facts.actions[0]
     assert action.operation == "POST /users/{id}"
-    assert action.action_id == "agent:action-test/agent:openapi:billing-api:POST /users/{id}"
+    assert action.action_id.startswith("agent:action-test/agent:action_v2_")
     assert action.effect == "write"
 
 
@@ -196,13 +198,11 @@ def test_action_surface_dotted_tool_name_without_source_id_uses_source_type_prov
     action = facts.actions[0]
     assert action.provider == "sdk_function"
     assert action.operation == "gmail.threads.send"
-    assert action.action_id == (
-        "agent:action-test/agent:sdk_function:sdk_function:gmail.threads.send"
-    )
+    assert action.action_id.startswith("agent:action-test/agent:action_v2_")
 
 
 def test_action_surface_rejects_duplicate_tool_declarations():
-    with pytest.raises(ValueError, match=r"Duplicate action_surface\.actions\[\]\.tool"):
+    with pytest.raises(ValueError, match=r"Duplicate action_surface\.actions\[\] tool selectors"):
         _manifest(
             {
                 "action_surface": {
@@ -221,14 +221,17 @@ def test_action_surface_rejects_action_id_collisions():
     the fail-soft (warnings-sink) path the live scan uses. Only purely
     inferred collisions degrade; a user-declared id is never silently
     rewritten."""
+    colliding_id = _canonical_action_id(
+        agent_id="agent:action-test/agent",
+        tool_id="tool:beta",
+        provider="tools",
+        operation="beta",
+    )
     manifest = _manifest(
         {
             "action_surface": {
                 "actions": [
-                    {
-                        "tool": "alpha",
-                        "id": "agent:action-test/agent:mcp:tools:beta",
-                    }
+                    {"tool": "alpha", "id": colliding_id},
                 ]
             }
         }
@@ -267,7 +270,7 @@ def test_action_surface_rejects_action_id_collisions():
         )
 
 
-def test_action_surface_rejects_collision_from_explicit_provider_operation():
+def test_action_surface_provider_operation_do_not_collapse_distinct_tool_ids():
     """``provider``/``operation`` declarations override action_id components
     just like ``id`` does. A collision between two such manifest-authored
     identities must stay a hard ConfigError even on the warnings-sink path —
@@ -299,14 +302,13 @@ def test_action_surface_rejects_collision_from_explicit_provider_operation():
         ),
     ]
 
-    for sink in (None, []):
-        with pytest.raises(ConfigError, match="Duplicate action_surface action_id"):
-            build_action_surface_facts(
-                manifest,
-                agent_id="agent:action-test/agent",
-                tools=tools,
-                warnings=sink,
-            )
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=tools,
+        warnings=[],
+    )
+    assert len({action.action_id for action in facts.actions}) == 2
 
 
 def test_action_surface_disambiguates_openapi_action_id_collisions_fail_soft():
@@ -344,21 +346,14 @@ def test_action_surface_disambiguates_openapi_action_id_collisions_fail_soft():
     )
 
     action_ids = [action.action_id for action in facts.actions]
-    base_id = "agent:action-test/agent:openapi:goose-api:GET /sessions/{session_id}"
-    # Both operations are retained as distinct actions; the first (in
-    # tool-name order) keeps the bare id, the second is suffixed.
-    assert action_ids == sorted([base_id, f"{base_id}#get_session_detail"])
     assert len(set(action_ids)) == 2
+    assert all(action_id.startswith("agent:action-test/agent:action_v2_") for action_id in action_ids)
     assert {action.tool_name for action in facts.actions} == {
         "get_session",
         "get_session_detail",
     }
-    # identity_hash tracks the renamed action_id.
-    suffixed = next(a for a in facts.actions if a.action_id.endswith("#get_session_detail"))
-    assert suffixed.hashes.identity_hash == _stable_hash(suffixed.action_id)
-    assert len(warnings) == 1
-    assert "Duplicate action_surface action_id" in warnings[0]
-    assert "get_session" in warnings[0] and "get_session_detail" in warnings[0]
+    assert all(action.hashes.identity_hash == _stable_hash(action.action_id) for action in facts.actions)
+    assert warnings == []
 
 
 def test_action_surface_diff_degrades_duplicate_base_action_ids_fail_soft():
@@ -1073,7 +1068,7 @@ def test_action_declaration_effect_downgrade_blocks_release(monkeypatch):
     )
     tools = attach_semantic_assessments(
         [tool],
-        {entry.tool: entry for entry in manifest.action_surface.actions},
+        {tool.id: manifest.action_surface.actions[0]},
     )
     facts = build_action_surface_facts(
         manifest,

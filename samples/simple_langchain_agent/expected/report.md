@@ -6,14 +6,14 @@ Target: local
 
 ## Release Decision
 
-Decision: review_required
-Reason: 2 source-loader warnings; review evidence before shipping.
+Decision: passed
+Reason: All in-scope actions have complete, conflict-free explicit or structural static effect and authority evidence; no active blockers. Runtime behavior was not verified.
 
 Blockers (0): none
 
 Review items (0): none
 
-Evidence coverage: static (2 source warning(s); 2/2 actions pass-eligible)
+Evidence coverage: static (2/2 actions pass-eligible)
 
 Baseline delta: not enabled
 
@@ -55,11 +55,6 @@ No capability/intent misalignments detected from static evidence.
 
 No action required from static findings.
 
-## Source Warnings
-
-- Duplicate tool name 'lookup\_case'; kept langchain\_inventory source 'langchain\_inventory:inventories/tools.json' and merged metadata from langchain\_function source 'langchain\_agent'.
-- Duplicate tool name 'summarize\_case'; kept langchain\_inventory source 'langchain\_inventory:inventories/tools.json' and merged metadata from langchain\_structured\_tool source 'langchain\_agent'.
-
 ## Tool Surface Summary
 
 - Total tools: 2
@@ -100,8 +95,8 @@ No findings.
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |
-| lookup\_case | langchain\_inventory | read\_only | read\_only=high | \- | \- |
 | summarize\_case | langchain\_inventory | read\_only | read\_only=high | \- | \- |
+| lookup\_case | langchain\_inventory | read\_only | read\_only=high | \- | \- |
 
 
 ## Disclaimer

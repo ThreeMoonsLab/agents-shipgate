@@ -23,6 +23,23 @@ google_adk:
   tool_inventories:
     - inventories/function-tools.json
 
+tool_identity:
+  bindings:
+    - id: adk_lookup_case
+      provider: adk_support
+      reason: reviewed inventory describes the statically bound ADK function
+      primary: {source_id: "google_adk_inventory:inventories/function-tools.json", tool: lookup_case}
+      members:
+        - {source_id: adk_support, tool: lookup_case}
+        - {source_id: "google_adk_inventory:inventories/function-tools.json", tool: lookup_case}
+    - id: adk_refund_approval
+      provider: adk_support
+      reason: reviewed inventory describes the statically bound ADK function
+      primary: {source_id: "google_adk_inventory:inventories/function-tools.json", tool: request_refund_approval}
+      members:
+        - {source_id: adk_support, tool: request_refund_approval}
+        - {source_id: "google_adk_inventory:inventories/function-tools.json", tool: request_refund_approval}
+
 action_surface:
   actions:
     - tool: lookup_case

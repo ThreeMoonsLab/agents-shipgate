@@ -65,8 +65,9 @@ def dedupe_findings(findings: list[Finding]) -> list[Finding]:
 
 def finding_fingerprint(finding: Finding) -> str:
     identity = {
+        "fingerprint_version": "2",
         "check_id": finding.check_id,
-        "tool_name": finding.tool_name,
+        "tool_id": finding.tool_id,
         "evidence": _canonicalize_for_fingerprint(finding.evidence),
     }
     digest = hashlib.sha256(
@@ -91,7 +92,25 @@ def legacy_policy_routing_fingerprint(finding: Finding) -> str | None:
             "policy_approval_enforced": routing.approval.enforced,
         }
     )
-    return finding_fingerprint(finding.model_copy(update={"evidence": evidence}))
+    return _finding_fingerprint_v1(finding.model_copy(update={"evidence": evidence}))
+
+
+def legacy_name_fingerprint(finding: Finding) -> str:
+    """Return the pre-identity v1 fingerprint for guarded baseline migration."""
+
+    return _finding_fingerprint_v1(finding)
+
+
+def _finding_fingerprint_v1(finding: Finding) -> str:
+    identity = {
+        "check_id": finding.check_id,
+        "tool_name": finding.tool_name,
+        "evidence": _canonicalize_for_fingerprint(finding.evidence),
+    }
+    digest = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"fp_{digest}"
 
 
 def _canonicalize_for_fingerprint(value):

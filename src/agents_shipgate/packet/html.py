@@ -85,10 +85,15 @@ code { background: #f4f4f4; padding: 0.05rem 0.25rem; border-radius: 3px; }
 """
 
 
-def render_packet_html(packet: EvidencePacket) -> str:
+def render_packet_html(
+    packet: EvidencePacket,
+    *,
+    sanitize_output: bool = True,
+) -> str:
     """Return the packet rendered as a self-contained HTML document."""
 
-    packet = sanitize_packet(packet)
+    if sanitize_output:
+        packet = sanitize_packet(packet)
     parts: list[str] = []
     parts.append("<!doctype html>")
     parts.append('<html lang="en"><head>')
@@ -116,9 +121,17 @@ def render_packet_html(packet: EvidencePacket) -> str:
     return "".join(parts)
 
 
-def write_packet_html(packet: EvidencePacket, path: Path) -> None:
+def write_packet_html(
+    packet: EvidencePacket,
+    path: Path,
+    *,
+    sanitize_output: bool = True,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_packet_html(packet), encoding="utf-8")
+    path.write_text(
+        render_packet_html(packet, sanitize_output=sanitize_output),
+        encoding="utf-8",
+    )
 
 
 def _render_header(packet: EvidencePacket) -> str:

@@ -84,10 +84,10 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["verifier_read_order"][0] == "merge_verdict"
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.1"
+    assert payload["verifier_schema_version"] == "0.2"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v1"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v1"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v1.json"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v2"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v2.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert (
         payload["codex_boundary_result_schema_version"]

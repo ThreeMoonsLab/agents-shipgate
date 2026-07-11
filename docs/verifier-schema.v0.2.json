@@ -1,0 +1,768 @@
+{
+  "$defs": {
+    "AgentController": {
+      "additionalProperties": false,
+      "description": "Imperative controller projection for an autonomous coding agent.\n\nA re-shaping of the verdict the agent already has \u2014 ``merge_verdict``,\n``can_merge_without_human``, ``fix_task``, ``capability_review`` \u2014 into the\nfour questions an agent must answer without human interpretation: may I claim\nthe task done (``completion_allowed``), must I stop for a human\n(``must_stop`` / ``stop_reason``), what may I run next\n(``allowed_next_commands``), and what must I never edit or do to get past the\ngate (``forbidden_file_edits`` / ``forbidden_actions``).\n\nIt introduces NO new decision: ``completion_allowed`` is locked to\n``can_merge_without_human`` by ``VerifierArtifact``, and every other field is\na deterministic projection of the head scan. ``forbidden_file_edits`` and\n``forbidden_actions`` are a STANDING negative affordance \u2014 present on every\nverdict, including ``mergeable`` \u2014 so a passing run never reads as \"anything\ngoes\".",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "forbidden_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Actions",
+          "type": "array"
+        },
+        "forbidden_file_edits": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden File Edits",
+          "type": "array"
+        },
+        "must_stop": {
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "self_approval_prohibited",
+                "blocked_findings",
+                "insufficient_evidence",
+                "human_review_required",
+                "scan_incomplete"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Reason"
+        },
+        "user_message_template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Message Template"
+        }
+      },
+      "title": "AgentController",
+      "type": "object"
+    },
+    "VerifierCapabilityChange": {
+      "additionalProperties": false,
+      "description": "One reviewer-facing capability change projected for verifier output.",
+      "properties": {
+        "change_bucket": {
+          "enum": [
+            "added",
+            "modified",
+            "removed"
+          ],
+          "title": "Change Bucket",
+          "type": "string"
+        },
+        "change_type": {
+          "title": "Change Type",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "impact": {
+          "default": "informational",
+          "enum": [
+            "blocks_release",
+            "review_required",
+            "insufficient_evidence",
+            "informational",
+            "none"
+          ],
+          "title": "Impact",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "related_finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Finding Ids",
+          "type": "array"
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Path"
+        },
+        "source_start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Start Line"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "subject_kind": {
+          "title": "Subject Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "change_type",
+        "change_bucket",
+        "subject_kind",
+        "subject",
+        "rationale"
+      ],
+      "title": "VerifierCapabilityChange",
+      "type": "object"
+    },
+    "VerifierCapabilityReview": {
+      "additionalProperties": false,
+      "description": "Derived capability-review rollup for PR comments and Action outputs.\n\nThis is a projection only. It never gates independently of\n``report.json.release_decision.decision``.",
+      "properties": {
+        "added": {
+          "default": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "modified": {
+          "default": 0,
+          "title": "Modified",
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "policy_weakened": {
+          "default": false,
+          "title": "Policy Weakened",
+          "type": "boolean"
+        },
+        "removed": {
+          "default": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "top_changes": {
+          "items": {
+            "$ref": "#/$defs/VerifierCapabilityChange"
+          },
+          "title": "Top Changes",
+          "type": "array"
+        },
+        "trust_root_touched": {
+          "default": false,
+          "title": "Trust Root Touched",
+          "type": "boolean"
+        }
+      },
+      "title": "VerifierCapabilityReview",
+      "type": "object"
+    },
+    "VerifierFixTask": {
+      "additionalProperties": false,
+      "description": "The single repair task a verify run hands to whoever acts next.\n\nRouting is deterministic and projected from the head scan \u2014 never an LLM\njudgment. ``coding_agent`` + ``safe_to_attempt=True`` means the gating\ngaps are mechanical (every gating finding is ``autofix_safe``): the agent\nmay fix them and re-run ``verification_command``. ``human`` +\n``safe_to_attempt=False`` means an authority gap a coding agent must not\ninvent its way past \u2014 missing approval/idempotency evidence, a weakened\npolicy, or a touched trust root. ``forbidden_shortcuts`` are the\nreward-hacking moves that are never acceptable for either actor.\n``patches`` (v0.12+) carries the machine-applicable suggested patches for\nthe gating findings when verify ran with ``--suggest-patches`` and the\ntask routes to the coding agent.",
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "allowed_repairs": {
+          "items": {
+            "$ref": "#/$defs/VerifierRepair"
+          },
+          "title": "Allowed Repairs",
+          "type": "array"
+        },
+        "forbidden_repairs": {
+          "items": {
+            "$ref": "#/$defs/VerifierRepair"
+          },
+          "title": "Forbidden Repairs",
+          "type": "array"
+        },
+        "forbidden_shortcuts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Shortcuts",
+          "type": "array"
+        },
+        "instructions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Instructions",
+          "type": "array"
+        },
+        "patches": {
+          "items": {
+            "$ref": "#/$defs/VerifierFixTaskPatch"
+          },
+          "title": "Patches",
+          "type": "array"
+        },
+        "safe_to_attempt": {
+          "title": "Safe To Attempt",
+          "type": "boolean"
+        },
+        "verification_command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verification Command"
+        }
+      },
+      "required": [
+        "actor",
+        "safe_to_attempt"
+      ],
+      "title": "VerifierFixTask",
+      "type": "object"
+    },
+    "VerifierFixTaskPatch": {
+      "additionalProperties": false,
+      "description": "A machine-applicable patch projected into the fix task.\n\nRepair aid only \u2014 never a gate input. ``patch`` carries the\ndiscriminated Patch payload (``set_pointer`` / ``append_pointer`` /\n``remove_pointer``) exactly as the head scan emitted it; ``manual``\npatches are intentionally excluded because their guidance already\nappears in ``instructions``.",
+      "properties": {
+        "check_id": {
+          "default": "",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "patch": {
+          "additionalProperties": true,
+          "title": "Patch",
+          "type": "object"
+        }
+      },
+      "title": "VerifierFixTaskPatch",
+      "type": "object"
+    },
+    "VerifierHumanReview": {
+      "additionalProperties": false,
+      "description": "Whether a human must review before merge, and why.",
+      "properties": {
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "why": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why"
+        }
+      },
+      "title": "VerifierHumanReview",
+      "type": "object"
+    },
+    "VerifierNextAction": {
+      "additionalProperties": false,
+      "description": "Single recommended next step after verify.",
+      "properties": {
+        "actor": {
+          "default": "human",
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "kind": {
+          "default": "review",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "title": "VerifierNextAction",
+      "type": "object"
+    },
+    "VerifierRepair": {
+      "additionalProperties": false,
+      "description": "One deterministic repair affordance or prohibition.\n\nThe verifier owns the actor and safety boundary. These rows are not model\nsuggestions: they are a structured projection of remediation metadata and\ntrust-root rules so coding agents can distinguish mechanical fixes from\nhuman-only authority decisions.",
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "check_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Id"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        }
+      },
+      "required": [
+        "id",
+        "actor",
+        "kind",
+        "reason"
+      ],
+      "title": "VerifierRepair",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for verifier.json. Generated from agents_shipgate.schemas.verifier.VerifierArtifact. Do not edit by hand.",
+  "properties": {
+    "agent_controller": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentController"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "agent_summary": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Summary"
+    },
+    "applicability": {
+      "default": "unknown",
+      "enum": [
+        "verified",
+        "not_applicable",
+        "unknown"
+      ],
+      "title": "Applicability",
+      "type": "string"
+    },
+    "artifacts": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Artifacts",
+      "type": "object"
+    },
+    "base_notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Base Notes",
+      "type": "array"
+    },
+    "base_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Ref"
+    },
+    "base_report_json": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Report Json"
+    },
+    "base_status": {
+      "default": "not_requested",
+      "enum": [
+        "not_requested",
+        "skipped",
+        "diff_from_provided",
+        "ref_missing",
+        "archive_failed",
+        "missing_manifest",
+        "scan_failed",
+        "cache_hit",
+        "succeeded"
+      ],
+      "title": "Base Status",
+      "type": "string"
+    },
+    "base_tree_sha": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Tree Sha"
+    },
+    "can_merge_without_human": {
+      "default": false,
+      "title": "Can Merge Without Human",
+      "type": "boolean"
+    },
+    "capability_review": {
+      "$ref": "#/$defs/VerifierCapabilityReview"
+    },
+    "changed_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Files",
+      "type": "array"
+    },
+    "config": {
+      "title": "Config",
+      "type": "string"
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision"
+    },
+    "diff_text_available": {
+      "default": false,
+      "title": "Diff Text Available",
+      "type": "boolean"
+    },
+    "first_next_action": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierNextAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "fix_task": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierFixTask"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "head_exit_code": {
+      "default": 0,
+      "title": "Head Exit Code",
+      "type": "integer"
+    },
+    "head_ref": {
+      "default": "HEAD",
+      "title": "Head Ref",
+      "type": "string"
+    },
+    "head_report_json": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Head Report Json"
+    },
+    "head_status": {
+      "default": "skipped",
+      "enum": [
+        "skipped",
+        "succeeded",
+        "failed"
+      ],
+      "title": "Head Status",
+      "type": "string"
+    },
+    "head_tree_sha": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Head Tree Sha"
+    },
+    "headline": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Headline"
+    },
+    "human_review": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierHumanReview"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "merge_verdict": {
+      "default": "unknown",
+      "enum": [
+        "mergeable",
+        "human_review_required",
+        "insufficient_evidence",
+        "blocked",
+        "unknown"
+      ],
+      "title": "Merge Verdict",
+      "type": "string"
+    },
+    "mode": {
+      "default": "advisory",
+      "title": "Mode",
+      "type": "string"
+    },
+    "release_decision": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Release Decision"
+    },
+    "reviewer_summary": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reviewer Summary"
+    },
+    "runtime_behavior_verified": {
+      "const": false,
+      "default": false,
+      "title": "Runtime Behavior Verified",
+      "type": "boolean"
+    },
+    "static_analysis_only": {
+      "const": true,
+      "default": true,
+      "title": "Static Analysis Only",
+      "type": "boolean"
+    },
+    "static_verdict_disclaimer": {
+      "default": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
+      "title": "Static Verdict Disclaimer",
+      "type": "string"
+    },
+    "trigger": {
+      "additionalProperties": true,
+      "title": "Trigger",
+      "type": "object"
+    },
+    "verifier_schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Verifier Schema Version",
+      "type": "string"
+    },
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workspace",
+    "config"
+  ],
+  "title": "Agents Shipgate Verifier Artifact v0.2",
+  "type": "object"
+}

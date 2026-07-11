@@ -20,7 +20,7 @@ from agents_shipgate.inputs.protocol import REGISTRY
 from .path_helpers import _default_baseline_status
 from .source_loading import (
     _artifact_warnings,
-    _flatten_and_deduplicate_tools,
+    _build_canonical_tools,
     _load_sources,
 )
 from .surface_redaction import _frameworks_surface
@@ -95,9 +95,9 @@ def inspect_sources(
     api_artifacts = artifact_bag.get("openai_api", OpenAIApiArtifacts)
     anthropic_artifacts = artifact_bag.get("anthropic_api", AnthropicArtifacts)
     codex_plugin_artifacts = artifact_bag.get("codex_plugin", CodexPluginArtifacts)
-    tools, duplicate_warnings = _flatten_and_deduplicate_tools(loaded_sources)
+    tools, identity_warnings = _build_canonical_tools(loaded_sources)
     warnings = [warning for loaded in loaded_sources for warning in loaded.warnings]
-    warnings.extend(duplicate_warnings)
+    warnings.extend(identity_warnings)
     warnings.extend(_artifact_warnings(artifact_bag))
     policy_packs = load_policy_packs(manifest, base_dir)
     warnings.extend(policy_packs.warnings)

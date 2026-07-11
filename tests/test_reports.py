@@ -143,7 +143,7 @@ def test_crewai_markdown_report_matches_golden(tmp_path):
     "sample_dir, expected_decision",
     [
         ("samples/simple_openai_api_agent", "blocked"),
-        ("samples/simple_langchain_agent", "review_required"),
+        ("samples/simple_langchain_agent", "passed"),
         ("samples/simple_crewai_agent", "review_required"),
         ("samples/support_refund_agent", "blocked"),
     ],
@@ -310,8 +310,8 @@ def test_capability_intent_diff_support_refund_fixture(tmp_path):
         for finding in payload["findings"]
         if finding["check_id"] == "SHIP-MANIFEST-UNUSED-SCOPE"
     )
-    assert approval_finding["fingerprint"] == "fp_f092940f62fbb012"
-    assert idempotency_finding["fingerprint"] == "fp_dac8011e14c53777"
+    assert approval_finding["fingerprint"] == "fp_973ea0ef2110ca9a"
+    assert idempotency_finding["fingerprint"] == "fp_2cf0d6c77d9c3eee"
 
     assert any(
         item["kind"] == "policy_gap"
@@ -459,8 +459,8 @@ def test_capability_diff_release_consequence_mirrors_release_decision(tmp_path):
         "blocks_release",
     )
     assert tuple(blockers[0][k] for k in identity_fields) == (
-        "fp_f092940f62fbb012",
-        "fp_f092940f62fbb012",
+        "fp_973ea0ef2110ca9a",
+        "fp_973ea0ef2110ca9a",
         "SHIP-POLICY-APPROVAL-MISSING",
         "critical",
         "stripe.create_refund lacks a declared approval policy",
@@ -468,8 +468,8 @@ def test_capability_diff_release_consequence_mirrors_release_decision(tmp_path):
         False,
     )
     assert tuple(blockers[1][k] for k in identity_fields) == (
-        "fp_dac8011e14c53777",
-        "fp_dac8011e14c53777",
+            "fp_2cf0d6c77d9c3eee",
+            "fp_2cf0d6c77d9c3eee",
         "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
         "critical",
         "stripe.create_refund lacks idempotency evidence",

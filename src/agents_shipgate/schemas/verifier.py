@@ -278,7 +278,7 @@ class VerifierArtifact(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    verifier_schema_version: Literal["0.1"] = "0.1"
+    verifier_schema_version: Literal["0.2"] = "0.2"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER

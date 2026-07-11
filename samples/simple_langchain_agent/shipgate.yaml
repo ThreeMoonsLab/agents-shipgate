@@ -21,6 +21,23 @@ langchain:
   tool_inventories:
     - inventories/tools.json
 
+tool_identity:
+  bindings:
+    - id: langchain_lookup_case
+      provider: langchain_agent
+      reason: reviewed inventory describes the bound LangChain function
+      primary: {source_id: "langchain_inventory:inventories/tools.json", tool: lookup_case}
+      members:
+        - {source_id: langchain_agent, tool: lookup_case}
+        - {source_id: "langchain_inventory:inventories/tools.json", tool: lookup_case}
+    - id: langchain_summarize_case
+      provider: langchain_agent
+      reason: reviewed inventory describes the bound structured tool
+      primary: {source_id: "langchain_inventory:inventories/tools.json", tool: summarize_case}
+      members:
+        - {source_id: langchain_agent, tool: summarize_case}
+        - {source_id: "langchain_inventory:inventories/tools.json", tool: summarize_case}
+
 action_surface:
   actions:
     - tool: lookup_case

@@ -26,7 +26,14 @@ SemanticActionEffect = Literal[
     "code_execution",
     "identity_access",
 ]
-SemanticDimension = Literal["effect", "authority"]
+SemanticDimension = Literal["identity", "effect", "authority"]
+IdentityEvidenceStatus = Literal[
+    "declared",
+    "structural",
+    "partial",
+    "unknown",
+    "conflicting",
+]
 EffectEvidenceStatus = Literal[
     "declared",
     "structural",
@@ -44,6 +51,12 @@ AuthorityEvidenceStatus = Literal[
 ]
 AuthorityMode = Literal["none", "scoped", "unscoped", "ambient", "unknown"]
 SemanticIssueKind = Literal[
+    "incomplete_tool_identity",
+    "conflicting_tool_identity",
+    "unresolved_tool_selector",
+    "ambiguous_tool_selector",
+    "ambiguous_legacy_tool_identity",
+    "invalid_tool_binding",
     "incomplete_surface",
     "missing_effect_evidence",
     "inferred_effect_only",
@@ -98,12 +111,27 @@ class AuthoritySemanticEvidence(BaseModel):
     issues: list[SemanticIssueEvidence] = Field(default_factory=list)
 
 
+class ToolIdentityEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_id: str
+    status: IdentityEvidenceStatus
+    provider: str
+    binding_id: str | None = None
+    primary_observation_id: str
+    observation_ids: list[str] = Field(default_factory=list)
+    claims: list[SemanticClaimEvidence] = Field(default_factory=list)
+    issues: list[SemanticIssueEvidence] = Field(default_factory=list)
+    pass_eligible: bool
+
+
 class ToolSemanticEvidence(BaseModel):
     """Public semantic assessment attached to action and capability facts."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     conservative_effect: SemanticActionEffect
+    identity: ToolIdentityEvidence | None = None
     effect: EffectSemanticEvidence
     authority: AuthoritySemanticEvidence
     pass_eligible: bool
@@ -115,10 +143,12 @@ __all__ = [
     "AuthoritySemanticEvidence",
     "EffectEvidenceStatus",
     "EffectSemanticEvidence",
+    "IdentityEvidenceStatus",
     "SemanticActionEffect",
     "SemanticClaimEvidence",
     "SemanticDimension",
     "SemanticIssueEvidence",
     "SemanticIssueKind",
     "ToolSemanticEvidence",
+    "ToolIdentityEvidence",
 ]

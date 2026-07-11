@@ -23,6 +23,30 @@ crewai:
   tool_inventories:
     - inventories/tools.json
 
+tool_identity:
+  bindings:
+    - id: crewai_lookup_case
+      provider: crewai_agent
+      reason: reviewed inventory describes the bound CrewAI class tool
+      primary: {source_id: "crewai_inventory:inventories/tools.json", tool: lookup_case}
+      members:
+        - {source_id: crewai_agent, tool: lookup_case}
+        - {source_id: "crewai_inventory:inventories/tools.json", tool: lookup_case}
+    - id: crewai_summarize_case
+      provider: crewai_agent
+      reason: reviewed inventory describes the bound CrewAI function
+      primary: {source_id: "crewai_inventory:inventories/tools.json", tool: summarize_case}
+      members:
+        - {source_id: crewai_agent, tool: summarize_case}
+        - {source_id: "crewai_inventory:inventories/tools.json", tool: summarize_case}
+    - id: crewai_file_read
+      provider: crewai_agent
+      reason: reviewed inventory describes the mounted prebuilt tool
+      primary: {source_id: "crewai_inventory:inventories/tools.json", tool: FileReadTool}
+      members:
+        - {source_id: crewai_agent, tool: FileReadTool}
+        - {source_id: "crewai_inventory:inventories/tools.json", tool: FileReadTool}
+
 action_surface:
   actions:
     - tool: lookup_case

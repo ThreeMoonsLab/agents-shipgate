@@ -23,7 +23,12 @@ class PdfRendererUnavailable(RuntimeError):
     """
 
 
-def render_packet_pdf(packet: EvidencePacket, out_path: Path) -> Path:
+def render_packet_pdf(
+    packet: EvidencePacket,
+    out_path: Path,
+    *,
+    sanitize_output: bool = True,
+) -> Path:
     """Render the packet as a PDF and write it to ``out_path``.
 
     Returns the resolved output path. Raises
@@ -39,7 +44,7 @@ def render_packet_pdf(packet: EvidencePacket, out_path: Path) -> Path:
         ) from exc
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    html_str = render_packet_html(packet)
+    html_str = render_packet_html(packet, sanitize_output=sanitize_output)
     HTML(string=html_str).write_pdf(str(out_path))
     return out_path
 

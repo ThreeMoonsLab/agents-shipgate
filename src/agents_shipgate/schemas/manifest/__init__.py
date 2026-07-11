@@ -88,6 +88,11 @@ from agents_shipgate.schemas.manifest.severity_overrides import (
     OverrideAcknowledgement,
     SeverityOverrideEntry,
 )
+from agents_shipgate.schemas.manifest.tool_identity import (
+    ToolIdentityBindingConfig,
+    ToolIdentityConfig,
+    ToolObservationSelectorConfig,
+)
 from agents_shipgate.schemas.manifest.tool_sources import (
     BUILTIN_PER_SCAN_ONLY_TOOL_SOURCE_TYPES,
     BUILTIN_TOOL_SOURCE_TYPES,
@@ -182,6 +187,10 @@ __all__ = [
     "SuppressionConfig",
     # tool_sources
     "ToolSourceConfig",
+    # tool_identity
+    "ToolIdentityBindingConfig",
+    "ToolIdentityConfig",
+    "ToolObservationSelectorConfig",
     # risk_overrides
     "ToolRiskOverride",
     # validation

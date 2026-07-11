@@ -37,9 +37,15 @@ def report_json_payload(report: ReadinessReport) -> dict[str, Any]:
     return sanitize_report_payload(data)
 
 
-def write_json_report(report: ReadinessReport, path: Path) -> None:
+def write_json_report(
+    report: ReadinessReport,
+    path: Path,
+    *,
+    sanitized_payload: dict[str, Any] | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = report_json_payload(report) if sanitized_payload is None else sanitized_payload
     path.write_text(
-        json.dumps(report_json_payload(report), indent=2),
+        json.dumps(payload, indent=2),
         encoding="utf-8",
     )

@@ -89,8 +89,20 @@ def validate_semantic_consistency(
         raise SemanticConsistencyError("semantic total_actions does not match tools")
     if coverage.pass_eligible_actions != pass_eligible:
         raise SemanticConsistencyError("semantic pass_eligible_actions does not match assessments")
+    identity_coverage = decision.evidence_coverage.identity_coverage
+    identity_eligible = sum(
+        1 for assessment in assessments.values() if assessment.identity.pass_eligible
+    )
+    if identity_coverage.canonical_tools != len(assessments):
+        raise SemanticConsistencyError("identity canonical_tools does not match tools")
+    if identity_coverage.pass_eligible_tools != identity_eligible:
+        raise SemanticConsistencyError("identity pass_eligible_tools does not match assessments")
     if decision.decision == "passed" and (
-        coverage.gap_count or coverage.review_concern_count or pass_eligible != len(assessments)
+        coverage.gap_count
+        or coverage.review_concern_count
+        or identity_coverage.gap_count
+        or identity_eligible != len(assessments)
+        or pass_eligible != len(assessments)
     ):
         raise SemanticConsistencyError(
             "passed requires every semantic assessment to be pass-eligible"

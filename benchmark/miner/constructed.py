@@ -75,8 +75,8 @@ CONSTRUCTED_CASES: tuple[ConstructedCase, ...] = (
     ),
     ConstructedCase(
         "openai_agents_sdk_agent",
-        "needs_human",
-        "dynamic OpenAI Agents SDK toolset; static extraction can't resolve the full surface (coverage gap)",
+        "safe_to_merge",
+        "reviewed inventory is explicitly bound to the static SDK observations with complete read-only semantics",
     ),
 )
 

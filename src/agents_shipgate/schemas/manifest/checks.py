@@ -22,6 +22,10 @@ class SuppressionConfig(BaseModel):
 
     check_id: str
     tool: str | None = None
+    tool_id: str | None = None
+    provider: str | None = None
+    source_type: str | None = None
+    source_id: str | None = None
     owner: str | None = None
     reason: str
     expires: date | None = None

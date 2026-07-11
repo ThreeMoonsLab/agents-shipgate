@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.29`) is still additive-versioned and
+(`report_schema_version`, currently `0.30`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -16,6 +16,28 @@ for reproducible CI.
 <a id="migration-note-0-16-0b1"></a>
 
 ## Migration Note: 0.16.0b1
+
+The tool-identity hardening follow-up advances runtime contract `11 → 12`,
+report `0.29 → 0.30`, packet `0.8 → 0.9`, capability standard `0.2 → 0.3`,
+capability lock `0.3 → 0.4`, lock diff `0.4 → 0.5`, policy pack `0.2 → 0.3`,
+verifier `0.1 → 0.2`, action snapshot `0.1 → 0.2`, and agent handoff
+`shipgate.agent_handoff/v1 → /v2`. The prior files remain frozen references.
+
+Tools are no longer deduplicated by a name-derived ID. Each extracted
+observation receives a source-scoped `obs_v1_…` identity and each canonical
+capability a full `tool_v2_…` identity. Same-name tools from different
+providers remain separate. Cross-source observations join only through an
+exact, reviewed `tool_identity.bindings[]` declaration; invalid or conflicting
+bindings join nothing and prevent `passed`.
+
+One-to-one manifest selectors now accept `tool_id`, `provider`, `source_type`,
+and `source_id`. A bare name that matches more than one provider applies
+nowhere and becomes an unsuppressible identity evidence gap. Finding
+fingerprints are v2 and include the canonical `tool_id` instead of display
+name. A v1 baseline fingerprint may match only when that legacy name resolves
+to exactly one current tool identity; the old broad check-ID/name fallback is
+removed. Reports before v0.30 and capability locks before v0.4 are not
+identity-comparable and must be regenerated.
 
 `0.16.0b1` is a pre-release of the `0.16` contract line. It deliberately
 tightens the meaning of `release_decision.decision: "passed"`: every in-scope
@@ -60,9 +82,9 @@ Contract v11 also adds the stable `action_effect` and `action_authority` IDs to
 actions, but these declarations are human assertions and must never be
 invented or auto-filled.
 
-The v0.28 report, v0.7 packet, v0.2 capability lock, and v0.3 lock-diff schemas
+The v0.29 report, v0.8 packet, v0.3 capability lock, and v0.4 lock-diff schemas
 remain frozen references. Regenerate current reports and capability locks
-before comparison; a pre-v0.29 artifact cannot establish current semantic pass
+before comparison; a pre-v0.30 artifact cannot establish current identity and semantic pass
 eligibility.
 
 ---
@@ -1060,14 +1082,16 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.8)
+### Release Evidence Packet (v0.9)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
-artifact governed by [`docs/packet-schema.v0.8.json`](docs/packet-schema.v0.8.json).
-v0.8 carries report v0.29 semantic coverage and evidence-gap remediation under
-the release-decision evidence coverage. v0.7 stays as the frozen reference at
-[`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json); pre-v0.8 packets
-validate against the matching frozen schema. v0.7 added capability-linked
+artifact governed by [`docs/packet-schema.v0.9.json`](docs/packet-schema.v0.9.json).
+v0.9 adds provider-scoped tool identities to capability, approval, idempotency,
+and scope evidence while preserving the report release decision as the only
+gate. v0.8 stays as the frozen reference at
+[`docs/packet-schema.v0.8.json`](docs/packet-schema.v0.8.json); pre-v0.9 packets
+validate against the matching frozen schema. v0.8 added report v0.29 semantic
+coverage and evidence-gap remediation; v0.7 added capability-linked
 local trace evidence under `human_in_the_loop`; v0.6 added the top-level
 `evidence_matrix` section and the
 optional `ReleaseDecisionItem.source` and `ReleaseDecisionItem.policy_evidence_source`
@@ -1099,8 +1123,8 @@ refund-capability PR.
 `agents-shipgate-reports/agent-handoff.json` is the preferred compact
 machine-readable handoff object for coding agents and CI agents. The current
 schema is
-[`docs/agent-handoff-schema.v1.json`](docs/agent-handoff-schema.v1.json) with
-`schema_version: "shipgate.agent_handoff/v1"`.
+[`docs/agent-handoff-schema.v2.json`](docs/agent-handoff-schema.v2.json) with
+`schema_version: "shipgate.agent_handoff/v2"`.
 
 The handoff artifact is derived only from `verifier.json`, `verify-run.json`,
 and `report.json`. It mirrors `release_decision.decision`,
@@ -1193,18 +1217,18 @@ those identities should not be recorded.
 envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
 `agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
-[`docs/capability-lock-schema.v0.3.json`](docs/capability-lock-schema.v0.3.json)
-and emitted locks carry `capability_lock_schema_version: "0.3"` plus
+[`docs/capability-lock-schema.v0.4.json`](docs/capability-lock-schema.v0.4.json)
+and emitted locks carry `capability_lock_schema_version: "0.4"` plus
 `experimental: false`.
 
 `agents-shipgate capability diff` compares two lockfiles and emits added,
 removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
 current diff schema is
-[`docs/capability-lock-diff-schema.v0.4.json`](docs/capability-lock-diff-schema.v0.4.json)
-and emitted diffs carry `capability_lock_diff_schema_version: "0.4"` plus
+[`docs/capability-lock-diff-schema.v0.5.json`](docs/capability-lock-diff-schema.v0.5.json)
+and emitted diffs carry `capability_lock_diff_schema_version: "0.5"` plus
 `experimental: false`. `reidentified` is the scope/resource case: scope is part
 of capability identity, so a scope escalation changes the id and is paired by
-agent/provider/operation/tool instead of being reported as unrelated add/remove
+agent/provider/operation/tool identity instead of being reported as unrelated add/remove
 churn.
 
 The lock is an enumerable-tools envelope. Dynamic toolkit scope bounds are
