@@ -576,7 +576,7 @@
       "mcp_discovery_task_count": 1,
       "mcp_call_task_count": 2,
       "human_checkpoint_count": 1,
-      "structurally_gated_mcp_call_count": 2,
+      "structurally_checkpointed_mcp_call_count": 2,
       "sub_workflow_task_count": 0,
       "dynamic_tool_surface_count": 2,
       "unsupported_capability_count": 2,

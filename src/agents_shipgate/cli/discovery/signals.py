@@ -59,6 +59,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     _relative,
     probe_suggested_source,
 )
+from agents_shipgate.inputs.conductor import conductor_agent_task_types
 from agents_shipgate.schemas.detect import (
     CodexPluginCandidate,
     DetectResult,
@@ -511,8 +512,6 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
             data = json.loads(full_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError):
             continue
-        from agents_shipgate.inputs.conductor import conductor_agent_task_types
-
         markers = conductor_agent_task_types(data)
         if markers:
             hits["conductor"].append(

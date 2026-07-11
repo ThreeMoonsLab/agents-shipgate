@@ -60,7 +60,7 @@ def test_conductor_static_mcp_call_and_human_checkpoint(tmp_path):
     assert surface["workflow_count"] == 1
     assert surface["mcp_call_task_count"] == 1
     assert surface["human_checkpoint_count"] == 1
-    assert surface["structurally_gated_mcp_call_count"] == 1
+    assert surface["structurally_checkpointed_mcp_call_count"] == 1
     assert surface["dynamic_tool_surface_count"] == 0
     tool = next(item for item in report.tool_inventory if item["name"] == "lookup_order")
     assert tool["source_type"] == "conductor_mcp_call"
@@ -155,7 +155,12 @@ def test_conductor_human_checkpoint_does_not_cross_sibling_branch(tmp_path):
     _write_manifest(project, "workflow.json")
 
     payload = inspect_sources(config_path=project / "shipgate.yaml")
-    assert payload["frameworks"]["conductor"]["structurally_gated_mcp_call_count"] == 0
+    assert (
+        payload["frameworks"]["conductor"][
+            "structurally_checkpointed_mcp_call_count"
+        ]
+        == 0
+    )
 
 
 def test_conductor_flat_arguments_compatibility_and_unsupported_capability(tmp_path):
@@ -310,7 +315,7 @@ def test_report_schema_v030_pins_conductor_summary_fields():
         "mcp_discovery_task_count",
         "mcp_call_task_count",
         "human_checkpoint_count",
-        "structurally_gated_mcp_call_count",
+        "structurally_checkpointed_mcp_call_count",
         "sub_workflow_task_count",
         "dynamic_tool_surface_count",
         "unsupported_capability_count",

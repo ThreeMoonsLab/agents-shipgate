@@ -1101,7 +1101,7 @@ def build_report_schema() -> tuple[Path, str]:
                 "mcp_discovery_task_count",
                 "mcp_call_task_count",
                 "human_checkpoint_count",
-                "structurally_gated_mcp_call_count",
+                "structurally_checkpointed_mcp_call_count",
                 "sub_workflow_task_count",
                 "dynamic_tool_surface_count",
                 "unsupported_capability_count",

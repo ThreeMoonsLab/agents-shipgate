@@ -407,7 +407,7 @@ class ConductorArtifacts(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
     def surface_summary(self) -> dict[str, Any]:
-        structurally_gated = sum(
+        structurally_checkpointed = sum(
             1
             for item in self.mcp_call_tasks
             if item.get("preceding_checkpoint_refs")
@@ -420,7 +420,7 @@ class ConductorArtifacts(BaseModel):
             "mcp_discovery_task_count": len(self.mcp_discovery_tasks),
             "mcp_call_task_count": len(self.mcp_call_tasks),
             "human_checkpoint_count": len(self.human_checkpoints),
-            "structurally_gated_mcp_call_count": structurally_gated,
+            "structurally_checkpointed_mcp_call_count": structurally_checkpointed,
             "sub_workflow_task_count": len(self.sub_workflows),
             "dynamic_tool_surface_count": len(self.dynamic_tool_surfaces),
             "unsupported_capability_count": len(self.unsupported_capabilities),

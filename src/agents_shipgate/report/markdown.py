@@ -844,7 +844,10 @@ def _append_frameworks(lines: list[str], report: ReadinessReport) -> None:
                 ("MCP discovery tasks", "mcp_discovery_task_count"),
                 ("MCP call tasks", "mcp_call_task_count"),
                 ("Human checkpoints", "human_checkpoint_count"),
-                ("Structurally checkpointed MCP calls", "structurally_gated_mcp_call_count"),
+                (
+                    "Structurally checkpointed MCP calls",
+                    "structurally_checkpointed_mcp_call_count",
+                ),
                 ("Sub-workflow tasks", "sub_workflow_task_count"),
                 ("Dynamic or unresolved tool surfaces", "dynamic_tool_surface_count"),
                 ("Unsupported capabilities", "unsupported_capability_count"),
