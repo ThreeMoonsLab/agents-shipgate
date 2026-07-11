@@ -1,0 +1,53 @@
+{
+  "capability_intent_schema_version": "0.1",
+  "experimental": true,
+  "subject": {
+    "agent_id": "agent:support",
+    "environment": "production"
+  },
+  "owner": "platform-security",
+  "reason": "Reviewed production capability boundary for the reconciliation example.",
+  "coverage": {
+    "tool": "closed_world",
+    "mcp": "partial",
+    "network": "closed_world",
+    "filesystem": "closed_world",
+    "resource": "partial"
+  },
+  "rules": [
+    {
+      "id": "allow.cases.search",
+      "effect": "allow",
+      "target": {
+        "kind": "tool",
+        "capability_id": "cap_aaaaaaaaaaaa",
+        "tool_name": "cases.search",
+        "provider": "openapi",
+        "operation": "read"
+      },
+      "expected_principal": {
+        "kind": "delegated_agent",
+        "credential_mode": "delegated",
+        "auth_type": "oauth2",
+        "authority_source": "openapi",
+        "authority_mode": "scoped",
+        "scopes": [
+          "cases:read"
+        ],
+        "principal_ref_sha256": null
+      }
+    },
+    {
+      "id": "deny.system.files",
+      "effect": "deny",
+      "target": {
+        "kind": "filesystem",
+        "path_class": "system",
+        "resource_class": "file",
+        "granularity": "class",
+        "locator_sha256": null
+      },
+      "expected_principal": null
+    }
+  ]
+}

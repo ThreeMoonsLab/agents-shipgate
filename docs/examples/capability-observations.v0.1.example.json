@@ -1,0 +1,149 @@
+{
+  "capability_observation_schema_version": "0.1",
+  "experimental": true,
+  "evidence_trust": "untrusted",
+  "subject": {
+    "agent_id": "agent:support",
+    "environment": "production"
+  },
+  "sources": [
+    {
+      "id": "sandbox-policy-current",
+      "kind": "sandbox_policy",
+      "vendor": "example-sandbox",
+      "producer_version": "2026.07",
+      "collection_mode": "enforced",
+      "run_id": "policy-export-current",
+      "run_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "policy_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "grant_inventory_coverage": {
+        "tool": "complete",
+        "mcp": "unknown",
+        "network": "complete",
+        "filesystem": "complete",
+        "resource": "unknown"
+      },
+      "observation_collection_coverage": "unknown",
+      "behavioral_coverage": "sampled"
+    },
+    {
+      "id": "eval-run-current",
+      "kind": "eval_run",
+      "vendor": "example-eval",
+      "producer_version": "2026.07",
+      "collection_mode": "evaluation",
+      "run_id": "eval-current",
+      "run_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "policy_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "grant_inventory_coverage": {
+        "tool": "unknown",
+        "mcp": "unknown",
+        "network": "unknown",
+        "filesystem": "unknown",
+        "resource": "unknown"
+      },
+      "observation_collection_coverage": "complete_for_run",
+      "behavioral_coverage": "sampled"
+    }
+  ],
+  "grants": [
+    {
+      "id": "grant-cases-search",
+      "source_id": "sandbox-policy-current",
+      "target": {
+        "kind": "tool",
+        "capability_id": "cap_aaaaaaaaaaaa",
+        "tool_name": "cases.search",
+        "provider": "openapi",
+        "operation": "read"
+      },
+      "principal": {
+        "kind": "delegated_agent",
+        "credential_mode": "delegated",
+        "auth_type": "oauth2",
+        "authority_source": "openapi",
+        "authority_mode": "scoped",
+        "scopes": [
+          "cases:read"
+        ],
+        "principal_ref_sha256": null
+      }
+    },
+    {
+      "id": "grant-unreviewed-domain",
+      "source_id": "sandbox-policy-current",
+      "target": {
+        "kind": "network",
+        "domain": "admin.example.com",
+        "scheme": "https",
+        "port": null,
+        "resource_class": "admin_api",
+        "granularity": "class",
+        "locator_sha256": null
+      },
+      "principal": {
+        "kind": "delegated_agent",
+        "credential_mode": "delegated",
+        "auth_type": "oauth2",
+        "authority_source": "openapi",
+        "authority_mode": "scoped",
+        "scopes": [
+          "cases:read"
+        ],
+        "principal_ref_sha256": null
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "observe-cases-search",
+      "source_id": "eval-run-current",
+      "sequence": 0,
+      "correlation_id": "eval-case-1",
+      "target": {
+        "kind": "tool",
+        "capability_id": "cap_aaaaaaaaaaaa",
+        "tool_name": "cases.search",
+        "provider": "openapi",
+        "operation": "read"
+      },
+      "outcome": "allowed",
+      "principal": {
+        "kind": "delegated_agent",
+        "credential_mode": "delegated",
+        "auth_type": "oauth2",
+        "authority_source": "openapi",
+        "authority_mode": "scoped",
+        "scopes": [
+          "cases:read"
+        ],
+        "principal_ref_sha256": null
+      }
+    },
+    {
+      "id": "observe-system-file",
+      "source_id": "eval-run-current",
+      "sequence": 1,
+      "correlation_id": "eval-case-2",
+      "target": {
+        "kind": "filesystem",
+        "path_class": "system",
+        "resource_class": "file",
+        "granularity": "class",
+        "locator_sha256": null
+      },
+      "outcome": "denied",
+      "principal": {
+        "kind": "delegated_agent",
+        "credential_mode": "delegated",
+        "auth_type": "oauth2",
+        "authority_source": "openapi",
+        "authority_mode": "scoped",
+        "scopes": [
+          "cases:read"
+        ],
+        "principal_ref_sha256": null
+      }
+    }
+  ]
+}

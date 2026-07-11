@@ -1,0 +1,336 @@
+{
+  "candidate_policy_changes": [
+    {
+      "action": "investigate_denied_attempt",
+      "actor": "human",
+      "approval_state": "unreviewed",
+      "auto_apply": false,
+      "cohort_id": "cohort_8298e88dce61b333d6c06d20",
+      "evidence_refs": [
+        "intent:deny.system.files",
+        "observation:eval-run-current:observe-system-file"
+      ],
+      "id": "proposal_28ff0a34b6351fc495780eb4",
+      "rationale": "A sandbox denial is evidence to investigate, never an allowlist recommendation.",
+      "requires_human_review": true,
+      "safe_to_attempt": false,
+      "target": {
+        "granularity": "class",
+        "kind": "filesystem",
+        "locator_sha256": null,
+        "path_class": "system",
+        "resource_class": "file"
+      }
+    },
+    {
+      "action": "remove_or_narrow_grant",
+      "actor": "human",
+      "approval_state": "unreviewed",
+      "auto_apply": false,
+      "cohort_id": "cohort_8298e88dce61b333d6c06d20",
+      "evidence_refs": [
+        "grant:sandbox-policy-current:grant-unreviewed-domain"
+      ],
+      "id": "proposal_7108f453712b5416ad6d35eb",
+      "rationale": "Grant exceeds the reviewed intended policy; prefer least-authority removal or narrowing.",
+      "requires_human_review": true,
+      "safe_to_attempt": false,
+      "target": {
+        "domain": "admin.example.com",
+        "granularity": "class",
+        "kind": "network",
+        "locator_sha256": null,
+        "port": null,
+        "resource_class": "admin_api",
+        "scheme": "https"
+      }
+    },
+    {
+      "action": "review_principal",
+      "actor": "human",
+      "approval_state": "unreviewed",
+      "auto_apply": false,
+      "cohort_id": "cohort_8298e88dce61b333d6c06d20",
+      "evidence_refs": [
+        "capability:cap_aaaaaaaaaaaa",
+        "grant:sandbox-policy-current:grant-cases-search",
+        "intent:allow.cases.search",
+        "observation:eval-run-current:observe-cases-search"
+      ],
+      "id": "proposal_b9975b489bfdc74814fe74e0",
+      "rationale": "Authority binding changed or conflicts with reviewed expectations and requires human review.",
+      "requires_human_review": true,
+      "safe_to_attempt": false,
+      "target": {
+        "capability_id": "cap_aaaaaaaaaaaa",
+        "kind": "tool",
+        "operation": "read",
+        "provider": "openapi",
+        "tool_name": "cases.search"
+      }
+    }
+  ],
+  "capability_lock_semantic_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "capability_reconciliation_schema_version": "0.1",
+  "cohorts": [
+    {
+      "coverage": {
+        "declared": "complete",
+        "granted": {
+          "filesystem": "complete",
+          "mcp": "unknown",
+          "network": "complete",
+          "resource": "unknown",
+          "tool": "complete"
+        },
+        "intended": {
+          "filesystem": "closed_world",
+          "mcp": "partial",
+          "network": "closed_world",
+          "resource": "partial",
+          "tool": "closed_world"
+        },
+        "observed": "sampled"
+      },
+      "evidence_gap_count": 2,
+      "id": "cohort_8298e88dce61b333d6c06d20",
+      "policy_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "result_count": 3,
+      "signal_counts": {
+        "denied_attempt": 1,
+        "excess_authority": 1,
+        "granted_unobserved": 1,
+        "principal_changed": 1
+      },
+      "source_refs": [
+        "eval-run-current",
+        "sandbox-policy-current"
+      ],
+      "source_runs": [
+        {
+          "collection_mode": "evaluation",
+          "kind": "eval_run",
+          "policy_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "run_id": "eval-current",
+          "run_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "source_id": "eval-run-current"
+        },
+        {
+          "collection_mode": "enforced",
+          "kind": "sandbox_policy",
+          "policy_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "run_id": "policy-export-current",
+          "run_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "source_id": "sandbox-policy-current"
+        }
+      ]
+    }
+  ],
+  "evidence_gaps": [
+    {
+      "cohort_id": "cohort_8298e88dce61b333d6c06d20",
+      "evidence_refs": [
+        "intent:deny.system.files",
+        "observation:eval-run-current:observe-system-file"
+      ],
+      "id": "gap_42a2f3d559886fb35879ad80",
+      "kind": "unsupported_resource_comparison",
+      "message": "The static capability lock cannot prove absence for this target.",
+      "target": {
+        "granularity": "class",
+        "kind": "filesystem",
+        "locator_sha256": null,
+        "path_class": "system",
+        "resource_class": "file"
+      }
+    },
+    {
+      "cohort_id": "cohort_8298e88dce61b333d6c06d20",
+      "evidence_refs": [
+        "grant:sandbox-policy-current:grant-unreviewed-domain"
+      ],
+      "id": "gap_d7fd3700c90ed834176a4728",
+      "kind": "unsupported_resource_comparison",
+      "message": "The static capability lock cannot prove absence for this target.",
+      "target": {
+        "domain": "admin.example.com",
+        "granularity": "class",
+        "kind": "network",
+        "locator_sha256": null,
+        "port": null,
+        "resource_class": "admin_api",
+        "scheme": "https"
+      }
+    }
+  ],
+  "evidence_trust": "untrusted",
+  "experimental": true,
+  "inputs": [
+    {
+      "path": "docs/examples/capability-observations-base.v0.1.example.json",
+      "role": "base_evidence",
+      "schema_version": "0.1",
+      "sha256": "sha256:39fd13adedde71e873cf721fd495a29248c4160937b4409b31ff38d9de5e66d2"
+    },
+    {
+      "path": "docs/examples/capability-lock.v0.3.example.json",
+      "role": "capability_lock",
+      "schema_version": "0.3",
+      "sha256": "sha256:709600a967a289e4671016b950fae75ed70647624a1313d4be62024ac93c25da"
+    },
+    {
+      "path": "docs/examples/capability-observations.v0.1.example.json",
+      "role": "evidence",
+      "schema_version": "0.1",
+      "sha256": "sha256:0a9bd7417c446eb1adf740c48f06f93f46f22f1ddc91d35ad6ddcf233a8f0d25"
+    },
+    {
+      "path": "docs/examples/capability-intent.v0.1.example.json",
+      "role": "intent_policy",
+      "schema_version": "0.1",
+      "sha256": "sha256:0ec21cdc104a56017fee05e5a61db9b9c0999cc0568847bef7d3c9a94c7ec1de"
+    }
+  ],
+  "live_collection_performed": false,
+  "local_imported_evidence_only": true,
+  "notes": [
+    "Observations are sampled, untrusted evidence and never establish runtime absence.",
+    "Candidate policy changes are non-executable proposals requiring human review.",
+    "This artifact does not affect report.json.release_decision.decision."
+  ],
+  "release_gate_effect": false,
+  "results": [
+    {
+      "authority_delta": null,
+      "cohort_id": "cohort_8298e88dce61b333d6c06d20",
+      "disposition": "human_review",
+      "evidence_refs": [
+        "grant:sandbox-policy-current:grant-unreviewed-domain"
+      ],
+      "id": "rec_c78f7135cfd9980f6aa78453",
+      "membership": {
+        "declared": "unknown",
+        "granted": "present",
+        "intended": "absent",
+        "observed": "not_observed"
+      },
+      "outcomes": [],
+      "primary_signal": "excess_authority",
+      "signals": [
+        "excess_authority",
+        "granted_unobserved"
+      ],
+      "target": {
+        "domain": "admin.example.com",
+        "granularity": "class",
+        "kind": "network",
+        "locator_sha256": null,
+        "port": null,
+        "resource_class": "admin_api",
+        "scheme": "https"
+      }
+    },
+    {
+      "authority_delta": null,
+      "cohort_id": "cohort_8298e88dce61b333d6c06d20",
+      "disposition": "investigate",
+      "evidence_refs": [
+        "intent:deny.system.files",
+        "observation:eval-run-current:observe-system-file"
+      ],
+      "id": "rec_cf9fc4e5d70b468f694ed055",
+      "membership": {
+        "declared": "unknown",
+        "granted": "absent",
+        "intended": "absent",
+        "observed": "observed"
+      },
+      "outcomes": [
+        "denied"
+      ],
+      "primary_signal": "denied_attempt",
+      "signals": [
+        "denied_attempt"
+      ],
+      "target": {
+        "granularity": "class",
+        "kind": "filesystem",
+        "locator_sha256": null,
+        "path_class": "system",
+        "resource_class": "file"
+      }
+    },
+    {
+      "authority_delta": {
+        "after": {
+          "auth_type": "oauth2",
+          "authority_mode": "scoped",
+          "authority_source": "openapi",
+          "credential_mode": "delegated",
+          "kind": "delegated_agent",
+          "principal_ref_sha256": null,
+          "scopes": [
+            "cases:read"
+          ]
+        },
+        "before": {
+          "auth_type": "oauth2",
+          "authority_mode": "scoped",
+          "authority_source": "openapi",
+          "credential_mode": "delegated",
+          "kind": "service_account",
+          "principal_ref_sha256": null,
+          "scopes": [
+            "cases:read"
+          ]
+        }
+      },
+      "cohort_id": "cohort_8298e88dce61b333d6c06d20",
+      "disposition": "human_review",
+      "evidence_refs": [
+        "capability:cap_aaaaaaaaaaaa",
+        "grant:sandbox-policy-current:grant-cases-search",
+        "intent:allow.cases.search",
+        "observation:eval-run-current:observe-cases-search"
+      ],
+      "id": "rec_e3f6cf5c0c39d76ce1821365",
+      "membership": {
+        "declared": "present",
+        "granted": "present",
+        "intended": "present",
+        "observed": "observed"
+      },
+      "outcomes": [
+        "allowed"
+      ],
+      "primary_signal": "principal_changed",
+      "signals": [
+        "principal_changed"
+      ],
+      "target": {
+        "capability_id": "cap_aaaaaaaaaaaa",
+        "kind": "tool",
+        "operation": "read",
+        "provider": "openapi",
+        "tool_name": "cases.search"
+      }
+    }
+  ],
+  "subject": {
+    "agent_id": "agent:support",
+    "environment": "production"
+  },
+  "summary": {
+    "candidate_policy_change_count": 3,
+    "cohort_count": 1,
+    "evidence_gap_count": 2,
+    "result_count": 3,
+    "signal_counts": {
+      "denied_attempt": 1,
+      "excess_authority": 1,
+      "granted_unobserved": 1,
+      "principal_changed": 1
+    },
+    "target_count": 3
+  }
+}

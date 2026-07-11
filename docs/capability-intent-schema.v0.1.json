@@ -1,0 +1,580 @@
+{
+  "$defs": {
+    "CapabilityIntentPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_intent_schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Capability Intent Schema Version",
+          "type": "string"
+        },
+        "coverage": {
+          "$ref": "#/$defs/IntentCoverageV1"
+        },
+        "experimental": {
+          "const": true,
+          "default": true,
+          "title": "Experimental",
+          "type": "boolean"
+        },
+        "owner": {
+          "minLength": 1,
+          "title": "Owner",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/IntentRuleV1"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "subject": {
+          "$ref": "#/$defs/ReconciliationSubjectV1"
+        }
+      },
+      "required": [
+        "subject",
+        "owner",
+        "reason"
+      ],
+      "title": "CapabilityIntentPolicyV1",
+      "type": "object"
+    },
+    "FilesystemTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "granularity": {
+          "default": "class",
+          "enum": [
+            "exact",
+            "class"
+          ],
+          "title": "Granularity",
+          "type": "string"
+        },
+        "kind": {
+          "const": "filesystem",
+          "default": "filesystem",
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator Sha256"
+        },
+        "path_class": {
+          "enum": [
+            "workspace",
+            "temporary",
+            "home",
+            "system",
+            "secret",
+            "external",
+            "unknown"
+          ],
+          "title": "Path Class",
+          "type": "string"
+        },
+        "resource_class": {
+          "default": "file",
+          "title": "Resource Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_class"
+      ],
+      "title": "FilesystemTargetV1",
+      "type": "object"
+    },
+    "IntentCoverageV1": {
+      "additionalProperties": false,
+      "properties": {
+        "filesystem": {
+          "default": "partial",
+          "enum": [
+            "closed_world",
+            "partial"
+          ],
+          "title": "Filesystem",
+          "type": "string"
+        },
+        "mcp": {
+          "default": "partial",
+          "enum": [
+            "closed_world",
+            "partial"
+          ],
+          "title": "Mcp",
+          "type": "string"
+        },
+        "network": {
+          "default": "partial",
+          "enum": [
+            "closed_world",
+            "partial"
+          ],
+          "title": "Network",
+          "type": "string"
+        },
+        "resource": {
+          "default": "partial",
+          "enum": [
+            "closed_world",
+            "partial"
+          ],
+          "title": "Resource",
+          "type": "string"
+        },
+        "tool": {
+          "default": "partial",
+          "enum": [
+            "closed_world",
+            "partial"
+          ],
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "title": "IntentCoverageV1",
+      "type": "object"
+    },
+    "IntentRuleV1": {
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "expected_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PrincipalBindingV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "filesystem": "#/$defs/FilesystemTargetV1",
+              "mcp": "#/$defs/McpTargetV1",
+              "network": "#/$defs/NetworkTargetV1",
+              "resource": "#/$defs/ResourceTargetV1",
+              "tool": "#/$defs/ToolTargetV1"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ToolTargetV1"
+            },
+            {
+              "$ref": "#/$defs/McpTargetV1"
+            },
+            {
+              "$ref": "#/$defs/NetworkTargetV1"
+            },
+            {
+              "$ref": "#/$defs/FilesystemTargetV1"
+            },
+            {
+              "$ref": "#/$defs/ResourceTargetV1"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "id",
+        "effect",
+        "target"
+      ],
+      "title": "IntentRuleV1",
+      "type": "object"
+    },
+    "McpTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Id"
+        },
+        "kind": {
+          "const": "mcp",
+          "default": "mcp",
+          "title": "Kind",
+          "type": "string"
+        },
+        "mcp_server": {
+          "title": "Mcp Server",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mcp_server",
+        "tool_name"
+      ],
+      "title": "McpTargetV1",
+      "type": "object"
+    },
+    "NetworkTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "pattern": "^[^:/?#@*]+$",
+          "title": "Domain",
+          "type": "string"
+        },
+        "granularity": {
+          "default": "class",
+          "enum": [
+            "exact",
+            "class"
+          ],
+          "title": "Granularity",
+          "type": "string"
+        },
+        "kind": {
+          "const": "network",
+          "default": "network",
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator Sha256"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port"
+        },
+        "resource_class": {
+          "default": "url",
+          "title": "Resource Class",
+          "type": "string"
+        },
+        "scheme": {
+          "anyOf": [
+            {
+              "enum": [
+                "http",
+                "https",
+                "other"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scheme"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "title": "NetworkTargetV1",
+      "type": "object"
+    },
+    "PrincipalBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "auth_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Type"
+        },
+        "authority_mode": {
+          "default": "unknown",
+          "enum": [
+            "none",
+            "scoped",
+            "unscoped",
+            "ambient",
+            "unknown"
+          ],
+          "title": "Authority Mode",
+          "type": "string"
+        },
+        "authority_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Source"
+        },
+        "credential_mode": {
+          "title": "Credential Mode",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "human_impersonation",
+            "delegated_agent",
+            "service_account",
+            "assumed_role",
+            "agent_principal",
+            "workload_identity",
+            "ambient",
+            "anonymous",
+            "unknown",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "principal_ref_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Principal Ref Sha256"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "credential_mode"
+      ],
+      "title": "PrincipalBindingV1",
+      "type": "object"
+    },
+    "ReconciliationSubjectV1": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "title": "ReconciliationSubjectV1",
+      "type": "object"
+    },
+    "ResourceTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "granularity": {
+          "default": "class",
+          "enum": [
+            "exact",
+            "class"
+          ],
+          "title": "Granularity",
+          "type": "string"
+        },
+        "kind": {
+          "const": "resource",
+          "default": "resource",
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator Sha256"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "resource_class": {
+          "title": "Resource Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_class"
+      ],
+      "title": "ResourceTargetV1",
+      "type": "object"
+    },
+    "ToolTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Id"
+        },
+        "kind": {
+          "const": "tool",
+          "default": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name"
+      ],
+      "title": "ToolTargetV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-intent-schema.v0.1.json",
+  "$ref": "#/$defs/CapabilityIntentPolicyV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Experimental JSON Schema for a reviewed, human-owned capability-intent sidecar. It is separate from untrusted observations and is not a release gate.",
+  "title": "Agents Shipgate Experimental Capability Intent v0.1"
+}

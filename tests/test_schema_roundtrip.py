@@ -5,6 +5,7 @@ Every committed schema under ``docs/`` (``manifest-v0.1.json``,
 the current-minor ``packet-schema.v0.*.json``, and
 ``verifier-schema.v0.1.json``, ``verify-run-schema.v1.json``,
 ``agent-handoff-schema.v1.json``, ``codex-boundary-result-schema.v1.json``,
+the three experimental ``capability-*-schema.v0.1.json`` reconciliation contracts,
 and ``agent-result-schema.v1.json``)
 MUST match what
 ``scripts/generate_schemas.py`` produces from the live Pydantic models.
@@ -187,6 +188,9 @@ def test_builders_are_pure(generator):
         generator.build_org_evidence_bundle_schema,
         generator.build_registry_schema,
         generator.build_host_grants_inventory_schema,
+        generator.build_capability_intent_schema,
+        generator.build_capability_observation_schema,
+        generator.build_capability_reconciliation_schema,
     ):
         target_a, content_a = builder()
         target_b, content_b = builder()

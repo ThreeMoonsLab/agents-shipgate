@@ -1,0 +1,1180 @@
+{
+  "$defs": {
+    "AuthorityDeltaV1": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/PrincipalBindingV1"
+        },
+        "before": {
+          "$ref": "#/$defs/PrincipalBindingV1"
+        }
+      },
+      "required": [
+        "before",
+        "after"
+      ],
+      "title": "AuthorityDeltaV1",
+      "type": "object"
+    },
+    "CandidatePolicyChangeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "remove_or_narrow_grant",
+            "investigate_runtime_route",
+            "investigate_denied_attempt",
+            "consider_minimal_grant",
+            "review_principal",
+            "add_or_correct_static_declaration",
+            "review_intent_or_declaration",
+            "review_intent_policy",
+            "inspect_enforcement_integrity"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "approval_state": {
+          "const": "unreviewed",
+          "default": "unreviewed",
+          "title": "Approval State",
+          "type": "string"
+        },
+        "auto_apply": {
+          "const": false,
+          "default": false,
+          "title": "Auto Apply",
+          "type": "boolean"
+        },
+        "cohort_id": {
+          "title": "Cohort Id",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "requires_human_review": {
+          "const": true,
+          "default": true,
+          "title": "Requires Human Review",
+          "type": "boolean"
+        },
+        "safe_to_attempt": {
+          "const": false,
+          "default": false,
+          "title": "Safe To Attempt",
+          "type": "boolean"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "filesystem": "#/$defs/FilesystemTargetV1",
+              "mcp": "#/$defs/McpTargetV1",
+              "network": "#/$defs/NetworkTargetV1",
+              "resource": "#/$defs/ResourceTargetV1",
+              "tool": "#/$defs/ToolTargetV1"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ToolTargetV1"
+            },
+            {
+              "$ref": "#/$defs/McpTargetV1"
+            },
+            {
+              "$ref": "#/$defs/NetworkTargetV1"
+            },
+            {
+              "$ref": "#/$defs/FilesystemTargetV1"
+            },
+            {
+              "$ref": "#/$defs/ResourceTargetV1"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "id",
+        "cohort_id",
+        "target",
+        "action",
+        "rationale"
+      ],
+      "title": "CandidatePolicyChangeV1",
+      "type": "object"
+    },
+    "CapabilityReconciliationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_policy_changes": {
+          "items": {
+            "$ref": "#/$defs/CandidatePolicyChangeV1"
+          },
+          "title": "Candidate Policy Changes",
+          "type": "array"
+        },
+        "capability_lock_semantic_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Capability Lock Semantic Hash",
+          "type": "string"
+        },
+        "capability_reconciliation_schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Capability Reconciliation Schema Version",
+          "type": "string"
+        },
+        "cohorts": {
+          "items": {
+            "$ref": "#/$defs/ReconciliationCohortV1"
+          },
+          "title": "Cohorts",
+          "type": "array"
+        },
+        "evidence_gaps": {
+          "items": {
+            "$ref": "#/$defs/ReconciliationEvidenceGapV1"
+          },
+          "title": "Evidence Gaps",
+          "type": "array"
+        },
+        "evidence_trust": {
+          "const": "untrusted",
+          "default": "untrusted",
+          "title": "Evidence Trust",
+          "type": "string"
+        },
+        "experimental": {
+          "const": true,
+          "default": true,
+          "title": "Experimental",
+          "type": "boolean"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/ReconciliationInputBindingV1"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "live_collection_performed": {
+          "const": false,
+          "default": false,
+          "title": "Live Collection Performed",
+          "type": "boolean"
+        },
+        "local_imported_evidence_only": {
+          "const": true,
+          "default": true,
+          "title": "Local Imported Evidence Only",
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "release_gate_effect": {
+          "const": false,
+          "default": false,
+          "title": "Release Gate Effect",
+          "type": "boolean"
+        },
+        "results": {
+          "items": {
+            "$ref": "#/$defs/ReconciliationResultV1"
+          },
+          "title": "Results",
+          "type": "array"
+        },
+        "subject": {
+          "$ref": "#/$defs/ReconciliationSubjectV1"
+        },
+        "summary": {
+          "$ref": "#/$defs/ReconciliationSummaryV1"
+        }
+      },
+      "required": [
+        "subject",
+        "capability_lock_semantic_hash",
+        "inputs",
+        "summary",
+        "cohorts",
+        "results",
+        "evidence_gaps",
+        "candidate_policy_changes"
+      ],
+      "title": "CapabilityReconciliationV1",
+      "type": "object"
+    },
+    "FilesystemTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "granularity": {
+          "default": "class",
+          "enum": [
+            "exact",
+            "class"
+          ],
+          "title": "Granularity",
+          "type": "string"
+        },
+        "kind": {
+          "const": "filesystem",
+          "default": "filesystem",
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator Sha256"
+        },
+        "path_class": {
+          "enum": [
+            "workspace",
+            "temporary",
+            "home",
+            "system",
+            "secret",
+            "external",
+            "unknown"
+          ],
+          "title": "Path Class",
+          "type": "string"
+        },
+        "resource_class": {
+          "default": "file",
+          "title": "Resource Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_class"
+      ],
+      "title": "FilesystemTargetV1",
+      "type": "object"
+    },
+    "McpTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Id"
+        },
+        "kind": {
+          "const": "mcp",
+          "default": "mcp",
+          "title": "Kind",
+          "type": "string"
+        },
+        "mcp_server": {
+          "title": "Mcp Server",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mcp_server",
+        "tool_name"
+      ],
+      "title": "McpTargetV1",
+      "type": "object"
+    },
+    "NetworkTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "pattern": "^[^:/?#@*]+$",
+          "title": "Domain",
+          "type": "string"
+        },
+        "granularity": {
+          "default": "class",
+          "enum": [
+            "exact",
+            "class"
+          ],
+          "title": "Granularity",
+          "type": "string"
+        },
+        "kind": {
+          "const": "network",
+          "default": "network",
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator Sha256"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port"
+        },
+        "resource_class": {
+          "default": "url",
+          "title": "Resource Class",
+          "type": "string"
+        },
+        "scheme": {
+          "anyOf": [
+            {
+              "enum": [
+                "http",
+                "https",
+                "other"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scheme"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "title": "NetworkTargetV1",
+      "type": "object"
+    },
+    "PrincipalBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "auth_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Type"
+        },
+        "authority_mode": {
+          "default": "unknown",
+          "enum": [
+            "none",
+            "scoped",
+            "unscoped",
+            "ambient",
+            "unknown"
+          ],
+          "title": "Authority Mode",
+          "type": "string"
+        },
+        "authority_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Source"
+        },
+        "credential_mode": {
+          "title": "Credential Mode",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "human_impersonation",
+            "delegated_agent",
+            "service_account",
+            "assumed_role",
+            "agent_principal",
+            "workload_identity",
+            "ambient",
+            "anonymous",
+            "unknown",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "principal_ref_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Principal Ref Sha256"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "credential_mode"
+      ],
+      "title": "PrincipalBindingV1",
+      "type": "object"
+    },
+    "ReconciliationCohortCoverageV1": {
+      "additionalProperties": false,
+      "properties": {
+        "declared": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "title": "Declared",
+          "type": "string"
+        },
+        "granted": {
+          "additionalProperties": {
+            "enum": [
+              "complete",
+              "partial",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "propertyNames": {
+            "enum": [
+              "tool",
+              "mcp",
+              "network",
+              "filesystem",
+              "resource"
+            ]
+          },
+          "title": "Granted",
+          "type": "object"
+        },
+        "intended": {
+          "additionalProperties": {
+            "enum": [
+              "closed_world",
+              "partial"
+            ],
+            "type": "string"
+          },
+          "propertyNames": {
+            "enum": [
+              "tool",
+              "mcp",
+              "network",
+              "filesystem",
+              "resource"
+            ]
+          },
+          "title": "Intended",
+          "type": "object"
+        },
+        "observed": {
+          "const": "sampled",
+          "default": "sampled",
+          "title": "Observed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "intended",
+        "declared",
+        "granted"
+      ],
+      "title": "ReconciliationCohortCoverageV1",
+      "type": "object"
+    },
+    "ReconciliationCohortV1": {
+      "additionalProperties": false,
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/ReconciliationCohortCoverageV1"
+        },
+        "evidence_gap_count": {
+          "title": "Evidence Gap Count",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "policy_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Policy Sha256"
+        },
+        "result_count": {
+          "title": "Result Count",
+          "type": "integer"
+        },
+        "signal_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Signal Counts",
+          "type": "object"
+        },
+        "source_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Refs",
+          "type": "array"
+        },
+        "source_runs": {
+          "items": {
+            "$ref": "#/$defs/ReconciliationSourceRunV1"
+          },
+          "title": "Source Runs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "policy_sha256",
+        "source_refs",
+        "source_runs",
+        "coverage",
+        "result_count",
+        "evidence_gap_count"
+      ],
+      "title": "ReconciliationCohortV1",
+      "type": "object"
+    },
+    "ReconciliationEvidenceGapV1": {
+      "additionalProperties": false,
+      "properties": {
+        "cohort_id": {
+          "title": "Cohort Id",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "missing_policy_hash",
+            "policy_snapshot_mismatch",
+            "ambiguous_target",
+            "unmapped_target",
+            "incomplete_intent_inventory",
+            "incomplete_declared_inventory",
+            "incomplete_grant_inventory",
+            "conflicting_grants",
+            "unsupported_resource_comparison"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "filesystem": "#/$defs/FilesystemTargetV1",
+                  "mcp": "#/$defs/McpTargetV1",
+                  "network": "#/$defs/NetworkTargetV1",
+                  "resource": "#/$defs/ResourceTargetV1",
+                  "tool": "#/$defs/ToolTargetV1"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ToolTargetV1"
+                },
+                {
+                  "$ref": "#/$defs/McpTargetV1"
+                },
+                {
+                  "$ref": "#/$defs/NetworkTargetV1"
+                },
+                {
+                  "$ref": "#/$defs/FilesystemTargetV1"
+                },
+                {
+                  "$ref": "#/$defs/ResourceTargetV1"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        }
+      },
+      "required": [
+        "id",
+        "cohort_id",
+        "kind",
+        "message"
+      ],
+      "title": "ReconciliationEvidenceGapV1",
+      "type": "object"
+    },
+    "ReconciliationInputBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "capability_lock",
+            "intent_policy",
+            "evidence",
+            "base_evidence"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "schema_version": {
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "path",
+        "sha256",
+        "schema_version"
+      ],
+      "title": "ReconciliationInputBindingV1",
+      "type": "object"
+    },
+    "ReconciliationResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_delta": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuthorityDeltaV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "cohort_id": {
+          "title": "Cohort Id",
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "informational",
+            "investigate",
+            "human_review"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "membership": {
+          "$ref": "#/$defs/SetMembershipV1"
+        },
+        "outcomes": {
+          "items": {
+            "enum": [
+              "attempted",
+              "allowed",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "title": "Outcomes",
+          "type": "array"
+        },
+        "primary_signal": {
+          "enum": [
+            "excess_authority",
+            "policy_unclassified_grant",
+            "behavioral_drift",
+            "denied_attempt",
+            "declared_ungranted",
+            "granted_unobserved",
+            "allowed_ungranted",
+            "intended_undeclared",
+            "declared_unintended",
+            "principal_changed",
+            "principal_mismatch",
+            "aligned"
+          ],
+          "title": "Primary Signal",
+          "type": "string"
+        },
+        "signals": {
+          "items": {
+            "enum": [
+              "excess_authority",
+              "policy_unclassified_grant",
+              "behavioral_drift",
+              "denied_attempt",
+              "declared_ungranted",
+              "granted_unobserved",
+              "allowed_ungranted",
+              "intended_undeclared",
+              "declared_unintended",
+              "principal_changed",
+              "principal_mismatch",
+              "aligned"
+            ],
+            "type": "string"
+          },
+          "title": "Signals",
+          "type": "array"
+        },
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "filesystem": "#/$defs/FilesystemTargetV1",
+              "mcp": "#/$defs/McpTargetV1",
+              "network": "#/$defs/NetworkTargetV1",
+              "resource": "#/$defs/ResourceTargetV1",
+              "tool": "#/$defs/ToolTargetV1"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ToolTargetV1"
+            },
+            {
+              "$ref": "#/$defs/McpTargetV1"
+            },
+            {
+              "$ref": "#/$defs/NetworkTargetV1"
+            },
+            {
+              "$ref": "#/$defs/FilesystemTargetV1"
+            },
+            {
+              "$ref": "#/$defs/ResourceTargetV1"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "id",
+        "cohort_id",
+        "target",
+        "membership",
+        "signals",
+        "primary_signal",
+        "disposition"
+      ],
+      "title": "ReconciliationResultV1",
+      "type": "object"
+    },
+    "ReconciliationSourceRunV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collection_mode": {
+          "enum": [
+            "learning",
+            "enforced",
+            "evaluation"
+          ],
+          "title": "Collection Mode",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "sandbox_policy",
+            "sandbox_run",
+            "eval_run"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "policy_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Policy Sha256"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "run_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Run Sha256",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "kind",
+        "collection_mode",
+        "run_id",
+        "run_sha256",
+        "policy_sha256"
+      ],
+      "title": "ReconciliationSourceRunV1",
+      "type": "object"
+    },
+    "ReconciliationSubjectV1": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "title": "ReconciliationSubjectV1",
+      "type": "object"
+    },
+    "ReconciliationSummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_policy_change_count": {
+          "title": "Candidate Policy Change Count",
+          "type": "integer"
+        },
+        "cohort_count": {
+          "title": "Cohort Count",
+          "type": "integer"
+        },
+        "evidence_gap_count": {
+          "title": "Evidence Gap Count",
+          "type": "integer"
+        },
+        "result_count": {
+          "title": "Result Count",
+          "type": "integer"
+        },
+        "signal_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Signal Counts",
+          "type": "object"
+        },
+        "target_count": {
+          "title": "Target Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cohort_count",
+        "target_count",
+        "result_count",
+        "evidence_gap_count",
+        "candidate_policy_change_count"
+      ],
+      "title": "ReconciliationSummaryV1",
+      "type": "object"
+    },
+    "ResourceTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "granularity": {
+          "default": "class",
+          "enum": [
+            "exact",
+            "class"
+          ],
+          "title": "Granularity",
+          "type": "string"
+        },
+        "kind": {
+          "const": "resource",
+          "default": "resource",
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator Sha256"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "resource_class": {
+          "title": "Resource Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_class"
+      ],
+      "title": "ResourceTargetV1",
+      "type": "object"
+    },
+    "SetMembershipV1": {
+      "additionalProperties": false,
+      "properties": {
+        "declared": {
+          "enum": [
+            "present",
+            "absent",
+            "unknown"
+          ],
+          "title": "Declared",
+          "type": "string"
+        },
+        "granted": {
+          "enum": [
+            "present",
+            "absent",
+            "unknown"
+          ],
+          "title": "Granted",
+          "type": "string"
+        },
+        "intended": {
+          "enum": [
+            "present",
+            "absent",
+            "unknown"
+          ],
+          "title": "Intended",
+          "type": "string"
+        },
+        "observed": {
+          "enum": [
+            "observed",
+            "not_observed"
+          ],
+          "title": "Observed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "intended",
+        "declared",
+        "granted",
+        "observed"
+      ],
+      "title": "SetMembershipV1",
+      "type": "object"
+    },
+    "ToolTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Id"
+        },
+        "kind": {
+          "const": "tool",
+          "default": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name"
+      ],
+      "title": "ToolTargetV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-reconciliation-schema.v0.1.json",
+  "$ref": "#/$defs/CapabilityReconciliationV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Experimental JSON Schema for deterministic four-set capability reconciliation. Candidate changes are human-only and release_decision.decision remains the sole gate.",
+  "title": "Agents Shipgate Experimental Capability Reconciliation v0.1"
+}

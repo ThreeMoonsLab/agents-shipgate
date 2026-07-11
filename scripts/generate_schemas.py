@@ -49,6 +49,12 @@ Writes / verifies:
 - docs/capability-lock-diff-schema.v0.4.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockDiffArtifactV1)
+- docs/capability-intent-schema.v0.1.json
+- docs/capability-observation-schema.v0.1.json
+- docs/capability-reconciliation-schema.v0.1.json
+                                (experimental local reconciliation contracts
+                                 from agents_shipgate.schemas.
+                                 capability_reconciliation)
 - docs/governance-benchmark-catalog-schema.v0.2.json
                                 (from agents_shipgate.schemas.governance_benchmark.
                                  GovernanceBenchmarkCatalogArtifactV1)
@@ -1433,6 +1439,78 @@ def write_capability_lock_diff_schema(
     )
 
 
+def build_capability_intent_schema() -> tuple[Path, str]:
+    """Generate the experimental human-owned capability-intent schema."""
+
+    from agents_shipgate.schemas.capability_reconciliation import (
+        CAPABILITY_INTENT_SCHEMA_VERSION,
+        CapabilityIntentPolicyArtifactV1,
+    )
+
+    minor = CAPABILITY_INTENT_SCHEMA_VERSION
+    schema = CapabilityIntentPolicyArtifactV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/capability-intent-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Experimental Capability Intent v{minor}"
+    schema["description"] = (
+        "Experimental JSON Schema for a reviewed, human-owned capability-intent "
+        "sidecar. It is separate from untrusted observations and is not a release gate."
+    )
+    target = DOCS / f"capability-intent-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_capability_observation_schema() -> tuple[Path, str]:
+    """Generate the experimental vendor-neutral observation schema."""
+
+    from agents_shipgate.schemas.capability_reconciliation import (
+        CAPABILITY_OBSERVATION_SCHEMA_VERSION,
+        CapabilityObservationArtifactV1,
+    )
+
+    minor = CAPABILITY_OBSERVATION_SCHEMA_VERSION
+    schema = CapabilityObservationArtifactV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/capability-observation-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Experimental Capability Observations v{minor}"
+    schema["description"] = (
+        "Experimental vendor-neutral JSON Schema for untrusted local sandbox grants "
+        "and sampled eval observations. It performs no live collection and does not gate."
+    )
+    target = DOCS / f"capability-observation-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_capability_reconciliation_schema() -> tuple[Path, str]:
+    """Generate the experimental non-gating reconciliation-result schema."""
+
+    from agents_shipgate.schemas.capability_reconciliation import (
+        CAPABILITY_RECONCILIATION_SCHEMA_VERSION,
+        CapabilityReconciliationArtifactV1,
+    )
+
+    minor = CAPABILITY_RECONCILIATION_SCHEMA_VERSION
+    schema = CapabilityReconciliationArtifactV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/capability-reconciliation-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Experimental Capability Reconciliation v{minor}"
+    schema["description"] = (
+        "Experimental JSON Schema for deterministic four-set capability reconciliation. "
+        "Candidate changes are human-only and release_decision.decision remains the sole gate."
+    )
+    target = DOCS / f"capability-reconciliation-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 def build_governance_benchmark_catalog_schema() -> tuple[Path, str]:
     """Generate the stable governance-benchmark catalog schema."""
 
@@ -1624,6 +1702,9 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("preflight", build_preflight_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
+    ("capability_intent", build_capability_intent_schema),
+    ("capability_observation", build_capability_observation_schema),
+    ("capability_reconciliation", build_capability_reconciliation_schema),
     ("attestation", build_attestation_schema),
     ("org_governance", build_org_governance_schema),
     ("org_evidence_bundle", build_org_evidence_bundle_schema),

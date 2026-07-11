@@ -1,0 +1,55 @@
+{
+  "capability_observation_schema_version": "0.1",
+  "experimental": true,
+  "evidence_trust": "untrusted",
+  "subject": {
+    "agent_id": "agent:support",
+    "environment": "production"
+  },
+  "sources": [
+    {
+      "id": "sandbox-policy-base",
+      "kind": "sandbox_policy",
+      "vendor": "example-sandbox",
+      "producer_version": "2026.06",
+      "collection_mode": "enforced",
+      "run_id": "policy-export-base",
+      "run_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "policy_sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "grant_inventory_coverage": {
+        "tool": "complete",
+        "mcp": "unknown",
+        "network": "complete",
+        "filesystem": "complete",
+        "resource": "unknown"
+      },
+      "observation_collection_coverage": "unknown",
+      "behavioral_coverage": "sampled"
+    }
+  ],
+  "grants": [
+    {
+      "id": "base-grant-cases-search",
+      "source_id": "sandbox-policy-base",
+      "target": {
+        "kind": "tool",
+        "capability_id": "cap_aaaaaaaaaaaa",
+        "tool_name": "cases.search",
+        "provider": "openapi",
+        "operation": "read"
+      },
+      "principal": {
+        "kind": "service_account",
+        "credential_mode": "delegated",
+        "auth_type": "oauth2",
+        "authority_source": "openapi",
+        "authority_mode": "scoped",
+        "scopes": [
+          "cases:read"
+        ],
+        "principal_ref_sha256": null
+      }
+    }
+  ],
+  "observations": []
+}
