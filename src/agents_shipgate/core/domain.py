@@ -8,7 +8,7 @@ from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, parse_confidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-SemanticDimension = Literal["identity", "effect", "authority"]
+SemanticDimension = Literal["identity", "binding", "effect", "authority"]
 IdentityEvidenceStatus = Literal[
     "declared",
     "structural",
@@ -47,6 +47,14 @@ SemanticIssueKind = Literal[
     "partial_authority_evidence",
     "conflicting_authority_evidence",
     "invalid_semantic_annotation",
+    "missing_binding_evidence",
+    "partial_binding_evidence",
+    "conflicting_binding_evidence",
+    "ambiguous_root_agent",
+    "unresolved_agent_binding",
+    "unresolved_bound_tool",
+    "incomplete_handoff_graph",
+    "invalid_binding_annotation",
 ]
 
 
@@ -113,6 +121,30 @@ class ToolIdentityAssessment(BaseModel):
     pass_eligible: bool
 
 
+class BindingSemanticAssessment(BaseModel):
+    """Static proof that a tool is reachable from the configured root agent."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["declared", "structural", "partial", "unknown", "conflicting"]
+    confidence: Confidence
+    root_agent_id: str | None = None
+    reachable_path: list[str] = Field(default_factory=list)
+    claims: list[SemanticClaim] = Field(default_factory=list)
+    issues: list[SemanticIssue] = Field(default_factory=list)
+    pass_eligible: bool = False
+
+
+def _legacy_direct_binding() -> BindingSemanticAssessment:
+    return BindingSemanticAssessment(
+        status="structural",
+        confidence="high",
+        root_agent_id="legacy_direct",
+        reachable_path=["legacy_direct"],
+        pass_eligible=True,
+    )
+
+
 def _legacy_direct_identity() -> ToolIdentityAssessment:
     return ToolIdentityAssessment(
         tool_id="legacy_direct",
@@ -131,6 +163,7 @@ class ToolSemanticAssessment(BaseModel):
 
     conservative_effect: ActionEffect
     identity: ToolIdentityAssessment = Field(default_factory=_legacy_direct_identity)
+    binding: BindingSemanticAssessment = Field(default_factory=_legacy_direct_binding)
     effect: EffectSemanticAssessment
     authority: AuthoritySemanticAssessment
     pass_eligible: bool
@@ -231,6 +264,10 @@ class Tool(BaseModel):
         exclude=True,
     )
     identity_assessment: ToolIdentityAssessment | None = Field(
+        default=None,
+        exclude=True,
+    )
+    binding_assessment: BindingSemanticAssessment | None = Field(
         default=None,
         exclude=True,
     )

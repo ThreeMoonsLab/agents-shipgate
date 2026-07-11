@@ -11,9 +11,9 @@ they do not create a second verdict.
 
 ## Current Versions
 
-- Capability standard version: `0.3`
-- Capability lock schema: [`capability-lock-schema.v0.4.json`](capability-lock-schema.v0.4.json)
-- Capability lock diff schema: [`capability-lock-diff-schema.v0.5.json`](capability-lock-diff-schema.v0.5.json)
+- Capability standard version: `0.4`
+- Capability lock schema: [`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json)
+- Capability lock diff schema: [`capability-lock-diff-schema.v0.6.json`](capability-lock-diff-schema.v0.6.json)
 - Frozen lock reference: [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json)
 - Frozen lock-diff reference: [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json)
 - Frozen experimental lock reference: [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json)

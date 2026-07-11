@@ -96,6 +96,8 @@ def _run_checks_and_decide(
         agent=tools_and_agent.agent,
         tools=tools_and_agent.tools,
         config_path=config_path.resolve(),
+        tool_catalog=tools_and_agent.tool_catalog,
+        binding_graph=tools_and_agent.binding_graph,
         framework_artifacts=inputs.artifact_bag,
         action_surface_facts=action_surface_facts,
         capability_facts=capability_facts,

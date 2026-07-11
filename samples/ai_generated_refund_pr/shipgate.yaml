@@ -19,6 +19,16 @@ tool_sources:
     path: tools.json
     trust: internal
 
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: support.search_kb, source_id: support_tools}
+        - {tool: stripe.create_refund, source_id: support_tools}
+      handoffs: []
+      reason: reviewed verifier demo binding
+
 permissions:
   scopes:
     - support:kb:read

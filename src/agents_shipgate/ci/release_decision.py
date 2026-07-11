@@ -10,6 +10,7 @@ from agents_shipgate.core.domain import SemanticIssueKind, Tool
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
     BaselineDelta,
+    BindingCoverageDecision,
     ContributionRule,
     ContributionRuleName,
     EvidenceCoverageDecision,
@@ -56,6 +57,8 @@ def evidence_below_ie_threshold(evidence: EvidenceCoverageDecision, *, tool_coun
     non-mergeable verdicts they landed on.
     """
     return (
+        evidence.binding_coverage.gap_count > 0
+        or
         evidence.semantic_coverage.gap_count > 0
         or any(
             gap.kind == "source_warning"
@@ -89,6 +92,7 @@ def build_release_decision(
     review_items: list[ReleaseDecisionItem] = []
     contribution_rules: list[ContributionRule] = []
     blocker_severities: set[Severity] = {"critical", *fail_on_resolved}
+    reachable_tool_ids = set(report.binding_surface_facts.reachable_tool_ids)
     # Phase 2c: an active (non-accepted) high/critical finding routed to
     # review is a *named* concern — the gate has decided "a human must look",
     # which is more specific than "insufficient_evidence". Tracked here so the
@@ -175,7 +179,11 @@ def build_release_decision(
             or finding.requires_human_review is True
         ):
             review_items.append(_to_item(finding))
-            if finding.severity in {"critical", "high"} and finding.baseline_status != "matched":
+            if (
+                finding.severity in {"critical", "high"}
+                and finding.baseline_status != "matched"
+                and finding.tool_id in reachable_tool_ids
+            ):
                 has_active_high_review = True
             contribution_rules.append(
                 _rule(
@@ -201,6 +209,7 @@ def build_release_decision(
     low_confidence_tool_count = sum(1 for tool in tools if tool.extraction_confidence != "high")
     semantic_coverage, semantic_gaps = _semantic_coverage(tools)
     identity_coverage = _identity_coverage(tools)
+    binding_coverage, binding_gaps = _binding_coverage(report)
     evidence = EvidenceCoverageDecision(
         level=report.summary.evidence_coverage,
         human_review_recommended=report.summary.human_review_recommended,
@@ -208,9 +217,10 @@ def build_release_decision(
         low_confidence_tool_count=low_confidence_tool_count,
         # Semantic gaps lead because they are zero-tolerance gate inputs;
         # extraction/source gaps retain their existing deterministic order.
-        evidence_gaps=[*semantic_gaps, *_evidence_gaps(report, tools)],
+        evidence_gaps=[*binding_gaps, *semantic_gaps, *_evidence_gaps(report, tools)],
         semantic_coverage=semantic_coverage,
         identity_coverage=identity_coverage,
+        binding_coverage=binding_coverage,
     )
 
     if report.baseline is None:
@@ -226,14 +236,15 @@ def build_release_decision(
 
     evidence_is_degraded = evidence_below_ie_threshold(evidence, tool_count=len(tools))
     has_semantic_gaps = semantic_coverage.gap_count > 0
+    has_binding_gaps = binding_coverage.gap_count > 0
     has_semantic_review_concerns = semantic_coverage.review_concern_count > 0
 
     decision: ReleaseDecisionStatus
     if blockers:
         decision = "blocked"
     elif has_active_high_review:
-        # Phase 2c: a named, active high/critical concern (e.g. an unbounded
-        # toolkit mounted on the agent) is not "insufficient evidence" — the
+        # Phase 2c: a named, active high/critical concern on a proven-reachable
+        # capability is not "insufficient evidence" — the
         # gate HAS something concrete for a human to review. Prefer the
         # actionable review_required over the vaguer insufficient_evidence.
         # Both are equally non-auto-mergeable (can_merge_without_human=False),
@@ -244,6 +255,8 @@ def build_release_decision(
         # a human via evidence_below_ie_threshold (the same predicate), so the
         # elevation never opens an auto-fix path on weak evidence.
         decision = "review_required"
+    elif has_binding_gaps:
+        decision = "insufficient_evidence"
     elif has_semantic_gaps:
         # v0.29: semantic gaps are not Findings. This makes them immune to
         # baselines, suppressions, severity overrides, human acknowledgement,
@@ -279,7 +292,7 @@ def build_release_decision(
         fail_on=fail_on,
         new_findings_only=new_findings_only,
         release_decision=decision,
-        has_semantic_gaps=has_semantic_gaps,
+        has_semantic_gaps=has_semantic_gaps or has_binding_gaps,
     )
     fail_policy = FailPolicy(
         ci_mode=ci_mode,
@@ -350,6 +363,92 @@ _MANDATORY_CURRENT_CONTROL_CHECKS = frozenset(
 )
 
 
+def _binding_coverage(
+    report: ReadinessReport,
+) -> tuple[BindingCoverageDecision, list[EvidenceGap]]:
+    graph = report.binding_surface_facts
+    reason_counts: dict[str, int] = {}
+    gaps: list[EvidenceGap] = []
+    for issue in graph.issues:
+        _increment(reason_counts, issue.kind)
+        if issue.kind == "ambiguous_root_agent":
+            action_kind = "declare_agent_root"
+            path = "shipgate.yaml#agent_bindings.root"
+            accepted_values = ["source_id", "object"]
+            expects = "Declare the exact root agent object and rerun verification."
+        elif issue.kind in {"missing_binding_evidence", "unresolved_bound_tool"}:
+            action_kind = "declare_agent_bindings"
+            path = "shipgate.yaml#agent_bindings.declarations"
+            accepted_values = ["agent", "complete:true", "tools", "handoffs", "reason"]
+            expects = "Add a reviewed closed-world binding declaration and rerun verification."
+        elif issue.kind in {"partial_binding_evidence", "incomplete_handoff_graph"}:
+            action_kind = "provide_complete_binding_graph"
+            path = "shipgate.yaml#agent_bindings"
+            accepted_values = ["literal_tools", "literal_handoffs", "complete:true"]
+            expects = "Provide static wiring or an exact reviewed declaration for every reachable edge."
+        elif issue.kind == "conflicting_binding_evidence":
+            action_kind = "resolve_binding_conflict"
+            path = "shipgate.yaml#agent_bindings.declarations"
+            accepted_values = ["match_structural_graph", "correct_source_wiring"]
+            expects = "Reconcile the declaration with positive structural evidence and rerun verification."
+        elif issue.kind == "unresolved_agent_binding":
+            action_kind = "declare_agent_root"
+            path = "shipgate.yaml#agent_bindings"
+            accepted_values = ["exact_agent_object", "exact_handoff_target"]
+            expects = "Correct the agent selector or handoff target and rerun verification."
+        else:
+            action_kind = "provide_static_binding_source"
+            path = "shipgate.yaml#agent_bindings"
+            accepted_values = ["literal_binding", "reviewed_declaration"]
+            expects = "Correct the binding annotation or provide an exact reviewed declaration."
+        gaps.append(
+            EvidenceGap(
+                kind=issue.kind,
+                subject=issue.tool_id or issue.agent_id or graph.root_agent_id or "agent_binding_graph",
+                source_ref=issue.source_pointer or issue.source,
+                why=issue.message,
+                next_action=EvidenceGapAction(
+                    kind=action_kind,  # type: ignore[arg-type]
+                    command=_SEMANTIC_RERUN_COMMAND,
+                    path=path,
+                    why="A complete root-reachable static binding graph is required for passed.",
+                    expects=expects,
+                    accepted_values=accepted_values,
+                    declaration_template={
+                        "agent_bindings": {
+                            "root": {"source_id": "<REVIEW_REQUIRED>", "object": "<REVIEW_REQUIRED>"},
+                            "declarations": [
+                                {
+                                    "agent": "root",
+                                    "complete": True,
+                                    "tools": [],
+                                    "handoffs": [],
+                                    "reason": "<REVIEW_REQUIRED>",
+                                }
+                            ],
+                        }
+                    },
+                ),
+            )
+        )
+    return (
+        BindingCoverageDecision(
+            total_catalog_tools=(
+                len(graph.reachable_tool_ids)
+                + len(graph.possible_tool_ids)
+                + len(graph.unbound_tool_ids)
+            ),
+            reachable_tools=len(graph.reachable_tool_ids),
+            possible_tools=len(graph.possible_tool_ids),
+            unbound_tools=len(graph.unbound_tool_ids),
+            pass_eligible=graph.pass_eligible,
+            gap_count=len(gaps),
+            reason_counts=dict(sorted(reason_counts.items())),
+        ),
+        gaps,
+    )
+
+
 def _semantic_coverage(
     tools: list[Tool],
 ) -> tuple[SemanticCoverageDecision, list[EvidenceGap]]:
@@ -378,6 +477,7 @@ def _semantic_coverage(
         issues = sorted(
             [
                 *assessment.identity.issues,
+                *assessment.binding.issues,
                 *assessment.effect.issues,
                 *assessment.authority.issues,
             ],
@@ -522,6 +622,27 @@ def _semantic_gap(
         accepted_values = ["split_binding", "align_schema", "align_authority", "align_annotations"]
         action_why = "Conflicting bound observations cannot share one canonical capability."
         expects = "Split the binding or reconcile its structural evidence, then rerun verification."
+    elif kind in {
+        "missing_binding_evidence",
+        "partial_binding_evidence",
+        "unresolved_agent_binding",
+        "unresolved_bound_tool",
+        "incomplete_handoff_graph",
+        "ambiguous_root_agent",
+    }:
+        action_kind = (
+            "declare_agent_root"
+            if kind in {"ambiguous_root_agent", "unresolved_agent_binding"}
+            else "declare_agent_bindings"
+        )
+        accepted_values = ["root", "complete:true", "tools", "handoffs", "reason"]
+        action_why = "An exact root-reachable binding graph is required."
+        expects = "Provide static wiring or a reviewed closed-world declaration, then rerun verification."
+    elif kind in {"conflicting_binding_evidence", "invalid_binding_annotation"}:
+        action_kind = "resolve_binding_conflict"
+        accepted_values = ["match_structural_graph", "correct_source_wiring"]
+        action_why = "Conflicting binding evidence cannot be auto-resolved."
+        expects = "Reconcile positive structural evidence and reviewed declarations, then rerun verification."
     elif kind == "incomplete_surface":
         action_kind = "provide_complete_inventory"
         accepted_values = [
@@ -611,7 +732,20 @@ def _semantic_gap(
                         "ambiguous_legacy_tool_identity",
                         "invalid_tool_binding",
                     }
-                    else f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+                    else (
+                        "shipgate.yaml#agent_bindings"
+                        if kind in {
+                            "missing_binding_evidence",
+                            "partial_binding_evidence",
+                            "conflicting_binding_evidence",
+                            "ambiguous_root_agent",
+                            "unresolved_agent_binding",
+                            "unresolved_bound_tool",
+                            "incomplete_handoff_graph",
+                            "invalid_binding_annotation",
+                        }
+                        else f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+                    )
                 )
             ),
             why=action_why,

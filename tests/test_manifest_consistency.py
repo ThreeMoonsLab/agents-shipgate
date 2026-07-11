@@ -39,6 +39,13 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: billing.create_refund, source_id: tools}]
+      handoffs: []
+      reason: reviewed manifest-consistency fixture binding
 permissions:
   scopes:
     - billing:*
@@ -107,6 +114,13 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: support.lookup, source_id: tools}]
+      handoffs: []
+      reason: reviewed manifest-consistency fixture binding
 permissions:
   scopes:
     - support:read

@@ -1,9 +1,10 @@
 # Evidence-backed `passed` verdict
 
-Starting with the Agents Shipgate `0.16.0b1` runtime (contract v12, report
-schema v0.30), `release_decision.decision: passed` means
-that every in-scope capability has complete, conflict-free static surface,
-effect, and authority evidence, all applicable controls were evaluated, and no
+Starting with the Agents Shipgate `0.16.0b2` runtime (contract v13, report
+schema v0.31), `release_decision.decision: passed` means the configured root
+agent and its complete reachable tool/handoff graph were statically proven,
+and every reachable capability has complete, conflict-free static identity,
+binding, effect, and authority evidence, all applicable controls were evaluated, and no
 policy condition requires review. It does not prove runtime agent behavior or
 runtime enforcement.
 
@@ -12,6 +13,8 @@ runtime enforcement.
 An action is pass-eligible only when all of the following hold:
 
 - its source surface is completely enumerable and extracted at high confidence;
+- it is reachable from the unambiguously selected root through complete,
+  static tool or handoff edges;
 - every extracted observation has a complete canonical identity, and no
   selector or reviewed cross-source binding is ambiguous or conflicting;
 - its effect is established by a reviewed manifest declaration or a structural
@@ -31,10 +34,17 @@ suppressed, baseline-matched, waived through a severity override, or converted
 to known evidence by `--no-heuristics` or `human_ack`.
 
 Machine consumers should inspect
-`release_decision.evidence_coverage.semantic_coverage` and
-`identity_coverage`, then work `evidence_gaps[]` in order. Packet schema v0.9
-mirrors this contract, while capability standard v0.3 carries the same
-normalized assessment in capability lock v0.4 and lock-diff v0.5 artifacts.
+`release_decision.evidence_coverage.semantic_coverage`, `binding_coverage`, and
+`identity_coverage`, then work `evidence_gaps[]` in order. Packet schema v0.10
+mirrors this contract, while capability standard v0.4 carries the same
+normalized assessment and binding hash in capability lock v0.5 and lock-diff
+v0.6 artifacts.
+
+Catalog membership never implies binding. `tool_catalog[]` contains every
+canonical extracted declaration; `tool_inventory[]`, actions, checks, and
+capability facts contain only tools proven reachable from the root. Reviewed
+closed-world declarations live under `agent_bindings`; coding agents must not
+invent or auto-apply them.
 
 The release decision also carries an explicit machine boundary:
 

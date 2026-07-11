@@ -92,6 +92,11 @@ class _LangChainExtractor:
         self.tool_vars: dict[str, Tool] = {}
         self.discovered_tools: list[Tool] = []
         self.list_vars: dict[str, list[str] | None] = {}
+        self.call_targets = {
+            id(call): assignment_target(node)
+            for node in ordered_nodes(self.tree, (ast.Assign, ast.AnnAssign))
+            if (call := assignment_call(node)) is not None
+        }
         self.warnings: list[str] = []
 
     def extract(self) -> tuple[list[Tool], list[str]]:
@@ -195,24 +200,37 @@ class _LangChainExtractor:
 
     def _record_tool_surface(self, call: ast.Call) -> None:
         call_kind = last_name(call.func)
+        agent_name = self.call_targets.get(id(call)) or "root"
         if call_kind in AGENT_BINDING_CALLS:
             tools_expr = keyword(call, "tools")
             if tools_expr is None and len(call.args) > 1:
                 tools_expr = call.args[1]
-            self._record_binding("agent", call, tools_expr)
+            self._record_binding("agent", call, tools_expr, agent_name)
         elif call_kind == "ToolNode":
-            self._record_binding("tool_node", call, call.args[0] if call.args else None)
+            self._record_binding("tool_node", call, call.args[0] if call.args else None, agent_name)
         elif isinstance(call.func, ast.Attribute) and call.func.attr == "bind_tools":
-            self._record_binding("bind_tools", call, call.args[0] if call.args else keyword(call, "tools"))
+            self._record_binding("bind_tools", call, call.args[0] if call.args else keyword(call, "tools"), agent_name)
 
-    def _record_binding(self, kind: str, call: ast.Call, tools_expr: ast.AST | None) -> None:
+    def _record_binding(
+        self,
+        kind: str,
+        call: ast.Call,
+        tools_expr: ast.AST | None,
+        agent_name: str,
+    ) -> None:
         if tools_expr is None:
             return
         names = self._resolve_tool_names(tools_expr)
         if names is None:
             self._dynamic(kind, call.lineno, dynamic_reason(tools_expr), expr=tools_expr)
             return
-        record = {"source_ref": self.source_ref, "line": call.lineno, "tools": names}
+        record = {
+            "agent": agent_name,
+            "source_id": self.source_id,
+            "source_ref": self.source_ref,
+            "line": call.lineno,
+            "tools": names,
+        }
         if kind == "tool_node":
             self.artifacts.tool_nodes.append(record)
         else:

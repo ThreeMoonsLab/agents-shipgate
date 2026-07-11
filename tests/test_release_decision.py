@@ -19,6 +19,7 @@ from agents_shipgate.core.domain import (
     Tool,
     ToolSemanticAssessment,
 )
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.report import (
     BaselineSummary,
     Finding,
@@ -35,6 +36,7 @@ def _finding(
     baseline_status: str | None = None,
     requires_human_review: bool | None = None,
     suppressed: bool = False,
+    tool_id: str | None = None,
 ) -> Finding:
     return Finding(
         id=f"id-{check_id}-{severity}-{baseline_status or 'new'}",
@@ -47,6 +49,7 @@ def _finding(
         suppressed=suppressed,
         baseline_status=baseline_status,
         requires_human_review=requires_human_review,
+        tool_id=tool_id,
     )
 
 
@@ -102,6 +105,12 @@ def _report(
             evidence_coverage=evidence_coverage,
         ),
         tool_surface=ToolSurfaceSummary(total_tools=len(tools), high_risk_tools=0),
+        binding_surface_facts=AgentBindingGraphAssessment(
+            root_agent_id="unit-test-agent",
+            status="structural",
+            reachable_tool_ids=[tool.id for tool in tools],
+            pass_eligible=True,
+        ),
         baseline=baseline,
         findings=findings,
         source_warnings=source_warnings or [],
@@ -420,6 +429,7 @@ def test_active_high_review_finding_outranks_insufficient_evidence():
                 check_id="SHIP-SCOPE-TOOLKIT-UNBOUNDED",
                 severity="high",
                 baseline_status="new",
+                tool_id=tools[0].id,
             )
         ],
         tools=tools,

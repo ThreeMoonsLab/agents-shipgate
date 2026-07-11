@@ -13,7 +13,7 @@ Blockers (0): none
 
 Review items (0): none
 
-Evidence coverage: static (2/2 actions pass-eligible)
+Evidence coverage: static (2/2 catalog tools reachable; 2/2 actions pass-eligible)
 
 Baseline delta: not enabled
 
@@ -91,7 +91,14 @@ No local runtime trace artifacts were declared for capability evidence.
 
 No findings.
 
-## Appendix: Normalized Tool Inventory
+## Agent Binding Surface
+
+Status: structural
+Root agent: agent\_v1:e72499e3feb23dae6e706766
+Pass eligible: true
+Catalog partition: 2 reachable, 0 possible, 0 unbound
+
+## Appendix: Root-Reachable Tool Inventory
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |

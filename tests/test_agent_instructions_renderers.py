@@ -45,10 +45,10 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "66e31ffa9b2f0f1b254f4a5d627ca296a2b278043c61d59026c779bb4a1f609b"
+        "7d2ea9407f248e7eb54113fefe9aac8d9e5dabb4013d1f2327b42442072d0041"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "b2e42bce1eb6892c5207890bd53ab987d0beaac7c9fa2d9de8ba07033a3f2f60"
+        "e4c4f9c15af4ad9e537c0f24eff09472b3728e2ce08f865602fd7b1d95f60cb7"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
         "b3a3273bf68c3f49abd32585f8ce6e9f562c49be520f8d3f381e39afa4712280"
@@ -80,7 +80,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "d2d6549ca3bde2ec2581e8712419ace340afc5be3078f2255884670f4a8db870"
+        "37795c6ffc3dcdda624b609dd17da8656c245d00ea9cebb9fae25c50842a4a9b"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -165,7 +165,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "2"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "12"
+    assert payload["contract_version"] == "13"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]

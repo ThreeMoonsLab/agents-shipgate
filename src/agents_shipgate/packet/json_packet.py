@@ -83,12 +83,14 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
 
     version = payload_dict.get("packet_schema_version")
     legacy_version = (
-        version if version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"} else None
+        version
+        if version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9"}
+        else None
     )
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.9",
+            "packet_schema_version": "0.10",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -103,37 +105,39 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.10"}
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.3":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.10"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.4":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.10"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.5":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.10"}
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.6":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.10"}
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.7":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.10"}
     elif version == "0.8":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
-    elif version != "0.9":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.10"}
+    elif version == "0.9":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.10"}
+    elif version != "0.10":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
             f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', "
-            "'0.6', '0.7', '0.8', or '0.9'"
+            "'0.6', '0.7', '0.8', '0.9', or '0.10'"
         )
 
     if legacy_version is not None:

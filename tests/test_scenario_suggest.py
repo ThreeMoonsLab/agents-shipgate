@@ -121,18 +121,14 @@ def test_scenario_suggest_covers_reachable_active_scenario_findings(tmp_path):
     row_finding_ids = {row["finding_id"] for row in rows}
     assert reachable_active == row_finding_ids
 
-    wildcard = next(
-        finding
-        for finding in report["findings"]
-        if finding["check_id"] == "SHIP-INVENTORY-WILDCARD-TOOLS"
-    )
     owner = next(
         finding
         for finding in report["findings"]
         if finding["check_id"] == "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING"
     )
-    assert wildcard["id"] in row_finding_ids
     assert owner["id"] in row_finding_ids
+    assert any(row["name"] == "wildcard_mcp_tools.*" for row in report["tool_catalog"])
+    assert all(row["name"] != "wildcard_mcp_tools.*" for row in report["tool_inventory"])
     assert any(
         findings[finding_id]["severity"] == "medium"
         for finding_id in row_finding_ids

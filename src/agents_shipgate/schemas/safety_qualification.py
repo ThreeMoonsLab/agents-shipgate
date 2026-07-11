@@ -9,15 +9,21 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 
-SAFETY_CORPUS_SCHEMA_VERSION = "shipgate.safety_corpus/v1"
-SAFETY_RECEIPT_INDEX_SCHEMA_VERSION = "shipgate.safety_receipt_index/v1"
-SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v1"
+SAFETY_CORPUS_SCHEMA_VERSION = "shipgate.safety_corpus/v2"
+SAFETY_RECEIPT_INDEX_SCHEMA_VERSION = "shipgate.safety_receipt_index/v2"
+SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v2"
 
 SafetyProfile = Literal[
     "mcp",
     "openapi",
     "explicit_framework_inventory",
     "coding_agent_trust_roots",
+    "mcp_openapi_declared_binding",
+    "openai_agents_sdk",
+    "langchain_crewai",
+    "google_adk",
+    "n8n",
+    "multi_agent_handoffs",
 ]
 SafetyCaseOrigin = Literal[
     "real_history",
@@ -184,12 +190,17 @@ class FrozenSafetyCorpusV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_corpus/v1"] = SAFETY_CORPUS_SCHEMA_VERSION
+    schema_version: Literal["shipgate.safety_corpus/v2"] = SAFETY_CORPUS_SCHEMA_VERSION
     corpus_id: str = Field(min_length=1)
     labels_frozen_before_evaluation: Literal[True]
     outputs_hidden_from_labelers: Literal[True]
     frozen_labels_sha256: str = Field(pattern=SHA256_PATTERN)
     cases: list[SafetyCorpusCaseV1] = Field(min_length=1)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def _upgrade_v1_schema(cls, value: str) -> str:
+        return SAFETY_CORPUS_SCHEMA_VERSION if value == "shipgate.safety_corpus/v1" else value
 
     @field_validator("corpus_id")
     @classmethod
@@ -254,7 +265,7 @@ class SafetyReceiptIndexV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_receipt_index/v1"] = (
+    schema_version: Literal["shipgate.safety_receipt_index/v2"] = (
         SAFETY_RECEIPT_INDEX_SCHEMA_VERSION
     )
     wheel_sha256: str = Field(pattern=SHA256_PATTERN)
@@ -264,6 +275,15 @@ class SafetyReceiptIndexV1(BaseModel):
     policy_sha256: str = Field(pattern=SHA256_PATTERN)
     labels_frozen_before_receipts: Literal[True]
     receipts: list[SafetyReceiptEntryV1] = Field(min_length=1)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def _upgrade_v1_schema(cls, value: str) -> str:
+        return (
+            SAFETY_RECEIPT_INDEX_SCHEMA_VERSION
+            if value == "shipgate.safety_receipt_index/v1"
+            else value
+        )
 
     @field_validator("engine_version")
     @classmethod
@@ -316,28 +336,46 @@ class SafetyQualificationRequirementsV1(BaseModel):
 
 def production_safety_requirements() -> SafetyQualificationRequirementsV1:
     profile_counts = {
-        "mcp": {
-            "passed": 10,
-            "review_required": 7,
-            "insufficient_evidence": 8,
-            "blocked": 10,
+        "mcp_openapi_declared_binding": {
+            "passed": 6,
+            "review_required": 4,
+            "insufficient_evidence": 4,
+            "blocked": 6,
         },
-        "openapi": {
-            "passed": 10,
-            "review_required": 7,
-            "insufficient_evidence": 8,
-            "blocked": 10,
-        },
-        "explicit_framework_inventory": {
+        "openai_agents_sdk": {
             "passed": 5,
             "review_required": 3,
+            "insufficient_evidence": 3,
+            "blocked": 4,
+        },
+        "langchain_crewai": {
+            "passed": 5,
+            "review_required": 3,
+            "insufficient_evidence": 3,
+            "blocked": 4,
+        },
+        "google_adk": {
+            "passed": 3,
+            "review_required": 2,
             "insufficient_evidence": 2,
+            "blocked": 3,
+        },
+        "n8n": {
+            "passed": 3,
+            "review_required": 2,
+            "insufficient_evidence": 2,
+            "blocked": 3,
+        },
+        "multi_agent_handoffs": {
+            "passed": 4,
+            "review_required": 3,
+            "insufficient_evidence": 3,
             "blocked": 5,
         },
         "coding_agent_trust_roots": {
-            "passed": 5,
+            "passed": 4,
             "review_required": 3,
-            "insufficient_evidence": 2,
+            "insufficient_evidence": 3,
             "blocked": 5,
         },
     }
@@ -360,7 +398,7 @@ def production_safety_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=30,
         minimum_review_exact=19,
         minimum_insufficient_evidence_exact=19,
-        required_report_schema_version="0.30",
+        required_report_schema_version="0.31",
     )
 
 
@@ -472,7 +510,7 @@ class SafetyQualificationResultV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_qualification/v1"] = (
+    schema_version: Literal["shipgate.safety_qualification/v2"] = (
         SAFETY_QUALIFICATION_SCHEMA_VERSION
     )
     qualification_tier: QualificationTier
@@ -489,6 +527,15 @@ class SafetyQualificationResultV1(BaseModel):
     intervals: list[SafetyQualificationMetricV1]
     cases: list[SafetyQualificationCaseResultV1]
     failures: list[SafetyQualificationFailureV1]
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def _upgrade_v1_schema(cls, value: str) -> str:
+        return (
+            SAFETY_QUALIFICATION_SCHEMA_VERSION
+            if value == "shipgate.safety_qualification/v1"
+            else value
+        )
 
     @model_validator(mode="after")
     def _sort_output(self) -> SafetyQualificationResultV1:

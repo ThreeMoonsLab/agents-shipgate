@@ -215,6 +215,13 @@ anthropic:
     - prompt.md
   tools:
     - path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: bash}]
+      handoffs: []
+      reason: reviewed Anthropic client-tool fixture binding
 """,
         encoding="utf-8",
     )

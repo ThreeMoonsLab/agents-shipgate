@@ -106,10 +106,10 @@ def _run_and_assert_no_import(workspace: Path) -> object:
 
 
 def _assert_did_work_tool_inventory(report: object, *, minimum: int = 1) -> None:
-    """For adapters that surface tools into ``report.tool_inventory``."""
-    count = len(report.tool_inventory)  # type: ignore[attr-defined]
+    """For adapters that surface declarations into ``report.tool_catalog``."""
+    count = len(report.tool_catalog)  # type: ignore[attr-defined]
     assert count >= minimum, (
-        f"Adapter did not extract enough tools into tool_inventory "
+        f"Adapter did not extract enough tools into tool_catalog "
         f"(got {count}, expected ≥ {minimum}). If the adapter changed its "
         "scope, update the fixture or the assertion."
     )

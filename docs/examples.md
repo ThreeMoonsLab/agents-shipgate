@@ -69,8 +69,9 @@ The static scan fixtures write:
 - `agents-shipgate-reports/report.sarif` when requested or when using the GitHub Action
 
 The JSON output is the stable contract for tools and coding agents. See
-[report-schema.v0.30.json](report-schema.v0.30.json) (current; emitted reports
-carry `report_schema_version: "0.30"`, adding normalized semantic assessments
+[report-schema.v0.31.json](report-schema.v0.31.json) (current; emitted reports
+carry `report_schema_version: "0.31"`, adding a root-reachable binding graph
+and retaining normalized semantic assessments
 and evidence-backed pass coverage while preserving policy-pack routing metadata
 in `findings[].policy_routing`; v0.29 is frozen at
 [report-schema.v0.29.json](report-schema.v0.29.json)).

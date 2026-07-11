@@ -42,7 +42,8 @@ An agent must not write into a PR comment, commit message, code comment, or summ
 - **Runtime trace evidence** — that a recorded trace proves runtime control behavior, that `human_in_the_loop` evidence in the packet is runtime-enforcement proof, or that a trace finding has been "fixed" by editing the trace.
 
 The machine-readable source of truth is contract v12's
-`do_not_auto_assert[]`, which includes `action_effect` and `action_authority`.
+`do_not_auto_assert[]`, which includes `action_effect`, `action_authority`, and
+`agent_binding`.
 Runtime trace evidence is also non-automatable: flipping a trace patches the
 *evidence record*, not the runtime gate. See
 [`autofix-policy.md`](autofix-policy.md) class four ("never auto-fix").

@@ -34,7 +34,7 @@ Review items (19):
 - HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — send\_customer\_email is high-risk but has no owner
 - HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — create\_refund is high-risk but has no owner
 
-Evidence coverage: static (2 semantic review concern(s); 0/2 actions pass-eligible; human review recommended)
+Evidence coverage: static (2/2 catalog tools reachable; 2 semantic review concern(s); 0/2 actions pass-eligible; human review recommended)
 
 Baseline delta: not enabled
 
@@ -229,7 +229,14 @@ Matched trace rows:
 
 - HIGH: SHIP-SIDEFX-IDEMPOTENCY-MISSING [create\_refund] - create\_refund lacks idempotency evidence
 
-## Appendix: Normalized Tool Inventory
+## Agent Binding Surface
+
+Status: declared
+Root agent: agent\_v1:3e1354866b28ba54f69c8e73
+Pass eligible: true
+Catalog partition: 2 reachable, 0 possible, 0 unbound
+
+## Appendix: Root-Reachable Tool Inventory
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |

@@ -9,6 +9,7 @@ agent:
     type: openai-agents
     language: python
     entrypoint: agents
+    object: support_assistant
     static_extract: true
     deep_import: false
   declared_purpose:

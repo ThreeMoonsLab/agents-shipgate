@@ -52,12 +52,11 @@ LATENCY_BUDGET_SECONDS = 10.0
 # (a new check landing, a slightly tightened risk classifier) without
 # false-failing, tight enough to catch a regression that drops half the
 # pipeline.
-MIN_LOADED_TOOLS = 50
-MAX_LOADED_TOOLS = 100
-MIN_TOTAL_FINDINGS = 40
-MAX_TOTAL_FINDINGS = 200
-MIN_CRITICAL_FINDINGS = 3   # at minimum, the financial-action approval gaps
-MIN_BLOCKERS = 3
+MIN_CATALOG_TOOLS = 50
+MAX_CATALOG_TOOLS = 100
+EXPECTED_REACHABLE_TOOLS = 5
+MIN_TOTAL_FINDINGS = 20
+MAX_TOTAL_FINDINGS = 60
 MIN_REVIEW_ITEMS = 20
 # Six tool sources are declared; the reviewed inventory intentionally outranks
 # the five duplicate SDK tools while the merge receipts prove the AST adapter
@@ -131,7 +130,7 @@ def test_all_six_tool_sources_load(scanned_sample: ReadinessReport) -> None:
     # prefix. The reviewed inventory outranks duplicate SDK facts in the final
     # inventory, so the SDK contribution is asserted through merge receipts.
     seen_files: set[str] = set()
-    for entry in scanned_sample.tool_inventory:
+    for entry in scanned_sample.tool_catalog:
         ref = entry.get("source_ref") or ""
         if "#" in ref:
             ref = ref.split("#", 1)[0]
@@ -152,14 +151,14 @@ def test_all_six_tool_sources_load(scanned_sample: ReadinessReport) -> None:
     # Also pin the per-adapter cohort: at least one tool from each loader
     # surface type. This catches a different regression — a source still
     # loading but emitting tools with the wrong source_type tag.
-    source_types = {entry.get("source_type") for entry in scanned_sample.tool_inventory}
+    source_types = {entry.get("source_type") for entry in scanned_sample.tool_catalog}
     assert {"openapi", "mcp"}.issubset(source_types), (
         f"Expected source_types to include openapi + mcp; "
         f"got {sorted(source_types)}."
     )
     sdk_bindings = [
         row
-        for row in scanned_sample.tool_inventory
+        for row in scanned_sample.tool_catalog
         if row.get("provider") == "ops_sdk"
         and len(row.get("observation_ids", [])) == 2
     ]
@@ -167,11 +166,11 @@ def test_all_six_tool_sources_load(scanned_sample: ReadinessReport) -> None:
 
 
 def test_tool_inventory_is_in_expected_band(scanned_sample: ReadinessReport) -> None:
-    n = len(scanned_sample.tool_inventory)
-    assert MIN_LOADED_TOOLS <= n <= MAX_LOADED_TOOLS, (
-        f"Expected {MIN_LOADED_TOOLS}–{MAX_LOADED_TOOLS} loaded tools; got "
-        f"{n}. A change outside that band signals either a sample edit or an "
-        "adapter regression."
+    assert len(scanned_sample.tool_inventory) == EXPECTED_REACHABLE_TOOLS
+    n = len(scanned_sample.tool_catalog)
+    assert MIN_CATALOG_TOOLS <= n <= MAX_CATALOG_TOOLS
+    assert scanned_sample.binding_surface_facts.reachable_tool_ids == sorted(
+        tool["tool_id"] for tool in scanned_sample.tool_inventory
     )
 
 
@@ -184,20 +183,16 @@ def test_findings_count_is_in_expected_band(scanned_sample: ReadinessReport) -> 
     )
 
 
-def test_release_decision_is_blocked(scanned_sample: ReadinessReport) -> None:
-    """The sample is deliberately authored with critical approval gaps."""
+def test_release_decision_requires_review(scanned_sample: ReadinessReport) -> None:
+    """Only the five statically wired local SDK helpers are in scope."""
     decision = scanned_sample.release_decision
     assert decision is not None
-    assert decision.decision == "blocked", (
-        f"Expected decision='blocked'; got {decision.decision!r}. If the "
-        "sample was edited to be cleaner, update this test and document the "
-        "intent."
-    )
-    assert len(decision.blockers) >= MIN_BLOCKERS
+    assert decision.decision == "review_required"
+    assert not decision.blockers
     assert len(decision.review_items) >= MIN_REVIEW_ITEMS
 
 
-def test_at_least_one_critical_approval_gap_fires(
+def test_unbound_financial_catalog_entries_do_not_create_control_findings(
     scanned_sample: ReadinessReport,
 ) -> None:
     """Anchor the headline check we authored the sample around."""
@@ -208,23 +203,20 @@ def test_at_least_one_critical_approval_gap_fires(
         and f.check_id == "SHIP-POLICY-APPROVAL-MISSING"
         and not f.suppressed
     ]
-    assert len(critical_approval_findings) >= MIN_CRITICAL_FINDINGS, (
-        "Expected the financial-action tools without declared approval to "
-        "fire SHIP-POLICY-APPROVAL-MISSING at critical severity. Got "
-        f"{len(critical_approval_findings)} critical approval findings."
-    )
+    assert critical_approval_findings == []
+    assert len(scanned_sample.binding_surface_facts.unbound_tool_ids) == 58
 
 
-def test_scope_coverage_check_fires(scanned_sample: ReadinessReport) -> None:
-    """The manifest deliberately omits several admin scopes."""
+def test_unbound_scopes_are_reported_as_stale_not_capability_gaps(scanned_sample: ReadinessReport) -> None:
     scope_findings = [
         f
         for f in scanned_sample.findings
         if f.check_id == "SHIP-AUTH-SCOPE-COVERAGE-MISSING" and not f.suppressed
     ]
-    assert scope_findings, (
-        "Expected SHIP-AUTH-SCOPE-COVERAGE-MISSING to fire for the admin "
-        "scopes the manifest omits."
+    assert scope_findings == []
+    assert any(
+        finding.check_id == "SHIP-MANIFEST-UNUSED-SCOPE"
+        for finding in scanned_sample.findings
     )
 
 
@@ -278,7 +270,7 @@ def test_reviewer_summary_block_is_populated(
     appear on every emitted scan."""
     summary = scanned_sample.reviewer_summary
     assert summary is not None
-    assert summary.verdict == "blocked"
+    assert summary.verdict == "review_required"
     assert summary.headline  # non-empty
 
 

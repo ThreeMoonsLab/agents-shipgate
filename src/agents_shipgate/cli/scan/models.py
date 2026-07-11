@@ -19,6 +19,7 @@ from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Agent, LoadedToolSource, Tool, ToolkitScopeBound
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.core.privacy import RedactionStats
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import PolicyAudit
@@ -78,7 +79,9 @@ class _ToolsAndAgent:
     """Phase 3 output: flattened/deduped/enriched tools + Agent + final warnings."""
 
     tools: list[Tool]
+    tool_catalog: list[Tool]
     agent: Agent
+    binding_graph: AgentBindingGraphAssessment
     warnings: list[str]  # deduplicated source warnings
     # Statically-parsed least-privilege bounds on dynamically-loaded
     # toolkits, aggregated across all loaded sources. Empty for the common
@@ -151,6 +154,9 @@ class _SanitizedSurfaces:
     environment: Any
     agent: Agent
     tools: list[Tool]
+    tool_catalog: list[Tool]
+    binding_graph: AgentBindingGraphAssessment
+    binding_surface_diff: BindingSurfaceDiff
     findings: list[Any]
     source_warnings: list[str]
     api_artifacts: OpenAIApiArtifacts | None

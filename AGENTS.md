@@ -139,9 +139,11 @@ expanding baselines or waivers, removing Shipgate CI, or weakening agent
 instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
 release-visible and route them to human review.
 Never invent or auto-fill an action effect or action authority declaration.
-Contract v11 publishes these boundaries as `action_effect` and
-`action_authority` in `do_not_auto_assert[]`; route semantic next actions to a
-human and rerun verification after the reviewed declaration is supplied.
+Never invent or auto-fill `agent_bindings` root, tool, or handoff declarations;
+they are reviewed closed-world claims about deployed wiring.
+Contract v13 publishes these boundaries as `action_effect`, `action_authority`,
+and `agent_binding` in `do_not_auto_assert[]`; route binding and semantic next
+actions to a human and rerun verification after the reviewed declaration is supplied.
 
 To reproduce the verify-native blocked refund PR demo without writing YAML:
 
@@ -343,13 +345,13 @@ restate version archaeology here):
 - `findings[].{autofix_safe, requires_human_review, suggested_patch_kind, docs_url, provenance_kind, blocks_release}`
 - `findings[].policy_routing` (policy-pack owner/reviewer/approval routing metadata only; non-enforcing and not part of `evidence`)
 - `findings[].patches[]` (only when scan ran with `--suggest-patches`)
-- `baseline.{matched_count, new_count, resolved_count}` · `tool_inventory[]` · `codex_plugin_surface`
+- `baseline.{matched_count, new_count, resolved_count}` · root-reachable `tool_inventory[]` · full `tool_catalog[]` · `codex_plugin_surface`
 - `action_surface_facts` / `action_surface_diff`
-- `release_decision.evidence_coverage.{semantic_coverage,evidence_gaps}`
+- `release_decision.evidence_coverage.{binding_coverage,semantic_coverage,evidence_gaps}`
 - Audit envelopes: `release_decision.contribution_rules[]`, `policy_audit`,
   `privacy_audit`, `heuristics_filter` — explanatory, never a second gate
 
-The current schema is [`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json). Emitted reports carry `report_schema_version: "0.30"`; v0.29 adds normalized effect/authority assessments and zero-tolerance semantic coverage. A `passed` result now requires complete, conflict-free static evidence for every in-scope action, evaluation of all applicable controls, and no policy condition requiring review. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Semantic gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact claim and [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for version history. v0.29 remains frozen at [`docs/report-schema.v0.29.json`](docs/report-schema.v0.29.json).
+The current schema is [`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json). Emitted reports carry `report_schema_version: "0.31"`; v0.31 separates the full tool catalog from the root-reachable capability surface and adds binding facts, diffs, and coverage. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, and authority evidence for every reachable action, evaluation of all applicable controls, and no policy condition requiring review. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding and semantic gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact claim and [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for version history. v0.30 remains frozen at [`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -429,7 +431,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json) (current).
+[`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -467,7 +469,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json) | `0.30` |
+| Report schema (current) | [`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json) | `0.31` |
+| Report schema (v0.30 frozen reference) | [`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json) | `0.30` |
 | Report schema (v0.29 frozen reference) | [`docs/report-schema.v0.29.json`](docs/report-schema.v0.29.json) | `0.29` |
 | Report schema (v0.28 frozen reference) | [`docs/report-schema.v0.28.json`](docs/report-schema.v0.28.json) | `0.28` |
 | Report schema (v0.27 frozen reference) | [`docs/report-schema.v0.27.json`](docs/report-schema.v0.27.json) | `0.27` |
@@ -495,12 +498,13 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.8 frozen reference) | [`docs/report-schema.v0.8.json`](docs/report-schema.v0.8.json) | `0.8` |
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
-| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.9.json`](docs/packet-schema.v0.9.json) | `0.9` |
+| Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.10.json`](docs/packet-schema.v0.10.json) | `0.10` |
+| Packet schema (v0.9 frozen reference) | [`docs/packet-schema.v0.9.json`](docs/packet-schema.v0.9.json) | `0.9` |
 | Packet schema (v0.8 frozen reference) | [`docs/packet-schema.v0.8.json`](docs/packet-schema.v0.8.json) | `0.8` |
 | Packet schema (v0.7 frozen reference) | [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json) | `0.7` |
 | Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.3` |
-| Capability lock schema | [`docs/capability-lock-schema.v0.4.json`](docs/capability-lock-schema.v0.4.json) | `0.4` |
-| Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.5.json`](docs/capability-lock-diff-schema.v0.5.json) | `0.5` |
+| Capability lock schema | [`docs/capability-lock-schema.v0.5.json`](docs/capability-lock-schema.v0.5.json) | `0.5` |
+| Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.6.json`](docs/capability-lock-diff-schema.v0.6.json) | `0.6` |
 | Governance benchmark catalog schema | [`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json) | `0.2` |
 | Governance benchmark result schema | [`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json) | `0.2` |
 | Check catalog | [`docs/checks.json`](docs/checks.json) | regenerated each release |
@@ -560,7 +564,7 @@ NOT prove. Use `--no-packet` / `--packet-format` on `scan`, and
 `agents-shipgate evidence-packet --from <packet.json|report.json>` to
 re-render. The full packet contract (fixed sections, disclaimers,
 `evidence_matrix` rules) lives in
-[STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v09)
+[STABILITY.md §Release Evidence Packet](STABILITY.md#release-evidence-packet-v010)
 and [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-for-release-review).
 
 Exit codes (stable):

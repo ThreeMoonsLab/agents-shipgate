@@ -5,6 +5,7 @@ import json
 
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.findings.summaries import tool_inventory
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 
@@ -31,6 +32,8 @@ def _run_id(
     frameworks: dict[str, object] | None = None,
     codex_plugin_surface: CodexPluginSurface | None = None,
     action_surface_facts: ActionSurfaceFacts | None = None,
+    tool_catalog: list[Tool] | None = None,
+    binding_graph: AgentBindingGraphAssessment | None = None,
 ) -> str:
     payload = {
         "project": project
@@ -41,6 +44,10 @@ def _run_id(
         if environment is not None
         else manifest.environment.model_dump(mode="json", exclude_none=False),
         "tool_inventory": tool_inventory(tools),
+        "tool_catalog": tool_inventory(tool_catalog if tool_catalog is not None else tools),
+        "binding_graph": (
+            binding_graph.model_dump(mode="json") if binding_graph is not None else None
+        ),
         "findings": [
             finding.model_dump(
                 mode="json",

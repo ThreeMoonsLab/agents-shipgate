@@ -28,12 +28,13 @@ def test_unaugmented_framework_cold_start_is_measured_as_insufficient_evidence(
 
     assert exit_code == 0
     assert report.release_decision.decision == "insufficient_evidence"
-    coverage = report.release_decision.evidence_coverage.semantic_coverage
-    assert coverage.total_actions == 1
-    assert coverage.pass_eligible_actions == 0
+    assert len(report.tool_catalog) == 1
+    assert report.tool_inventory == []
+    coverage = report.release_decision.evidence_coverage.binding_coverage
+    assert coverage.reachable_tools == 0
+    assert coverage.unbound_tools == 1
     assert coverage.gap_count >= 1
     gap_kinds = {
         gap.kind for gap in report.release_decision.evidence_coverage.evidence_gaps
     }
-    assert "incomplete_surface" in gap_kinds
-    assert "missing_authority_evidence" in gap_kinds
+    assert "ambiguous_root_agent" in gap_kinds

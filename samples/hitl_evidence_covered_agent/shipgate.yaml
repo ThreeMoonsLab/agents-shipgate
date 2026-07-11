@@ -19,6 +19,15 @@ tool_sources:
     type: mcp
     path: tools.json
 
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: issue_refund, source_id: refund_tools}
+      handoffs: []
+      reason: reviewed HITL fixture binding
+
 validation:
   mode: human_in_the_loop
   target_review_posture: limited_auto_approval

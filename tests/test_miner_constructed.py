@@ -90,8 +90,6 @@ def test_ie_threshold_is_exercised_and_robust_on_the_labeled_coverage_fixture(
     the constant. Freezing the constant itself is
     ``test_ie_threshold_constants_are_frozen`` in ``test_release_decision.py``.
     """
-    from agents_shipgate.ci.release_decision import _low_confidence_tool_threshold
-
     project = tmp_path / "ambiguous-sdk"
     project.mkdir()
     (project / "agent.py").write_text(
@@ -151,17 +149,13 @@ ci:
     report = json.loads(report_path.read_text(encoding="utf-8"))
     decision = report["release_decision"]
     coverage = decision["evidence_coverage"]
-    low = coverage["low_confidence_tool_count"]
-    total = (report.get("tool_surface") or {}).get("total_tools") or len(
-        report.get("tool_inventory") or []
-    )
     assert decision["decision"] == "insufficient_evidence"
-    # The current constant correctly classifies it as below-threshold.
-    assert low >= _low_confidence_tool_threshold(total)
-    # It sits at the robust extreme (every tool is low-confidence), so this
-    # single labeled point cannot distinguish ratio values in (0, 1]. Moving
-    # the constant needs the human labeling pass + a re-mine, not this fixture.
-    assert low == total and total > 0
+    assert len(report["tool_catalog"]) == 1
+    assert report["tool_inventory"] == []
+    binding = coverage["binding_coverage"]
+    assert binding["reachable_tools"] == 0
+    assert binding["unbound_tools"] == 1
+    assert binding["gap_count"] >= 1
 
 
 def test_cli_env_prepends_this_checkouts_src() -> None:

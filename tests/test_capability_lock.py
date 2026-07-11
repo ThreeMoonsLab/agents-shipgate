@@ -476,7 +476,7 @@ def test_mixed_capability_standard_diff_requires_exact_reexport(
 
     assert str(exc_info.value) == (
         "Mixed capability-standard lock diff is not comparable "
-        "(base=0.2, head=0.3). Re-export the base lock from its source "
+            "(base=0.2, head=0.4). Re-export the base lock from its source "
         "workspace with the current engine using exactly: "
         f"`{command}`. Then rerun the capability diff."
     )
@@ -569,6 +569,15 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: cases.search, source_id: tools}
+        - {tool: cases.update, source_id: tools}
+      handoffs: []
+      reason: reviewed capability-lock fixture binding
 """,
         encoding="utf-8",
     )

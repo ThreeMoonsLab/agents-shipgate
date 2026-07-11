@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agents_shipgate.ci.release_decision import build_release_decision
 from agents_shipgate.core.domain import Tool
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
@@ -39,6 +40,9 @@ def build_report(
     agent: dict[str, object],
     environment: dict[str, object],
     tools: list[Tool],
+    tool_catalog: list[Tool] | None = None,
+    binding_surface_facts: AgentBindingGraphAssessment | None = None,
+    binding_surface_diff: BindingSurfaceDiff | None = None,
     findings: list[Finding],
     generated_reports: dict[str, str],
     ci_mode: str,
@@ -75,6 +79,15 @@ def build_report(
         tool_surface_diff=tool_surface_diff or ToolSurfaceDiff(),
         action_surface_facts=action_surface_facts or ActionSurfaceFacts(),
         action_surface_diff=action_surface_diff or ActionSurfaceDiff(),
+        binding_surface_facts=(
+            binding_surface_facts
+            or AgentBindingGraphAssessment(
+                root_agent_id="legacy_direct",
+                status="structural",
+                pass_eligible=True,
+            )
+        ),
+        binding_surface_diff=binding_surface_diff or BindingSurfaceDiff(),
         capability_runtime_evidence=(
             capability_runtime_evidence or CapabilityRuntimeEvidence()
         ),
@@ -90,6 +103,7 @@ def build_report(
         loaded_plugins=loaded_plugins or [],
         loaded_adapters=loaded_adapters or [],
         tool_inventory=tool_inventory(tools),
+        tool_catalog=tool_inventory(tool_catalog if tool_catalog is not None else tools),
         source_warnings=source_warnings or [],
         # v0.17 (M1): policy audit envelope. Always present on emitted
         # scans (empty when no overrides applied) so consumers can read

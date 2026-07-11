@@ -606,7 +606,28 @@ def _display_path(path: Path | None) -> str | None:
     return str(path) if not path.is_absolute() else path.name
 
 
-def _manifest(*, environment: str = "production_like", ci: str = "advisory") -> str:
+def _binding_declaration(tool_names: list[str]) -> str:
+    rendered_tools = "\n".join(
+        f"        - tool: {tool_name}\n          source_id: tools"
+        for tool_name in tool_names
+    )
+    return f"""agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+{rendered_tools if rendered_tools else "        []"}
+      handoffs: []
+      reason: independently reviewed governance benchmark binding
+"""
+
+
+def _manifest(
+    *,
+    environment: str = "production_like",
+    ci: str = "advisory",
+    tool_names: list[str] | None = None,
+) -> str:
     return f"""version: "0.1"
 project:
   name: governance-benchmark
@@ -623,7 +644,7 @@ tool_sources:
     trust: internal
 ci:
   mode: {ci}
-"""
+""" + _binding_declaration(tool_names or [_READ_TOOL["name"]])
 
 
 def _manifest_with_scopes(scopes: list[str]) -> str:
@@ -647,7 +668,7 @@ permissions:
 {rendered_scopes}
 ci:
   mode: advisory
-"""
+""" + _binding_declaration([_BROAD_LIST_CASES_TOOL["name"]])
 
 
 def _strict_manifest() -> str:
@@ -670,7 +691,7 @@ ci:
   fail_on:
     - critical
     - high
-"""
+""" + _binding_declaration([_READ_TOOL["name"]])
 
 
 def _tools(tools: list[dict[str, Any]]) -> str:
@@ -788,7 +809,13 @@ def _added_tool_fixture(tool: dict[str, Any]) -> _FixtureTrees:
     base = _base_read_files()
     return _FixtureTrees(
         base_files=base,
-        head_files={"tools.json": _tools([_READ_TOOL, tool])},
+        head_files={
+            "shipgate.yaml": _manifest(
+                environment="local",
+                tool_names=[_READ_TOOL["name"], tool["name"]],
+            ),
+            "tools.json": _tools([_READ_TOOL, tool]),
+        },
     )
 
 
@@ -811,10 +838,16 @@ def _mcp_safe_read_tool_added() -> _FixtureTrees:
 def _benign_remove_dangerous_tool() -> _FixtureTrees:
     return _FixtureTrees(
         base_files={
-            "shipgate.yaml": _manifest(environment="local"),
+            "shipgate.yaml": _manifest(
+                environment="local",
+                tool_names=[_READ_TOOL["name"], _DELETE_TOOL["name"]],
+            ),
             "tools.json": _tools([_READ_TOOL, _DELETE_TOOL]),
         },
-        head_files={"tools.json": _tools([_READ_TOOL])},
+        head_files={
+            "shipgate.yaml": _manifest(environment="local"),
+            "tools.json": _tools([_READ_TOOL]),
+        },
     )
 
 

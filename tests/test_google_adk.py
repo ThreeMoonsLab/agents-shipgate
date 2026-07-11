@@ -289,7 +289,8 @@ google_adk:
         ci_mode="advisory",
     )
 
-    assert report.tool_inventory[0]["name"] == "support.lookup"
+    assert report.tool_catalog[0]["name"] == "support.lookup"
+    assert report.tool_inventory == []
     assert report.frameworks["google_adk"]["tool_inventory_file_count"] == 1
     assert "SHIP-ADK-EVAL-COVERAGE-MISSING" not in {
         finding.check_id for finding in report.findings

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints
 from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
 from agents_shipgate.core.tool_identity import resolve_selectors_by_tool_id
@@ -42,13 +43,24 @@ def _build_tools_and_agent(
     # Some adapters expose the same warnings through both LoadedToolSource
     # and the artifact bag; keep report warning output stable and unique.
     warnings = list(dict.fromkeys(warnings))
-    tools = enrich_tools_with_risk_hints(manifest, tools)
-    declarations, tools = resolve_selectors_by_tool_id(
-        tools,
+    tool_catalog = enrich_tools_with_risk_hints(manifest, tools)
+    binding_graph, tool_catalog = resolve_agent_binding_graph(
+        manifest,
+        tool_catalog,
+        inputs.artifact_bag,
+    )
+    reachable_ids = set(binding_graph.reachable_tool_ids)
+    declarations, tool_catalog = resolve_selectors_by_tool_id(
+        tool_catalog,
         manifest.action_surface.actions,
         manifest_path="/action_surface/actions",
         copy_tools=False,
     )
+    declarations = {
+        tool_id: declaration
+        for tool_id, declaration in declarations.items()
+        if tool_id in reachable_ids
+    }
     for control, entries, path in (
         (
             "approval",
@@ -66,15 +78,16 @@ def _build_tools_and_agent(
             "/policies/require_idempotency_for_tools",
         ),
     ):
-        resolved_controls, tools = resolve_selectors_by_tool_id(
-            tools,
+        resolved_controls, tool_catalog = resolve_selectors_by_tool_id(
+            tool_catalog,
             entries,
             manifest_path=path,
             copy_tools=False,
         )
-        for tool in tools:
+        for tool in tool_catalog:
             if tool.id in resolved_controls:
                 tool.resolved_controls = sorted(set(tool.resolved_controls) | {control})
+    tools = [tool for tool in tool_catalog if tool.id in reachable_ids]
     tools = attach_semantic_assessments(
         tools,
         declarations,
@@ -105,5 +118,10 @@ def _build_tools_and_agent(
         bound for loaded in inputs.loaded_sources for bound in loaded.toolkit_bounds
     ]
     return _ToolsAndAgent(
-        tools=tools, agent=agent, warnings=warnings, toolkit_bounds=toolkit_bounds
+        tools=tools,
+        tool_catalog=tool_catalog,
+        agent=agent,
+        binding_graph=binding_graph,
+        warnings=warnings,
+        toolkit_bounds=toolkit_bounds,
     )

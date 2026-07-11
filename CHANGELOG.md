@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Root-reachable agent binding graph (P0, `0.16.0b2`).** Tool catalogs no
+  longer become an agent's capability surface by extraction alone. Framework
+  adapters emit static tool and handoff edges, `agent_bindings` supports exact
+  reviewed closed-world declarations, and partial, dynamic, ambiguous, or
+  conflicting graphs prevent `passed`. Reports separate `tool_catalog[]` from
+  root-reachable `tool_inventory[]` and publish binding facts, diffs, coverage,
+  evidence gaps, and human-routed remediation.
+- **Binding contract versions.** Runtime contract advances to v13; report to
+  v0.31; packet to v0.10; capability standard to v0.4; capability lock/diff to
+  v0.5/v0.6; action snapshot to v0.3; and safety qualification formats to v2.
+
 - **Provider-scoped canonical tool identity (P0).** Tool observations now get
   deterministic source-scoped IDs and same-name tools from different
   providers remain distinct. Cross-source evidence joins only through exact,

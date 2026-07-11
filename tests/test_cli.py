@@ -798,7 +798,8 @@ def test_cli_scan_workspace_writes_separate_report_dirs(tmp_path):
     assert decision_lines, "expected per-manifest summary lines in workspace output"
     for line in decision_lines:
         assert any(
-            f": {decision} " in line for decision in ("blocked", "review_required", "passed")
+            f": {decision} " in line
+            for decision in ("blocked", "review_required", "insufficient_evidence", "passed")
         ), f"workspace summary line should lead with decision: {line!r}"
         assert "blockers=" in line
 
@@ -839,6 +840,22 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: docs.lookup
+          source_id: tools
+      handoffs: []
+      reason: reviewed workspace test binding
+action_surface:
+  actions:
+    - tool: docs.lookup
+      source_id: tools
+      effect: read
+      authority:
+        mode: none
 """,
         encoding="utf-8",
     )

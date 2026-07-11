@@ -31,6 +31,7 @@
           "items": {
             "enum": [
               "identity_hash",
+              "binding_hash",
               "effect_hash",
               "authority_hash",
               "control_hash",

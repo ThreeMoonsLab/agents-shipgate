@@ -61,16 +61,18 @@ def load_openai_sdk_static_tools(
             toolkit_bounds.extend(file_bounds)
     elif path.suffix.lower() == ".py":
         tools, toolkit_bounds = _load_python_file(path, source, base_dir)
+        python_files = [path]
     else:
         raise InputParseError(
             f"OpenAI Agents SDK source must be a Python file or directory: {path}"
         )
+    binding_warnings = _attach_agent_bindings(tools, python_files, source, base_dir)
     return LoadedToolSource(
         source_id=source.id,
         source_type="openai_agents_sdk",
         tools=tools,
         toolkit_bounds=toolkit_bounds,
-        warnings=_toolkit_binding_warnings(toolkit_bounds),
+        warnings=[*_toolkit_binding_warnings(toolkit_bounds), *binding_warnings],
     )
 
 
@@ -120,6 +122,155 @@ def _load_python_file(
         if _is_function_tool(node, decorator_names)
     ]
     return tools, _detect_toolkit_bounds(tree, ref)
+
+
+def _attach_agent_bindings(
+    tools: list[Tool],
+    paths: list[Path],
+    source: ToolSourceConfig,
+    base_dir: Path,
+) -> list[str]:
+    """Attach exact, local-only ``Agent(..., tools=[...])`` wiring.
+
+    This intentionally resolves only literal lists, names bound to literal
+    lists, and local/imported function-tool identifiers. Dynamic expressions
+    are preserved as partial evidence instead of being guessed.
+    """
+
+    warnings: list[str] = []
+    tool_by_name = {tool.name: tool for tool in tools}
+    tool_by_name.update(
+        {
+            symbol: tool
+            for tool in tools
+            if isinstance((symbol := tool.annotations.get("python_symbol")), str)
+        }
+    )
+    for path in paths:
+        tree = parse_python_file(path, label="OpenAI Agents SDK")
+        source_ref = display_path(path, base_dir)
+        list_vars: dict[str, list[str] | None] = {}
+        import_aliases: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    import_aliases[alias.asname or alias.name] = alias.name
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                target = _assignment_target(node)
+                value = node.value
+                if target and isinstance(value, (ast.List, ast.Tuple)):
+                    list_vars[target] = _literal_names(value, import_aliases)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            target = _assignment_target(node)
+            call = node.value if isinstance(node.value, ast.Call) else None
+            if not target or call is None or _last_name(call.func) != "Agent":
+                continue
+            tools_expr = _keyword(call, "tools")
+            names = _resolve_name_list(tools_expr, list_vars, import_aliases)
+            pointer = f"{source_ref}:{call.lineno}"
+            if names is None:
+                reason = (
+                    f"OpenAI Agents SDK agent {target!r} at {pointer} uses a "
+                    "dynamic tools expression; its binding graph is incomplete."
+                )
+                warnings.append(reason)
+                for tool in tools:
+                    if tool.source_id == source.id:
+                        tool.annotations.setdefault("binding_surface_partial", []).append(reason)
+                continue
+            for name in names:
+                tool = tool_by_name.get(name)
+                if tool is None:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
+                        f"unresolved tool {name!r}."
+                    )
+                    warnings.append(reason)
+                    for candidate in tools:
+                        if candidate.source_id == source.id:
+                            candidate.annotations.setdefault("binding_surface_partial", []).append(reason)
+                    continue
+                tool.annotations.setdefault("agent_bindings", []).append(
+                    {
+                        "agent": target,
+                        "source_id": source.id,
+                        "edge_type": "direct_tool",
+                        "source": source_ref,
+                        "source_pointer": pointer,
+                        "complete": True,
+                    }
+                )
+            handoff_names = _resolve_name_list(
+                _keyword(call, "handoffs"), list_vars, import_aliases
+            )
+            if handoff_names is None:
+                reason = f"OpenAI Agents SDK agent {target!r} has dynamic handoffs at {pointer}."
+                warnings.append(reason)
+                for tool in tools:
+                    if tool.source_id == source.id:
+                        tool.annotations.setdefault("binding_surface_partial", []).append(reason)
+            elif handoff_names:
+                anchor = next((tool_by_name.get(name) for name in names if tool_by_name.get(name)), None)
+                if anchor is not None:
+                    anchor.annotations.setdefault("agent_handoffs", []).extend(
+                        {
+                            "source_agent": target,
+                            "target_agent": handoff,
+                            "source_id": source.id,
+                            "edge_type": "handoff",
+                            "source": source_ref,
+                            "source_pointer": pointer,
+                            "complete": True,
+                        }
+                        for handoff in handoff_names
+                    )
+    return list(dict.fromkeys(warnings))
+
+
+def _assignment_target(node: ast.Assign | ast.AnnAssign) -> str | None:
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    return targets[0].id if len(targets) == 1 and isinstance(targets[0], ast.Name) else None
+
+
+def _last_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _keyword(call: ast.Call, name: str) -> ast.AST | None:
+    return next((item.value for item in call.keywords if item.arg == name), None)
+
+
+def _literal_names(
+    value: ast.List | ast.Tuple, aliases: dict[str, str]
+) -> list[str] | None:
+    names: list[str] = []
+    for item in value.elts:
+        if not isinstance(item, ast.Name):
+            return None
+        names.append(aliases.get(item.id, item.id))
+    return names
+
+
+def _resolve_name_list(
+    value: ast.AST | None,
+    list_vars: dict[str, list[str] | None],
+    aliases: dict[str, str],
+) -> list[str] | None:
+    if value is None:
+        return []
+    if isinstance(value, (ast.List, ast.Tuple)):
+        return _literal_names(value, aliases)
+    if isinstance(value, ast.Name):
+        if value.id in list_vars:
+            return list_vars[value.id]
+        return [aliases.get(value.id, value.id)]
+    return None
 
 
 def _function_tool_decorator_names(tree: ast.Module) -> set[str]:
@@ -173,6 +324,7 @@ def _function_to_tool(
         output_schema=function_output_schema(node),
         parameters=parameters,
         function_signature=function_signature(tool_name, parameters, node),
+        annotations={"python_symbol": node.name},
         auth=AuthInfo(source="sdk_static"),
         extraction_confidence="medium",
         extraction={"method": "openai_agents_sdk_ast", "confidence": "medium"},

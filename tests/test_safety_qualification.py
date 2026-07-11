@@ -41,7 +41,7 @@ from scripts.run_safety_qualification import (
 )
 
 DECISIONS = ("passed", "review_required", "insufficient_evidence", "blocked")
-VERSION = "0.16.0b1"
+VERSION = "0.16.0b2"
 
 
 def _human_label(role: str, reviewer: str, decision: str) -> IndependentHumanLabelV1:
@@ -104,7 +104,7 @@ def _test_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=1,
         minimum_review_exact=1,
         minimum_insufficient_evidence_exact=1,
-        required_report_schema_version="0.30",
+        required_report_schema_version="0.31",
     )
 
 
@@ -116,8 +116,8 @@ def _write_json(path: Path, value: object) -> None:
 def _write_wheel(path: Path) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            "agents_shipgate-0.16.0b1.dist-info/METADATA",
-            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b1\n",
+            "agents_shipgate-0.16.0b2.dist-info/METADATA",
+            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b2\n",
         )
 
 
@@ -161,7 +161,7 @@ def _fixture(
     actual_overrides: dict[str, str] | None = None,
     disagreement_case: str | None = None,
 ) -> tuple[Path, Path, Path, Path]:
-    wheel = tmp_path / "agents_shipgate-0.16.0b1-py3-none-any.whl"
+    wheel = tmp_path / "agents_shipgate-0.16.0b2-py3-none-any.whl"
     _write_wheel(wheel)
     policy = tmp_path / "qualification-policy.json"
     _write_json(policy, {"policy": "beta-exact", "version": 1})
@@ -209,6 +209,15 @@ def _fixture(
                     "source_warning_count": 0,
                     "low_confidence_tool_count": 0,
                     "semantic_coverage": _semantic_coverage(actual),
+                    "binding_coverage": {
+                        "total_catalog_tools": 1,
+                        "reachable_tools": 1,
+                        "possible_tools": 0,
+                        "unbound_tools": 0,
+                        "pass_eligible": True,
+                        "gap_count": 0,
+                        "reason_counts": {},
+                    },
                 },
                 "baseline_delta": {"enabled": False},
                 "fail_policy": {
@@ -329,7 +338,7 @@ def test_production_defaults_pin_the_exact_beta_contract() -> None:
         (item.profile, item.expected_decision): item.count for item in requirements.required_strata
     }
 
-    assert len(counts) == 16
+    assert len(counts) == 28
     assert sum(counts.values()) == 100
     assert sum(count for (_, decision), count in counts.items() if decision == "passed") == 30
     assert sum(count for (_, decision), count in counts.items() if decision != "passed") == 70

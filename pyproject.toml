@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agents-shipgate"
-version = "0.16.0b1"
+version = "0.16.0b2"
 description = "The deterministic merge gate for AI-generated agent capability changes. Agent release readiness for tool-using AI agents. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n."
 readme = "README.md"
 requires-python = ">=3.12"

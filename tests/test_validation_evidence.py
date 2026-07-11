@@ -649,6 +649,14 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {{tool: issue_refund, source_id: tools}}
+      handoffs: []
+      reason: reviewed validation fixture binding
 {validation_block}
 permissions:
   scopes:
