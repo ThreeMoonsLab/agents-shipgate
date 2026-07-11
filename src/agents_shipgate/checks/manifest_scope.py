@@ -159,11 +159,11 @@ def _prohibited_action_is_mitigated(
     context: ScanContext, tool: Tool, prohibited_action: str
 ) -> bool:
     tokens = _tokens(prohibited_action)
-    if "approval" in tokens and tool.name in context.manifest.policies.approval_tools():
+    if "approval" in tokens and "approval" in tool.resolved_controls:
         return True
-    if "confirmation" in tokens and tool.name in context.manifest.policies.confirmation_tools():
+    if "confirmation" in tokens and "confirmation" in tool.resolved_controls:
         return True
-    if "idempotency" in tokens and tool.name in context.manifest.policies.idempotency_tools():
+    if "idempotency" in tokens and "idempotency" in tool.resolved_controls:
         return True
     return False
 

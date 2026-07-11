@@ -10,6 +10,7 @@ from agents_shipgate.core.domain import (
     ToolRiskHint,
 )
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.tool_identity import resolve_selectors_by_tool_id
 from agents_shipgate.schemas.common import (
     confidence_rank,
     parse_confidence,
@@ -117,7 +118,25 @@ def enrich_tools_with_risk_hints(manifest: AgentsShipgateManifest, tools: list[T
     enriched = [tool.model_copy(deep=True) for tool in tools]
     for tool in enriched:
         _add_automatic_hints(tool)
-        _apply_manual_override(manifest, tool)
+    legacy_overrides = [
+        override.model_copy(update={"tool": name})
+        for name, override in manifest.risk_overrides.tools.items()
+    ]
+    selectors = [
+        *legacy_overrides,
+        *getattr(manifest.risk_overrides, "selectors", []),
+    ]
+    resolved, enriched = resolve_selectors_by_tool_id(
+        enriched,
+        selectors,
+        manifest_path="/risk_overrides",
+        ambiguous_kind="ambiguous_legacy_tool_identity",
+        copy_tools=False,
+    )
+    for tool in enriched:
+        override = resolved.get(tool.id)
+        if override is not None:
+            _apply_manual_override(tool, override)
     return enriched
 
 
@@ -290,10 +309,7 @@ def _add_automatic_hints(tool: Tool) -> None:
         _add_hint(tool, "read_only", "openapi_method", "high", {"method": method})
 
 
-def _apply_manual_override(manifest: AgentsShipgateManifest, tool: Tool) -> None:
-    override = manifest.risk_overrides.tools.get(tool.name)
-    if not override:
-        return
+def _apply_manual_override(tool: Tool, override) -> None:
     if override.owner:
         tool.owner = override.owner
     if override.remove_tags:
@@ -307,8 +323,8 @@ def _apply_manual_override(manifest: AgentsShipgateManifest, tool: Tool) -> None
         )
         if protected:
             raise ConfigError(
-                "risk_overrides.tools."
-                f"{tool.name}.remove_tags may remove keyword/regex hints only; "
+                "risk_overrides selector for "
+                f"{tool.name!r} may remove keyword/regex hints only; "
                 "structural or manually declared evidence cannot be removed: "
                 + ", ".join(protected)
                 + "."

@@ -228,7 +228,7 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
 
 def _normalize_capability_lock_payload(payload: dict[str, Any]) -> dict[str, Any]:
     version = payload.get("capability_lock_schema_version")
-    if version in {"0.1", "0.2"}:
+    if version in {"0.1", "0.2", "0.3"}:
         normalized = dict(payload)
         normalized["capability_lock_schema_version"] = CAPABILITY_LOCK_SCHEMA_VERSION
         normalized["experimental"] = False
@@ -239,6 +239,7 @@ def _normalize_capability_lock_payload(payload: dict[str, Any]) -> dict[str, Any
 _CAPABILITY_STANDARD_BY_LOCK_SCHEMA = {
     "0.1": "0.1",
     "0.2": "0.1",
+    "0.3": "0.2",
     CAPABILITY_LOCK_SCHEMA_VERSION: CAPABILITY_STANDARD_VERSION,
 }
 

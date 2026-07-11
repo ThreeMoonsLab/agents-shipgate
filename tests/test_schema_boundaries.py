@@ -175,7 +175,7 @@ def test_controller_schemas_publish_the_static_verdict_boundary() -> None:
         )
     )
     handoff = json.loads(
-        (REPO_ROOT / "docs" / "agent-handoff-schema.v1.json").read_text(
+        (REPO_ROOT / "docs" / "agent-handoff-schema.v2.json").read_text(
             encoding="utf-8"
         )
     )
@@ -274,7 +274,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.30"
+    assert report_payload["report_schema_version"] == "0.31"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -352,7 +352,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         not_proven=NotProvenSection(headline="not proven"),
     )
     packet_payload = serialize_packet_json(packet)
-    assert packet_payload["packet_schema_version"] == "0.8"
+    assert packet_payload["packet_schema_version"] == "0.9"
     assert "generated_at" not in packet_payload
     assert "action_surface_diff" in packet_payload
     assert report_payload["capability_runtime_evidence"]["enabled"] is False
@@ -370,7 +370,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         ],
     )
     assert baseline.model_dump(mode="json") == {
-        "schema_version": "0.6",
+        "schema_version": "0.7",
         "project": {},
         "agent": {},
         "created_at": "2026-01-01T00:00:00Z",
@@ -379,7 +379,9 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             {
                 "fingerprint": "abc",
                 "check_id": "SHIP-TEST",
+                "tool_id": None,
                 "tool_name": None,
+                "fingerprint_version": "1",
                 "severity": "high",
                 "title": "Example",
                 "provenance": None,
@@ -391,20 +393,20 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     }
 
     assert ContractPayload(
-        contract_version="11",
+        contract_version="12",
         cli_version="0.0.0",
-        report_schema_version="0.29",
-        packet_schema_version="0.8",
-        verifier_schema_version="0.1",
+        report_schema_version="0.31",
+        packet_schema_version="0.9",
+        verifier_schema_version="0.2",
         verify_run_schema_version="shipgate.verify_run/v1",
-        agent_handoff_schema_version="shipgate.agent_handoff/v1",
-        agent_handoff_schema_path="docs/agent-handoff-schema.v1.json",
+        agent_handoff_schema_version="shipgate.agent_handoff/v2",
+        agent_handoff_schema_path="docs/agent-handoff-schema.v2.json",
         agent_handoff_artifact="agents-shipgate-reports/agent-handoff.json",
         codex_boundary_result_schema_version="shipgate.codex_boundary_result/v1",
-        capability_lock_schema_version="0.3",
-        capability_lock_diff_schema_version="0.4",
+        capability_lock_schema_version="0.4",
+        capability_lock_diff_schema_version="0.5",
         preflight_schema_version="0.2",
-        capability_standard_version="0.2",
+        capability_standard_version="0.3",
         governance_benchmark_catalog_schema_version="0.2",
         governance_benchmark_result_schema_version="0.2",
         attestation_schema_version="0.4",
@@ -440,20 +442,20 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         release_decisions=["passed", "blocked"],
         do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
-        "contract_version": "11",
+        "contract_version": "12",
         "cli_version": "0.0.0",
-        "report_schema_version": "0.29",
-        "packet_schema_version": "0.8",
-        "verifier_schema_version": "0.1",
+        "report_schema_version": "0.31",
+        "packet_schema_version": "0.9",
+        "verifier_schema_version": "0.2",
         "verify_run_schema_version": "shipgate.verify_run/v1",
-        "agent_handoff_schema_version": "shipgate.agent_handoff/v1",
-        "agent_handoff_schema_path": "docs/agent-handoff-schema.v1.json",
+        "agent_handoff_schema_version": "shipgate.agent_handoff/v2",
+        "agent_handoff_schema_path": "docs/agent-handoff-schema.v2.json",
         "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
         "codex_boundary_result_schema_version": "shipgate.codex_boundary_result/v1",
-        "capability_lock_schema_version": "0.3",
-        "capability_lock_diff_schema_version": "0.4",
+        "capability_lock_schema_version": "0.4",
+        "capability_lock_diff_schema_version": "0.5",
         "preflight_schema_version": "0.2",
-        "capability_standard_version": "0.2",
+        "capability_standard_version": "0.3",
         "governance_benchmark_catalog_schema_version": "0.2",
         "governance_benchmark_result_schema_version": "0.2",
         "attestation_schema_version": "0.4",

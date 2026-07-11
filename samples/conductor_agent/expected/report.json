@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.30",
-  "run_id": "agents_shipgate_1d2e2021930d46e8",
+  "report_schema_version": "0.31",
+  "run_id": "agents_shipgate_d88a8dce2e06ba18",
   "manifest_dir": "<REPO>/samples/conductor_agent",
   "project": {
     "name": "conductor-agent"
@@ -23,6 +23,9 @@
     "prohibited_actions": [],
     "tools": [
       "lookup_order"
+    ],
+    "tool_ids": [
+      "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
     ],
     "handoffs": [],
     "guardrails": {
@@ -60,8 +63,8 @@
     "blockers": [],
     "review_items": [
       {
-        "id": "fp_9eada902c434af31",
-        "fingerprint": "fp_9eada902c434af31",
+        "id": "fp_8b88a61e6836c3bd",
+        "fingerprint": "fp_8b88a61e6836c3bd",
         "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
         "severity": "high",
         "title": "Conductor tool surface cannot be statically enumerated",
@@ -82,8 +85,8 @@
         "capability_trace_refs": []
       },
       {
-        "id": "fp_c0bdad5a2df71224",
-        "fingerprint": "fp_c0bdad5a2df71224",
+        "id": "fp_a5e7b93822939963",
+        "fingerprint": "fp_a5e7b93822939963",
         "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
         "severity": "high",
         "title": "Conductor tool surface cannot be statically enumerated",
@@ -112,7 +115,7 @@
       "evidence_gaps": [
         {
           "kind": "incomplete_surface",
-          "subject": "lookup_order",
+          "subject": "lookup_order [conductor_workflows]",
           "source_type": "conductor_mcp_call",
           "source_ref": "/tasks/3",
           "why": "tool surface enumeration is incomplete or not high confidence",
@@ -135,7 +138,7 @@
         },
         {
           "kind": "low_confidence_tool",
-          "subject": "lookup_order",
+          "subject": "lookup_order [conductor_workflows]",
           "source_type": "conductor_mcp_call",
           "source_ref": "workflows/order-agent.json",
           "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
@@ -237,6 +240,15 @@
         "reason_counts": {
           "incomplete_surface": 1
         }
+      },
+      "identity_coverage": {
+        "total_observations": 1,
+        "canonical_tools": 1,
+        "bound_tools": 0,
+        "pass_eligible_tools": 1,
+        "ambiguous_name_count": 0,
+        "gap_count": 0,
+        "reason_counts": {}
       }
     },
     "baseline_delta": {
@@ -258,16 +270,16 @@
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "contribution_rules": [
       {
-        "finding_id": "fp_9eada902c434af31",
-        "fingerprint": "fp_9eada902c434af31",
+        "finding_id": "fp_8b88a61e6836c3bd",
+        "fingerprint": "fp_8b88a61e6836c3bd",
         "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
         "category": "review_item",
         "rule": "review_required",
         "rationale": "requires_human_review=true (severity=high); routed to review_items."
       },
       {
-        "finding_id": "fp_c0bdad5a2df71224",
-        "fingerprint": "fp_c0bdad5a2df71224",
+        "finding_id": "fp_a5e7b93822939963",
+        "fingerprint": "fp_a5e7b93822939963",
         "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
         "category": "review_item",
         "rule": "review_required",
@@ -287,28 +299,28 @@
   ],
   "misalignments": [
     {
-      "id": "mis_1bdf3e3e24dd0eba",
+      "id": "mis_c724b5b2ee5afa60",
       "kind": "undetected_gap",
       "severity": "high",
       "tool_name": null,
       "capability_refs": [],
       "intention_refs": [],
       "finding_refs": [
-        "fp_9eada902c434af31"
+        "fp_a5e7b93822939963"
       ],
       "policy_requirement": "Static review requires deterministic evidence for release gaps.",
       "gap": "Conductor tool surface cannot be statically enumerated.",
       "release_implication": "Human review is required to interpret this finding."
     },
     {
-      "id": "mis_bd03b956c142acd6",
+      "id": "mis_f07049b59e5d2680",
       "kind": "undetected_gap",
       "severity": "high",
       "tool_name": null,
       "capability_refs": [],
       "intention_refs": [],
       "finding_refs": [
-        "fp_c0bdad5a2df71224"
+        "fp_8b88a61e6836c3bd"
       ],
       "policy_requirement": "Static review requires deterministic evidence for release gaps.",
       "gap": "Conductor tool surface cannot be statically enumerated.",
@@ -341,7 +353,9 @@
   "tool_surface_facts": {
     "tools": [
       {
+        "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
         "name": "lookup_order",
+        "provider": "conductor_workflows",
         "source_type": "conductor_mcp_call",
         "source_id": "conductor_workflows",
         "source_ref": "workflows/order-agent.json",
@@ -408,12 +422,12 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.1",
+    "snapshot_version": "0.2",
     "actions": [
       {
-        "action_id": "agent:conductor-agent/durable-order-agent:conductor_mcp_call:conductor_workflows:lookup_order",
+        "action_id": "agent:conductor-agent/durable-order-agent:action_v2_e44ea9ad0aa3c7deea46a01e5cbe1f3cf399916633fb94491e14fc6dd523eddd",
         "agent_id": "agent:conductor-agent/durable-order-agent",
-        "tool_id": "tool:conductor_workflows:workflows/order-agent.json:durable_order_agent:1:lookup:/tasks/3:lookup_order",
+        "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
         "tool_name": "lookup_order",
         "provider": "conductor_workflows",
         "source_type": "conductor_mcp_call",
@@ -429,6 +443,33 @@
         "effect": "read",
         "semantic_assessment": {
           "conservative_effect": "read",
+          "identity": {
+            "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+            "status": "structural",
+            "provider": "conductor_workflows",
+            "binding_id": null,
+            "primary_observation_id": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+            "observation_ids": [
+              "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+            ],
+            "claims": [
+              {
+                "dimension": "identity",
+                "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "source_observation",
+                "source_pointer": "/tasks/3",
+                "evidence": {
+                  "source_type": "conductor_mcp_call",
+                  "source_id": "conductor_workflows",
+                  "native_locator": "workflows/order-agent.json#lookup_order"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -513,7 +554,7 @@
         "required_input_fields": [],
         "input_schema_hash": "28cc233c2ea84993",
         "hashes": {
-          "identity_hash": "d7fafa05fd8f32fb",
+          "identity_hash": "48940a82687c4995",
           "schema_hash": "28cc233c2ea84993",
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "70b0ab591723cb0f"
@@ -592,8 +633,8 @@
   "baseline": null,
   "findings": [
     {
-      "id": "fp_9eada902c434af31",
-      "fingerprint": "fp_9eada902c434af31",
+      "id": "fp_8b88a61e6836c3bd",
+      "fingerprint": "fp_8b88a61e6836c3bd",
       "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
       "title": "Conductor tool surface cannot be statically enumerated",
       "severity": "high",
@@ -643,8 +684,8 @@
       "agent_action": "escalate_to_human"
     },
     {
-      "id": "fp_c0bdad5a2df71224",
-      "fingerprint": "fp_c0bdad5a2df71224",
+      "id": "fp_a5e7b93822939963",
+      "fingerprint": "fp_a5e7b93822939963",
       "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
       "title": "Conductor tool surface cannot be statically enumerated",
       "severity": "high",
@@ -706,7 +747,12 @@
   "loaded_adapters": [],
   "tool_inventory": [
     {
+      "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
       "name": "lookup_order",
+      "provider": "conductor_workflows",
+      "observation_ids": [
+        "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+      ],
       "source_type": "conductor_mcp_call",
       "source_ref": "workflows/order-agent.json",
       "source_path": "workflows/order-agent.json",
@@ -720,7 +766,97 @@
       },
       "auth_scopes": [],
       "owner": null,
-      "confidence": "medium"
+      "confidence": "medium",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+          "status": "structural",
+          "provider": "conductor_workflows",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+          "observation_ids": [
+            "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "source_type": "conductor_mcp_call",
+                "source_id": "conductor_workflows",
+                "native_locator": "workflows/order-agent.json#lookup_order"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_order'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "tag": "read_only",
+                "hint_source": "keyword"
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "incomplete_surface",
+              "dimension": "effect",
+              "message": "tool surface enumeration is incomplete or not high confidence",
+              "source": "tool_extraction",
+              "source_pointer": "/tasks/3"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_order'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      }
     }
   ],
   "source_warnings": [

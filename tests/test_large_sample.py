@@ -157,12 +157,13 @@ def test_all_six_tool_sources_load(scanned_sample: ReadinessReport) -> None:
         f"Expected source_types to include openapi + mcp; "
         f"got {sorted(source_types)}."
     )
-    sdk_merge_receipts = [
-        warning
-        for warning in scanned_sample.source_warnings
-        if "merged metadata from sdk_function source 'ops_sdk'" in warning
+    sdk_bindings = [
+        row
+        for row in scanned_sample.tool_inventory
+        if row.get("provider") == "ops_sdk"
+        and len(row.get("observation_ids", [])) == 2
     ]
-    assert len(sdk_merge_receipts) == 5
+    assert len(sdk_bindings) == 5
 
 
 def test_tool_inventory_is_in_expected_band(scanned_sample: ReadinessReport) -> None:

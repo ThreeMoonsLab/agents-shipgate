@@ -20,7 +20,11 @@ class PacketSchemaError(ValueError):
     """
 
 
-def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
+def serialize_packet_json(
+    packet: EvidencePacket,
+    *,
+    sanitize_output: bool = True,
+) -> dict[str, Any]:
     """Return the packet as a JSON-ready dict (compatible with
     ``json.dumps``).
 
@@ -32,18 +36,25 @@ def serialize_packet_json(packet: EvidencePacket) -> dict[str, Any]:
     in the JSON so the contract shape is stable.
     """
 
-    payload = sanitize_packet_payload(packet.model_dump(mode="json"))
+    payload = packet.model_dump(mode="json")
+    if sanitize_output:
+        payload = sanitize_packet_payload(payload)
     _strip_report_only_fields(payload)
     if payload.get("generated_at") is None:
         payload.pop("generated_at", None)
     return payload
 
 
-def write_packet_json(packet: EvidencePacket, path: Path) -> None:
+def write_packet_json(
+    packet: EvidencePacket,
+    path: Path,
+    *,
+    sanitize_output: bool = True,
+) -> None:
     """Write ``packet.json`` to ``path``. Parent dirs are created."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = serialize_packet_json(packet)
+    payload = serialize_packet_json(packet, sanitize_output=sanitize_output)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -72,12 +83,12 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
 
     version = payload_dict.get("packet_schema_version")
     legacy_version = (
-        version if version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"} else None
+        version if version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"} else None
     )
     if version == "0.1":
         payload_dict = {
             **payload_dict,
-            "packet_schema_version": "0.8",
+            "packet_schema_version": "0.9",
             "tool_surface_diff": {
                 "status": "not_declared",
                 "enabled": False,
@@ -92,35 +103,37 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.2":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_hitl_v03(payload_dict)
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.3":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.4":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_action_surface_v05(payload_dict)
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.5":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_evidence_matrix_v06(payload_dict)
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.6":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
         _upgrade_hitl_v07(payload_dict)
     elif version == "0.7":
-        payload_dict = {**payload_dict, "packet_schema_version": "0.8"}
-    elif version != "0.8":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+    elif version == "0.8":
+        payload_dict = {**payload_dict, "packet_schema_version": "0.9"}
+    elif version != "0.9":
         raise PacketSchemaError(
             "unsupported packet_schema_version: "
             f"{version!r}; expected '0.1', '0.2', '0.3', '0.4', '0.5', "
-            "'0.6', '0.7', or '0.8'"
+            "'0.6', '0.7', '0.8', or '0.9'"
         )
 
     if legacy_version is not None:

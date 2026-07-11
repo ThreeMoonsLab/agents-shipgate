@@ -5,4 +5,4 @@ fixture/support_refund_agent,0,fixture://support_refund_agent,support_refund_age
 fixture/clean_read_only_agent,0,fixture://clean_read_only_agent,clean_read_only_agent,,,,0,False,,,,,passed,,,,,,,,,,,,,,,,,evaluated,,0.2
 fixture/hitl_evidence_covered_agent,0,fixture://hitl_evidence_covered_agent,hitl_evidence_covered_agent,,,,0,False,,,,,passed,,,,,,,,,,,,,,,,,evaluated,,0.2
 fixture/hitl_evidence_agent,0,fixture://hitl_evidence_agent,hitl_evidence_agent,,,,0,False,,,,,review_required,,,,,,,,,,,,,,,,,evaluated,,0.2
-fixture/openai_agents_sdk_agent,0,fixture://openai_agents_sdk_agent,openai_agents_sdk_agent,,,,0,False,,,,,insufficient_evidence,,,,,,,,,,,,,,,,,evaluated,,0.2
+fixture/openai_agents_sdk_agent,0,fixture://openai_agents_sdk_agent,openai_agents_sdk_agent,,,,0,False,,,,,passed,,,,,,,,,,,,,,,,,evaluated,,0.2

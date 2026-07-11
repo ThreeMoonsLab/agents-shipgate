@@ -236,8 +236,9 @@ openai_api:
         ci_mode="advisory",
     )
 
-    assert report.tool_surface.sources == {"openai_api": 1}
-    assert any("Duplicate tool name 'shared_tool'" in warning for warning in report.source_warnings)
+    assert report.tool_surface.sources == {"openai_api": 1, "openapi": 1}
+    assert len({row["tool_id"] for row in report.tool_inventory}) == 2
+    assert not any("Duplicate tool name" in warning for warning in report.source_warnings)
 
 
 def test_openai_api_policy_rules_supplement_manifest_policies(tmp_path):

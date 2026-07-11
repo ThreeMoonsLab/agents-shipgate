@@ -12,6 +12,7 @@ from .identity import (
     assign_finding_ids,
     dedupe_findings,
     finding_fingerprint,
+    legacy_name_fingerprint,
     legacy_policy_routing_fingerprint,
 )
 from .mutations import (
@@ -97,6 +98,7 @@ __all__ = [
     "derive_agent_action",
     "finding_fingerprint",
     "legacy_policy_routing_fingerprint",
+    "legacy_name_fingerprint",
     "provenance_kind_counts",
     "recommended_actions",
     "summarize_findings",

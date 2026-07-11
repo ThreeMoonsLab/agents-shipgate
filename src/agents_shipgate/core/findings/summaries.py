@@ -72,7 +72,10 @@ def tool_inventory(tools: list[Tool]) -> list[dict[str, object]]:
     # the new keys; new consumers can require them for high-risk tools.
     return [
         {
+            "tool_id": tool.id,
             "name": tool.name,
+            "provider": tool.provider or tool.source_id or tool.source_type,
+            "observation_ids": list(tool.observation_ids),
             "source_type": tool.source_type,
             "source_ref": tool.source_ref,
             "source_path": tool.source_path,
@@ -83,8 +86,13 @@ def tool_inventory(tools: list[Tool]) -> list[dict[str, object]]:
             "auth_scopes": tool.auth.scopes,
             "owner": tool.owner,
             "confidence": tool.extraction_confidence,
+            "semantic_assessment": (
+                tool.semantic_assessment.model_dump(mode="json")
+                if tool.semantic_assessment is not None
+                else None
+            ),
         }
-        for tool in sorted(tools, key=lambda item: item.name)
+        for tool in sorted(tools, key=lambda item: item.id)
     ]
 
 

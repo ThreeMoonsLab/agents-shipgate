@@ -45,7 +45,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "37fa48602f5de27721e32149f89d85d57c0959dceedf0a47b510748655cdf9ac"
+        "370e7f8890aef88540c847719f62d2e72529f172c8c4a213d7e8b20c6fde1346"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         "b2e42bce1eb6892c5207890bd53ab987d0beaac7c9fa2d9de8ba07033a3f2f60"
@@ -165,15 +165,15 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "2"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "11"
+    assert payload["contract_version"] == "12"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.1"
+    assert payload["verifier_schema_version"] == "0.2"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v1"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v1"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v1.json"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v2"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v2.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert (
         payload["codex_boundary_result_schema_version"]

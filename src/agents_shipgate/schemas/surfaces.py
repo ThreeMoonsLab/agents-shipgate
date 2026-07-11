@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.common import BaselineStatus, Confidence, Severity
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
@@ -31,7 +31,9 @@ class ToolSurfaceHashes(BaseModel):
 class ToolSurfaceToolFact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    tool_id: str = ""
     name: str
+    provider: str = ""
     source_type: str
     source_id: str | None = None
     source_ref: str | None = None
@@ -42,6 +44,14 @@ class ToolSurfaceToolFact(BaseModel):
     has_description: bool = False
     hashes: ToolSurfaceHashes = Field(default_factory=ToolSurfaceHashes)
 
+    @model_validator(mode="after")
+    def fill_legacy_identity(self) -> ToolSurfaceToolFact:
+        if not self.tool_id:
+            self.tool_id = f"legacy:{self.source_type}:{self.source_id or ''}:{self.name}"
+        if not self.provider:
+            self.provider = self.source_id or self.source_type
+        return self
+
 
 class ToolSurfaceScopeFact(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -49,6 +59,7 @@ class ToolSurfaceScopeFact(BaseModel):
     scope: str
     kind: ToolSurfaceFactScopeKind
     tool_names: list[str] = Field(default_factory=list)
+    tool_ids: list[str] = Field(default_factory=list)
     broad: bool = False
 
 
@@ -57,6 +68,7 @@ class ToolSurfaceControlFact(BaseModel):
 
     kind: ToolSurfaceControlKind
     tool: str
+    tool_id: str | None = None
     source: str
     reason: str | None = None
 
@@ -121,7 +133,9 @@ class ToolSurfaceToolChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: ToolSurfaceChangeKind
+    tool_id: str | None = None
     name: str
+    provider: str | None = None
     source_type: str | None = None
     source_id: str | None = None
     changes: list[ToolSurfaceFieldChange] = Field(default_factory=list)
@@ -138,6 +152,7 @@ class ToolSurfaceHighRiskEffectChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: ToolSurfaceChangeKind
+    tool_id: str | None = None
     tool: str
     tag: str
     # v0.19 reviewer-grade provenance: see ToolSurfaceToolChange above.
@@ -152,6 +167,7 @@ class ToolSurfaceScopeChange(BaseModel):
     scope: str
     scope_kind: ToolSurfaceFactScopeKind
     tool_names: list[str] = Field(default_factory=list)
+    tool_ids: list[str] = Field(default_factory=list)
     broad: bool = False
 
 
@@ -161,6 +177,7 @@ class ToolSurfaceControlChange(BaseModel):
     kind: ToolSurfaceChangeKind
     control: ToolSurfaceControlKind
     tool: str
+    tool_id: str | None = None
     source: str | None = None
     reason: str | None = None
     # v0.19 reviewer-grade provenance: tool path:line for jump-to-source.
@@ -176,6 +193,7 @@ class ToolSurfaceMetadataChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: ToolSurfaceChangeKind
+    tool_id: str | None = None
     tool: str
     metadata: str
     before: Any = None
@@ -331,7 +349,7 @@ class ActionFact(BaseModel):
 class ActionSurfaceFacts(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    snapshot_version: str = "0.1"
+    snapshot_version: str = "0.2"
     actions: list[ActionFact] = Field(default_factory=list)
 
 
@@ -355,6 +373,7 @@ class ActionSurfaceChange(BaseModel):
 
     type: ActionSurfaceChangeType
     action_id: str
+    tool_id: str | None = None
     agent_id: str | None = None
     tool_name: str | None = None
     operation: str | None = None

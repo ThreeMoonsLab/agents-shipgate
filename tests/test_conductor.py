@@ -55,7 +55,7 @@ def test_conductor_static_mcp_call_and_human_checkpoint(tmp_path):
         ci_mode="advisory",
     )
 
-    assert report.report_schema_version == "0.30"
+    assert report.report_schema_version == "0.31"
     surface = report.frameworks["conductor"]
     assert surface["workflow_count"] == 1
     assert surface["mcp_call_task_count"] == 1
@@ -302,9 +302,9 @@ tool_sources:
     assert any("Optional Conductor source" in item for item in payload["warnings"])
 
 
-def test_report_schema_v030_pins_conductor_summary_fields():
+def test_report_schema_v031_pins_conductor_summary_fields():
     schema = json.loads(
-        Path("docs/report-schema.v0.30.json").read_text(encoding="utf-8")
+        Path("docs/report-schema.v0.31.json").read_text(encoding="utf-8")
     )
     conductor = schema["properties"]["frameworks"]["properties"]["conductor"]
     assert set(conductor["required"]) == {

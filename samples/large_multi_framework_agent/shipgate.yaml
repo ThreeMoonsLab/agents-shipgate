@@ -61,6 +61,44 @@ tool_sources:
     type: mcp
     path: inventories/ops-sdk-tools.json
 
+tool_identity:
+  bindings:
+    - id: sdk_render_customer_email_preview
+      provider: ops_sdk
+      reason: reviewed inventory describes the statically bound SDK function
+      primary: {source_id: reviewed_ops_sdk_inventory, tool: render_customer_email_preview}
+      members:
+        - {source_id: ops_sdk, tool: render_customer_email_preview}
+        - {source_id: reviewed_ops_sdk_inventory, tool: render_customer_email_preview}
+    - id: sdk_calculate_refund_total
+      provider: ops_sdk
+      reason: reviewed inventory describes the statically bound SDK function
+      primary: {source_id: reviewed_ops_sdk_inventory, tool: calculate_refund_total}
+      members:
+        - {source_id: ops_sdk, tool: calculate_refund_total}
+        - {source_id: reviewed_ops_sdk_inventory, tool: calculate_refund_total}
+    - id: sdk_generate_shipping_label_pdf
+      provider: ops_sdk
+      reason: reviewed inventory describes the statically bound SDK function
+      primary: {source_id: reviewed_ops_sdk_inventory, tool: generate_shipping_label_pdf}
+      members:
+        - {source_id: ops_sdk, tool: generate_shipping_label_pdf}
+        - {source_id: reviewed_ops_sdk_inventory, tool: generate_shipping_label_pdf}
+    - id: sdk_schedule_internal_callback
+      provider: ops_sdk
+      reason: reviewed inventory describes the statically bound SDK function
+      primary: {source_id: reviewed_ops_sdk_inventory, tool: schedule_internal_callback}
+      members:
+        - {source_id: ops_sdk, tool: schedule_internal_callback}
+        - {source_id: reviewed_ops_sdk_inventory, tool: schedule_internal_callback}
+    - id: sdk_escalate_to_human
+      provider: ops_sdk
+      reason: reviewed inventory describes the statically bound SDK function
+      primary: {source_id: reviewed_ops_sdk_inventory, tool: escalate_to_human}
+      members:
+        - {source_id: ops_sdk, tool: escalate_to_human}
+        - {source_id: reviewed_ops_sdk_inventory, tool: escalate_to_human}
+
 # Reviewed declarations resolve conservative semantics that cannot be proven
 # from names/descriptions alone. Tools with already-complete OpenAPI/MCP
 # structural evidence intentionally do not need duplicate declarations here.

@@ -29,6 +29,23 @@ tool_sources:
     type: mcp
     path: inventories/tools.json
 
+tool_identity:
+  bindings:
+    - id: sdk_lookup_case
+      provider: openai_sdk_directory
+      reason: reviewed MCP inventory describes the bound SDK function
+      primary: {source_id: reviewed_sdk_inventory, tool: support.lookup_case}
+      members:
+        - {source_id: openai_sdk_directory, tool: support.lookup_case}
+        - {source_id: reviewed_sdk_inventory, tool: support.lookup_case}
+    - id: sdk_render_reply
+      provider: openai_sdk_directory
+      reason: reviewed MCP inventory describes the bound SDK function
+      primary: {source_id: reviewed_sdk_inventory, tool: support.render_reply}
+      members:
+        - {source_id: openai_sdk_directory, tool: support.render_reply}
+        - {source_id: reviewed_sdk_inventory, tool: support.render_reply}
+
 action_surface:
   actions:
     - tool: support.lookup_case

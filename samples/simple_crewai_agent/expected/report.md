@@ -14,7 +14,7 @@ Blockers (0): none
 Review items (1):
 - HIGH SHIP-AUTH-MISSING-SCOPE — FileReadTool lacks declared auth scopes
 
-Evidence coverage: static (4 source warning(s); 1 semantic review concern(s); 2/3 actions pass-eligible; human review recommended)
+Evidence coverage: static (1 source warning(s); 1 semantic review concern(s); 2/3 actions pass-eligible; human review recommended)
 
 Baseline delta: not enabled
 
@@ -82,9 +82,6 @@ Next validation:
 ## Source Warnings
 
 - CrewAI prebuilt tool 'FileReadTool' at crew.py:28 was recorded as low-confidence metadata; provide an explicit inventory for full review.
-- Duplicate tool name 'lookup\_case'; kept crewai\_inventory source 'crewai\_inventory:inventories/tools.json' and merged metadata from crewai\_class\_tool source 'crewai\_agent'.
-- Duplicate tool name 'summarize\_case'; kept crewai\_inventory source 'crewai\_inventory:inventories/tools.json' and merged metadata from crewai\_function source 'crewai\_agent'.
-- Duplicate tool name 'FileReadTool'; kept crewai\_inventory source 'crewai\_inventory:inventories/tools.json' and merged metadata from crewai\_prebuilt\_tool source 'crewai\_agent'.
 
 ## Tool Surface Summary
 
@@ -133,8 +130,8 @@ CrewAI warnings:
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |
-| FileReadTool | crewai\_inventory | read\_only | read\_only=high | \- | \- |
 | lookup\_case | crewai\_inventory | read\_only | read\_only=high | \- | \- |
+| FileReadTool | crewai\_inventory | read\_only | read\_only=high | \- | \- |
 | summarize\_case | crewai\_inventory | read\_only | read\_only=high | \- | \- |
 
 

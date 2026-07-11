@@ -171,7 +171,7 @@ def test_legacy_api_operational_readiness_severity_override_matches_split_check(
     assert finding.evidence["default_severity"] == "medium"
 
 
-def test_legacy_api_operational_readiness_baseline_matches_split_check():
+def test_legacy_api_operational_readiness_baseline_does_not_cross_identity_boundary():
     finding = Finding(
         check_id="SHIP-API-TEST-CASES-MISSING",
         title="OpenAI API flow lacks test case metadata",
@@ -195,10 +195,10 @@ def test_legacy_api_operational_readiness_baseline_matches_split_check():
 
     summary = apply_baseline([finding], baseline, display_path="baseline.json")
 
-    assert finding.baseline_status == "matched"
-    assert summary.matched_count == 1
-    assert summary.new_count == 0
-    assert summary.resolved_count == 0
+    assert finding.baseline_status == "new"
+    assert summary.matched_count == 0
+    assert summary.new_count == 1
+    assert summary.resolved_count == 1
 
 
 def test_finding_ids_are_stable_across_ordering():

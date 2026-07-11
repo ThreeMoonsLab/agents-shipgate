@@ -91,7 +91,7 @@ def test_cli_advisory_exits_zero(tmp_path):
     assert "Fail policy:" in result.output
 
 
-def test_cli_review_summary_names_source_evidence_fix(tmp_path):
+def test_cli_pass_summary_names_static_evidence_boundary(tmp_path):
     result = runner.invoke(
         app,
         [
@@ -107,10 +107,10 @@ def test_cli_review_summary_names_source_evidence_fix(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "Decision: review_required" in result.output
-    assert "2 source-loader warnings; review evidence before shipping." in result.output
+    assert "Decision: passed" in result.output
+    assert "Release ready" in result.output
     assert "2/2 actions pass-eligible" in result.output
-    assert "Release ready" not in result.output
+    assert "Runtime behavior was not verified" in result.output
 
 
 def test_cli_strict_exits_gate_failure_code(tmp_path):

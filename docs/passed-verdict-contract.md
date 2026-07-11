@@ -1,7 +1,7 @@
 # Evidence-backed `passed` verdict
 
-Starting with the Agents Shipgate `0.16.0b1` runtime (contract v11, report
-schema v0.29), `release_decision.decision: passed` means
+Starting with the Agents Shipgate `0.16.0b1` runtime (contract v12, report
+schema v0.30), `release_decision.decision: passed` means
 that every in-scope capability has complete, conflict-free static surface,
 effect, and authority evidence, all applicable controls were evaluated, and no
 policy condition requires review. It does not prove runtime agent behavior or
@@ -12,6 +12,8 @@ runtime enforcement.
 An action is pass-eligible only when all of the following hold:
 
 - its source surface is completely enumerable and extracted at high confidence;
+- every extracted observation has a complete canonical identity, and no
+  selector or reviewed cross-source binding is ambiguous or conflicting;
 - its effect is established by a reviewed manifest declaration or a structural
   source fact such as an OpenAPI method or an explicit MCP annotation;
 - its authority is explicitly `none` or concretely scoped;
@@ -30,9 +32,9 @@ to known evidence by `--no-heuristics` or `human_ack`.
 
 Machine consumers should inspect
 `release_decision.evidence_coverage.semantic_coverage` and
-`evidence_gaps[]`. Packet schema v0.8 mirrors this contract, while capability
-standard v0.2 carries the same normalized assessment in capability lock v0.3
-and lock-diff v0.4 artifacts.
+`identity_coverage`, then work `evidence_gaps[]` in order. Packet schema v0.9
+mirrors this contract, while capability standard v0.3 carries the same
+normalized assessment in capability lock v0.4 and lock-diff v0.5 artifacts.
 
 The release decision also carries an explicit machine boundary:
 
@@ -61,6 +63,11 @@ action_surface:
         auth_type: oauth2
         credential_mode: delegated
 ```
+
+When two providers export the same display name, qualify the selector with
+`tool_id`, `provider`, `source_type`, or `source_id`. A bare ambiguous name
+applies nowhere. Use `tool_identity.bindings[]` only for reviewed equivalence
+between observations; equal names never merge automatically.
 
 Authority modes are:
 

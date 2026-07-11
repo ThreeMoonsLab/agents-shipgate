@@ -10,11 +10,11 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v11 makes `passed` an evidence-backed static verdict and
-publishes report v0.30, packet v0.8, capability standard v0.2, capability lock
-v0.3, and capability-lock diff v0.4. Report v0.30 fields are additive over
-v0.29; the stricter pre-1.0 meaning of `passed` introduced in v0.29 is
-unchanged. v10 added
+Runtime contract v12 makes `passed` an evidence-backed static verdict and
+publishes report v0.31, packet v0.9, capability standard v0.3, capability lock
+v0.4, and capability-lock diff v0.5. Report v0.31 additively exposes the
+Conductor OSS framework summary over the frozen v0.30 identity contract,
+but the pre-1.0 meaning of `passed` is deliberately stricter. v10 added
 `verify_required` to `agent_result_control_fields` and to the boundary result.
 The runtime contract also exposes the local agent command spec:
 `primary_commands{}`, `commands{}`, `default_paths{}`, `artifacts{}`,
@@ -42,24 +42,24 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b1` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `11`
-- Current report schema: `0.30` — [`docs/report-schema.v0.30.json`](report-schema.v0.30.json)
-- Current packet schema: `0.8` — [`docs/packet-schema.v0.8.json`](packet-schema.v0.8.json)
-- Current verifier schema: `0.1` — [`docs/verifier-schema.v0.1.json`](verifier-schema.v0.1.json)
+- Runtime contract: `12`
+- Current report schema: `0.31` — [`docs/report-schema.v0.31.json`](report-schema.v0.31.json)
+- Current packet schema: `0.9` — [`docs/packet-schema.v0.9.json`](packet-schema.v0.9.json)
+- Current verifier schema: `0.2` — [`docs/verifier-schema.v0.2.json`](verifier-schema.v0.2.json)
 - Current verify-run schema: `shipgate.verify_run/v1` — [`docs/verify-run-schema.v1.json`](verify-run-schema.v1.json)
-- Current agent handoff schema: `shipgate.agent_handoff/v1` — [`docs/agent-handoff-schema.v1.json`](agent-handoff-schema.v1.json)
+- Current agent handoff schema: `shipgate.agent_handoff/v2` — [`docs/agent-handoff-schema.v2.json`](agent-handoff-schema.v2.json)
 - Current Codex boundary result schema: `shipgate.codex_boundary_result/v1` — [`docs/codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json)
 - Current preflight schema: `0.2` — [`docs/preflight-schema.v0.2.json`](preflight-schema.v0.2.json)
-- Current capability standard: `0.2` — [`docs/capability-standard.md`](capability-standard.md)
-- Current capability lock schema: `0.3` — [`docs/capability-lock-schema.v0.3.json`](capability-lock-schema.v0.3.json)
-- Current capability lock diff schema: `0.4` — [`docs/capability-lock-diff-schema.v0.4.json`](capability-lock-diff-schema.v0.4.json)
+- Current capability standard: `0.3` — [`docs/capability-standard.md`](capability-standard.md)
+- Current capability lock schema: `0.4` — [`docs/capability-lock-schema.v0.4.json`](capability-lock-schema.v0.4.json)
+- Current capability lock diff schema: `0.5` — [`docs/capability-lock-diff-schema.v0.5.json`](capability-lock-diff-schema.v0.5.json)
 - Current attestation schema: `0.4` — [`docs/attestation-schema.v0.4.json`](attestation-schema.v0.4.json)
 - Current registry schema: `0.3` — [`docs/registry-schema.v0.3.json`](registry-schema.v0.3.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v1` — [`docs/org-evidence-bundle-schema.v1.json`](org-evidence-bundle-schema.v1.json)
 - Current host-grants inventory schema: `0.1` — [`docs/host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
-- Frozen-reference report schemas: frozen [`v0.29`](report-schema.v0.29.json), frozen [`v0.28`](report-schema.v0.28.json), frozen [`v0.27`](report-schema.v0.27.json), frozen [`v0.26`](report-schema.v0.26.json), frozen [`v0.25`](report-schema.v0.25.json), frozen [`v0.24`](report-schema.v0.24.json), frozen [`v0.23`](report-schema.v0.23.json), frozen [`v0.22`](report-schema.v0.22.json), frozen [`v0.21`](report-schema.v0.21.json), frozen [`v0.20`](report-schema.v0.20.json), frozen [`v0.19`](report-schema.v0.19.json), frozen [`v0.18`](report-schema.v0.18.json), frozen [`v0.17`](report-schema.v0.17.json), frozen [`v0.16`](report-schema.v0.16.json), frozen [`v0.15`](report-schema.v0.15.json), frozen [`v0.14`](report-schema.v0.14.json), frozen [`v0.13`](report-schema.v0.13.json), frozen [`v0.12`](report-schema.v0.12.json), frozen [`v0.11`](report-schema.v0.11.json), frozen [`v0.10`](report-schema.v0.10.json), frozen [`v0.9`](report-schema.v0.9.json), frozen [`v0.8`](report-schema.v0.8.json), frozen [`v0.7`](report-schema.v0.7.json), frozen [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: frozen [`v0.30`](report-schema.v0.30.json), frozen [`v0.29`](report-schema.v0.29.json), frozen [`v0.28`](report-schema.v0.28.json), frozen [`v0.27`](report-schema.v0.27.json), frozen [`v0.26`](report-schema.v0.26.json), frozen [`v0.25`](report-schema.v0.25.json), frozen [`v0.24`](report-schema.v0.24.json), frozen [`v0.23`](report-schema.v0.23.json), frozen [`v0.22`](report-schema.v0.22.json), frozen [`v0.21`](report-schema.v0.21.json), frozen [`v0.20`](report-schema.v0.20.json), frozen [`v0.19`](report-schema.v0.19.json), frozen [`v0.18`](report-schema.v0.18.json), frozen [`v0.17`](report-schema.v0.17.json), frozen [`v0.16`](report-schema.v0.16.json), frozen [`v0.15`](report-schema.v0.15.json), frozen [`v0.14`](report-schema.v0.14.json), frozen [`v0.13`](report-schema.v0.13.json), frozen [`v0.12`](report-schema.v0.12.json), frozen [`v0.11`](report-schema.v0.11.json), frozen [`v0.10`](report-schema.v0.10.json), frozen [`v0.9`](report-schema.v0.9.json), frozen [`v0.8`](report-schema.v0.8.json), frozen [`v0.7`](report-schema.v0.7.json), frozen [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 - Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
@@ -72,7 +72,7 @@ one decision engine.
 - **PR / controller flow** — an autonomous coding agent deciding *continue,
   repair, or stop*. Prefer
   `agents-shipgate-reports/agent-handoff.json` for the compact
-  `shipgate.agent_handoff/v1` view: lead with `gate.merge_verdict`, then read
+  `shipgate.agent_handoff/v2` view: lead with `gate.merge_verdict`, then read
   `controller` for imperative controls and `reproducibility.run_id` for the
   stable verify identity. `verifier.json` remains the authoritative controller
   substrate and `verify-run.json` remains the reproducibility record; finally
@@ -126,6 +126,7 @@ In `agents-shipgate-reports/report.json`:
 - `release_decision.{blockers,review_items}[].capability_refs` (v0.24+) — stable capability IDs copied from the originating finding when a policy or policy-pack rule matched a `CapabilityFactV1`. Empty for findings that are not capability-policy matches. This is audit metadata only; `release_decision.decision` remains the gate.
 - `release_decision.{blockers,review_items}[].capability_trace_refs` (v0.25+) — stable local trace-evidence IDs copied from the originating finding when an existing trace/evidence check used declared local trace artifacts. Empty when no local trace row is relevant. This is audit metadata only; `release_decision.decision` remains the gate.
 - `release_decision.evidence_coverage.semantic_coverage` (v0.29+) — `{total_actions, pass_eligible_actions, gap_count, review_concern_count, reason_counts}`. A non-zero semantic `gap_count` prevents `passed`; a non-zero `review_concern_count` prevents an automatic pass and routes known unscoped/ambient authority to review. Semantic gaps are not Findings and cannot be suppressed, baselined, severity-overridden, waived by `--no-heuristics`, or satisfied by `human_ack`.
+- `release_decision.evidence_coverage.identity_coverage` (v0.30+) — `{total_observations, canonical_tools, bound_tools, pass_eligible_tools, ambiguous_name_count, gap_count, reason_counts}`. Provider-scoped observations remain separate unless an exact reviewed `tool_identity.bindings[]` entry joins them. Any ambiguous selector, invalid binding, or conflicting identity prevents `passed`.
 - `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+; semantic kinds added v0.29) — one structured row per measurable gap: `{kind, subject, source_type, source_ref, why, next_action}`. In addition to `low_confidence_tool` and `source_warning`, v0.29 adds `incomplete_surface`, `missing_effect_evidence`, `inferred_effect_only`, `conflicting_effect_evidence`, `missing_authority_evidence`, `partial_authority_evidence`, `conflicting_authority_evidence`, and `invalid_semantic_annotation`. Semantic next actions use `declare_action_effect`, `declare_action_authority`, `provide_complete_inventory`, or `resolve_semantic_conflict`, include accepted values and exact source/manifest pointers, and are always human-routed. Their declaration placeholders carry `suggested_patch_kind="manual"`, `auto_apply=false`, and `requires_human_review=true`; they are not Patch objects. Work the rows in order instead of guessing; Agents Shipgate never auto-asserts effect or authority.
 - `loaded_policy_packs[].{source,sha256,sha256_status,owner}` (v0.27+) — policy-pack distribution and ownership metadata for organization audit. `sha256_status` is `"verified"` only when the manifest pin matched; otherwise it is `"unpinned"`. This is report metadata; normal pack matching and release gating still come from deterministic rules and `release_decision.decision`.
 - `findings[].policy_routing` (v0.28+) — optional policy-pack owner, reviewers, and approval-routing metadata. This is non-enforcing reviewer/audit metadata, not `Finding.evidence`; it does not affect fingerprints, suppressions, baselines, `blocks_release`, or `release_decision`. Policy-pack `match` predicates and `block: true` remain the only policy-pack inputs that affect findings and release gating.
@@ -256,7 +257,7 @@ separately), local input hashes (`config_sha256`, `baseline_sha256`,
 emitted files. It has no wall-clock timestamp and is not a second gate.
 
 `agents-shipgate-reports/agent-handoff.json` carries
-`schema_version: "shipgate.agent_handoff/v1"` and top-level sections
+`schema_version: "shipgate.agent_handoff/v2"` and top-level sections
 `gate`, `controller`, `next_action`, `human_review`, `fix_task`, `blocked_by[]`,
 `remediation_plan[]`, `capability_review`, `reproducibility`, and `artifacts`.
 `gate.decision` mirrors `release_decision.decision`; `gate.merge_verdict`
@@ -504,9 +505,9 @@ For reviewer-shaped output, also read the **Release Evidence Packet** at
 `[pdf]` extras are installed). The packet is a supporting/provisional reviewer
 projection, not a second gate. Packet outputs are redacted by the same default
 privacy layer as the report. The packet has fixed reviewer sections governed by
-[`docs/packet-schema.v0.8.json`](packet-schema.v0.8.json) — see
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v08).
-Packet schema `0.8` carries the report's evidence-backed semantic coverage and
+[`docs/packet-schema.v0.9.json`](packet-schema.v0.9.json) — see
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v09).
+Packet schema `0.9` carries the report's evidence-backed semantic coverage and
 gap remediation contract. Packet §1 also mirrors
 `static_analysis_only=true`, `runtime_behavior_verified=false`, and
 `static_verdict_disclaimer` from the report release decision. Frozen packet
@@ -558,9 +559,9 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.30.json`](report-schema.v0.30.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.31.json`](report-schema.v0.31.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
-- [`docs/packet-schema.v0.8.json`](packet-schema.v0.8.json) — machine-validatable JSON Schema for the current packet.
+- [`docs/packet-schema.v0.9.json`](packet-schema.v0.9.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
 
 ## See also

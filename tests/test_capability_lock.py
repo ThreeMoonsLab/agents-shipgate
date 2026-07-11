@@ -453,9 +453,9 @@ def test_mixed_capability_standard_diff_requires_exact_reexport(
     base = _lock([_tool("alpha.read", scopes=["alpha:read"])])
     head = _lock([_tool("alpha.read", scopes=["alpha:read"])])
     base_payload = json.loads(render_capability_lock_json(base))
-    base_payload["capability_lock_schema_version"] = "0.2"
-    base_path = tmp_path / "base.v02.lock.json"
-    head_path = tmp_path / "head.v03.lock.json"
+    base_payload["capability_lock_schema_version"] = "0.3"
+    base_path = tmp_path / "base.v03.lock.json"
+    head_path = tmp_path / "head.v04.lock.json"
     base_path.write_text(json.dumps(base_payload, indent=2) + "\n", encoding="utf-8")
     head_path.write_text(render_capability_lock_json(head), encoding="utf-8")
 
@@ -476,7 +476,7 @@ def test_mixed_capability_standard_diff_requires_exact_reexport(
 
     assert str(exc_info.value) == (
         "Mixed capability-standard lock diff is not comparable "
-        "(base=0.1, head=0.2). Re-export the base lock from its source "
+        "(base=0.2, head=0.3). Re-export the base lock from its source "
         "workspace with the current engine using exactly: "
         f"`{command}`. Then rerun the capability diff."
     )

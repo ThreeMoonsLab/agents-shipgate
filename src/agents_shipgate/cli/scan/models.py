@@ -40,16 +40,15 @@ class _LoadedInputs:
     """Phase 2 output: source loading + artifact extraction + warnings.
 
     Warning buckets are kept separate so Phase 3 (``_build_tools_and_agent``)
-    can interleave ``duplicate_warnings`` from
-    ``_flatten_and_deduplicate_tools`` between ``source_only_warnings`` and
+    can interleave tool-identity warnings between ``source_only_warnings`` and
     ``artifact_warnings``, preserving the pre-decomp deterministic order:
 
-        source → duplicate → artifact → placeholder → policy_pack → dedup
+        source → identity → artifact → placeholder → policy_pack → dedup
 
     Collapsing them into a single ``warnings`` list here (the P3 bug that
-    this split fixes) would push duplicate warnings to the end, changing
-    ``report.source_warnings`` order for fixtures with both duplicate-tool
-    names and artifact/policy-pack warnings.
+    this split fixes) would push identity warnings to the end, changing
+    ``report.source_warnings`` order for fixtures with both identity and
+    artifact/policy-pack warnings.
     """
 
     loaded_sources: list[LoadedToolSource]

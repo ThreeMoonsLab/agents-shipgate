@@ -6,6 +6,7 @@ from typing import Any
 
 from agents_shipgate.ci.release_decision import SUGGESTED_INVENTORY_FILENAME
 from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.packet.builder import build_packet
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import ReadinessReport
@@ -31,7 +32,13 @@ def _write_outputs(
     builder reads manifest defaults like ``output.packet.formats`` but
     never serializes raw manifest content into the packet).
     """
-    _write_reports(report, plan.generated_paths, manifest.output.formats)
+    public_report = ReadinessReport.model_validate(public_report_payload)
+    _write_reports(
+        public_report,
+        plan.generated_paths,
+        manifest.output.formats,
+        sanitized_payload=public_report_payload,
+    )
     _write_suggested_inventory(
         sanitized_tools=sanitized.tools,
         generated_paths=plan.generated_paths,
@@ -40,25 +47,29 @@ def _write_outputs(
         assert report.release_decision is not None
         packet = build_packet(
             manifest=manifest,
-            agent=report.agent,
-            project=report.project,
-            environment=report.environment,
-            run_id=report.run_id,
+            agent=public_report.agent,
+            project=public_report.project,
+            environment=public_report.environment,
+            run_id=public_report.run_id,
             tools=sanitized.tools,
             findings=sanitized.findings,
-            release_decision=report.release_decision,
+            release_decision=public_report.release_decision,
             api_artifacts=sanitized.api_artifacts,
             anthropic_artifacts=sanitized.anthropic_artifacts,
             source_warnings=sanitized.source_warnings,
             validation_artifacts=sanitized.validation_artifacts,
-            tool_surface_diff=report.tool_surface_diff,
-            action_surface_diff=report.action_surface_diff,
+            tool_surface_diff=public_report.tool_surface_diff,
+            action_surface_diff=public_report.action_surface_diff,
             report_payload=public_report_payload,
-            capability_runtime_evidence=report.capability_runtime_evidence,
+            capability_runtime_evidence=public_report.capability_runtime_evidence,
             generated_at=packet_generated_at,
             config_ref=config_path.resolve().name,
         )
-        _write_packet(packet, plan.generated_paths, plan.packet_format_set)
+        _write_packet(
+            sanitize_packet(packet),
+            plan.generated_paths,
+            plan.packet_format_set,
+        )
 
 
 def _write_suggested_inventory(

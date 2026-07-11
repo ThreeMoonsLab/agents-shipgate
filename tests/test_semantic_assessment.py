@@ -345,6 +345,25 @@ def test_attach_is_deterministic_and_does_not_mutate_input() -> None:
     assert "semantic_assessment" not in first[0].model_dump(mode="json")
 
 
+def test_attach_ignores_name_keyed_declaration_maps() -> None:
+    original = _tool()
+    declaration = ActionDeclarationConfig(
+        tool=original.name,
+        effect="destructive",
+        authority={"mode": "none"},
+    )
+
+    assessed = attach_semantic_assessments(
+        [original],
+        {original.name: declaration},
+    )[0]
+
+    assert not any(
+        claim.source == "action_surface_declaration"
+        for claim in assessed.semantic_assessment.effect.claims
+    )
+
+
 def test_openapi_explicit_anonymous_authority_is_structural(tmp_path) -> None:
     (tmp_path / "api.yaml").write_text(
         """

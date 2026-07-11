@@ -147,6 +147,9 @@ class ActionDeclarationConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     tool: str
+    tool_id: str | None = None
+    source_type: str | None = None
+    source_id: str | None = None
     id: str | None = None
     provider: str | None = None
     operation: str | None = None
@@ -226,6 +229,7 @@ class ActionPolicyMatchConfig(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
     action_ids: list[str] = Field(default_factory=list)
+    tool_ids: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     effects: list[ActionEffect] = Field(default_factory=list)
     risk_tags: list[ActionRiskTag] = Field(default_factory=list)
@@ -280,10 +284,18 @@ class ActionSurfaceConfig(BaseModel):
 
     @model_validator(mode="after")
     def require_unique_action_declarations(self) -> ActionSurfaceConfig:
-        _raise_on_duplicates(
-            [action.tool for action in self.actions],
-            "action_surface.actions[].tool",
-        )
+        selectors = [
+            (
+                action.tool,
+                action.tool_id,
+                action.provider,
+                action.source_type,
+                action.source_id,
+            )
+            for action in self.actions
+        ]
+        if len(set(selectors)) != len(selectors):
+            raise ValueError("Duplicate action_surface.actions[] tool selectors")
         explicit_ids = [action.id for action in self.actions if action.id]
         _raise_on_duplicates(explicit_ids, "action_surface.actions[].id")
         return self

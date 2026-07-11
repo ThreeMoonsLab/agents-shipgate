@@ -458,6 +458,18 @@
           "default": null,
           "title": "Source Start Line"
         },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        },
         "tool_name": {
           "anyOf": [
             {
@@ -637,7 +649,7 @@
           "type": "array"
         },
         "snapshot_version": {
-          "default": "0.1",
+          "default": "0.2",
           "title": "Snapshot Version",
           "type": "string"
         }
@@ -2533,6 +2545,9 @@
           "title": "Human Review Recommended",
           "type": "boolean"
         },
+        "identity_coverage": {
+          "$ref": "#/$defs/IdentityCoverageDecision"
+        },
         "level": {
           "title": "Level",
           "type": "string"
@@ -2572,7 +2587,13 @@
             "missing_authority_evidence",
             "partial_authority_evidence",
             "conflicting_authority_evidence",
-            "invalid_semantic_annotation"
+            "invalid_semantic_annotation",
+            "incomplete_tool_identity",
+            "conflicting_tool_identity",
+            "unresolved_tool_selector",
+            "ambiguous_tool_selector",
+            "ambiguous_legacy_tool_identity",
+            "invalid_tool_binding"
           ],
           "title": "Kind",
           "type": "string"
@@ -2675,7 +2696,12 @@
             "declare_action_effect",
             "declare_action_authority",
             "provide_complete_inventory",
-            "resolve_semantic_conflict"
+            "resolve_semantic_conflict",
+            "declare_source_identity",
+            "qualify_tool_selector",
+            "provide_tool_binding",
+            "resolve_tool_identity_conflict",
+            "regenerate_identity_artifact"
           ],
           "title": "Kind",
           "type": "string"
@@ -3215,6 +3241,49 @@
         "source"
       ],
       "title": "HumanAckEntry",
+      "type": "object"
+    },
+    "IdentityCoverageDecision": {
+      "properties": {
+        "ambiguous_name_count": {
+          "default": 0,
+          "title": "Ambiguous Name Count",
+          "type": "integer"
+        },
+        "bound_tools": {
+          "default": 0,
+          "title": "Bound Tools",
+          "type": "integer"
+        },
+        "canonical_tools": {
+          "default": 0,
+          "title": "Canonical Tools",
+          "type": "integer"
+        },
+        "gap_count": {
+          "default": 0,
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "pass_eligible_tools": {
+          "default": 0,
+          "title": "Pass Eligible Tools",
+          "type": "integer"
+        },
+        "reason_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Reason Counts",
+          "type": "object"
+        },
+        "total_observations": {
+          "default": 0,
+          "title": "Total Observations",
+          "type": "integer"
+        }
+      },
+      "title": "IdentityCoverageDecision",
       "type": "object"
     },
     "LoadedPolicyPack": {
@@ -4111,6 +4180,7 @@
         },
         "dimension": {
           "enum": [
+            "identity",
             "effect",
             "authority"
           ],
@@ -4204,6 +4274,7 @@
       "properties": {
         "dimension": {
           "enum": [
+            "identity",
             "effect",
             "authority"
           ],
@@ -4212,6 +4283,12 @@
         },
         "kind": {
           "enum": [
+            "incomplete_tool_identity",
+            "conflicting_tool_identity",
+            "unresolved_tool_selector",
+            "ambiguous_tool_selector",
+            "ambiguous_legacy_tool_identity",
+            "invalid_tool_binding",
             "incomplete_surface",
             "missing_effect_evidence",
             "inferred_effect_only",
@@ -4561,6 +4638,80 @@
       "title": "SuggestedScenario",
       "type": "object"
     },
+    "ToolIdentityEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Binding Id"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/SemanticClaimEvidence"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/SemanticIssueEvidence"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "observation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observation Ids",
+          "type": "array"
+        },
+        "pass_eligible": {
+          "title": "Pass Eligible",
+          "type": "boolean"
+        },
+        "primary_observation_id": {
+          "title": "Primary Observation Id",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "declared",
+            "structural",
+            "partial",
+            "unknown",
+            "conflicting"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_id": {
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_id",
+        "status",
+        "provider",
+        "primary_observation_id",
+        "pass_eligible"
+      ],
+      "title": "ToolIdentityEvidence",
+      "type": "object"
+    },
     "ToolSemanticEvidence": {
       "additionalProperties": false,
       "description": "Public semantic assessment attached to action and capability facts.",
@@ -4585,6 +4736,17 @@
         },
         "effect": {
           "$ref": "#/$defs/EffectSemanticEvidence"
+        },
+        "identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolIdentityEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "pass_eligible": {
           "title": "Pass Eligible",
@@ -4672,6 +4834,18 @@
         "tool": {
           "title": "Tool",
           "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -4715,6 +4889,18 @@
         "tool": {
           "title": "Tool",
           "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -5270,6 +5456,18 @@
         "tool": {
           "title": "Tool",
           "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -5331,6 +5529,18 @@
         "tool": {
           "title": "Tool",
           "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -5490,6 +5700,13 @@
           "title": "Scope Kind",
           "type": "string"
         },
+        "tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tool Ids",
+          "type": "array"
+        },
         "tool_names": {
           "items": {
             "type": "string"
@@ -5527,6 +5744,13 @@
         "scope": {
           "title": "Scope",
           "type": "string"
+        },
+        "tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tool Ids",
+          "type": "array"
         },
         "tool_names": {
           "items": {
@@ -5603,6 +5827,18 @@
           "title": "Name",
           "type": "string"
         },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
         "source_id": {
           "anyOf": [
             {
@@ -5650,6 +5886,18 @@
           ],
           "default": null,
           "title": "Source Type"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
         }
       },
       "required": [
@@ -5706,6 +5954,11 @@
           "default": null,
           "title": "Owner"
         },
+        "provider": {
+          "default": "",
+          "title": "Provider",
+          "type": "string"
+        },
         "risk_tags": {
           "items": {
             "type": "string"
@@ -5739,6 +5992,11 @@
         },
         "source_type": {
           "title": "Source Type",
+          "type": "string"
+        },
+        "tool_id": {
+          "default": "",
+          "title": "Tool Id",
           "type": "string"
         }
       },
@@ -5991,24 +6249,6 @@
     "frameworks": {
       "additionalProperties": true,
       "properties": {
-        "conductor": {
-          "additionalProperties": true,
-          "required": [
-            "dynamic_tool_surface_count",
-            "human_checkpoint_count",
-            "llm_task_count",
-            "mcp_call_task_count",
-            "mcp_discovery_task_count",
-            "structurally_checkpointed_mcp_call_count",
-            "sub_workflow_task_count",
-            "task_count",
-            "unsupported_capability_count",
-            "warnings",
-            "workflow_count",
-            "workflow_file_count"
-          ],
-          "type": "object"
-        },
         "crewai": {
           "additionalProperties": true,
           "required": [

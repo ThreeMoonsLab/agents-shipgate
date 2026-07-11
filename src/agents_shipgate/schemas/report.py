@@ -317,6 +317,11 @@ class EvidenceGapAction(BaseModel):
         "declare_action_authority",
         "provide_complete_inventory",
         "resolve_semantic_conflict",
+        "declare_source_identity",
+        "qualify_tool_selector",
+        "provide_tool_binding",
+        "resolve_tool_identity_conflict",
+        "regenerate_identity_artifact",
     ]
     command: str | None = None
     path: str | None = None
@@ -356,6 +361,12 @@ class EvidenceGap(BaseModel):
         "partial_authority_evidence",
         "conflicting_authority_evidence",
         "invalid_semantic_annotation",
+        "incomplete_tool_identity",
+        "conflicting_tool_identity",
+        "unresolved_tool_selector",
+        "ambiguous_tool_selector",
+        "ambiguous_legacy_tool_identity",
+        "invalid_tool_binding",
     ]
     subject: str
     source_type: str | None = None
@@ -382,6 +393,16 @@ class SemanticCoverageDecision(BaseModel):
     reason_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class IdentityCoverageDecision(BaseModel):
+    total_observations: int = 0
+    canonical_tools: int = 0
+    bound_tools: int = 0
+    pass_eligible_tools: int = 0
+    ambiguous_name_count: int = 0
+    gap_count: int = 0
+    reason_counts: dict[str, int] = Field(default_factory=dict)
+
+
 class EvidenceCoverageDecision(BaseModel):
     level: str
     human_review_recommended: bool
@@ -395,6 +416,7 @@ class EvidenceCoverageDecision(BaseModel):
     # round-tripping of frozen pre-v0.29 reports while emitted reports
     # always populate it from Tool.semantic_assessment.
     semantic_coverage: SemanticCoverageDecision = Field(default_factory=SemanticCoverageDecision)
+    identity_coverage: IdentityCoverageDecision = Field(default_factory=IdentityCoverageDecision)
 
 
 class BaselineDelta(BaseModel):
@@ -889,7 +911,9 @@ class ReadinessReport(BaseModel):
     # The release gate is unchanged; these are org-governance audit fields.
     # v0.29: additive semantic assessments and zero-tolerance semantic
     # evidence coverage make ``passed`` evidence-backed.
-    report_schema_version: str = "0.30"
+    # v0.30: provider-scoped canonical tool identity and identity coverage.
+    # v0.31: additive Conductor OSS framework summary.
+    report_schema_version: str = "0.31"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment

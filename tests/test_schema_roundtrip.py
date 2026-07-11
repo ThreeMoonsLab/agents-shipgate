@@ -4,7 +4,7 @@ Every committed schema under ``docs/`` (``manifest-v0.1.json``,
 ``checks.json``, the current-minor ``report-schema.v0.*.json``,
 the current-minor ``packet-schema.v0.*.json``, and
 ``verifier-schema.v0.1.json``, ``verify-run-schema.v1.json``,
-``agent-handoff-schema.v1.json``, ``codex-boundary-result-schema.v1.json``,
+``agent-handoff-schema.v2.json``, ``codex-boundary-result-schema.v1.json``,
 and ``agent-result-schema.v1.json``)
 MUST match what
 ``scripts/generate_schemas.py`` produces from the live Pydantic models.

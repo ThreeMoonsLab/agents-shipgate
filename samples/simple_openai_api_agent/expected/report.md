@@ -14,25 +14,25 @@ Blockers (2):
 - CRITICAL SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING — create\_refund has financial write capability without required controls
 
 Review items (19):
-- HIGH SHIP-SCHEMA-MISSING-BOUNDS — create\_refund.amount has no maximum bound
 - HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — send\_customer\_email accepts broad free-form action input
-- HIGH SHIP-AUTH-MISSING-SCOPE — create\_refund lacks declared auth scopes
+- HIGH SHIP-SCHEMA-MISSING-BOUNDS — create\_refund.amount has no maximum bound
 - HIGH SHIP-AUTH-MISSING-SCOPE — send\_customer\_email lacks declared auth scopes
-- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — create\_refund appears to overlap with a prohibited action
+- HIGH SHIP-AUTH-MISSING-SCOPE — create\_refund lacks declared auth scopes
 - HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — send\_customer\_email appears to overlap with a prohibited action
+- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — create\_refund appears to overlap with a prohibited action
 - HIGH SHIP-SIDEFX-IDEMPOTENCY-MISSING — create\_refund lacks idempotency evidence
-- HIGH SHIP-API-FUNCTION-SCHEMA-STRICTNESS — create\_refund function schema is not strict enough
 - HIGH SHIP-API-FUNCTION-SCHEMA-STRICTNESS — send\_customer\_email function schema is not strict enough
+- HIGH SHIP-API-FUNCTION-SCHEMA-STRICTNESS — create\_refund function schema is not strict enough
 - MEDIUM SHIP-API-STRUCTURED-OUTPUT-READINESS — Response format schemas/refund\_decision.schema.json is under-specified
 - HIGH SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH — Prompt says read-only or advise-only while write/high-risk tools are enabled
 - MEDIUM SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH — Prompt lacks approval/confirmation language for high-risk tools
 - MEDIUM SHIP-API-TIMEOUT-MISSING — OpenAI API flow lacks timeout metadata
+- HIGH SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — send\_customer\_email may be retried without idempotency evidence
 - MEDIUM SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING — create\_refund lacks success/failure output modeling
 - HIGH SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — create\_refund may be retried without idempotency evidence
-- HIGH SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — send\_customer\_email may be retried without idempotency evidence
 - MEDIUM SHIP-API-TRACE-APPROVAL-MISSING — Trace sample shows create\_refund without approval
-- HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — create\_refund is high-risk but has no owner
 - HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — send\_customer\_email is high-risk but has no owner
+- HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — create\_refund is high-risk but has no owner
 
 Evidence coverage: static (2 semantic review concern(s); 0/2 actions pass-eligible; human review recommended)
 
@@ -52,23 +52,23 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 ## Top Findings
 
 1. create\_refund has financial write capability without required controls
-   Evidence: action\_id=agent:simple-openai-api-agent/api-refund-assistant:openai\_api:openai\_api:create\_refund; missing=\['approval.required', 'safeguards.audit\_log', 'safeguards.idempotency'\]
+   Evidence: action\_id=agent:simple-openai-api-agent/api-refund-assistant:action\_v2\_b5ba1b1612ff86ebfe4ad43459c8c26a79e44eb61a5a2f7496ab5d9166b4cfd5; missing=\['approval.required', 'safeguards.audit\_log', 'safeguards.idempotency'\]
    Recommendation: Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.
 
 2. send\_customer\_email has external communication capability without required controls
-   Evidence: action\_id=agent:simple-openai-api-agent/api-refund-assistant:openai\_api:openai\_api:send\_customer\_email; missing=\['safeguards.audit\_log', 'confirmation.required'\]
+   Evidence: action\_id=agent:simple-openai-api-agent/api-refund-assistant:action\_v2\_9d10be42545cd7457766e72c52ab9ba754eee7aa97c9613ae60ba4bc4048af82; missing=\['safeguards.audit\_log', 'confirmation.required'\]
    Recommendation: Declare confirmation policy and safeguards.audit\_log for this external communication action.
 
-3. create\_refund function schema is not strict enough
-   Evidence: issues=\['missing\_strict\_true', 'additional\_properties\_not\_false', 'properties\_missing\_from\_required:amount,reason', 'risky\_field\_unbounded:amount'\]; risk\_tags=\['financial\_action', 'write'\]
-   Recommendation: Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
-
-4. send\_customer\_email function schema is not strict enough
+3. send\_customer\_email function schema is not strict enough
    Evidence: issues=\['broad\_free\_text:message'\]; risk\_tags=\['customer\_communication', 'external\_write', 'write'\]
    Recommendation: Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
 
+4. create\_refund function schema is not strict enough
+   Evidence: issues=\['missing\_strict\_true', 'additional\_properties\_not\_false', 'properties\_missing\_from\_required:amount,reason', 'risky\_field\_unbounded:amount'\]; risk\_tags=\['financial\_action', 'write'\]
+   Recommendation: Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
+
 5. Prompt says read-only or advise-only while write/high-risk tools are enabled
-   Evidence: tools=\['create\_refund', 'send\_customer\_email'\]
+   Evidence: tools=\['send\_customer\_email', 'create\_refund'\]
    Recommendation: Align prompt scope with enabled tools or remove write/high-risk tools.
 
 ## Finding Provenance
@@ -104,12 +104,12 @@ Policy/control gaps:
 - CRITICAL undetected\_gap \[create\_refund\]: create\_refund has financial write capability without required controls. (at tools/openai-tools.json)
   Requires: Static review requires deterministic evidence for release gaps.
   Release implication: Human review is required to interpret this finding.
-- HIGH control\_missing \[create\_refund\]: create\_refund.amount has no maximum bound. (at tools/openai-tools.json)
-  Requires: Risky numeric parameters must declare a maximum or equivalent limit.
-  Release implication: Release reviewers cannot verify blast-radius limits.
 - HIGH control\_missing \[create\_refund\]: create\_refund function schema is not strict enough. (at tools/openai-tools.json)
   Requires: API function schemas must be strict enough for reliable tool calls.
   Release implication: The model may send ambiguous or overbroad tool arguments.
+- HIGH control\_missing \[create\_refund\]: create\_refund.amount has no maximum bound. (at tools/openai-tools.json)
+  Requires: Risky numeric parameters must declare a maximum or equivalent limit.
+  Release implication: Release reviewers cannot verify blast-radius limits.
 - HIGH control\_missing \[create\_refund\]: create\_refund is high-risk but has no owner. (at tools/openai-tools.json)
   Requires: Manifest metadata must match the active release surface.
   Release implication: Release review metadata is incomplete or stale.
@@ -136,12 +136,12 @@ Next validation:
 
 - Declare approval.required, safeguards.audit\_log, and safeguards.idempotency for this financial write action.
 - Declare confirmation policy and safeguards.audit\_log for this external communication action.
-- Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
 - Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
+- Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
 - Align prompt scope with enabled tools or remove write/high-risk tools.
-- Add idempotency evidence for create\_refund or avoid retrying this side effect.
 - Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
-- Declare operation-specific auth scopes for create\_refund, or explicitly declare anonymous authority when the operation requires no credentials.
+- Add idempotency evidence for create\_refund or avoid retrying this side effect.
+- Declare operation-specific auth scopes for send\_customer\_email, or explicitly declare anonymous authority when the operation requires no credentials.
 
 ## Tool Surface Summary
 
@@ -233,8 +233,8 @@ Matched trace rows:
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |
-| create\_refund | openai\_api | financial\_action, write | financial\_action=high, write=medium | \- | \- |
 | send\_customer\_email | openai\_api | customer\_communication, external\_write, write | customer\_communication=high, external\_write=high, write=medium | \- | \- |
+| create\_refund | openai\_api | financial\_action, write | financial\_action=high, write=medium | \- | \- |
 
 
 ## Disclaimer

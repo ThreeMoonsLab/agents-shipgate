@@ -130,6 +130,7 @@ class CapabilityIntentDiff(BaseModel):
     declared_purpose: list[str] = Field(default_factory=list)
     prohibited_actions: list[str] = Field(default_factory=list)
     observed_tools: list[str] = Field(default_factory=list)
+    observed_tool_ids: list[str] = Field(default_factory=list)
     rows: list[CapabilityIntentRow] = Field(default_factory=list)
     divergence_findings: list[ReleaseDecisionItem] = Field(default_factory=list)
 
@@ -137,7 +138,9 @@ class CapabilityIntentDiff(BaseModel):
 class HighRiskToolEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    tool_id: str | None = None
     name: str
+    provider: str | None = None
     source_type: str
     risk_tags: list[str] = Field(default_factory=list)
     has_approval_policy: bool = False
@@ -186,6 +189,8 @@ class ApprovalCoverageRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tool: str
+    tool_id: str | None = None
+    provider: str | None = None
     declared: bool
     source: str | None = None  # "openai_api" | "anthropic" | "policies" | None
     gap_finding_ids: list[str] = Field(default_factory=list)
@@ -205,6 +210,8 @@ class IdempotencyRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tool: str
+    tool_id: str | None = None
+    provider: str | None = None
     declared: bool
     source: str | None = None
     gap_finding_ids: list[str] = Field(default_factory=list)
@@ -227,6 +234,7 @@ class ScopeCoverageRow(BaseModel):
     scope: str
     declared: bool
     used_by_tools: list[str] = Field(default_factory=list)
+    used_by_tool_ids: list[str] = Field(default_factory=list)
 
 
 class ScopeCoverageSection(BaseModel):
@@ -351,7 +359,7 @@ class EvidencePacket(BaseModel):
     # human_in_the_loop. release_decision.decision remains the only gate.
     # v0.8: release-decision evidence coverage carries the additive
     # evidence-backed semantic coverage and gap remediation contract.
-    packet_schema_version: Literal["0.8"] = "0.8"
+    packet_schema_version: Literal["0.9"] = "0.9"
     generated_at: str | None = None
     run_id: str
     project: dict[str, Any] = Field(default_factory=dict)

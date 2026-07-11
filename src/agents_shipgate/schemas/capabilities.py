@@ -14,9 +14,9 @@ from agents_shipgate.schemas.common import Confidence
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-CAPABILITY_LOCK_SCHEMA_VERSION = "0.3"
-CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.4"
-CAPABILITY_STANDARD_VERSION = "0.2"
+CAPABILITY_LOCK_SCHEMA_VERSION = "0.4"
+CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.5"
+CAPABILITY_STANDARD_VERSION = "0.3"
 CapabilityEvidenceProvenanceKind = Literal[
     "static_declaration",
     "ast_extraction",
@@ -210,7 +210,7 @@ class CapabilityLockHashes(BaseModel):
 class CapabilityLockFileV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_schema_version: Literal["0.3"] = CAPABILITY_LOCK_SCHEMA_VERSION
+    capability_lock_schema_version: Literal["0.4"] = CAPABILITY_LOCK_SCHEMA_VERSION
     experimental: Literal[False] = False
     cli_version: str
     source: CapabilityLockSource
@@ -262,7 +262,7 @@ class CapabilityLockChangedFact(BaseModel):
 class CapabilityLockDiffV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_diff_schema_version: Literal["0.4"] = (
+    capability_lock_diff_schema_version: Literal["0.5"] = (
         CAPABILITY_LOCK_DIFF_SCHEMA_VERSION
     )
     experimental: Literal[False] = False

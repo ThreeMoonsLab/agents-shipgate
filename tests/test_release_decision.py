@@ -195,7 +195,7 @@ def test_missing_semantic_assessment_is_zero_tolerance_ie_and_strict_failure():
     }
     gap = decision.evidence_coverage.evidence_gaps[0]
     assert gap.kind == "incomplete_surface"
-    assert gap.subject == "t1"
+    assert gap.subject.startswith("t1 [")
     assert gap.next_action.kind == "provide_complete_inventory"
     assert decision.fail_policy.exit_code == GATE_FAILURE_EXIT_CODE
     assert decision.fail_policy.would_fail_ci is True
@@ -920,7 +920,7 @@ def test_evidence_gaps_low_confidence_tool_points_at_inventory():
     ]
     gap = gaps[1]
     assert gap.kind == "low_confidence_tool"
-    assert gap.subject == "lookup_case"
+    assert gap.subject.startswith("lookup_case [")
     assert gap.source_type == "langchain_function"
     assert gap.source_ref == "agent.py:14"
     assert gap.next_action.kind == "declare_tool_inventory"
@@ -967,4 +967,9 @@ def test_evidence_gaps_deterministic_ordering():
     tools = [_langchain_tool("zeta"), _langchain_tool("alpha")]
     decision = _build(_report(tools=tools), tools=tools)
     subjects = [gap.subject for gap in decision.evidence_coverage.evidence_gaps]
-    assert subjects == ["alpha", "zeta", "alpha", "zeta"]
+    assert subjects == [
+        "alpha [langchain_function]",
+        "zeta [langchain_function]",
+        "alpha [langchain_function]",
+        "zeta [langchain_function]",
+    ]

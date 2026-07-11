@@ -50,6 +50,16 @@ tool_sources:
     type: mcp
     path: inventories/sdk-tools.json
 
+tool_identity:
+  bindings:
+    - id: sdk_send_email_preview
+      provider: openai_sdk_static
+      reason: reviewed inventory describes the statically bound SDK function
+      primary: {source_id: reviewed_sdk_inventory, tool: send_email_preview}
+      members:
+        - {source_id: openai_sdk_static, tool: send_email_preview}
+        - {source_id: reviewed_sdk_inventory, tool: send_email_preview}
+
 policies:
   require_approval_for_tools:
     - tool: shopify.cancel_order

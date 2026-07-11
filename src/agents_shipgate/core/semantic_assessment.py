@@ -12,6 +12,7 @@ from agents_shipgate.core.domain import (
     SemanticClaim,
     SemanticIssue,
     Tool,
+    ToolIdentityAssessment,
     ToolSemanticAssessment,
 )
 from agents_shipgate.schemas.common import Confidence, ProvenanceKind, confidence_rank
@@ -105,10 +106,12 @@ def assess_tool_semantics(
 
     effect, conservative_effect = _assess_effect(tool, declaration)
     authority = _assess_authority(tool, declaration)
+    identity = tool.identity_assessment or _compat_identity_assessment(tool)
     surface_complete = _surface_is_complete(tool)
     extraction_complete = tool.extraction_confidence == "high"
     pass_eligible = (
-        surface_complete
+        identity.pass_eligible
+        and surface_complete
         and extraction_complete
         and effect.status in {"declared", "structural"}
         and effect.confidence == "high"
@@ -119,6 +122,7 @@ def assess_tool_semantics(
     )
     return ToolSemanticAssessment(
         conservative_effect=conservative_effect,
+        identity=identity,
         effect=effect,
         authority=authority,
         pass_eligible=pass_eligible,
@@ -128,23 +132,51 @@ def assess_tool_semantics(
 def attach_semantic_assessments(
     tools: list[Tool],
     declarations: Mapping[str, ActionDeclarationConfig] | None = None,
+    *,
+    copy_tools: bool = True,
 ) -> list[Tool]:
-    """Copy tools and attach one declaration-aware assessment to each.
+    """Attach one declaration-aware assessment keyed strictly by tool ID.
 
     Risk-hint enrichment already owns a deep-copied tool graph.  This boundary
-    only adds an immutable top-level assessment, so another recursive copy is
-    both unnecessary and expensive for schemas with large nested parameters.
-    A shallow Pydantic copy preserves the public non-mutation contract while
-    keeping the resolver cost proportional to the evidence it evaluates.
+    only adds an immutable top-level assessment. Direct callers retain the
+    non-mutation default; the scan pipeline sets ``copy_tools=False`` because
+    it exclusively owns the enriched objects. Name-keyed declaration maps are
+    intentionally ignored so same-name providers can never share evidence.
     """
 
     by_tool = declarations or {}
     assessed: list[Tool] = []
     for original in tools:
-        tool = original.model_copy()
-        tool.semantic_assessment = assess_tool_semantics(tool, by_tool.get(tool.name))
+        tool = original.model_copy() if copy_tools else original
+        declaration = by_tool.get(tool.id)
+        tool.semantic_assessment = assess_tool_semantics(tool, declaration)
         assessed.append(tool)
     return assessed
+
+
+def _compat_identity_assessment(tool: Tool) -> ToolIdentityAssessment:
+    """Identity for direct unit callers that bypass the extraction catalog."""
+
+    provider = tool.provider or tool.source_id or tool.source_type
+    observation_id = tool.observation_id or f"legacy:{tool.source_type}:{provider}:{tool.id}"
+    claim = SemanticClaim(
+        dimension="identity",
+        value=observation_id,
+        confidence="high",
+        provenance_kind="static_declaration",
+        source="compat_tool_identity",
+        source_pointer=tool.source_pointer or tool.source_ref,
+        evidence={"source_type": tool.source_type, "source_id": tool.source_id},
+    )
+    return ToolIdentityAssessment(
+        tool_id=tool.id,
+        status="structural",
+        provider=provider,
+        primary_observation_id=observation_id,
+        observation_ids=[observation_id],
+        claims=[claim],
+        pass_eligible=True,
+    )
 
 
 def _assess_effect(

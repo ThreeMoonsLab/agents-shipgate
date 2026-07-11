@@ -8,10 +8,27 @@
   local sub-workflows. Dynamic or unresolved tool surfaces emit
   `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE`; unsupported worker,
   HTTP, A2A, provider-native, and runtime-generated capabilities remain
-  explicit evidence gaps. Report schema advances to v0.30; manifest v0.1,
-  packet v0.8, and runtime contract v11 remain unchanged. `conductor` is now a
-  reserved built-in `tool_sources[].type` and may conflict with a third-party
-  adapter that previously used the same source type.
+  explicit evidence gaps. Report schema advances from the frozen identity
+  contract v0.30 to v0.31; manifest v0.1, packet v0.9, and runtime contract
+  v12 remain unchanged. `conductor` is now a reserved built-in
+  `tool_sources[].type` and may conflict with a third-party adapter that
+  previously used the same source type.
+- **Provider-scoped canonical tool identity (P0).** Tool observations now get
+  deterministic source-scoped IDs and same-name tools from different
+  providers remain distinct. Cross-source evidence joins only through exact,
+  reviewed `tool_identity.bindings[]`; invalid bindings and ambiguous
+  one-to-one selectors apply nowhere and route to `insufficient_evidence`.
+- **Identity-safe policies, diffs, traces, and debt.** Action declarations,
+  controls, risk overrides, suppressions, packets, tool/action diffs,
+  capability lineage, trace matching, and finding fingerprints consume the
+  canonical tool identity. Fingerprint v2 hashes `tool_id`; legacy baseline
+  matches are accepted only for an unambiguous current identity. Pre-v0.30
+  reports and pre-v0.4 capability locks must be regenerated before diffing.
+- **Identity contract versions.** Runtime contract advances to v12; report to
+  v0.30; packet to v0.9; capability standard to v0.3; capability lock/diff to
+  v0.4/v0.5; policy pack to v0.3; verifier to v0.2; action snapshot to v0.2;
+  and agent handoff to `shipgate.agent_handoff/v2`.
+
 - **Evidence-backed `passed` verdict (`0.16.0b1`).** `passed` now requires
   complete, conflict-free static surface, effect, and authority evidence for
   every in-scope action, evaluation of all applicable controls, and no policy
