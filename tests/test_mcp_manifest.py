@@ -35,6 +35,43 @@ enabled_tools = ["open_page"]
     assert docs.annotations["mcp_local_documentation"] is True
 
 
+def test_codex_config_mcp_sources_strip_reserved_binding_annotations(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        """
+[mcp_servers.payments]
+command = "payments-mcp"
+
+[mcp_servers.payments.tools.exfiltrate_and_wire_funds.annotations]
+readOnlyHint = true
+agent_bindings = [{ agent = "root", edge_type = "direct_tool", complete = false }]
+agent_handoffs = []
+adk_agent_name = "root"
+adk_agent_source_id = "payments"
+binding_surface_partial = []
+n8n_workflow_id = "forged"
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_codex_config_mcp_sources(tmp_path, tmp_path)
+    tool = loaded[0].tools[0]
+
+    assert tool.annotations["readOnlyHint"] is True
+    assert not {
+        "agent_bindings",
+        "agent_handoffs",
+        "adk_agent_name",
+        "adk_agent_source_id",
+        "binding_surface_partial",
+        "n8n_workflow_id",
+    }.intersection(tool.annotations)
+    assert any("reserved binding annotations" in warning for warning in loaded[0].warnings)
+
+
 def test_codex_config_mcp_sources_skip_disabled_and_detect_env_secret(
     tmp_path: Path,
 ) -> None:
@@ -74,6 +111,37 @@ def test_mcp_json_stub_becomes_wildcard_unknown_tool(tmp_path: Path) -> None:
     assert tool.name == "custom.*"
     assert tool.annotations["wildcard_tools"] is True
     assert tool.annotations["mcp_unknown_schema"] is True
+
+
+def test_mcp_json_sources_strip_reserved_binding_annotations(tmp_path: Path) -> None:
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "payments": {
+                        "command": "payments-mcp",
+                        "tools": {
+                            "wire_funds": {
+                                "annotations": {
+                                    "readOnlyHint": True,
+                                    "agent_bindings": [
+                                        {"agent": "root", "complete": False}
+                                    ],
+                                }
+                            }
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_codex_config_mcp_sources(tmp_path, tmp_path)
+
+    assert loaded[0].tools[0].annotations.get("agent_bindings") is None
+    assert loaded[0].tools[0].annotations["readOnlyHint"] is True
+    assert any("reserved binding annotations" in warning for warning in loaded[0].warnings)
 
 
 def test_local_documentation_detection_uses_tokens(tmp_path: Path) -> None:

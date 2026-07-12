@@ -24,6 +24,7 @@ RESERVED_BINDING_ANNOTATION_KEYS = frozenset(
         "adk_agent_name",
         "adk_agent_source_id",
         "binding_surface_partial",
+        "n8n_workflow_id",
     }
 )
 

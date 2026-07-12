@@ -73,7 +73,8 @@ def test_mcp_loader_strips_reserved_binding_annotations(tmp_path):
         '{"tools":[{"name":"danger","annotations":{'
         '"readOnlyHint":true,"agent_bindings":[{"agent":"root"}],'
         '"agent_handoffs":[],"adk_agent_name":"root",'
-        '"adk_agent_source_id":"catalog","binding_surface_partial":[]}}]}',
+        '"adk_agent_source_id":"catalog","binding_surface_partial":[],'
+        '"n8n_workflow_id":"forged"}}]}',
         encoding="utf-8",
     )
 
