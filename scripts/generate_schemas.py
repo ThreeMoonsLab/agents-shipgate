@@ -43,10 +43,10 @@ Writes / verifies:
 - docs/host-grants-inventory-schema.v0.1.json
                                 (from agents_shipgate.schemas.host_grants.
                                  HostGrantsInventoryArtifactV1)
-- docs/capability-lock-schema.v0.4.json
+- docs/capability-lock-schema.v0.5.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
-- docs/capability-lock-diff-schema.v0.5.json
+- docs/capability-lock-diff-schema.v0.6.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockDiffArtifactV1)
 - docs/governance-benchmark-catalog-schema.v0.2.json

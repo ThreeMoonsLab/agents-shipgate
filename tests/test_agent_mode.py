@@ -228,7 +228,7 @@ def test_verify_json_shortcut_prints_verifier_artifact(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["verifier_schema_version"] == "0.2"
-    assert payload["merge_verdict"] == "human_review_required"
+    assert payload["merge_verdict"] == "insufficient_evidence"
     assert payload["can_merge_without_human"] is False
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
@@ -293,7 +293,7 @@ def test_verify_agent_environment_defaults_to_verifier_json(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["verifier_schema_version"] == "0.2"
-    assert payload["merge_verdict"] == "human_review_required"
+    assert payload["merge_verdict"] == "insufficient_evidence"
 
 
 def test_verify_without_agent_environment_defaults_to_text(

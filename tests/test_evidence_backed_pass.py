@@ -66,6 +66,16 @@ def _write_project(
         checks_block = "\nchecks:\n  ignore:\n" + "\n".join(rows) + "\n"
 
     manifest = root / "shipgate.yaml"
+    binding_lines = [
+        "agent_bindings:",
+        "  declarations:",
+        "    - agent: root",
+        "      complete: true",
+        "      tools:",
+        *[f"        - {{tool: {tool['name']}, source_id: tools}}" for tool in tools],
+        "      handoffs: []",
+        "      reason: reviewed P0 semantic fixture binding",
+    ]
     manifest.write_text(
         """version: "0.1"
 project:
@@ -85,6 +95,8 @@ output:
   directory: reports
   formats: [json]
 """
+        + "\n".join(binding_lines)
+        + "\n"
         + action_surface
         + policy_block
         + checks_block,

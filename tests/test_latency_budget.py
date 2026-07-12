@@ -101,7 +101,7 @@ def _measure_one(config_path: Path, output_dir: Path) -> tuple[float, int]:
         packet_enabled=False,  # packet PDF is the optional extra; not part of the gate.
         plugins_enabled=False,  # plugins are off by default for perf budget.
     )
-    return time.perf_counter() - start, len(report.tool_inventory)
+    return time.perf_counter() - start, len(report.tool_catalog)
 
 
 def _phase_breakdown_lines() -> list[str]:
@@ -232,7 +232,7 @@ def test_scenarios_scale_sublinearly(perf_session: None, tmp_path: Path) -> None
             packet_enabled=False,
             plugins_enabled=False,
         )
-        tool_counts[size] = len(report.tool_inventory)
+        tool_counts[size] = len(report.tool_catalog)
 
     tool_ratio = tool_counts["large"] / max(tool_counts["small"], 1)
     latency_ratio = medians["large"] / max(medians["small"], 0.001)

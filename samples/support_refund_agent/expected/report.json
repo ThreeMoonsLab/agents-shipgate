@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.31",
-  "run_id": "agents_shipgate_7429a94499efb630",
+  "report_schema_version": "0.32",
+  "run_id": "agents_shipgate_5ad1a92a984aacac",
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
@@ -41,8 +41,7 @@
       "refund_status_lookup",
       "stripe.create_refund",
       "zendesk.update_ticket",
-      "gmail.send_customer_email",
-      "wildcard_mcp_tools.*"
+      "gmail.send_customer_email"
     ],
     "tool_ids": [
       "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
@@ -51,8 +50,7 @@
       "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
       "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
       "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
-      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
-      "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac"
+      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
     ],
     "handoffs": [],
     "guardrails": {
@@ -78,7 +76,7 @@
   "summary": {
     "status": "release_blockers_detected",
     "critical_count": 3,
-    "high_count": 16,
+    "high_count": 15,
     "medium_count": 1,
     "low_count": 0,
     "info_count": 0,
@@ -113,7 +111,7 @@
           "ref": "shipgate.yaml#/policies/require_approval_for_tools",
           "location": null,
           "path": "shipgate.yaml",
-          "start_line": 64,
+          "start_line": 82,
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_approval_for_tools"
@@ -146,7 +144,7 @@
           "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
           "location": null,
           "path": "shipgate.yaml",
-          "start_line": 69,
+          "start_line": 87,
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_idempotency_for_tools"
@@ -222,28 +220,6 @@
       }
     ],
     "review_items": [
-      {
-        "id": "fp_a00e34cdb33a5596",
-        "fingerprint": "fp_a00e34cdb33a5596",
-        "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
-        "severity": "high",
-        "title": "Wildcard tool exposure declared",
-        "baseline_status": null,
-        "blocks_release": false,
-        "source": {
-          "type": "mcp",
-          "ref": ".agents-shipgate/wildcard-tools.json",
-          "location": null,
-          "path": ".agents-shipgate/wildcard-tools.json",
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/wildcard"
-        },
-        "policy_evidence_source": null,
-        "capability_refs": [],
-        "capability_trace_refs": []
-      },
       {
         "id": "fp_60fdf92126ba8844",
         "fingerprint": "fp_60fdf92126ba8844",
@@ -323,7 +299,7 @@
           "ref": "shipgate.yaml",
           "location": null,
           "path": "shipgate.yaml",
-          "start_line": 73,
+          "start_line": 91,
           "end_line": null,
           "start_column": null,
           "pointer": "/permissions/scopes"
@@ -505,7 +481,7 @@
           "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
           "location": null,
           "path": "shipgate.yaml",
-          "start_line": 67,
+          "start_line": 85,
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_confirmation_for_tools"
@@ -538,7 +514,7 @@
           "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
           "location": null,
           "path": "shipgate.yaml",
-          "start_line": 67,
+          "start_line": 85,
           "end_line": null,
           "start_column": null,
           "pointer": "/policies/require_confirmation_for_tools"
@@ -600,21 +576,58 @@
       "low_confidence_tool_count": 0,
       "evidence_gaps": [
         {
-          "kind": "incomplete_surface",
-          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
-          "source_type": "mcp",
-          "source_ref": "/wildcard",
-          "why": "tool surface enumeration is incomplete or not high confidence",
+          "kind": "conflicting_binding_evidence",
+          "subject": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "source_type": null,
+          "source_ref": "/agent_bindings/declarations/0",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
           "next_action": {
-            "kind": "provide_complete_inventory",
+            "kind": "resolve_binding_conflict",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "shipgate.yaml#tool_sources",
-            "why": "The complete statically-bound tool surface must be enumerable.",
-            "expects": "Provide a complete MCP export, OpenAPI spec, or reviewed explicit tool inventory, then rerun verification.",
+            "path": "shipgate.yaml#agent_bindings.declarations",
+            "why": "A complete root-reachable static binding graph is required for passed.",
+            "expects": "Reconcile the declaration with positive structural evidence and rerun verification.",
             "accepted_values": [
-              "complete_mcp_export",
-              "openapi_spec",
-              "reviewed_explicit_inventory"
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": {
+              "agent_bindings": {
+                "root": {
+                  "source_id": "<REVIEW_REQUIRED>",
+                  "object": "<REVIEW_REQUIRED>"
+                },
+                "declarations": [
+                  {
+                    "agent": "root",
+                    "complete": true,
+                    "tools": [],
+                    "handoffs": [],
+                    "reason": "<REVIEW_REQUIRED>"
+                  }
+                ]
+              }
+            },
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "subject": "gmail.send_customer_email [support_mcp_tools]",
+          "source_type": "mcp",
+          "source_ref": "/agent_bindings/declarations/0",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+          "next_action": {
+            "kind": "resolve_binding_conflict",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "Conflicting binding evidence cannot be auto-resolved.",
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
             ],
             "suggested_patch_kind": "manual",
             "declaration_template": null,
@@ -623,62 +636,133 @@
           }
         },
         {
-          "kind": "missing_authority_evidence",
-          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
-          "source_type": "mcp",
-          "source_ref": "/wildcard",
-          "why": "tool has no explicit or structural authority evidence",
+          "kind": "conflicting_binding_evidence",
+          "subject": "refund_status_lookup [support_openapi]",
+          "source_type": "openapi",
+          "source_ref": "/agent_bindings/declarations/0",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
           "next_action": {
-            "kind": "declare_action_authority",
+            "kind": "resolve_binding_conflict",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "shipgate.yaml#action_surface.actions[tool='wildcard_mcp_tools.*']",
-            "why": "A complete authority mode and grant are required.",
-            "expects": "Declare reviewed authority under action_surface.actions in shipgate.yaml, then rerun verification.",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "Conflicting binding evidence cannot be auto-resolved.",
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
             "accepted_values": [
-              "none",
-              "scoped",
-              "unscoped",
-              "ambient"
+              "match_structural_graph",
+              "correct_source_wiring"
             ],
             "suggested_patch_kind": "manual",
-            "declaration_template": {
-              "tool": "wildcard_mcp_tools.*",
-              "authority": {
-                "mode": "<REVIEW_REQUIRED>"
-              }
-            },
+            "declaration_template": null,
             "auto_apply": false,
             "requires_human_review": true
           }
         },
         {
-          "kind": "missing_effect_evidence",
-          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
+          "kind": "conflicting_binding_evidence",
+          "subject": "send_email_preview [openai_sdk_static]",
           "source_type": "mcp",
-          "source_ref": "/wildcard",
-          "why": "MCP tool has no explicit or structural effect evidence",
+          "source_ref": "/agent_bindings/declarations/0",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
           "next_action": {
-            "kind": "declare_action_effect",
+            "kind": "resolve_binding_conflict",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "shipgate.yaml#action_surface.actions[tool='wildcard_mcp_tools.*']",
-            "why": "A reviewed or structural effect is required for an evidence-backed pass.",
-            "expects": "Declare the conservative effect under action_surface.actions in shipgate.yaml, then rerun verification.",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "Conflicting binding evidence cannot be auto-resolved.",
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
             "accepted_values": [
-              "read",
-              "write",
-              "destructive",
-              "external_communication",
-              "financial_write",
-              "production_operation",
-              "privileged_data_access",
-              "code_execution",
-              "identity_access"
+              "match_structural_graph",
+              "correct_source_wiring"
             ],
             "suggested_patch_kind": "manual",
-            "declaration_template": {
-              "tool": "wildcard_mcp_tools.*",
-              "effect": "<REVIEW_REQUIRED>"
-            },
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "subject": "shopify.cancel_order [support_openapi]",
+          "source_type": "openapi",
+          "source_ref": "/agent_bindings/declarations/0",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+          "next_action": {
+            "kind": "resolve_binding_conflict",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "Conflicting binding evidence cannot be auto-resolved.",
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "subject": "stripe.create_refund [support_openapi]",
+          "source_type": "openapi",
+          "source_ref": "/agent_bindings/declarations/0",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+          "next_action": {
+            "kind": "resolve_binding_conflict",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "Conflicting binding evidence cannot be auto-resolved.",
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "subject": "support.search_kb [support_mcp_tools]",
+          "source_type": "mcp",
+          "source_ref": "/agent_bindings/declarations/0",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+          "next_action": {
+            "kind": "resolve_binding_conflict",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "Conflicting binding evidence cannot be auto-resolved.",
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "subject": "zendesk.update_ticket [support_openapi]",
+          "source_type": "openapi",
+          "source_ref": "/agent_bindings/declarations/0",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+          "next_action": {
+            "kind": "resolve_binding_conflict",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "Conflicting binding evidence cannot be auto-resolved.",
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -704,25 +788,34 @@
         }
       ],
       "semantic_coverage": {
-        "total_actions": 8,
-        "pass_eligible_actions": 6,
-        "gap_count": 3,
+        "total_actions": 7,
+        "pass_eligible_actions": 0,
+        "gap_count": 7,
         "review_concern_count": 1,
         "reason_counts": {
-          "incomplete_surface": 1,
-          "missing_authority_evidence": 1,
-          "missing_effect_evidence": 1,
+          "conflicting_binding_evidence": 7,
           "unscoped_authority": 1
         }
       },
       "identity_coverage": {
-        "total_observations": 9,
-        "canonical_tools": 8,
+        "total_observations": 8,
+        "canonical_tools": 7,
         "bound_tools": 1,
-        "pass_eligible_tools": 8,
+        "pass_eligible_tools": 7,
         "ambiguous_name_count": 0,
         "gap_count": 0,
         "reason_counts": {}
+      },
+      "binding_coverage": {
+        "total_catalog_tools": 8,
+        "reachable_tools": 7,
+        "possible_tools": 0,
+        "unbound_tools": 1,
+        "pass_eligible": false,
+        "gap_count": 1,
+        "reason_counts": {
+          "conflicting_binding_evidence": 1
+        }
       }
     },
     "baseline_delta": {
@@ -743,14 +836,6 @@
     "runtime_behavior_verified": false,
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "contribution_rules": [
-      {
-        "finding_id": "fp_a00e34cdb33a5596",
-        "fingerprint": "fp_a00e34cdb33a5596",
-        "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
-        "category": "review_item",
-        "rule": "review_required",
-        "rationale": "requires_human_review=true (severity=high); routed to review_items."
-      },
       {
         "finding_id": "fp_60fdf92126ba8844",
         "fingerprint": "fp_60fdf92126ba8844",
@@ -944,6 +1029,39 @@
           "issues": [],
           "pass_eligible": true
         },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/1",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
         "effect": {
           "status": "declared",
           "confidence": "high",
@@ -1076,7 +1194,7 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
       },
       "risk_tags": [
         "customer_communication",
@@ -1133,6 +1251,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/2",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -1291,6 +1442,39 @@
           "issues": [],
           "pass_eligible": true
         },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/4",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
         "effect": {
           "status": "declared",
           "confidence": "high",
@@ -1426,7 +1610,7 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
       },
       "risk_tags": [
         "destructive",
@@ -1480,6 +1664,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/5",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -1636,7 +1853,7 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
       },
       "risk_tags": [
         "external_write",
@@ -1696,6 +1913,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/0",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -1781,7 +2031,7 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
       },
       "risk_tags": [
         "read_only"
@@ -1794,105 +2044,6 @@
       "control_status": "missing",
       "related_findings": [
         "fp_24d610b0d4324190"
-      ]
-    },
-    {
-      "id": "cap_1ee04a89c7e78ddb",
-      "tool_id": "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac",
-      "tool_name": "wildcard_mcp_tools.*",
-      "source_type": "mcp",
-      "source_id": "wildcard_mcp_tools",
-      "source_ref": ".agents-shipgate/wildcard-tools.json",
-      "capability": "wildcard_tool_surface",
-      "effect": "write",
-      "semantic_assessment": {
-        "conservative_effect": "write",
-        "identity": {
-          "tool_id": "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac",
-          "status": "structural",
-          "provider": "wildcard_mcp_tools",
-          "binding_id": null,
-          "primary_observation_id": "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298",
-          "observation_ids": [
-            "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298"
-          ],
-          "claims": [
-            {
-              "dimension": "identity",
-              "value": "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298",
-              "confidence": "high",
-              "provenance_kind": "static_declaration",
-              "source": "source_observation",
-              "source_pointer": "/wildcard",
-              "evidence": {
-                "source_type": "mcp",
-                "source_id": "wildcard_mcp_tools",
-                "native_locator": "wildcard_mcp_tools.*"
-              }
-            }
-          ],
-          "issues": [],
-          "pass_eligible": true
-        },
-        "effect": {
-          "status": "protocol_default",
-          "confidence": "low",
-          "claims": [
-            {
-              "dimension": "effect",
-              "value": "write",
-              "confidence": "low",
-              "provenance_kind": "static_declaration",
-              "source": "mcp_protocol_default",
-              "source_pointer": "/wildcard",
-              "evidence": {
-                "reason": "missing effect annotations"
-              }
-            }
-          ],
-          "issues": [
-            {
-              "kind": "incomplete_surface",
-              "dimension": "effect",
-              "message": "tool surface enumeration is incomplete or not high confidence",
-              "source": "tool_extraction",
-              "source_pointer": "/wildcard"
-            },
-            {
-              "kind": "missing_effect_evidence",
-              "dimension": "effect",
-              "message": "MCP tool has no explicit or structural effect evidence",
-              "source": "mcp_protocol_default",
-              "source_pointer": "/wildcard"
-            }
-          ]
-        },
-        "authority": {
-          "status": "unknown",
-          "mode": "unknown",
-          "auth_type": null,
-          "credential_mode": null,
-          "scopes": [],
-          "claims": [],
-          "issues": [
-            {
-              "kind": "missing_authority_evidence",
-              "dimension": "authority",
-              "message": "tool has no explicit or structural authority evidence",
-              "source": "mcp",
-              "source_pointer": "/wildcard"
-            }
-          ]
-        },
-        "pass_eligible": false
-      },
-      "risk_tags": [],
-      "auth_scopes": [],
-      "owner": null,
-      "included_reason": "referenced_by_high_finding",
-      "control_status": "unknown",
-      "related_findings": [
-        "fp_a00e34cdb33a5596"
       ]
     },
     {
@@ -1932,6 +2083,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/3",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -2044,7 +2228,7 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
       },
       "risk_tags": [
         "write"
@@ -2235,22 +2419,6 @@
       "policy_requirement": "Risky numeric parameters must declare a maximum or equivalent limit.",
       "gap": "stripe.create_refund.amount has no maximum bound.",
       "release_implication": "Release reviewers cannot verify blast-radius limits."
-    },
-    {
-      "id": "mis_9ba5bb0073223f6e",
-      "kind": "control_missing",
-      "severity": "high",
-      "tool_name": "wildcard_mcp_tools.*",
-      "capability_refs": [
-        "cap_1ee04a89c7e78ddb"
-      ],
-      "intention_refs": [],
-      "finding_refs": [
-        "fp_a00e34cdb33a5596"
-      ],
-      "policy_requirement": "Tool exposure must use an explicit reviewed allowlist.",
-      "gap": "Wildcard tool exposure declared.",
-      "release_implication": "Release review cannot bound which tools may be available at runtime."
     },
     {
       "id": "mis_7cbbb0b3afb9bf61",
@@ -2486,7 +2654,7 @@
     "decision": "blocked",
     "summary": "5 release-relevant finding(s) map to active release blockers; resolve required controls or remove the capability.",
     "blocker_misalignment_count": 5,
-    "review_misalignment_count": 15,
+    "review_misalignment_count": 14,
     "fail_policy": {
       "ci_mode": "advisory",
       "fail_on": [],
@@ -2553,19 +2721,6 @@
       ]
     },
     {
-      "id": "scn_3604642326a85265",
-      "scenario_type": "wildcard_inventory",
-      "title": "Explicit tool inventory review",
-      "given": "Exercise the release path for wildcard_mcp_tools.*.",
-      "expected_control": "The release exposes a static allowlist instead of wildcard or unbounded tools.",
-      "source_misalignments": [
-        "mis_9ba5bb0073223f6e"
-      ],
-      "source_findings": [
-        "fp_a00e34cdb33a5596"
-      ]
-    },
-    {
       "id": "scn_aabad183796937bd",
       "scenario_type": "confirmation",
       "title": "Confirmation gate for external or destructive action",
@@ -2620,13 +2775,13 @@
     }
   ],
   "tool_surface": {
-    "total_tools": 8,
+    "total_tools": 7,
     "high_risk_tools": 3,
     "sources": {
-      "mcp": 4,
+      "mcp": 3,
       "openapi": 4
     },
-    "wildcard_tools": 1,
+    "wildcard_tools": 0,
     "missing_descriptions": 0
   },
   "tool_surface_facts": {
@@ -2679,7 +2834,7 @@
           "input_schema": "f4cfd236c5b193ec",
           "output_schema": "44136fa355b3678a",
           "parameters": "4f1df264bfa081ee",
-          "annotations": "1f9a7cc7c90c44b6"
+          "annotations": "cbcbcf3476705e05"
         }
       },
       {
@@ -2807,27 +2962,6 @@
           "output_schema": "44136fa355b3678a",
           "parameters": "2cf78ed8690bc21f",
           "annotations": "5f182f4baa6c10e4"
-        }
-      },
-      {
-        "tool_id": "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac",
-        "name": "wildcard_mcp_tools.*",
-        "provider": "wildcard_mcp_tools",
-        "source_type": "mcp",
-        "source_id": "wildcard_mcp_tools",
-        "source_ref": ".agents-shipgate/wildcard-tools.json",
-        "risk_tags": [],
-        "auth_scopes": [],
-        "owner": null,
-        "extraction_confidence": "high",
-        "has_description": true,
-        "hashes": {
-          "source_ref": "eb3c07f3ee88bf82",
-          "description": "e2599399bd9c0f3e",
-          "input_schema": "44136fa355b3678a",
-          "output_schema": "44136fa355b3678a",
-          "parameters": "4f53cda18c2baa0c",
-          "annotations": "691ae41e79efee45"
         }
       }
     ],
@@ -3019,7 +3153,7 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.2",
+    "snapshot_version": "0.3",
     "actions": [
       {
         "action_id": "agent:support-refund-agent/refund-assistant:action_v2_053ad7751660e41c082a5e2abdf8c206eeb1336154bc764256a667121508143d",
@@ -3066,6 +3200,39 @@
             ],
             "issues": [],
             "pass_eligible": true
+          },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+            "reachable_path": [
+              "agent_v1:7cb237a00d64b7400f4adc3b",
+              "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/3",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "conflicting_binding_evidence",
+                "dimension": "binding",
+                "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+                "source": "shipgate.yaml",
+                "source_pointer": "/agent_bindings/declarations/0"
+              }
+            ],
+            "pass_eligible": false
           },
           "effect": {
             "status": "declared",
@@ -3178,7 +3345,7 @@
             ],
             "issues": []
           },
-          "pass_eligible": true
+          "pass_eligible": false
         },
         "risk_tags": [
           "writes_data"
@@ -3262,6 +3429,39 @@
             ],
             "issues": [],
             "pass_eligible": true
+          },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+            "reachable_path": [
+              "agent_v1:7cb237a00d64b7400f4adc3b",
+              "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/4",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "conflicting_binding_evidence",
+                "dimension": "binding",
+                "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+                "source": "shipgate.yaml",
+                "source_pointer": "/agent_bindings/declarations/0"
+              }
+            ],
+            "pass_eligible": false
           },
           "effect": {
             "status": "declared",
@@ -3398,7 +3598,7 @@
             ],
             "issues": []
           },
-          "pass_eligible": true
+          "pass_eligible": false
         },
         "risk_tags": [
           "destructive",
@@ -3483,6 +3683,39 @@
             ],
             "issues": [],
             "pass_eligible": true
+          },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+            "reachable_path": [
+              "agent_v1:7cb237a00d64b7400f4adc3b",
+              "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/1",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "conflicting_binding_evidence",
+                "dimension": "binding",
+                "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+                "source": "shipgate.yaml",
+                "source_pointer": "/agent_bindings/declarations/0"
+              }
+            ],
+            "pass_eligible": false
           },
           "effect": {
             "status": "declared",
@@ -3616,7 +3849,7 @@
             ],
             "issues": []
           },
-          "pass_eligible": true
+          "pass_eligible": false
         },
         "risk_tags": [
           "external_communication",
@@ -3703,6 +3936,39 @@
             ],
             "issues": [],
             "pass_eligible": true
+          },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+            "reachable_path": [
+              "agent_v1:7cb237a00d64b7400f4adc3b",
+              "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/2",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "conflicting_binding_evidence",
+                "dimension": "binding",
+                "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+                "source": "shipgate.yaml",
+                "source_pointer": "/agent_bindings/declarations/0"
+              }
+            ],
+            "pass_eligible": false
           },
           "effect": {
             "status": "declared",
@@ -3891,6 +4157,39 @@
             "issues": [],
             "pass_eligible": true
           },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+            "reachable_path": [
+              "agent_v1:7cb237a00d64b7400f4adc3b",
+              "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/0",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "conflicting_binding_evidence",
+                "dimension": "binding",
+                "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+                "source": "shipgate.yaml",
+                "source_pointer": "/agent_bindings/declarations/0"
+              }
+            ],
+            "pass_eligible": false
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -3975,7 +4274,7 @@
             ],
             "issues": []
           },
-          "pass_eligible": true
+          "pass_eligible": false
         },
         "risk_tags": [
           "financial_write",
@@ -4058,6 +4357,39 @@
             ],
             "issues": [],
             "pass_eligible": true
+          },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+            "reachable_path": [
+              "agent_v1:7cb237a00d64b7400f4adc3b",
+              "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/5",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "conflicting_binding_evidence",
+                "dimension": "binding",
+                "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+                "source": "shipgate.yaml",
+                "source_pointer": "/agent_bindings/declarations/0"
+              }
+            ],
+            "pass_eligible": false
           },
           "effect": {
             "status": "declared",
@@ -4214,7 +4546,7 @@
             ],
             "issues": []
           },
-          "pass_eligible": true
+          "pass_eligible": false
         },
         "risk_tags": [
           "external_communication",
@@ -4317,6 +4649,51 @@
             "issues": [],
             "pass_eligible": true
           },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+            "reachable_path": [
+              "agent_v1:7cb237a00d64b7400f4adc3b",
+              "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/6",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              },
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+                "confidence": "high",
+                "provenance_kind": "ast_extraction",
+                "source": "agents/refund_agent.py",
+                "source_pointer": "agents/refund_agent.py:10",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "conflicting_binding_evidence",
+                "dimension": "binding",
+                "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+                "source": "shipgate.yaml",
+                "source_pointer": "/agent_bindings/declarations/0"
+              }
+            ],
+            "pass_eligible": false
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -4404,7 +4781,7 @@
             ],
             "issues": []
           },
-          "pass_eligible": true
+          "pass_eligible": false
         },
         "risk_tags": [
           "external_communication",
@@ -4443,133 +4820,6 @@
           "policy_hash": "99aa27a5e2ab49d6",
           "risk_hash": "a2ddef8c5875b92d"
         }
-      },
-      {
-        "action_id": "agent:support-refund-agent/refund-assistant:action_v2_bc72ce8215630f6c73ee7bf24b15a8eebd00f12276838ae7f44832adf45cea8a",
-        "agent_id": "agent:support-refund-agent/refund-assistant",
-        "tool_id": "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac",
-        "tool_name": "wildcard_mcp_tools.*",
-        "provider": "wildcard_mcp_tools",
-        "source_type": "mcp",
-        "source_id": "wildcard_mcp_tools",
-        "source_ref": ".agents-shipgate/wildcard-tools.json",
-        "source_location": null,
-        "source_path": ".agents-shipgate/wildcard-tools.json",
-        "source_start_line": null,
-        "source_end_line": null,
-        "source_start_column": null,
-        "source_pointer": "/wildcard",
-        "operation": "wildcard_mcp_tools.*",
-        "effect": "write",
-        "semantic_assessment": {
-          "conservative_effect": "write",
-          "identity": {
-            "tool_id": "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac",
-            "status": "structural",
-            "provider": "wildcard_mcp_tools",
-            "binding_id": null,
-            "primary_observation_id": "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298",
-            "observation_ids": [
-              "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298"
-            ],
-            "claims": [
-              {
-                "dimension": "identity",
-                "value": "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298",
-                "confidence": "high",
-                "provenance_kind": "static_declaration",
-                "source": "source_observation",
-                "source_pointer": "/wildcard",
-                "evidence": {
-                  "source_type": "mcp",
-                  "source_id": "wildcard_mcp_tools",
-                  "native_locator": "wildcard_mcp_tools.*"
-                }
-              }
-            ],
-            "issues": [],
-            "pass_eligible": true
-          },
-          "effect": {
-            "status": "protocol_default",
-            "confidence": "low",
-            "claims": [
-              {
-                "dimension": "effect",
-                "value": "write",
-                "confidence": "low",
-                "provenance_kind": "static_declaration",
-                "source": "mcp_protocol_default",
-                "source_pointer": "/wildcard",
-                "evidence": {
-                  "reason": "missing effect annotations"
-                }
-              }
-            ],
-            "issues": [
-              {
-                "kind": "incomplete_surface",
-                "dimension": "effect",
-                "message": "tool surface enumeration is incomplete or not high confidence",
-                "source": "tool_extraction",
-                "source_pointer": "/wildcard"
-              },
-              {
-                "kind": "missing_effect_evidence",
-                "dimension": "effect",
-                "message": "MCP tool has no explicit or structural effect evidence",
-                "source": "mcp_protocol_default",
-                "source_pointer": "/wildcard"
-              }
-            ]
-          },
-          "authority": {
-            "status": "unknown",
-            "mode": "unknown",
-            "auth_type": null,
-            "credential_mode": null,
-            "scopes": [],
-            "claims": [],
-            "issues": [
-              {
-                "kind": "missing_authority_evidence",
-                "dimension": "authority",
-                "message": "tool has no explicit or structural authority evidence",
-                "source": "mcp",
-                "source_pointer": "/wildcard"
-              }
-            ]
-          },
-          "pass_eligible": false
-        },
-        "risk_tags": [
-          "writes_data"
-        ],
-        "required_scopes": [],
-        "approval_policy": {
-          "required": false,
-          "threshold": null
-        },
-        "safeguards": {
-          "idempotency": false,
-          "audit_log": null,
-          "rollback": null,
-          "dry_run": null
-        },
-        "evidence": {
-          "owner": null,
-          "runbook": null,
-          "approval_ticket": null
-        },
-        "input_fields": [],
-        "required_input_fields": [],
-        "input_schema_hash": "28cc233c2ea84993",
-        "hashes": {
-          "identity_hash": "788f43ca0f679311",
-          "schema_hash": "28cc233c2ea84993",
-          "policy_hash": "99aa27a5e2ab49d6",
-          "risk_hash": "d72dca7b64c1bf8a"
-        }
       }
     ]
   },
@@ -4598,8 +4848,136 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
+    ]
+  },
+  "binding_surface_facts": {
+    "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+    "status": "conflicting",
+    "agents": [
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "name": "refund_agent",
+        "source_id": "openai_sdk_static",
+        "source_ref": "agents/refund_agent.py",
+        "source_pointer": "agents/refund_agent.py:10"
+      }
     ],
-    "tool_id": null
+    "tool_edges": [
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/4",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "agents/refund_agent.py",
+        "source_pointer": "agents/refund_agent.py:10",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/6",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/0",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/2",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/5",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/3",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/1",
+        "complete": true
+      }
+    ],
+    "handoff_edges": [],
+    "reachable_tool_ids": [
+      "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+      "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+      "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+      "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+      "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+      "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+    ],
+    "possible_tool_ids": [],
+    "unbound_tool_ids": [
+      "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac"
+    ],
+    "issues": [
+      {
+        "kind": "conflicting_binding_evidence",
+        "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+        "agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "tool_id": null,
+        "source": "shipgate.yaml",
+        "source_pointer": "/agent_bindings/declarations/0"
+      }
+    ],
+    "pass_eligible": false
+  },
+  "binding_surface_diff": {
+    "enabled": false,
+    "base_report_schema_version": null,
+    "added_reachable_tool_ids": [],
+    "removed_reachable_tool_ids": [],
+    "added_handoffs": [],
+    "removed_handoffs": [],
+    "notes": []
   },
   "capability_runtime_evidence": {
     "enabled": false,
@@ -4624,45 +5002,6 @@
   "codex_plugin_surface": null,
   "baseline": null,
   "findings": [
-    {
-      "id": "fp_a00e34cdb33a5596",
-      "fingerprint": "fp_a00e34cdb33a5596",
-      "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
-      "title": "Wildcard tool exposure declared",
-      "severity": "high",
-      "category": "inventory",
-      "tool_id": "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac",
-      "tool_name": "wildcard_mcp_tools.*",
-      "agent_id": "agent:support-refund-agent/refund-assistant",
-      "evidence": {
-        "source_id": "wildcard_mcp_tools",
-        "source_ref": ".agents-shipgate/wildcard-tools.json"
-      },
-      "confidence": "high",
-      "provenance_kind": "static_declaration",
-      "source": {
-        "type": "mcp",
-        "ref": ".agents-shipgate/wildcard-tools.json",
-        "location": null,
-        "path": ".agents-shipgate/wildcard-tools.json",
-        "pointer": "/wildcard"
-      },
-      "policy_evidence_source": null,
-      "capability_refs": [],
-      "capability_policy_evidence": null,
-      "policy_routing": null,
-      "capability_trace_refs": [],
-      "recommendation": "Replace wildcard tool exposure with an explicit tool allowlist before release review.",
-      "blocks_release": false,
-      "suppressed": false,
-      "suppression_reason": null,
-      "baseline_status": null,
-      "autofix_safe": false,
-      "requires_human_review": true,
-      "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-inventory-wildcard-tools",
-      "agent_action": "escalate_to_human"
-    },
     {
       "id": "fp_60fdf92126ba8844",
       "fingerprint": "fp_60fdf92126ba8844",
@@ -4806,7 +5145,7 @@
         "ref": "shipgate.yaml",
         "location": null,
         "path": "shipgate.yaml",
-        "start_line": 73,
+        "start_line": 91,
         "pointer": "/permissions/scopes"
       },
       "policy_evidence_source": null,
@@ -5152,7 +5491,7 @@
         "ref": "shipgate.yaml#/policies/require_approval_for_tools",
         "location": null,
         "path": "shipgate.yaml",
-        "start_line": 64,
+        "start_line": 82,
         "end_line": null,
         "start_column": null,
         "pointer": "/policies/require_approval_for_tools"
@@ -5212,12 +5551,13 @@
         },
         "hashes": {
           "identity_hash": "578e492c26fd4656",
+          "binding_hash": "3797b951d702db48",
           "effect_hash": "3c5583f4a13cb1e3",
           "authority_hash": "fd53df901af7c2ec",
           "control_hash": "66ca58b2f8d2e5bb",
           "schema_hash": "81d9efbadca5ea8c",
           "risk_hash": "b9302728ac0d5ac2",
-          "evidence_hash": "d3c762447bbdedfb"
+          "evidence_hash": "a1876a84a6357d6c"
         },
         "matched_predicates": {
           "missing_approval_policy": true,
@@ -5283,7 +5623,7 @@
         "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
         "location": null,
         "path": "shipgate.yaml",
-        "start_line": 67,
+        "start_line": 85,
         "end_line": null,
         "start_column": null,
         "pointer": "/policies/require_confirmation_for_tools"
@@ -5343,12 +5683,13 @@
         },
         "hashes": {
           "identity_hash": "578e492c26fd4656",
+          "binding_hash": "3797b951d702db48",
           "effect_hash": "3c5583f4a13cb1e3",
           "authority_hash": "fd53df901af7c2ec",
           "control_hash": "66ca58b2f8d2e5bb",
           "schema_hash": "81d9efbadca5ea8c",
           "risk_hash": "b9302728ac0d5ac2",
-          "evidence_hash": "d3c762447bbdedfb"
+          "evidence_hash": "a1876a84a6357d6c"
         },
         "matched_predicates": {
           "missing_confirmation_policy": true,
@@ -5411,7 +5752,7 @@
         "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
         "location": null,
         "path": "shipgate.yaml",
-        "start_line": 67,
+        "start_line": 85,
         "end_line": null,
         "start_column": null,
         "pointer": "/policies/require_confirmation_for_tools"
@@ -5469,12 +5810,13 @@
         },
         "hashes": {
           "identity_hash": "e9991ea05213172f",
+          "binding_hash": "bc550fe7894d443e",
           "effect_hash": "0b01d252d3c04ac9",
           "authority_hash": "4fac84f970e42bce",
           "control_hash": "1230dbbe2d78c7d5",
           "schema_hash": "8c76077daf4af98a",
           "risk_hash": "89d9cf142700dd69",
-          "evidence_hash": "d630c61e18dfbea6"
+          "evidence_hash": "8cbbe01d45d3da05"
         },
         "matched_predicates": {
           "missing_confirmation_policy": true,
@@ -5540,7 +5882,7 @@
         "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
         "location": null,
         "path": "shipgate.yaml",
-        "start_line": 69,
+        "start_line": 87,
         "end_line": null,
         "start_column": null,
         "pointer": "/policies/require_idempotency_for_tools"
@@ -5790,8 +6132,8 @@
     "Add the required scopes for support.search_kb to permissions.scopes or narrow the tool's declared auth requirements."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/tmp/shipgate-golden-support_refund_agent/report.md",
+    "json": "/private/tmp/shipgate-golden-support_refund_agent/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -5850,6 +6192,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/4",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -5986,7 +6361,40 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/4",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
       }
     },
     {
@@ -6053,6 +6461,51 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/6",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            },
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "agents/refund_agent.py",
+              "source_pointer": "agents/refund_agent.py:10",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -6141,7 +6594,52 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/6",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          },
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "agents/refund_agent.py",
+            "source_pointer": "agents/refund_agent.py:10",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
       }
     },
     {
@@ -6195,6 +6693,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/0",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -6280,7 +6811,40 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/0",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
       }
     },
     {
@@ -6332,6 +6896,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/2",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -6440,6 +7037,39 @@
           "issues": []
         },
         "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/2",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
       }
     },
     {
@@ -6497,6 +7127,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/5",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -6653,7 +7316,40 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/5",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
       }
     },
     {
@@ -6707,6 +7403,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/3",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -6819,7 +7548,40 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/3",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
       }
     },
     {
@@ -6875,6 +7637,39 @@
           ],
           "issues": [],
           "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/1",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
         },
         "effect": {
           "status": "declared",
@@ -7008,7 +7803,1742 @@
           ],
           "issues": []
         },
-        "pass_eligible": true
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/1",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
+      }
+    }
+  ],
+  "tool_catalog": [
+    {
+      "tool_id": "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+      "name": "shopify.cancel_order",
+      "provider": "support_openapi",
+      "observation_ids": [
+        "obs_v1_fc50761fdbf05db319a85b8ac0b828b8522967a4273d1c0f70d4cfabf0304300"
+      ],
+      "source_type": "openapi",
+      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1orders~1{order_id}~1cancel/post",
+      "source_path": "specs/support-tools.openapi.yaml",
+      "source_start_line": 116,
+      "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+      "risk_tags": [
+        "destructive",
+        "write"
+      ],
+      "risk_tag_confidence": {
+        "destructive": "high",
+        "write": "high"
+      },
+      "auth_scopes": [
+        "shopify:orders:write"
+      ],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "destructive",
+        "identity": {
+          "tool_id": "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+          "status": "structural",
+          "provider": "support_openapi",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_fc50761fdbf05db319a85b8ac0b828b8522967a4273d1c0f70d4cfabf0304300",
+          "observation_ids": [
+            "obs_v1_fc50761fdbf05db319a85b8ac0b828b8522967a4273d1c0f70d4cfabf0304300"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_fc50761fdbf05db319a85b8ac0b828b8522967a4273d1c0f70d4cfabf0304300",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+              "evidence": {
+                "source_type": "openapi",
+                "source_id": "support_openapi",
+                "native_locator": "POST /orders/{order_id}/cancel"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/4",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_scope",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+              "evidence": {
+                "scope": "shopify:orders:write"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='shopify.cancel_order'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "auth_scope",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+              "evidence": {
+                "scope": "shopify:orders:write"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+              "evidence": {
+                "destructiveHint": true
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_method",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+              "evidence": {
+                "method": "POST"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "destructive",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+              "evidence": {
+                "tag": "destructive",
+                "hint_source": "keyword",
+                "method": "POST"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "scoped",
+          "auth_type": "oauth2",
+          "credential_mode": "service_account",
+          "scopes": [
+            "shopify:orders:write"
+          ],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='shopify.cancel_order'].authority",
+              "evidence": {
+                "auth_type": "oauth2",
+                "credential_mode": "service_account",
+                "scopes": [
+                  "shopify:orders:write"
+                ]
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_authority",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post",
+              "evidence": {
+                "auth_type": "oauth2",
+                "scopes": [
+                  "shopify:orders:write"
+                ],
+                "alternative_count": 1
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_security_alternative",
+              "source_pointer": "/paths/~1orders~1{order_id}~1cancel/post/security/0",
+              "evidence": {
+                "anonymous": false,
+                "schemes": [
+                  {
+                    "name": "shopifyOAuth",
+                    "type": "oauth2",
+                    "scopes": [
+                      "shopify:orders:write"
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/4",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
+      }
+    },
+    {
+      "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+      "name": "send_email_preview",
+      "provider": "openai_sdk_static",
+      "observation_ids": [
+        "obs_v1_68344b9fde158f18db1f3476cf06003414968e6d82488d8f376eebfecbc8bfb3",
+        "obs_v1_8835a4a63d13e804fae8ab9c175ece24e865d923e65457698593c0532254b0a6"
+      ],
+      "source_type": "mcp",
+      "source_ref": "inventories/sdk-tools.json",
+      "source_path": "inventories/sdk-tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/0",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+          "status": "declared",
+          "provider": "openai_sdk_static",
+          "binding_id": "sdk_send_email_preview",
+          "primary_observation_id": "obs_v1_8835a4a63d13e804fae8ab9c175ece24e865d923e65457698593c0532254b0a6",
+          "observation_ids": [
+            "obs_v1_68344b9fde158f18db1f3476cf06003414968e6d82488d8f376eebfecbc8bfb3",
+            "obs_v1_8835a4a63d13e804fae8ab9c175ece24e865d923e65457698593c0532254b0a6"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_68344b9fde158f18db1f3476cf06003414968e6d82488d8f376eebfecbc8bfb3",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "agents/refund_agent.py",
+              "evidence": {
+                "source_type": "sdk_function",
+                "source_id": "openai_sdk_static",
+                "native_locator": "agents/refund_agent.py#send_email_preview"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_8835a4a63d13e804fae8ab9c175ece24e865d923e65457698593c0532254b0a6",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "reviewed_sdk_inventory",
+                "native_locator": "send_email_preview"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/6",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            },
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "agents/refund_agent.py",
+              "source_pointer": "agents/refund_agent.py:10",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='send_email_preview'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "low",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "low",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='send_email_preview'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/6",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          },
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "agents/refund_agent.py",
+            "source_pointer": "agents/refund_agent.py:10",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
+      }
+    },
+    {
+      "tool_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+      "name": "support.search_kb",
+      "provider": "support_mcp_tools",
+      "observation_ids": [
+        "obs_v1_0df5fda3ee9f82ce968548fd66bcff348164c98aa8f25ca72cf8cea840ca4024"
+      ],
+      "source_type": "mcp",
+      "source_ref": ".agents-shipgate/mcp-tools.json",
+      "source_path": ".agents-shipgate/mcp-tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/0",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [
+        "support:kb:read"
+      ],
+      "owner": "support-platform",
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+          "status": "structural",
+          "provider": "support_mcp_tools",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_0df5fda3ee9f82ce968548fd66bcff348164c98aa8f25ca72cf8cea840ca4024",
+          "observation_ids": [
+            "obs_v1_0df5fda3ee9f82ce968548fd66bcff348164c98aa8f25ca72cf8cea840ca4024"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_0df5fda3ee9f82ce968548fd66bcff348164c98aa8f25ca72cf8cea840ca4024",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "support_mcp_tools",
+                "native_locator": "support.search_kb"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/0",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.search_kb'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "low",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "financial_action",
+                "hint_source": "keyword",
+                "scopes": [
+                  "support:kb:read"
+                ]
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "scoped",
+          "auth_type": "oauth2",
+          "credential_mode": "service_account",
+          "scopes": [
+            "support:kb:read"
+          ],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='support.search_kb'].authority",
+              "evidence": {
+                "auth_type": "oauth2",
+                "credential_mode": "service_account",
+                "scopes": [
+                  "support:kb:read"
+                ]
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "auth_type": "oauth2",
+                "scopes": [
+                  "support:kb:read"
+                ],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/0",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
+      }
+    },
+    {
+      "tool_id": "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+      "name": "refund_status_lookup",
+      "provider": "support_openapi",
+      "observation_ids": [
+        "obs_v1_abe0748ca63b6b1f48d758ee5395281d80ad99b49e4766dda9f717c57aa6a3c0"
+      ],
+      "source_type": "openapi",
+      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1refunds~1{payment_id}~1status/get",
+      "source_path": "specs/support-tools.openapi.yaml",
+      "source_start_line": 72,
+      "source_pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+          "status": "structural",
+          "provider": "support_openapi",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_abe0748ca63b6b1f48d758ee5395281d80ad99b49e4766dda9f717c57aa6a3c0",
+          "observation_ids": [
+            "obs_v1_abe0748ca63b6b1f48d758ee5395281d80ad99b49e4766dda9f717c57aa6a3c0"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_abe0748ca63b6b1f48d758ee5395281d80ad99b49e4766dda9f717c57aa6a3c0",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+              "evidence": {
+                "source_type": "openapi",
+                "source_id": "support_openapi",
+                "native_locator": "GET /refunds/{payment_id}/status"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/2",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='refund_status_lookup'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_method",
+              "source_pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+              "evidence": {
+                "method": "GET"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "risk_hint:manual",
+              "source_pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+              "evidence": {
+                "tag": "read_only",
+                "hint_source": "manual",
+                "reason": "Despite name containing refund, this is a read-only lookup.",
+                "confidence": "manual"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "unscoped",
+          "auth_type": "oauth2",
+          "credential_mode": "service_account",
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "unscoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='refund_status_lookup'].authority",
+              "evidence": {
+                "auth_type": "oauth2",
+                "credential_mode": "service_account",
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "unscoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_authority",
+              "source_pointer": "/paths/~1refunds~1{payment_id}~1status/get",
+              "evidence": {
+                "auth_type": "oauth2",
+                "scopes": [],
+                "alternative_count": 1
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "unscoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_security_alternative",
+              "source_pointer": "/paths/~1refunds~1{payment_id}~1status/get/security/0",
+              "evidence": {
+                "anonymous": false,
+                "schemes": [
+                  {
+                    "name": "stripeOAuth",
+                    "type": "oauth2",
+                    "scopes": []
+                  }
+                ]
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/2",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
+      }
+    },
+    {
+      "tool_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+      "name": "stripe.create_refund",
+      "provider": "support_openapi",
+      "observation_ids": [
+        "obs_v1_2dc88a16ab175fa6d937d4fd2047076fa2a6dd20131796d31e71b9998386eb57"
+      ],
+      "source_type": "openapi",
+      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
+      "source_path": "specs/support-tools.openapi.yaml",
+      "source_start_line": 97,
+      "source_pointer": "/paths/~1refunds/post",
+      "risk_tags": [
+        "external_write",
+        "financial_action",
+        "write"
+      ],
+      "risk_tag_confidence": {
+        "external_write": "high",
+        "financial_action": "high",
+        "write": "high"
+      },
+      "auth_scopes": [
+        "stripe:refunds:write"
+      ],
+      "owner": "payments-platform",
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "financial_write",
+        "identity": {
+          "tool_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+          "status": "structural",
+          "provider": "support_openapi",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_2dc88a16ab175fa6d937d4fd2047076fa2a6dd20131796d31e71b9998386eb57",
+          "observation_ids": [
+            "obs_v1_2dc88a16ab175fa6d937d4fd2047076fa2a6dd20131796d31e71b9998386eb57"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_2dc88a16ab175fa6d937d4fd2047076fa2a6dd20131796d31e71b9998386eb57",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/paths/~1refunds/post",
+              "evidence": {
+                "source_type": "openapi",
+                "source_id": "support_openapi",
+                "native_locator": "POST /refunds"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/5",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_scope",
+              "source_pointer": "/paths/~1refunds/post",
+              "evidence": {
+                "scope": "stripe:refunds:write"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='stripe.create_refund'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "auth_scope",
+              "source_pointer": "/paths/~1refunds/post",
+              "evidence": {
+                "scope": "stripe:refunds:write"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_method",
+              "source_pointer": "/paths/~1refunds/post",
+              "evidence": {
+                "method": "POST"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "risk_hint:auth_scope",
+              "source_pointer": "/paths/~1refunds/post",
+              "evidence": {
+                "tag": "financial_action",
+                "hint_source": "auth_scope",
+                "scopes": [
+                  "stripe:refunds:write"
+                ],
+                "method": "POST"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "risk_hint:manual",
+              "source_pointer": "/paths/~1refunds/post",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "manual",
+                "reason": "Creates real payment refunds.",
+                "confidence": "manual"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "risk_hint:manual",
+              "source_pointer": "/paths/~1refunds/post",
+              "evidence": {
+                "tag": "financial_action",
+                "hint_source": "manual",
+                "reason": "Creates real payment refunds.",
+                "confidence": "manual"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "scoped",
+          "auth_type": "oauth2",
+          "credential_mode": "service_account",
+          "scopes": [
+            "stripe:refunds:write"
+          ],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='stripe.create_refund'].authority",
+              "evidence": {
+                "auth_type": "oauth2",
+                "credential_mode": "service_account",
+                "scopes": [
+                  "stripe:refunds:write"
+                ]
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_authority",
+              "source_pointer": "/paths/~1refunds/post",
+              "evidence": {
+                "auth_type": "oauth2",
+                "scopes": [
+                  "stripe:refunds:write"
+                ],
+                "alternative_count": 1
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_security_alternative",
+              "source_pointer": "/paths/~1refunds/post/security/0",
+              "evidence": {
+                "anonymous": false,
+                "schemes": [
+                  {
+                    "name": "stripeOAuth",
+                    "type": "oauth2",
+                    "scopes": [
+                      "stripe:refunds:write"
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/5",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
+      }
+    },
+    {
+      "tool_id": "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+      "name": "zendesk.update_ticket",
+      "provider": "support_openapi",
+      "observation_ids": [
+        "obs_v1_0767af2d9bbe222adf666b94824bba1a94f3f2a146fa6d5198b2ef348da3fcc9"
+      ],
+      "source_type": "openapi",
+      "source_ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
+      "source_path": "specs/support-tools.openapi.yaml",
+      "source_start_line": 142,
+      "source_pointer": "/paths/~1tickets~1{ticket_id}/patch",
+      "risk_tags": [
+        "write"
+      ],
+      "risk_tag_confidence": {
+        "write": "high"
+      },
+      "auth_scopes": [
+        "zendesk:tickets:write"
+      ],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "write",
+        "identity": {
+          "tool_id": "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+          "status": "structural",
+          "provider": "support_openapi",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_0767af2d9bbe222adf666b94824bba1a94f3f2a146fa6d5198b2ef348da3fcc9",
+          "observation_ids": [
+            "obs_v1_0767af2d9bbe222adf666b94824bba1a94f3f2a146fa6d5198b2ef348da3fcc9"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_0767af2d9bbe222adf666b94824bba1a94f3f2a146fa6d5198b2ef348da3fcc9",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/paths/~1tickets~1{ticket_id}/patch",
+              "evidence": {
+                "source_type": "openapi",
+                "source_id": "support_openapi",
+                "native_locator": "PATCH /tickets/{ticket_id}"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/3",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_scope",
+              "source_pointer": "/paths/~1tickets~1{ticket_id}/patch",
+              "evidence": {
+                "scope": "zendesk:tickets:write"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='zendesk.update_ticket'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "auth_scope",
+              "source_pointer": "/paths/~1tickets~1{ticket_id}/patch",
+              "evidence": {
+                "scope": "zendesk:tickets:write"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_method",
+              "source_pointer": "/paths/~1tickets~1{ticket_id}/patch",
+              "evidence": {
+                "method": "PATCH"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "scoped",
+          "auth_type": "oauth2",
+          "credential_mode": "service_account",
+          "scopes": [
+            "zendesk:tickets:write"
+          ],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='zendesk.update_ticket'].authority",
+              "evidence": {
+                "auth_type": "oauth2",
+                "credential_mode": "service_account",
+                "scopes": [
+                  "zendesk:tickets:write"
+                ]
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_authority",
+              "source_pointer": "/paths/~1tickets~1{ticket_id}/patch",
+              "evidence": {
+                "auth_type": "oauth2",
+                "scopes": [
+                  "zendesk:tickets:write"
+                ],
+                "alternative_count": 1
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "openapi_security_alternative",
+              "source_pointer": "/paths/~1tickets~1{ticket_id}/patch/security/0",
+              "evidence": {
+                "anonymous": false,
+                "schemes": [
+                  {
+                    "name": "zendeskOAuth",
+                    "type": "oauth2",
+                    "scopes": [
+                      "zendesk:tickets:write"
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/3",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
+      }
+    },
+    {
+      "tool_id": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+      "name": "gmail.send_customer_email",
+      "provider": "support_mcp_tools",
+      "observation_ids": [
+        "obs_v1_6a598e295d2d845f05a72faecd97fcf971b67c96a0aad092d9082c8e573df553"
+      ],
+      "source_type": "mcp",
+      "source_ref": ".agents-shipgate/mcp-tools.json",
+      "source_path": ".agents-shipgate/mcp-tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/1",
+      "risk_tags": [
+        "customer_communication",
+        "external_write"
+      ],
+      "risk_tag_confidence": {
+        "customer_communication": "high",
+        "external_write": "high"
+      },
+      "auth_scopes": [
+        "gmail:send"
+      ],
+      "owner": "support-platform",
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "external_communication",
+        "identity": {
+          "tool_id": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+          "status": "structural",
+          "provider": "support_mcp_tools",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_6a598e295d2d845f05a72faecd97fcf971b67c96a0aad092d9082c8e573df553",
+          "observation_ids": [
+            "obs_v1_6a598e295d2d845f05a72faecd97fcf971b67c96a0aad092d9082c8e573df553"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_6a598e295d2d845f05a72faecd97fcf971b67c96a0aad092d9082c8e573df553",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "mcp",
+                "source_id": "support_mcp_tools",
+                "native_locator": "gmail.send_customer_email"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "reachable_path": [
+            "agent_v1:7cb237a00d64b7400f4adc3b",
+            "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/1",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "conflicting_binding_evidence",
+              "dimension": "binding",
+              "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+              "source": "shipgate.yaml",
+              "source_pointer": "/agent_bindings/declarations/0"
+            }
+          ],
+          "pass_eligible": false
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_scope",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "scope": "gmail:send"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='gmail.send_customer_email'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "auth_scope",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "scope": "gmail:send"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "risk_hint:manual",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "manual",
+                "reason": "Communicates refund status but cannot move funds.",
+                "confidence": "manual"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "risk_hint:manual",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "manual",
+                "reason": "Communicates refund status but cannot move funds.",
+                "confidence": "manual"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "scoped",
+          "auth_type": "oauth2",
+          "credential_mode": "service_account",
+          "scopes": [
+            "gmail:send"
+          ],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='gmail.send_customer_email'].authority",
+              "evidence": {
+                "auth_type": "oauth2",
+                "credential_mode": "service_account",
+                "scopes": [
+                  "gmail:send"
+                ]
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "auth_type": "oauth2",
+                "scopes": [
+                  "gmail:send"
+                ],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [
+          "agent_v1:7cb237a00d64b7400f4adc3b",
+          "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7cb237a00d64b7400f4adc3b->tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/1",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [
+          {
+            "kind": "conflicting_binding_evidence",
+            "dimension": "binding",
+            "message": "Closed-world declaration for 'root' does not match the complete structural tool set.",
+            "source": "shipgate.yaml",
+            "source_pointer": "/agent_bindings/declarations/0"
+          }
+        ],
+        "pass_eligible": false
       }
     },
     {
@@ -7028,85 +9558,14 @@
       "auth_scopes": [],
       "owner": null,
       "confidence": "high",
-      "semantic_assessment": {
-        "conservative_effect": "write",
-        "identity": {
-          "tool_id": "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac",
-          "status": "structural",
-          "provider": "wildcard_mcp_tools",
-          "binding_id": null,
-          "primary_observation_id": "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298",
-          "observation_ids": [
-            "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298"
-          ],
-          "claims": [
-            {
-              "dimension": "identity",
-              "value": "obs_v1_7ab5a3762c9f308e499a7fde87c9569ded81c915ed7897560d87afa260a68298",
-              "confidence": "high",
-              "provenance_kind": "static_declaration",
-              "source": "source_observation",
-              "source_pointer": "/wildcard",
-              "evidence": {
-                "source_type": "mcp",
-                "source_id": "wildcard_mcp_tools",
-                "native_locator": "wildcard_mcp_tools.*"
-              }
-            }
-          ],
-          "issues": [],
-          "pass_eligible": true
-        },
-        "effect": {
-          "status": "protocol_default",
-          "confidence": "low",
-          "claims": [
-            {
-              "dimension": "effect",
-              "value": "write",
-              "confidence": "low",
-              "provenance_kind": "static_declaration",
-              "source": "mcp_protocol_default",
-              "source_pointer": "/wildcard",
-              "evidence": {
-                "reason": "missing effect annotations"
-              }
-            }
-          ],
-          "issues": [
-            {
-              "kind": "incomplete_surface",
-              "dimension": "effect",
-              "message": "tool surface enumeration is incomplete or not high confidence",
-              "source": "tool_extraction",
-              "source_pointer": "/wildcard"
-            },
-            {
-              "kind": "missing_effect_evidence",
-              "dimension": "effect",
-              "message": "MCP tool has no explicit or structural effect evidence",
-              "source": "mcp_protocol_default",
-              "source_pointer": "/wildcard"
-            }
-          ]
-        },
-        "authority": {
-          "status": "unknown",
-          "mode": "unknown",
-          "auth_type": null,
-          "credential_mode": null,
-          "scopes": [],
-          "claims": [],
-          "issues": [
-            {
-              "kind": "missing_authority_evidence",
-              "dimension": "authority",
-              "message": "tool has no explicit or structural authority evidence",
-              "source": "mcp",
-              "source_pointer": "/wildcard"
-            }
-          ]
-        },
+      "semantic_assessment": null,
+      "binding_assessment": {
+        "status": "unknown",
+        "confidence": "low",
+        "root_agent_id": "agent_v1:7cb237a00d64b7400f4adc3b",
+        "reachable_path": [],
+        "claims": [],
+        "issues": [],
         "pass_eligible": false
       }
     }
@@ -7116,11 +9575,11 @@
   ],
   "agent_summary": {
     "verdict": "blocked",
-    "headline": "5 active finding(s) block release; 15 review item(s) accepted as debt.",
+    "headline": "5 active finding(s) block release; 14 review item(s) accepted as debt.",
     "blocker_count": 5,
-    "review_item_count": 15,
+    "review_item_count": 14,
     "auto_appliable_patches": 0,
-    "needs_human_review": 20,
+    "needs_human_review": 19,
     "first_recommended_action": {
       "kind": "info",
       "command": null,
@@ -7156,9 +9615,9 @@
   },
   "reviewer_summary": {
     "verdict": "blocked",
-    "headline": "Release blocked: 20 lens changes. Start at release_decision.",
+    "headline": "Release blocked: 19 lens changes. Start at release_decision.",
     "tool_surface_changes": 0,
-    "capability_misalignments": 20,
+    "capability_misalignments": 19,
     "action_surface_changes": 0,
     "evidence_matrix_gaps": 0,
     "severity_overrides_applied": 0,
@@ -7204,7 +9663,7 @@
     "verdict": "blocked",
     "by_severity": {
       "critical": 3,
-      "high": 16,
+      "high": 15,
       "medium": 1
     },
     "by_reason_code": {
@@ -7213,7 +9672,6 @@
       "SHIP-AUTH-MANIFEST-BROAD-SCOPE": 1,
       "SHIP-AUTH-MISSING-SCOPE": 1,
       "SHIP-AUTH-SCOPE-COVERAGE-MISSING": 3,
-      "SHIP-INVENTORY-WILDCARD-TOOLS": 1,
       "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING": 1,
       "SHIP-MANIFEST-UNUSED-SCOPE": 1,
       "SHIP-POLICY-APPROVAL-MISSING": 1,

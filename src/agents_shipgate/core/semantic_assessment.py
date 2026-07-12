@@ -7,6 +7,7 @@ from typing import Any, cast
 from agents_shipgate.core.domain import (
     AuthorityMode,
     AuthoritySemanticAssessment,
+    BindingSemanticAssessment,
     EffectSemanticAssessment,
     Scope,
     SemanticClaim,
@@ -107,10 +108,12 @@ def assess_tool_semantics(
     effect, conservative_effect = _assess_effect(tool, declaration)
     authority = _assess_authority(tool, declaration)
     identity = tool.identity_assessment or _compat_identity_assessment(tool)
+    binding = tool.binding_assessment or _compat_binding_assessment(tool)
     surface_complete = _surface_is_complete(tool)
     extraction_complete = tool.extraction_confidence == "high"
     pass_eligible = (
         identity.pass_eligible
+        and binding.pass_eligible
         and surface_complete
         and extraction_complete
         and effect.status in {"declared", "structural"}
@@ -123,9 +126,35 @@ def assess_tool_semantics(
     return ToolSemanticAssessment(
         conservative_effect=conservative_effect,
         identity=identity,
+        binding=binding,
         effect=effect,
         authority=authority,
         pass_eligible=pass_eligible,
+    )
+
+
+def _compat_binding_assessment(tool: Tool) -> BindingSemanticAssessment:
+    """Compatibility for focused unit callers outside the scan pipeline.
+
+    Production scans always attach graph-derived binding evidence before this
+    resolver runs. Direct semantic unit tests model one already-selected tool.
+    """
+
+    claim = SemanticClaim(
+        dimension="binding",
+        value=f"legacy_direct->{tool.id}",
+        confidence="high",
+        provenance_kind="static_declaration",
+        source="compat_direct_binding",
+        source_pointer=tool.source_pointer or tool.source_ref,
+    )
+    return BindingSemanticAssessment(
+        status="structural",
+        confidence="high",
+        root_agent_id="legacy_direct",
+        reachable_path=["legacy_direct", tool.id],
+        claims=[claim],
+        pass_eligible=True,
     )
 
 

@@ -8,11 +8,22 @@
   local sub-workflows. Dynamic or unresolved tool surfaces emit
   `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE`; unsupported worker,
   HTTP, A2A, provider-native, and runtime-generated capabilities remain
-  explicit evidence gaps. Report schema advances from the frozen identity
-  contract v0.30 to v0.31; manifest v0.1, packet v0.9, and runtime contract
-  v12 remain unchanged. `conductor` is now a reserved built-in
+  explicit evidence gaps. Report schema advances from the frozen binding
+  contract v0.31 to v0.32; manifest v0.1, packet v0.10, and runtime contract
+  v13 remain unchanged. `conductor` is now a reserved built-in
   `tool_sources[].type` and may conflict with a third-party adapter that
   previously used the same source type.
+- **Root-reachable agent binding graph (P0, `0.16.0b2`).** Tool catalogs no
+  longer become an agent's capability surface by extraction alone. Framework
+  adapters emit static tool and handoff edges, `agent_bindings` supports exact
+  reviewed closed-world declarations, and partial, dynamic, ambiguous, or
+  conflicting graphs prevent `passed`. Reports separate `tool_catalog[]` from
+  root-reachable `tool_inventory[]` and publish binding facts, diffs, coverage,
+  evidence gaps, and human-routed remediation.
+- **Binding contract versions.** Runtime contract advances to v13; report to
+  v0.31; packet to v0.10; capability standard to v0.4; capability lock/diff to
+  v0.5/v0.6; action snapshot to v0.3; and safety qualification formats to v2.
+
 - **Provider-scoped canonical tool identity (P0).** Tool observations now get
   deterministic source-scoped IDs and same-name tools from different
   providers remain distinct. Cross-source evidence joins only through exact,

@@ -71,6 +71,15 @@ tool_sources:
   - id: catalog-api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: list_items, source_id: catalog-api}
+        - {tool: get_item, source_id: catalog-api}
+      handoffs: []
+      reason: reviewed parity fixture binding
 """
 
 

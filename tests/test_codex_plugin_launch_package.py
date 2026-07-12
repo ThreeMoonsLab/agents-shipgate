@@ -90,6 +90,13 @@ def test_agents_shipgate_codex_plugin_scans_without_plugin_findings(
                 type: codex_plugin
                 mode: marketplace
                 path: .agents/plugins/marketplace.json
+            agent_bindings:
+              declarations:
+                - agent: root
+                  complete: true
+                  tools: []
+                  handoffs: []
+                  reason: reviewed skill-only plugin has no callable tools
             output:
               packet:
                 enabled: false

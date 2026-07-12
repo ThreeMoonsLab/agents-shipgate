@@ -133,6 +133,7 @@ def render_markdown_report(
     _append_frameworks(lines, report)
     _append_codex_plugin_surface(lines, report)
     _append_findings_by_category(lines, report.findings)
+    _append_binding_surface(lines, report)
     _append_inventory(lines, report)
     lines.extend(["", "## Disclaimer", "", DISCLAIMER, ""])
     return "\n".join(lines)
@@ -949,9 +950,9 @@ def _append_findings_by_category(lines: list[str], findings: list[Finding]) -> N
 
 
 def _append_inventory(lines: list[str], report: ReadinessReport) -> None:
-    lines.extend(["## Appendix: Normalized Tool Inventory", ""])
+    lines.extend(["## Appendix: Root-Reachable Tool Inventory", ""])
     if not report.tool_inventory:
-        lines.extend(["No tools were enumerated.", ""])
+        lines.extend(["No tools were proven reachable from the root agent.", ""])
         return
     lines.append("| Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |")
     lines.append("| --- | --- | --- | --- | --- | --- |")
@@ -966,6 +967,41 @@ def _append_inventory(lines: list[str], report: ReadinessReport) -> None:
             f"| {name} | {source_type} | {risk_tags} | {risk_confidence} | {scopes} | {owner} |"
         )
     lines.append("")
+
+
+def _append_binding_surface(lines: list[str], report: ReadinessReport) -> None:
+    graph = report.binding_surface_facts
+    lines.extend(["## Agent Binding Surface", ""])
+    lines.append(f"Status: {_safe_markdown_text(graph.status)}")
+    lines.append(f"Root agent: {_safe_markdown_text(graph.root_agent_id or 'unresolved')}")
+    lines.append(f"Pass eligible: {str(graph.pass_eligible).lower()}")
+    lines.append(
+        "Catalog partition: "
+        f"{len(graph.reachable_tool_ids)} reachable, "
+        f"{len(graph.possible_tool_ids)} possible, "
+        f"{len(graph.unbound_tool_ids)} unbound"
+    )
+    if graph.issues:
+        lines.append("")
+        lines.append("Binding gaps:")
+        for issue in graph.issues:
+            lines.append(
+                f"- `{_safe_markdown_text(issue.kind)}` — "
+                f"{_safe_markdown_text(issue.message)}"
+            )
+    lines.append("")
+
+    if report.tool_catalog and len(report.tool_catalog) != len(report.tool_inventory):
+        lines.extend(["### Unbound Catalog Entries", ""])
+        reachable = set(graph.reachable_tool_ids)
+        for tool in report.tool_catalog:
+            if tool.get("tool_id") in reachable:
+                continue
+            lines.append(
+                f"- `{_safe_markdown_text(tool.get('name') or '-')}` "
+                f"({_safe_markdown_text(tool.get('source_type') or '-')})"
+            )
+        lines.append("")
 
 
 def _human_status(status: str) -> str:

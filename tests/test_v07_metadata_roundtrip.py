@@ -240,7 +240,7 @@ def test_package_version_is_current_in_tree_runtime():
     """Guard against bumping schemas while leaving package metadata behind."""
     import agents_shipgate
 
-    assert agents_shipgate.__version__ == "0.16.0b1", (
+    assert agents_shipgate.__version__ == "0.16.0b2", (
         f"package version is {agents_shipgate.__version__!r}; "
-        "expected 0.16.0b1 for the current in-tree runtime"
+        "expected 0.16.0b2 for the current in-tree runtime"
     )

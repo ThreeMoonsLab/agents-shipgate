@@ -236,8 +236,9 @@ openai_api:
         ci_mode="advisory",
     )
 
-    assert report.tool_surface.sources == {"openai_api": 1, "openapi": 1}
-    assert len({row["tool_id"] for row in report.tool_inventory}) == 2
+    assert report.tool_surface.sources == {}
+    assert {row["provider"] for row in report.tool_catalog} == {"openai_api", "openapi"}
+    assert len({row["tool_id"] for row in report.tool_catalog}) == 2
     assert not any("Duplicate tool name" in warning for warning in report.source_warnings)
 
 

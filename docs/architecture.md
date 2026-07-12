@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-07-09; auto-checked against `agents-shipgate contract --json`:
-runtime contract `12`, report schema `v0.31`, packet schema `v0.9`.
+runtime contract `13`, report schema `v0.32`, packet schema `v0.10`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -327,9 +327,9 @@ bounds parsed from factories are counted in `source.toolkit_bound_count`
 but are not yet emitted as capability facts, so widening a dynamic
 factory's authority bound is a known limitation until a later phase
 adds non-enumerable authority facts. The current schema is
-[`capability-lock-schema.v0.4.json`](capability-lock-schema.v0.4.json);
+[`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json);
 diff artifacts use
-[`capability-lock-diff-schema.v0.5.json`](capability-lock-diff-schema.v0.5.json).
+[`capability-lock-diff-schema.v0.6.json`](capability-lock-diff-schema.v0.6.json).
 Both carry `experimental: false`. Old experimental v0.1 lock inputs
 remain readable by `capability diff`, but new exports use v0.3 and carry the
 normalized semantic assessment beside each capability fact.
@@ -520,7 +520,7 @@ containment); files larger than 10 MB rejected.
 
 `scan` emits a reviewer-shaped artifact alongside `report.{md,json,sarif}`
 whenever `output.packet.enabled` is true (default). The packet has its
-own JSON contract ([`packet-schema.v0.9.json`](packet-schema.v0.9.json))
+own JSON contract ([`packet-schema.v0.10.json`](packet-schema.v0.10.json))
 so the report schema stays minimal.
 
 The packet is derived from the in-memory scan (manifest, tools,
@@ -626,7 +626,7 @@ time, not at scan time.
 
 `harness/adoption/` (not packaged in the wheel) drives realistic
 cold-agent flows across 8 benchmark repos (OpenAI Agents SDK, MCP,
-OpenAPI, LangChain, Google ADK, CrewAI, n8n, Conductor OSS, and a clean read-only
+OpenAPI, LangChain, Google ADK, CrewAI, n8n, and a clean read-only
 repo) plus a `non-agent-negative-control` harness context (9 entries
 total). Success measured against a 100-point
 rubric in [`agent-adoption-harness.md`](agent-adoption-harness.md):
@@ -664,10 +664,10 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.31"`; older schemas frozen as
+  `report_schema_version: "0.32"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
-  `packet_schema_version: "0.9"`; older schemas frozen.
+  `packet_schema_version: "0.10"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
   `baseline verify` only), `20` strict-mode gate failure.

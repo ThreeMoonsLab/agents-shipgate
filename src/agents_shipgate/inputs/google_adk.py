@@ -530,6 +530,7 @@ class _PythonAdkExtractor:
             self.artifacts.agents.append(
                 {
                     "name": agent_name,
+                    "source_id": self.source_id,
                     "source_ref": self.source_ref,
                     "instruction_present": bool(_kwarg_string(call, "instruction")),
                     "instruction_preview": _kwarg_string(call, "instruction"),
@@ -702,7 +703,11 @@ class _PythonAdkExtractor:
             output_schema={"type": _json_schema_type(return_type)} if return_type else {},
             parameters=parameters,
             function_signature=signature,
-            annotations={"adk_agent_name": agent_name, "long_running": long_running},
+            annotations={
+                "adk_agent_name": agent_name,
+                "adk_agent_source_id": self.source_id,
+                "long_running": long_running,
+            },
             auth=AuthInfo(source="google_adk_static"),
             extraction_confidence="medium",
             extraction={"method": "google_adk_python_ast", "confidence": "medium"},
@@ -747,6 +752,7 @@ class _PythonAdkExtractor:
         for tool in loaded.tools:
             tool.annotations["adk_toolset"] = "OpenAPIToolset"
             tool.annotations["adk_agent_name"] = agent_name
+            tool.annotations["adk_agent_source_id"] = self.source_id
         return [loaded]
 
     def _extract_mcp_toolset(self, call: ast.Call, agent_name: str) -> list[LoadedToolSource]:
@@ -782,6 +788,7 @@ class _PythonAdkExtractor:
         for tool in loaded.tools:
             tool.annotations["adk_toolset"] = "McpToolset"
             tool.annotations["adk_agent_name"] = agent_name
+            tool.annotations["adk_agent_source_id"] = self.source_id
         return [loaded]
 
     def _record_agent_callbacks_plugins_subagents(self, call: ast.Call, agent_name: str) -> None:
@@ -805,10 +812,21 @@ class _PythonAdkExtractor:
                 )
             elif keyword.arg == "sub_agents":
                 sub_agent_count = len(keyword.value.elts) if isinstance(keyword.value, ast.List | ast.Tuple) else None
+                sub_agent_names = (
+                    [
+                        name
+                        for item in keyword.value.elts
+                        if (name := _qualified_name(item, self.aliases)) is not None
+                    ]
+                    if isinstance(keyword.value, ast.List | ast.Tuple)
+                    else []
+                )
                 self.artifacts.sub_agents.append(
                     {
                         "agent_name": agent_name,
+                        "source_id": self.source_id,
                         "sub_agent_count": sub_agent_count,
+                        "sub_agents": sub_agent_names,
                         "source_ref": f"{self.source_ref}:{call.lineno}",
                     }
                 )

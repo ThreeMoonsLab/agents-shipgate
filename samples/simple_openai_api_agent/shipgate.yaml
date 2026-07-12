@@ -38,6 +38,16 @@ openai_api:
   policy_rules:
     - path: policies/openai-api-policy.yaml
 
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: create_refund}
+        - {tool: send_customer_email}
+      handoffs: []
+      reason: reviewed OpenAI API fixture binding
+
 action_surface:
   actions:
     - tool: create_refund

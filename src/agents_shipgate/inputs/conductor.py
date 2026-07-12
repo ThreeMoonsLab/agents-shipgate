@@ -657,6 +657,16 @@ class _ConductorExtractor:
                 "task_type": "CALL_MCP_TOOL",
                 "task_reference_name": task_ref,
                 "schema_partial": True,
+                "agent_bindings": [
+                    {
+                        "agent": record.name,
+                        "source_id": record.source.id,
+                        "edge_type": "workflow",
+                        "source": record.source_path,
+                        "source_pointer": task_pointer,
+                        "complete": True,
+                    }
+                ],
                 **{
                     key: value
                     for key, value in fact.items()

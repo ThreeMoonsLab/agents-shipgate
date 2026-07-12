@@ -73,6 +73,7 @@ def _tools_from_tool_node(
     node_by_id: dict[str, _NodeItem],
     node_by_name: dict[str, _NodeItem],
     record_node_findings: bool = True,
+    bound_agent_names: list[str] | None = None,
 ) -> list[Tool]:
     # Late import: workflows.py owns the record builders + dynamic-
     # surface emitter. Loading them at call time keeps the
@@ -105,7 +106,7 @@ def _tools_from_tool_node(
         )
 
     if kind == "mcp_client_tool":
-        return _mcp_client_tools(
+        mcp_tools = _mcp_client_tools(
             item,
             source_id=source_id,
             source_path=source_path,
@@ -115,6 +116,20 @@ def _tools_from_tool_node(
             artifacts=artifacts,
             warnings=warnings,
         )
+        for tool in mcp_tools:
+            if not exposed_by_mcp:
+                for agent_name in bound_agent_names or []:
+                    tool.annotations.setdefault("agent_bindings", []).append(
+                        {
+                            "agent": agent_name,
+                            "source_id": workflow_id,
+                            "edge_type": "workflow",
+                            "source": source_path,
+                            "source_pointer": f"{source_path}#node:{item.node_id}",
+                            "complete": True,
+                        }
+                    )
+        return mcp_tools
     if record_node_findings and kind == "workflow_tool":
         _record_workflow_resolution(
             item,
@@ -135,6 +150,18 @@ def _tools_from_tool_node(
         source_type=source_type,
         exposed_by_mcp=exposed_by_mcp,
     )
+    if not exposed_by_mcp:
+        for agent_name in bound_agent_names or []:
+            tool.annotations.setdefault("agent_bindings", []).append(
+                {
+                    "agent": agent_name,
+                    "source_id": workflow_id,
+                    "edge_type": "workflow",
+                    "source": source_path,
+                    "source_pointer": f"{source_path}#node:{item.node_id}",
+                    "complete": True,
+                }
+            )
     if warning := tool_name_warning(tool.name):
         warnings.append(warning)
     _record_tool_artifact(kind, tool, item, source_path, workflow_id, artifacts)

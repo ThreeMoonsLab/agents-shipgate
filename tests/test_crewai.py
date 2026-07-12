@@ -296,5 +296,7 @@ crewai:
     assert "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE" not in {
         finding.check_id for finding in report.findings
     }
-    assert report.tool_inventory[0]["source_type"] == "crewai_inventory"
+    assert report.tool_catalog[0]["source_type"] == "crewai_inventory"
+    assert report.tool_inventory == []
+    assert report.binding_surface_facts.status == "partial"
     assert doctor["frameworks"]["crewai"]["tool_inventory_file_count"] == 1

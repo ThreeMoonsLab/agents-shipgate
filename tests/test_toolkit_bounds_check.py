@@ -106,7 +106,7 @@ def test_scan_of_stripe_head_fixture_names_the_unbounded_toolkit(tmp_path: Path)
     # The finding must point at the constructor, not shipgate.yaml.
     source = matches[0].get("source") or {}
     assert (source.get("path") or "").endswith("support_agent.py"), source
-    # Phase 2c: the named high concern elevates the verdict out of the vague
-    # insufficient_evidence into an actionable review_required (the pilot's
-    # silent/IE case is now a routed human review).
-    assert report["release_decision"]["decision"] == "review_required"
+    # The toolkit remains only possibly reachable because its binding graph is
+    # incomplete. The named finding stays visible, while the verdict remains
+    # fail-closed on missing binding evidence.
+    assert report["release_decision"]["decision"] == "insufficient_evidence"

@@ -1,4 +1,4 @@
-# Stability Contract · 0.16.0b1
+# Stability Contract · 0.16.0b2
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -6,10 +6,29 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.31`) is still additive-versioned and
+(`report_schema_version`, currently `0.32`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-0-16-0b2"></a>
+
+## Migration Note: 0.16.0b2
+
+Runtime contract `12 → 13`, report `0.30 → 0.31`, packet `0.9 → 0.10`,
+capability standard `0.3 → 0.4`, capability lock `0.4 → 0.5`, lock diff
+`0.5 → 0.6`, and action snapshot `0.2 → 0.3` add an explicit static
+agent-to-tool binding trust root. Extracted declarations now enter
+`tool_catalog[]`; only tools proven reachable from the selected root enter
+`tool_inventory[]`, actions, checks, capability facts, and locks.
+
+`agent_bindings` declarations are exact, reviewed, closed-world evidence.
+They cannot erase positive structural edges, and coding agents must not infer
+or auto-apply them. Missing, partial, dynamic, ambiguous, or conflicting
+binding evidence is unsuppressible and prevents `passed`. Pre-v0.31 binding
+surfaces and pre-v0.5 capability locks must be regenerated before comparison.
 
 ---
 
@@ -40,9 +59,9 @@ removed. Reports before v0.30 and capability locks before v0.4 are not
 identity-comparable and must be regenerated.
 
 The built-in Conductor OSS workflow adapter additively advances the report
-schema `0.30 → 0.31` by defining the required `frameworks.conductor` summary.
-Report v0.30 remains frozen as the provider-scoped identity contract. Manifest
-schema `0.1`, packet schema `0.9`, and runtime contract `12` are unchanged.
+schema `0.31 → 0.32` by defining the required `frameworks.conductor` summary.
+Report v0.31 remains frozen as the root-reachable binding contract. Manifest
+schema `0.1`, packet schema `0.10`, and runtime contract `13` are unchanged.
 `conductor` is now a reserved built-in `tool_sources[].type`; installations
 with a third-party adapter using that source type must rename the plugin type.
 
@@ -1089,7 +1108,7 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.9)
+### Release Evidence Packet (v0.10)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
 artifact governed by [`docs/packet-schema.v0.9.json`](docs/packet-schema.v0.9.json).

@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.31",
-  "run_id": "agents_shipgate_7717a23471c77185",
+  "report_schema_version": "0.32",
+  "run_id": "agents_shipgate_3189f29f2db532fe",
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
@@ -584,6 +584,15 @@
         "ambiguous_name_count": 0,
         "gap_count": 0,
         "reason_counts": {}
+      },
+      "binding_coverage": {
+        "total_catalog_tools": 2,
+        "reachable_tools": 2,
+        "possible_tools": 0,
+        "unbound_tools": 0,
+        "pass_eligible": true,
+        "gap_count": 0,
+        "reason_counts": {}
       }
     },
     "baseline_delta": {
@@ -813,6 +822,31 @@
           "issues": [],
           "pass_eligible": true
         },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+          "reachable_path": [
+            "agent_v1:3e1354866b28ba54f69c8e73",
+            "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/0",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
         "effect": {
           "status": "declared",
           "confidence": "high",
@@ -935,6 +969,31 @@
                 "source_type": "openai_api",
                 "source_id": "openai_api",
                 "native_locator": "tools/openai-tools.json#1#send_customer_email"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+          "reachable_path": [
+            "agent_v1:3e1354866b28ba54f69c8e73",
+            "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/1",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
               }
             }
           ],
@@ -1787,7 +1846,7 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.2",
+    "snapshot_version": "0.3",
     "actions": [
       {
         "action_id": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_9d10be42545cd7457766e72c52ab9ba754eee7aa97c9613ae60ba4bc4048af82",
@@ -1829,6 +1888,31 @@
                   "source_type": "openai_api",
                   "source_id": "openai_api",
                   "native_locator": "tools/openai-tools.json#1#send_customer_email"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+            "reachable_path": [
+              "agent_v1:3e1354866b28ba54f69c8e73",
+              "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/1",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
                 }
               }
             ],
@@ -1994,6 +2078,31 @@
             "issues": [],
             "pass_eligible": true
           },
+          "binding": {
+            "status": "declared",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+            "reachable_path": [
+              "agent_v1:3e1354866b28ba54f69c8e73",
+              "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "agent_binding_declaration",
+                "source_pointer": "/agent_bindings/declarations/0/tools/0",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -2123,8 +2232,60 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
+    ]
+  },
+  "binding_surface_facts": {
+    "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+    "status": "declared",
+    "agents": [
+      {
+        "agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+        "name": "root",
+        "source_id": null,
+        "source_ref": "shipgate.yaml",
+        "source_pointer": null
+      }
     ],
-    "tool_id": null
+    "tool_edges": [
+      {
+        "agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+        "tool_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/1",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+        "tool_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "static_declaration",
+        "source": "agent_binding_declaration",
+        "source_pointer": "/agent_bindings/declarations/0/tools/0",
+        "complete": true
+      }
+    ],
+    "handoff_edges": [],
+    "reachable_tool_ids": [
+      "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+      "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865"
+    ],
+    "possible_tool_ids": [],
+    "unbound_tool_ids": [],
+    "issues": [],
+    "pass_eligible": true
+  },
+  "binding_surface_diff": {
+    "enabled": false,
+    "base_report_schema_version": null,
+    "added_reachable_tool_ids": [],
+    "removed_reachable_tool_ids": [],
+    "added_handoffs": [],
+    "removed_handoffs": [],
+    "notes": []
   },
   "capability_runtime_evidence": {
     "enabled": true,
@@ -3122,8 +3283,8 @@
     "Declare operation-specific auth scopes for send_customer_email, or explicitly declare anonymous authority when the operation requires no credentials."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/tmp/shipgate-golden-simple_openai_api_agent/report.md",
+    "json": "/private/tmp/shipgate-golden-simple_openai_api_agent/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -3177,6 +3338,31 @@
                 "source_type": "openai_api",
                 "source_id": "openai_api",
                 "native_locator": "tools/openai-tools.json#1#send_customer_email"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+          "reachable_path": [
+            "agent_v1:3e1354866b28ba54f69c8e73",
+            "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/1",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
               }
             }
           ],
@@ -3259,6 +3445,31 @@
           "issues": []
         },
         "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+        "reachable_path": [
+          "agent_v1:3e1354866b28ba54f69c8e73",
+          "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/1",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
       }
     },
     {
@@ -3307,6 +3518,31 @@
                 "source_type": "openai_api",
                 "source_id": "openai_api",
                 "native_locator": "tools/openai-tools.json#0#create_refund"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+          "reachable_path": [
+            "agent_v1:3e1354866b28ba54f69c8e73",
+            "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/0",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
               }
             }
           ],
@@ -3378,6 +3614,384 @@
           "issues": []
         },
         "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+        "reachable_path": [
+          "agent_v1:3e1354866b28ba54f69c8e73",
+          "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/0",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    }
+  ],
+  "tool_catalog": [
+    {
+      "tool_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+      "name": "send_customer_email",
+      "provider": "openai_api",
+      "observation_ids": [
+        "obs_v1_6975b831c4f5ddcc793bb748ab778dfb271e6372197d26849a3c6a45ac5aefe8"
+      ],
+      "source_type": "openai_api",
+      "source_ref": "tools/openai-tools.json#1",
+      "source_path": "tools/openai-tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/1",
+      "risk_tags": [
+        "customer_communication",
+        "external_write",
+        "write"
+      ],
+      "risk_tag_confidence": {
+        "customer_communication": "high",
+        "external_write": "high",
+        "write": "medium"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "external_communication",
+        "identity": {
+          "tool_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+          "status": "structural",
+          "provider": "openai_api",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_6975b831c4f5ddcc793bb748ab778dfb271e6372197d26849a3c6a45ac5aefe8",
+          "observation_ids": [
+            "obs_v1_6975b831c4f5ddcc793bb748ab778dfb271e6372197d26849a3c6a45ac5aefe8"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_6975b831c4f5ddcc793bb748ab778dfb271e6372197d26849a3c6a45ac5aefe8",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "openai_api",
+                "source_id": "openai_api",
+                "native_locator": "tools/openai-tools.json#1#send_customer_email"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+          "reachable_path": [
+            "agent_v1:3e1354866b28ba54f69c8e73",
+            "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/1",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='send_customer_email'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "customer_communication",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "external_communication",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "external_write",
+                "hint_source": "keyword"
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:openai_api_keyword",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "tag": "write",
+                "hint_source": "openai_api_keyword"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "unscoped",
+          "auth_type": "api_key",
+          "credential_mode": "service_account",
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "unscoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='send_customer_email'].authority",
+              "evidence": {
+                "auth_type": "api_key",
+                "credential_mode": "service_account",
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+        "reachable_path": [
+          "agent_v1:3e1354866b28ba54f69c8e73",
+          "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/1",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    },
+    {
+      "tool_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+      "name": "create_refund",
+      "provider": "openai_api",
+      "observation_ids": [
+        "obs_v1_650c1e14249a3ef5447890a74dbb1d7b0c71682d4a1c61a888343a6381d6a10e"
+      ],
+      "source_type": "openai_api",
+      "source_ref": "tools/openai-tools.json#0",
+      "source_path": "tools/openai-tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/0",
+      "risk_tags": [
+        "financial_action",
+        "write"
+      ],
+      "risk_tag_confidence": {
+        "financial_action": "high",
+        "write": "medium"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "financial_write",
+        "identity": {
+          "tool_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+          "status": "structural",
+          "provider": "openai_api",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_650c1e14249a3ef5447890a74dbb1d7b0c71682d4a1c61a888343a6381d6a10e",
+          "observation_ids": [
+            "obs_v1_650c1e14249a3ef5447890a74dbb1d7b0c71682d4a1c61a888343a6381d6a10e"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_650c1e14249a3ef5447890a74dbb1d7b0c71682d4a1c61a888343a6381d6a10e",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "openai_api",
+                "source_id": "openai_api",
+                "native_locator": "tools/openai-tools.json#0#create_refund"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "declared",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+          "reachable_path": [
+            "agent_v1:3e1354866b28ba54f69c8e73",
+            "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "agent_binding_declaration",
+              "source_pointer": "/agent_bindings/declarations/0/tools/0",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='create_refund'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "financial_action",
+                "hint_source": "keyword",
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "effect",
+              "value": "write",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:openai_api_keyword",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "tag": "write",
+                "hint_source": "openai_api_keyword"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "unscoped",
+          "auth_type": "api_key",
+          "credential_mode": "service_account",
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "unscoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='create_refund'].authority",
+              "evidence": {
+                "auth_type": "api_key",
+                "credential_mode": "service_account",
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "declared",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:3e1354866b28ba54f69c8e73",
+        "reachable_path": [
+          "agent_v1:3e1354866b28ba54f69c8e73",
+          "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+            "confidence": "high",
+            "provenance_kind": "static_declaration",
+            "source": "agent_binding_declaration",
+            "source_pointer": "/agent_bindings/declarations/0/tools/0",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
       }
     }
   ],

@@ -4,6 +4,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents_shipgate.schemas.bindings import (
+    AgentBindingGraphAssessment,
+    BindingSurfaceDiff,
+)
 from agents_shipgate.schemas.capability_change import (
     CapabilityChangeBlock,
     EffectivePolicy,
@@ -322,6 +326,12 @@ class EvidenceGapAction(BaseModel):
         "provide_tool_binding",
         "resolve_tool_identity_conflict",
         "regenerate_identity_artifact",
+        "declare_agent_root",
+        "declare_agent_bindings",
+        "provide_static_binding_source",
+        "provide_complete_binding_graph",
+        "resolve_binding_conflict",
+        "regenerate_binding_artifact",
     ]
     command: str | None = None
     path: str | None = None
@@ -367,6 +377,14 @@ class EvidenceGap(BaseModel):
         "ambiguous_tool_selector",
         "ambiguous_legacy_tool_identity",
         "invalid_tool_binding",
+        "missing_binding_evidence",
+        "partial_binding_evidence",
+        "conflicting_binding_evidence",
+        "ambiguous_root_agent",
+        "unresolved_agent_binding",
+        "unresolved_bound_tool",
+        "incomplete_handoff_graph",
+        "invalid_binding_annotation",
     ]
     subject: str
     source_type: str | None = None
@@ -403,6 +421,16 @@ class IdentityCoverageDecision(BaseModel):
     reason_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class BindingCoverageDecision(BaseModel):
+    total_catalog_tools: int = 0
+    reachable_tools: int = 0
+    possible_tools: int = 0
+    unbound_tools: int = 0
+    pass_eligible: bool = False
+    gap_count: int = 0
+    reason_counts: dict[str, int] = Field(default_factory=dict)
+
+
 class EvidenceCoverageDecision(BaseModel):
     level: str
     human_review_recommended: bool
@@ -417,6 +445,7 @@ class EvidenceCoverageDecision(BaseModel):
     # always populate it from Tool.semantic_assessment.
     semantic_coverage: SemanticCoverageDecision = Field(default_factory=SemanticCoverageDecision)
     identity_coverage: IdentityCoverageDecision = Field(default_factory=IdentityCoverageDecision)
+    binding_coverage: BindingCoverageDecision = Field(default_factory=BindingCoverageDecision)
 
 
 class BaselineDelta(BaseModel):
@@ -911,9 +940,10 @@ class ReadinessReport(BaseModel):
     # The release gate is unchanged; these are org-governance audit fields.
     # v0.29: additive semantic assessments and zero-tolerance semantic
     # evidence coverage make ``passed`` evidence-backed.
-    # v0.30: provider-scoped canonical tool identity and identity coverage.
-    # v0.31: additive Conductor OSS framework summary.
-    report_schema_version: str = "0.31"
+    # v0.30: provider-scoped canonical tool identity.
+    # v0.31: root-reachable agent binding facts, diffs, and coverage.
+    # v0.32: required Conductor OSS workflow summary fields.
+    report_schema_version: str = "0.32"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -945,6 +975,14 @@ class ReadinessReport(BaseModel):
     # static tool surface plus optional manifest action declarations.
     action_surface_facts: ActionSurfaceFacts = Field(default_factory=ActionSurfaceFacts)
     action_surface_diff: ActionSurfaceDiff = Field(default_factory=ActionSurfaceDiff)
+    binding_surface_facts: AgentBindingGraphAssessment = Field(
+        default_factory=lambda: AgentBindingGraphAssessment(
+            root_agent_id="legacy_direct",
+            status="structural",
+            pass_eligible=True,
+        )
+    )
+    binding_surface_diff: BindingSurfaceDiff = Field(default_factory=BindingSurfaceDiff)
     capability_runtime_evidence: CapabilityRuntimeEvidence = Field(
         default_factory=CapabilityRuntimeEvidence
     )
@@ -966,6 +1004,7 @@ class ReadinessReport(BaseModel):
     # constructing minimal reports keep working.
     loaded_adapters: list[dict[str, Any]] = Field(default_factory=list)
     tool_inventory: list[dict[str, Any]] = Field(default_factory=list)
+    tool_catalog: list[dict[str, Any]] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)
     # v0.12: top-level agent summary. Deterministic projection of
     # release_decision + findings[].agent_action. Optional at Python

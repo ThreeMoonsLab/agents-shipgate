@@ -1152,6 +1152,13 @@ tool_sources:
   - id: billing-api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: refund_customer, source_id: billing-api}]
+      handoffs: []
+      reason: reviewed action-diff fixture binding
 """
     (base / "shipgate.yaml").write_text(manifest_text, encoding="utf-8")
     (head / "shipgate.yaml").write_text(manifest_text, encoding="utf-8")
@@ -1225,6 +1232,13 @@ tool_sources:
   - id: billing-api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: refund_customer, source_id: billing-api}]
+      handoffs: []
+      reason: reviewed baseline-diff fixture binding
 """
     (base / "shipgate.yaml").write_text(manifest_text, encoding="utf-8")
     (head / "shipgate.yaml").write_text(manifest_text, encoding="utf-8")
@@ -1309,6 +1323,13 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: lookup, source_id: tools}]
+      handoffs: []
+      reason: reviewed action-policy fixture binding
 action_surface:
   actions:
     - tool: lookup
@@ -1386,6 +1407,13 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: lookup, source_id: tools}]
+      handoffs: []
+      reason: reviewed action-policy diff binding
 """
     head_manifest = (
         base_manifest

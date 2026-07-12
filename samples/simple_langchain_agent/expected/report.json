@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.31",
-  "run_id": "agents_shipgate_28870fb1e06fe1de",
+  "report_schema_version": "0.32",
+  "run_id": "agents_shipgate_5051fb83bfbcadad",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
     "name": "simple-langchain-agent"
@@ -83,6 +83,15 @@
         "bound_tools": 2,
         "pass_eligible_tools": 2,
         "ambiguous_name_count": 0,
+        "gap_count": 0,
+        "reason_counts": {}
+      },
+      "binding_coverage": {
+        "total_catalog_tools": 2,
+        "reachable_tools": 2,
+        "possible_tools": 0,
+        "unbound_tools": 0,
+        "pass_eligible": true,
         "gap_count": 0,
         "reason_counts": {}
       }
@@ -235,7 +244,7 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.2",
+    "snapshot_version": "0.3",
     "actions": [
       {
         "action_id": "agent:simple-langchain-agent/support-case-reader:action_v2_d0dd3e9ff4e2e56868595ef12e50a97b37c9619cad32007dd4155c3a8b5554a2",
@@ -291,6 +300,31 @@
                   "source_type": "langchain_function",
                   "source_id": "langchain_agent",
                   "native_locator": "agent.py#lookup_case"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "binding": {
+            "status": "structural",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+            "reachable_path": [
+              "agent_v1:e72499e3feb23dae6e706766",
+              "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+                "confidence": "high",
+                "provenance_kind": "ast_extraction",
+                "source": "agent.py",
+                "source_pointer": "agent.py:30",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
                 }
               }
             ],
@@ -455,6 +489,31 @@
             "issues": [],
             "pass_eligible": true
           },
+          "binding": {
+            "status": "structural",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+            "reachable_path": [
+              "agent_v1:e72499e3feb23dae6e706766",
+              "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+                "confidence": "high",
+                "provenance_kind": "ast_extraction",
+                "source": "agent.py",
+                "source_pointer": "agent.py:30",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -580,8 +639,60 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
+    ]
+  },
+  "binding_surface_facts": {
+    "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+    "status": "structural",
+    "agents": [
+      {
+        "agent_id": "agent_v1:e72499e3feb23dae6e706766",
+        "name": "agent",
+        "source_id": "langchain_agent",
+        "source_ref": "agent.py",
+        "source_pointer": "agent.py:30"
+      }
     ],
-    "tool_id": null
+    "tool_edges": [
+      {
+        "agent_id": "agent_v1:e72499e3feb23dae6e706766",
+        "tool_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "agent.py",
+        "source_pointer": "agent.py:30",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:e72499e3feb23dae6e706766",
+        "tool_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "agent.py",
+        "source_pointer": "agent.py:30",
+        "complete": true
+      }
+    ],
+    "handoff_edges": [],
+    "reachable_tool_ids": [
+      "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+      "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c"
+    ],
+    "possible_tool_ids": [],
+    "unbound_tool_ids": [],
+    "issues": [],
+    "pass_eligible": true
+  },
+  "binding_surface_diff": {
+    "enabled": false,
+    "base_report_schema_version": null,
+    "added_reachable_tool_ids": [],
+    "removed_reachable_tool_ids": [],
+    "added_handoffs": [],
+    "removed_handoffs": [],
+    "notes": []
   },
   "capability_runtime_evidence": {
     "enabled": false,
@@ -619,8 +730,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/tmp/shipgate-golden-simple_langchain_agent/report.md",
+    "json": "/private/tmp/shipgate-golden-simple_langchain_agent/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -691,6 +802,31 @@
           "issues": [],
           "pass_eligible": true
         },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+          "reachable_path": [
+            "agent_v1:e72499e3feb23dae6e706766",
+            "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "agent.py",
+              "source_pointer": "agent.py:30",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
         "effect": {
           "status": "declared",
           "confidence": "high",
@@ -755,6 +891,31 @@
           "issues": []
         },
         "pass_eligible": true
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+        "reachable_path": [
+          "agent_v1:e72499e3feb23dae6e706766",
+          "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "agent.py",
+            "source_pointer": "agent.py:30",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
       }
     },
     {
@@ -816,6 +977,31 @@
                 "source_type": "langchain_function",
                 "source_id": "langchain_agent",
                 "native_locator": "agent.py#lookup_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+          "reachable_path": [
+            "agent_v1:e72499e3feb23dae6e706766",
+            "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "agent.py",
+              "source_pointer": "agent.py:30",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
               }
             }
           ],
@@ -885,6 +1071,395 @@
           ],
           "issues": []
         },
+        "pass_eligible": true
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+        "reachable_path": [
+          "agent_v1:e72499e3feb23dae6e706766",
+          "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "agent.py",
+            "source_pointer": "agent.py:30",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    }
+  ],
+  "tool_catalog": [
+    {
+      "tool_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+      "name": "summarize_case",
+      "provider": "langchain_agent",
+      "observation_ids": [
+        "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+        "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73"
+      ],
+      "source_type": "langchain_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/1",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+          "status": "declared",
+          "provider": "langchain_agent",
+          "binding_id": "langchain_summarize_case",
+          "primary_observation_id": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+          "observation_ids": [
+            "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+            "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "langchain_inventory",
+                "source_id": "langchain_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#summarize_case"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "agent.py",
+              "evidence": {
+                "source_type": "langchain_structured_tool",
+                "source_id": "langchain_agent",
+                "native_locator": "agent.py#summarize_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+          "reachable_path": [
+            "agent_v1:e72499e3feb23dae6e706766",
+            "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "agent.py",
+              "source_pointer": "agent.py:30",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='summarize_case'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='summarize_case'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+        "reachable_path": [
+          "agent_v1:e72499e3feb23dae6e706766",
+          "tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "agent.py",
+            "source_pointer": "agent.py:30",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    },
+    {
+      "tool_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+      "name": "lookup_case",
+      "provider": "langchain_agent",
+      "observation_ids": [
+        "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+        "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7"
+      ],
+      "source_type": "langchain_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/0",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+          "status": "declared",
+          "provider": "langchain_agent",
+          "binding_id": "langchain_lookup_case",
+          "primary_observation_id": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+          "observation_ids": [
+            "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+            "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "langchain_inventory",
+                "source_id": "langchain_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#lookup_case"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "agent.py",
+              "evidence": {
+                "source_type": "langchain_function",
+                "source_id": "langchain_agent",
+                "native_locator": "agent.py#lookup_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+          "reachable_path": [
+            "agent_v1:e72499e3feb23dae6e706766",
+            "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "agent.py",
+              "source_pointer": "agent.py:30",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:e72499e3feb23dae6e706766",
+        "reachable_path": [
+          "agent_v1:e72499e3feb23dae6e706766",
+          "tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "agent.py",
+            "source_pointer": "agent.py:30",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
         "pass_eligible": true
       }
     }

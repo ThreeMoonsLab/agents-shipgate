@@ -649,7 +649,7 @@
           "type": "array"
         },
         "snapshot_version": {
-          "default": "0.2",
+          "default": "0.3",
           "title": "Snapshot Version",
           "type": "string"
         }
@@ -688,6 +688,298 @@
         "schema_hash"
       ],
       "title": "ActionSurfaceHashes",
+      "type": "object"
+    },
+    "AgentBindingGraphAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/$defs/AgentBindingNode"
+          },
+          "title": "Agents",
+          "type": "array"
+        },
+        "handoff_edges": {
+          "items": {
+            "$ref": "#/$defs/AgentHandoffBindingEdge"
+          },
+          "title": "Handoff Edges",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/AgentBindingIssue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "pass_eligible": {
+          "default": false,
+          "title": "Pass Eligible",
+          "type": "boolean"
+        },
+        "possible_tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Possible Tool Ids",
+          "type": "array"
+        },
+        "reachable_tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reachable Tool Ids",
+          "type": "array"
+        },
+        "root_agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Agent Id"
+        },
+        "status": {
+          "enum": [
+            "declared",
+            "structural",
+            "partial",
+            "unknown",
+            "conflicting"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool_edges": {
+          "items": {
+            "$ref": "#/$defs/AgentToolBindingEdge"
+          },
+          "title": "Tool Edges",
+          "type": "array"
+        },
+        "unbound_tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unbound Tool Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "AgentBindingGraphAssessment",
+      "type": "object"
+    },
+    "AgentBindingIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "kind": {
+          "enum": [
+            "missing_binding_evidence",
+            "partial_binding_evidence",
+            "conflicting_binding_evidence",
+            "ambiguous_root_agent",
+            "unresolved_agent_binding",
+            "unresolved_bound_tool",
+            "incomplete_handoff_graph",
+            "invalid_binding_annotation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "source_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pointer"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "title": "AgentBindingIssue",
+      "type": "object"
+    },
+    "AgentBindingNode": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pointer"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        }
+      },
+      "required": [
+        "agent_id",
+        "name"
+      ],
+      "title": "AgentBindingNode",
+      "type": "object"
+    },
+    "AgentHandoffBindingEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "default": true,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "edge_type": {
+          "enum": [
+            "subagent",
+            "handoff"
+          ],
+          "title": "Edge Type",
+          "type": "string"
+        },
+        "provenance_kind": {
+          "enum": [
+            "static_declaration",
+            "ast_extraction",
+            "keyword_heuristic",
+            "regex_heuristic",
+            "policy_pack",
+            "runtime_trace"
+          ],
+          "title": "Provenance Kind",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_agent_id": {
+          "title": "Source Agent Id",
+          "type": "string"
+        },
+        "source_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pointer"
+        },
+        "target_agent_id": {
+          "title": "Target Agent Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_agent_id",
+        "target_agent_id",
+        "edge_type",
+        "confidence",
+        "provenance_kind",
+        "source"
+      ],
+      "title": "AgentHandoffBindingEdge",
       "type": "object"
     },
     "AgentSummary": {
@@ -788,6 +1080,83 @@
         "why"
       ],
       "title": "AgentSummaryAction",
+      "type": "object"
+    },
+    "AgentToolBindingEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "complete": {
+          "default": true,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "edge_type": {
+          "enum": [
+            "direct_tool",
+            "tool_node",
+            "toolset",
+            "workflow",
+            "subagent",
+            "handoff"
+          ],
+          "title": "Edge Type",
+          "type": "string"
+        },
+        "provenance_kind": {
+          "enum": [
+            "static_declaration",
+            "ast_extraction",
+            "keyword_heuristic",
+            "regex_heuristic",
+            "policy_pack",
+            "runtime_trace"
+          ],
+          "title": "Provenance Kind",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Pointer"
+        },
+        "tool_id": {
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "tool_id",
+        "edge_type",
+        "confidence",
+        "provenance_kind",
+        "source"
+      ],
+      "title": "AgentToolBindingEdge",
       "type": "object"
     },
     "AppendPointerPatch": {
@@ -998,6 +1367,177 @@
       "title": "BaselineSummary",
       "type": "object"
     },
+    "BindingCoverageDecision": {
+      "properties": {
+        "gap_count": {
+          "default": 0,
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "pass_eligible": {
+          "default": false,
+          "title": "Pass Eligible",
+          "type": "boolean"
+        },
+        "possible_tools": {
+          "default": 0,
+          "title": "Possible Tools",
+          "type": "integer"
+        },
+        "reachable_tools": {
+          "default": 0,
+          "title": "Reachable Tools",
+          "type": "integer"
+        },
+        "reason_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Reason Counts",
+          "type": "object"
+        },
+        "total_catalog_tools": {
+          "default": 0,
+          "title": "Total Catalog Tools",
+          "type": "integer"
+        },
+        "unbound_tools": {
+          "default": 0,
+          "title": "Unbound Tools",
+          "type": "integer"
+        }
+      },
+      "title": "BindingCoverageDecision",
+      "type": "object"
+    },
+    "BindingSemanticEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/SemanticClaimEvidence"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/SemanticIssueEvidence"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "pass_eligible": {
+          "default": false,
+          "title": "Pass Eligible",
+          "type": "boolean"
+        },
+        "reachable_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reachable Path",
+          "type": "array"
+        },
+        "root_agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Agent Id"
+        },
+        "status": {
+          "enum": [
+            "declared",
+            "structural",
+            "partial",
+            "unknown",
+            "conflicting"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ],
+      "title": "BindingSemanticEvidence",
+      "type": "object"
+    },
+    "BindingSurfaceDiff": {
+      "additionalProperties": false,
+      "properties": {
+        "added_handoffs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added Handoffs",
+          "type": "array"
+        },
+        "added_reachable_tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added Reachable Tool Ids",
+          "type": "array"
+        },
+        "base_report_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Report Schema Version"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "removed_handoffs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed Handoffs",
+          "type": "array"
+        },
+        "removed_reachable_tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed Reachable Tool Ids",
+          "type": "array"
+        }
+      },
+      "title": "BindingSurfaceDiff",
+      "type": "object"
+    },
     "CapabilityChangeBlock": {
       "additionalProperties": false,
       "description": "The diff-derived capability delta, grouped by direction.\n\nReviewer-facing projection over ``action_surface_diff`` /\n``tool_surface_diff`` (roadmap \u00a77.1). Four member lists \u2014\n``added`` / ``removed`` / ``broadened`` / ``narrowed`` \u2014 plus\n``enabled`` (mirrors the surface-diff enabled flag: ``False`` when no\nbase is available, so the block is a stable empty shape rather than\nabsent). Never gates on its own.",
@@ -1114,6 +1654,7 @@
           "items": {
             "enum": [
               "identity_hash",
+              "binding_hash",
               "effect_hash",
               "authority_hash",
               "control_hash",
@@ -2534,6 +3075,9 @@
     },
     "EvidenceCoverageDecision": {
       "properties": {
+        "binding_coverage": {
+          "$ref": "#/$defs/BindingCoverageDecision"
+        },
         "evidence_gaps": {
           "items": {
             "$ref": "#/$defs/EvidenceGap"
@@ -2593,7 +3137,15 @@
             "unresolved_tool_selector",
             "ambiguous_tool_selector",
             "ambiguous_legacy_tool_identity",
-            "invalid_tool_binding"
+            "invalid_tool_binding",
+            "missing_binding_evidence",
+            "partial_binding_evidence",
+            "conflicting_binding_evidence",
+            "ambiguous_root_agent",
+            "unresolved_agent_binding",
+            "unresolved_bound_tool",
+            "incomplete_handoff_graph",
+            "invalid_binding_annotation"
           ],
           "title": "Kind",
           "type": "string"
@@ -2701,7 +3253,13 @@
             "qualify_tool_selector",
             "provide_tool_binding",
             "resolve_tool_identity_conflict",
-            "regenerate_identity_artifact"
+            "regenerate_identity_artifact",
+            "declare_agent_root",
+            "declare_agent_bindings",
+            "provide_static_binding_source",
+            "provide_complete_binding_graph",
+            "resolve_binding_conflict",
+            "regenerate_binding_artifact"
           ],
           "title": "Kind",
           "type": "string"
@@ -4181,6 +4739,7 @@
         "dimension": {
           "enum": [
             "identity",
+            "binding",
             "effect",
             "authority"
           ],
@@ -4275,6 +4834,7 @@
         "dimension": {
           "enum": [
             "identity",
+            "binding",
             "effect",
             "authority"
           ],
@@ -4296,7 +4856,15 @@
             "missing_authority_evidence",
             "partial_authority_evidence",
             "conflicting_authority_evidence",
-            "invalid_semantic_annotation"
+            "invalid_semantic_annotation",
+            "missing_binding_evidence",
+            "partial_binding_evidence",
+            "conflicting_binding_evidence",
+            "ambiguous_root_agent",
+            "unresolved_agent_binding",
+            "unresolved_bound_tool",
+            "incomplete_handoff_graph",
+            "invalid_binding_annotation"
           ],
           "title": "Kind",
           "type": "string"
@@ -4718,6 +5286,9 @@
       "properties": {
         "authority": {
           "$ref": "#/$defs/AuthoritySemanticEvidence"
+        },
+        "binding": {
+          "$ref": "#/$defs/BindingSemanticEvidence"
         },
         "conservative_effect": {
           "enum": [
@@ -6200,6 +6771,12 @@
       ],
       "default": null
     },
+    "binding_surface_diff": {
+      "$ref": "#/$defs/BindingSurfaceDiff"
+    },
+    "binding_surface_facts": {
+      "$ref": "#/$defs/AgentBindingGraphAssessment"
+    },
     "capability_change": {
       "$ref": "#/$defs/CapabilityChangeBlock"
     },
@@ -6249,24 +6826,6 @@
     "frameworks": {
       "additionalProperties": true,
       "properties": {
-        "conductor": {
-          "additionalProperties": true,
-          "required": [
-            "dynamic_tool_surface_count",
-            "human_checkpoint_count",
-            "llm_task_count",
-            "mcp_call_task_count",
-            "mcp_discovery_task_count",
-            "structurally_checkpointed_mcp_call_count",
-            "sub_workflow_task_count",
-            "task_count",
-            "unsupported_capability_count",
-            "warnings",
-            "workflow_count",
-            "workflow_file_count"
-          ],
-          "type": "object"
-        },
         "crewai": {
           "additionalProperties": true,
           "required": [
@@ -6455,6 +7014,14 @@
     },
     "summary": {
       "$ref": "#/$defs/ReportSummary"
+    },
+    "tool_catalog": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Tool Catalog",
+      "type": "array"
     },
     "tool_inventory": {
       "items": {

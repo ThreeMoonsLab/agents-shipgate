@@ -20,6 +20,7 @@ from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
 from agents_shipgate.core.tool_identity import ToolSelectorIndex
 from agents_shipgate.core.toolkit_scope import toolkit_bound_facts
 from agents_shipgate.schemas.baseline import BaselineFile
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
@@ -75,6 +76,7 @@ class ToolSurfaceDiffReference:
     # the reference is a baseline (no policy snapshot) or a pre-v0.22
     # report that predates the block.
     effective_policy: EffectivePolicy | None = None
+    binding_facts: AgentBindingGraphAssessment | None = None
 
 
 def build_tool_surface_facts(
@@ -926,18 +928,28 @@ def _reference_from_report_payload(
         # Present on v0.22+ base reports; None for older bases (the
         # weakening checks degrade safely when it is absent).
         effective_policy=report.effective_policy,
+        binding_facts=(
+            report.binding_surface_facts
+            if "binding_surface_facts" in payload
+            and _schema_version_at_least(report.report_schema_version, "0.31")
+            else None
+        ),
     )
 
 
 def _report_schema_precedes_semantic_diff(value: Any) -> bool:
+    return not _schema_version_at_least(value, _SEMANTIC_DIFF_REPORT_SCHEMA_VERSION)
+
+
+def _schema_version_at_least(value: Any, minimum_value: str) -> bool:
     if not isinstance(value, str):
-        return True
+        return False
     try:
         current = tuple(int(part) for part in value.split("."))
-        minimum = tuple(int(part) for part in _SEMANTIC_DIFF_REPORT_SCHEMA_VERSION.split("."))
+        minimum = tuple(int(part) for part in minimum_value.split("."))
     except ValueError:
-        return True
-    return current < minimum
+        return False
+    return current >= minimum
 
 
 def _reference_from_baseline_payload(

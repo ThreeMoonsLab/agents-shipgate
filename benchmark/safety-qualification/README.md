@@ -1,6 +1,6 @@
 # Evidence-Backed Pass Safety Qualification
 
-This directory is the runbook for the `0.16.0b1` beta safety qualification.
+This directory is the runbook for the `0.16.0b2` beta safety qualification.
 The repository does **not** ship fabricated human labels or a passing result.
 Until a real frozen corpus and its verifier receipts exist,
 `safety-qualification.json` must not be published as qualified.
@@ -11,12 +11,12 @@ The runner consumes four independently content-addressed inputs:
 
 1. A built `agents-shipgate` wheel. The runner reads wheel metadata without
    importing or executing it and records the wheel SHA-256.
-2. A `shipgate.safety_corpus/v1` JSON/YAML corpus. Every case has two blind,
+2. A `shipgate.safety_corpus/v2` JSON/YAML corpus. Every case has two blind,
    attributable labels (`security_governance` and `framework_tooling`), an
    evidence-backed final decision, a remediation condition, and a third-human
    adjudication for every disagreement. `frozen_labels_sha256` must match the
    canonical label payload.
-3. A `shipgate.safety_receipt_index/v1` JSON/YAML index created only after
+3. A `shipgate.safety_receipt_index/v2` JSON/YAML index created only after
    labels are frozen. It binds the exact wheel, corpus, labels, policy bundle,
    and one `shipgate.verify_run/v1` receipt per case.
 4. The qualification policy file(s) or directory. Directory hashing includes
@@ -24,8 +24,8 @@ The runner consumes four independently content-addressed inputs:
 
 Receipt entries must point to real `verify` artifacts. Each receipt needs
 successful base and head tree-bound runs plus content-addressed
-`verifier_json` and `report_json` artifacts. The report must use schema `0.30`,
-contain semantic coverage, and agree with the verifier receipt. Missing,
+`verifier_json` and `report_json` artifacts. The report must use schema `0.31`,
+contain binding and semantic coverage, and agree with the verifier receipt. Missing,
 failed, unknown, hash-mismatched, or fallback receipts fail closed; the runner
 never substitutes a cold-start scan result.
 
@@ -33,7 +33,8 @@ never substitutes a cold-start scan result.
 
 The CLI policy is fixed in code and has no threshold-relaxation flags:
 
-- 100 cases with exact MCP/OpenAPI/explicit-inventory/coding-agent strata:
+- 100 cases with exact declared MCP/OpenAPI, OpenAI Agents SDK,
+  LangChain/CrewAI, Google ADK, n8n, multi-agent/handoff, and coding-agent strata:
   30 `passed`, 20 `review_required`, 20 `insufficient_evidence`, 30 `blocked`.
 - At least 40 real-history, rejected/reverted, or design-partner cases.
 - Cohen's κ ≥ 0.80 across the two independent primary labels.
@@ -51,7 +52,7 @@ are marked `qualification_tier: test` and can never set
 
 ```bash
 PYTHONPATH=src python scripts/run_safety_qualification.py \
-  --wheel dist/agents_shipgate-0.16.0b1-py3-none-any.whl \
+  --wheel dist/agents_shipgate-0.16.0b2-py3-none-any.whl \
   --corpus /secure/frozen-corpus.json \
   --receipts /secure/receipt-index.json \
   --policy /secure/qualification-policy/ \

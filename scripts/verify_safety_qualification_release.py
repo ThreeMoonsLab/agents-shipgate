@@ -337,9 +337,12 @@ def verify_release_qualification(
 
     expected_matrix_profiles = {
         "all",
-        "mcp",
-        "openapi",
-        "explicit_framework_inventory",
+        "mcp_openapi_declared_binding",
+        "openai_agents_sdk",
+        "langchain_crewai",
+        "google_adk",
+        "n8n",
+        "multi_agent_handoffs",
         "coding_agent_trust_roots",
     }
     matrices = {matrix.profile: matrix for matrix in result.confusion_matrices}

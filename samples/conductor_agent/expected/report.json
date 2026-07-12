@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.31",
-  "run_id": "agents_shipgate_d88a8dce2e06ba18",
+  "report_schema_version": "0.32",
+  "run_id": "agents_shipgate_e38d61d6846ad002",
   "manifest_dir": "<REPO>/samples/conductor_agent",
   "project": {
     "name": "conductor-agent"
@@ -58,8 +58,8 @@
     "evidence_coverage": "mixed"
   },
   "release_decision": {
-    "decision": "review_required",
-    "reason": "2 findings need review and evidence coverage is incomplete.",
+    "decision": "insufficient_evidence",
+    "reason": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release.",
     "blockers": [],
     "review_items": [
       {
@@ -113,6 +113,45 @@
       "source_warning_count": 4,
       "low_confidence_tool_count": 1,
       "evidence_gaps": [
+        {
+          "kind": "partial_binding_evidence",
+          "subject": "agent_v1:7205d836e4b3fee257d90695",
+          "source_type": null,
+          "source_ref": "framework_extraction",
+          "why": "Conductor workflow tool bindings include dynamic or unresolved surfaces.",
+          "next_action": {
+            "kind": "provide_complete_binding_graph",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "A complete root-reachable static binding graph is required for passed.",
+            "expects": "Provide static wiring or an exact reviewed declaration for every reachable edge.",
+            "accepted_values": [
+              "literal_tools",
+              "literal_handoffs",
+              "complete:true"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": {
+              "agent_bindings": {
+                "root": {
+                  "source_id": "<REVIEW_REQUIRED>",
+                  "object": "<REVIEW_REQUIRED>"
+                },
+                "declarations": [
+                  {
+                    "agent": "root",
+                    "complete": true,
+                    "tools": [],
+                    "handoffs": [],
+                    "reason": "<REVIEW_REQUIRED>"
+                  }
+                ]
+              }
+            },
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
         {
           "kind": "incomplete_surface",
           "subject": "lookup_order [conductor_workflows]",
@@ -249,6 +288,17 @@
         "ambiguous_name_count": 0,
         "gap_count": 0,
         "reason_counts": {}
+      },
+      "binding_coverage": {
+        "total_catalog_tools": 1,
+        "reachable_tools": 1,
+        "possible_tools": 0,
+        "unbound_tools": 0,
+        "pass_eligible": false,
+        "gap_count": 1,
+        "reason_counts": {
+          "partial_binding_evidence": 1
+        }
       }
     },
     "baseline_delta": {
@@ -328,8 +378,8 @@
     }
   ],
   "release_consequence": {
-    "decision": "review_required",
-    "summary": "2 release-relevant finding(s) require release review before shipping.",
+    "decision": "insufficient_evidence",
+    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal \u2014 gather deeper sources before shipping.",
     "blocker_misalignment_count": 0,
     "review_misalignment_count": 2,
     "fail_policy": {
@@ -372,7 +422,7 @@
           "input_schema": "9e2fcd061b033258",
           "output_schema": "44136fa355b3678a",
           "parameters": "4f53cda18c2baa0c",
-          "annotations": "1925c38a95d6cee2"
+          "annotations": "a5145007db3246d9"
         }
       }
     ],
@@ -422,7 +472,7 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.2",
+    "snapshot_version": "0.3",
     "actions": [
       {
         "action_id": "agent:conductor-agent/durable-order-agent:action_v2_e44ea9ad0aa3c7deea46a01e5cbe1f3cf399916633fb94491e14fc6dd523eddd",
@@ -464,6 +514,31 @@
                   "source_type": "conductor_mcp_call",
                   "source_id": "conductor_workflows",
                   "native_locator": "workflows/order-agent.json#lookup_order"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "binding": {
+            "status": "structural",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+            "reachable_path": [
+              "agent_v1:7205d836e4b3fee257d90695",
+              "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+                "confidence": "high",
+                "provenance_kind": "ast_extraction",
+                "source": "workflows/order-agent.json",
+                "source_pointer": "/tasks/3",
+                "evidence": {
+                  "edge_type": "workflow",
+                  "complete": true
                 }
               }
             ],
@@ -588,6 +663,57 @@
     "notes": [
       "No action-surface comparison source was provided."
     ]
+  },
+  "binding_surface_facts": {
+    "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+    "status": "partial",
+    "agents": [
+      {
+        "agent_id": "agent_v1:7205d836e4b3fee257d90695",
+        "name": "durable_order_agent",
+        "source_id": "conductor_workflows",
+        "source_ref": "workflows/order-agent.json",
+        "source_pointer": "/tasks/3"
+      }
+    ],
+    "tool_edges": [
+      {
+        "agent_id": "agent_v1:7205d836e4b3fee257d90695",
+        "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+        "edge_type": "workflow",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "workflows/order-agent.json",
+        "source_pointer": "/tasks/3",
+        "complete": true
+      }
+    ],
+    "handoff_edges": [],
+    "reachable_tool_ids": [
+      "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+    ],
+    "possible_tool_ids": [],
+    "unbound_tool_ids": [],
+    "issues": [
+      {
+        "kind": "partial_binding_evidence",
+        "message": "Conductor workflow tool bindings include dynamic or unresolved surfaces.",
+        "agent_id": null,
+        "tool_id": null,
+        "source": "framework_extraction",
+        "source_pointer": null
+      }
+    ],
+    "pass_eligible": false
+  },
+  "binding_surface_diff": {
+    "enabled": false,
+    "base_report_schema_version": null,
+    "added_reachable_tool_ids": [],
+    "removed_reachable_tool_ids": [],
+    "added_handoffs": [],
+    "removed_handoffs": [],
+    "notes": []
   },
   "capability_runtime_evidence": {
     "enabled": false,
@@ -796,6 +922,31 @@
           "issues": [],
           "pass_eligible": true
         },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+          "reachable_path": [
+            "agent_v1:7205d836e4b3fee257d90695",
+            "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "workflows/order-agent.json",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "edge_type": "workflow",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
         "effect": {
           "status": "declared",
           "confidence": "high",
@@ -856,6 +1007,195 @@
           "issues": []
         },
         "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+        "reachable_path": [
+          "agent_v1:7205d836e4b3fee257d90695",
+          "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "workflows/order-agent.json",
+            "source_pointer": "/tasks/3",
+            "evidence": {
+              "edge_type": "workflow",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    }
+  ],
+  "tool_catalog": [
+    {
+      "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+      "name": "lookup_order",
+      "provider": "conductor_workflows",
+      "observation_ids": [
+        "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+      ],
+      "source_type": "conductor_mcp_call",
+      "source_ref": "workflows/order-agent.json",
+      "source_path": "workflows/order-agent.json",
+      "source_start_line": null,
+      "source_pointer": "/tasks/3",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "medium"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "medium",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+          "status": "structural",
+          "provider": "conductor_workflows",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+          "observation_ids": [
+            "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "source_type": "conductor_mcp_call",
+                "source_id": "conductor_workflows",
+                "native_locator": "workflows/order-agent.json#lookup_order"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+          "reachable_path": [
+            "agent_v1:7205d836e4b3fee257d90695",
+            "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "workflows/order-agent.json",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "edge_type": "workflow",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_order'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "tag": "read_only",
+                "hint_source": "keyword"
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "incomplete_surface",
+              "dimension": "effect",
+              "message": "tool surface enumeration is incomplete or not high confidence",
+              "source": "tool_extraction",
+              "source_pointer": "/tasks/3"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_order'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+        "reachable_path": [
+          "agent_v1:7205d836e4b3fee257d90695",
+          "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "workflows/order-agent.json",
+            "source_pointer": "/tasks/3",
+            "evidence": {
+              "edge_type": "workflow",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
       }
     }
   ],
@@ -866,8 +1206,8 @@
     "Conductor capability 'webSearch' at workflows/order-agent.json#/tasks/1 is recognized but not enumerated by the MCP-core v1 adapter."
   ],
   "agent_summary": {
-    "verdict": "review_required",
-    "headline": "2 finding(s) require human review. 2 findings need review and evidence coverage is incomplete.",
+    "verdict": "insufficient_evidence",
+    "headline": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release.",
     "blocker_count": 0,
     "review_item_count": 2,
     "auto_appliable_patches": 0,
@@ -875,7 +1215,7 @@
     "first_recommended_action": {
       "kind": "info",
       "command": null,
-      "why": "2 findings need review and evidence coverage is incomplete. A human must review the active high/critical finding(s), and you should gather deeper evidence (e.g. MCP/OpenAPI inputs, eval traces, additional source files) before re-running the scan; applying patches does not clear the evidence gap."
+      "why": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release. Surface this to the user and gather deeper evidence (e.g. MCP/OpenAPI inputs, eval traces, additional source files) before re-running the scan; applying patches does not clear an evidence verdict, so no machine-applicable fix is available."
     }
   },
   "policy_audit": {
@@ -906,8 +1246,8 @@
     "filtered_by_kind": {}
   },
   "reviewer_summary": {
-    "verdict": "review_required",
-    "headline": "Review required: 2 lens changes. Start at capability_intent_diff.",
+    "verdict": "insufficient_evidence",
+    "headline": "Evidence coverage below threshold: 2 lens changes. Start at release_decision.",
     "tool_surface_changes": 0,
     "capability_misalignments": 2,
     "action_surface_changes": 0,
@@ -917,10 +1257,10 @@
     "privacy_redactions": 0,
     "baseline_integrity_issues": 0,
     "first_recommended_surface": {
-      "kind": "lens",
-      "name": "capability_intent_diff",
-      "path": "report.misalignments",
-      "why": "The capability/intent diff surfaced misalignments between declared agent purpose and observed tool surface; read misalignments[] for the specifics."
+      "kind": "release_decision",
+      "name": "release_decision",
+      "path": "report.release_decision",
+      "why": "Evidence coverage is below threshold; read release_decision.reason and evidence_coverage."
     }
   },
   "capability_change": {
@@ -948,7 +1288,7 @@
     "outstanding": []
   },
   "verifier_summary": {
-    "verdict": "review_required",
+    "verdict": "insufficient_evidence",
     "by_severity": {
       "high": 2
     },

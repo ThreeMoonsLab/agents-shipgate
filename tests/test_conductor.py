@@ -55,7 +55,7 @@ def test_conductor_static_mcp_call_and_human_checkpoint(tmp_path):
         ci_mode="advisory",
     )
 
-    assert report.report_schema_version == "0.31"
+    assert report.report_schema_version == "0.32"
     surface = report.frameworks["conductor"]
     assert surface["workflow_count"] == 1
     assert surface["mcp_call_task_count"] == 1
@@ -64,6 +64,7 @@ def test_conductor_static_mcp_call_and_human_checkpoint(tmp_path):
     assert surface["dynamic_tool_surface_count"] == 0
     tool = next(item for item in report.tool_inventory if item["name"] == "lookup_order")
     assert tool["source_type"] == "conductor_mcp_call"
+    assert tool["tool_id"] in report.binding_surface_facts.reachable_tool_ids
     manifest = load_manifest(project / "shipgate.yaml")
     _, artifacts = load_conductor_artifacts(manifest, project)
     assert artifacts is not None
@@ -126,6 +127,7 @@ def test_conductor_dynamic_surfaces_have_precise_sources(tmp_path):
         "/tasks/1",
     }
     assert not any(item["source_type"] == "conductor_mcp_call" for item in report.tool_inventory)
+    assert not report.binding_surface_facts.pass_eligible
     assert report.release_decision.decision != "passed"
 
 
@@ -302,9 +304,9 @@ tool_sources:
     assert any("Optional Conductor source" in item for item in payload["warnings"])
 
 
-def test_report_schema_v031_pins_conductor_summary_fields():
+def test_report_schema_v032_pins_conductor_summary_fields():
     schema = json.loads(
-        Path("docs/report-schema.v0.31.json").read_text(encoding="utf-8")
+        Path("docs/report-schema.v0.32.json").read_text(encoding="utf-8")
     )
     conductor = schema["properties"]["frameworks"]["properties"]["conductor"]
     assert set(conductor["required"]) == {

@@ -6,6 +6,7 @@ from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 from agents_shipgate.schemas.manifest.action_surface import ActionSurfaceConfig
 from agents_shipgate.schemas.manifest.agent import AgentConfig
+from agents_shipgate.schemas.manifest.agent_bindings import AgentBindingsConfig
 from agents_shipgate.schemas.manifest.anthropic import AnthropicConfig
 from agents_shipgate.schemas.manifest.baseline import BaselineConfig
 from agents_shipgate.schemas.manifest.checks import ChecksConfig
@@ -55,6 +56,7 @@ class AgentsShipgateManifest(BaseModel):
     risk_overrides: RiskOverridesConfig = Field(default_factory=RiskOverridesConfig)
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
     action_surface: ActionSurfaceConfig = Field(default_factory=ActionSurfaceConfig)
+    agent_bindings: AgentBindingsConfig = Field(default_factory=AgentBindingsConfig)
     ci: CiConfig = Field(default_factory=CiConfig)
     baseline: BaselineConfig = Field(default_factory=BaselineConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)

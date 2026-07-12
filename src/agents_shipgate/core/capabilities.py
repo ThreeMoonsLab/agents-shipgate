@@ -58,6 +58,11 @@ def capability_fact_from_action(
     semantic_evidence = _semantic_evidence(action)
     hashes = CapabilityHashes(
         identity_hash=_capability_stable_hash(identity.model_dump(mode="json")),
+        binding_hash=_capability_stable_hash(
+            semantic_evidence.binding.model_dump(mode="json")
+            if semantic_evidence is not None
+            else {"status": "unknown"}
+        ),
         effect_hash=_capability_stable_hash(effect.model_dump(mode="json")),
         authority_hash=_capability_stable_hash(authority.model_dump(mode="json")),
         control_hash=_capability_stable_hash(controls.model_dump(mode="json")),
@@ -214,6 +219,11 @@ def capability_fact_from_action_fact(action: ActionFact) -> CapabilityFactV1:
     semantic_evidence = action.semantic_assessment
     hashes = CapabilityHashes(
         identity_hash=_capability_stable_hash(identity.model_dump(mode="json")),
+        binding_hash=_capability_stable_hash(
+            semantic_evidence.binding.model_dump(mode="json")
+            if semantic_evidence is not None
+            else {"status": "unknown"}
+        ),
         effect_hash=_capability_stable_hash(effect.model_dump(mode="json")),
         authority_hash=_capability_stable_hash(authority.model_dump(mode="json")),
         control_hash=_capability_stable_hash(controls.model_dump(mode="json")),

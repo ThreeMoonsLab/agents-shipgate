@@ -17,6 +17,7 @@ from agents_shipgate.inputs.common import (
     manifest_relative_path,
     schema_to_parameters,
     stable_tool_id,
+    strip_untrusted_binding_annotations,
 )
 from agents_shipgate.inputs.mcp import _mcp_auth_info, load_mcp_tools
 from agents_shipgate.schemas.manifest import ToolSourceConfig
@@ -61,6 +62,7 @@ class NormalizedMcpTool:
     source_start_line: int | None = None
     source_start_column: int | None = None
     unknown_schema: bool = False
+    rejected_binding_annotation_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -300,7 +302,7 @@ def _normalized_tools_for_server(
         config = config if isinstance(config, dict) else {}
         input_schema = _first_dict(config, _SCHEMA_KEYS)
         output_schema = _first_dict(config, _OUTPUT_SCHEMA_KEYS)
-        annotations = _annotations_from_tool_config(config)
+        annotations, rejected_binding_keys = _annotations_from_tool_config(config)
         unknown_schema = _unknown_schema(name, input_schema, annotations)
         annotations.update(
             _base_annotations(
@@ -328,6 +330,7 @@ def _normalized_tools_for_server(
                 owner=_text_or_none(config.get("owner")),
                 source_pointer=f"{source_pointer}/tools/{name}",
                 unknown_schema=unknown_schema,
+                rejected_binding_annotation_keys=tuple(rejected_binding_keys),
             )
         )
     return tools
@@ -369,11 +372,21 @@ def _loaded_source_from_servers(
     source_ref: str,
     servers: list[NormalizedMcpServer],
 ) -> LoadedToolSource:
+    warnings = [
+        (
+            f"Codex MCP tool {tool.name!r} on server {server.name!r} contains "
+            "reserved binding annotations that were ignored: "
+            f"{', '.join(tool.rejected_binding_annotation_keys)}"
+        )
+        for server in servers
+        for tool in server.tools
+        if tool.rejected_binding_annotation_keys
+    ]
     return LoadedToolSource(
         source_id=f"codex_config_mcp:{source_ref}",
         source_type="codex_config_mcp",
         tools=tools_from_normalized_mcp_servers(servers),
-        warnings=[],
+        warnings=warnings,
     )
 
 
@@ -458,9 +471,12 @@ def _base_annotations(
     return {key: value for key, value in annotations.items() if value is not None}
 
 
-def _annotations_from_tool_config(config: dict[str, Any]) -> dict[str, Any]:
+def _annotations_from_tool_config(
+    config: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
     raw = config.get("annotations")
-    annotations = dict(raw) if isinstance(raw, dict) else {}
+    base = dict(raw) if isinstance(raw, dict) else {}
+    annotations, rejected = strip_untrusted_binding_annotations(base)
     for key in ("readOnlyHint", "destructiveHint", "openWorldHint", "idempotentHint"):
         if key in config:
             annotations[key] = config[key]
@@ -469,7 +485,7 @@ def _annotations_from_tool_config(config: dict[str, Any]) -> dict[str, Any]:
     permission_classes = config.get("permission_classes") or config.get("permissions")
     if permission_classes is not None:
         annotations["shipgate_permission_classes"] = permission_classes
-    return annotations
+    return annotations, rejected
 
 
 def _unknown_schema(

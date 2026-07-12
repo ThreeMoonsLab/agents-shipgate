@@ -6,8 +6,8 @@ Target: local
 
 ## Release Decision
 
-Decision: review_required
-Reason: 2 findings need review and evidence coverage is incomplete.
+Decision: insufficient_evidence
+Reason: Evidence coverage below threshold \(1 semantic evidence gap\(s\) and 1 low-confidence tool\(s\) and 4 source warning\(s\)\); scan results are not trustworthy enough to gate release.
 
 Blockers (0): none
 
@@ -15,7 +15,7 @@ Review items (2):
 - HIGH SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE — Conductor tool surface cannot be statically enumerated
 - HIGH SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE — Conductor tool surface cannot be statically enumerated
 
-Evidence coverage: mixed (1 low-confidence tool(s); 4 source warning(s); 1 semantic evidence gap(s); 0/1 actions pass-eligible; human review recommended)
+Evidence coverage: mixed (1 low-confidence tool(s); 4 source warning(s); 1 binding evidence gap(s); 1/1 catalog tools reachable; 1 semantic evidence gap(s); 0/1 actions pass-eligible; human review recommended)
 
 Baseline delta: not enabled
 
@@ -76,8 +76,8 @@ Policy/control gaps:
 
 Release implication:
 
-- Decision: review\_required
-- 2 release-relevant finding\(s\) require release review before shipping.
+- Decision: insufficient\_evidence
+- Static evidence is incomplete; capability/intent analysis may miss release-relevant signal — gather deeper sources before shipping.
 
 Next validation:
 
@@ -144,7 +144,17 @@ Conductor OSS warnings:
 - HIGH: SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE - Conductor tool surface cannot be statically enumerated
 - HIGH: SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE - Conductor tool surface cannot be statically enumerated
 
-## Appendix: Normalized Tool Inventory
+## Agent Binding Surface
+
+Status: partial
+Root agent: agent\_v1:7205d836e4b3fee257d90695
+Pass eligible: false
+Catalog partition: 1 reachable, 0 possible, 0 unbound
+
+Binding gaps:
+- `partial\_binding\_evidence` — Conductor workflow tool bindings include dynamic or unresolved surfaces.
+
+## Appendix: Root-Reachable Tool Inventory
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |

@@ -425,6 +425,32 @@ belong to at most one binding. Equal names or providers never imply
 equivalence. Invalid, overlapping, or structurally conflicting bindings join
 nothing and prevent `passed`.
 
+## Agent Binding Surface
+
+`agent_bindings` declares the exact root agent and, when framework wiring is
+not completely statically visible, a reviewed closed-world tool/handoff set:
+
+```yaml
+agent_bindings:
+  root:
+    source_id: ops_sdk
+    object: ops_assistant
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: docs.lookup
+          source_id: docs_tools
+      handoffs: []
+      reason: reviewed against the deployed agent wiring
+```
+
+Catalog membership, action declarations, permissions, and controls never imply
+binding. `complete` must be `true`; the declaration is exact and may not erase
+positive structural edges. Empty `tools` and `handoffs` prove a zero-capability
+root. These are human-reviewed claims and must never be inferred or auto-filled
+by a coding agent.
+
 ## Action Surface Diff
 
 The optional top-level `action_surface:` block adds reviewer-facing action

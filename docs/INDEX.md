@@ -35,7 +35,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.31.json`](report-schema.v0.31.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.31"` and include the Conductor OSS framework summary)
+- [`report-schema.v0.32.json`](report-schema.v0.32.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.32"`, the Conductor OSS framework summary, root-reachable binding facts/diffs/coverage, normalized semantic assessments, and an explicit static-only verdict boundary)
+- [`report-schema.v0.31.json`](report-schema.v0.31.json) — frozen v0.31 root-reachable binding reference; pre-v0.32 reports validate against this
 - [`report-schema.v0.30.json`](report-schema.v0.30.json) — frozen v0.30 provider-scoped identity reference; pre-v0.31 reports validate against this
 - [`report-schema.v0.29.json`](report-schema.v0.29.json) — frozen v0.29 reference schema; pre-v0.30 reports validate against this
 - [`report-schema.v0.28.json`](report-schema.v0.28.json) — frozen v0.28 reference schema; pre-v0.29 reports validate against this
@@ -59,8 +60,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
 - [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — frozen v0.2 registry reference
-- [`capability-lock-schema.v0.4.json`](capability-lock-schema.v0.4.json) — current JSON Schema for `capabilities.lock.json`; adds normalized semantic assessments and remains non-gating
-- [`capability-lock-diff-schema.v0.5.json`](capability-lock-diff-schema.v0.5.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json) — current JSON Schema for `capabilities.lock.json`; adds binding hashes and remains non-gating
+- [`capability-lock-diff-schema.v0.6.json`](capability-lock-diff-schema.v0.6.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
 - [`capability-lock-schema.v0.2.json`](capability-lock-schema.v0.2.json) — frozen v0.2 capability-lock reference
 - [`capability-lock-diff-schema.v0.3.json`](capability-lock-diff-schema.v0.3.json) — frozen v0.3 capability-lock-diff reference
 - [`capability-lock-schema.v0.1.json`](capability-lock-schema.v0.1.json) — frozen experimental reference for old capability lock and diff artifacts; `capability diff` still accepts old lock inputs
@@ -92,7 +93,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.9.json`](packet-schema.v0.9.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.9"` and project current report semantic and identity coverage plus the static-only verdict boundary in §1)
+- [`packet-schema.v0.10.json`](packet-schema.v0.10.json) — JSON Schema for the Release Evidence Packet (current; emitted packets carry `packet_schema_version: "0.10"` and project current report binding/semantic coverage plus the static-only verdict boundary in §1)
+- [`packet-schema.v0.9.json`](packet-schema.v0.9.json) — frozen v0.9 reference packet schema; pre-v0.10 packets validate against this
 - [`packet-schema.v0.8.json`](packet-schema.v0.8.json) — frozen v0.8 reference packet schema; pre-v0.9 packets validate against this
 - [`packet-schema.v0.7.json`](packet-schema.v0.7.json) — frozen v0.7 reference packet schema; pre-v0.8 packets validate against this
 - [`packet-schema.v0.6.json`](packet-schema.v0.6.json) — frozen v0.6 reference packet schema; pre-v0.7 packets validate against this
@@ -108,8 +110,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`manifest-v0.1.example.minimal.yaml`](manifest-v0.1.example.minimal.yaml) — smallest valid manifest
 - [`manifest-v0.1.example.full.yaml`](manifest-v0.1.example.full.yaml) — every section populated
 - [`examples/capability-fact.v0.2.example.json`](examples/capability-fact.v0.2.example.json) — capability-standard v0.2 fact with normalized semantic evidence
-- [`examples/capability-lock.v0.4.example.json`](examples/capability-lock.v0.4.example.json) — current deterministic capability lock example
-- [`examples/capability-lock-diff.v0.5.example.json`](examples/capability-lock-diff.v0.5.example.json) — current semantic capability-lock diff example
+- [`examples/capability-lock.v0.5.example.json`](examples/capability-lock.v0.5.example.json) — current deterministic capability lock example
+- [`examples/capability-lock-diff.v0.6.example.json`](examples/capability-lock-diff.v0.6.example.json) — current semantic capability-lock diff example
 - [`../samples/`](../samples/) — runnable fixtures
 - [`../samples/_anti_patterns/`](../samples/_anti_patterns/) — manifests that intentionally fail validation
 

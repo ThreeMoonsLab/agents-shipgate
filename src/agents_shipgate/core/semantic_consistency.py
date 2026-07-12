@@ -35,6 +35,24 @@ def validate_semantic_consistency(
             raise SemanticConsistencyError(f"duplicate assessed tool identity for {tool.name!r}")
         assessments[key] = tool.semantic_assessment
 
+    assessed_ids = {key[0] for key in assessments}
+    graph = report.binding_surface_facts
+    if assessed_ids != set(graph.reachable_tool_ids):
+        raise SemanticConsistencyError(
+            "binding graph reachable tools do not match the assessed tool surface"
+        )
+    inventory_ids = {str(item.get("tool_id")) for item in report.tool_inventory}
+    if inventory_ids != assessed_ids:
+        raise SemanticConsistencyError("tool_inventory is not the reachable tool surface")
+    catalog_ids = {str(item.get("tool_id")) for item in report.tool_catalog}
+    graph_catalog_ids = (
+        set(graph.reachable_tool_ids)
+        | set(graph.possible_tool_ids)
+        | set(graph.unbound_tool_ids)
+    )
+    if catalog_ids != graph_catalog_ids:
+        raise SemanticConsistencyError("tool_catalog does not match binding graph partitions")
+
     actions = {
         (action.tool_id, action.source_id, action.source_ref): action
         for action in report.action_surface_facts.actions
@@ -90,6 +108,7 @@ def validate_semantic_consistency(
     if coverage.pass_eligible_actions != pass_eligible:
         raise SemanticConsistencyError("semantic pass_eligible_actions does not match assessments")
     identity_coverage = decision.evidence_coverage.identity_coverage
+    binding_coverage = decision.evidence_coverage.binding_coverage
     identity_eligible = sum(
         1 for assessment in assessments.values() if assessment.identity.pass_eligible
     )
@@ -99,6 +118,9 @@ def validate_semantic_consistency(
         raise SemanticConsistencyError("identity pass_eligible_tools does not match assessments")
     if decision.decision == "passed" and (
         coverage.gap_count
+        or binding_coverage.gap_count
+        or not graph.pass_eligible
+        or bool(graph.possible_tool_ids)
         or coverage.review_concern_count
         or identity_coverage.gap_count
         or identity_eligible != len(assessments)

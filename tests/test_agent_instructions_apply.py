@@ -190,7 +190,7 @@ def test_claude_command_current_file_matches_renderer() -> None:
 def test_local_contract_renderer_has_required_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "2"
-    assert payload["contract_version"] == "12"
+    assert payload["contract_version"] == "13"
     assert "verify_local" not in payload["primary_commands"]
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")

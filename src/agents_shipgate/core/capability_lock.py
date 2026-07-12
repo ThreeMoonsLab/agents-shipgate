@@ -176,6 +176,7 @@ def _lock_hashes(
                     {
                         "id": fact.id,
                         "identity_hash": fact.hashes.identity_hash,
+                        "binding_hash": fact.hashes.binding_hash,
                         "effect_hash": fact.hashes.effect_hash,
                         "authority_hash": fact.hashes.authority_hash,
                         "control_hash": fact.hashes.control_hash,
@@ -228,10 +229,23 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
 
 def _normalize_capability_lock_payload(payload: dict[str, Any]) -> dict[str, Any]:
     version = payload.get("capability_lock_schema_version")
-    if version in {"0.1", "0.2", "0.3"}:
+    if version in {"0.1", "0.2", "0.3", "0.4"}:
         normalized = dict(payload)
         normalized["capability_lock_schema_version"] = CAPABILITY_LOCK_SCHEMA_VERSION
         normalized["experimental"] = False
+        normalized["capabilities"] = [
+            {
+                **fact,
+                "hashes": {
+                    **fact.get("hashes", {}),
+                    "binding_hash": fact.get("hashes", {}).get(
+                        "binding_hash", "legacy_binding_unknown"
+                    ),
+                },
+            }
+            for fact in payload.get("capabilities", [])
+            if isinstance(fact, dict)
+        ]
         return normalized
     return payload
 
@@ -240,6 +254,7 @@ _CAPABILITY_STANDARD_BY_LOCK_SCHEMA = {
     "0.1": "0.1",
     "0.2": "0.1",
     "0.3": "0.2",
+    "0.4": "0.3",
     CAPABILITY_LOCK_SCHEMA_VERSION: CAPABILITY_STANDARD_VERSION,
 }
 

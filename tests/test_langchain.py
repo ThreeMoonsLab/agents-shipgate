@@ -224,9 +224,12 @@ tool_sources:
         ci_mode="advisory",
     )
 
-    assert {tool["name"] for tool in report.tool_inventory} == {
+    assert {tool["name"] for tool in report.tool_catalog} == {
         "summarize_case",
         "summarize_case_wrapped",
+    }
+    assert {tool["name"] for tool in report.tool_inventory} == {
+        "summarize_case_wrapped"
     }
     assert report.frameworks["langchain"]["dynamic_tool_surface_count"] == 1
     assert any("tool variable 'summarize_case' is reassigned" in w for w in report.source_warnings)
@@ -282,5 +285,7 @@ langchain:
     assert "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE" not in {
         finding.check_id for finding in report.findings
     }
-    assert report.tool_inventory[0]["source_type"] == "langchain_inventory"
+    assert report.tool_catalog[0]["source_type"] == "langchain_inventory"
+    assert report.tool_inventory == []
+    assert report.binding_surface_facts.status == "partial"
     assert doctor["frameworks"]["langchain"]["tool_inventory_file_count"] == 1

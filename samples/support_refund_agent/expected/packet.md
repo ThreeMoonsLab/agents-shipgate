@@ -3,9 +3,9 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_7429a94499efb630
+- Run id: agents\_shipgate\_5ad1a92a984aacac
 - Generated at: 2026-01-01T00:00:00\+00:00
-- Packet schema: 0\.9
+- Packet schema: 0\.10
 
 This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See §10 for what the packet does *not* prove.
 
@@ -14,7 +14,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - Decision: `blocked`
 - Reason: 5 active findings block release.
 - Blockers: 5
-- Review items: 15
+- Review items: 14
 
 ### CI gate behavior (informational)
 
@@ -23,34 +23,33 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ### Static semantic coverage
 
-- Pass-eligible actions: 6/8
-- Evidence gaps: 3
+- Pass-eligible actions: 0/7
+- Evidence gaps: 7
 - Known authority review concerns: 1
-- Reasons: incomplete\_surface=1, missing\_authority\_evidence=1, missing\_effect\_evidence=1, unscoped\_authority=1
+- Reasons: conflicting\_binding\_evidence=7, unscoped\_authority=1
 
 ### Blockers
 
-- `SHIP-POLICY-APPROVAL-MISSING` (critical): stripe.create\_refund lacks a declared approval policy — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:64`
-- `SHIP-SIDEFX-IDEMPOTENCY-MISSING` (critical): stripe.create\_refund lacks idempotency evidence — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:69`
+- `SHIP-POLICY-APPROVAL-MISSING` (critical): stripe.create\_refund lacks a declared approval policy — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:82`
+- `SHIP-SIDEFX-IDEMPOTENCY-MISSING` (critical): stripe.create\_refund lacks idempotency evidence — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:87`
 - `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` (high): gmail.send\_customer\_email has external communication capability without required controls — `.agents-shipgate/mcp-tools.json\#/tools/1`
 - `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` (high): stripe.create\_refund has external communication capability without required controls — `specs/support-tools.openapi.yaml:97`
 - `SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING` (critical): stripe.create\_refund has financial write capability without required controls — `specs/support-tools.openapi.yaml:97`
 
 ### Review items
 
-- `SHIP-INVENTORY-WILDCARD-TOOLS` (high): Wildcard tool exposure declared — `.agents-shipgate/wildcard-tools.json\#/wildcard`
 - `SHIP-SCHEMA-MISSING-BOUNDS` (high): stripe.create\_refund.amount has no maximum bound — `specs/support-tools.openapi.yaml:97`
 - `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): zendesk.update\_ticket accepts broad free-form action input — `specs/support-tools.openapi.yaml:142`
 - `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): gmail.send\_customer\_email accepts broad free-form action input — `.agents-shipgate/mcp-tools.json\#/tools/1`
-- `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes — `shipgate.yaml:73`
+- `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes — `shipgate.yaml:91`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): shopify.cancel\_order requires scopes not declared in the manifest — `specs/support-tools.openapi.yaml:116`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): support.search\_kb requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/0`
 - `SHIP-AUTH-MISSING-SCOPE` (high): refund\_status\_lookup lacks declared auth scopes — `specs/support-tools.openapi.yaml:72`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): gmail.send\_customer\_email requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/1`
 - `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (high): stripe.create\_refund appears to overlap with a prohibited action — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:22`
 - `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (high): gmail.send\_customer\_email appears to overlap with a prohibited action — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:24`
-- `SHIP-POLICY-CONFIRMATION-MISSING` (high): stripe.create\_refund lacks a declared confirmation policy — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:67`
-- `SHIP-POLICY-CONFIRMATION-MISSING` (high): gmail.send\_customer\_email lacks a declared confirmation policy — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:67`
+- `SHIP-POLICY-CONFIRMATION-MISSING` (high): stripe.create\_refund lacks a declared confirmation policy — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:85`
+- `SHIP-POLICY-CONFIRMATION-MISSING` (high): gmail.send\_customer\_email lacks a declared confirmation policy — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:85`
 - `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` (high): shopify.cancel\_order is high-risk but has no owner — `specs/support-tools.openapi.yaml:116`
 - `SHIP-MANIFEST-UNUSED-SCOPE` (medium): Manifest declares unused permission scope zendesk:tickets:read — `shipgate.yaml`
 
@@ -60,7 +59,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 | Domain | Evidence present | Evidence source | Confidence | Missing controls | Blocking findings | Review items |
 |---|---|---|---|---|---|---|
-| Inventory | partial | tool\_inventory; tool\_surface; \+2 more | high | SHIP-INVENTORY-WILDCARD-TOOLS on wildcard\_mcp\_tools.\*: Wildcard tool exposure declared | — | SHIP-INVENTORY-WILDCARD-TOOLS \(high\) |
+| Inventory | covered | tool\_inventory; tool\_surface; \+1 more | medium | — | — | — |
 | Schema | partial | tool\_surface\_facts.tools\[\].hashes; findings\[\] | mixed | SHIP-SCHEMA-MISSING-BOUNDS on stripe.create\_refund: stripe.create\_refund.amount has no maximum bound; SHIP-SCHEMA-BROAD-FREE-TEXT on zendesk.update\_ticket: zendesk.update\_ticket accepts broad free-form action input; \+1 more | — | SHIP-SCHEMA-MISSING-BOUNDS \(high\); SHIP-SCHEMA-BROAD-FREE-TEXT \(high\); \+1 more |
 | Auth | partial | tool\_surface\_facts.scopes; tool\_inventory\[\].auth\_scopes; \+1 more | mixed | SHIP-AUTH-MANIFEST-BROAD-SCOPE: Manifest declares broad permission scopes; SHIP-AUTH-SCOPE-COVERAGE-MISSING on shopify.cancel\_order: shopify.cancel\_order requires scopes not declared in the manifest; \+4 more | — | SHIP-AUTH-MANIFEST-BROAD-SCOPE \(high\); SHIP-AUTH-SCOPE-COVERAGE-MISSING \(high\); \+4 more |
 | Approval | partial | tool\_surface\_facts.controls\[kind=approval\_policy\]; findings\[\] | high | SHIP-POLICY-APPROVAL-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared approval policy; SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create\_refund: stripe.create\_refund has financial write capability without required controls | SHIP-POLICY-APPROVAL-MISSING \(critical\); SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING \(critical\) | — |
@@ -93,7 +92,6 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - shopify.cancel\_order
 - stripe.create\_refund
 - support.search\_kb
-- wildcard\_mcp\_tools.\*
 - zendesk.update\_ticket
 
 ### Divergences
@@ -103,7 +101,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ## §3 High-risk tool surface — partial
 
-- Total tools: 8 · High-risk: 3
+- Total tools: 7 · High-risk: 3
 
 | Tool | Source | Risk tags | Approval | Idempotency |
 |---|---|---|---|---|
@@ -212,8 +210,6 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
   - Related finding(s): fp\_519cb82f038efd10
 - **Manual review for SHIP-AUTH-SCOPE-COVERAGE-MISSING** — Add the required scopes for shopify.cancel\_order to permissions.scopes or narrow the tool's declared auth requirements.
   - Related finding(s): fp\_095f3a5337124f6e, fp\_1fd01b4ed2e41d51, fp\_24d610b0d4324190
-- **Manual review for SHIP-INVENTORY-WILDCARD-TOOLS** — Replace wildcard tool exposure with an explicit tool allowlist before release review.
-  - Related finding(s): fp\_a00e34cdb33a5596
 - **Manual review for SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING** — Declare an owner for each high-risk production tool in risk\_overrides.tools.
   - Related finding(s): fp\_674fa79ae9993422
 - **Manual review for SHIP-MANIFEST-UNUSED-SCOPE** — Remove unused manifest scopes or add tool metadata showing why they are required.

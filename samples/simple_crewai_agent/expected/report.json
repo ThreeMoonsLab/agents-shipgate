@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.31",
-  "run_id": "agents_shipgate_136deceabf653b25",
+  "report_schema_version": "0.32",
+  "run_id": "agents_shipgate_a62c844f928e0aba",
   "manifest_dir": "<REPO>/samples/simple_crewai_agent",
   "project": {
     "name": "simple-crewai-agent"
@@ -132,6 +132,15 @@
         "ambiguous_name_count": 0,
         "gap_count": 0,
         "reason_counts": {}
+      },
+      "binding_coverage": {
+        "total_catalog_tools": 3,
+        "reachable_tools": 3,
+        "possible_tools": 0,
+        "unbound_tools": 0,
+        "pass_eligible": true,
+        "gap_count": 0,
+        "reason_counts": {}
       }
     },
     "baseline_delta": {
@@ -209,6 +218,32 @@
                 "source_type": "crewai_prebuilt_tool",
                 "source_id": "crewai_agent",
                 "native_locator": "crew.py#FileReadTool"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "reachable_path": [
+            "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "agent_v1:71a7997718e73610b0704464",
+            "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:71a7997718e73610b0704464->tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "crew.py",
+              "source_pointer": "crew.py:31",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
               }
             }
           ],
@@ -474,7 +509,7 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.2",
+    "snapshot_version": "0.3",
     "actions": [
       {
         "action_id": "agent:simple-crewai-agent/support-case-crew:action_v2_56f5d7d377130876f26986bdadd25cd1ad47dd0138cba6da8dc11e7d06fe30e6",
@@ -530,6 +565,32 @@
                   "source_type": "crewai_function",
                   "source_id": "crewai_agent",
                   "native_locator": "crew.py#summarize_case"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "binding": {
+            "status": "structural",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "reachable_path": [
+              "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+              "agent_v1:71a7997718e73610b0704464",
+              "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:71a7997718e73610b0704464->tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+                "confidence": "high",
+                "provenance_kind": "ast_extraction",
+                "source": "crew.py",
+                "source_pointer": "crew.py:31",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
                 }
               }
             ],
@@ -694,6 +755,32 @@
             "issues": [],
             "pass_eligible": true
           },
+          "binding": {
+            "status": "structural",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "reachable_path": [
+              "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+              "agent_v1:71a7997718e73610b0704464",
+              "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:71a7997718e73610b0704464->tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+                "confidence": "high",
+                "provenance_kind": "ast_extraction",
+                "source": "crew.py",
+                "source_pointer": "crew.py:31",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -852,6 +939,32 @@
             "issues": [],
             "pass_eligible": true
           },
+          "binding": {
+            "status": "structural",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "reachable_path": [
+              "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+              "agent_v1:71a7997718e73610b0704464",
+              "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:71a7997718e73610b0704464->tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+                "confidence": "high",
+                "provenance_kind": "ast_extraction",
+                "source": "crew.py",
+                "source_pointer": "crew.py:31",
+                "evidence": {
+                  "edge_type": "direct_tool",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
           "effect": {
             "status": "declared",
             "confidence": "high",
@@ -977,8 +1090,89 @@
     "modified": [],
     "notes": [
       "No action-surface comparison source was provided."
+    ]
+  },
+  "binding_surface_facts": {
+    "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+    "status": "structural",
+    "agents": [
+      {
+        "agent_id": "agent_v1:71a7997718e73610b0704464",
+        "name": "researcher",
+        "source_id": "crewai_agent",
+        "source_ref": "crew.py",
+        "source_pointer": "crew.py:31"
+      },
+      {
+        "agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+        "name": "crew",
+        "source_id": "crewai_agent",
+        "source_ref": "crew.py",
+        "source_pointer": "crew.py:38"
+      }
     ],
-    "tool_id": null
+    "tool_edges": [
+      {
+        "agent_id": "agent_v1:71a7997718e73610b0704464",
+        "tool_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "crew.py",
+        "source_pointer": "crew.py:31",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:71a7997718e73610b0704464",
+        "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "crew.py",
+        "source_pointer": "crew.py:31",
+        "complete": true
+      },
+      {
+        "agent_id": "agent_v1:71a7997718e73610b0704464",
+        "tool_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+        "edge_type": "direct_tool",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "crew.py",
+        "source_pointer": "crew.py:31",
+        "complete": true
+      }
+    ],
+    "handoff_edges": [
+      {
+        "source_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+        "target_agent_id": "agent_v1:71a7997718e73610b0704464",
+        "edge_type": "subagent",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "crew.py",
+        "source_pointer": "crew.py:38",
+        "complete": true
+      }
+    ],
+    "reachable_tool_ids": [
+      "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+      "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+      "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638"
+    ],
+    "possible_tool_ids": [],
+    "unbound_tool_ids": [],
+    "issues": [],
+    "pass_eligible": true
+  },
+  "binding_surface_diff": {
+    "enabled": false,
+    "base_report_schema_version": null,
+    "added_reachable_tool_ids": [],
+    "removed_reachable_tool_ids": [],
+    "added_handoffs": [],
+    "removed_handoffs": [],
+    "notes": []
   },
   "capability_runtime_evidence": {
     "enabled": false,
@@ -1062,8 +1256,8 @@
     "Declare operation-specific auth scopes for FileReadTool, or explicitly declare anonymous authority when the operation requires no credentials."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/tmp/shipgate-golden-simple_crewai_agent/report.md",
+    "json": "/private/tmp/shipgate-golden-simple_crewai_agent/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -1134,6 +1328,32 @@
           "issues": [],
           "pass_eligible": true
         },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "reachable_path": [
+            "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "agent_v1:71a7997718e73610b0704464",
+            "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:71a7997718e73610b0704464->tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "crew.py",
+              "source_pointer": "crew.py:31",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
         "effect": {
           "status": "declared",
           "confidence": "high",
@@ -1198,6 +1418,32 @@
           "issues": []
         },
         "pass_eligible": true
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+        "reachable_path": [
+          "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "agent_v1:71a7997718e73610b0704464",
+          "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:71a7997718e73610b0704464->tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "crew.py",
+            "source_pointer": "crew.py:31",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
       }
     },
     {
@@ -1259,6 +1505,32 @@
                 "source_type": "crewai_prebuilt_tool",
                 "source_id": "crewai_agent",
                 "native_locator": "crew.py#FileReadTool"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "reachable_path": [
+            "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "agent_v1:71a7997718e73610b0704464",
+            "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:71a7997718e73610b0704464->tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "crew.py",
+              "source_pointer": "crew.py:31",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
               }
             }
           ],
@@ -1329,6 +1601,32 @@
           "issues": []
         },
         "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+        "reachable_path": [
+          "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "agent_v1:71a7997718e73610b0704464",
+          "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:71a7997718e73610b0704464->tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "crew.py",
+            "source_pointer": "crew.py:31",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
       }
     },
     {
@@ -1390,6 +1688,32 @@
                 "source_type": "crewai_function",
                 "source_id": "crewai_agent",
                 "native_locator": "crew.py#summarize_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "reachable_path": [
+            "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "agent_v1:71a7997718e73610b0704464",
+            "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:71a7997718e73610b0704464->tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "crew.py",
+              "source_pointer": "crew.py:31",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
               }
             }
           ],
@@ -1459,6 +1783,583 @@
           ],
           "issues": []
         },
+        "pass_eligible": true
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+        "reachable_path": [
+          "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "agent_v1:71a7997718e73610b0704464",
+          "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:71a7997718e73610b0704464->tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "crew.py",
+            "source_pointer": "crew.py:31",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    }
+  ],
+  "tool_catalog": [
+    {
+      "tool_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+      "name": "lookup_case",
+      "provider": "crewai_agent",
+      "observation_ids": [
+        "obs_v1_75cdf97835473a87a94cced0791d82e93653eb17faa022f9fe39a5156b4de1be",
+        "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c"
+      ],
+      "source_type": "crewai_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/0",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+          "status": "declared",
+          "provider": "crewai_agent",
+          "binding_id": "crewai_lookup_case",
+          "primary_observation_id": "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c",
+          "observation_ids": [
+            "obs_v1_75cdf97835473a87a94cced0791d82e93653eb17faa022f9fe39a5156b4de1be",
+            "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_75cdf97835473a87a94cced0791d82e93653eb17faa022f9fe39a5156b4de1be",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "crew.py",
+              "evidence": {
+                "source_type": "crewai_class_tool",
+                "source_id": "crewai_agent",
+                "native_locator": "crew.py#lookup_case"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_d80a6855053ad21b53e7781eb52851609ab5e62b9cdde3f3e17bb9bfd16d260c",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "source_type": "crewai_inventory",
+                "source_id": "crewai_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#lookup_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "reachable_path": [
+            "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "agent_v1:71a7997718e73610b0704464",
+            "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:71a7997718e73610b0704464->tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "crew.py",
+              "source_pointer": "crew.py:31",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/0",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+        "reachable_path": [
+          "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "agent_v1:71a7997718e73610b0704464",
+          "tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:71a7997718e73610b0704464->tool_v2_8bb9341b31f3731d4ef2337cde788263775c2f388329654c2bc8a8b521170ed1",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "crew.py",
+            "source_pointer": "crew.py:31",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    },
+    {
+      "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+      "name": "FileReadTool",
+      "provider": "crewai_agent",
+      "observation_ids": [
+        "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+        "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32"
+      ],
+      "source_type": "crewai_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/2",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+          "status": "declared",
+          "provider": "crewai_agent",
+          "binding_id": "crewai_file_read",
+          "primary_observation_id": "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+          "observation_ids": [
+            "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+            "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_91dc9ef11aaa2cd63b91fb9e90b6607ecaf5e678f470c54d3520feb74c93aea8",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/2",
+              "evidence": {
+                "source_type": "crewai_inventory",
+                "source_id": "crewai_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#FileReadTool"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_d47ab93f36b5308c7f1fd05073fdca72147fe034a6ec7da6470753270c29bd32",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "crew.py",
+              "evidence": {
+                "source_type": "crewai_prebuilt_tool",
+                "source_id": "crewai_agent",
+                "native_locator": "crew.py#FileReadTool"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "reachable_path": [
+            "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "agent_v1:71a7997718e73610b0704464",
+            "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:71a7997718e73610b0704464->tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "crew.py",
+              "source_pointer": "crew.py:31",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='FileReadTool'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/2",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "ambient",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "ambient",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='FileReadTool'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "ambient",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/2",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+        "reachable_path": [
+          "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "agent_v1:71a7997718e73610b0704464",
+          "tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:71a7997718e73610b0704464->tool_v2_97cdb0ffc03b3a364a1697b362308564d52d44b3dab46f799f1b7b5276adb212",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "crew.py",
+            "source_pointer": "crew.py:31",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    },
+    {
+      "tool_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+      "name": "summarize_case",
+      "provider": "crewai_agent",
+      "observation_ids": [
+        "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+        "obs_v1_8107b85e09d544636b259f216489e077ba0c6915829b5e4a0c708d960d9b00df"
+      ],
+      "source_type": "crewai_inventory",
+      "source_ref": "inventories/tools.json",
+      "source_path": "inventories/tools.json",
+      "source_start_line": null,
+      "source_pointer": "/tools/1",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "high"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "high",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+          "status": "declared",
+          "provider": "crewai_agent",
+          "binding_id": "crewai_summarize_case",
+          "primary_observation_id": "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+          "observation_ids": [
+            "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+            "obs_v1_8107b85e09d544636b259f216489e077ba0c6915829b5e4a0c708d960d9b00df"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_4da41a223c5b9819f534ad9f701d469aa605b258c479ae1768a5de3882e45d13",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "source_type": "crewai_inventory",
+                "source_id": "crewai_inventory:inventories/tools.json",
+                "native_locator": "inventories/tools.json#summarize_case"
+              }
+            },
+            {
+              "dimension": "identity",
+              "value": "obs_v1_8107b85e09d544636b259f216489e077ba0c6915829b5e4a0c708d960d9b00df",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "tool_identity_binding",
+              "source_pointer": "crew.py",
+              "evidence": {
+                "source_type": "crewai_function",
+                "source_id": "crewai_agent",
+                "native_locator": "crew.py#summarize_case"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "reachable_path": [
+            "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+            "agent_v1:71a7997718e73610b0704464",
+            "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:71a7997718e73610b0704464->tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "crew.py",
+              "source_pointer": "crew.py:31",
+              "evidence": {
+                "edge_type": "direct_tool",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='summarize_case'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_annotation",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "readOnlyHint": true
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='summarize_case'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            },
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "mcp_authority",
+              "source_pointer": "/tools/1",
+              "evidence": {
+                "auth_type": null,
+                "scopes": [],
+                "alternative_count": 0
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+        "reachable_path": [
+          "agent_v1:db222e5ee84f5d3b4a7f0ca1",
+          "agent_v1:71a7997718e73610b0704464",
+          "tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:71a7997718e73610b0704464->tool_v2_d38c0379eb241f5063861aecb39b242b58e030f320ede64d7c862bfd6f68d638",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "crew.py",
+            "source_pointer": "crew.py:31",
+            "evidence": {
+              "edge_type": "direct_tool",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
         "pass_eligible": true
       }
     }

@@ -278,6 +278,14 @@ tool_sources:
   - id: support
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: lookup_case, source_id: support}
+      handoffs: []
+      reason: reviewed stale-suppression fixture binding
 checks:
   ignore:
     - check_id: SHIP-DOC-MISSING-DESCRIPTION
