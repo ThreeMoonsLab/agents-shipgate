@@ -6,7 +6,7 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.31`) is still additive-versioned and
+(`report_schema_version`, currently `0.32`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
@@ -57,6 +57,13 @@ name. A v1 baseline fingerprint may match only when that legacy name resolves
 to exactly one current tool identity; the old broad check-ID/name fallback is
 removed. Reports before v0.30 and capability locks before v0.4 are not
 identity-comparable and must be regenerated.
+
+The built-in Conductor OSS workflow adapter additively advances the report
+schema `0.31 → 0.32` by defining the required `frameworks.conductor` summary.
+Report v0.31 remains frozen as the root-reachable binding contract. Manifest
+schema `0.1`, packet schema `0.10`, and runtime contract `13` are unchanged.
+`conductor` is now a reserved built-in `tool_sources[].type`; installations
+with a third-party adapter using that source type must rename the plugin type.
 
 `0.16.0b1` is a pre-release of the `0.16` contract line. It deliberately
 tightens the meaning of `release_decision.decision: "passed"`: every in-scope

@@ -31,7 +31,7 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "codex_plugin_candidates": [{"mode": "package", "path": "..."}],
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
-  "script_version": "0.2.1"
+  "script_version": "0.2.2"
 }
 ```
 

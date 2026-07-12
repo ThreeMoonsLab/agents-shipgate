@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents_shipgate.core.artifact_models import (
+    ConductorArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
@@ -727,6 +728,12 @@ def _observations(
         for record in n8n.ai_agents:
             agents.append(_AgentObservation(str(record.get("name") or record.get("node_id") or "root"), _str(record.get("workflow_id")), _str(record.get("source_ref")), _str(record.get("source_pointer")), True))
         partials.update(str(item.get("reason")) for item in n8n.dynamic_tool_surfaces if item.get("reason"))
+
+    conductor = artifacts.get("conductor", ConductorArtifacts)
+    if conductor and conductor.dynamic_tool_surfaces:
+        partials.add(
+            "Conductor workflow tool bindings include dynamic or unresolved surfaces."
+        )
 
     return agents, edges, handoffs, partials, invalid_annotations
 

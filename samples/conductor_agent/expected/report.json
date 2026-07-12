@@ -1,0 +1,1315 @@
+{
+  "schema_version": "0.1",
+  "report_schema_version": "0.32",
+  "run_id": "agents_shipgate_e38d61d6846ad002",
+  "manifest_dir": "<REPO>/samples/conductor_agent",
+  "project": {
+    "name": "conductor-agent"
+  },
+  "agent": {
+    "id": "agent:conductor-agent/durable-order-agent",
+    "name": "durable-order-agent",
+    "source": {
+      "source": "manifest"
+    },
+    "instructions": {
+      "value_preview": null,
+      "source": "dynamic_unknown",
+      "confidence": "medium"
+    },
+    "declared_purpose": [
+      "review and execute selected order lookups through a Conductor OSS workflow"
+    ],
+    "prohibited_actions": [],
+    "tools": [
+      "lookup_order"
+    ],
+    "tool_ids": [
+      "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+    ],
+    "handoffs": [],
+    "guardrails": {
+      "input": "unknown",
+      "output": "unknown",
+      "tool": "unknown",
+      "source": "unknown"
+    },
+    "extraction": {
+      "method": "config_assisted",
+      "confidence": "medium",
+      "missing_fields": [
+        "runtime_traces"
+      ],
+      "dynamic_fields": []
+    }
+  },
+  "environment": {
+    "target": "local"
+  },
+  "summary": {
+    "status": "warnings_detected",
+    "critical_count": 0,
+    "high_count": 2,
+    "medium_count": 0,
+    "low_count": 0,
+    "info_count": 0,
+    "suppressed_count": 0,
+    "human_review_recommended": true,
+    "evidence_coverage": "mixed"
+  },
+  "release_decision": {
+    "decision": "insufficient_evidence",
+    "reason": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release.",
+    "blockers": [],
+    "review_items": [
+      {
+        "id": "fp_8b88a61e6836c3bd",
+        "fingerprint": "fp_8b88a61e6836c3bd",
+        "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+        "severity": "high",
+        "title": "Conductor tool surface cannot be statically enumerated",
+        "baseline_status": null,
+        "blocks_release": false,
+        "source": {
+          "type": "conductor_workflow",
+          "ref": "workflows/order-agent.json#/tasks/1",
+          "location": null,
+          "path": "workflows/order-agent.json",
+          "start_line": null,
+          "end_line": null,
+          "start_column": null,
+          "pointer": "/tasks/1"
+        },
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
+      },
+      {
+        "id": "fp_a5e7b93822939963",
+        "fingerprint": "fp_a5e7b93822939963",
+        "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+        "severity": "high",
+        "title": "Conductor tool surface cannot be statically enumerated",
+        "baseline_status": null,
+        "blocks_release": false,
+        "source": {
+          "type": "conductor_workflow",
+          "ref": "workflows/order-agent.json#/tasks/4/decisionCases/yes/0",
+          "location": null,
+          "path": "workflows/order-agent.json",
+          "start_line": null,
+          "end_line": null,
+          "start_column": null,
+          "pointer": "/tasks/4/decisionCases/yes/0"
+        },
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": []
+      }
+    ],
+    "evidence_coverage": {
+      "level": "mixed",
+      "human_review_recommended": true,
+      "source_warning_count": 4,
+      "low_confidence_tool_count": 1,
+      "evidence_gaps": [
+        {
+          "kind": "partial_binding_evidence",
+          "subject": "agent_v1:7205d836e4b3fee257d90695",
+          "source_type": null,
+          "source_ref": "framework_extraction",
+          "why": "Conductor workflow tool bindings include dynamic or unresolved surfaces.",
+          "next_action": {
+            "kind": "provide_complete_binding_graph",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#agent_bindings",
+            "why": "A complete root-reachable static binding graph is required for passed.",
+            "expects": "Provide static wiring or an exact reviewed declaration for every reachable edge.",
+            "accepted_values": [
+              "literal_tools",
+              "literal_handoffs",
+              "complete:true"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": {
+              "agent_bindings": {
+                "root": {
+                  "source_id": "<REVIEW_REQUIRED>",
+                  "object": "<REVIEW_REQUIRED>"
+                },
+                "declarations": [
+                  {
+                    "agent": "root",
+                    "complete": true,
+                    "tools": [],
+                    "handoffs": [],
+                    "reason": "<REVIEW_REQUIRED>"
+                  }
+                ]
+              }
+            },
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "incomplete_surface",
+          "subject": "lookup_order [conductor_workflows]",
+          "source_type": "conductor_mcp_call",
+          "source_ref": "/tasks/3",
+          "why": "tool surface enumeration is incomplete or not high confidence",
+          "next_action": {
+            "kind": "provide_complete_inventory",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#tool_sources",
+            "why": "The complete statically-bound tool surface must be enumerable.",
+            "expects": "Provide a complete MCP export, OpenAPI spec, or reviewed explicit tool inventory, then rerun verification.",
+            "accepted_values": [
+              "complete_mcp_export",
+              "openapi_spec",
+              "reviewed_explicit_inventory"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "low_confidence_tool",
+          "subject": "lookup_order [conductor_workflows]",
+          "source_type": "conductor_mcp_call",
+          "source_ref": "workflows/order-agent.json",
+          "why": "extraction_confidence=medium; static extraction could not prove the full tool surface.",
+          "next_action": {
+            "kind": "provide_source",
+            "command": null,
+            "path": null,
+            "why": "conductor_mcp_call extraction could not fully enumerate this tool surface.",
+            "expects": "Provide a complete MCP export, OpenAPI spec, or explicit local tool inventory for this source, then rerun the scan.",
+            "accepted_values": [],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "source_warning",
+          "subject": "Conductor CALL_MCP_TOOL at workflows/order-agent.json#/tasks/4/decisionCases/yes/0 has a dynamic or unresolved capability surface: ['method'].",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
+          "next_action": {
+            "kind": "review_warning",
+            "command": null,
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
+            "accepted_values": [],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "source_warning",
+          "subject": "Conductor LLM_CHAT_COMPLETE at workflows/order-agent.json#/tasks/1 has a dynamic or unresolved capability surface: ['tools'].",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
+          "next_action": {
+            "kind": "review_warning",
+            "command": null,
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
+            "accepted_values": [],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "source_warning",
+          "subject": "Conductor capability 'HTTP' at workflows/order-agent.json#/tasks/5 is recognized but not enumerated by the MCP-core v1 adapter.",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
+          "next_action": {
+            "kind": "review_warning",
+            "command": null,
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
+            "accepted_values": [],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "source_warning",
+          "subject": "Conductor capability 'webSearch' at workflows/order-agent.json#/tasks/1 is recognized but not enumerated by the MCP-core v1 adapter.",
+          "source_type": null,
+          "source_ref": null,
+          "why": "A source loader degraded while reading declared inputs.",
+          "next_action": {
+            "kind": "review_warning",
+            "command": null,
+            "path": null,
+            "why": "The warning text names the degraded source.",
+            "expects": "Fix or re-declare the named source so the loader stops warning, then rerun the scan.",
+            "accepted_values": [],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        }
+      ],
+      "semantic_coverage": {
+        "total_actions": 1,
+        "pass_eligible_actions": 0,
+        "gap_count": 1,
+        "review_concern_count": 0,
+        "reason_counts": {
+          "incomplete_surface": 1
+        }
+      },
+      "identity_coverage": {
+        "total_observations": 1,
+        "canonical_tools": 1,
+        "bound_tools": 0,
+        "pass_eligible_tools": 1,
+        "ambiguous_name_count": 0,
+        "gap_count": 0,
+        "reason_counts": {}
+      },
+      "binding_coverage": {
+        "total_catalog_tools": 1,
+        "reachable_tools": 1,
+        "possible_tools": 0,
+        "unbound_tools": 0,
+        "pass_eligible": false,
+        "gap_count": 1,
+        "reason_counts": {
+          "partial_binding_evidence": 1
+        }
+      }
+    },
+    "baseline_delta": {
+      "enabled": false,
+      "path": null,
+      "matched_count": 0,
+      "new_count": 0,
+      "resolved_count": 0
+    },
+    "fail_policy": {
+      "ci_mode": "advisory",
+      "fail_on": [],
+      "new_findings_only": false,
+      "would_fail_ci": false,
+      "exit_code": 0
+    },
+    "static_analysis_only": true,
+    "runtime_behavior_verified": false,
+    "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
+    "contribution_rules": [
+      {
+        "finding_id": "fp_8b88a61e6836c3bd",
+        "fingerprint": "fp_8b88a61e6836c3bd",
+        "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_a5e7b93822939963",
+        "fingerprint": "fp_a5e7b93822939963",
+        "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      }
+    ]
+  },
+  "capability_facts": [],
+  "declared_intentions": [
+    {
+      "id": "int_4d8238c910545cb2",
+      "kind": "declared_purpose",
+      "text": "review and execute selected order lookups through a Conductor OSS workflow",
+      "source": "agent.declared_purpose",
+      "intent_tags": []
+    }
+  ],
+  "misalignments": [
+    {
+      "id": "mis_c724b5b2ee5afa60",
+      "kind": "undetected_gap",
+      "severity": "high",
+      "tool_name": null,
+      "capability_refs": [],
+      "intention_refs": [],
+      "finding_refs": [
+        "fp_a5e7b93822939963"
+      ],
+      "policy_requirement": "Static review requires deterministic evidence for release gaps.",
+      "gap": "Conductor tool surface cannot be statically enumerated.",
+      "release_implication": "Human review is required to interpret this finding."
+    },
+    {
+      "id": "mis_f07049b59e5d2680",
+      "kind": "undetected_gap",
+      "severity": "high",
+      "tool_name": null,
+      "capability_refs": [],
+      "intention_refs": [],
+      "finding_refs": [
+        "fp_8b88a61e6836c3bd"
+      ],
+      "policy_requirement": "Static review requires deterministic evidence for release gaps.",
+      "gap": "Conductor tool surface cannot be statically enumerated.",
+      "release_implication": "Human review is required to interpret this finding."
+    }
+  ],
+  "release_consequence": {
+    "decision": "insufficient_evidence",
+    "summary": "Static evidence is incomplete; capability/intent analysis may miss release-relevant signal \u2014 gather deeper sources before shipping.",
+    "blocker_misalignment_count": 0,
+    "review_misalignment_count": 2,
+    "fail_policy": {
+      "ci_mode": "advisory",
+      "fail_on": [],
+      "new_findings_only": false,
+      "would_fail_ci": false,
+      "exit_code": 0
+    }
+  },
+  "suggested_scenarios": [],
+  "tool_surface": {
+    "total_tools": 1,
+    "high_risk_tools": 0,
+    "sources": {
+      "conductor_mcp_call": 1
+    },
+    "wildcard_tools": 0,
+    "missing_descriptions": 0
+  },
+  "tool_surface_facts": {
+    "tools": [
+      {
+        "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+        "name": "lookup_order",
+        "provider": "conductor_workflows",
+        "source_type": "conductor_mcp_call",
+        "source_id": "conductor_workflows",
+        "source_ref": "workflows/order-agent.json",
+        "risk_tags": [
+          "read_only"
+        ],
+        "auth_scopes": [],
+        "owner": null,
+        "extraction_confidence": "medium",
+        "has_description": true,
+        "hashes": {
+          "source_ref": "8892008147ec6281",
+          "description": "3b36daf5d8a44fb9",
+          "input_schema": "9e2fcd061b033258",
+          "output_schema": "44136fa355b3678a",
+          "parameters": "4f53cda18c2baa0c",
+          "annotations": "a5145007db3246d9"
+        }
+      }
+    ],
+    "scopes": [],
+    "controls": [],
+    "policies": []
+  },
+  "tool_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "tools_added": 0,
+      "tools_removed": 0,
+      "tools_changed": 0,
+      "new_scopes": 0,
+      "removed_scopes": 0,
+      "new_high_risk_effects": 0,
+      "removed_high_risk_effects": 0,
+      "controls_added": 0,
+      "controls_removed": 0,
+      "metadata_changes": 0,
+      "policy_drift_items": 0,
+      "new_findings": 0,
+      "resolved_findings": 0,
+      "unchanged_findings": 0,
+      "accepted_debt": 0
+    },
+    "tools": [],
+    "high_risk_effects": [],
+    "scopes": [],
+    "controls": [],
+    "metadata_changes": [],
+    "policy_drift": [],
+    "finding_deltas": {
+      "new_findings": [],
+      "resolved_findings": [],
+      "unchanged_findings": [],
+      "accepted_debt": []
+    },
+    "notes": [
+      "No --diff-from report or v0.3 baseline snapshot was provided."
+    ]
+  },
+  "action_surface_facts": {
+    "snapshot_version": "0.3",
+    "actions": [
+      {
+        "action_id": "agent:conductor-agent/durable-order-agent:action_v2_e44ea9ad0aa3c7deea46a01e5cbe1f3cf399916633fb94491e14fc6dd523eddd",
+        "agent_id": "agent:conductor-agent/durable-order-agent",
+        "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+        "tool_name": "lookup_order",
+        "provider": "conductor_workflows",
+        "source_type": "conductor_mcp_call",
+        "source_id": "conductor_workflows",
+        "source_ref": "workflows/order-agent.json",
+        "source_location": null,
+        "source_path": "workflows/order-agent.json",
+        "source_start_line": null,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/tasks/3",
+        "operation": "lookup_order",
+        "effect": "read",
+        "semantic_assessment": {
+          "conservative_effect": "read",
+          "identity": {
+            "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+            "status": "structural",
+            "provider": "conductor_workflows",
+            "binding_id": null,
+            "primary_observation_id": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+            "observation_ids": [
+              "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+            ],
+            "claims": [
+              {
+                "dimension": "identity",
+                "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "source_observation",
+                "source_pointer": "/tasks/3",
+                "evidence": {
+                  "source_type": "conductor_mcp_call",
+                  "source_id": "conductor_workflows",
+                  "native_locator": "workflows/order-agent.json#lookup_order"
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "binding": {
+            "status": "structural",
+            "confidence": "high",
+            "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+            "reachable_path": [
+              "agent_v1:7205d836e4b3fee257d90695",
+              "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+            ],
+            "claims": [
+              {
+                "dimension": "binding",
+                "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+                "confidence": "high",
+                "provenance_kind": "ast_extraction",
+                "source": "workflows/order-agent.json",
+                "source_pointer": "/tasks/3",
+                "evidence": {
+                  "edge_type": "workflow",
+                  "complete": true
+                }
+              }
+            ],
+            "issues": [],
+            "pass_eligible": true
+          },
+          "effect": {
+            "status": "declared",
+            "confidence": "high",
+            "claims": [
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='lookup_order'].effect",
+                "evidence": {}
+              },
+              {
+                "dimension": "effect",
+                "value": "read",
+                "confidence": "medium",
+                "provenance_kind": "keyword_heuristic",
+                "source": "risk_hint:keyword",
+                "source_pointer": "/tasks/3",
+                "evidence": {
+                  "tag": "read_only",
+                  "hint_source": "keyword"
+                }
+              }
+            ],
+            "issues": [
+              {
+                "kind": "incomplete_surface",
+                "dimension": "effect",
+                "message": "tool surface enumeration is incomplete or not high confidence",
+                "source": "tool_extraction",
+                "source_pointer": "/tasks/3"
+              }
+            ]
+          },
+          "authority": {
+            "status": "declared",
+            "mode": "none",
+            "auth_type": null,
+            "credential_mode": null,
+            "scopes": [],
+            "claims": [
+              {
+                "dimension": "authority",
+                "value": "none",
+                "confidence": "high",
+                "provenance_kind": "static_declaration",
+                "source": "action_surface_declaration",
+                "source_pointer": "action_surface.actions[tool='lookup_order'].authority",
+                "evidence": {
+                  "auth_type": null,
+                  "credential_mode": null,
+                  "scopes": []
+                }
+              }
+            ],
+            "issues": []
+          },
+          "pass_eligible": false
+        },
+        "risk_tags": [
+          "read_only"
+        ],
+        "required_scopes": [],
+        "approval_policy": {
+          "required": false,
+          "threshold": null
+        },
+        "safeguards": {
+          "idempotency": false,
+          "audit_log": null,
+          "rollback": null,
+          "dry_run": null
+        },
+        "evidence": {
+          "owner": null,
+          "runbook": null,
+          "approval_ticket": null
+        },
+        "input_fields": [],
+        "required_input_fields": [],
+        "input_schema_hash": "28cc233c2ea84993",
+        "hashes": {
+          "identity_hash": "48940a82687c4995",
+          "schema_hash": "28cc233c2ea84993",
+          "policy_hash": "99aa27a5e2ab49d6",
+          "risk_hash": "70b0ab591723cb0f"
+        }
+      }
+    ]
+  },
+  "action_surface_diff": {
+    "enabled": false,
+    "base": {
+      "kind": "none",
+      "path": null,
+      "report_schema_version": null,
+      "baseline_schema_version": null
+    },
+    "summary": {
+      "actions_added": 0,
+      "actions_removed": 0,
+      "actions_modified": 0,
+      "scope_expansions": 0,
+      "effect_escalations": 0,
+      "risk_tags_added": 0,
+      "approvals_removed": 0,
+      "safeguards_removed": 0,
+      "input_schema_expansions": 0,
+      "blocking_findings": 0
+    },
+    "added": [],
+    "removed": [],
+    "modified": [],
+    "notes": [
+      "No action-surface comparison source was provided."
+    ]
+  },
+  "binding_surface_facts": {
+    "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+    "status": "partial",
+    "agents": [
+      {
+        "agent_id": "agent_v1:7205d836e4b3fee257d90695",
+        "name": "durable_order_agent",
+        "source_id": "conductor_workflows",
+        "source_ref": "workflows/order-agent.json",
+        "source_pointer": "/tasks/3"
+      }
+    ],
+    "tool_edges": [
+      {
+        "agent_id": "agent_v1:7205d836e4b3fee257d90695",
+        "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+        "edge_type": "workflow",
+        "confidence": "high",
+        "provenance_kind": "ast_extraction",
+        "source": "workflows/order-agent.json",
+        "source_pointer": "/tasks/3",
+        "complete": true
+      }
+    ],
+    "handoff_edges": [],
+    "reachable_tool_ids": [
+      "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+    ],
+    "possible_tool_ids": [],
+    "unbound_tool_ids": [],
+    "issues": [
+      {
+        "kind": "partial_binding_evidence",
+        "message": "Conductor workflow tool bindings include dynamic or unresolved surfaces.",
+        "agent_id": null,
+        "tool_id": null,
+        "source": "framework_extraction",
+        "source_pointer": null
+      }
+    ],
+    "pass_eligible": false
+  },
+  "binding_surface_diff": {
+    "enabled": false,
+    "base_report_schema_version": null,
+    "added_reachable_tool_ids": [],
+    "removed_reachable_tool_ids": [],
+    "added_handoffs": [],
+    "removed_handoffs": [],
+    "notes": []
+  },
+  "capability_runtime_evidence": {
+    "enabled": false,
+    "summary": {
+      "source_count": 0,
+      "trace_count": 0,
+      "matched_trace_count": 0,
+      "unmatched_trace_count": 0,
+      "approval_trace_count": 0,
+      "agent_trace_count": 0,
+      "api_trace_count": 0,
+      "warning_count": 0
+    },
+    "matched": [],
+    "unmatched": [],
+    "source_provenance": [],
+    "notes": []
+  },
+  "api_surface": null,
+  "anthropic_surface": null,
+  "frameworks": {
+    "conductor": {
+      "workflow_file_count": 1,
+      "workflow_count": 1,
+      "task_count": 7,
+      "llm_task_count": 1,
+      "mcp_discovery_task_count": 1,
+      "mcp_call_task_count": 2,
+      "human_checkpoint_count": 1,
+      "structurally_checkpointed_mcp_call_count": 2,
+      "sub_workflow_task_count": 0,
+      "dynamic_tool_surface_count": 2,
+      "unsupported_capability_count": 2,
+      "warnings": [
+        "Conductor CALL_MCP_TOOL at workflows/order-agent.json#/tasks/4/decisionCases/yes/0 has a dynamic or unresolved capability surface: ['method'].",
+        "Conductor LLM_CHAT_COMPLETE at workflows/order-agent.json#/tasks/1 has a dynamic or unresolved capability surface: ['tools'].",
+        "Conductor capability 'HTTP' at workflows/order-agent.json#/tasks/5 is recognized but not enumerated by the MCP-core v1 adapter.",
+        "Conductor capability 'webSearch' at workflows/order-agent.json#/tasks/1 is recognized but not enumerated by the MCP-core v1 adapter."
+      ]
+    }
+  },
+  "codex_plugin_surface": null,
+  "baseline": null,
+  "findings": [
+    {
+      "id": "fp_8b88a61e6836c3bd",
+      "fingerprint": "fp_8b88a61e6836c3bd",
+      "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+      "title": "Conductor tool surface cannot be statically enumerated",
+      "severity": "high",
+      "category": "conductor",
+      "tool_id": null,
+      "tool_name": null,
+      "agent_id": "agent:conductor-agent/durable-order-agent",
+      "evidence": {
+        "surface": {
+          "source_id": "conductor_workflows",
+          "source_path": "workflows/order-agent.json",
+          "source_pointer": "/tasks/1",
+          "workflow_name": "durable_order_agent",
+          "workflow_version": 1,
+          "task_type": "LLM_CHAT_COMPLETE",
+          "task_reference_name": "plan",
+          "kind": "llm_tool_advertisement",
+          "dynamic_fields": [
+            "tools"
+          ]
+        },
+        "explicit_inventory": false
+      },
+      "confidence": "medium",
+      "provenance_kind": "static_declaration",
+      "source": {
+        "type": "conductor_workflow",
+        "ref": "workflows/order-agent.json#/tasks/1",
+        "location": null,
+        "path": "workflows/order-agent.json",
+        "pointer": "/tasks/1"
+      },
+      "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "capability_trace_refs": [],
+      "recommendation": "Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.",
+      "blocks_release": false,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-conductor-dynamic-tool-surface-not-enumerable",
+      "agent_action": "escalate_to_human"
+    },
+    {
+      "id": "fp_a5e7b93822939963",
+      "fingerprint": "fp_a5e7b93822939963",
+      "check_id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+      "title": "Conductor tool surface cannot be statically enumerated",
+      "severity": "high",
+      "category": "conductor",
+      "tool_id": null,
+      "tool_name": null,
+      "agent_id": "agent:conductor-agent/durable-order-agent",
+      "evidence": {
+        "surface": {
+          "source_id": "conductor_workflows",
+          "source_path": "workflows/order-agent.json",
+          "source_pointer": "/tasks/4/decisionCases/yes/0",
+          "workflow_name": "durable_order_agent",
+          "workflow_version": 1,
+          "task_type": "CALL_MCP_TOOL",
+          "task_reference_name": "dynamic_call",
+          "kind": "mcp_call",
+          "dynamic_fields": [
+            "method"
+          ]
+        },
+        "explicit_inventory": false
+      },
+      "confidence": "medium",
+      "provenance_kind": "static_declaration",
+      "source": {
+        "type": "conductor_workflow",
+        "ref": "workflows/order-agent.json#/tasks/4/decisionCases/yes/0",
+        "location": null,
+        "path": "workflows/order-agent.json",
+        "pointer": "/tasks/4/decisionCases/yes/0"
+      },
+      "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "capability_trace_refs": [],
+      "recommendation": "Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.",
+      "blocks_release": false,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-conductor-dynamic-tool-surface-not-enumerable",
+      "agent_action": "escalate_to_human"
+    }
+  ],
+  "recommended_actions": [
+    "Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review."
+  ],
+  "generated_reports": {
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
+  },
+  "loaded_policy_packs": [],
+  "loaded_plugins": [],
+  "loaded_adapters": [],
+  "tool_inventory": [
+    {
+      "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+      "name": "lookup_order",
+      "provider": "conductor_workflows",
+      "observation_ids": [
+        "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+      ],
+      "source_type": "conductor_mcp_call",
+      "source_ref": "workflows/order-agent.json",
+      "source_path": "workflows/order-agent.json",
+      "source_start_line": null,
+      "source_pointer": "/tasks/3",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "medium"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "medium",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+          "status": "structural",
+          "provider": "conductor_workflows",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+          "observation_ids": [
+            "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "source_type": "conductor_mcp_call",
+                "source_id": "conductor_workflows",
+                "native_locator": "workflows/order-agent.json#lookup_order"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+          "reachable_path": [
+            "agent_v1:7205d836e4b3fee257d90695",
+            "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "workflows/order-agent.json",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "edge_type": "workflow",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_order'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "tag": "read_only",
+                "hint_source": "keyword"
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "incomplete_surface",
+              "dimension": "effect",
+              "message": "tool surface enumeration is incomplete or not high confidence",
+              "source": "tool_extraction",
+              "source_pointer": "/tasks/3"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_order'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+        "reachable_path": [
+          "agent_v1:7205d836e4b3fee257d90695",
+          "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "workflows/order-agent.json",
+            "source_pointer": "/tasks/3",
+            "evidence": {
+              "edge_type": "workflow",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    }
+  ],
+  "tool_catalog": [
+    {
+      "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+      "name": "lookup_order",
+      "provider": "conductor_workflows",
+      "observation_ids": [
+        "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+      ],
+      "source_type": "conductor_mcp_call",
+      "source_ref": "workflows/order-agent.json",
+      "source_path": "workflows/order-agent.json",
+      "source_start_line": null,
+      "source_pointer": "/tasks/3",
+      "risk_tags": [
+        "read_only"
+      ],
+      "risk_tag_confidence": {
+        "read_only": "medium"
+      },
+      "auth_scopes": [],
+      "owner": null,
+      "confidence": "medium",
+      "semantic_assessment": {
+        "conservative_effect": "read",
+        "identity": {
+          "tool_id": "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+          "status": "structural",
+          "provider": "conductor_workflows",
+          "binding_id": null,
+          "primary_observation_id": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+          "observation_ids": [
+            "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db"
+          ],
+          "claims": [
+            {
+              "dimension": "identity",
+              "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "source_observation",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "source_type": "conductor_mcp_call",
+                "source_id": "conductor_workflows",
+                "native_locator": "workflows/order-agent.json#lookup_order"
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "binding": {
+          "status": "structural",
+          "confidence": "high",
+          "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+          "reachable_path": [
+            "agent_v1:7205d836e4b3fee257d90695",
+            "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+          ],
+          "claims": [
+            {
+              "dimension": "binding",
+              "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+              "confidence": "high",
+              "provenance_kind": "ast_extraction",
+              "source": "workflows/order-agent.json",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "edge_type": "workflow",
+                "complete": true
+              }
+            }
+          ],
+          "issues": [],
+          "pass_eligible": true
+        },
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_order'].effect",
+              "evidence": {}
+            },
+            {
+              "dimension": "effect",
+              "value": "read",
+              "confidence": "medium",
+              "provenance_kind": "keyword_heuristic",
+              "source": "risk_hint:keyword",
+              "source_pointer": "/tasks/3",
+              "evidence": {
+                "tag": "read_only",
+                "hint_source": "keyword"
+              }
+            }
+          ],
+          "issues": [
+            {
+              "kind": "incomplete_surface",
+              "dimension": "effect",
+              "message": "tool surface enumeration is incomplete or not high confidence",
+              "source": "tool_extraction",
+              "source_pointer": "/tasks/3"
+            }
+          ]
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "none",
+          "auth_type": null,
+          "credential_mode": null,
+          "scopes": [],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "none",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "action_surface_declaration",
+              "source_pointer": "action_surface.actions[tool='lookup_order'].authority",
+              "evidence": {
+                "auth_type": null,
+                "credential_mode": null,
+                "scopes": []
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": false
+      },
+      "binding_assessment": {
+        "status": "structural",
+        "confidence": "high",
+        "root_agent_id": "agent_v1:7205d836e4b3fee257d90695",
+        "reachable_path": [
+          "agent_v1:7205d836e4b3fee257d90695",
+          "tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e"
+        ],
+        "claims": [
+          {
+            "dimension": "binding",
+            "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
+            "confidence": "high",
+            "provenance_kind": "ast_extraction",
+            "source": "workflows/order-agent.json",
+            "source_pointer": "/tasks/3",
+            "evidence": {
+              "edge_type": "workflow",
+              "complete": true
+            }
+          }
+        ],
+        "issues": [],
+        "pass_eligible": true
+      }
+    }
+  ],
+  "source_warnings": [
+    "Conductor CALL_MCP_TOOL at workflows/order-agent.json#/tasks/4/decisionCases/yes/0 has a dynamic or unresolved capability surface: ['method'].",
+    "Conductor LLM_CHAT_COMPLETE at workflows/order-agent.json#/tasks/1 has a dynamic or unresolved capability surface: ['tools'].",
+    "Conductor capability 'HTTP' at workflows/order-agent.json#/tasks/5 is recognized but not enumerated by the MCP-core v1 adapter.",
+    "Conductor capability 'webSearch' at workflows/order-agent.json#/tasks/1 is recognized but not enumerated by the MCP-core v1 adapter."
+  ],
+  "agent_summary": {
+    "verdict": "insufficient_evidence",
+    "headline": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release.",
+    "blocker_count": 0,
+    "review_item_count": 2,
+    "auto_appliable_patches": 0,
+    "needs_human_review": 2,
+    "first_recommended_action": {
+      "kind": "info",
+      "command": null,
+      "why": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release. Surface this to the user and gather deeper evidence (e.g. MCP/OpenAPI inputs, eval traces, additional source files) before re-running the scan; applying patches does not clear an evidence verdict, so no machine-applicable fix is available."
+    }
+  },
+  "policy_audit": {
+    "severity_overrides_applied": []
+  },
+  "privacy_audit": {
+    "enabled": true,
+    "rules_version": "0.1",
+    "sensitive_field_inventory_version": "0.1",
+    "redacted_occurrence_count": 0,
+    "redacted_paths": [],
+    "output_surfaces": [
+      "json",
+      "markdown"
+    ],
+    "notes": [
+      "Default-on best-effort pattern/key redaction ran before public artifacts were written.",
+      "Redaction audit paths contain counts and secret kinds only; raw values and raw hashes are not emitted."
+    ]
+  },
+  "heuristics_filter": {
+    "enabled": false,
+    "excluded_provenance_kinds": [
+      "keyword_heuristic",
+      "regex_heuristic"
+    ],
+    "filtered_finding_count": 0,
+    "filtered_by_kind": {}
+  },
+  "reviewer_summary": {
+    "verdict": "insufficient_evidence",
+    "headline": "Evidence coverage below threshold: 2 lens changes. Start at release_decision.",
+    "tool_surface_changes": 0,
+    "capability_misalignments": 2,
+    "action_surface_changes": 0,
+    "evidence_matrix_gaps": 0,
+    "severity_overrides_applied": 0,
+    "severity_overrides_tier_crossed": 0,
+    "privacy_redactions": 0,
+    "baseline_integrity_issues": 0,
+    "first_recommended_surface": {
+      "kind": "release_decision",
+      "name": "release_decision",
+      "path": "report.release_decision",
+      "why": "Evidence coverage is below threshold; read release_decision.reason and evidence_coverage."
+    }
+  },
+  "capability_change": {
+    "enabled": false,
+    "added": [],
+    "removed": [],
+    "broadened": [],
+    "narrowed": []
+  },
+  "protected_surface_changes": [],
+  "effective_policy": {
+    "ci_mode": "advisory",
+    "fail_on": [],
+    "suppressed_check_ids": [],
+    "waiver_scopes": [],
+    "severity_overrides": {},
+    "baseline_integrity_mode": "warn",
+    "baseline_fingerprints": [],
+    "ci_gate_present": true
+  },
+  "human_ack": {
+    "required": false,
+    "satisfied": true,
+    "acks": [],
+    "outstanding": []
+  },
+  "verifier_summary": {
+    "verdict": "insufficient_evidence",
+    "by_severity": {
+      "high": 2
+    },
+    "by_reason_code": {
+      "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE": 2
+    },
+    "capability_delta_summary": {
+      "added": 0,
+      "removed": 0,
+      "broadened": 0,
+      "narrowed": 0
+    },
+    "protected_surface_touched": false,
+    "policy_weakened": false,
+    "human_ack_required": false,
+    "human_ack_satisfied": true,
+    "top_reason_codes": [
+      {
+        "reason_code": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+        "count": 2
+      }
+    ]
+  }
+}

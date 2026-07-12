@@ -69,6 +69,7 @@ Agents Shipgate supports these static tool-source inputs:
 - LangChain and LangGraph Python entrypoints, using static AST extraction.
 - CrewAI Python entrypoints, using static AST extraction.
 - n8n workflow JSON and source-control stubs.
+- Conductor OSS workflow JSON.
 - OpenAI API artifacts, including prompts, function schemas, response
   formats, tests, and traces.
 - Codex repo config, including `.codex/config.toml` and `.codex/hooks.json`.
@@ -167,6 +168,6 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema (current): [`report-schema.v0.31.json`](report-schema.v0.31.json) (v0.30 frozen at [`report-schema.v0.30.json`](report-schema.v0.30.json), v0.29 frozen at [`report-schema.v0.29.json`](report-schema.v0.29.json))
+- Report schema (current): [`report-schema.v0.32.json`](report-schema.v0.32.json) (v0.31 frozen at [`report-schema.v0.31.json`](report-schema.v0.31.json), v0.30 frozen at [`report-schema.v0.30.json`](report-schema.v0.30.json))
 - Packet schema (current): [`packet-schema.v0.10.json`](packet-schema.v0.10.json) (v0.9 frozen at [`packet-schema.v0.9.json`](packet-schema.v0.9.json))
 - Check catalog: [`checks.json`](checks.json)

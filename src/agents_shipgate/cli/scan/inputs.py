@@ -7,6 +7,7 @@ from typing import Any
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
+    ConductorArtifacts,
     CrewAiArtifacts,
     GoogleAdkArtifacts,
     LangChainArtifacts,
@@ -127,6 +128,7 @@ def _load_inputs(
         langchain=artifact_bag.get("langchain", LangChainArtifacts),
         crewai=artifact_bag.get("crewai", CrewAiArtifacts),
         n8n=artifact_bag.get("n8n", N8nArtifacts),
+        conductor=artifact_bag.get("conductor", ConductorArtifacts),
         api=artifact_bag.get("openai_api", OpenAIApiArtifacts),
         anthropic=artifact_bag.get("anthropic_api", AnthropicArtifacts),
         codex_plugin=artifact_bag.get("codex_plugin", CodexPluginArtifacts),

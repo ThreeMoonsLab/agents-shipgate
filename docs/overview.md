@@ -34,6 +34,7 @@ surface before production-like permissions are granted.
 - LangChain/LangGraph Python entrypoints
 - CrewAI Python entrypoints
 - n8n workflow JSON and source-control stubs
+- Conductor OSS workflow JSON
 - OpenAI API artifacts
 - Codex repo config
 - Codex plugin packages and marketplaces
@@ -44,7 +45,7 @@ surface before production-like permissions are granted.
 - [Concepts](concepts.md)
 - [Manifest v0.1](manifest-v0.1.md)
 - [Check catalog](checks.md)
-- [Report schema v0.31](report-schema.v0.31.json) (current; v0.30 frozen at [report-schema.v0.30.json](report-schema.v0.30.json), v0.29 frozen at [report-schema.v0.29.json](report-schema.v0.29.json))
+- [Report schema v0.32](report-schema.v0.32.json) (current; v0.31 frozen at [report-schema.v0.31.json](report-schema.v0.31.json), v0.30 frozen at [report-schema.v0.30.json](report-schema.v0.30.json))
 - [Evidence-backed `passed` contract](passed-verdict-contract.md)
 - [Trust model](trust-model.md)
 - [Agent instructions](../AGENTS.md)

@@ -158,7 +158,7 @@
   ],
   "codex_boundary_result_schema_version": "shipgate.codex_boundary_result/v1",
   "codex_boundary_result_schema_path": "docs/codex-boundary-result-schema.v1.json",
-  "report_schema_version": "0.31",
+  "report_schema_version": "0.32",
   "packet_schema_version": "0.10",
   "verifier_schema_version": "0.2",
   "verify_run_schema_version": "shipgate.verify_run/v1",
@@ -177,7 +177,8 @@
     "openai_api",
     "codex_config",
     "codex_plugin",
-    "n8n"
+    "n8n",
+    "conductor"
   ],
   "outputs": [
     "markdown",
@@ -364,7 +365,7 @@
   "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
   "schemas": {
     "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
-    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.31.json",
+    "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.32.json",
     "agent_result": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v1.json",
     "codex_boundary_result": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/codex-boundary-result-schema.v1.json",
     "verifier": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.2.json",

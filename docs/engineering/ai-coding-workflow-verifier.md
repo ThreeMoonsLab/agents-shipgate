@@ -78,7 +78,7 @@ The contract is strict: base scan failure may disable diff enrichment, but it mu
 
 ### 2.4 Adapter expansion is not the strategic wedge
 
-Agents Shipgate already covers MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API artifacts, Codex plugins, and n8n. New framework adapters remain useful, but they are not the primary next-cycle objective.
+Agents Shipgate already covers MCP, OpenAPI, OpenAI Agents SDK, Anthropic Messages API, Google ADK, LangChain/LangGraph, CrewAI, OpenAI API artifacts, Codex plugins, n8n, and Conductor OSS workflow JSON. New framework adapters remain useful, but they are not the primary next-cycle objective.
 
 The strategic wedge is AI coding workflow verification: trigger, verify orchestration, trust-root protection, capability-legible output, and agent-safe remediation.
 

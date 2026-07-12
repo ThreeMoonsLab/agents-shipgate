@@ -147,6 +147,7 @@ baseline summary and do not fail CI.
 | `SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING` | high | Production-like n8n workflows reference credentials without declared credential stubs. |
 | `SHIP-N8N-EVAL-COVERAGE-MISSING` | medium | Production-like n8n workflows are present without declared eval files. |
 | `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` | high | n8n workflow JSON contains a secret-like value; evidence is redacted. |
+| `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | A Conductor OSS workflow uses a dynamic or unresolved tool-capability surface. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
 | `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
@@ -805,6 +806,13 @@ contains a secret-like value. Evidence includes only the source reference,
 stable pointer, and secret kind; it never includes the matched secret value or
 a verifier hash for that value.
 
+### SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+
+A Conductor OSS workflow uses a dynamic or missing MCP method/server, dynamic
+LLM tool advertisement, runtime-generated task, or unresolved sub-workflow.
+Make the target static and locally reviewable before release. The adapter does
+not connect to Conductor, MCP servers, or model providers to fill the gap.
+
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 
 A suppression references an unknown check ID or a tool that is not loaded in the
@@ -1137,3 +1145,19 @@ Credential names, workflow/node names, code bodies, request bodies, headers,
 pinned data, static data, node notes, variable values, execution payloads, and
 detected secrets are redacted or omitted from reports. Credential types and
 credential IDs may be preserved as local release evidence.
+
+## Conductor OSS Static Extraction
+
+Conductor OSS extraction reads only local `schemaVersion: 2` workflow JSON
+declared through `tool_sources[].type: conductor`. The MCP-core v1 adapter
+normalizes literal `CALL_MCP_TOOL.method` call sites, records
+`LIST_MCP_TOOLS`, `LLM_CHAT_COMPLETE`, `HUMAN`, and sub-workflow facts, and
+recursively traverses switch/decision, loop, and fork containers.
+
+The adapter never starts Conductor, executes expressions or inline code,
+imports workers, connects to MCP/model endpoints, or treats runtime discovery
+as a local inventory. Dynamic MCP bindings and unresolved sub-workflows produce
+the Conductor finding above. HTTP/custom-worker/A2A/provider-native execution
+is recorded as an unsupported capability and source warning in v1, so partial
+coverage cannot silently produce `passed`. A `HUMAN` task is structural pause
+evidence only; it does not prove reviewer identity or approval.

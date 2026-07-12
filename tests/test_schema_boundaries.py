@@ -274,7 +274,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.31"
+    assert report_payload["report_schema_version"] == "0.32"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -398,7 +398,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     assert ContractPayload(
         contract_version="12",
         cli_version="0.0.0",
-        report_schema_version="0.30",
+        report_schema_version="0.31",
         packet_schema_version="0.9",
         verifier_schema_version="0.2",
         verify_run_schema_version="shipgate.verify_run/v1",
@@ -447,7 +447,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
     ).model_dump(mode="json") == {
         "contract_version": "12",
         "cli_version": "0.0.0",
-        "report_schema_version": "0.30",
+        "report_schema_version": "0.31",
         "packet_schema_version": "0.9",
         "verifier_schema_version": "0.2",
         "verify_run_schema_version": "shipgate.verify_run/v1",

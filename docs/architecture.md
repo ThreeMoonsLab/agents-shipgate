@@ -3,7 +3,7 @@
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
 2026-07-09; auto-checked against `agents-shipgate contract --json`:
-runtime contract `13`, report schema `v0.31`, packet schema `v0.10`.
+runtime contract `13`, report schema `v0.32`, packet schema `v0.10`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -80,7 +80,8 @@ inputs/protocol.py REGISTRY        dispatch in two passes:
                                             openai_agents_sdk) in declared
                                             order
                                      pass 2: per_scan adapters (google_adk,
-                                            langchain, crewai, n8n, openai_api,
+                                            langchain, crewai, n8n, conductor,
+                                            openai_api,
                                             anthropic_api, codex_plugin,
                                             validation) in canonical order
                                      ↓
@@ -663,7 +664,7 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.31"`; older schemas frozen as
+  `report_schema_version: "0.32"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
   `packet_schema_version: "0.10"`; older schemas frozen.

@@ -12,6 +12,7 @@ from agents_shipgate.checks import (
     auth,
     codex_boundary,
     codex_plugin,
+    conductor,
     crewai,
     documentation,
     evidence,
@@ -68,6 +69,7 @@ BUILTIN_CHECKS: list[Callable[[ScanContext], list[Finding]]] = [
     codex_plugin.run,
     host_boundary.run,
     n8n.run,
+    conductor.run,
     verify.run,
     # M3 (v0.22): Tier B trust-root weakening checks. All category
     # "verify" (suppression-immune + floor-protected) and gated on a

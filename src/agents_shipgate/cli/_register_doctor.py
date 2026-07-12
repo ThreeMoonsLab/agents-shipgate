@@ -175,6 +175,16 @@ def register(app: typer.Typer) -> None:
                     f"prebuilt_tools={crewai_surface.get('prebuilt_tool_count', 0)}, "
                     f"dynamic_surfaces={crewai_surface.get('dynamic_tool_surface_count', 0)}"
                 )
+            if isinstance(frameworks, dict) and frameworks.get("conductor"):
+                conductor_surface = frameworks["conductor"]
+                typer.echo(
+                    "Conductor OSS artifacts: "
+                    f"workflows={conductor_surface.get('workflow_count', 0)}, "
+                    f"mcp_calls={conductor_surface.get('mcp_call_task_count', 0)}, "
+                    f"llm_tasks={conductor_surface.get('llm_task_count', 0)}, "
+                    f"dynamic_surfaces={conductor_surface.get('dynamic_tool_surface_count', 0)}, "
+                    f"unsupported={conductor_surface.get('unsupported_capability_count', 0)}"
+                )
             if payload.get("baseline"):
                 baseline = payload["baseline"]
                 typer.echo(

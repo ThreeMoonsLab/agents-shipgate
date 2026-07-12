@@ -146,7 +146,7 @@ Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at
 - §1 verdict — derives from `release_decision.decision` only. Never derive a verdict from `summary.status`.
 - §10 ("What this packet did NOT prove") — always lists prompt robustness, runtime behavior, model correctness, adversarial resistance.
 
-The packet schema is `0.10`; full schema at [`docs/packet-schema.v0.10.json`](packet-schema.v0.10.json). It projects report v0.31 binding and semantic coverage plus gap remediation; v0.9 is a frozen reference.
+The packet schema is `0.10`; full schema at [`docs/packet-schema.v0.10.json`](packet-schema.v0.10.json). It projects current report binding and semantic coverage plus gap remediation; v0.9 is a frozen reference.
 
 ---
 
@@ -227,7 +227,7 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.31` | `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.31.json`](report-schema.v0.31.json) |
+| Report | `0.32` | `0.31`, `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.32.json`](report-schema.v0.32.json) |
 | Packet | `0.10` | `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.10.json`](packet-schema.v0.10.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
 | CLI contract | `5` | — | `agents-shipgate contract --json` |

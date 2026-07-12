@@ -692,4 +692,9 @@ def _has_dynamic_toolsets_only(payload: dict[str, Any]) -> bool:
         dynamic_total += int(
             crewai.get("dynamic_tool_surface_count", 0) or 0
         )
+    conductor = frameworks.get("conductor") or {}
+    if isinstance(conductor, dict):
+        dynamic_total += int(
+            conductor.get("dynamic_tool_surface_count", 0) or 0
+        )
     return dynamic_total >= 1

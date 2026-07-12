@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.31",
+  "report_schema_version": "0.32",
   "run_id": "agents_shipgate_3189f29f2db532fe",
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {

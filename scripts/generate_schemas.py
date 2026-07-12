@@ -1025,7 +1025,7 @@ def build_report_schema() -> tuple[Path, str]:
             ),
         }
 
-    # frameworks.{google_adk,langchain,crewai} surface counts. These are
+    # frameworks.{google_adk,langchain,crewai,conductor} surface counts. These are
     # also list[dict[str, Any]]-shaped at the model level; v0.5 enumerated
     # the per-framework count keys that consumers check.
     frameworks_property = properties.setdefault(
@@ -1085,6 +1085,26 @@ def build_report_schema() -> tuple[Path, str]:
                 "prebuilt_tool_count",
                 "dynamic_tool_surface_count",
                 "tool_inventory_file_count",
+                "warnings",
+            ]
+        ),
+    }
+    frameworks_sub["conductor"] = {
+        "type": "object",
+        "additionalProperties": True,
+        "required": sorted(
+            [
+                "workflow_file_count",
+                "workflow_count",
+                "task_count",
+                "llm_task_count",
+                "mcp_discovery_task_count",
+                "mcp_call_task_count",
+                "human_checkpoint_count",
+                "structurally_checkpointed_mcp_call_count",
+                "sub_workflow_task_count",
+                "dynamic_tool_surface_count",
+                "unsupported_capability_count",
                 "warnings",
             ]
         ),

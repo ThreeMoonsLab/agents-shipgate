@@ -1,0 +1,33 @@
+version: "0.1"
+
+project:
+  name: conductor-agent
+
+agent:
+  name: durable-order-agent
+  declared_purpose:
+    - review and execute selected order lookups through a Conductor OSS workflow
+
+environment:
+  target: local
+
+tool_sources:
+  - id: conductor_workflows
+    type: conductor
+    path: workflows/
+
+action_surface:
+  actions:
+    - tool: lookup_order
+      effect: read
+      authority:
+        mode: none
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json

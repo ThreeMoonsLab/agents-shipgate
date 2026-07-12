@@ -33,7 +33,13 @@ _EFFECT_RANK: dict[ActionEffect, int] = {
 }
 _EFFECT_VALUES = frozenset(_EFFECT_RANK)
 _MCP_SOURCE_TYPES = frozenset(
-    {"mcp", "codex_config_mcp", "codex_plugin_mcp_inventory", "n8n_mcp_client_tool"}
+    {
+        "mcp",
+        "codex_config_mcp",
+        "codex_plugin_mcp_inventory",
+        "n8n_mcp_client_tool",
+        "conductor_mcp_call",
+    }
 )
 _AST_ONLY_SOURCE_TYPES = frozenset(
     {

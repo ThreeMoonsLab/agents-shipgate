@@ -1697,6 +1697,27 @@
     },
     {
       "autofix_safe": false,
+      "category": "conductor",
+      "default_severity": "high",
+      "description": "Conductor tool surface cannot be statically enumerated.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-conductor-dynamic-tool-surface-not-enumerable",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "surface",
+        "explicit_inventory"
+      ],
+      "fires_when": "A Conductor workflow uses a dynamic or missing MCP method/server, a dynamic LLM tool advertisement, a runtime-generated task, or a sub-workflow target that cannot be resolved from local workflow JSON.",
+      "floor_severity": null,
+      "id": "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",
+      "mvp_tier": "adapter",
+      "rationale": "Runtime MCP targets, dynamic LLM tool advertisements, generated tasks, and unresolved sub-workflows prevent a deterministic release review from enumerating the action surface.",
+      "recommendation": "Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
       "category": "crewai",
       "default_severity": "high",
       "description": "CrewAI tool surface cannot be statically enumerated.",

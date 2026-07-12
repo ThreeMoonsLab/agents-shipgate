@@ -30,6 +30,7 @@ running a scan first:
 | [`support_refund_agent`](support_refund_agent/) | [`report.md`](support_refund_agent/expected/report.md) | [`report.json`](support_refund_agent/expected/report.json) |
 | [`simple_openai_api_agent`](simple_openai_api_agent/) | [`report.md`](simple_openai_api_agent/expected/report.md) | [`report.json`](simple_openai_api_agent/expected/report.json) |
 | [`simple_langchain_agent`](simple_langchain_agent/) | [`report.md`](simple_langchain_agent/expected/report.md) | [`report.json`](simple_langchain_agent/expected/report.json) |
+| [`conductor_agent`](conductor_agent/) | [`report.md`](conductor_agent/expected/report.md) | [`report.json`](conductor_agent/expected/report.json) |
 
 The `support_refund_agent` fixture also includes the Release Evidence Packet at
 [`packet.md`](support_refund_agent/expected/packet.md),
@@ -46,6 +47,7 @@ The `support_refund_agent` fixture also includes the Release Evidence Packet at
 | [`openai_agents_sdk_agent`](openai_agents_sdk_agent/) | OpenAI Agents SDK static extraction paired with a reviewed bound-tool inventory. |
 | [`clean_read_only_agent`](clean_read_only_agent/) | Low-risk read-only fixture for clean scans. |
 | [`simple_openai_api_agent`](simple_openai_api_agent/) | OpenAI Agents API artifacts: prompts, tools, schemas, tests, traces. |
+| [`conductor_agent`](conductor_agent/) | Conductor OSS workflow JSON with static and dynamic MCP call surfaces. |
 | [`simple_anthropic_agent`](simple_anthropic_agent/) | Anthropic Messages API tool-use artifacts. |
 | [`google_adk_agent`](google_adk_agent/) | Google ADK Python and YAML config. |
 | [`hitl_evidence_agent`](hitl_evidence_agent/) | HITL validation evidence gaps for limited auto-approval review posture. |

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Conductor OSS workflow JSON adapter.** A built-in, per-scan `conductor`
+  source statically enumerates literal MCP calls and records MCP discovery,
+  LLM tool advertisements, HUMAN checkpoints, nested control-flow tasks, and
+  local sub-workflows. Dynamic or unresolved tool surfaces emit
+  `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE`; unsupported worker,
+  HTTP, A2A, provider-native, and runtime-generated capabilities remain
+  explicit evidence gaps. Report schema advances from the frozen binding
+  contract v0.31 to v0.32; manifest v0.1, packet v0.10, and runtime contract
+  v13 remain unchanged. `conductor` is now a reserved built-in
+  `tool_sources[].type` and may conflict with a third-party adapter that
+  previously used the same source type.
 - **Root-reachable agent binding graph (P0, `0.16.0b2`).** Tool catalogs no
   longer become an agent's capability surface by extraction alone. Framework
   adapters emit static tool and handoff edges, `agent_bindings` supports exact

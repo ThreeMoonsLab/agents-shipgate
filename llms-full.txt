@@ -33,9 +33,9 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 ## What this project is
 
-The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
+The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs, Conductor OSS workflow JSON) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
-- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n
+- **Inputs:** MCP · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n · Conductor OSS workflow JSON
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
 - **Marketing site:** [threemoonslab.com](https://threemoonslab.com/) — human-readable companion pages. **If you are an agent working inside this repo, use the in-tree [`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json) (current `main` contract, may be ahead of the site's released copy) for schema-version and gating-signal decisions.**
@@ -285,7 +285,7 @@ When a required `tool_sources[].path` does not resolve under the manifest direct
 
 Use it when the user is:
 
-- Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI, n8n)
+- Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI, n8n, Conductor OSS)
 - Publishing or modifying a Codex plugin package or marketplace entry that declares skills, apps, MCP servers, or hooks
 - Adding a new tool, scope, or policy to an existing agent
 - Preparing an agent for production promotion
@@ -307,6 +307,7 @@ Do NOT use it for:
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
 | Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |
+| Adds/changes Conductor OSS workflow JSON with AI/MCP tasks | Yes |
 | Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml` | Yes |
 | Adds/edits `.github/workflows/agents-shipgate.yml` or related CI | Yes |
 | Pure read-only doc/test changes with no manifest impact | Skip |
@@ -315,7 +316,7 @@ Do NOT use it for:
 Two implicit triggers also fire even when no row above matches:
 
 - **Repo already opted in (shipgate.yaml present in the workspace)** — run on every PR; the manifest's existence is the opt-in.
-- **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, or `google-adk` can change AST extraction even without app-code edits.
+- **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, `google-adk`, or `conductor-oss` can change static extraction even without app-code edits.
 
 A machine-readable mirror of these triggers lives at [`docs/triggers.json`](docs/triggers.json). Coding agents that have not yet adopted Shipgate can fetch the file (raw URL: `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`), apply the rules to a PR diff, and decide whether to propose `agents-shipgate detect`. The catalog is stable for `0.x` and pinned by the public-surface contract test against this prose table — if you change a row above, update `triggers.json` in the same commit. To evaluate a diff locally, use the first-class `trigger` subcommand:
 
@@ -376,7 +377,7 @@ restate version archaeology here):
 - Audit envelopes: `release_decision.contribution_rules[]`, `policy_audit`,
   `privacy_audit`, `heuristics_filter` — explanatory, never a second gate
 
-The current schema is [`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json). Emitted reports carry `report_schema_version: "0.31"`; v0.31 separates the full tool catalog from the root-reachable capability surface and adds binding facts, diffs, and coverage. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, and authority evidence for every reachable action, evaluation of all applicable controls, and no policy condition requiring review. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding and semantic gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact claim and [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for version history. v0.30 remains frozen at [`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json).
+The current schema is [`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json). Emitted reports carry `report_schema_version: "0.32"`; v0.32 adds the required Conductor OSS framework summary over v0.31's root-reachable binding contract. A `passed` result requires a complete root-reachable static binding graph plus complete, conflict-free identity, effect, and authority evidence for every reachable action, evaluation of all applicable controls, and no policy condition requiring review. Every release decision explicitly carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and `static_verdict_disclaimer`; packet §1 mirrors them. Binding and semantic gaps are not Findings and cannot be suppressed or baselined. See [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact claim and [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for version history. v0.31 remains frozen at [`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json).
 
 **Release gating signal**: prefer `release_decision.decision` (`"blocked" | "review_required" | "insufficient_evidence" | "passed"`) over `summary.status`. The new field is **baseline-aware** — a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not `release_decision.blockers`. `summary.status` stays baseline-blind for v0.7 compatibility, so a baseline-matched-only critical produces both `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"` (intentional divergence — see [STABILITY.md](STABILITY.md#release_decisiondecision-vs-summarystatus)). `insufficient_evidence` (added v0.14) signals that the scan saw too many low-confidence tools or source-loader warnings to be trustworthy; consumers that switch on the enum must fall back to `review_required` for unknown future values.
 
@@ -456,7 +457,7 @@ validation and [`docs/manifest-v0.1.md`](docs/manifest-v0.1.md) for prose.
 ### Where is the report schema?
 
 Parse `agents-shipgate-reports/report.json` and validate against
-[`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json) (current).
+[`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json) (current).
 Older reports (`report_schema_version: "0.10"`) validate against the
 frozen [`docs/report-schema.v0.10.json`](docs/report-schema.v0.10.json).
 Do not scrape Markdown when JSON is available.
@@ -494,7 +495,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | What | Path | Stable |
 |---|---|---|
 | Manifest schema | [`docs/manifest-v0.1.json`](docs/manifest-v0.1.json) | `0.1` |
-| Report schema (current) | [`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json) | `0.31` |
+| Report schema (current) | [`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json) | `0.32` |
+| Report schema (v0.31 frozen reference) | [`docs/report-schema.v0.31.json`](docs/report-schema.v0.31.json) | `0.31` |
 | Report schema (v0.30 frozen reference) | [`docs/report-schema.v0.30.json`](docs/report-schema.v0.30.json) | `0.30` |
 | Report schema (v0.29 frozen reference) | [`docs/report-schema.v0.29.json`](docs/report-schema.v0.29.json) | `0.29` |
 | Report schema (v0.28 frozen reference) | [`docs/report-schema.v0.28.json`](docs/report-schema.v0.28.json) | `0.28` |
@@ -1008,9 +1010,9 @@ agents-shipgate contract --json
 ```
 
 Runtime contract v13 proves the root-reachable agent-to-tool graph before
-evaluating capabilities and publishes report v0.31, packet v0.10, capability
+evaluating capabilities and publishes report v0.32, packet v0.10, capability
 standard v0.4, capability lock v0.5, and capability-lock diff v0.6. Report
-fields are additive over v0.30,
+fields are additive over v0.31,
 but the pre-1.0 meaning of `passed` is deliberately stricter. v10 added
 `verify_required` to `agent_result_control_fields` and to the boundary result.
 The runtime contract also exposes the local agent command spec:
@@ -1040,7 +1042,7 @@ Downstream repos generated with
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b2` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `13`
-- Current report schema: `0.31` — [`docs/report-schema.v0.31.json`](report-schema.v0.31.json)
+- Current report schema: `0.32` — [`docs/report-schema.v0.32.json`](report-schema.v0.32.json)
 - Current packet schema: `0.10` — [`docs/packet-schema.v0.10.json`](packet-schema.v0.10.json)
 - Current verifier schema: `0.2` — [`docs/verifier-schema.v0.2.json`](verifier-schema.v0.2.json)
 - Current verify-run schema: `shipgate.verify_run/v1` — [`docs/verify-run-schema.v1.json`](verify-run-schema.v1.json)
@@ -1056,7 +1058,7 @@ Downstream repos generated with
 - Current host-grants inventory schema: `0.1` — [`docs/host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
-- Frozen-reference report schemas: frozen [`v0.30`](report-schema.v0.30.json), frozen [`v0.29`](report-schema.v0.29.json), frozen [`v0.28`](report-schema.v0.28.json), frozen [`v0.27`](report-schema.v0.27.json), frozen [`v0.26`](report-schema.v0.26.json), frozen [`v0.25`](report-schema.v0.25.json), frozen [`v0.24`](report-schema.v0.24.json), frozen [`v0.23`](report-schema.v0.23.json), frozen [`v0.22`](report-schema.v0.22.json), frozen [`v0.21`](report-schema.v0.21.json), frozen [`v0.20`](report-schema.v0.20.json), frozen [`v0.19`](report-schema.v0.19.json), frozen [`v0.18`](report-schema.v0.18.json), frozen [`v0.17`](report-schema.v0.17.json), frozen [`v0.16`](report-schema.v0.16.json), frozen [`v0.15`](report-schema.v0.15.json), frozen [`v0.14`](report-schema.v0.14.json), frozen [`v0.13`](report-schema.v0.13.json), frozen [`v0.12`](report-schema.v0.12.json), frozen [`v0.11`](report-schema.v0.11.json), frozen [`v0.10`](report-schema.v0.10.json), frozen [`v0.9`](report-schema.v0.9.json), frozen [`v0.8`](report-schema.v0.8.json), frozen [`v0.7`](report-schema.v0.7.json), frozen [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: frozen [`v0.31`](report-schema.v0.31.json), frozen [`v0.30`](report-schema.v0.30.json), frozen [`v0.29`](report-schema.v0.29.json), frozen [`v0.28`](report-schema.v0.28.json), frozen [`v0.27`](report-schema.v0.27.json), frozen [`v0.26`](report-schema.v0.26.json), frozen [`v0.25`](report-schema.v0.25.json), frozen [`v0.24`](report-schema.v0.24.json), frozen [`v0.23`](report-schema.v0.23.json), frozen [`v0.22`](report-schema.v0.22.json), frozen [`v0.21`](report-schema.v0.21.json), frozen [`v0.20`](report-schema.v0.20.json), frozen [`v0.19`](report-schema.v0.19.json), frozen [`v0.18`](report-schema.v0.18.json), frozen [`v0.17`](report-schema.v0.17.json), frozen [`v0.16`](report-schema.v0.16.json), frozen [`v0.15`](report-schema.v0.15.json), frozen [`v0.14`](report-schema.v0.14.json), frozen [`v0.13`](report-schema.v0.13.json), frozen [`v0.12`](report-schema.v0.12.json), frozen [`v0.11`](report-schema.v0.11.json), frozen [`v0.10`](report-schema.v0.10.json), frozen [`v0.9`](report-schema.v0.9.json), frozen [`v0.8`](report-schema.v0.8.json), frozen [`v0.7`](report-schema.v0.7.json), frozen [`v0.6`](report-schema.v0.6.json), older
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 - Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
@@ -1556,7 +1558,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.31.json`](report-schema.v0.31.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.32.json`](report-schema.v0.32.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.10.json`](packet-schema.v0.10.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
@@ -1718,6 +1720,7 @@ baseline summary and do not fail CI.
 | `SHIP-N8N-CREDENTIAL-EVIDENCE-MISSING` | high | Production-like n8n workflows reference credentials without declared credential stubs. |
 | `SHIP-N8N-EVAL-COVERAGE-MISSING` | medium | Production-like n8n workflows are present without declared eval files. |
 | `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` | high | n8n workflow JSON contains a secret-like value; evidence is redacted. |
+| `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | A Conductor OSS workflow uses a dynamic or unresolved tool-capability surface. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
 | `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
@@ -2376,6 +2379,13 @@ contains a secret-like value. Evidence includes only the source reference,
 stable pointer, and secret kind; it never includes the matched secret value or
 a verifier hash for that value.
 
+### SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
+
+A Conductor OSS workflow uses a dynamic or missing MCP method/server, dynamic
+LLM tool advertisement, runtime-generated task, or unresolved sub-workflow.
+Make the target static and locally reviewable before release. The adapter does
+not connect to Conductor, MCP servers, or model providers to fill the gap.
+
 ### SHIP-MANIFEST-STALE-SUPPRESSION
 
 A suppression references an unknown check ID or a tool that is not loaded in the
@@ -2708,6 +2718,22 @@ Credential names, workflow/node names, code bodies, request bodies, headers,
 pinned data, static data, node notes, variable values, execution payloads, and
 detected secrets are redacted or omitted from reports. Credential types and
 credential IDs may be preserved as local release evidence.
+
+## Conductor OSS Static Extraction
+
+Conductor OSS extraction reads only local `schemaVersion: 2` workflow JSON
+declared through `tool_sources[].type: conductor`. The MCP-core v1 adapter
+normalizes literal `CALL_MCP_TOOL.method` call sites, records
+`LIST_MCP_TOOLS`, `LLM_CHAT_COMPLETE`, `HUMAN`, and sub-workflow facts, and
+recursively traverses switch/decision, loop, and fork containers.
+
+The adapter never starts Conductor, executes expressions or inline code,
+imports workers, connects to MCP/model endpoints, or treats runtime discovery
+as a local inventory. Dynamic MCP bindings and unresolved sub-workflows produce
+the Conductor finding above. HTTP/custom-worker/A2A/provider-native execution
+is recorded as an unsupported capability and source warning in v1, so partial
+coverage cannot silently produce `passed`. A `HUMAN` task is structural pause
+evidence only; it does not prove reviewer identity or approval.
 
 
 <!-- ===== source: docs/concepts.md ===== -->
@@ -3051,7 +3077,7 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.31.json`](report-schema.v0.31.json) — current JSON
+- [`report-schema.v0.32.json`](report-schema.v0.32.json) — current JSON
   Schema for `report.json`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.

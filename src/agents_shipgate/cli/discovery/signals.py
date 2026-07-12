@@ -36,6 +36,7 @@ Agent-name candidate ranking (corrected post-review):
 from __future__ import annotations
 
 import ast
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +44,7 @@ from pathlib import Path
 from agents_shipgate.cli.discovery.artifacts import (
     ANTHROPIC_POLICY_PATTERNS,
     ANTHROPIC_TOOL_PATTERNS,
+    CONDUCTOR_WORKFLOW_PATTERNS,
     MCP_PATTERNS,
     MODEL_CONFIG_PATTERNS,
     N8N_WORKFLOW_PATTERNS,
@@ -57,6 +59,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     _relative,
     probe_suggested_source,
 )
+from agents_shipgate.inputs.conductor import conductor_agent_task_types
 from agents_shipgate.schemas.detect import (
     CodexPluginCandidate,
     DetectResult,
@@ -118,6 +121,7 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
     "anthropic": ("anthropic",),
     "openai_agents_sdk": ("openai-agents", "openai_agents", "agents"),
     "n8n": ("n8n", "@n8n/n8n-nodes-langchain"),
+    "conductor": ("conductor-client", "conductor-server", "conductor-oss"),
     # openai_api is artifact-based; package hints aren't meaningful for it.
     "openai_api": (),
 }
@@ -175,6 +179,7 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         "anthropic": _FrameworkScore(),
         "openai_agents_sdk": _FrameworkScore(),
         "n8n": _FrameworkScore(),
+        "conductor": _FrameworkScore(),
         # openai_api is the artifact-based OpenAI Messages API surface
         # (manifest.openai_api block). Distinct from openai_agents_sdk
         # (Python @function_tool decorators).
@@ -468,6 +473,7 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
         "anthropic": [],
         "openai_agents_sdk": [],
         "n8n": [],
+        "conductor": [],
         "openai_api": [],
     }
     for path in _discover_patterns(workspace, ANTHROPIC_TOOL_PATTERNS):
@@ -500,6 +506,21 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
         full_path = (workspace / path).resolve()
         if _looks_like_n8n_workflow(full_path):
             hits["n8n"].append(_GlobHit(2.0, "strong", f"n8n workflow: {path}"))
+    for path in _discover_patterns(workspace, CONDUCTOR_WORKFLOW_PATTERNS):
+        full_path = (workspace / path).resolve()
+        try:
+            data = json.loads(full_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        markers = conductor_agent_task_types(data)
+        if markers:
+            hits["conductor"].append(
+                _GlobHit(
+                    2.0,
+                    "strong",
+                    f"Conductor AI/MCP workflow: {path} ({', '.join(sorted(markers))})",
+                )
+            )
     return hits
 
 
@@ -509,6 +530,7 @@ def _collect_dir_hits(workspace: Path) -> dict[str, list[str]]:
         return {f: [] for f in (
             "langchain", "crewai", "google_adk", "anthropic", "openai_agents_sdk",
             "n8n",
+            "conductor",
             "openai_api",
         )}
     # Conventional dirs are weak signals shared across all framework
@@ -525,6 +547,7 @@ def _collect_dir_hits(workspace: Path) -> dict[str, list[str]]:
             "anthropic",
             "openai_agents_sdk",
             "n8n",
+            "conductor",
             "openai_api",
         )
     }
@@ -601,6 +624,13 @@ def _suggested_sources(
                 continue
             seen.add(("mcp", rel))
             candidates.append(("mcp", rel))
+    for pattern in CONDUCTOR_WORKFLOW_PATTERNS:
+        for path in _candidate_files_matching(workspace, (pattern,)):
+            rel = _relative(path, workspace)
+            if ("conductor", rel) in seen:
+                continue
+            seen.add(("conductor", rel))
+            candidates.append(("conductor", rel))
 
     suggested: list[dict[str, str]] = []
     suggested_paths: set[str] = set()

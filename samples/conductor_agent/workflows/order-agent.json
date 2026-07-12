@@ -1,0 +1,83 @@
+{
+  "name": "durable_order_agent",
+  "version": 1,
+  "schemaVersion": 2,
+  "description": "Minimal Conductor OSS MCP-core adapter fixture.",
+  "tasks": [
+    {
+      "name": "discover_tools",
+      "taskReferenceName": "discover",
+      "type": "LIST_MCP_TOOLS",
+      "inputParameters": {
+        "mcpServer": "https://mcp.example.test/rpc"
+      }
+    },
+    {
+      "name": "plan_action",
+      "taskReferenceName": "plan",
+      "type": "LLM_CHAT_COMPLETE",
+      "inputParameters": {
+        "llmProvider": "example-provider",
+        "model": "example-model",
+        "messages": [
+          {
+            "role": "user",
+            "message": "Choose an order tool without executing it."
+          }
+        ],
+        "tools": "${discover.output.tools}",
+        "webSearch": true
+      }
+    },
+    {
+      "name": "review_action",
+      "taskReferenceName": "review",
+      "type": "HUMAN",
+      "inputParameters": {
+        "plannedAction": "${plan.output.result}"
+      }
+    },
+    {
+      "name": "lookup_order",
+      "taskReferenceName": "lookup",
+      "type": "CALL_MCP_TOOL",
+      "description": "Look up read-only order metadata.",
+      "inputParameters": {
+        "mcpServer": "https://mcp.example.test/rpc",
+        "method": "lookup_order",
+        "arguments": {
+          "order_id": "${workflow.input.order_id}"
+        }
+      }
+    },
+    {
+      "name": "route_optional_action",
+      "taskReferenceName": "route",
+      "type": "SWITCH",
+      "expression": "${workflow.input.execute_dynamic}",
+      "decisionCases": {
+        "yes": [
+          {
+            "name": "execute_dynamic_tool",
+            "taskReferenceName": "dynamic_call",
+            "type": "CALL_MCP_TOOL",
+            "inputParameters": {
+              "mcpServer": "https://mcp.example.test/rpc",
+              "method": "${plan.output.result.method}",
+              "arguments": "${plan.output.result.arguments}"
+            }
+          }
+        ]
+      },
+      "defaultCase": []
+    },
+    {
+      "name": "unsupported_http_action",
+      "taskReferenceName": "http_action",
+      "type": "HTTP",
+      "inputParameters": {
+        "uri": "https://example.test/orders"
+      }
+    }
+  ]
+}

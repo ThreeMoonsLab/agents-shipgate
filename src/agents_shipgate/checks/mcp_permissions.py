@@ -20,6 +20,7 @@ MCP_SOURCE_TYPES = frozenset(
         "codex_config_mcp",
         "codex_plugin_mcp_inventory",
         "n8n_mcp_client_tool",
+        "conductor_mcp_call",
     }
 )
 CapabilityKey = tuple[str | None, str]

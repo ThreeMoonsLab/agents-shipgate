@@ -156,6 +156,7 @@ def test_canonical_registration_order():
         "langchain",
         "crewai",
         "n8n",
+        "conductor",
         "openai_api",
         "anthropic_api",
         "codex_config",

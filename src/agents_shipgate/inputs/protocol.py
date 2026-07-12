@@ -2,7 +2,7 @@
 
 Every tool-source or scan-artifact loader (mcp, openapi,
 openai_agents_sdk, google_adk, langchain, crewai, codex_config, codex_plugin,
-openai_api, anthropic_api, n8n, validation) is exposed as a
+openai_api, anthropic_api, n8n, conductor, validation) is exposed as a
 ``ToolSourceAdapter``. The CLI's ``_load_sources`` walks ``REGISTRY``
 to dispatch.
 
@@ -223,7 +223,7 @@ class AdapterRegistry:
                     "adapter package is installed, or (b) fix a typo "
                     "of a built-in name (built-ins are: mcp, openapi, "
                     "openai_agents_sdk, google_adk, langchain, crewai, "
-                    "codex_config, codex_plugin)."
+                    "codex_config, codex_plugin, conductor)."
                 )
             raise ConfigError(
                 f"No adapter registered for source type "
@@ -263,7 +263,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
     output ordering mirrors the legacy ``run_scan``:
 
         per-source loaders (declared order, including codex_config when declared)
-        → google_adk → langchain → crewai → n8n
+        → google_adk → langchain → crewai → n8n → conductor
         → openai_api → anthropic_api → codex_plugin → validation
 
     Adapter modules are imported lazily here to avoid a top-level
@@ -276,6 +276,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
     from agents_shipgate.inputs.anthropic_api import AnthropicAPIAdapter
     from agents_shipgate.inputs.codex_config import CodexConfigAdapter
     from agents_shipgate.inputs.codex_plugin import CodexPluginAdapter
+    from agents_shipgate.inputs.conductor import ConductorAdapter
     from agents_shipgate.inputs.crewai import CrewAIAdapter
     from agents_shipgate.inputs.google_adk import GoogleADKAdapter
     from agents_shipgate.inputs.langchain import LangChainAdapter
@@ -294,6 +295,7 @@ def _register_builtin_adapters(registry: AdapterRegistry) -> None:
         LangChainAdapter(),
         CrewAIAdapter(),
         N8nAdapter(),
+        ConductorAdapter(),
         OpenAIAPIAdapter(),
         AnthropicAPIAdapter(),
         CodexConfigAdapter(),

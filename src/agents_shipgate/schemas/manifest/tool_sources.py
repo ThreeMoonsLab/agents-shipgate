@@ -19,6 +19,7 @@ BUILTIN_TOOL_SOURCE_TYPES: tuple[str, ...] = (
     "crewai",
     "codex_config",
     "codex_plugin",
+    "conductor",
 )
 
 #: Built-in adapters that are intentionally NOT permitted in
@@ -91,6 +92,7 @@ class ToolSourceConfig(BaseModel):
                 "crewai",
                 "codex_config",
                 "codex_plugin",
+                "conductor",
             }
             and not self.path
         ):
