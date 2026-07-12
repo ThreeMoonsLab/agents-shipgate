@@ -22,6 +22,7 @@ from agents_shipgate.inputs.common import (
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
+    strip_untrusted_binding_annotations,
     tool_name_warning,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
@@ -73,6 +74,7 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     operation=operation,
                     path_parameters=path_parameters,
                     positions=positions,
+                    warnings=warnings,
                 )
             except (RecursionError, MemoryError):
                 raise
@@ -114,6 +116,7 @@ def _operation_to_tool(
     operation: dict[str, Any],
     path_parameters: list[Any],
     positions: PositionIndex,
+    warnings: list[str],
 ) -> Tool:
     operation_id = operation.get("operationId") or _operation_name(method, api_path)
     request_schema = _extract_request_schema(document, operation)
@@ -124,7 +127,11 @@ def _operation_to_tool(
     description = "\n".join(
         part for part in [operation.get("summary"), operation.get("description")] if part
     )
-    annotations = _extract_annotations(operation)
+    annotations = _extract_annotations(
+        operation,
+        operation_label=str(operation_id),
+        warnings=warnings,
+    )
     annotations["httpMethod"] = method.upper()
     annotations["path"] = api_path
     auth = _extract_security(document, operation)
@@ -330,7 +337,12 @@ def _extract_security(document: dict[str, Any], operation: dict[str, Any]) -> Au
     )
 
 
-def _extract_annotations(operation: dict[str, Any]) -> dict[str, Any]:
+def _extract_annotations(
+    operation: dict[str, Any],
+    *,
+    operation_label: str,
+    warnings: list[str],
+) -> dict[str, Any]:
     annotations: dict[str, Any] = {}
     for source_key, output_key in {
         "x-readOnlyHint": "readOnlyHint",
@@ -343,7 +355,16 @@ def _extract_annotations(operation: dict[str, Any]) -> dict[str, Any]:
             annotations[output_key] = operation[source_key]
     agents_shipgate = operation.get("x-agents-shipgate")
     if isinstance(agents_shipgate, dict):
-        annotations.update(agents_shipgate)
+        safe_annotations, rejected_binding_keys = strip_untrusted_binding_annotations(
+            agents_shipgate
+        )
+        annotations.update(safe_annotations)
+        if rejected_binding_keys:
+            warnings.append(
+                f"OpenAPI operation {operation_label!r} contains reserved binding "
+                "annotations that were ignored: "
+                f"{', '.join(rejected_binding_keys)}"
+            )
     return annotations
 
 

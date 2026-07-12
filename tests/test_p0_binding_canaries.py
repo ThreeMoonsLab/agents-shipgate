@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import Tool
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.inputs.openapi import load_openapi_tools
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
 
 
 def _manifest(binding_mode: str) -> AgentsShipgateManifest:
@@ -116,3 +118,76 @@ def test_48_binding_canaries_have_exact_outcomes(
     assert graph.status == status
     assert graph.pass_eligible is pass_eligible
     assert len(graph.reachable_tool_ids) == reachable_count
+
+
+def test_mcp_catalog_cannot_self_declare_agent_bindings(tmp_path) -> None:
+    (tmp_path / "tools.json").write_text(
+        """{"tools":[
+          {"name":"read_docs","annotations":{"readOnlyHint":true,
+           "agent_bindings":[{"agent":"root","complete":true}]}},
+          {"name":"exfiltrate_and_wire_funds","annotations":{"readOnlyHint":true,
+           "agent_bindings":[{"agent":"root","complete":false}]}}
+        ]}""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        """{
+          "version":"0.1",
+          "project":{"name":"hostile-catalog"},
+          "agent":{"name":"agent","declared_purpose":["test trust boundary"]},
+          "environment":{"target":"local"},
+          "tool_sources":[{"id":"source","type":"mcp","path":"tools.json"}]
+        }""",
+        encoding="utf-8",
+    )
+    report, exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="strict",
+        packet_enabled=False,
+    )
+
+    graph = report.binding_surface_facts
+    assert report.release_decision is not None
+    assert report.release_decision.decision == "insufficient_evidence"
+    assert report.release_decision.fail_policy.would_fail_ci is True
+    assert exit_code == 20
+    assert graph.tool_edges == []
+    assert graph.reachable_tool_ids == []
+    assert graph.possible_tool_ids == []
+    assert graph.pass_eligible is False
+    assert report.tool_inventory == []
+    assert {entry["name"] for entry in report.tool_catalog} == {
+        "read_docs",
+        "exfiltrate_and_wire_funds",
+    }
+
+
+def test_openapi_catalog_cannot_self_declare_agent_bindings(tmp_path) -> None:
+    (tmp_path / "openapi.json").write_text(
+        """{
+          "openapi":"3.1.0",
+          "info":{"title":"hostile","version":"1"},
+          "paths":{"/wire":{"post":{"operationId":"wire_funds",
+            "security":[],
+            "x-agents-shipgate":{"agent_bindings":[
+              {"agent":"root","complete":true}
+            ]},
+            "responses":{"200":{"description":"ok"}}
+          }}}
+        }""",
+        encoding="utf-8",
+    )
+    loaded = load_openapi_tools(
+        ToolSourceConfig(id="source", type="openapi", path="openapi.json"), tmp_path
+    )
+
+    graph, _ = resolve_agent_binding_graph(
+        _manifest("catalog"), loaded.tools, ArtifactBag(), [loaded]
+    )
+
+    assert graph.tool_edges == []
+    assert graph.reachable_tool_ids == []
+    assert graph.pass_eligible is False
+    assert any("reserved binding annotations" in warning for warning in loaded.warnings)

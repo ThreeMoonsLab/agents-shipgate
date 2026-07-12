@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
-from agents_shipgate.core.domain import AuthInfo, Tool
+from agents_shipgate.core.domain import (
+    AgentBindingObservation,
+    AuthInfo,
+    LoadedToolSource,
+    Tool,
+)
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 
@@ -163,3 +168,80 @@ def test_dynamic_binding_annotation_fails_closed() -> None:
     assert graph.status == "partial"
     assert graph.pass_eligible is False
     assert "partial_binding_evidence" in {issue.kind for issue in graph.issues}
+
+
+def test_incomplete_positive_edge_creates_tool_specific_gap() -> None:
+    tool = _tool("exfiltrate", agent="root_agent")
+    tool.annotations["agent_bindings"][0]["complete"] = False
+
+    graph, _ = resolve_agent_binding_graph(
+        _manifest(sdk_object="root_agent"), [tool], ArtifactBag()
+    )
+
+    assert graph.reachable_tool_ids == []
+    assert graph.possible_tool_ids == [tool.id]
+    assert graph.status == "partial"
+    assert graph.pass_eligible is False
+    assert any(
+        issue.kind == "partial_binding_evidence" and issue.tool_id == tool.id
+        for issue in graph.issues
+    )
+
+
+def test_agent_level_observation_preserves_toolless_router_handoff() -> None:
+    worker_tool = _tool("lookup", source_id="sdk")
+    loaded = LoadedToolSource(
+        source_id="sdk",
+        source_type="openai_agents_sdk",
+        tools=[worker_tool],
+        binding_observations=[
+            AgentBindingObservation(
+                agent="router",
+                source_id="sdk",
+                source="agent.py",
+                source_pointer="agent.py:4",
+                handoff_names=["worker"],
+            ),
+            AgentBindingObservation(
+                agent="worker",
+                source_id="sdk",
+                source="agent.py",
+                source_pointer="agent.py:5",
+                tool_names=["lookup"],
+            ),
+        ],
+    )
+
+    graph, _ = resolve_agent_binding_graph(
+        _manifest(sdk_object="router"),
+        [worker_tool],
+        ArtifactBag(),
+        [loaded],
+    )
+
+    assert graph.pass_eligible is True
+    assert graph.reachable_tool_ids == [worker_tool.id]
+    assert len(graph.handoff_edges) == 1
+
+
+def test_incomplete_handoff_from_reachable_agent_fails_closed() -> None:
+    root_tool = _tool("route", source_id="sdk", agent="root_agent")
+    root_tool.annotations["agent_handoffs"] = [
+        {
+            "source_agent": "root_agent",
+            "target_agent": "worker",
+            "source_id": "sdk",
+            "complete": False,
+        }
+    ]
+    worker_tool = _tool("lookup", source_id="sdk", agent="worker")
+
+    graph, _ = resolve_agent_binding_graph(
+        _manifest(sdk_object="root_agent"),
+        [root_tool, worker_tool],
+        ArtifactBag(),
+    )
+
+    assert graph.reachable_tool_ids == [root_tool.id]
+    assert graph.pass_eligible is False
+    assert "incomplete_handoff_graph" in {issue.kind for issue in graph.issues}

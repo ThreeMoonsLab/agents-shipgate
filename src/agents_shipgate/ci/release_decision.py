@@ -431,6 +431,32 @@ def _binding_coverage(
                 ),
             )
         )
+    covered_possible_ids = {
+        issue.tool_id
+        for issue in graph.issues
+        if issue.kind == "partial_binding_evidence" and issue.tool_id is not None
+    }
+    for tool_id in sorted(set(graph.possible_tool_ids) - covered_possible_ids):
+        _increment(reason_counts, "partial_binding_evidence")
+        gaps.append(
+            EvidenceGap(
+                kind="partial_binding_evidence",
+                subject=tool_id,
+                why="A possibly reachable tool lacks a complete static binding edge.",
+                next_action=EvidenceGapAction(
+                    kind="provide_complete_binding_graph",
+                    command=_SEMANTIC_RERUN_COMMAND,
+                    path="shipgate.yaml#agent_bindings",
+                    why="Possibly reachable tools cannot be omitted from the release decision.",
+                    expects="Provide static wiring or an exact reviewed declaration.",
+                    accepted_values=[
+                        "literal_tools",
+                        "literal_handoffs",
+                        "complete:true",
+                    ],
+                ),
+            )
+        )
     return (
         BindingCoverageDecision(
             total_catalog_tools=(

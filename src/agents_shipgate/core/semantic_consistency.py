@@ -120,6 +120,7 @@ def validate_semantic_consistency(
         coverage.gap_count
         or binding_coverage.gap_count
         or not graph.pass_eligible
+        or bool(graph.possible_tool_ids)
         or coverage.review_concern_count
         or identity_coverage.gap_count
         or identity_eligible != len(assessments)

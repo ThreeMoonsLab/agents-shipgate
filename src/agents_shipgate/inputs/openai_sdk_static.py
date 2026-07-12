@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import ClassVar, Literal
 
 from agents_shipgate.core.domain import (
+    AgentBindingObservation,
     AuthInfo,
     LoadedToolSource,
     Tool,
@@ -66,12 +67,15 @@ def load_openai_sdk_static_tools(
         raise InputParseError(
             f"OpenAI Agents SDK source must be a Python file or directory: {path}"
         )
-    binding_warnings = _attach_agent_bindings(tools, python_files, source, base_dir)
+    binding_warnings, binding_observations = _extract_agent_bindings(
+        tools, python_files, source, base_dir
+    )
     return LoadedToolSource(
         source_id=source.id,
         source_type="openai_agents_sdk",
         tools=tools,
         toolkit_bounds=toolkit_bounds,
+        binding_observations=binding_observations,
         warnings=[*_toolkit_binding_warnings(toolkit_bounds), *binding_warnings],
     )
 
@@ -124,13 +128,13 @@ def _load_python_file(
     return tools, _detect_toolkit_bounds(tree, ref)
 
 
-def _attach_agent_bindings(
+def _extract_agent_bindings(
     tools: list[Tool],
     paths: list[Path],
     source: ToolSourceConfig,
     base_dir: Path,
-) -> list[str]:
-    """Attach exact, local-only ``Agent(..., tools=[...])`` wiring.
+) -> tuple[list[str], list[AgentBindingObservation]]:
+    """Extract exact, local-only ``Agent(..., tools=[...])`` wiring.
 
     This intentionally resolves only literal lists, names bound to literal
     lists, and local/imported function-tool identifiers. Dynamic expressions
@@ -138,6 +142,7 @@ def _attach_agent_bindings(
     """
 
     warnings: list[str] = []
+    observations: list[AgentBindingObservation] = []
     tool_by_name = {tool.name: tool for tool in tools}
     tool_by_name.update(
         {
@@ -170,63 +175,55 @@ def _attach_agent_bindings(
             tools_expr = _keyword(call, "tools")
             names = _resolve_name_list(tools_expr, list_vars, import_aliases)
             pointer = f"{source_ref}:{call.lineno}"
+            issues: list[str] = []
+            tools_complete = True
             if names is None:
                 reason = (
                     f"OpenAI Agents SDK agent {target!r} at {pointer} uses a "
                     "dynamic tools expression; its binding graph is incomplete."
                 )
                 warnings.append(reason)
-                for tool in tools:
-                    if tool.source_id == source.id:
-                        tool.annotations.setdefault("binding_surface_partial", []).append(reason)
-                continue
-            for name in names:
-                tool = tool_by_name.get(name)
-                if tool is None:
-                    reason = (
-                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
-                        f"unresolved tool {name!r}."
-                    )
-                    warnings.append(reason)
-                    for candidate in tools:
-                        if candidate.source_id == source.id:
-                            candidate.annotations.setdefault("binding_surface_partial", []).append(reason)
-                    continue
-                tool.annotations.setdefault("agent_bindings", []).append(
-                    {
-                        "agent": target,
-                        "source_id": source.id,
-                        "edge_type": "direct_tool",
-                        "source": source_ref,
-                        "source_pointer": pointer,
-                        "complete": True,
-                    }
-                )
+                issues.append(reason)
+                tools_complete = False
+                names = []
+            else:
+                for name in names:
+                    if tool_by_name.get(name) is None:
+                        reason = (
+                            f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
+                            f"unresolved tool {name!r}."
+                        )
+                        warnings.append(reason)
+                        issues.append(reason)
+                        tools_complete = False
+                names = [
+                    tool_by_name[name].name if name in tool_by_name else name
+                    for name in names
+                ]
             handoff_names = _resolve_name_list(
                 _keyword(call, "handoffs"), list_vars, import_aliases
             )
+            handoffs_complete = True
             if handoff_names is None:
                 reason = f"OpenAI Agents SDK agent {target!r} has dynamic handoffs at {pointer}."
                 warnings.append(reason)
-                for tool in tools:
-                    if tool.source_id == source.id:
-                        tool.annotations.setdefault("binding_surface_partial", []).append(reason)
-            elif handoff_names:
-                anchor = next((tool_by_name.get(name) for name in names if tool_by_name.get(name)), None)
-                if anchor is not None:
-                    anchor.annotations.setdefault("agent_handoffs", []).extend(
-                        {
-                            "source_agent": target,
-                            "target_agent": handoff,
-                            "source_id": source.id,
-                            "edge_type": "handoff",
-                            "source": source_ref,
-                            "source_pointer": pointer,
-                            "complete": True,
-                        }
-                        for handoff in handoff_names
-                    )
-    return list(dict.fromkeys(warnings))
+                issues.append(reason)
+                handoffs_complete = False
+                handoff_names = []
+            observations.append(
+                AgentBindingObservation(
+                    agent=target,
+                    source_id=source.id,
+                    source=source_ref,
+                    source_pointer=pointer,
+                    tool_names=names,
+                    handoff_names=handoff_names,
+                    tools_complete=tools_complete,
+                    handoffs_complete=handoffs_complete,
+                    issues=issues,
+                )
+            )
+    return list(dict.fromkeys(warnings)), observations
 
 
 def _assignment_target(node: ast.Assign | ast.AnnAssign) -> str | None:

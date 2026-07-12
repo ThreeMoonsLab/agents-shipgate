@@ -15,6 +15,7 @@ from agents_shipgate.core.artifact_models import (
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import (
     BindingSemanticAssessment,
+    LoadedToolSource,
     SemanticClaim,
     SemanticIssue,
     Tool,
@@ -86,6 +87,7 @@ def resolve_agent_binding_graph(
     manifest: AgentsShipgateManifest,
     tools: list[Tool],
     artifacts: ArtifactBag,
+    loaded_sources: list[LoadedToolSource] | None = None,
 ) -> tuple[AgentBindingGraphAssessment, list[Tool]]:
     """Resolve the exact static graph rooted at the configured agent.
 
@@ -99,7 +101,7 @@ def resolve_agent_binding_graph(
         raw_handoffs,
         partials,
         invalid_annotations,
-    ) = _observations(tools, artifacts)
+    ) = _observations(tools, artifacts, loaded_sources or [])
     declarations = manifest.agent_bindings.declarations
     for declaration in declarations:
         if declaration.agent != "root":
@@ -368,6 +370,20 @@ def resolve_agent_binding_graph(
     tool_edges = _dedupe_tool_edges(tool_edges)
     handoff_edges = _dedupe_handoff_edges(handoff_edges)
     reachable_agents, paths = _reachable_agents(root, handoff_edges)
+    for edge in handoff_edges:
+        if edge.source_agent_id in reachable_agents and not edge.complete:
+            issues.append(
+                AgentBindingIssue(
+                    kind="incomplete_handoff_graph",
+                    message=(
+                        "A handoff from a reachable agent is incomplete; its downstream "
+                        "capability surface cannot be proven."
+                    ),
+                    agent_id=edge.source_agent_id,
+                    source=edge.source,
+                    source_pointer=edge.source_pointer,
+                )
+            )
     reachable_ids = sorted(
         {
             edge.tool_id
@@ -384,6 +400,30 @@ def resolve_agent_binding_graph(
         - set(reachable_ids)
     )
     unbound_ids = sorted(set(selector_index.by_id) - set(reachable_ids) - set(possible_ids))
+
+    # An incomplete positive edge means the tool may be reachable. It is not
+    # part of the proven capability surface, but it must still fail closed as
+    # a first-class evidence gap rather than disappearing from assessment.
+    incomplete_by_tool = {
+        edge.tool_id: edge
+        for edge in tool_edges
+        if edge.agent_id in reachable_agents and not edge.complete
+    }
+    for tool_id in possible_ids:
+        edge = incomplete_by_tool[tool_id]
+        issues.append(
+            AgentBindingIssue(
+                kind="partial_binding_evidence",
+                message=(
+                    "A possibly reachable tool has an incomplete binding edge; "
+                    "provide a complete static graph or reviewed declaration."
+                ),
+                agent_id=edge.agent_id,
+                tool_id=tool_id,
+                source=edge.source,
+                source_pointer=edge.source_pointer,
+            )
+        )
 
     if root is not None and not declarations and not tool_edges and tools:
         issues.append(
@@ -457,7 +497,7 @@ def resolve_agent_binding_graph(
 
 
 def _observations(
-    tools: list[Tool], artifacts: ArtifactBag
+    tools: list[Tool], artifacts: ArtifactBag, loaded_sources: list[LoadedToolSource]
 ) -> tuple[
     list[_AgentObservation],
     list[_RawToolEdge],
@@ -470,6 +510,53 @@ def _observations(
     handoffs: list[_RawHandoffEdge] = []
     partials: set[str] = set()
     invalid_annotations: set[str] = set()
+
+    for loaded in loaded_sources:
+        for observation in loaded.binding_observations:
+            complete = observation.tools_complete and observation.handoffs_complete
+            agents.append(
+                _AgentObservation(
+                    observation.agent,
+                    observation.source_id,
+                    observation.source,
+                    observation.source_pointer,
+                    complete,
+                )
+            )
+            for tool_name in observation.tool_names:
+                edges.append(
+                    _RawToolEdge(
+                        observation.agent,
+                        observation.source_id,
+                        tool_name,
+                        "direct_tool",
+                        observation.source,
+                        observation.source_pointer,
+                        observation.tools_complete,
+                    )
+                )
+            for target_agent in observation.handoff_names:
+                agents.append(
+                    _AgentObservation(
+                        target_agent,
+                        observation.source_id,
+                        observation.source,
+                        observation.source_pointer,
+                        observation.handoffs_complete,
+                    )
+                )
+                handoffs.append(
+                    _RawHandoffEdge(
+                        observation.agent,
+                        target_agent,
+                        observation.source_id,
+                        "handoff",
+                        observation.source,
+                        observation.source_pointer,
+                        observation.handoffs_complete,
+                    )
+                )
+            partials.update(observation.issues)
 
     for tool in tools:
         for reason in _string_list(tool.annotations.get("binding_surface_partial")):

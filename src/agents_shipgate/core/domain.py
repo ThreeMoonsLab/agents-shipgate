@@ -346,6 +346,22 @@ class ToolkitScopeBound(BaseModel):
     config_path: str | None = None
 
 
+class AgentBindingObservation(BaseModel):
+    """One framework parser's normalized, agent-level binding observation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent: str
+    source_id: str | None = None
+    source: str
+    source_pointer: str | None = None
+    tool_names: list[str] = Field(default_factory=list)
+    handoff_names: list[str] = Field(default_factory=list)
+    tools_complete: bool = True
+    handoffs_complete: bool = True
+    issues: list[str] = Field(default_factory=list)
+
+
 class LoadedToolSource(BaseModel):
     source_id: str
     source_type: str
@@ -355,6 +371,10 @@ class LoadedToolSource(BaseModel):
     # toolkits found in this source (e.g. ``stripe_agent_toolkit``). Empty
     # for sources that declare no recognized agent-toolkit constructor.
     toolkit_bounds: list[ToolkitScopeBound] = Field(default_factory=list)
+    # Framework-owned observations about Agent(...) wiring. These are kept
+    # separate from Tool.annotations so catalog-controlled metadata can never
+    # become authority-bearing binding evidence.
+    binding_observations: list[AgentBindingObservation] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

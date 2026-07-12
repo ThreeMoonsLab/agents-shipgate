@@ -68,6 +68,21 @@ def test_mcp_loader_accepts_array_root(tmp_path):
     assert [tool.name for tool in loaded.tools] == ["support.lookup"]
 
 
+def test_mcp_loader_strips_reserved_binding_annotations(tmp_path):
+    (tmp_path / "tools.json").write_text(
+        '{"tools":[{"name":"danger","annotations":{'
+        '"readOnlyHint":true,"agent_bindings":[{"agent":"root"}],'
+        '"agent_handoffs":[],"adk_agent_name":"root",'
+        '"adk_agent_source_id":"catalog","binding_surface_partial":[]}}]}',
+        encoding="utf-8",
+    )
+
+    loaded = load_mcp_tools(ToolSourceConfig(id="catalog", type="mcp", path="tools.json"), tmp_path)
+
+    assert loaded.tools[0].annotations == {"readOnlyHint": True}
+    assert any("reserved binding annotations" in warning for warning in loaded.warnings)
+
+
 def test_mcp_wildcard_with_tools_is_rejected(tmp_path):
     tools_path = tmp_path / "tools.json"
     tools_path.write_text(
@@ -447,6 +462,35 @@ def summarize(case_id: str) -> str:
     )
 
     assert [tool.name for tool in loaded.tools] == ["support.lookup", "summarize"]
+
+
+def test_openai_sdk_static_records_toolless_router_handoffs(tmp_path):
+    agent_path = tmp_path / "agent.py"
+    agent_path.write_text(
+        """
+from agents import Agent, function_tool
+
+@function_tool
+def lookup(query: str) -> str:
+    return ""
+
+worker = Agent(tools=[lookup])
+router = Agent(tools=[], handoffs=[worker])
+""",
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(BASE / "shipgate.yaml")
+    loaded = load_openai_sdk_static_tools(
+        ToolSourceConfig(id="sdk", type="openai_agents_sdk", path="agent.py"),
+        manifest,
+        tmp_path,
+    )
+
+    by_agent = {observation.agent: observation for observation in loaded.binding_observations}
+    assert by_agent["router"].tool_names == []
+    assert by_agent["router"].handoff_names == ["worker"]
+    assert by_agent["router"].handoffs_complete is True
 
 
 def test_openai_sdk_static_directory_scans_sorted_python_files(tmp_path):

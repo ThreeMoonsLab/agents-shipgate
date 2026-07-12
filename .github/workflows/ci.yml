@@ -50,7 +50,7 @@ jobs:
         # verdict regression should fail with a named canary before coverage,
         # integration, or performance noise can obscure the safety signal.
 
-      - name: Agent binding safety canaries (48/48 exact outcomes)
+      - name: Agent binding safety canaries
         run: python -m pytest tests/test_p0_binding_canaries.py -q
         # Binding is a separate trust dimension from effect and authority.
         # Keep these exact outcomes visible before the aggregate coverage run.

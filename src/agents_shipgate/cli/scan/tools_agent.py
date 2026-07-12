@@ -48,6 +48,7 @@ def _build_tools_and_agent(
         manifest,
         tool_catalog,
         inputs.artifact_bag,
+        inputs.loaded_sources,
     )
     reachable_ids = set(binding_graph.reachable_tool_ids)
     declarations, tool_catalog = resolve_selectors_by_tool_id(

@@ -11,6 +11,7 @@ from agents_shipgate.inputs.common import (
     resolve_input_path,
     schema_to_parameters,
     stable_tool_id,
+    strip_untrusted_binding_annotations,
     tool_name_warning,
 )
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
@@ -97,7 +98,17 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
             warnings.append(warning)
         input_schema = _first_present(raw, ["inputSchema", "input_schema"]) or {}
         output_schema = _first_present(raw, ["outputSchema", "output_schema"]) or {}
-        annotations = raw.get("annotations") or {}
+        raw_annotations = raw.get("annotations") or {}
+        annotations: dict[str, Any] = {}
+        if isinstance(raw_annotations, dict):
+            annotations, rejected_binding_keys = strip_untrusted_binding_annotations(
+                raw_annotations
+            )
+            if rejected_binding_keys:
+                warnings.append(
+                    f"MCP tool {name_text!r} contains reserved binding annotations "
+                    f"that were ignored: {', '.join(rejected_binding_keys)}"
+                )
         raw_auth = raw.get("auth")
         auth_explicit = "auth" in raw
         pointer = f"{pointer_prefix}/{index}"
@@ -123,7 +134,7 @@ def load_mcp_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource
             input_schema=input_schema if isinstance(input_schema, dict) else {},
             output_schema=output_schema if isinstance(output_schema, dict) else {},
             parameters=schema_to_parameters(input_schema),
-            annotations=annotations if isinstance(annotations, dict) else {},
+            annotations=annotations,
             auth=_mcp_auth_info(raw_auth, explicit=auth_explicit),
             owner=raw.get("owner"),
             extraction_confidence="high",
