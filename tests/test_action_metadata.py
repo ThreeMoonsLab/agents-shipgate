@@ -45,7 +45,7 @@ def test_action_installs_from_source_when_no_pypi_version_is_set():
 
     assert 'default: ""' in text
     assert 'python -m pip install "${GITHUB_ACTION_PATH}"' in text
-    assert 'agents-shipgate==${SHIPGATE_VERSION}' in text
+    assert "agents-shipgate==${SHIPGATE_VERSION}" in text
 
 
 def test_action_has_marketplace_metadata_and_outputs():
@@ -84,6 +84,8 @@ def test_action_has_marketplace_metadata_and_outputs():
         "verifier_verdict",
         "merge_verdict",
         "can_merge_without_human",
+        "agent_control_state",
+        "agent_control_reason",
         "agent_controller_must_stop",
         "agent_controller_stop_reason",
         "agent_controller_completion_allowed",
@@ -127,6 +129,8 @@ def test_action_exposes_verifier_merge_outputs():
         "trigger_rule_ids",
         "merge_verdict",
         "can_merge_without_human",
+        "agent_control_state",
+        "agent_control_reason",
         "trust_root_touched",
         "policy_weakened",
         "capability_changes_added",
@@ -161,9 +165,7 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "fail_on_decisions" not in text
     assert "Apply Agents Shipgate merge verdict policy" in text
     assert "merge_verdict_policy_exit_code" in text
-    assert (
-        "if: ${{ always() && inputs.fail_on_merge_verdicts != '' }}" in text
-    )
+    assert "if: ${{ always() && inputs.fail_on_merge_verdicts != '' }}" in text
     assert "verifier.json did not expose a merge verdict" in text
     assert "scripts/github_check_run.py" in text
     assert "check-run-payload.json" in text
@@ -235,7 +237,7 @@ def test_action_step_summary_leads_with_verifier_merge_state():
     assert "First next action:" in script
     assert "Release gate:" in script
     assert "Run ID:" in script
-    assert "Agent controller:" in script
+    assert "Agent control:" in script
     assert "Blockers:" in script
     assert "Review items:" in script
     assert "would_fail_ci=" in script

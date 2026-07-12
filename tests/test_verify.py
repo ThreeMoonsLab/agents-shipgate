@@ -15,8 +15,10 @@ from agents_shipgate.cli.verify.fix_task import build_fix_task
 from agents_shipgate.cli.verify.git import read_file_at_ref
 from agents_shipgate.cli.verify.orchestrator import _prune_base_scan_cache
 from agents_shipgate.cli.verify.pr_comment import render_pr_comment
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.capabilities import (
     CapabilityLockFileV1,
     CapabilityLockHashes,
@@ -130,13 +132,16 @@ def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> No
     assert payload["head_status"] == "failed"
     assert payload["head_exit_code"] == 2
     assert payload["merge_verdict"] == "unknown"
-    assert payload["applicability"] == "unknown"
+    assert payload["applicability"] == "failed"
     assert payload["can_merge_without_human"] is False
     assert payload["release_decision"] is None
     assert "correct --config" in payload["headline"].lower()
-    assert payload["human_review"]["required"] is True
-    assert "verify --preview --json" in payload["human_review"]["why"]
-    assert payload["first_next_action"]["command"] == ("agents-shipgate verify --preview --json")
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["must_stop"] is False
+    assert payload["control"]["human_review"]["required"] is False
+    assert payload["control"]["next_action"]["command"] == (
+        "agents-shipgate verify --preview --json"
+    )
     assert (out_dir / "verifier.json").is_file()
     assert (out_dir / "verify-run.json").is_file()
     assert (out_dir / "agent-handoff.json").is_file()
@@ -165,10 +170,11 @@ def test_verify_json_missing_config_emits_verifier_unknown(tmp_path: Path) -> No
     assert result.exit_code == 2, result.output
     payload = json.loads(result.output)
     assert payload["merge_verdict"] == "unknown"
-    assert payload["applicability"] == "unknown"
+    assert payload["applicability"] == "failed"
     assert payload["head_status"] == "failed"
     assert payload["head_exit_code"] == 2
     assert payload["can_merge_without_human"] is False
+    assert payload["control"]["state"] == "agent_action_required"
     assert "schema_version" not in payload
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
 
@@ -355,8 +361,9 @@ def test_verify_missing_config_takes_precedence_over_missing_base(
     assert payload["base_status"] == "not_requested"
     assert payload["head_status"] == "failed"
     assert payload["merge_verdict"] == "unknown"
-    assert payload["applicability"] == "unknown"
+    assert payload["applicability"] == "failed"
     assert payload["can_merge_without_human"] is False
+    assert payload["control"]["state"] == "agent_action_required"
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
 
 
@@ -476,7 +483,12 @@ def test_pr_comment_keeps_code_span_values_unescaped() -> None:
         head_ref="HEAD",
         trigger={"rationale": "docs-only"},
         base_status="cache_hit",
+        execution="skipped",
         head_status="skipped",
+        merge_verdict="mergeable",
+        applicability="not_applicable",
+        can_merge_without_human=True,
+        control=derive_agent_control(reason="No applicable changes."),
         artifacts={
             "report_markdown": "agents-shipgate-reports/report.md",
             "verifier_json": "agents-shipgate-reports/verifier.json",
@@ -565,10 +577,13 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
         workspace="/tmp/work",
         config="shipgate.yaml",
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        execution="succeeded",
         head_status="succeeded",
-        release_decision={"decision": "blocked"},
+        release_decision=report.release_decision,
         decision="blocked",
         merge_verdict="blocked",
+        applicability="verified",
+        control=_human_control("blocked"),
         headline="This PR adds a refund action without approval evidence.",
         capability_review=build_capability_review(report),
         fix_task=VerifierFixTask(
@@ -630,10 +645,13 @@ def test_capability_review_pr_comment_preserves_valid_agent_json_when_compacted(
         workspace="/tmp/work",
         config="shipgate.yaml",
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        execution="succeeded",
         head_status="succeeded",
-        release_decision={"decision": "blocked"},
+        release_decision=report.release_decision,
         decision="blocked",
         merge_verdict="blocked",
+        applicability="verified",
+        control=_human_control("blocked"),
         capability_review=build_capability_review(report),
         fix_task=VerifierFixTask(
             actor="human",
@@ -669,10 +687,13 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
         workspace="/tmp/work",
         config="shipgate.yaml",
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        execution="succeeded",
         head_status="succeeded",
-        release_decision={"decision": "review_required"},
+        release_decision=report.release_decision,
         decision="review_required",
         merge_verdict="human_review_required",
+        applicability="verified",
+        control=_human_control("review_required"),
         capability_review=build_capability_review(report),
         artifacts={"verifier_json": "agents-shipgate-reports/verifier.json"},
     )
@@ -691,10 +712,13 @@ def test_capability_review_pr_comment_does_not_double_blank_without_headline() -
         workspace="/tmp/work",
         config="shipgate.yaml",
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        execution="succeeded",
         head_status="succeeded",
-        release_decision={"decision": "review_required"},
+        release_decision=report.release_decision,
         decision="review_required",
         merge_verdict="human_review_required",
+        applicability="verified",
+        control=_human_control("review_required"),
         headline="",
         capability_review=build_capability_review(report),
         artifacts={"verifier_json": "agents-shipgate-reports/verifier.json"},
@@ -710,9 +734,12 @@ def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
         workspace="/tmp/work",
         config="shipgate.yaml",
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
+        execution="failed",
         head_status="failed",
         head_exit_code=2,
         merge_verdict="unknown",
+        applicability="failed",
+        control=_human_control("failed"),
         artifacts={"verifier_json": "agents-shipgate-reports/verifier.json"},
     )
 
@@ -843,6 +870,42 @@ def test_verify_missing_base_ref_is_unknown_not_head_only(
     assert payload["merge_verdict"] == "unknown"
     assert payload["can_merge_without_human"] is False
     assert payload["release_decision"] is None
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["next_action"]["kind"] == "fetch_base"
+    assert payload["control"]["next_action"]["expects"] == "origin/main"
+    assert calls == []
+
+
+def test_verify_missing_head_ref_emits_agent_input_recovery_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    calls: list[dict[str, Any]] = []
+    _patch_run_scan(monkeypatch, calls, head_exit=0)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--head",
+            "missing-head",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["execution"] == "failed"
+    assert payload["applicability"] == "failed"
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["must_stop"] is False
+    assert payload["control"]["next_action"]["kind"] == "fetch_base"
+    assert payload["control"]["next_action"]["expects"] == "missing-head"
     assert calls == []
 
 
@@ -1029,6 +1092,95 @@ def test_verify_head_errors_preserve_exit_codes(
 
     assert result.exit_code == exit_code
     assert message in result.output
+    verifier_path = repo / "agents-shipgate-reports" / "verifier.json"
+    handoff_path = repo / "agents-shipgate-reports" / "agent-handoff.json"
+    assert verifier_path.is_file()
+    assert handoff_path.is_file()
+    verifier = json.loads(verifier_path.read_text(encoding="utf-8"))
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    assert verifier["execution"] == "failed"
+    assert verifier["control"]["state"] == "human_review_required"
+    assert verifier["control"] == handoff["control"]
+
+
+def test_internal_control_consistency_failure_clears_stale_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    reports = repo / "agents-shipgate-reports"
+    reports.mkdir(exist_ok=True)
+    stale = reports / "agent-handoff.json"
+    stale.write_text('{"stale": true}\n', encoding="utf-8")
+    _patch_run_scan(monkeypatch, [], head_exit=0)
+
+    def fail_control_projection(**_kwargs: Any):
+        raise ValueError("agent control consistency failure")
+
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator._build_verifier",
+        fail_control_projection,
+    )
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml"],
+    )
+
+    assert result.exit_code == 4
+    assert "agent control consistency failure" in result.output
+    assert not stale.exists()
+
+
+def test_advisory_and_strict_change_only_exit_policy_not_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+
+    def fake_run_scan(**kwargs: Any):
+        strict = kwargs.get("ci_mode") == "strict"
+        exit_code = 20 if strict else 0
+        report = _report(decision="blocked", exit_code=exit_code)
+        out_dir = Path(kwargs["output_dir"])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "report.json").write_text(
+            json.dumps(report_json_payload(report), indent=2), encoding="utf-8"
+        )
+        return report, exit_code
+
+    monkeypatch.setattr("agents_shipgate.cli.verify.orchestrator.run_scan", fake_run_scan)
+    advisory = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "json",
+        ],
+    )
+    advisory_control = json.loads(advisory.output)["control"]
+    strict = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--ci-mode",
+            "strict",
+            "--format",
+            "json",
+        ],
+    )
+    strict_control = json.loads(strict.output)["control"]
+
+    assert advisory.exit_code == 0
+    assert strict.exit_code == 20
+    assert advisory_control == strict_control
 
 
 def test_verify_config_error_prints_next_action_hint(
@@ -1247,8 +1399,12 @@ def test_verify_preview_requires_no_manifest_and_exits_zero(tmp_path: Path) -> N
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
+    assert payload["execution"] == "not_run"
+    assert payload["applicability"] == "not_evaluated"
     assert payload["merge_verdict"] == "unknown"
-    assert "init" in payload["first_next_action"]["command"]
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["must_stop"] is False
+    assert "init" in payload["control"]["next_action"]["command"]
     assert (workspace / "agents-shipgate-reports" / "verifier.json").is_file()
     assert not (workspace / "shipgate.yaml").exists()
 
@@ -1281,9 +1437,10 @@ def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
     assert payload["trigger"]["should_run"] is False
-    assert payload["first_next_action"]["kind"] == "command"
-    assert payload["first_next_action"]["command"] == (
-        f"shipgate init --workspace {repo} --write --ci --agent-instructions=default --json"
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["next_action"]["kind"] == "initialize"
+    assert payload["control"]["next_action"]["command"] == (
+        f"shipgate init --workspace {repo} --write --json"
     )
 
 
@@ -1313,9 +1470,10 @@ def test_verify_preview_missing_base_without_manifest_recommends_init(tmp_path: 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
-    assert payload["first_next_action"]["kind"] == "command"
-    assert payload["first_next_action"]["command"] == (
-        f"shipgate init --workspace {repo} --write --ci --agent-instructions=default --json"
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["next_action"]["kind"] == "initialize"
+    assert payload["control"]["next_action"]["command"] == (
+        f"shipgate init --workspace {repo} --write --json"
     )
     assert payload["base_notes"]
 
@@ -1352,7 +1510,9 @@ def test_verify_preview_configured_repo_preserves_exact_verify_args(tmp_path: Pa
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
-    assert payload["first_next_action"]["command"] == (
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["next_action"]["kind"] == "verify"
+    assert payload["control"]["next_action"]["command"] == (
         f"agents-shipgate verify --workspace {repo} --config shipgate.yaml "
         f"--base origin/main --head HEAD --out {out} --ci-mode advisory --json"
     )
@@ -1382,8 +1542,10 @@ def test_verify_preview_configured_repo_missing_base_fetches_base(tmp_path: Path
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
-    assert payload["first_next_action"]["kind"] == "fetch_base"
-    assert "could not inspect" in payload["first_next_action"]["why"]
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["next_action"]["kind"] == "fetch_base"
+    assert "could not inspect" in payload["control"]["next_action"]["why"]
+    assert payload["control"]["next_action"]["expects"] == "origin/main"
     assert payload["base_notes"]
 
 
@@ -1444,6 +1606,19 @@ def _report(*, decision: str, exit_code: int) -> ReadinessReport:
             ),
         ),
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
+    )
+
+
+def _human_control(reason: str):
+    why = f"Release decision is {reason}."
+    return derive_agent_control(
+        reason=why,
+        next_action=HumanControlAction(
+            kind="stop" if reason in {"blocked", "failed"} else "review",
+            why=why,
+        ),
+        human_review_required=True,
+        unsafe_block=reason == "blocked",
     )
 
 

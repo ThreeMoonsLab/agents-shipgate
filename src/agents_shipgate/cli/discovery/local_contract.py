@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
 from agents_shipgate.schemas.contract import (
+    AGENT_CONTROL_FIELDS,
+    AGENT_CONTROL_STATES,
     AGENT_HANDOFF_SCHEMA_PATH,
     AGENT_HANDOFF_SCHEMA_VERSION,
     AGENT_INTERFACE_OPERATIONS,
@@ -27,6 +29,7 @@ from agents_shipgate.schemas.contract import (
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     MCP_TOOLS,
     MERGE_VERDICTS,
+    MINIMUM_CONTROL_CONTRACT_VERSION,
     ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
     PRIMARY_COMMANDS,
     REGISTRY_SCHEMA_VERSION,
@@ -36,7 +39,7 @@ from agents_shipgate.schemas.contract import (
 )
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
-LOCAL_CONTRACT_SCHEMA_VERSION = "2"
+LOCAL_CONTRACT_SCHEMA_VERSION = "3"
 LOCAL_CONTRACT_RELATIVE_PATH = ".shipgate/agent-contract.json"
 
 
@@ -48,6 +51,7 @@ class LocalAgentContract(BaseModel):
     schema_version: str
     agents_shipgate_version: str
     contract_version: str
+    minimum_control_contract_version: str
     default_paths: dict[str, str]
     primary_commands: dict[str, str]
     commands: dict[str, str]
@@ -68,6 +72,8 @@ class LocalAgentContract(BaseModel):
     agent_result_schema_version: str
     agent_result_schema_path: str
     agent_result_control_fields: list[str]
+    agent_control_fields: list[str]
+    agent_control_states: list[str]
     agent_interface_operations: list[str]
     exit_code_policy: dict[str, str]
     mcp_tools: list[str]
@@ -83,6 +89,7 @@ def build_local_agent_contract() -> LocalAgentContract:
         schema_version=LOCAL_CONTRACT_SCHEMA_VERSION,
         agents_shipgate_version=__version__,
         contract_version=CONTRACT_VERSION,
+        minimum_control_contract_version=MINIMUM_CONTROL_CONTRACT_VERSION,
         default_paths=dict(DEFAULT_PATHS),
         primary_commands=dict(PRIMARY_COMMANDS),
         commands=dict(COMMANDS),
@@ -105,6 +112,8 @@ def build_local_agent_contract() -> LocalAgentContract:
         agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
         agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
         agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
+        agent_control_fields=list(AGENT_CONTROL_FIELDS),
+        agent_control_states=list(AGENT_CONTROL_STATES),
         agent_interface_operations=list(AGENT_INTERFACE_OPERATIONS),
         exit_code_policy=dict(EXIT_CODE_POLICY),
         mcp_tools=list(MCP_TOOLS),

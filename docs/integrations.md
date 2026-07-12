@@ -69,11 +69,13 @@ Action outputs:
 | Output | Meaning |
 | --- | --- |
 | `decision` | Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14. **Use this as the CI gating signal.** Switch on the value with a `review_required` fallback for unknown future values. |
-| `merge_verdict` | PR/controller projection of `decision` (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Used by `fail_on_merge_verdicts` when configured; this is a controller projection, not a second release gate. |
-| `can_merge_without_human` | `true` only when the verifier projection says no human authority gap remains. Use for strict authority workflows after the advisory result is understood. |
-| `agent_controller_must_stop` | `true` when `verifier.json.agent_controller.must_stop` tells a coding agent to stop. |
-| `agent_controller_stop_reason` | Deterministic stop reason from `verifier.json.agent_controller.stop_reason`, when present. |
-| `agent_controller_completion_allowed` | `true` when `verifier.json.agent_controller.completion_allowed` allows the agent to claim completion. |
+| `merge_verdict` | PR/control projection of `decision` (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Used by `fail_on_merge_verdicts` when configured; this is an explanatory projection, not a second release gate. |
+| `can_merge_without_human` | `true` only for a verified `passed` result or a completed deterministic `not_applicable` skip. |
+| `agent_control_state` | Authoritative operational state from `verifier.json.control.state`: `complete`, `agent_action_required`, or `human_review_required`. |
+| `agent_control_reason` | Deterministic reason from `verifier.json.control.reason`. |
+| `agent_controller_must_stop` | One-cycle compatibility mirror of `verifier.json.control.must_stop`. |
+| `agent_controller_stop_reason` | One-cycle compatibility mirror of `verifier.json.control.stop_reason`. |
+| `agent_controller_completion_allowed` | One-cycle compatibility mirror of `verifier.json.control.completion_allowed`. |
 | `blocker_count` | Number of blockers in `release_decision.blockers`. v0.8+. |
 | `review_item_count` | Number of review items in `release_decision.review_items`. v0.8+. |
 | `ci_would_fail` | `true`/`false` — whether the active fail policy would fail CI. v0.8+. |
@@ -90,7 +92,7 @@ Action outputs:
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
 | `verifier_json` | Path to `verifier.json`. |
-| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v1.json`](verify-run-schema.v1.json). |
+| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v2.json`](verify-run-schema.v2.json). |
 | `run_id` | Stable verify-run input identity from `verify-run.json.run_id`. |
 | `pr_comment_markdown` | Path to `pr-comment.md`. |
 | `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |
@@ -99,7 +101,7 @@ The action runs `agents-shipgate verify`, which writes Markdown, JSON, SARIF,
 packet JSON, verifier JSON, verify-run JSON, and PR-comment Markdown
 artifacts. It intentionally emits `packet.json` only for the packet;
 `pr-comment.md` is the human PR surface. Read `agent-handoff.json` first for
-the compact agent handoff, `verifier.json` for detailed controller context,
+the compact agent handoff, `verifier.json` for detailed control context,
 `verify-run.json` for reproducibility metadata, and
 `report.json.release_decision.decision` for the gate. Capability diffs and
 `capability_review.top_changes` are supporting/provisional review context.
@@ -259,7 +261,7 @@ pip install 'agents-shipgate[mcp]'
 ```
 
 Tools: `shipgate.check` (caller-provided diff to
-`shipgate.codex_boundary_result/v1`),
+`shipgate.codex_boundary_result/v2`),
 `shipgate.preflight` (protected surfaces, required evidence, and policy/trust
 root hashes), `shipgate.explain` (check id or `fp_...` fingerprint), and
 `shipgate.capabilities` (capability lock export or diff). The server is

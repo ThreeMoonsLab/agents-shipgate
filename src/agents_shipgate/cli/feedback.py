@@ -76,7 +76,10 @@ def build_feedback_payload(
 ) -> dict[str, Any]:
     release_decision = _dict(verifier.get("release_decision"))
     capability_review = _dict(verifier.get("capability_review"))
-    first_next_action = _dict(verifier.get("first_next_action"))
+    control = _dict(verifier.get("control"))
+    first_next_action = _dict(control.get("next_action")) or _dict(
+        verifier.get("first_next_action")
+    )
     fix_task = _dict(verifier.get("fix_task"))
     trigger = _dict(verifier.get("trigger"))
 
@@ -85,9 +88,7 @@ def build_feedback_payload(
     top_changes = _top_changes(capability_review.get("top_changes"), redacted=redacted)
     related_finding_ids = _related_finding_ids(capability_review.get("top_changes"))
     release_item_ids = {
-        str(item.get("id"))
-        for item in [*blockers, *review_items]
-        if item.get("id") is not None
+        str(item.get("id")) for item in [*blockers, *review_items] if item.get("id") is not None
     }
 
     return {
@@ -255,9 +256,7 @@ def feedback_capture(
         "--redact/--no-redact",
         help="Provenance-only: omit raw prompt/diff/transcript content and reduce paths to filenames.",
     ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Print the scenario JSON to stdout."
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Print the scenario JSON to stdout."),
 ) -> None:
     """Capture a replayable workflow-evidence scenario from a verify before/after pair.
 
@@ -275,9 +274,7 @@ def feedback_capture(
         typer.echo(f"Input parsing error: {exc}", err=True)
         raise typer.Exit(3) from exc
     if human_decision is not None and human_decision not in _HUMAN_DECISIONS:
-        typer.echo(
-            f"--human-decision must be one of {sorted(_HUMAN_DECISIONS)}", err=True
-        )
+        typer.echo(f"--human-decision must be one of {sorted(_HUMAN_DECISIONS)}", err=True)
         raise typer.Exit(2)
     # An explicitly provided evidence path that cannot be read is a user error,
     # not "no evidence" — failing loud avoids a silently incomplete benchmark
@@ -289,8 +286,7 @@ def feedback_capture(
     ):
         if evidence_path is not None and not evidence_path.is_file():
             typer.echo(
-                f"Input parsing error: {flag} file not found or unreadable: "
-                f"{evidence_path}",
+                f"Input parsing error: {flag} file not found or unreadable: {evidence_path}",
                 err=True,
             )
             raise typer.Exit(3)
@@ -352,9 +348,7 @@ def build_scenario_payload(
         "source": {
             "before": _display_path(before_source, redacted=redacted),
             "after": (
-                _display_path(after_source, redacted=redacted)
-                if after_source is not None
-                else None
+                _display_path(after_source, redacted=redacted) if after_source is not None else None
             ),
         },
     }
@@ -378,9 +372,7 @@ def _verifier_state(verifier: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _transition(
-    before: dict[str, Any], after: dict[str, Any] | None
-) -> dict[str, Any]:
+def _transition(before: dict[str, Any], after: dict[str, Any] | None) -> dict[str, Any]:
     verdict_before = before["merge_verdict"]
     if after is None:
         return {
@@ -421,9 +413,7 @@ def _transition(
     }
 
 
-def _evidence_entry(
-    path: Path | None, *, redacted: bool, diffstat: bool = False
-) -> dict[str, Any]:
+def _evidence_entry(path: Path | None, *, redacted: bool, diffstat: bool = False) -> dict[str, Any]:
     """Provenance for an optional evidence file.
 
     The ``sha256`` is over the **raw file bytes** (so it matches ``sha256sum``

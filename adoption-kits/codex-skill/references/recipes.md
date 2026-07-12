@@ -16,17 +16,18 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-Require `agents-shipgate contract --json` to report `contract_version: "10"` or
-newer. If it is missing or stale, ask the user to install or upgrade:
+Require `agents-shipgate contract --json` to report
+`minimum_control_contract_version: 14`. If it is missing or stale, ask the
+user to install or upgrade:
 
 ```bash
 pipx install agents-shipgate
 pipx upgrade agents-shipgate
 ```
 
-Do not report the task complete until the CLI exists and reports contract v9 or
-newer. Local boundary checks emit `shipgate.codex_boundary_result/v1`; legacy
-`agent_result_v1` fixtures are retained only for older protocol integrations.
+Do not report the task complete until the CLI exists and reports runtime
+contract 14. Local boundary checks emit `shipgate.codex_boundary_result/v2`;
+legacy v1 fixtures are retained only for older protocol integrations.
 
 ## Local Agent Check
 
@@ -37,8 +38,9 @@ AGENTS_SHIPGATE_AGENT_MODE=1 shipgate check \
   --agent codex --workspace . --format codex-boundary-json
 ```
 
-Read only stdout JSON. Switch on `decision`, `completion_allowed`,
-`must_stop`, `first_next_action`, `human_review`, `repair`, and `policy`.
+Read only stdout JSON. Switch on `control.state`, follow
+`control.next_action`, `control.allowed_next_commands`, and
+`control.human_review`, and treat `decision` as diagnostic context only.
 
 ## Verify A Diff
 
@@ -62,7 +64,7 @@ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify --preview --json
 ```
 
 Read `agents-shipgate-reports/agent-handoff.json` first. Lead with
-`gate.merge_verdict`, then inspect `next_action`, `controller`,
+`control.state`, then inspect `gate.merge_verdict`, `next_action`,
 `fix_task.safe_to_attempt`, and `capability_review.top_changes[]`. Then read
 `verifier.json`, `verify-run.json`, and `report.json`; the release gate remains
 `report.json.release_decision.decision`.

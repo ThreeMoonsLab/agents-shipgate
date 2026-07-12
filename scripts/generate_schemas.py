@@ -16,21 +16,19 @@ Writes / verifies:
                                  PolicyPackArtifactV1)
 - docs/packet-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
-- docs/verifier-schema.v0.1.json
+- docs/verifier-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
-- docs/verify-run-schema.v1.json
+- docs/verify-run-schema.v2.json
                                 (from agents_shipgate.schemas.verify_run.
                                  VerifyRunArtifact)
-- docs/agent-handoff-schema.v2.json
+- docs/agent-handoff-schema.v3.json
                                 (from agents_shipgate.schemas.agent_handoff.
                                  AgentHandoffArtifact)
-- docs/agent-result-schema.v1.json
-                                (legacy local-agent protocol schema from
-                                 agents_shipgate.schemas.agent_result_v1.
-                                 AgentResultV1)
-- docs/preflight-schema.v0.2.json
+- docs/agent-result-schema.v2.json
+                                (from agents_shipgate.schemas.agent_result.AgentResultV2)
+- docs/preflight-schema.v0.3.json
                                 (from agents_shipgate.schemas.preflight.
-                                 PreflightResultV2)
+                                 PreflightResultV3)
 - docs/org-governance-schema.v0.1.json
                                 (from agents_shipgate.schemas.org_governance.
                                  OrgGovernanceStatusV1)
@@ -85,6 +83,7 @@ sys.path.insert(0, str(SRC))
 from agents_shipgate.schemas.common import AgentAction, ProvenanceKind  # noqa: E402
 
 # --- Shared helpers ---------------------------------------------------------
+
 
 # Canonical JSON form for every schema we emit. Matches the v0.x convention
 # already on disk: 2-space indent, sorted keys, trailing newline. Tests and
@@ -391,9 +390,7 @@ def build_report_schema() -> tuple[Path, str]:
             ]
         )
     if "RedactedPathSummary" in defs:
-        defs["RedactedPathSummary"]["required"] = sorted(
-            ["path", "count", "kinds"]
-        )
+        defs["RedactedPathSummary"]["required"] = sorted(["path", "count", "kinds"])
     # v0.21: pin every HeuristicsFilter field as required. Pydantic
     # auto-required is empty here because every field has a default
     # (enabled=False, lists/dicts default-factory). On the wire every
@@ -529,9 +526,7 @@ def build_report_schema() -> tuple[Path, str]:
             ]
         )
     if "LoadedPolicyPack" in defs:
-        defs["LoadedPolicyPack"]["required"] = sorted(
-            ["id", "name", "path", "rule_count"]
-        )
+        defs["LoadedPolicyPack"]["required"] = sorted(["id", "name", "path", "rule_count"])
     # v0.22 (verifier cycle, P2/M3): pin the verifier-block contracts.
     # Every field of every block is populated on emitted scans (the
     # Phase A default builders set them all), so all fields belong in the
@@ -584,17 +579,13 @@ def build_report_schema() -> tuple[Path, str]:
             ["owner", "reason", "affected_surface", "expires", "source"]
         )
     if "HumanAck" in defs:
-        defs["HumanAck"]["required"] = sorted(
-            ["required", "satisfied", "acks", "outstanding"]
-        )
+        defs["HumanAck"]["required"] = sorted(["required", "satisfied", "acks", "outstanding"])
     if "VerifierCapabilityDeltaSummary" in defs:
         defs["VerifierCapabilityDeltaSummary"]["required"] = sorted(
             ["added", "removed", "broadened", "narrowed"]
         )
     if "VerifierReasonCodeCount" in defs:
-        defs["VerifierReasonCodeCount"]["required"] = sorted(
-            ["reason_code", "count"]
-        )
+        defs["VerifierReasonCodeCount"]["required"] = sorted(["reason_code", "count"])
     if "VerifierSummary" in defs:
         defs["VerifierSummary"]["required"] = sorted(
             [
@@ -771,21 +762,13 @@ def build_report_schema() -> tuple[Path, str]:
             ]
         )
     if "ToolSurfaceScopeFact" in defs:
-        defs["ToolSurfaceScopeFact"]["required"] = sorted(
-            ["scope", "kind", "tool_names", "broad"]
-        )
+        defs["ToolSurfaceScopeFact"]["required"] = sorted(["scope", "kind", "tool_names", "broad"])
     if "ToolSurfaceControlFact" in defs:
-        defs["ToolSurfaceControlFact"]["required"] = sorted(
-            ["kind", "tool", "source", "reason"]
-        )
+        defs["ToolSurfaceControlFact"]["required"] = sorted(["kind", "tool", "source", "reason"])
     if "ToolSurfacePolicyFact" in defs:
-        defs["ToolSurfacePolicyFact"]["required"] = sorted(
-            ["kind", "key", "value_hash", "summary"]
-        )
+        defs["ToolSurfacePolicyFact"]["required"] = sorted(["kind", "key", "value_hash", "summary"])
     if "ToolSurfaceFacts" in defs:
-        defs["ToolSurfaceFacts"]["required"] = sorted(
-            ["tools", "scopes", "controls", "policies"]
-        )
+        defs["ToolSurfaceFacts"]["required"] = sorted(["tools", "scopes", "controls", "policies"])
     if "ToolSurfaceDiffBase" in defs:
         defs["ToolSurfaceDiffBase"]["required"] = sorted(
             [
@@ -816,17 +799,13 @@ def build_report_schema() -> tuple[Path, str]:
             ]
         )
     if "ToolSurfaceFieldChange" in defs:
-        defs["ToolSurfaceFieldChange"]["required"] = sorted(
-            ["field", "before", "after"]
-        )
+        defs["ToolSurfaceFieldChange"]["required"] = sorted(["field", "before", "after"])
     if "ToolSurfaceToolChange" in defs:
         defs["ToolSurfaceToolChange"]["required"] = sorted(
             ["kind", "name", "source_type", "source_id", "changes"]
         )
     if "ToolSurfaceHighRiskEffectChange" in defs:
-        defs["ToolSurfaceHighRiskEffectChange"]["required"] = sorted(
-            ["kind", "tool", "tag"]
-        )
+        defs["ToolSurfaceHighRiskEffectChange"]["required"] = sorted(["kind", "tool", "tag"])
     if "ToolSurfaceScopeChange" in defs:
         defs["ToolSurfaceScopeChange"]["required"] = sorted(
             ["kind", "scope", "scope_kind", "tool_names", "broad"]
@@ -894,9 +873,7 @@ def build_report_schema() -> tuple[Path, str]:
             ["idempotency", "audit_log", "rollback", "dry_run"]
         )
     if "ActionEvidenceFact" in defs:
-        defs["ActionEvidenceFact"]["required"] = sorted(
-            ["owner", "runbook", "approval_ticket"]
-        )
+        defs["ActionEvidenceFact"]["required"] = sorted(["owner", "runbook", "approval_ticket"])
     if "ActionSurfaceHashes" in defs:
         defs["ActionSurfaceHashes"]["required"] = sorted(
             ["identity_hash", "schema_hash", "policy_hash", "risk_hash"]
@@ -925,9 +902,7 @@ def build_report_schema() -> tuple[Path, str]:
             ]
         )
     if "ActionSurfaceFacts" in defs:
-        defs["ActionSurfaceFacts"]["required"] = sorted(
-            ["snapshot_version", "actions"]
-        )
+        defs["ActionSurfaceFacts"]["required"] = sorted(["snapshot_version", "actions"])
     if "ActionSurfaceDiffSummary" in defs:
         defs["ActionSurfaceDiffSummary"]["required"] = sorted(
             [
@@ -972,9 +947,7 @@ def build_report_schema() -> tuple[Path, str]:
         properties["tool_inventory"]["items"] = {
             "type": "object",
             "additionalProperties": True,
-            "required": sorted(
-                ["name", "source_type", "risk_tags", "auth_scopes", "confidence"]
-            ),
+            "required": sorted(["name", "source_type", "risk_tags", "auth_scopes", "confidence"]),
         }
     if "loaded_plugins" in properties and properties["loaded_plugins"].get("type") == "array":
         properties["loaded_plugins"]["items"] = {
@@ -1144,9 +1117,7 @@ def build_policy_pack_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
-def write_policy_pack_schema(
-    *, check_only: bool = False, drift: list[str] | None = None
-) -> bool:
+def write_policy_pack_schema(*, check_only: bool = False, drift: list[str] | None = None) -> bool:
     target, content = build_policy_pack_schema()
     return _emit(
         target,
@@ -1170,18 +1141,14 @@ def build_checks_catalog() -> tuple[Path, str]:
     # of the host environment.
     payload = {
         "$id": (
-            "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-            "main/docs/checks.json"
+            "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json"
         ),
         "title": "Agents Shipgate Check Catalog",
         "description": (
             "Machine-readable catalog of built-in checks. Generated from "
             "agents_shipgate.checks.registry.check_catalog(). Do not edit by hand."
         ),
-        "checks": [
-            check.model_dump(mode="json")
-            for check in check_catalog(plugins_enabled=False)
-        ],
+        "checks": [check.model_dump(mode="json") for check in check_catalog(plugins_enabled=False)],
     }
     target = DOCS / "checks.json"
     return target, _canonical_json(payload)
@@ -1225,9 +1192,7 @@ def build_packet_schema() -> tuple[Path, str]:
             properties.pop("capability_refs", None)
         required = release_item.get("required")
         if isinstance(required, list):
-            release_item["required"] = [
-                item for item in required if item != "capability_refs"
-            ]
+            release_item["required"] = [item for item in required if item != "capability_refs"]
     target = DOCS / f"packet-schema.v{minor}.json"
     return target, _canonical_json(schema)
 
@@ -1264,67 +1229,65 @@ def write_verifier_schema(*, check_only: bool = False, drift: list[str] | None =
 
 
 def build_agent_result_schema() -> tuple[Path, str]:
-    """Generate the legacy local-agent protocol schema."""
+    """Generate the current compact local-agent control schema."""
 
-    from agents_shipgate.schemas.agent_result_v1 import AgentResultV1
+    from agents_shipgate.schemas.agent_result import AgentResultV2
 
-    schema = AgentResultV1.model_json_schema()
+    schema = AgentResultV2.model_json_schema()
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-        "main/docs/agent-result-schema.v1.json"
+        "main/docs/agent-result-schema.v2.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Legacy Agent Result v1"
+    schema["title"] = "Agents Shipgate Agent Result v2"
     schema["description"] = (
-        "Legacy JSON Schema retained for existing local-agent protocol and "
-        "MCP consumers. It is not emitted by agents-shipgate verify and is "
-        "not the Codex boundary result contract. Generated from "
-        "agents_shipgate.schemas.agent_result_v1.AgentResultV1. Do not edit by hand."
+        "JSON Schema for the compact local/MCP control projection. Generated "
+        "from agents_shipgate.schemas.agent_result.AgentResultV2. Do not edit by hand."
     )
-    target = DOCS / "agent-result-schema.v1.json"
+    target = DOCS / "agent-result-schema.v2.json"
     return target, _canonical_json(schema)
 
 
 def build_codex_boundary_result_schema() -> tuple[Path, str]:
-    """Generate docs/codex-boundary-result-schema.v1.json."""
+    """Generate docs/codex-boundary-result-schema.v2.json."""
 
-    from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
+    from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
-    schema = CodexBoundaryResultV1.model_json_schema()
+    schema = CodexBoundaryResultV2.model_json_schema()
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-        "main/docs/codex-boundary-result-schema.v1.json"
+        "main/docs/codex-boundary-result-schema.v2.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Codex Boundary Result v1"
+    schema["title"] = "Agents Shipgate Codex Boundary Result v2"
     schema["description"] = (
         "JSON Schema for shipgate check --format codex-boundary-json. "
         "Generated from "
-        "agents_shipgate.schemas.codex_boundary_result.CodexBoundaryResultV1. "
+        "agents_shipgate.schemas.codex_boundary_result.CodexBoundaryResultV2. "
         "Do not edit by hand."
     )
-    target = DOCS / "codex-boundary-result-schema.v1.json"
+    target = DOCS / "codex-boundary-result-schema.v2.json"
     return target, _canonical_json(schema)
 
 
 def build_verify_run_schema() -> tuple[Path, str]:
-    """Generate docs/verify-run-schema.v1.json."""
+    """Generate the current verify-run schema."""
 
     from agents_shipgate.schemas.verify_run import VerifyRunArtifact
 
     schema = VerifyRunArtifact.model_json_schema()
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-        "main/docs/verify-run-schema.v1.json"
+        "main/docs/verify-run-schema.v2.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Verify Run v1"
+    schema["title"] = "Agents Shipgate Verify Run v2"
     schema["description"] = (
         "JSON Schema for agents-shipgate-reports/verify-run.json. Generated "
         "from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not "
         "edit by hand."
     )
-    target = DOCS / "verify-run-schema.v1.json"
+    target = DOCS / "verify-run-schema.v2.json"
     return target, _canonical_json(schema)
 
 
@@ -1356,14 +1319,14 @@ def build_agent_handoff_schema() -> tuple[Path, str]:
 
 
 def build_preflight_schema() -> tuple[Path, str]:
-    """Generate docs/preflight-schema.v0.2.json from PreflightResultV2."""
+    """Generate the current preflight schema."""
 
     from agents_shipgate.schemas.preflight import (
         PREFLIGHT_SCHEMA_VERSION,
-        PreflightResultV2,
+        PreflightResultV3,
     )
 
-    schema = PreflightResultV2.model_json_schema()
+    schema = PreflightResultV3.model_json_schema()
     minor = PREFLIGHT_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1373,7 +1336,7 @@ def build_preflight_schema() -> tuple[Path, str]:
     schema["title"] = f"Agents Shipgate Preflight Result v{minor}"
     schema["description"] = (
         "JSON Schema for shipgate preflight --json. Generated from "
-        "agents_shipgate.schemas.preflight.PreflightResultV2. It is a "
+        "agents_shipgate.schemas.preflight.PreflightResultV3. It is a "
         "proactive routing/projection surface, not a release gate; "
         "release_decision.decision remains the only gate."
     )

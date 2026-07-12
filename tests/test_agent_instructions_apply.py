@@ -189,29 +189,27 @@ def test_claude_command_current_file_matches_renderer() -> None:
 
 def test_local_contract_renderer_has_required_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "2"
-    assert payload["contract_version"] == "13"
+    assert payload["schema_version"] == "3"
+    assert payload["contract_version"] == "14"
     assert "verify_local" not in payload["primary_commands"]
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v2"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v3"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["attestation_schema_version"] == "0.4"
     assert payload["registry_schema_version"] == "0.3"
-    assert payload["org_evidence_bundle_schema_version"] == (
-        "shipgate.org_evidence_bundle/v1"
-    )
+    assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v1")
     assert payload["host_grants_inventory_schema_version"] == "0.1"
     assert payload["gating_signal"] == "release_decision.decision"
     assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
     assert payload["verifier_read_order"][:6] == [
+        "control.state",
+        "execution",
         "merge_verdict",
         "applicability",
         "can_merge_without_human",
-        "first_next_action",
-        "fix_task",
-        "capability_review.top_changes",
+        "control.next_action",
     ]
 
 

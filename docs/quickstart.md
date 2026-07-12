@@ -10,7 +10,7 @@ prominent flows.
 ### Local Boundary Check
 
 Coding agents run `shipgate check` before reporting an agent-capability change
-complete. Parse the stdout `shipgate.codex_boundary_result/v1` object:
+complete. Parse the stdout `shipgate.codex_boundary_result/v2` object:
 
 ```bash
 shipgate check --agent codex --workspace . --format codex-boundary-json
@@ -18,8 +18,12 @@ shipgate check --agent claude-code --workspace . --format codex-boundary-json
 shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
-Switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`,
-`human_review`, `repair`, `policy`, and `verify_required`; do not infer a decision from prose.
+Switch on `control.state`; follow `control.next_action`,
+`control.allowed_next_commands`, and `control.human_review`. Treat `decision`
+as diagnostic context only, and do not infer control from prose. Only
+`control.state=complete` permits task completion; `agent_action_required`
+authorizes only the stated coding-agent route, and `human_review_required`
+requires the agent to stop.
 
 ### PR And Local Verification
 
@@ -49,7 +53,7 @@ The short `shipgate verify` alias remains invokable for compatibility, but
 agent-facing PR-gate guidance uses `agents-shipgate verify`.
 
 Read `agents-shipgate-reports/agent-handoff.json` first and lead with
-`gate.merge_verdict`, `gate.can_merge_without_human`, `controller`,
+`control.state`, `gate.merge_verdict`, `gate.can_merge_without_human`,
 `next_action`, `fix_task`, and `capability_review.top_changes`. Then read
 `agents-shipgate-reports/report.json`; the release gate remains
 `release_decision.decision`.

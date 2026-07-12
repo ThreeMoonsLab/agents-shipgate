@@ -235,7 +235,7 @@ def _evaluate_receipt(
             raise ValueError("qualification receipt base and head trees must differ")
         if receipt.outcome.base_status not in {"succeeded", "cache_hit"}:
             raise ValueError("qualification receipt base verifier did not succeed")
-        if receipt.outcome.head_status != "succeeded":
+        if receipt.outcome.execution != "succeeded":
             raise ValueError("qualification receipt head verifier did not succeed")
         if not receipt.inputs.config_sha256:
             raise ValueError("qualification receipt is missing its config digest")

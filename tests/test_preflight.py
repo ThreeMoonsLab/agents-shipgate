@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
@@ -17,7 +19,12 @@ from agents_shipgate.core.preflight import (
     forbidden_file_edits,
     required_evidence_for_capability_request,
 )
-from agents_shipgate.schemas.preflight import CapabilityRequestV1, PreflightResultV1
+from agents_shipgate.schemas.preflight import (
+    CapabilityRequestV1,
+    PreflightResultV1,
+    PreflightResultV2,
+    PreflightResultV3,
+)
 
 runner = CliRunner()
 
@@ -76,6 +83,10 @@ def test_preflight_routes_protected_surface_touches_to_human(tmp_path: Path) -> 
 
     assert result.requires_human_review is True
     assert result.first_next_action.actor == "human"
+    assert result.control.state == "human_review_required"
+    assert result.control.completion_allowed is False
+    assert result.control.must_stop is True
+    assert result.control.next_action.kind == "stop"
     by_path = {touch.path: touch for touch in result.protected_surface_touches}
     assert by_path["shipgate.yaml"].kind == "manifest"
     assert by_path[".github/workflows/agents-shipgate.yml"].kind == "ci_gate"
@@ -224,9 +235,7 @@ def test_base_preflight_reports_recursive_trust_root_graph_drift(
     assert head.trust_root_graph_diff is not None
     assert head.trust_root_graph_diff.changed is True
     modified = set(head.trust_root_graph_diff.modified)
-    changed_patterns = {
-        node.pattern for node in head.trust_root_graph.nodes if node.id in modified
-    }
+    changed_patterns = {node.pattern for node in head.trust_root_graph.nodes if node.id in modified}
     assert "**/policies/**" in changed_patterns
     assert "**/.codex/hooks/**" in changed_patterns
 
@@ -245,7 +254,7 @@ def test_base_preflight_accepts_legacy_v1_payload(tmp_path: Path) -> None:
     (root / "AGENTS.md").write_text("Run Shipgate before completion.\n", encoding="utf-8")
     head = build_preflight_result(workspace=root, base_preflight=legacy_base)
 
-    assert head.preflight_schema_version == "0.2"
+    assert head.preflight_schema_version == "0.3"
     assert head.trust_root_graph_diff is not None
     assert head.trust_root_graph_diff.changed is True
 
@@ -285,12 +294,13 @@ def test_preflight_plan_routes_multiple_capability_and_host_requests(
         },
     )
 
-    assert result.preflight_schema_version == "0.2"
+    assert result.preflight_schema_version == "0.3"
     assert result.requires_human_review is True
     assert result.requires_verify is True
     assert result.plan_summary["capability_request_count"] == 2
     assert result.plan_summary["host_permission_request_count"] == 1
     assert result.first_next_action.actor == "human"
+    assert result.control.state == "human_review_required"
     assert {signal.kind for signal in result.signals} >= {
         "least_privilege",
         "missing_evidence",
@@ -329,9 +339,11 @@ def test_cli_preflight_json_changed_files_and_diff(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["preflight_schema_version"] == "0.2"
+    assert payload["preflight_schema_version"] == "0.3"
     assert payload["requires_human_review"] is True
     assert payload["requires_verify"] is True
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["must_stop"] is True
     assert {touch["path"] for touch in payload["protected_surface_touches"]} == {
         ".codex/config.toml",
         "shipgate.yaml",
@@ -398,12 +410,16 @@ def test_cli_preflight_plan_stdin_routes_clean_docs_to_verify(tmp_path: Path) ->
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["preflight_schema_version"] == "0.2"
+    assert payload["preflight_schema_version"] == "0.3"
     assert payload["requires_human_review"] is False
     assert payload["first_next_action"]["kind"] == "verify"
     assert payload["allowed_next_commands"] == [
         "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
     ]
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["completion_allowed"] is False
+    assert payload["control"]["must_stop"] is False
+    assert payload["control"]["next_action"]["kind"] == "verify"
 
 
 def test_cli_preflight_plan_empty_stdin_is_empty_plan(tmp_path: Path) -> None:
@@ -424,11 +440,56 @@ def test_cli_preflight_plan_empty_stdin_is_empty_plan(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["preflight_schema_version"] == "0.2"
+    assert payload["preflight_schema_version"] == "0.3"
     assert payload["changed_files"] == []
     assert payload["requires_human_review"] is False
     assert payload["requires_verify"] is False
     assert payload["first_next_action"]["kind"] == "continue"
+    assert payload["control"]["state"] == "complete"
+    assert payload["control"]["completion_allowed"] is True
+    assert payload["control"]["must_stop"] is False
+
+
+def test_base_preflight_accepts_frozen_v2_payload(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    current = build_preflight_result(workspace=root)
+    payload = {
+        field: value
+        for field, value in current.model_dump(mode="json").items()
+        if field in PreflightResultV2.model_fields
+    }
+    payload["preflight_schema_version"] = "0.2"
+    legacy = PreflightResultV2.model_validate(payload)
+
+    head = build_preflight_result(
+        workspace=root,
+        changed_files=["docs/readme.md"],
+        base_preflight=legacy,
+    )
+
+    assert isinstance(head, PreflightResultV3)
+    assert head.preflight_schema_version == "0.3"
+    assert head.control.state == "agent_action_required"
+
+
+def test_preflight_legacy_projection_cannot_contradict_control_in_model_or_schema(
+    tmp_path: Path,
+) -> None:
+    payload = build_preflight_result(workspace=_workspace(tmp_path)).model_dump(mode="json")
+    payload["first_next_action"] = {
+        "actor": "coding_agent",
+        "kind": "verify",
+        "command": "agents-shipgate verify --json",
+        "why": "Contradict complete control.",
+    }
+    with pytest.raises(ValidationError):
+        PreflightResultV3.model_validate(payload)
+    schema = json.loads(
+        (Path(__file__).resolve().parent.parent / "docs/preflight-schema.v0.3.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert list(Draft202012Validator(schema).iter_errors(payload))
 
 
 def test_read_plan_tty_stdin_is_empty_plan(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -576,9 +637,7 @@ def test_high_risk_capability_without_evidence_does_not_pass(tmp_path: Path) -> 
 
     assert report.release_decision is not None
     assert report.release_decision.decision in {"blocked", "insufficient_evidence"}
-    active_check_ids = {
-        finding.check_id for finding in report.findings if not finding.suppressed
-    }
+    active_check_ids = {finding.check_id for finding in report.findings if not finding.suppressed}
     assert {
         "SHIP-POLICY-APPROVAL-MISSING",
         "SHIP-SIDEFX-IDEMPOTENCY-MISSING",

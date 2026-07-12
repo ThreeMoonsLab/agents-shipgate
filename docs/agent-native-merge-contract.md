@@ -18,7 +18,7 @@ release gate, and **no agent-facing field gates independently of it**. Some
 fields are direct projections of the decision (`merge_verdict`, the `decision`
 mirror); others project from related head-scan substrate — `capability_review`
 from `capability_change`, `applicability` from scan applicability
-(decision-presence + `head_status`), the `agent_controller` deny-lists from the
+(decision-presence plus execution/applicability), the control and deny-lists from the
 trust-root surface list — but all are subordinate to the decision, and none
 computes a second verdict. This is enforced structurally (construction-time
 validators in
@@ -38,7 +38,7 @@ protected* — never a new way to decide.
   capability change.
 - **Implements it:** [`triggers.json`](triggers.json) (machine-readable mirror
   of the AGENTS.md trigger table) and `agents-shipgate verify --preview`.
-- **Agent reads:** `run_shipgate` / `first_next_action` (exact `init` command
+- **Agent reads:** `run_shipgate` / `control.next_action` (exact `init` command
   for unconfigured repos, exact `verify` command for configured ones).
 - **Prevents:** silently skipping an MCP/OpenAPI/SDK surface change; running on
   prose.
@@ -85,11 +85,12 @@ protected* — never a new way to decide.
 
 - **Guarantee:** the reward-hacking moves are named explicitly and stand on
   every verdict, including `mergeable` — green is never "anything goes".
-- **Implements it:** `agent_controller.forbidden_actions[]` (the action-level
-  deny-list) and `agent_controller.forbidden_file_edits[]` (a path-level
+- **Implements it:** `forbidden_actions[]` (the action-level
+  deny-list) and `forbidden_file_edits[]` (a path-level
   deny-list of whole-file trust roots) —
-  [`../src/agents_shipgate/cli/verify/agent_controller.py`](../src/agents_shipgate/cli/verify/agent_controller.py).
-- **Agent reads:** `agent_controller.{forbidden_actions, forbidden_file_edits}`.
+  [`../src/agents_shipgate/checks/verify.py`](../src/agents_shipgate/checks/verify.py),
+  projected by [`../src/agents_shipgate/cli/verify/orchestrator.py`](../src/agents_shipgate/cli/verify/orchestrator.py).
+- **Agent reads:** `verifier.json.{forbidden_actions, forbidden_file_edits}`.
 - **Prevents:** suppressing findings, lowering severity, fabricating
   approval/idempotency evidence, deleting the CI gate. The file deny-list is
   deliberately **not** an allow-list, and excludes `shipgate.yaml` /
@@ -102,10 +103,10 @@ protected* — never a new way to decide.
 - **Guarantee:** human authority is *declared evidence*, never inferred — and it
   cannot be synthesized by the change under review.
 - **Implements it:** `human_ack` (report.json declared state) plus the
-  self-approval prohibition surfaced as `agent_controller.stop_reason =
-  self_approval_prohibited` and `human_review.why`.
-- **Agent reads:** `human_review.required`, `agent_controller.must_stop`,
-  `agent_controller.stop_reason`.
+  self-approval prohibition surfaced as
+  `control.state="human_review_required"` and `control.reason`.
+- **Agent reads:** `control.state`, `control.human_review`, and
+  `control.next_action`.
 - **Prevents:** a PR that adds its own `human_ack` (or weakens the policy) and
   then self-approves in the same change.
 
@@ -137,36 +138,37 @@ protected* — never a new way to decide.
   and it does not gate. Schema:
   [`attestation-schema.v0.4.json`](attestation-schema.v0.4.json).
 - **Agent reads:** the attestation is a durable record for humans and
-  registries, not a control signal — the agent still acts on `agent_controller`
+  registries, not a control signal — the agent still acts on `control.state`
   (contracts 3–5).
 - **Prevents:** "we think a human approved that refund tool last quarter" with
   no record to point at.
 
 ## The agent control loop
 
-The four imperative questions collapse into one block,
-`verifier.json.agent_controller`, which an autonomous agent can act on directly:
-`agents-shipgate-reports/agent-handoff.json` exposes the same controller block
+The imperative questions collapse into one discriminated block,
+`verifier.json.control`, which an autonomous agent can act on directly:
+`agents-shipgate-reports/agent-handoff.json` exposes the same control block
 beside `gate`, `blocked_by[]`, `remediation_plan[]`, and verify-run
 reproducibility metadata for agents that want one compact artifact. It is a
 projection only; it cannot disagree with `verifier.json` or introduce a second
 verdict.
 
-1. `completion_allowed` is `true` → the capability-change task is done; merge.
-2. else `must_stop` is `true` → surface `user_message_template` and `stop_reason`
-   to a human; **do not** edit anything in `forbidden_file_edits` or take any
+1. `state="complete"` → the capability-change task is done; merge.
+2. `state="agent_action_required"` → perform only `next_action`, then rerun and
+   read the fresh artifact.
+3. `state="human_review_required"` → stop and surface `reason` plus the human
+   action; **do not** edit anything in `forbidden_file_edits` or take any
    `forbidden_actions` to get past the gate.
-3. else → apply the `fix_task` (mechanical), then re-run its
-   `verification_command` and read the fresh verdict.
 
-`completion_allowed` is locked to `can_merge_without_human`, so step 1 can never
-contradict the gate.
+`completion_allowed`, `must_stop`, and `can_merge_without_human` are exact
+projections. A contradictory artifact fails construction instead of creating a
+second gate.
 
 ## Where to read each surface
 
 | Reader | Read first | Source of truth |
 | --- | --- | --- |
-| Coding agent (controller) | `agent-handoff.json.gate` → `controller`; fallback `verifier.json.agent_controller` → `merge_verdict` | `release_decision.decision` |
+| Coding agent (control) | `agent-handoff.json.control` → `gate`; fallback `verifier.json.control` → `merge_verdict` | `release_decision.decision` |
 | Human reviewer | `pr-comment.md` | `release_decision.decision` |
 | CI gate implementer | `report.json.release_decision.decision` | same |
 | Discovery (agents/search) | [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json) | — |

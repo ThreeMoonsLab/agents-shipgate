@@ -24,8 +24,8 @@ different audience and can never disagree with it.
 
 | Artifact | Reader | When to read | Can you skip it? |
 |---|---|---|---|
-| `agent-handoff.json` | **coding agent** | first, on every PR verify | No — it leads with `gate.merge_verdict`, `controller`, `next_action`, `fix_task` |
-| `verifier.json` | **coding agent / CI** | detailed controller context | Yes if `agent-handoff.json` has enough detail for the workflow |
+| `agent-handoff.json` | **coding agent** | first, on every PR verify | No — it leads with `control.state`, `gate.merge_verdict`, `next_action`, `fix_task` |
+| `verifier.json` | **coding agent / CI** | detailed control context | Yes if `agent-handoff.json` has enough detail for the workflow |
 | `pr-comment.md` | **human reviewer** | in the PR thread | Yes if you read the Check Run / report |
 | `report.json` | **tools, CI, auditors** | when gating or debugging a verdict | No for CI gating (`release_decision.decision` is the source of truth) |
 | `report.md` | **human release reviewer** | release review | Yes — same content as report.json, prose-shaped |

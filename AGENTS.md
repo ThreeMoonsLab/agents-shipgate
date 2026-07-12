@@ -82,14 +82,17 @@ shipgate check --agent claude-code --workspace . --format codex-boundary-json
 shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
-Read the single stdout object as `shipgate.codex_boundary_result/v1`. Switch on
-`decision`, `completion_allowed`, `must_stop`, `first_next_action`,
-`human_review`, `repair`, `policy`, and `verify_required`; never infer a local-control decision
-from Markdown, PR comments, or prose. If `decision=allow` or `warn`, continue
-and summarize the result. If `first_next_action.kind=repair` and
-`repair.safe_to_attempt` is `true`, apply only that repair and rerun the
-command. If `human_review.required=true` or `must_stop=true`, stop and surface the JSON
-result to a human.
+Read the single stdout object as `shipgate.codex_boundary_result/v2`. Switch on
+`control.state`; follow `control.next_action`,
+`control.allowed_next_commands`, and `control.human_review`. Treat `decision`
+as diagnostic context, never as the operational control signal, and never
+infer control from Markdown, PR comments, or prose. If
+`control.state=complete`, summarize the result and finish. If
+`control.state=agent_action_required`, perform only the exact coding-agent
+action authorized by `control.next_action`, then rerun the command. If
+`control.state=human_review_required`, stop and surface the JSON result to a
+human. Conversation-level acknowledgement never changes control state; only a
+new verifier artifact can clear it.
 
 **Before editing a protected release surface** — ask the proactive static
 planner first:
@@ -100,8 +103,9 @@ agents-shipgate preflight --changed-files changed.txt --json
 agents-shipgate preflight --capability-request request.json --json
 ```
 
-If `requires_human_review` is `true` or `first_next_action.actor` is `human`,
-stop and route the change to a human. The plan form accepts `changed_files[]`,
+Switch on `control.state`. If it is `human_review_required`, stop and route the
+change to a human. If it is `agent_action_required`, perform only the exact
+coding-agent route in `control.next_action`. The plan form accepts `changed_files[]`,
 `diff_text`, `capability_requests[]`, `host_permission_requests[]`, and
 `context.{agent,task}`; prefer it whenever the agent can describe the planned
 change as one JSON object. Protected surfaces include
@@ -122,17 +126,18 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 
 For local uncommitted verifier work, omit `--base`/`--head` so the working tree
 is scanned. Read `agents-shipgate-reports/agent-handoff.json` first and lead
-with `gate.merge_verdict`
+with `control.state`, then `gate.merge_verdict`
 (`mergeable | human_review_required | insufficient_evidence | blocked |
-unknown`), `gate.can_merge_without_human`, `controller`, `next_action`,
+unknown`), `gate.can_merge_without_human`, `next_action`,
 `fix_task`, and `capability_review.top_changes[]`. Fall back to
 `agents-shipgate-reports/verifier.json` only when the installed CLI contract is
 older than v6. Then read
 `agents-shipgate-reports/report.json.release_decision.decision`
 (`blocked | review_required | insufficient_evidence | passed`), which remains
-the release gate. Do not report completion while `merge_verdict` is `blocked`,
-`insufficient_evidence`, or `human_review_required` unless the user explicitly
-accepts human review.
+the release gate. Do not report completion unless `control.state` is
+`complete`. A human-review route remains stopping until a new verifier artifact
+changes the control state; conversation-level acceptance is not a gate
+override.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent
@@ -141,7 +146,7 @@ release-visible and route them to human review.
 Never invent or auto-fill an action effect or action authority declaration.
 Never invent or auto-fill `agent_bindings` root, tool, or handoff declarations;
 they are reviewed closed-world claims about deployed wiring.
-Contract v13 publishes these boundaries as `action_effect`, `action_authority`,
+Contract v14 publishes these boundaries as `action_effect`, `action_authority`,
 and `agent_binding` in `do_not_auto_assert[]`; route binding and semantic next
 actions to a human and rerun verification after the reviewed declaration is supplied.
 
@@ -478,9 +483,9 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.27 frozen reference) | [`docs/report-schema.v0.27.json`](docs/report-schema.v0.27.json) | `0.27` |
 | Report schema (v0.26 frozen reference) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
 | Report schema (v0.25 frozen reference) | [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) | `0.25` |
-| Verify-run schema | [`docs/verify-run-schema.v1.json`](docs/verify-run-schema.v1.json) | `shipgate.verify_run/v1` |
-| Agent handoff schema | [`docs/agent-handoff-schema.v2.json`](docs/agent-handoff-schema.v2.json) | `shipgate.agent_handoff/v2` |
-| Codex boundary result schema | [`docs/codex-boundary-result-schema.v1.json`](docs/codex-boundary-result-schema.v1.json) | `shipgate.codex_boundary_result/v1` |
+| Verify-run schema | [`docs/verify-run-schema.v2.json`](docs/verify-run-schema.v2.json) | `shipgate.verify_run/v2` |
+| Agent handoff schema | [`docs/agent-handoff-schema.v3.json`](docs/agent-handoff-schema.v3.json) | `shipgate.agent_handoff/v3` |
+| Codex boundary result schema | [`docs/codex-boundary-result-schema.v2.json`](docs/codex-boundary-result-schema.v2.json) | `shipgate.codex_boundary_result/v2` |
 | Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
 | Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
 | Report schema (v0.22 frozen reference) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
@@ -501,10 +506,11 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.7 frozen reference) | [`docs/report-schema.v0.7.json`](docs/report-schema.v0.7.json) | `0.7` |
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
 | Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.10.json`](docs/packet-schema.v0.10.json) | `0.10` |
-| Packet schema (v0.9 frozen reference) | [`docs/packet-schema.v0.9.json`](docs/packet-schema.v0.9.json) | `0.9` |
-| Packet schema (v0.8 frozen reference) | [`docs/packet-schema.v0.8.json`](docs/packet-schema.v0.8.json) | `0.8` |
-| Packet schema (v0.7 frozen reference) | [`docs/packet-schema.v0.7.json`](docs/packet-schema.v0.7.json) | `0.7` |
-| Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.3` |
+| Agent result schema (current) | [`docs/agent-result-schema.v2.json`](docs/agent-result-schema.v2.json) | `agent_result_v2` |
+| Verifier schema (current) | [`docs/verifier-schema.v0.3.json`](docs/verifier-schema.v0.3.json) | `0.3` |
+| Agent handoff schema (current) | [`docs/agent-handoff-schema.v3.json`](docs/agent-handoff-schema.v3.json) | `shipgate.agent_handoff/v3` |
+| Preflight schema (current) | [`docs/preflight-schema.v0.3.json`](docs/preflight-schema.v0.3.json) | `0.3` |
+| Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.4` |
 | Capability lock schema | [`docs/capability-lock-schema.v0.5.json`](docs/capability-lock-schema.v0.5.json) | `0.5` |
 | Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.6.json`](docs/capability-lock-diff-schema.v0.6.json) | `0.6` |
 | Governance benchmark catalog schema | [`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json) | `0.2` |

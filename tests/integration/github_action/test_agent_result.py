@@ -3,11 +3,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
+from pydantic import ValidationError
 
 from agents_shipgate.ci.agent_result import build_agent_result, write_agent_result
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.report.pr_comment import render_pr_comment
 from agents_shipgate.report.sarif import render_sarif_report
+from agents_shipgate.schemas.agent_control import (
+    CodingAgentCommandAction,
+    HumanControlAction,
+)
+from agents_shipgate.schemas.agent_result import AgentResultV2
 from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.report import (
@@ -54,18 +62,20 @@ def test_blocked_mcp_expansion_writes_agent_result_and_can_fail_required_check(t
     write_agent_result(result, tmp_path / "agent-result.json")
     reread = json.loads((tmp_path / "agent-result.json").read_text(encoding="utf-8"))
     schema = json.loads(
-        (Path(__file__).resolve().parents[3] / "docs/agent-result-schema.v1.json")
-        .read_text(encoding="utf-8")
+        (Path(__file__).resolve().parents[3] / "docs/agent-result-schema.v2.json").read_text(
+            encoding="utf-8"
+        )
     )
 
     Draft202012Validator(schema).validate(reread)
-    assert reread["schema_version"] == "agent_result_v1"
+    assert reread["schema_version"] == "agent_result_v2"
+    assert reread["control"]["state"] == "human_review_required"
     assert reread["agent"] == "codex"
     assert reread["decision"] == "block"
     assert reread["risk_level"] == "critical"
     assert reread["affected_files"][0]["path"] == ".codex/config.toml"
     assert reread["affected_files"][0]["start_line"] == 12
-    assert reread["required_reviewers"] == ["agent-platform", "security"]
+    assert reread["required_reviewers"] == []
     assert merge_verdict_policy_exit_code("blocked", "blocked") == 20
     assert merge_verdict_policy_exit_code("human_review_required", "blocked") == 0
 
@@ -87,7 +97,7 @@ def test_reviewer_routing_does_not_match_ci_inside_words():
 
     result = build_agent_result(verifier=verifier, report=report)
 
-    assert result.required_reviewers == ["release-owner"]
+    assert result.required_reviewers == []
 
 
 def test_require_review_trust_root_change_posts_reviewer_list():
@@ -114,13 +124,16 @@ def test_require_review_trust_root_change_posts_reviewer_list():
     comment = render_pr_comment(verifier, report=report)
 
     assert result.decision == "require_review"
-    assert result.required_reviewers == ["agent-platform"]
+    assert result.required_reviewers == []
     assert "Merge verdict: `human_review_required`" in comment
     assert "Trust root touched: `true`" in comment
-    assert merge_verdict_policy_exit_code(
-        "human_review_required",
-        "blocked,human_review_required",
-    ) == 20
+    assert (
+        merge_verdict_policy_exit_code(
+            "human_review_required",
+            "blocked,human_review_required",
+        )
+        == 20
+    )
     assert merge_verdict_policy_exit_code("human_review_required", "blocked") == 0
 
 
@@ -139,6 +152,30 @@ def test_allow_comment_is_concise_and_has_no_contradictory_decision():
     assert "Release gate: `passed`" in comment
     assert "Decision: `passed`" not in comment
     assert "Required reviewers:" not in comment
+
+
+def test_complete_result_cannot_advertise_pending_safe_repair_in_model_or_schema() -> None:
+    report = _report(_release_decision("passed"), run_id="agents_shipgate_allow")
+    result = build_agent_result(
+        verifier=_verifier(report, merge_verdict="mergeable", can_merge=True),
+        report=report,
+    )
+    payload = result.model_dump(mode="json")
+    payload["repair"] = {
+        "actor": "coding_agent",
+        "safe_to_attempt": True,
+        "instructions": ["Apply the repair."],
+        "command": "agents-shipgate verify --json",
+        "forbidden_shortcuts": [],
+    }
+    with pytest.raises(ValidationError):
+        AgentResultV2.model_validate(payload)
+    schema = json.loads(
+        (Path(__file__).resolve().parents[3] / "docs/agent-result-schema.v2.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert list(Draft202012Validator(schema).iter_errors(payload))
 
 
 def test_warn_only_for_review_tier_advisory_and_maps_to_low_risk():
@@ -301,10 +338,13 @@ def test_action_output_extraction_preserves_existing_fields_and_adds_verify_run(
     _write_json(
         output_dir / "verifier.json",
         {
+            "execution": "succeeded",
             "head_status": "succeeded",
             "merge_verdict": "mergeable",
             "can_merge_without_human": True,
-            "agent_controller": {
+            "control": {
+                "state": "complete",
+                "reason": "Static verification passed.",
                 "must_stop": False,
                 "completion_allowed": True,
                 "stop_reason": None,
@@ -326,14 +366,8 @@ def test_action_output_extraction_preserves_existing_fields_and_adds_verify_run(
     assert outputs["run_id"] == "sha256:" + "a" * 64
     assert outputs["check_annotations_json"] == output_dir / "check-annotations.json"
     assert outputs["capability_lock_json"] == output_dir / "capabilities.lock.json"
-    assert (
-        outputs["base_capability_lock_json"]
-        == output_dir / "base.capabilities.lock.json"
-    )
-    assert (
-        outputs["capability_lock_diff_json"]
-        == output_dir / "capability-lock-diff.json"
-    )
+    assert outputs["base_capability_lock_json"] == output_dir / "base.capabilities.lock.json"
+    assert outputs["capability_lock_diff_json"] == output_dir / "capability-lock-diff.json"
     assert outputs["merge_verdict"] == "mergeable"
     assert outputs["can_merge_without_human"] == "true"
     assert outputs["agent_controller_completion_allowed"] == "true"
@@ -399,18 +433,46 @@ def _verifier(
     can_merge: bool = False,
 ) -> VerifierArtifact:
     assert report.release_decision is not None
+    decision = report.release_decision.decision
+    if can_merge:
+        control = derive_agent_control(reason="Static verification passed.")
+    elif fix_task is not None and fix_task.actor == "coding_agent" and fix_task.safe_to_attempt:
+        assert fix_task.verification_command
+        control = derive_agent_control(
+            reason="A mechanical repair is required.",
+            next_action=CodingAgentCommandAction(
+                kind="repair",
+                command=fix_task.verification_command,
+                why="Apply the mechanical repair and rerun verification.",
+            ),
+            verify_required=True,
+        )
+    else:
+        why = f"Release decision is {decision}."
+        control = derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(
+                kind="stop" if decision == "blocked" else "review",
+                why=why,
+            ),
+            verify_required=True,
+            human_review_required=True,
+        )
     return VerifierArtifact(
         workspace="/tmp/workspace",
         config="shipgate.yaml",
         base_ref="origin/main",
         head_ref="HEAD",
         changed_files=changed_files or [],
+        execution="succeeded",
         head_status="succeeded",
         head_exit_code=report.release_decision.fail_policy.exit_code,
         release_decision=report.release_decision.model_dump(mode="json"),
         decision=report.release_decision.decision,
         merge_verdict=merge_verdict,  # type: ignore[arg-type]
+        applicability="verified",
         can_merge_without_human=can_merge,
+        control=control,
         fix_task=fix_task,
         capability_review=capability_review or VerifierCapabilityReview(),
         artifacts={

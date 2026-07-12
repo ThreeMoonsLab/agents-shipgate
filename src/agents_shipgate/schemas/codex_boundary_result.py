@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Literal
 
+from agents_shipgate.schemas.agent_result import AgentResult, AgentResultV2
 from agents_shipgate.schemas.agent_result_v1 import (
-    AgentResult,
     AgentResultActor,
     AgentResultAffectedFile,
     AgentResultAgent,
@@ -23,7 +23,7 @@ from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultViolatedRule,
 )
 
-CODEX_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.codex_boundary_result/v1"
+CODEX_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.codex_boundary_result/v2"
 
 CodexBoundaryAgent = AgentResultAgent
 CodexBoundaryDecision = AgentResultDecision
@@ -53,7 +53,7 @@ class CodexBoundaryResultV1(AgentResultV1):
     """
 
     schema_version: Literal["shipgate.codex_boundary_result/v1"] = (
-        CODEX_BOUNDARY_RESULT_SCHEMA_VERSION
+        "shipgate.codex_boundary_result/v1"
     )
 
     # ``verify_required`` (contract v10) is inherited from the shared
@@ -66,7 +66,15 @@ class CodexBoundaryResultV1(AgentResultV1):
     # ``undeclared_capability_surface`` diagnostics; no second verdict.
 
 
-CodexBoundaryResult = CodexBoundaryResultV1
+class CodexBoundaryResultV2(AgentResultV2):
+    """Current local boundary contract with one authoritative control state."""
+
+    schema_version: Literal["shipgate.codex_boundary_result/v2"] = (
+        CODEX_BOUNDARY_RESULT_SCHEMA_VERSION
+    )
+
+
+CodexBoundaryResult = CodexBoundaryResultV2
 
 __all__ = [
     "CODEX_BOUNDARY_RESULT_SCHEMA_VERSION",
@@ -84,6 +92,7 @@ __all__ = [
     "CodexBoundaryRepair",
     "CodexBoundaryResult",
     "CodexBoundaryResultV1",
+    "CodexBoundaryResultV2",
     "CodexBoundaryRiskLevel",
     "CodexBoundarySubject",
     "CodexBoundaryTool",

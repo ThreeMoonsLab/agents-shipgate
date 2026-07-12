@@ -53,7 +53,7 @@ Three Moons Lab asks for:
 - A concrete PR link, sanitized patch, or representative diff from Claude Code,
   Codex, Cursor, or similar tooling.
 - Feedback on whether the capability change, merge verdict, `fix_task`, and
-  `first_next_action` are actionable for platform, security, and release
+  `control.next_action` are actionable for platform, security, and release
   reviewers.
 - When possible, a redacted feedback artifact:
 

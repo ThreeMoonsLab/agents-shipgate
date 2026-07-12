@@ -158,9 +158,7 @@ def _attest_command(
         org_context=org_context,
         run_context=run_context,
     )
-    rendered_payload = ReleaseAttestationV1.model_validate(payload).model_dump(
-        mode="json"
-    )
+    rendered_payload = ReleaseAttestationV1.model_validate(payload).model_dump(mode="json")
     rendered = json.dumps(rendered_payload, indent=2, sort_keys=True) + "\n"
 
     if out is not None:
@@ -190,10 +188,18 @@ def build_attestation_payload(
     attestation degrades gracefully (``human_ack.satisfied`` is ``null`` and
     ``policy_snapshot_sha256`` is ``null``).
     """
+    verifier_version = verifier.get("verifier_schema_version")
+    if verifier_version in {"0.1", "0.2", "0.3"}:
+        from agents_shipgate.schemas.verifier import VerifierArtifact
+
+        verifier = VerifierArtifact.model_validate(verifier).model_dump(mode="json")
+
     artifacts = _obj(verifier.get("artifacts"))
     release_decision = _obj(verifier.get("release_decision"))
     capability_review = _obj(verifier.get("capability_review"))
-    human_review = _obj(verifier.get("human_review"))
+    human_review = _obj(_obj(verifier.get("control")).get("human_review"))
+    if not human_review:
+        human_review = _obj(verifier.get("human_review"))
     report = report or {}
     verify_run = verify_run or {}
     human_ack = _obj(report.get("human_ack"))
@@ -244,9 +250,7 @@ def build_attestation_payload(
             redacted=redacted,
         ),
         "human_ack": {
-            "required": bool(
-                human_ack.get("required", human_review.get("required", False))
-            ),
+            "required": bool(human_ack.get("required", human_review.get("required", False))),
             # ``None`` when no report.json was available to confirm it.
             "satisfied": human_ack.get("satisfied"),
             "outstanding": _str_list(human_ack.get("outstanding")),
@@ -272,9 +276,7 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
     return data
 
 
-def _load_sibling_report(
-    source: Path, verifier: dict[str, Any]
-) -> dict[str, Any] | None:
+def _load_sibling_report(source: Path, verifier: dict[str, Any]) -> dict[str, Any] | None:
     """Best-effort read of the report.json beside verifier.json (or named in its
     artifacts map). Absence or a parse error is fine — enrichment is optional."""
     artifacts = _obj(verifier.get("artifacts"))
@@ -358,9 +360,7 @@ def _context_from_inputs(
         )
         run_context.update(_github_run_context(event))
     context.update({key: value for key, value in explicit.items() if value is not None})
-    run_context.update(
-        {key: value for key, value in run_explicit.items() if value is not None}
-    )
+    run_context.update({key: value for key, value in run_explicit.items() if value is not None})
     return _clean_org_context(context), _clean_run_context(run_context)
 
 
@@ -497,9 +497,7 @@ def _capability_lock_binding(
         "path": _artifact_display_path(artifacts.get(key), redacted=redacted),
         "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
         "capability_lock_schema_version": (
-            payload.get("capability_lock_schema_version")
-            if isinstance(payload, dict)
-            else None
+            payload.get("capability_lock_schema_version") if isinstance(payload, dict) else None
         ),
         "semantic_capability_set_hash": hashes.get("semantic_capability_set_hash"),
         "evidence_set_hash": hashes.get("evidence_set_hash"),
@@ -533,15 +531,9 @@ def _capability_diff_binding(
     return {
         "path": _artifact_display_path(artifacts.get(key), redacted=redacted),
         "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
-        "capability_lock_diff_schema_version": payload.get(
-            "capability_lock_diff_schema_version"
-        ),
-        "base_semantic_capability_set_hash": base.get(
-            "semantic_capability_set_hash"
-        ),
-        "head_semantic_capability_set_hash": head.get(
-            "semantic_capability_set_hash"
-        ),
+        "capability_lock_diff_schema_version": payload.get("capability_lock_diff_schema_version"),
+        "base_semantic_capability_set_hash": base.get("semantic_capability_set_hash"),
+        "head_semantic_capability_set_hash": head.get("semantic_capability_set_hash"),
         "summary": _capability_diff_summary(payload.get("summary")),
     }
 

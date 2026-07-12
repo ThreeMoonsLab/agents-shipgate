@@ -19,19 +19,17 @@ def register(app: typer.Typer) -> None:
             return
 
         typer.echo(f"Contract version: {payload.contract_version}")
+        typer.echo(f"Minimum control contract version: {payload.minimum_control_contract_version}")
         typer.echo(f"CLI version: {payload.cli_version}")
         typer.echo(f"Report schema version: {payload.report_schema_version}")
         typer.echo(f"Packet schema version: {payload.packet_schema_version}")
         typer.echo(f"Verifier schema version: {payload.verifier_schema_version}")
         typer.echo(f"Verify-run schema version: {payload.verify_run_schema_version}")
-        typer.echo(
-            f"Agent handoff schema version: {payload.agent_handoff_schema_version}"
-        )
+        typer.echo(f"Agent handoff schema version: {payload.agent_handoff_schema_version}")
         typer.echo(f"Agent handoff schema path: {payload.agent_handoff_schema_path}")
         typer.echo(f"Agent handoff artifact: {payload.agent_handoff_artifact}")
         typer.echo(
-            "Codex boundary result schema version: "
-            f"{payload.codex_boundary_result_schema_version}"
+            f"Codex boundary result schema version: {payload.codex_boundary_result_schema_version}"
         )
         typer.echo(f"Capability lock schema version: {payload.capability_lock_schema_version}")
         typer.echo(
@@ -50,12 +48,10 @@ def register(app: typer.Typer) -> None:
         typer.echo(f"Attestation schema version: {payload.attestation_schema_version}")
         typer.echo(f"Registry schema version: {payload.registry_schema_version}")
         typer.echo(
-            "Org evidence bundle schema version: "
-            f"{payload.org_evidence_bundle_schema_version}"
+            f"Org evidence bundle schema version: {payload.org_evidence_bundle_schema_version}"
         )
         typer.echo(
-            "Host grants inventory schema version: "
-            f"{payload.host_grants_inventory_schema_version}"
+            f"Host grants inventory schema version: {payload.host_grants_inventory_schema_version}"
         )
         typer.echo("External integration surfaces:")
         for surface in payload.external_integration_surfaces:
@@ -65,6 +61,12 @@ def register(app: typer.Typer) -> None:
         typer.echo(f"Agent result schema path: {payload.agent_result_schema_path}")
         typer.echo("Agent result control fields:")
         for field in payload.agent_result_control_fields:
+            typer.echo(f"  {field}")
+        typer.echo("Agent control states:")
+        for state in payload.agent_control_states:
+            typer.echo(f"  {state}")
+        typer.echo("Agent control fields:")
+        for field in payload.agent_control_fields:
             typer.echo(f"  {field}")
         typer.echo("Manual review signals:")
         for signal in payload.manual_review_signals:

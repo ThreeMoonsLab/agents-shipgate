@@ -1,34 +1,43 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b2"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "require_review",
   "risk_level": "high",
-  "audit_id": "codex_boundary_59caa9612004f0bcf2d55b68",
+  "audit_id": "codex_boundary_dacbec703043db617de3880f",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
     ".codex/config.toml"
   ],
-  "completion_allowed": false,
-  "must_stop": true,
-  "first_next_action": {
-    "actor": "human",
-    "kind": "review",
-    "why": "Codex network profile allows a wildcard domain"
-  },
-  "human_review": {
-    "required": true,
-    "why": "Codex network profile allows a wildcard domain",
-    "required_reviewers": [
-      "agent-platform"
-    ]
+  "control": {
+    "state": "human_review_required",
+    "reason": "1 Codex boundary change(s) require human review.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": false,
+    "next_action": {
+      "actor": "human",
+      "kind": "review",
+      "command": null,
+      "expects": null,
+      "why": "Codex network profile allows a wildcard domain"
+    },
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "Codex network profile allows a wildcard domain",
+      "required_reviewers": [
+        "agent-platform"
+      ]
+    },
+    "stop_reason": "Codex network profile allows a wildcard domain"
   },
   "repair": {
     "actor": "human",
@@ -136,7 +145,5 @@
   "finding_fingerprints": [
     "fp_97b6fa25c1f62073"
   ],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 0,
-  "verify_required": false
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
 }

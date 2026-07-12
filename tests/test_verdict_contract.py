@@ -17,6 +17,7 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.capability_change import VerifierSummary, VerifierVerdict
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.report import (
@@ -125,8 +126,8 @@ def test_merge_verdict_for_matrix(decision, head_status, expected) -> None:
         ("insufficient_evidence", "succeeded", "verified"),
         ("blocked", "succeeded", "verified"),
         (None, "skipped", "not_applicable"),  # nothing to gate
-        (None, "succeeded", "unknown"),  # ran but produced no decision
-        (None, "failed", "unknown"),  # scan failed
+        (None, "succeeded", "not_evaluated"),  # ran but produced no decision
+        (None, "failed", "failed"),  # scan failed
     ],
 )
 def test_applicability_for_matrix(decision, head_status, expected) -> None:
@@ -154,12 +155,47 @@ def _artifact(**overrides) -> VerifierArtifact:
     return VerifierArtifact(**base)
 
 
+def _release_decision(status: str) -> dict[str, object]:
+    return {
+        "decision": status,
+        "reason": f"Release decision is {status}.",
+        "blockers": [],
+        "review_items": [],
+        "evidence_coverage": {
+            "level": "complete",
+            "human_review_recommended": False,
+            "source_warning_count": 0,
+            "low_confidence_tool_count": 0,
+            "evidence_gaps": [],
+        },
+        "baseline_delta": {"enabled": False},
+        "fail_policy": {
+            "ci_mode": "advisory",
+            "fail_on": ["critical", "high"],
+            "would_fail_ci": False,
+            "exit_code": 0,
+        },
+    }
+
+
 @pytest.mark.parametrize("status", sorted(CANONICAL))
 def test_consistent_artifact_is_accepted(status) -> None:
+    control = (
+        derive_agent_control(reason="Static verification passed.")
+        if status == "passed"
+        else derive_agent_control(
+            reason=f"Release decision is {status}.",
+            human_review_required=True,
+        )
+    )
     art = _artifact(
-        release_decision={"decision": status},
+        execution="succeeded",
+        release_decision=_release_decision(status),
         decision=status,
         merge_verdict=map_merge_verdict(status),
+        applicability="verified",
+        can_merge_without_human=status == "passed",
+        control=control,
     )
     assert art.merge_verdict == map_merge_verdict(status)
 
@@ -167,27 +203,45 @@ def test_consistent_artifact_is_accepted(status) -> None:
 def test_artifact_rejects_merge_verdict_inconsistent_with_decision() -> None:
     with pytest.raises(ValidationError):
         _artifact(
-            release_decision={"decision": "blocked"},
+            execution="succeeded",
+            release_decision=_release_decision("blocked"),
             decision="blocked",
             merge_verdict="mergeable",  # lie: blocked must project to "blocked"
+            applicability="verified",
+            control=derive_agent_control(reason="Blocked.", human_review_required=True),
         )
 
 
 def test_artifact_rejects_top_level_decision_mismatch() -> None:
     with pytest.raises(ValidationError):
         _artifact(
-            release_decision={"decision": "passed"},
+            execution="succeeded",
+            release_decision=_release_decision("passed"),
             decision="blocked",  # disagrees with the substrate
             merge_verdict="mergeable",
+            applicability="verified",
+            can_merge_without_human=True,
+            control=derive_agent_control(reason="Static verification passed."),
         )
 
 
-def test_artifact_without_release_decision_is_unconstrained() -> None:
+def test_artifact_without_release_decision_projects_from_execution() -> None:
     # preview / skipped / failed paths have no substrate to project.
-    art = _artifact(release_decision=None, merge_verdict="unknown")
+    art = _artifact(
+        execution="succeeded",
+        release_decision=None,
+        merge_verdict="unknown",
+        control=derive_agent_control(reason="Verification failed.", human_review_required=True),
+    )
     assert art.merge_verdict == "unknown"
     art2 = _artifact(
-        release_decision=None, head_status="skipped", merge_verdict="mergeable"
+        release_decision=None,
+        head_status="skipped",
+        merge_verdict="mergeable",
+        execution="skipped",
+        applicability="not_applicable",
+        can_merge_without_human=True,
+        control=derive_agent_control(reason="No applicable changes."),
     )
     assert art2.merge_verdict == "mergeable"
 
@@ -200,10 +254,13 @@ def test_artifact_rejects_applicability_inconsistent_with_substrate() -> None:
             workspace="/tmp/w",
             config="shipgate.yaml",
             head_status="succeeded",
-            release_decision={"decision": "passed"},
+            execution="succeeded",
+            release_decision=_release_decision("passed"),
             decision="passed",
             merge_verdict="mergeable",
             applicability="not_applicable",
+            can_merge_without_human=True,
+            control=derive_agent_control(reason="Static verification passed."),
         )
 
 
@@ -213,10 +270,11 @@ def test_artifact_model_validate_backfills_applicability_for_old_payloads() -> N
     # "verified" via the before-validator — instead of tripping the lock.
     art = VerifierArtifact.model_validate(
         {
+            "verifier_schema_version": "0.2",
             "workspace": "/tmp/w",
             "config": "shipgate.yaml",
             "head_status": "succeeded",
-            "release_decision": {"decision": "blocked"},
+            "release_decision": _release_decision("blocked"),
             "decision": "blocked",
             "merge_verdict": "blocked",
         }
@@ -226,6 +284,7 @@ def test_artifact_model_validate_backfills_applicability_for_old_payloads() -> N
     # "mergeable" that an agent could read as "verified safe".
     skipped = VerifierArtifact.model_validate(
         {
+            "verifier_schema_version": "0.2",
             "workspace": "/tmp/w",
             "config": "shipgate.yaml",
             "head_status": "skipped",

@@ -1,14 +1,14 @@
 # Reading Agents Shipgate Reports
 
 For verify runs, read `agents-shipgate-reports/agent-handoff.json` first. Then
-read `agents-shipgate-reports/verifier.json` for detailed controller context
+read `agents-shipgate-reports/verifier.json` for detailed control context
 and `agents-shipgate-reports/report.json` for findings. Do not scrape Markdown.
 
 ## Order
 
-1. `agent-handoff.json.gate.merge_verdict`: `mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`.
+1. `agent-handoff.json.control.state`: `complete`, `agent_action_required`, or `human_review_required`.
 2. `agent-handoff.json.capability_review.top_changes[]`: the highest-signal tool/action or trust-root changes.
-3. `agent-handoff.json.next_action` / `controller` / `fix_task`: who acts next and whether a coding agent may safely attempt the fix.
+3. `agent-handoff.json.next_action` / `control.next_action` / `fix_task`: who acts next and whether a coding agent may safely attempt the fix.
 4. `report.json.release_decision.decision`: `blocked`, `review_required`, `insufficient_evidence`, or `passed`; this is the release gate.
 5. `verifier.json.capability_review.top_changes[]`: supporting/provisional highest-signal tool/action or trust-root changes.
 6. `release_decision.blockers[]` and `release_decision.review_items[]`.

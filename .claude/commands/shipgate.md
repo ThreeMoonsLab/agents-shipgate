@@ -51,9 +51,10 @@ Required behavior (do not skip):
 3. For verifier runs, parse `agents-shipgate-reports/agent-handoff.json` first,
    then `verifier.json`, `verify-run.json`, and
    `report.json.release_decision.decision` as the release gate.
-4. For check runs, parse stdout as `shipgate.codex_boundary_result/v1` and
-   switch on `decision`, `completion_allowed`, `must_stop`, `first_next_action`,
-   `human_review`, and `repair`.
+4. For check runs, parse stdout as `shipgate.codex_boundary_result/v2` and
+   switch on `control.state`; follow `control.next_action`,
+   `control.allowed_next_commands`, and `control.human_review`. Treat
+   `decision` as diagnostic context only.
 5. For host audits, parse `agents-shipgate-reports/host-grants.json` when
    `--out` is used, or stdout when running JSON-only.
 6. Do **not** bypass the verifier by suppressing findings, lowering severity,
@@ -80,8 +81,7 @@ Read `agents-shipgate-reports/agent-handoff.json` first and lead with
 `gate.merge_verdict` (a deterministic projection of `release_decision.decision`,
 which remains the gate in `report.json`), then the authoritative substrate
 `agents-shipgate-reports/verifier.json` and supporting/provisional
-`capability_review.top_changes[]`. Do not claim completion when
-`merge_verdict` is `blocked`, `insufficient_evidence`, or
-`human_review_required` unless the user accepted the human-review requirement, and
-never weaken `shipgate.yaml`, Shipgate CI, `AGENTS.md`, policies, baselines, or
+`capability_review.top_changes[]`. Do not claim completion unless
+`control.state` is `complete`; conversation-level acknowledgement cannot clear
+a human-review route. Never weaken `shipgate.yaml`, Shipgate CI, `AGENTS.md`, policies, baselines, or
 waivers to make Shipgate pass.

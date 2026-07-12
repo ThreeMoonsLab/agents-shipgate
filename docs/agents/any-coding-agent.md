@@ -24,20 +24,20 @@ export AGENTS_SHIPGATE_AGENT_MODE=1
 
 Before reporting an agent-capability change complete, run the local boundary
 check and parse the single stdout JSON object
-(`shipgate.codex_boundary_result/v1`):
+(`shipgate.codex_boundary_result/v2`):
 
 ```bash
 shipgate check --agent codex --workspace . --format codex-boundary-json
 ```
 
 `--agent codex` is the generic profile; use it when your harness has no named
-profile. Switch on `decision`, `completion_allowed`, `must_stop`,
-`first_next_action`, `human_review`, `repair`, and `policy`. Never infer a
+profile. Switch on `control.state`; follow `control.next_action`,
+`control.allowed_next_commands`, and `control.human_review`. Treat `decision`
+as diagnostic context only. Never infer a
 control decision from prose, Markdown, or PR comments.
 
 `check` is boundary-only. If your diff adds dynamic, undeclared, or ambiguous
-tool capability, do not treat `decision="allow"` as merge readiness — run the
-verifier:
+tool capability, `control.state` requires verification; run the verifier:
 
 ```bash
 agents-shipgate verify --workspace . --config shipgate.yaml \
@@ -45,8 +45,8 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 Then read, in order: `agents-shipgate-reports/agent-handoff.json` first
-(`gate.merge_verdict`, then `controller`), `verifier.json` as the
-authoritative controller substrate, and
+(`control.state`, then `gate.merge_verdict`), `verifier.json` as the
+authoritative control substrate, and
 `report.json.release_decision.decision` as the release gate. For committed
 PR refs add `--base origin/main --head HEAD`; make the base ref available
 first because `verify` never fetches.
@@ -89,7 +89,7 @@ one.
 ## Report friction
 
 If a verdict looked wrong (false positive, missed capability, unclear
-`first_next_action`) or an adapter could not see your framework, export a
+`control.next_action`) or an adapter could not see your framework, export a
 locally redacted feedback bundle and attach it to an issue:
 
 ```bash

@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.safety_qualification import (
@@ -41,7 +43,7 @@ from scripts.run_safety_qualification import (
 )
 
 DECISIONS = ("passed", "review_required", "insufficient_evidence", "blocked")
-VERSION = "0.16.0b2"
+VERSION = "0.16.0b3"
 
 
 def _human_label(role: str, reviewer: str, decision: str) -> IndependentHumanLabelV1:
@@ -116,8 +118,8 @@ def _write_json(path: Path, value: object) -> None:
 def _write_wheel(path: Path) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            "agents_shipgate-0.16.0b2.dist-info/METADATA",
-            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b2\n",
+            "agents_shipgate-0.16.0b3.dist-info/METADATA",
+            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b3\n",
         )
 
 
@@ -161,7 +163,7 @@ def _fixture(
     actual_overrides: dict[str, str] | None = None,
     disagreement_case: str | None = None,
 ) -> tuple[Path, Path, Path, Path]:
-    wheel = tmp_path / "agents_shipgate-0.16.0b2-py3-none-any.whl"
+    wheel = tmp_path / "agents_shipgate-0.16.0b3-py3-none-any.whl"
     _write_wheel(wheel)
     policy = tmp_path / "qualification-policy.json"
     _write_json(policy, {"policy": "beta-exact", "version": 1})
@@ -232,6 +234,20 @@ def _fixture(
             report_path,
             report.model_dump(mode="json"),
         )
+        control = (
+            derive_agent_control(reason="Static verification passed.")
+            if actual == "passed"
+            else derive_agent_control(
+                reason=f"Qualification decision is {actual}.",
+                next_action=HumanControlAction(
+                    kind="stop" if actual == "blocked" else "review",
+                    why=f"Qualification decision is {actual}.",
+                ),
+                verify_required=True,
+                human_review_required=True,
+                unsafe_block=actual == "blocked",
+            )
+        )
         verifier = VerifierArtifact(
             workspace=".",
             config="shipgate.yaml",
@@ -240,18 +256,15 @@ def _fixture(
             base_status="succeeded",
             base_tree_sha=f"base-{case.id}",
             head_tree_sha=f"head-{case.id}",
+            execution="succeeded",
             head_status="succeeded",
             head_exit_code=0,
-            release_decision={
-                "decision": actual,
-                "static_analysis_only": True,
-                "runtime_behavior_verified": False,
-                "static_verdict_disclaimer": STATIC_VERDICT_DISCLAIMER,
-            },
+            release_decision=report.release_decision,
             decision=actual,
             merge_verdict=EXPECTED_MERGE_VERDICT[actual],
             applicability="verified",
             can_merge_without_human=actual == "passed",
+            control=control,
             mode="advisory",
             artifacts={"report_json": "agents-shipgate-reports/report.json"},
         )
@@ -277,10 +290,12 @@ def _fixture(
             outcome=VerifyRunOutcome(
                 exit_code=0,
                 base_status="succeeded",
-                head_status="succeeded",
+                execution="succeeded",
+                applicability="verified",
                 decision=actual,
                 merge_verdict=EXPECTED_MERGE_VERDICT[actual],
                 can_merge_without_human=actual == "passed",
+                control=verifier.control,
             ),
             artifacts={
                 "report_json": VerifyRunArtifactRef(

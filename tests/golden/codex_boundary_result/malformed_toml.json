@@ -1,34 +1,43 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b2"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "codex_boundary_deee1c93b1db2f2b87759951",
+  "audit_id": "codex_boundary_a2e100fdbc6f93c7b1d50562",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
     ".codex/config.toml"
   ],
-  "completion_allowed": false,
-  "must_stop": true,
-  "first_next_action": {
-    "actor": "human",
-    "kind": "review",
-    "why": "Codex config could not be parsed"
-  },
-  "human_review": {
-    "required": true,
-    "why": "Codex config could not be parsed",
-    "required_reviewers": [
-      "agent-platform"
-    ]
+  "control": {
+    "state": "human_review_required",
+    "reason": "1 Codex boundary change(s) require human review.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": false,
+    "next_action": {
+      "actor": "human",
+      "kind": "review",
+      "command": null,
+      "expects": null,
+      "why": "Codex config could not be parsed"
+    },
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "Codex config could not be parsed",
+      "required_reviewers": [
+        "agent-platform"
+      ]
+    },
+    "stop_reason": "Codex config could not be parsed"
   },
   "repair": {
     "actor": "human",
@@ -134,7 +143,5 @@
   "finding_fingerprints": [
     "fp_86fb9b0faf6ca539"
   ],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 0,
-  "verify_required": false
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
 }

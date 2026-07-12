@@ -19,7 +19,7 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 
 - `merge_verdict: "blocked"`
 - `capability_review.top_changes[]` names `stripe.create_refund`
-- `first_next_action.actor: "human"`
+- `control.next_action.actor: "human"`
 - `fix_task.safe_to_attempt: false`
 
 The head scan also produced `agents-shipgate-reports/report.json` with:
@@ -129,10 +129,13 @@ consistent counts:
 ```json
 {
   "merge_verdict": "blocked",
-  "first_next_action": {
-    "actor": "human",
-    "kind": "review",
-    "why": "Approval and idempotency evidence cannot be invented by a coding agent."
+  "control": {
+    "state": "human_review_required",
+    "next_action": {
+      "actor": "human",
+      "kind": "review",
+      "why": "Approval and idempotency evidence cannot be invented by a coding agent."
+    }
   },
   "fix_task": {
     "actor": "human",
@@ -169,7 +172,7 @@ the same number as `review_item_count`, which mirrors
 
 - **Lead with the merge verdict.** `mergeable` / `human_review_required` / `insufficient_evidence` / `blocked` / `unknown`, with the capability change on the same screen.
 - **Show capability changes.** Pull the highest-signal rows from `verifier.json.capability_review.top_changes[]` before listing generic findings.
-- **Name who acts next.** Use `first_next_action.actor` and `fix_task.safe_to_attempt`; a human-routed task is not safe for a coding agent to self-resolve.
+- **Name who acts next.** Use `control.next_action.actor` and `fix_task.safe_to_attempt`; a human-routed task is not safe for a coding agent to self-resolve.
 - **Top blockers** named by `check_id` and `tool_name`, with a one-sentence "why it matters" pulled from `metadata.rationale` (use `agents-shipgate explain-finding <FINGERPRINT> --json`).
 - **Apply / review split**. What you applied automatically, what needs human review. Always show the auto-applied diff.
 - **Reports paths**. The agent shouldn't hide where the reports landed; the user may want to read them.

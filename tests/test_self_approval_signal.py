@@ -8,10 +8,11 @@ reason, not buried in a fix_task instruction.
 
 from __future__ import annotations
 
+import pytest
+
 from agents_shipgate.cli.verify.orchestrator import (
     _can_merge_without_human,
-    _first_next_action,
-    _human_review,
+    _derive_verifier_control,
     _self_approval_note,
     _verifier_headline,
 )
@@ -50,31 +51,33 @@ def test_clean_review_has_no_note() -> None:
     assert _self_approval_note(None) is None
 
 
-# --- human_review surfacing -------------------------------------------------
+# --- canonical control surfacing -------------------------------------------
 
 
 def test_human_review_why_leads_with_self_approval_note() -> None:
-    review = _human_review(
-        merge_verdict="human_review_required",
+    control = _derive_verifier_control(
+        execution="failed",
+        merge_verdict="unknown",
         release_decision=None,
+        fix_task=None,
         capability_review=_cr(policy_weakened=True),
+        headline=None,
+        first_next_action_override=None,
+        base_status="not_requested",
+        base_ref=None,
     )
-    assert review.required is True
-    assert review.why is not None
-    assert "self-approve" in review.why
+    assert control.state == "human_review_required"
+    assert control.human_review.required is True
+    assert "self-approve" in control.human_review.why
 
 
-def test_self_approval_forces_human_review_even_if_verdict_not_human() -> None:
-    # Defensive: a weakened policy must require a human even if some other path
-    # produced a non-human verdict — the agent can never clear its own gate.
-    review = _human_review(
-        merge_verdict="mergeable",
-        release_decision=None,
-        capability_review=_cr(trust_root_touched=True),
-    )
-    assert review.required is True
-    assert review.why is not None
-    assert "self-approve" in review.why
+def test_self_approval_contradicting_mergeable_fails_closed() -> None:
+    with pytest.raises(ValueError, match="trust root"):
+        _can_merge_without_human(
+            merge_verdict="mergeable",
+            release_decision=None,
+            capability_review=_cr(trust_root_touched=True),
+        )
 
 
 # --- headline surfacing -----------------------------------------------------
@@ -104,30 +107,13 @@ def test_headline_without_note_falls_back_to_default() -> None:
 # --- convenience fields stay consistent in the defensive case ---------------
 
 
-def test_self_approval_blocks_can_merge_without_human() -> None:
-    assert (
+def test_self_approval_never_silently_reclassifies_merge_authority() -> None:
+    with pytest.raises(ValueError, match="trust root"):
         _can_merge_without_human(
             merge_verdict="mergeable",
             release_decision=None,
             capability_review=_cr(policy_weakened=True),
         )
-        is False
-    )
-
-
-def test_self_approval_first_next_action_routes_to_human_when_mergeable() -> None:
-    # The defensive path: a 'mergeable' verdict carrying a self-approval note
-    # must not emit "safe to merge"; the next step is a human review.
-    action = _first_next_action(
-        merge_verdict="mergeable",
-        fix_task=None,
-        agent_summary=None,
-        reason=None,
-        capability_review=_cr(trust_root_touched=True),
-    )
-    assert action.actor == "human"
-    assert action.kind == "review"
-    assert "self-approve" in action.why
 
 
 def test_clean_mergeable_still_merges_and_keeps_safe_action() -> None:
@@ -138,12 +124,16 @@ def test_clean_mergeable_still_merges_and_keeps_safe_action() -> None:
         )
         is True
     )
-    action = _first_next_action(
+    control = _derive_verifier_control(
+        execution="skipped",
         merge_verdict="mergeable",
+        release_decision=None,
         fix_task=None,
-        agent_summary=None,
-        reason=None,
         capability_review=_cr(),
+        headline="No applicable capability change.",
+        first_next_action_override=None,
+        base_status="skipped",
+        base_ref=None,
     )
-    assert action.actor == "coding_agent"
-    assert action.kind == "none"
+    assert control.state == "complete"
+    assert control.next_action is None

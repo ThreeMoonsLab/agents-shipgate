@@ -23,7 +23,7 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 
 > [!IMPORTANT]
 > **Status: pre-1.0 (beta).** The decision engine is deterministic and stable.
-> This source tree is `0.16.0b2`; install and GitHub Action examples remain
+> This source tree is `0.16.0b3`; install and GitHub Action examples remain
 > pinned to the latest published tag, `v0.15.0`, until the beta is released.
 > Real-history accuracy numbers (small n, published in full in
 > [`benchmark/miner/README.md`](benchmark/miner/README.md)): across 361 mined
@@ -145,7 +145,7 @@ Then start from one of three prominent flows.
 ### Local Boundary Check
 
 Coding agents run `shipgate check` before reporting an agent-capability change
-complete. Parse the stdout `shipgate.codex_boundary_result/v1` object:
+complete. Parse the stdout `shipgate.codex_boundary_result/v2` object:
 
 ```bash
 shipgate check --agent codex --workspace . --format codex-boundary-json
@@ -153,9 +153,10 @@ shipgate check --agent claude-code --workspace . --format codex-boundary-json
 shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
-Switch on `decision`, `completion_allowed`, `must_stop`,
-`first_next_action`, `human_review`, `repair`, `policy`, and `verify_required`; never infer a
-decision from prose. `shipgate check` is necessary but not sufficient for
+Switch on `control.state`; follow `control.next_action`,
+`control.allowed_next_commands`, and `control.human_review`. Treat `decision`
+as diagnostic context, not as the operational control signal, and never infer
+control from prose. `shipgate check` is necessary but not sufficient for
 capability-expanding diffs: if a change adds dynamic, undeclared, or otherwise
 ambiguous tool capability, do not treat `decision="allow"` as merge readiness;
 run `agents-shipgate verify` and read `release_decision.decision`.
@@ -199,13 +200,13 @@ shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 
 The release gate is `agents-shipgate-reports/report.json` →
 `release_decision.decision` (`blocked | review_required | insufficient_evidence | passed`).
-The PR/controller surface is `agents-shipgate-reports/verifier.json` →
+The PR/control surface is `agents-shipgate-reports/verifier.json` →
 `merge_verdict` (`mergeable | human_review_required | insufficient_evidence |
 blocked | unknown`), a deterministic projection of the release decision. Read
-`agent-handoff.json` first (`gate.merge_verdict`, then `controller`), then the
-authoritative controller substrate `verifier.json` for `merge_verdict`,
-`applicability`, `agent_controller`, `can_merge_without_human`,
-`first_next_action`, and `fix_task`. `capability_review.top_changes` is
+`agent-handoff.json` first (`control.state`, then `gate.merge_verdict`), then the
+authoritative control substrate `verifier.json` for `control`, `merge_verdict`,
+`applicability`, `can_merge_without_human`,
+`control.next_action`, and `fix_task`. `capability_review.top_changes` is
 supporting/provisional reviewer context.
 
 Zero-setup demos of both verdicts are in
@@ -287,19 +288,20 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 For local control, parse the `shipgate check` stdout JSON
-(`shipgate.codex_boundary_result/v1`): switch on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, `policy`, and `verify_required`. For local uncommitted verify work,
+(`shipgate.codex_boundary_result/v2`): switch on `control.state`, then follow
+`control.next_action`, `control.allowed_next_commands`, and
+`control.human_review`; `decision` is diagnostic context only. For local uncommitted verify work,
 omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Read
 `agents-shipgate-reports/agent-handoff.json` first and lead with
-`gate.merge_verdict` and `controller`, then read the authoritative substrate
+`control.state` and `gate.merge_verdict`, then read the authoritative substrate
 `agents-shipgate-reports/verifier.json` (`merge_verdict`, `applicability`,
-`agent_controller`, `can_merge_without_human`, `first_next_action`,
+`control`, `can_merge_without_human`, `control.next_action`,
 `fix_task`), then supporting/provisional `capability_review.top_changes` and
 `agents-shipgate-reports/report.json` for `release_decision.decision`. Do not
-claim completion when `merge_verdict` is `blocked`, `insufficient_evidence`, or
-`human_review_required` unless the user explicitly accepts human review. Do not
+claim completion unless `control.state` is `complete`. Conversation-level
+acknowledgement never clears a human-review route; only a new verifier artifact
+can change control state. Do not
 auto-assert action effect, action authority, approval, confirmation,
 idempotency, broad-scope safety, prohibited-action enforcement, runtime-trace
 proof, suppressions, waivers, baselines, or policy weakening. Never remove
@@ -351,7 +353,7 @@ agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-
 Then invoke `$agents-shipgate` in a fresh thread. The plugin supplies
 workflows, not the scanner binary — install the CLI (`pipx install
 agents-shipgate && pipx upgrade agents-shipgate`) where Codex runs commands and
-require contract v9 or newer. Marketplace details, kit overrides, and the beta-migration
+require contract v14 or newer. Marketplace details, kit overrides, and the beta-migration
 steps: [`docs/agents/use-with-codex.md`](docs/agents/use-with-codex.md).
 
 **Cursor** — `init --agent-instructions=cursor` writes the auto-attach rule;
@@ -391,8 +393,8 @@ make the base ref available first because `verify` never fetches. Verify writes
 base scan can be materialized, verify also writes
 `base.capabilities.lock.json` plus `capability-lock-diff.{json,md}`, and the PR
 comment includes a compact semantic capability diff summary. Lead with
-`merge_verdict`, `applicability`, `agent_controller`,
-`can_merge_without_human`, `first_next_action`, and `fix_task`; use
+`control.state`, then `merge_verdict`, `applicability`,
+`can_merge_without_human`, `control.next_action`, and `fix_task`; use
 `release_decision.decision` as the release gate. Capability diff summaries and
 `capability_review.top_changes` are supporting/provisional review context.
 Legacy `agent_result_v1` / `agent-result.json` compatibility surfaces are
@@ -403,7 +405,7 @@ Install alternatives (your agent project does **not** need Python 3.12 — insta
 ```bash
 python -m pip install -U --pre agents-shipgate       # global pip
 uv tool install --upgrade agents-shipgate            # via uv
-agents-shipgate contract --json                      # require contract_version >= 9
+agents-shipgate contract --json                      # require contract_version >= 14
 ```
 
 ## Adopt in one turn (scan helper)
@@ -477,7 +479,7 @@ fails only on `insufficient_evidence`. Strict / baseline / SARIF / Check Run /
 multi-config recipes live in
 [`examples/github-actions/`](examples/github-actions/); the full input and
 output catalog is in [`action.yml`](action.yml). Use the `decision` output for
-CI gating and `merge_verdict` / `can_merge_without_human` for PR-controller
+CI gating and `merge_verdict` / `can_merge_without_human` for PR-control
 routing.
 
 CI is advisory by default. Strict mode exits `20` only on unsuppressed critical
@@ -518,8 +520,8 @@ and pre-commit equivalents.
 When a PR changes what your agent can do, the verify loop writes these
 artifacts — in read order:
 
-- **`agents-shipgate-reports/agent-handoff.json`** — the **first artifact a coding agent reads**: the compact `shipgate.agent_handoff/v2` object. Lead with `gate.merge_verdict`, then `controller`; it also projects `blocked_by[]`, `remediation_plan[]`, and verify-run reproducibility from existing artifacts, and it does not introduce a second verdict.
-- **`agents-shipgate-reports/verifier.json`** — the **authoritative PR/controller evidence substrate**. A coding agent reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `agent_controller`, `first_next_action`, and `fix_task` when producing reviewer evidence for an agent-capability PR. Local control comes from `shipgate check --format codex-boundary-json` and `shipgate.codex_boundary_result/v1`. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
+- **`agents-shipgate-reports/agent-handoff.json`** — the **first artifact a coding agent reads**: the compact `shipgate.agent_handoff/v3` object. Lead with `control.state`, then `gate.merge_verdict`; it also projects `blocked_by[]`, `remediation_plan[]`, and verify-run reproducibility from existing artifacts, and it does not introduce a second verdict.
+- **`agents-shipgate-reports/verifier.json`** — the **authoritative PR/control evidence substrate** (`verifier_schema_version: "0.3"`). A coding agent switches on `control.state`, then reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `control.next_action`, and `fix_task` when producing reviewer evidence for an agent-capability PR. Local control comes from `shipgate check --format codex-boundary-json` and `shipgate.codex_boundary_result/v2`. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
 - **`agents-shipgate-reports/verify-run.json`** — the deterministic verify-run reproducibility artifact. It records stable subject/input hashes, policy-pack hashes, outcome, artifact paths, and `run_id` without wall-clock timestamps.
 - **`agents-shipgate-reports/attestation.json`** + **`agents-shipgate-reports/org-evidence-bundle.json`** — optional organization-governance projections over the same verifier/report artifacts. They are ledger inputs for platform teams, not release gates; `report.json.release_decision.decision` remains the decision engine.
 - **`agents-shipgate-reports/host-grants.json`** + **`agents-shipgate-reports/org-status.json`** — optional fleet-governance artifacts from `audit --host --out` and `org status --json`, useful for host-grant drift, policy-pack pin state, and exception hygiene.
@@ -551,7 +553,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json)** — discovery metadata (tagline, install commands, schema URLs, gating signal, exit codes, trigger-catalog URL).
 - **[`docs/triggers.json`](docs/triggers.json)** — machine-readable mirror of the AGENTS.md trigger table. Apply the rules to a PR diff to decide whether to run `agents-shipgate verify --preview --json` or the full verifier. Schema is stable for `0.x`.
 - **[`tools/shipgate-detect.py`](tools/shipgate-detect.py)** — zero-install, stdlib-only detector. `curl … | python3 - --workspace . --json` returns the same structural verdict as `agents-shipgate detect --json`. Pinned to the canonical CLI by [`tests/test_zero_install_detector.py`](tests/test_zero_install_detector.py). See [`docs/zero-install.md`](docs/zero-install.md).
-- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions; contract v9 names `primary_commands`, the verifier, verify-run, agent-handoff, Codex boundary, attestation, registry, org evidence bundle, host-grants inventory, and legacy local-agent schema versions plus the agent read order.
+- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions; the unified agent-control model requires `minimum_control_contract_version: "14"`.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`docs/agent-native-merge-contract.md`](docs/agent-native-merge-contract.md)** — the agent-native protocol map: the eight contracts (trigger, capability change, merge verdict, repair, forbidden action, human authority, trust root, attestation) each mapped to the artifact that implements it.
 - **[`docs/capability-standard.md`](docs/capability-standard.md)** — stable non-gating capability lock/diff standard for external integrations and research tooling.
@@ -568,7 +570,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **`agents-shipgate install-hooks --target claude-code --write`** — deterministic Claude Code hooks: a PreToolUse trust-root guard, a cheap trigger check after `Edit|Write|MultiEdit`, and a full `verify` at `Stop`, so the gate runs even when instruction files lose attention on long sessions. See [`docs/agents/use-with-claude-code.md`](docs/agents/use-with-claude-code.md#hooks-the-deterministic-path-recommended).
 - **`agents-shipgate mcp-serve`** (`[mcp]` extra) — read-only stdio MCP server exposing `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, `shipgate.capabilities`, and `shipgate.handoff` for agents without comfortable shell access. It is static-only and not a general MCP permission broker. See [`docs/mcp-server.md`](docs/mcp-server.md).
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
-- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json)** + **[`docs/agent-handoff-schema.v2.json`](docs/agent-handoff-schema.v2.json)** + **[`docs/preflight-schema.v0.2.json`](docs/preflight-schema.v0.2.json)** — JSON Schemas for live editor validation and agent routing. Reports carry `report_schema_version: "0.32"`; v0.32 adds the required Conductor OSS summary while `passed` still requires a complete root-reachable static binding graph plus complete identity, effect, and authority evidence for each reachable action. `tool_catalog[]` remains visible while `tool_inventory[]` contains only proven reachable tools. Every release decision carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and a canonical static-verdict disclaimer; packet §1 mirrors them. Read `release_decision.decision` for gating and [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact non-runtime claim. v0.31 is frozen.
+- **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json)** + **[`docs/agent-handoff-schema.v3.json`](docs/agent-handoff-schema.v3.json)** + **[`docs/preflight-schema.v0.3.json`](docs/preflight-schema.v0.3.json)** — JSON Schemas for live editor validation and agent routing. Reports carry `report_schema_version: "0.32"`; v0.32 adds the required Conductor OSS summary while `passed` still requires a complete root-reachable static binding graph plus complete identity, effect, and authority evidence for each reachable action. `tool_catalog[]` remains visible while `tool_inventory[]` contains only proven reachable tools. Every release decision carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and a canonical static-verdict disclaimer; packet §1 mirrors them. Read `release_decision.decision` for gating and [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact non-runtime claim. v0.31 is frozen.
 - **[`docs/capability-lock-schema.v0.5.json`](docs/capability-lock-schema.v0.5.json)** + **[`docs/capability-lock-diff-schema.v0.6.json`](docs/capability-lock-diff-schema.v0.6.json)** — current capability standard v0.4 schemas, including binding hashes, for the static capability envelope and semantic diff; non-gating and separate from `report.json`.
 - **[`docs/attestation-schema.v0.4.json`](docs/attestation-schema.v0.4.json)** + **[`docs/org-governance-schema.v0.1.json`](docs/org-governance-schema.v0.1.json)** + **[`docs/org-evidence-bundle-schema.v1.json`](docs/org-evidence-bundle-schema.v1.json)** + **[`docs/registry-schema.v0.3.json`](docs/registry-schema.v0.3.json)** + **[`docs/host-grants-inventory-schema.v0.1.json`](docs/host-grants-inventory-schema.v0.1.json)** — deterministic local attestation, organization governance, org evidence bundle, append-only registry, and host-grant inventory schemas for multi-repo governance.
 - **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.

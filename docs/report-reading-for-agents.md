@@ -8,7 +8,7 @@ A reader's primer for `agents-shipgate-reports/report.json`. Walks the file in t
 
 ## TL;DR
 
-**This primer is the `report.json` / CI-gate read path.** If you are a PR/controller consumer — an autonomous coding agent deciding *continue, repair, or stop* — read `agents-shipgate-reports/agent-handoff.json` first: `gate.merge_verdict` is the deterministic projection of the gate, and `controller` carries imperative controls. See [`agent-contract-current.md` § Two read entry points](agent-contract-current.md#two-read-entry-points).
+**This primer is the `report.json` / CI-gate read path.** If you are an autonomous coding agent deciding *complete, act, or stop*, read `agents-shipgate-reports/agent-handoff.json` first: switch on `control.state`, then use `gate.merge_verdict` as the deterministic projection of the release gate. See [`agent-contract-current.md` § Two read entry points](agent-contract-current.md#two-read-entry-points).
 
 **Read `release_decision.decision` first.** It is the gating signal — `"blocked" | "review_required" | "insufficient_evidence" | "passed"`, baseline-aware, stable since v0.8 (`insufficient_evidence` added v0.14). Switch on the enum with a `review_required` fallback for unknown future values per the [STABILITY.md additivity contract](../STABILITY.md#what-may-change-additively-in-any-minor-release). Everything else in the report is detail you reach for *after* the gate decision is captured.
 
@@ -91,7 +91,7 @@ designed to make visible.
 
 `agents-shipgate verify` also writes
 `agents-shipgate-reports/verifier.json`. Lead with `merge_verdict`,
-`can_merge_without_human`, `first_next_action`, `fix_task`, and
+`can_merge_without_human`, `control.next_action`, `fix_task`, and
 `capability_review.top_changes`; then confirm
 `report.json.release_decision.decision`, which remains the release gate.
 `merge_verdict` is a deterministic projection for controller flow, not a second

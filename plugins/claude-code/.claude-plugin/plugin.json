@@ -1,7 +1,7 @@
 {
   "name": "agents-shipgate",
-  "version": "0.16.0b2",
-  "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code. Skill-only: the plugin supplies the agents-shipgate skill and the /agents-shipgate:shipgate command; the scanner runs through the agents-shipgate CLI installed in the local environment (pipx install agents-shipgate, contract v10 or newer). For the deterministic hooks (trigger check after edits, full verify at Stop), run: agents-shipgate install-hooks --target claude-code --write.",
+  "version": "0.16.0b3",
+  "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code. Skill-only: the plugin supplies the agents-shipgate skill and the /agents-shipgate:shipgate command; the scanner runs through the agents-shipgate CLI installed in the local environment (pipx install agents-shipgate, runtime contract 14). For the deterministic hooks (trigger check after edits, full verify at Stop), run: agents-shipgate install-hooks --target claude-code --write.",
   "author": {
     "name": "Three Moons Lab",
     "email": "help@threemoonslab.com",

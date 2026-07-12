@@ -7,8 +7,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate import __version__
+from agents_shipgate.schemas.agent_control import AgentControl
 
-VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v1"
+VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v2"
 
 
 class VerifyRunTool(BaseModel):
@@ -54,7 +55,7 @@ class VerifyRunInputs(BaseModel):
     fail_on: list[str] = Field(default_factory=list)
 
 
-class VerifyRunOutcome(BaseModel):
+class VerifyRunOutcomeV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     exit_code: int
@@ -72,10 +73,132 @@ class VerifyRunArtifactRef(BaseModel):
     sha256: str | None = None
 
 
+class VerifyRunArtifactV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["shipgate.verify_run/v1"] = "shipgate.verify_run/v1"
+    run_id: str
+    tool: VerifyRunTool
+    subject: VerifyRunSubject
+    inputs: VerifyRunInputs
+    outcome: VerifyRunOutcomeV1
+    artifacts: dict[str, VerifyRunArtifactRef] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _run_id_matches_identity(self) -> VerifyRunArtifactV1:
+        expected = compute_verify_run_id(
+            subject=self.subject,
+            inputs=self.inputs,
+            tool=self.tool,
+        )
+        if self.run_id != expected:
+            raise ValueError(
+                "VerifyRunArtifact.run_id must be the stable hash of tool, subject, and inputs."
+            )
+        return self
+
+
+class VerifyRunOutcome(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "if": {
+                "properties": {"can_merge_without_human": {"const": True}},
+                "required": ["can_merge_without_human"],
+            },
+            "then": {
+                "properties": {
+                    "control": {
+                        "properties": {"state": {"const": "complete"}},
+                        "required": ["state"],
+                    }
+                },
+                "oneOf": [
+                    {
+                        "properties": {
+                            "execution": {"const": "succeeded"},
+                            "applicability": {"const": "verified"},
+                            "decision": {"const": "passed"},
+                        }
+                    },
+                    {
+                        "properties": {
+                            "execution": {"const": "skipped"},
+                            "applicability": {"const": "not_applicable"},
+                            "decision": {"type": "null"},
+                        }
+                    },
+                ],
+            },
+            "else": {
+                "properties": {
+                    "control": {
+                        "properties": {
+                            "state": {
+                                "enum": [
+                                    "agent_action_required",
+                                    "human_review_required",
+                                ]
+                            }
+                        },
+                        "required": ["state"],
+                    }
+                }
+            },
+        },
+    )
+
+    exit_code: int
+    base_status: str
+    execution: Literal["not_run", "succeeded", "skipped", "failed"]
+    applicability: Literal["not_evaluated", "verified", "not_applicable", "failed"]
+    decision: str | None = None
+    merge_verdict: str
+    can_merge_without_human: bool = False
+    control: AgentControl
+
+    @model_validator(mode="after")
+    def _control_projects_outcome(self) -> VerifyRunOutcome:
+        expected_applicability = (
+            "verified"
+            if self.decision is not None
+            else {
+                "not_run": "not_evaluated",
+                "skipped": "not_applicable",
+                "failed": "failed",
+            }.get(self.execution, "not_evaluated")
+        )
+        if self.applicability != expected_applicability:
+            raise ValueError("verify-run applicability contradicts execution")
+        if self.decision is not None and self.execution != "succeeded":
+            raise ValueError("verify-run decisions require succeeded execution")
+        expected_verdict = (
+            {
+                "passed": "mergeable",
+                "review_required": "human_review_required",
+                "insufficient_evidence": "insufficient_evidence",
+                "blocked": "blocked",
+            }.get(self.decision, "human_review_required")
+            if self.decision is not None
+            else ("mergeable" if self.execution == "skipped" else "unknown")
+        )
+        if self.merge_verdict != expected_verdict:
+            raise ValueError("verify-run merge verdict contradicts its decision")
+        expected = bool(
+            self.decision == "passed"
+            or (self.decision is None and self.applicability == "not_applicable")
+        )
+        if self.can_merge_without_human != expected:
+            raise ValueError("verify-run merge authority must project from the outcome")
+        if self.control.completion_allowed != expected:
+            raise ValueError("verify-run control must exactly project merge authority")
+        return self
+
+
 class VerifyRunArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.verify_run/v1"] = VERIFY_RUN_SCHEMA_VERSION
+    schema_version: Literal["shipgate.verify_run/v2"] = VERIFY_RUN_SCHEMA_VERSION
     run_id: str
     tool: VerifyRunTool
     subject: VerifyRunSubject
@@ -85,15 +208,10 @@ class VerifyRunArtifact(BaseModel):
 
     @model_validator(mode="after")
     def _run_id_matches_identity(self) -> VerifyRunArtifact:
-        expected = compute_verify_run_id(
-            subject=self.subject,
-            inputs=self.inputs,
-            tool=self.tool,
-        )
+        expected = compute_verify_run_id(subject=self.subject, inputs=self.inputs, tool=self.tool)
         if self.run_id != expected:
             raise ValueError(
-                "VerifyRunArtifact.run_id must be the stable hash of tool, "
-                "subject, and inputs."
+                "VerifyRunArtifact.run_id must be the stable hash of tool, subject, and inputs."
             )
         return self
 
@@ -141,9 +259,11 @@ def build_verify_run_artifact(
 __all__ = [
     "VERIFY_RUN_SCHEMA_VERSION",
     "VerifyRunArtifact",
+    "VerifyRunArtifactV1",
     "VerifyRunArtifactRef",
     "VerifyRunInputs",
     "VerifyRunOutcome",
+    "VerifyRunOutcomeV1",
     "VerifyRunPolicyPack",
     "VerifyRunSubject",
     "VerifyRunTool",

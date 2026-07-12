@@ -25,17 +25,13 @@ def handoff(
     report: Path | None = typer.Option(
         None,
         "--report",
-        help=(
-            "Optional report.json path. Defaults to the sibling report.json "
-            "when present."
-        ),
+        help=("Optional report.json path. Defaults to the sibling report.json when present."),
     ),
     verify_run: Path | None = typer.Option(
         None,
         "--verify-run",
         help=(
-            "Optional verify-run.json path. Defaults to the sibling "
-            "verify-run.json when present."
+            "Optional verify-run.json path. Defaults to the sibling verify-run.json when present."
         ),
     ),
     out: Path | None = typer.Option(
@@ -49,7 +45,7 @@ def handoff(
         help="Print the handoff JSON to stdout.",
     ),
 ) -> None:
-    """Render the shipgate.agent_handoff/v2 artifact from verifier outputs."""
+    """Render the shipgate.agent_handoff/v3 artifact from verifier outputs."""
 
     try:
         verifier_payload = _load_required_json(source, "verifier.json")

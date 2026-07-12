@@ -38,7 +38,7 @@ exact wheel and signs `safety-qualification.json`:
 | Environment variable | Required value |
 |---|---|
 | `SAFETY_QUALIFICATION_WHEEL_URL` | HTTPS URL for the exact qualified wheel |
-| `SAFETY_QUALIFICATION_WHEEL_FILENAME` | Safe wheel basename, for example `agents_shipgate-0.16.0b2-py3-none-any.whl` |
+| `SAFETY_QUALIFICATION_WHEEL_FILENAME` | Safe wheel basename, for example `agents_shipgate-0.16.0b3-py3-none-any.whl` |
 | `SAFETY_QUALIFICATION_JSON_URL` | HTTPS URL for the production-qualified JSON artifact |
 | `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | HTTPS URL for that JSON artifact's Sigstore bundle |
 | `SAFETY_QUALIFICATION_SIGNER_IDENTITY` | Exact trusted certificate identity configured for qualification promotion |

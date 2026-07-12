@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Unambiguous agent control contract (P0, `0.16.0b3`).** Check, preflight,
+  verify, handoff, MCP, verify-run, and GitHub Action projections now share one
+  schema-enforced `AgentControl` state: `complete`, `agent_action_required`, or
+  `human_review_required`. Pending verification, installation, safe repair, and
+  input recovery no longer coexist with completion or a human stop;
+  conversation-level acknowledgement cannot clear a control obligation.
+- **Control contract versions.** Runtime contract advances to v14; boundary
+  result to `shipgate.codex_boundary_result/v2`; verifier to v0.3; handoff to
+  `shipgate.agent_handoff/v3`; preflight to v0.3; verify-run to
+  `shipgate.verify_run/v2`; and the downstream local contract to schema v3.
+  Prior schema files remain frozen. Report v0.32, packet v0.10, capability
+  standard v0.4, and capability lock/diff v0.5/v0.6 are unchanged by this
+  control-contract milestone.
+- **Execution, applicability, and mergeability are separate.** Verifier v0.3
+  publishes execution (`not_run | succeeded | skipped | failed`) separately
+  from applicability (`not_evaluated | verified | not_applicable | failed`).
+  `can_merge_without_human` is true only for a verified `passed` result or a
+  completed deterministic non-applicable skip. GitHub Action outputs add
+  `agent_control_state` and `agent_control_reason`; legacy booleans remain exact
+  derived mirrors for one compatibility cycle.
+
 - **Conductor OSS workflow JSON adapter.** A built-in, per-scan `conductor`
   source statically enumerates literal MCP calls and records MCP discovery,
   LLM tool advertisements, HUMAN checkpoints, nested control-flow tasks, and

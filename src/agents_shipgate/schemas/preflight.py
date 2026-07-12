@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-PREFLIGHT_SCHEMA_VERSION = "0.2"
+PREFLIGHT_SCHEMA_VERSION = "0.3"
 
 PreflightActor = Literal["coding_agent", "human"]
 PreflightActionKind = Literal["continue", "review", "gather_evidence", "verify"]
@@ -212,9 +213,7 @@ class PreflightResultV1(BaseModel):
     forbidden_actions: list[str] = Field(default_factory=list)
     required_evidence: list[PreflightRequiredEvidence] = Field(default_factory=list)
     changed_files: list[str] = Field(default_factory=list)
-    protected_surface_touches: list[PreflightProtectedSurfaceTouch] = Field(
-        default_factory=list
-    )
+    protected_surface_touches: list[PreflightProtectedSurfaceTouch] = Field(default_factory=list)
     requires_human_review: bool = False
     policy_snapshot_hash: str | None = None
     trust_root_graph_hash: str
@@ -241,6 +240,113 @@ class PreflightResultV2(PreflightResultV1):
     host_grant_drift: dict[str, Any] | None = None
 
 
+class PreflightResultV3(PreflightResultV2):
+    """Current planning result with one authoritative operational control.
+
+    The inherited v0.1/v0.2 fields remain compatibility projections for one
+    migration cycle.  ``control`` is authoritative and construction fails if
+    those projections contradict it.
+    """
+
+    preflight_schema_version: Literal["0.3"] = "0.3"
+    control: AgentControl
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "control": {
+                                "properties": {"state": {"const": "complete"}},
+                                "required": ["state"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "properties": {
+                            "requires_human_review": {"const": False},
+                            "requires_verify": {"const": False},
+                            "verification_command": {"type": "null"},
+                            "first_next_action": {
+                                "properties": {
+                                    "actor": {"const": "coding_agent"},
+                                    "kind": {"const": "continue"},
+                                    "command": {"type": "null"},
+                                }
+                            },
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "control": {
+                                "properties": {"state": {"const": "human_review_required"}},
+                                "required": ["state"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "properties": {
+                            "requires_human_review": {"const": True},
+                            "first_next_action": {
+                                "properties": {
+                                    "actor": {"const": "human"},
+                                    "command": {"type": "null"},
+                                }
+                            },
+                        }
+                    },
+                },
+            ]
+        },
+    )
+
+    @model_validator(mode="after")
+    def _legacy_fields_project_control(self) -> PreflightResultV3:
+        control = self.control
+        expected_human = control.state == "human_review_required"
+        if self.requires_human_review != expected_human:
+            raise ValueError("requires_human_review must exactly project control.state")
+        if self.requires_verify != control.verify_required:
+            raise ValueError("requires_verify must exactly project control.verify_required")
+        if self.allowed_next_commands != control.allowed_next_commands:
+            raise ValueError(
+                "allowed_next_commands must exactly project control.allowed_next_commands"
+            )
+
+        legacy = self.first_next_action
+        if control.state == "complete":
+            if legacy.actor != "coding_agent" or legacy.kind != "continue":
+                raise ValueError("complete preflight control must project a legacy continue action")
+            if legacy.command is not None or legacy.why != control.reason:
+                raise ValueError("legacy continue action must exactly project complete control")
+            if self.verification_command is not None:
+                raise ValueError("complete preflight control cannot carry a verification command")
+        elif control.state == "agent_action_required":
+            action = control.next_action
+            if legacy.actor != "coding_agent" or action.kind != "verify":
+                raise ValueError(
+                    "preflight v0.3 supports only an exact coding-agent verify projection"
+                )
+            if legacy.kind != "verify" or legacy.command != action.command:
+                raise ValueError("verify control must exactly project the legacy verify action")
+            if legacy.why != action.why or self.verification_command != action.command:
+                raise ValueError("legacy verification fields must match control.next_action")
+        else:
+            if legacy.actor != "human" or legacy.command is not None:
+                raise ValueError("human preflight control must route the legacy action to a human")
+            if control.next_action.actor != "human":  # pragma: no cover - union lock.
+                raise ValueError("human control must carry a human next action")
+            if legacy.why != control.next_action.why:
+                raise ValueError("legacy human action must exactly project control.next_action")
+        return self
+
+
 __all__ = [
     "PREFLIGHT_SCHEMA_VERSION",
     "CapabilityRequestControls",
@@ -256,6 +362,7 @@ __all__ = [
     "PreflightRequiredEvidence",
     "PreflightResultV1",
     "PreflightResultV2",
+    "PreflightResultV3",
     "PreflightSignalKind",
     "PreflightSignalV1",
     "TrustRootGraphV1",

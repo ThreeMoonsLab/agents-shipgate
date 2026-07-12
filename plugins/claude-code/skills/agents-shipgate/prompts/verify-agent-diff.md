@@ -44,9 +44,9 @@ work is complete.
    omit `--base` for local working-tree verification.
 
 5. **Read JSON, not Markdown.**
-   - `agents-shipgate-reports/verifier.json` is the PR/controller artifact.
-   - Lead with `merge_verdict`, `applicability`, and `agent_controller`, then
-     inspect `first_next_action.actor` and `fix_task.safe_to_attempt`.
+   - `agents-shipgate-reports/verifier.json` is the PR/control artifact.
+   - Switch on `control.state`, then read `merge_verdict` and `applicability`, and
+     inspect `control.next_action.actor` and `fix_task.safe_to_attempt`.
    - `agents-shipgate-reports/report.json` is the release-gate artifact.
    - `release_decision.decision` is the only gate signal.
    - `capability_review.top_changes[]` and `verifier_summary` are
@@ -61,7 +61,7 @@ work is complete.
 7. **Report back with:**
    - `merge_verdict` and `headline` from `verifier.json`
    - `capability_review.top_changes[]`
-   - `first_next_action.actor` and `fix_task.safe_to_attempt`
+   - `control.next_action.actor` and `fix_task.safe_to_attempt`
    - `release_decision.decision` and `release_decision.reason`
    - blocker count and review-item count
    - `verifier_summary.protected_surface_touched`
@@ -75,9 +75,9 @@ work is complete.
 
 - Do not claim the diff is verified until `agents-shipgate verify` has run or
   `agents-shipgate verify --preview --json` has returned a clear skip verdict.
-- Do not claim completion when `merge_verdict` is `blocked`,
-  `insufficient_evidence`, or `human_review_required` unless the user
-  explicitly accepts human review.
+- Do not claim completion unless `control.state` is `complete`.
+  Conversation-level acknowledgement cannot clear a human-review route; only
+  a new verifier artifact can change control state.
 - Do not use `summary.status` for gating; it is legacy and baseline-blind.
 - Do not invent action effect, action authority, approval, confirmation,
   idempotency, prohibited-action, broad-scope, human acknowledgement, or
@@ -89,7 +89,7 @@ work is complete.
 - `agents-shipgate-reports/report.json` exists and parses.
 - `agents-shipgate-reports/verifier.json` exists and parses.
 - `verifier.json.merge_verdict` is surfaced to the user.
-- `applicability` and `agent_controller` are considered before generic findings.
+- `control.state` and `applicability` are considered before generic findings.
 - `capability_review.top_changes[]` is treated as supporting/provisional review
   context.
 - `report.json.release_decision.decision` is surfaced to the user.

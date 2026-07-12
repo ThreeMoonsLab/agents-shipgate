@@ -124,8 +124,7 @@ def fixture_run(
     if decision is not None:
         typer.echo(f"Decision: {decision.decision}")
         typer.echo(
-            f"Blockers: {len(decision.blockers)}  "
-            f"Review items: {len(decision.review_items)}"
+            f"Blockers: {len(decision.blockers)}  Review items: {len(decision.review_items)}"
         )
     typer.echo(
         f"Counts:  critical={report.summary.critical_count} "
@@ -194,8 +193,7 @@ def fixture_verify(
     expected_dir = src / "expected"
     if not expected_dir.is_dir():
         typer.echo(
-            f"Fixture {name!r} has no expected/ directory; "
-            "verification skipped (scan succeeded).",
+            f"Fixture {name!r} has no expected/ directory; verification skipped (scan succeeded).",
         )
         raise typer.Exit(0)
 
@@ -217,8 +215,7 @@ def fixture_verify(
         raise typer.Exit(20)
 
     typer.echo(
-        f"Fixture {name!r}: no expected/summary.json; "
-        f"actual summary = {json.dumps(summary)}",
+        f"Fixture {name!r}: no expected/summary.json; actual summary = {json.dumps(summary)}",
     )
 
 
@@ -345,7 +342,7 @@ def _run_verify_pr_fixture(
     typer.echo("Mode: verify")
     typer.echo(f"Merge verdict: {verifier.merge_verdict}")
     if verifier.release_decision is not None:
-        typer.echo(f"Decision: {verifier.release_decision.get('decision')}")
+        typer.echo(f"Decision: {verifier.release_decision.decision}")
     typer.echo(f"Can merge without human: {str(verifier.can_merge_without_human).lower()}")
     typer.echo(f"Reports: {out_dir}")
     typer.echo(f"Verifier: {out_dir / 'verifier.json'}")

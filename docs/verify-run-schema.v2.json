@@ -1,0 +1,894 @@
+{
+  "$defs": {
+    "AgentActionRequiredControl": {
+      "additionalProperties": false,
+      "description": "Non-terminal state with one exact coding-agent-owned next step.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/CodingAgentAction"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "agent_action_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "AgentActionRequiredControl",
+      "type": "object"
+    },
+    "AgentControl": {
+      "discriminator": {
+        "mapping": {
+          "agent_action_required": "#/$defs/AgentActionRequiredControl",
+          "complete": "#/$defs/CompleteAgentControl",
+          "human_review_required": "#/$defs/HumanReviewRequiredControl"
+        },
+        "propertyName": "state"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CompleteAgentControl"
+        },
+        {
+          "$ref": "#/$defs/AgentActionRequiredControl"
+        },
+        {
+          "$ref": "#/$defs/HumanReviewRequiredControl"
+        }
+      ]
+    },
+    "CodingAgentAction": {
+      "discriminator": {
+        "mapping": {
+          "configure": "#/$defs/CodingAgentCommandAction",
+          "discover": "#/$defs/CodingAgentCommandAction",
+          "fetch_base": "#/$defs/CodingAgentFetchBaseAction",
+          "initialize": "#/$defs/CodingAgentCommandAction",
+          "install": "#/$defs/CodingAgentCommandAction",
+          "repair": "#/$defs/CodingAgentCommandAction",
+          "rerun": "#/$defs/CodingAgentCommandAction",
+          "verify": "#/$defs/CodingAgentCommandAction"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CodingAgentCommandAction"
+        },
+        {
+          "$ref": "#/$defs/CodingAgentFetchBaseAction"
+        }
+      ]
+    },
+    "CodingAgentCommandAction": {
+      "additionalProperties": false,
+      "description": "An executable, exact next step owned by the coding agent.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "verify",
+            "discover",
+            "configure",
+            "initialize",
+            "repair",
+            "install",
+            "rerun"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentCommandAction",
+      "type": "object"
+    },
+    "CodingAgentFetchBaseAction": {
+      "additionalProperties": false,
+      "description": "A structured input request when an exact fetch command is unavailable.\n\nShipgate never fetches refs itself.  ``expects`` therefore names the exact\nref or artifact a caller must make available before rerunning verification.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "minLength": 1,
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "const": "fetch_base",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentFetchBaseAction",
+      "type": "object"
+    },
+    "CompleteAgentControl": {
+      "additionalProperties": false,
+      "description": "Terminal state: the coding agent may report the task complete.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": true,
+          "default": true,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "default": null,
+          "title": "Next Action",
+          "type": "null"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "complete",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "const": false,
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "CompleteAgentControl",
+      "type": "object"
+    },
+    "HumanControlAction": {
+      "additionalProperties": false,
+      "description": "A human-owned route.  Human actions never expose executable commands.",
+      "properties": {
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "review",
+            "stop"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "HumanControlAction",
+      "type": "object"
+    },
+    "HumanReviewRequiredControl": {
+      "additionalProperties": false,
+      "description": "Stopping state: no further coding-agent action is authorized.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": true,
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanControlAction"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "human_review_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "minLength": 1,
+          "title": "Stop Reason",
+          "type": "string"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "HumanReviewRequiredControl",
+      "type": "object"
+    },
+    "NoHumanReview": {
+      "additionalProperties": false,
+      "description": "Exact negative human-review projection for non-stopping states.",
+      "properties": {
+        "required": {
+          "const": false,
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "default": null,
+          "title": "Why",
+          "type": "null"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "NoHumanReview",
+      "type": "object"
+    },
+    "RequiredHumanReview": {
+      "additionalProperties": false,
+      "description": "Human-review evidence carried by the stopping state.",
+      "properties": {
+        "required": {
+          "const": true,
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "RequiredHumanReview",
+      "type": "object"
+    },
+    "VerifyRunArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "VerifyRunArtifactRef",
+      "type": "object"
+    },
+    "VerifyRunInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Sha256"
+        },
+        "ci_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci Mode"
+        },
+        "config_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Sha256"
+        },
+        "fail_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fail On",
+          "type": "array"
+        },
+        "no_heuristics": {
+          "default": false,
+          "title": "No Heuristics",
+          "type": "boolean"
+        },
+        "plugins_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plugins Enabled"
+        },
+        "policy_packs": {
+          "items": {
+            "$ref": "#/$defs/VerifyRunPolicyPack"
+          },
+          "title": "Policy Packs",
+          "type": "array"
+        }
+      },
+      "title": "VerifyRunInputs",
+      "type": "object"
+    },
+    "VerifyRunOutcome": {
+      "additionalProperties": false,
+      "else": {
+        "properties": {
+          "control": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "agent_action_required",
+                  "human_review_required"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "can_merge_without_human": {
+            "const": true
+          }
+        },
+        "required": [
+          "can_merge_without_human"
+        ]
+      },
+      "properties": {
+        "applicability": {
+          "enum": [
+            "not_evaluated",
+            "verified",
+            "not_applicable",
+            "failed"
+          ],
+          "title": "Applicability",
+          "type": "string"
+        },
+        "base_status": {
+          "title": "Base Status",
+          "type": "string"
+        },
+        "can_merge_without_human": {
+          "default": false,
+          "title": "Can Merge Without Human",
+          "type": "boolean"
+        },
+        "control": {
+          "$ref": "#/$defs/AgentControl"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "execution": {
+          "enum": [
+            "not_run",
+            "succeeded",
+            "skipped",
+            "failed"
+          ],
+          "title": "Execution",
+          "type": "string"
+        },
+        "exit_code": {
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "merge_verdict": {
+          "title": "Merge Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exit_code",
+        "base_status",
+        "execution",
+        "applicability",
+        "merge_verdict",
+        "control"
+      ],
+      "then": {
+        "oneOf": [
+          {
+            "properties": {
+              "applicability": {
+                "const": "verified"
+              },
+              "decision": {
+                "const": "passed"
+              },
+              "execution": {
+                "const": "succeeded"
+              }
+            }
+          },
+          {
+            "properties": {
+              "applicability": {
+                "const": "not_applicable"
+              },
+              "decision": {
+                "type": "null"
+              },
+              "execution": {
+                "const": "skipped"
+              }
+            }
+          }
+        ],
+        "properties": {
+          "control": {
+            "properties": {
+              "state": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          }
+        }
+      },
+      "title": "VerifyRunOutcome",
+      "type": "object"
+    },
+    "VerifyRunPolicyPack": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "rule_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Count"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "sha256_status": {
+          "default": "unpinned",
+          "enum": [
+            "unpinned",
+            "verified"
+          ],
+          "title": "Sha256 Status",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "VerifyRunPolicyPack",
+      "type": "object"
+    },
+    "VerifyRunSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "base_tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Tree Sha"
+        },
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "head_ref": {
+          "default": "HEAD",
+          "title": "Head Ref",
+          "type": "string"
+        },
+        "head_tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Tree Sha"
+        },
+        "kind": {
+          "const": "git_diff",
+          "default": "git_diff",
+          "title": "Kind",
+          "type": "string"
+        },
+        "workspace": {
+          "default": ".",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "title": "VerifyRunSubject",
+      "type": "object"
+    },
+    "VerifyRunTool": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "agents-shipgate",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "VerifyRunTool",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verify-run-schema.v2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for agents-shipgate-reports/verify-run.json. Generated from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not edit by hand.",
+  "properties": {
+    "artifacts": {
+      "additionalProperties": {
+        "$ref": "#/$defs/VerifyRunArtifactRef"
+      },
+      "title": "Artifacts",
+      "type": "object"
+    },
+    "inputs": {
+      "$ref": "#/$defs/VerifyRunInputs"
+    },
+    "outcome": {
+      "$ref": "#/$defs/VerifyRunOutcome"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "shipgate.verify_run/v2",
+      "default": "shipgate.verify_run/v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "subject": {
+      "$ref": "#/$defs/VerifyRunSubject"
+    },
+    "tool": {
+      "$ref": "#/$defs/VerifyRunTool"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool",
+    "subject",
+    "inputs",
+    "outcome"
+  ],
+  "title": "Agents Shipgate Verify Run v2",
+  "type": "object"
+}

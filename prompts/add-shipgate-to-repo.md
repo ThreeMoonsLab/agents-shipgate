@@ -9,9 +9,9 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the current verifier, agent-handoff, primary-command, and Codex-boundary contracts and requires **contract v9 or newer**; an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
+1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the unified agent-control contract and requires **runtime contract 14**; an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
    ```bash
-   SG="uvx agents-shipgate@0.15.0"           # uv: ephemeral, always the pinned build
+   SG="uvx agents-shipgate@0.15.0"         # uv: ephemeral, latest published build
    # or: SG="pipx run agents-shipgate==0.15.0"
    $SG --version                             # confirm the pinned runner resolves
    ```
@@ -20,8 +20,8 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    If you would rather install onto `PATH`, pin the floor and **fail loudly when it resolves older** — a plain `pipx install agents-shipgate` is a no-op when an older build already exists — then set `SG=agents-shipgate`:
    ```bash
    python -m pip install -U --pre agents-shipgate
-   agents-shipgate contract --json   # STOP if this reports contract_version < 9 - re-run pinned via uvx agents-shipgate@0.15.0
-   SG=agents-shipgate                # only after the line above confirms contract v9+
+   agents-shipgate contract --json   # STOP unless minimum_control_contract_version is 14
+   SG=agents-shipgate                # only after the line above confirms contract 14
    ```
 
 2. **Sanity-check the install** before touching the user's code:

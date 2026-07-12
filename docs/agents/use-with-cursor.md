@@ -8,9 +8,10 @@ canonical Cursor control command is:
 shipgate check --agent cursor --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, `policy`, and `verify_required`. Do not infer a local control decision from prose.
+Parse stdout as `shipgate.codex_boundary_result/v2`, switch on
+`control.state`, and follow `control.next_action`,
+`control.allowed_next_commands`, and `control.human_review`. Treat `decision`
+as diagnostic context only; do not infer local control from prose.
 
 Cursor's discoverability surface is the auto-attach project rule: a Markdown file under `.cursor/rules/*.mdc` with frontmatter that lists which globs cause it to attach to a chat. The canonical Shipgate rule already exists as a copy-paste snippet — drop it in and Cursor will load it whenever a chat touches `shipgate.yaml`, an OpenAPI/MCP spec, a tools JSON, or any `.py` file.
 
@@ -88,10 +89,11 @@ agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
-If preflight returns `requires_human_review: true`, Cursor must stop for a human
+If preflight returns `control.state="human_review_required"`, Cursor must stop for a human
 before editing the protected surface or asserting missing high-risk evidence.
 
-Read `agents-shipgate-reports/verifier.json` and **lead with `merge_verdict`**
+Read `agents-shipgate-reports/agent-handoff.json` and switch on
+`control.state`, then read `verifier.json` and `merge_verdict`
 (`mergeable` / `human_review_required` / `insufficient_evidence` / `blocked` /
 `unknown`). It is a deterministic projection of `release_decision.decision`,
 which stays the gate in `agents-shipgate-reports/report.json`. Read
@@ -100,9 +102,9 @@ changes, and check `trust_root_touched`, `policy_weakened`, and `fix_task`.
 `agent-result.json` is a supporting/provisional compact projection; Cursor should
 not read it ahead of `verifier.json`.
 
-Cursor must not claim the change is complete when `merge_verdict` is `blocked`,
-`insufficient_evidence`, or `human_review_required` unless the user has
-explicitly accepted the human-review requirement. When `first_next_action.actor`
+Cursor must not claim the change is complete unless `control.state` is
+`complete`. Conversation-level acknowledgement cannot clear a human-review
+route. When `control.next_action.actor`
 or `fix_task.actor` is `human`, surface the decision for a person rather than
 inventing action effect, action authority, approval, confirmation,
 idempotency, waiver, baseline, or policy evidence.

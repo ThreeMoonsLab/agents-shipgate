@@ -8,9 +8,10 @@ the normative agent protocol, use [claude-code.md](claude-code.md) and
 shipgate check --agent claude-code --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, `policy`, and `verify_required`. Do not infer a local control decision from prose.
+Parse stdout as `shipgate.codex_boundary_result/v2`, switch on
+`control.state`, and follow `control.next_action`,
+`control.allowed_next_commands`, and `control.human_review`. Treat `decision`
+as diagnostic context only; do not infer local control from prose.
 
 Two pieces of agent-facing surface ship with this repo. Drop them into your own agent project so Claude Code can install, run, and explain Shipgate without you typing the steps.
 
@@ -50,7 +51,7 @@ update` instead of re-running `init`:
 Plugin commands are namespaced: the command installs as
 `/agents-shipgate:shipgate` (the committed-kit path keeps plain `/shipgate`).
 The plugin does not ship hooks or the scanner — install the CLI (`pipx
-install agents-shipgate`, contract v10 or newer) and add hooks explicitly
+install agents-shipgate`, runtime contract 14) and add hooks explicitly
 with `agents-shipgate install-hooks --target claude-code --write`. To
 pre-provision the marketplace for a whole team, add it to
 `.claude/settings.json` under `extraKnownMarketplaces` and enable
@@ -136,7 +137,7 @@ scanned. For committed PR/CI refs, make the base ref available first because
 `verify` never fetches.
 
 It should then summarize `verifier.json.merge_verdict`,
-`capability_review.top_changes[]`, `first_next_action.actor`,
+`capability_review.top_changes[]`, `control.next_action.actor`,
 `fix_task.safe_to_attempt`, and `report.json.release_decision.decision`.
 
 ## Verify an agent PR
@@ -152,24 +153,23 @@ agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
-If preflight returns `requires_human_review: true`, Claude Code must stop for a
-human before editing the protected surface or asserting missing high-risk
-evidence.
+If preflight returns `control.state="human_review_required"`, Claude Code must
+stop for a human before editing the protected surface or asserting missing
+high-risk evidence.
 
-Then read `agents-shipgate-reports/agent-handoff.json` and **lead with
-`gate.merge_verdict`** (`mergeable` / `human_review_required` /
+Then read `agents-shipgate-reports/agent-handoff.json` and **switch on
+`control.state`**, then read `gate.merge_verdict` (`mergeable` / `human_review_required` /
 `insufficient_evidence` / `blocked` / `unknown`) — a deterministic projection of
 `release_decision.decision`, which stays the gate in
 `agents-shipgate-reports/report.json`. Read `capability_review.top_changes[]`
 next for the highest-signal tool/action access changes, and check
-`controller`, `next_action`, and `fix_task`. Use `verifier.json` only for
-detailed controller context. Legacy `agent-result.json` surfaces are
+`control.next_action` and `fix_task`. Use `verifier.json` only for
+detailed control context. Legacy `agent-result.json` surfaces are
 supporting/provisional compatibility projections and not the verifier read path.
 
-Do **not** claim completion when `merge_verdict` is `blocked`,
-`insufficient_evidence`, or `human_review_required` unless the user has
-explicitly accepted the human-review requirement. Follow `fix_task` as the
-repair boundary. When `first_next_action.actor` or `fix_task.actor` is `human`,
+Do **not** claim completion unless `control.state` is `complete`.
+Conversation-level acknowledgement cannot clear a human-review route. Follow `fix_task` as the
+repair boundary. When `control.next_action.actor` or `fix_task.actor` is `human`,
 surface the item for a person — action effect, action authority, approval,
 confirmation, idempotency, broad-scope, prohibited-action, waiver, baseline,
 and policy evidence cannot be synthesized.

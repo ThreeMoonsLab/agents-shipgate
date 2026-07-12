@@ -1,4 +1,4 @@
-# Stability Contract · 0.16.0b2
+# Stability Contract · 0.16.0b3
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -10,6 +10,48 @@ described here are stable within the `0.x` line, but the `report.json` schema
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-0-16-0b3"></a>
+
+## Migration Note: 0.16.0b3
+
+Runtime contract `13 → 14` replaces independently derived completion, stop,
+verification, and human-review booleans with one discriminated `AgentControl`
+state shared by check, preflight, verify, handoff, MCP, verify-run, and GitHub
+Action projections. Current consumers require
+`minimum_control_contract_version: "14"` and switch on `control.state`:
+`complete`, `agent_action_required`, or `human_review_required`.
+
+Boundary result advances to `shipgate.codex_boundary_result/v2`, verifier to
+`0.3`, agent handoff to `shipgate.agent_handoff/v3`, preflight to `0.3`,
+verify-run to `shipgate.verify_run/v2`, and the generated downstream local
+contract to schema `3`. The corresponding prior schemas remain frozen
+references; current emitters have no legacy-output switch. Report `0.32`,
+packet `0.10`, capability standard `0.4`, and capability lock/diff `0.5/0.6`
+are unchanged.
+
+The control variants enforce
+`completion_allowed == (state == "complete")` and
+`must_stop == (state == "human_review_required")`. Pending verification,
+installation, safe repair, and input recovery are coding-agent work, never a
+human stop. Conversation-level acknowledgement cannot clear control state;
+only a new verifier artifact can do so. `release_decision.decision` remains the
+only release verdict.
+
+Verify v0.3 also separates `execution` (`not_run | succeeded | skipped |
+failed`) from `applicability` (`not_evaluated | verified | not_applicable |
+failed`). `can_merge_without_human` is true only for a verified `passed`
+result or a completed deterministic `not_applicable` skip. The Action adds
+`agent_control_state` and `agent_control_reason`; its legacy control booleans
+remain exact derived mirrors for one compatibility cycle.
+
+The public Python models `AgentController`, `VerifierNextAction`, and
+`VerifierHumanReview` remain deprecated reader compatibility surfaces for
+frozen verifier v0.1/v0.2 artifacts. The retired `build_agent_controller`
+projector is removed; verifier v0.3 derives control only through
+`derive_agent_control`.
 
 ---
 
@@ -266,19 +308,19 @@ published so consumers can validate it, and any incompatible change must bump
 ### Agent-Native Protocol
 
 `shipgate check --format codex-boundary-json` emits
-`shipgate.codex_boundary_result/v1`, the stable local Codex-boundary
+`shipgate.codex_boundary_result/v2`, the stable local Codex-boundary
 control schema generated at
-[`docs/codex-boundary-result-schema.v1.json`](docs/codex-boundary-result-schema.v1.json).
-Agents should act on `decision`, `completion_allowed`, `must_stop`,
-`first_next_action`, `repair`, and `human_review`. Human approval, policy
+[`docs/codex-boundary-result-schema.v2.json`](docs/codex-boundary-result-schema.v2.json).
+Agents act on `control.state` and `control.next_action`; `decision` is a
+diagnostic boundary outcome. Human approval, policy
 waivers, baselines, severity downgrades, suppressions, and trace evidence are
 not agent-repairable authority gaps.
 
 Full PR verification uses `agents-shipgate verify`. The single
 agent-controller artifact is
 `agents-shipgate-reports/verifier.json`; it leads with
-`merge_verdict`, `applicability`, `can_merge_without_human`, `agent_controller`,
-`first_next_action`, and `fix_task`. `verify-run.json` records stable run
+`control.state`, `execution`, `applicability`, `merge_verdict`,
+`can_merge_without_human`, and `fix_task`. `verify-run.json` records stable run
 identity and input hashes for reproducibility. `report.json` remains the
 release-gate artifact.
 
@@ -303,6 +345,8 @@ workspace, write files, call tools, perform network checks, or look up releases.
 Stable JSON fields:
 
 - `contract_version` — version of the contract-command payload shape.
+- `minimum_control_contract_version` — minimum contract version whose
+  `AgentControl` state is authoritative; currently `"14"`.
 - `cli_version` — installed Agents Shipgate version.
 - `report_schema_version` — current report schema version from
   `ReadinessReport`.
@@ -327,7 +371,9 @@ Stable JSON fields:
 - `agent_result_schema_path` — checked-in JSON Schema path for that local
   legacy control object.
 - `agent_result_control_fields[]` — ordered fields coding agents must switch on
-  when using the legacy local-agent protocol.
+  when reading the frozen legacy local-agent protocol.
+- `agent_control_fields[]` and `agent_control_states[]` — current discriminated
+  control contract vocabulary.
 - `verifier_schema_version` — schema version for
   `agents-shipgate-reports/verifier.json`.
 - `verify_run_schema_version` — schema version for
@@ -340,8 +386,8 @@ Stable JSON fields:
 - `codex_boundary_result_schema_version` — schema version emitted by
   `shipgate check --format codex-boundary-json`.
 - `agent_read_order[]` — cross-artifact machine read order for coding agents:
-  `agent-handoff.json`, then `verifier.json.merge_verdict`,
-  `verifier.json.agent_controller`, `verify-run.json`, then
+  `agent-handoff.json.control.state`, then `verifier.json.control.state`,
+  `verify-run.json`, then
   `report.json.release_decision.decision`.
 - `agent_interface_operations[]` — stable operation vocabulary for the
   handoff artifact.
@@ -384,9 +430,10 @@ such as `--changed-files`, `--diff`, and `--capability-request` remain
 compatible. Preflight does not inspect runtime tool calls, start an MCP server,
 or claim merge safety. `release_decision.decision` remains the only release gate.
 
-The stable top-level fields in `PreflightResultV2` are:
+The stable top-level fields in the v0.3 preflight result are:
 
-- `preflight_schema_version` — currently `"0.2"`.
+- `preflight_schema_version` — currently `"0.3"`.
+- `control` — the shared `AgentControl` operational projection.
 - `workspace` and `config` — resolved workspace and manifest path context.
 - `protected_surfaces[]` — canonical trust-root surfaces with `kind`, `pattern`,
   `scope_type`, `present`, and `present_paths`.
@@ -403,7 +450,7 @@ The stable top-level fields in `PreflightResultV2` are:
   deterministic hashes/projection for policy and trust-root drift review.
 - `policy_drift` and `trust_root_graph_diff` — populated when
   `--base-preflight` is supplied.
-- `first_next_action` — routing hint for coding-agent vs human next action.
+- `first_next_action` — compatibility mirror of `control.next_action`.
 - `notes[]` — non-gating diagnostics such as missing manifest context.
 - `signals[]` — deterministic rows with `id`, `kind`, `severity`, `actor`,
   `subject`, `path`, `reason`, `recommendation`, and `related_command`.
@@ -467,7 +514,8 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 During `0.x`, secondary projections are supporting/provisional even when their
 field shapes are documented for additive compatibility. CI gates on
 `report.json.release_decision.decision`; PR controllers use
-`verifier.json.merge_verdict`, `applicability`, and `agent_controller`.
+`verifier.json.control.state`, `execution`, `applicability`, and
+`merge_verdict`.
 `reviewer_summary`, `verifier_summary`, `capability_review`, runtime
 trace/evidence fields, Release Evidence Packets, and non-gating capability diff
 projections are explanatory surfaces, not independent policy engines.
@@ -968,7 +1016,9 @@ the resolved `--config` path to exist. A missing config is a configuration
 failure, not a docs-only or no-trigger success: verify writes `verifier.json`,
 `verify-run.json`, `agent-handoff.json`, and `pr-comment.md` with
 `head_status: "failed"`, `head_exit_code: 2`, `merge_verdict: "unknown"`,
-`applicability: "unknown"`, and `can_merge_without_human: false`; it writes no
+`execution: "failed"`, `applicability: "failed"`,
+`control.state: "agent_action_required"`, and
+`can_merge_without_human: false`; it writes no
 `report.json` and runs no head scan. The first next action directs agents to
 fix the config path or run `agents-shipgate verify --preview --json` before
 initializing.
@@ -982,19 +1032,24 @@ full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
 
 `agents-shipgate verify --preview --json` is a lightweight relevance check: it
 runs no scan, requires no manifest, exits 0, and emits a `verifier.json` with
-`mode: "preview"` and a `first_next_action` carrying the next recommended
-action plus an `agent-handoff.json` with `operation: "verify_preview"` and no
-release decision. That action may be `none` for irrelevant diffs, `detect`/`init` for
+`mode: "preview"`, `execution: "not_run"`,
+`applicability: "not_evaluated"`, and
+`control.state: "agent_action_required"`; `control.next_action` carries the
+next recommended action. The handoff uses `operation: "verify_preview"` and no
+release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.1.json`](docs/verifier-schema.v0.1.json)
-(`verifier_schema_version` stays `"0.1"` within `0.x`; minor field additions are
-additive). It remains an orchestration artifact: `release_decision.decision` in
+`verifier.json` is governed by [`docs/verifier-schema.v0.3.json`](docs/verifier-schema.v0.3.json).
+Verifier v0.1 and v0.2 remain frozen references. It remains an orchestration artifact: `release_decision.decision` in
 `report.json` is still the only release gate, and every verifier field is either
 a mirror or a deterministic projection of report data. Stable additive fields a
 consumer may read:
 
+- `control` — the schema-enforced `complete | agent_action_required |
+  human_review_required` operational projection. The same serialized object is
+  emitted by verifier, handoff, and verify-run.
+- `execution` — `"not_run" | "succeeded" | "skipped" | "failed"`.
 - `static_analysis_only`, `runtime_behavior_verified`, and
   `static_verdict_disclaimer` — locked to `true`, `false`, and the canonical
   static-only disclaimer. When an embedded release decision is present, the
@@ -1006,7 +1061,8 @@ consumer may read:
   `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
   decision→`unknown`). It cannot disagree with the gate. Switch on the enum with
   an `unknown`/`human_review_required` fallback for unrecognized future values.
-- `applicability` — `"verified"` / `"not_applicable"` / `"unknown"`; whether
+- `applicability` — `"not_evaluated"` / `"verified"` /
+  `"not_applicable"` / `"failed"`; whether
   Shipgate evaluated the change. Disambiguates a `mergeable` verdict
   (`"not_applicable"` means the head scan was skipped — *not* "verified safe").
   Locked to `"verified"` whenever a `release_decision` is present.
@@ -1015,10 +1071,8 @@ consumer may read:
 - `decision` — mirror of `release_decision.decision` (or `null` when no scan
   ran).
 - `headline` — single-sentence, PR-comment-friendly summary (or `null`).
-- `human_review` — `{required: bool, why: str|null}`.
-- `first_next_action` — `{actor: "coding_agent"|"human", kind, command, why}`.
-  The `actor` distinguishes work a coding agent may do mechanically from a
-  decision that requires a human.
+- `human_review` and `first_next_action` — compatibility mirrors of
+  `control.human_review` and `control.next_action` for one cycle.
 - `trust_root_touched` — `bool`; `true` when the PR changed a release-gate trust
   root (`shipgate.yaml`, the Shipgate CI workflow, `AGENTS.md`/`CLAUDE.md`,
   policy packs, prompts, baselines, waivers, and the other surfaces listed under
@@ -1033,15 +1087,6 @@ consumer may read:
   related_finding_ids}`. `impact` mirrors the gate; this block never introduces a
   finding-independent blocker. Treat it as supporting/provisional reviewer
   context, not as the controller's primary verdict.
-- `agent_controller` — imperative restatement of the verdict for autonomous
-  control (`null` for `--preview`): `{completion_allowed, must_stop, stop_reason,
-  allowed_next_commands[], forbidden_file_edits[], forbidden_actions[],
-  user_message_template}`. `completion_allowed` is locked to
-  `can_merge_without_human` (never a second verdict). `forbidden_file_edits[]` is
-  a standing deny-list of whole-file trust roots (CI gate, agent instructions,
-  policy packs), never an allow-list; it excludes `shipgate.yaml` /
-  `.agents-shipgate` (key-level, covered by `forbidden_actions[]`) and the tool
-  surface under review. Both forbidden lists are present on every verdict.
 - `mode` — `"advisory"` / `"strict"` / `"skipped"` / `"preview"`.
 
 `verifier.json` also carries `trigger` (the run/skip evaluation), `base_status`,
@@ -1049,9 +1094,11 @@ consumer may read:
 embedded `release_decision`, and an `artifacts` map
 (`{verifier_json, pr_comment, report_json, report_markdown, report_sarif,
 packet_json}`). The corresponding GitHub Action outputs are `merge_verdict`,
-`can_merge_without_human`, `trust_root_touched`, and
+`can_merge_without_human`, `agent_control_state`, `agent_control_reason`,
+`trust_root_touched`, and
 `capability_changes_{added,modified,removed}`; the original `decision`,
-`blocker_count`, `review_item_count`, and `ci_would_fail` outputs are preserved.
+`blocker_count`, `review_item_count`, `ci_would_fail`, and legacy control
+boolean outputs are preserved as exact derived mirrors for one cycle.
 
 Successful base reports are cached under git metadata
 (`git rev-parse --git-path agents-shipgate/base-scans/...`), not under the
@@ -1149,13 +1196,14 @@ refund-capability PR.
 `agents-shipgate-reports/agent-handoff.json` is the preferred compact
 machine-readable handoff object for coding agents and CI agents. The current
 schema is
-[`docs/agent-handoff-schema.v2.json`](docs/agent-handoff-schema.v2.json) with
-`schema_version: "shipgate.agent_handoff/v2"`.
+[`docs/agent-handoff-schema.v3.json`](docs/agent-handoff-schema.v3.json) with
+`schema_version: "shipgate.agent_handoff/v3"`. v1 and v2 remain frozen
+references.
 
 The handoff artifact is derived only from `verifier.json`, `verify-run.json`,
 and `report.json`. It mirrors `release_decision.decision`,
 `verifier.json.merge_verdict`, and
-`verifier.json.agent_controller.completion_allowed`. Its
+the byte-identical `verifier.json.control` object. Its
 `gate.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}`
 also mirrors the verifier/report boundary; construction fails if any mirror
 disagrees. It never computes a separate release verdict, does not contain

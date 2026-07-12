@@ -17,6 +17,7 @@ from agents_shipgate.schemas.preflight import (
     PreflightPlanV1,
     PreflightResultV1,
     PreflightResultV2,
+    PreflightResultV3,
 )
 
 
@@ -65,7 +66,7 @@ def preflight(
     json_output: bool = typer.Option(
         False,
         "--json",
-        help="Emit the PreflightResultV2 JSON contract.",
+        help="Emit the PreflightResultV3 JSON contract.",
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Show debug details."),
 ) -> None:
@@ -118,10 +119,7 @@ def preflight(
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
         return
-    typer.echo(
-        "Agents Shipgate preflight: "
-        f"{'human review required' if result.requires_human_review else 'continue'}"
-    )
+    typer.echo(f"Agents Shipgate preflight: {result.control.state.replace('_', ' ')}")
     typer.echo(f"Protected surface touches: {len(result.protected_surface_touches)}")
     missing = [item for item in result.required_evidence if not item.satisfied]
     typer.echo(f"Missing required evidence: {len(missing)}")
@@ -129,14 +127,11 @@ def preflight(
     typer.echo(f"Requires verify: {str(result.requires_verify).lower()}")
     typer.echo(f"Next action: {result.first_next_action.why}")
 
+
 def _read_changed_files(path: Path | None) -> list[str]:
     if path is None:
         return []
-    return [
-        line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def _changed_files_from_diff(path: Path) -> list[str]:
@@ -162,9 +157,7 @@ def _read_capability_request(path: Path | None) -> CapabilityRequestV1 | None:
 def _read_plan(path: Path) -> PreflightPlanV1:
     if str(path) == "-":
         raw = "" if sys.stdin.isatty() else sys.stdin.read()
-        payload: Any = (
-            {} if not raw.strip() else _loads_json(raw, label="Preflight plan")
-        )
+        payload: Any = {} if not raw.strip() else _loads_json(raw, label="Preflight plan")
     else:
         payload = _read_json_file_or_stdin(path, label="Preflight plan")
     if not isinstance(payload, dict):
@@ -175,14 +168,19 @@ def _read_plan(path: Path) -> PreflightPlanV1:
         raise ConfigError(f"Invalid preflight plan: {exc}") from exc
 
 
-def _read_base_preflight(path: Path | None) -> PreflightResultV1 | PreflightResultV2 | None:
+def _read_base_preflight(
+    path: Path | None,
+) -> PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | None:
     if path is None:
         return None
     payload = _read_json_file_or_stdin(path, label="Base preflight")
     if not isinstance(payload, dict):
         raise InputParseError("Base preflight JSON must be an object.")
     try:
-        if payload.get("preflight_schema_version") == "0.2":
+        version = payload.get("preflight_schema_version")
+        if version == "0.3":
+            return PreflightResultV3.model_validate(payload)
+        if version == "0.2":
             return PreflightResultV2.model_validate(payload)
         return PreflightResultV1.model_validate(payload)
     except ValidationError as exc:

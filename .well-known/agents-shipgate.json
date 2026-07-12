@@ -3,7 +3,7 @@
   "name": "agents-shipgate",
   "display_name": "Agents Shipgate",
   "tagline": "The deterministic merge gate for AI-generated agent capability changes",
-  "version": "0.16.0b2",
+  "version": "0.16.0b3",
   "license": "Apache-2.0",
   "publisher": {
     "name": "Three Moons Lab",
@@ -99,7 +99,7 @@
     "agent_check_cursor": "shipgate check --agent cursor --workspace . --format codex-boundary-json",
     "preflight": "agents-shipgate preflight --workspace . --config shipgate.yaml --plan - --json",
     "preview": "agents-shipgate verify --preview --json",
-    "install_ai_coding_workflow": "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json",
+    "install_ai_coding_workflow": "agents-shipgate init --workspace . --write --json",
     "verify_local": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json",
     "verify_pr": "agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json",
     "agent_handoff": "agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json",
@@ -144,28 +144,42 @@
   "self_check": "agents-shipgate self-check --json",
   "contract": "agents-shipgate contract --json",
   "agent_protocol": "docs/agents/protocol.md",
-  "agent_result_schema_version": "agent_result_v1",
-  "agent_result_schema_path": "docs/agent-result-schema.v1.json",
+  "agent_result_schema_version": "agent_result_v2",
+  "agent_result_schema_path": "docs/agent-result-schema.v2.json",
   "agent_result_control_fields": [
     "decision",
+    "control",
+    "repair",
+    "policy"
+  ],
+  "agent_control_fields": [
+    "state",
+    "reason",
     "completion_allowed",
     "must_stop",
-    "first_next_action",
+    "verify_required",
+    "next_action",
+    "allowed_next_commands",
     "human_review",
-    "repair",
-    "policy",
-    "verify_required"
+    "stop_reason"
   ],
-  "codex_boundary_result_schema_version": "shipgate.codex_boundary_result/v1",
-  "codex_boundary_result_schema_path": "docs/codex-boundary-result-schema.v1.json",
+  "agent_control_states": [
+    "complete",
+    "agent_action_required",
+    "human_review_required"
+  ],
+  "codex_boundary_result_schema_version": "shipgate.codex_boundary_result/v2",
+  "codex_boundary_result_schema_path": "docs/codex-boundary-result-schema.v2.json",
   "report_schema_version": "0.32",
   "packet_schema_version": "0.10",
-  "verifier_schema_version": "0.2",
-  "verify_run_schema_version": "shipgate.verify_run/v1",
-  "agent_handoff_schema_version": "shipgate.agent_handoff/v2",
-  "agent_handoff_schema_path": "docs/agent-handoff-schema.v2.json",
+  "verifier_schema_version": "0.3",
+  "verify_run_schema_version": "shipgate.verify_run/v2",
+  "agent_handoff_schema_version": "shipgate.agent_handoff/v3",
+  "agent_handoff_schema_path": "docs/agent-handoff-schema.v3.json",
   "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
-  "contract_version": "13",
+  "contract_version": "14",
+  "minimum_control_contract_version": "14",
+  "local_agent_contract_schema_version": "3",
   "inputs": [
     "mcp",
     "openapi",
@@ -228,7 +242,7 @@
   },
   "capability_lock_schema_version": "0.5",
   "capability_lock_diff_schema_version": "0.6",
-  "preflight_schema_version": "0.2",
+  "preflight_schema_version": "0.3",
   "attestation_schema_version": "0.4",
   "registry_schema_version": "0.3",
   "org_evidence_bundle_schema_version": "shipgate.org_evidence_bundle/v1",
@@ -282,10 +296,11 @@
     "shipgate.handoff"
   ],
   "gating_signal": "release_decision.decision",
-  "agent_controller_signals": [
-    "merge_verdict",
-    "applicability",
-    "agent_controller"
+  "agent_control_signals": [
+    "control.state",
+    "control.next_action",
+    "execution",
+    "applicability"
   ],
   "merge_verdicts": [
     "mergeable",
@@ -310,9 +325,16 @@
     "branch_protection_check_run_policy": "require-mergeable"
   },
   "applicability_values": [
+    "not_evaluated",
     "verified",
     "not_applicable",
-    "unknown"
+    "failed"
+  ],
+  "execution_values": [
+    "not_run",
+    "succeeded",
+    "skipped",
+    "failed"
   ],
   "release_decisions": [
     "passed",
@@ -327,19 +349,20 @@
     "blocked": "blocked"
   },
   "verifier_read_order": [
+    "control.state",
+    "execution",
     "merge_verdict",
     "applicability",
     "can_merge_without_human",
-    "first_next_action",
+    "control.next_action",
     "fix_task",
     "capability_review.top_changes",
-    "agent_controller",
     "release_decision.decision"
   ],
   "agent_read_order": [
     "agent-handoff.json",
-    "verifier.json.merge_verdict",
-    "verifier.json.agent_controller",
+    "agent-handoff.json.control.state",
+    "verifier.json.control.state",
     "verify-run.json",
     "report.json.release_decision.decision"
   ],
@@ -366,13 +389,13 @@
   "schemas": {
     "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
     "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.32.json",
-    "agent_result": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v1.json",
-    "codex_boundary_result": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/codex-boundary-result-schema.v1.json",
-    "verifier": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.2.json",
-    "verify_run": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verify-run-schema.v1.json",
-    "agent_handoff": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v2.json",
+    "agent_result": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v2.json",
+    "codex_boundary_result": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/codex-boundary-result-schema.v2.json",
+    "verifier": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.3.json",
+    "verify_run": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verify-run-schema.v2.json",
+    "agent_handoff": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v3.json",
     "packet": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.10.json",
-    "preflight": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.2.json",
+    "preflight": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.3.json",
     "capability_lock": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.5.json",
     "capability_lock_diff": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.6.json",
     "governance_benchmark_catalog": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json",

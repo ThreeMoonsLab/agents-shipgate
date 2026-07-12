@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate import __version__
+from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.capability_lock import (
     DEFAULT_CAPABILITY_LOCK_PATH,
@@ -27,8 +29,15 @@ from agents_shipgate.report.capability_lock_diff_markdown import (
 )
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.report.pr_comment import render_pr_comment
+from agents_shipgate.schemas.agent_control import (
+    AgentControl,
+    AgentControlAction,
+    CodingAgentCommandAction,
+    CodingAgentFetchBaseAction,
+    HumanControlAction,
+)
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1, CapabilityLockFileV1
-from agents_shipgate.schemas.report import AgentSummary, ReadinessReport, ReleaseDecision
+from agents_shipgate.schemas.report import ReadinessReport, ReleaseDecision
 from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
@@ -36,8 +45,6 @@ from agents_shipgate.schemas.verifier import (
     VerifierBaseStatus,
     VerifierCapabilityReview,
     VerifierFixTask,
-    VerifierHumanReview,
-    VerifierNextAction,
     applicability_for,
     merge_verdict_for,
 )
@@ -51,9 +58,8 @@ from agents_shipgate.schemas.verify_run import (
 )
 from agents_shipgate.triggers import evaluate
 
-from .agent_controller import build_agent_controller
 from .capability_review import build_capability_review
-from .fix_task import build_fix_task
+from .fix_task import FORBIDDEN_SHORTCUTS, build_fix_task
 from .git import (
     archive_tree,
     detect_default_base_with_notes,
@@ -107,6 +113,7 @@ def run_verify(
         else None
     )
     out_dir.mkdir(parents=True, exist_ok=True)
+    _clear_trusted_handoff(out_dir)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
@@ -141,10 +148,8 @@ def run_verify(
             out_dir=out_dir,
             ci_mode=ci_mode,
             headline_override=message,
-            human_review_override=VerifierHumanReview(required=True, why=message),
-            first_next_action_override=VerifierNextAction(
-                actor="coding_agent",
-                kind="command",
+            first_next_action_override=CodingAgentCommandAction(
+                kind="configure",
                 command="agents-shipgate verify --preview --json",
                 why=(
                     "Shipgate could not find the configured manifest; run verify "
@@ -181,7 +186,54 @@ def run_verify(
 
     head_exists = ref_exists(git_root, head)
     if not head_exists:
-        raise ConfigError(f"Head ref does not exist locally: {head}")
+        trigger = evaluate(
+            paths=[],
+            diff_text="",
+            manifest_present=True,
+            user_requested=True,
+        )
+        message = f"Head ref does not exist locally: {head}"
+        verifier = _build_verifier(
+            git_root=git_root,
+            config_path=config_path,
+            base=base,
+            head=head,
+            changed_files=[],
+            diff_text="",
+            trigger=trigger,
+            base_status="ref_missing",
+            base_tree=None,
+            base_report=None,
+            base_notes=[message],
+            report=None,
+            head_status="failed",
+            head_exit_code=2,
+            out_dir=out_dir,
+            ci_mode=ci_mode,
+            headline_override=message,
+            first_next_action_override=CodingAgentFetchBaseAction(
+                kind="fetch_base",
+                expects=head,
+                why="Make the requested head ref available locally, then rerun verify.",
+            ),
+        )
+        _remove_scan_artifacts(out_dir)
+        _write_artifacts(
+            verifier,
+            verifier_path,
+            verify_run_path,
+            pr_comment_path,
+            report=None,
+            git_root=git_root,
+            config_path=config_path,
+            baseline_path=baseline_path,
+            policy_pack_paths=policy_pack_paths or [],
+            plugins_enabled=plugins_enabled,
+            no_heuristics=no_heuristics,
+            fail_on=fail_on,
+            pr_comment_style=pr_comment_style,
+        )
+        return verifier, None, 2
 
     if base is None and auto_base:
         detection = detect_default_base_with_notes(git_root, head)
@@ -763,17 +815,31 @@ def _can_merge_without_human(
     release_decision: ReleaseDecision | None,
     capability_review: VerifierCapabilityReview | None = None,
 ) -> bool:
-    # A self-approval change can never clear its own gate, even in the
-    # defensive case where the verdict was somehow not human-routed.
-    if _self_approval_note(capability_review) is not None:
-        return False
-    if merge_verdict != "mergeable":
-        return False
+    """Pure merge projection; contradictory passed substrate fails closed."""
+
     if release_decision is None:
-        return True
-    if release_decision.evidence_coverage.human_review_recommended:
+        if merge_verdict == "mergeable" and _self_approval_note(capability_review):
+            raise ValueError("mergeable not-applicable projection contradicts a touched trust root")
+        return merge_verdict == "mergeable"
+    if release_decision.decision != "passed":
         return False
-    return not (release_decision.blockers or release_decision.review_items)
+    contradictions: list[str] = []
+    if merge_verdict != "mergeable":
+        contradictions.append("merge verdict is not mergeable")
+    if _self_approval_note(capability_review) is not None:
+        contradictions.append("release trust root or policy was changed")
+    if release_decision.evidence_coverage.human_review_recommended:
+        contradictions.append("evidence coverage recommends human review")
+    if release_decision.evidence_coverage.evidence_gaps:
+        contradictions.append("semantic or binding evidence gaps remain")
+    if release_decision.blockers or release_decision.review_items:
+        contradictions.append("blockers or review items remain")
+    if contradictions:
+        raise ValueError(
+            "release_decision.decision='passed' contradicts its substrate: "
+            + "; ".join(contradictions)
+        )
+    return True
 
 
 def _self_approval_note(capability_review: VerifierCapabilityReview | None) -> str | None:
@@ -799,91 +865,6 @@ def _self_approval_note(capability_review: VerifierCapabilityReview | None) -> s
             "agent cannot self-approve that change — a human must review it."
         )
     return None
-
-
-def _human_review(
-    *,
-    merge_verdict: MergeVerdict,
-    release_decision: ReleaseDecision | None,
-    capability_review: VerifierCapabilityReview | None = None,
-) -> VerifierHumanReview:
-    note = _self_approval_note(capability_review)
-    required = note is not None or merge_verdict in {
-        "human_review_required",
-        "blocked",
-        "insufficient_evidence",
-        "unknown",
-    }
-    if not required:
-        return VerifierHumanReview(required=False, why=None)
-    # A self-approval prohibition is the most important reason a human is
-    # needed; surface it ahead of the generic release-decision reason.
-    reason = release_decision.reason if release_decision is not None else None
-    return VerifierHumanReview(
-        required=True,
-        why=note or reason or "A human must review this agent-capability change before merge.",
-    )
-
-
-def _first_next_action(
-    *,
-    merge_verdict: MergeVerdict,
-    fix_task: VerifierFixTask | None,
-    agent_summary: AgentSummary | None,
-    reason: str | None,
-    capability_review: VerifierCapabilityReview | None = None,
-) -> VerifierNextAction:
-    self_approval = _self_approval_note(capability_review)
-    if merge_verdict == "mergeable" and self_approval is None:
-        return VerifierNextAction(
-            actor="coding_agent",
-            kind="none",
-            command=None,
-            why="No agent-capability changes gate this PR; safe to merge.",
-        )
-    if self_approval is not None and fix_task is None:
-        # Defensive self-approval path (e.g. a 'mergeable' verdict that still
-        # carries a self-approval note): a human must review — never emit the
-        # "safe to merge" action.
-        return VerifierNextAction(actor="human", kind="review", command=None, why=self_approval)
-    # The fix_task is the single repair contract; the headline next-step must
-    # not contradict it. Borrow the agent summary's concrete action (e.g. an
-    # apply-patches command) only when its implied actor agrees with the
-    # fix_task routing — otherwise derive the pointer from the fix_task so that
-    # actor, command, and why all come from one source.
-    actor = fix_task.actor if fix_task is not None else "human"
-    recommended = agent_summary.first_recommended_action if agent_summary is not None else None
-    if recommended is not None:
-        # The PR comment infers a recommendation's actor the same way: a
-        # runnable command implies the coding agent, an info note a human.
-        recommended_actor = "coding_agent" if recommended.kind == "command" else "human"
-        if fix_task is None or recommended_actor == actor:
-            return VerifierNextAction(
-                actor=actor,
-                kind=recommended.kind,
-                command=recommended.command,
-                why=recommended.why,
-            )
-    if fix_task is not None:
-        why = (
-            fix_task.instructions[0]
-            if fix_task.instructions
-            else (reason or "Human review required before merge.")
-        )
-        if actor == "coding_agent":
-            return VerifierNextAction(
-                actor=actor,
-                kind="command",
-                command=fix_task.verification_command,
-                why=why,
-            )
-        return VerifierNextAction(actor=actor, kind="review", command=None, why=why)
-    return VerifierNextAction(
-        actor=actor,
-        kind="review",
-        command=None,
-        why=reason or "Human review required before merge.",
-    )
 
 
 def _verifier_headline(
@@ -923,6 +904,90 @@ def _verifier_mode(
     return ci_mode or "advisory"
 
 
+def _derive_verifier_control(
+    *,
+    execution: str,
+    merge_verdict: MergeVerdict,
+    release_decision: ReleaseDecision | None,
+    fix_task: VerifierFixTask | None,
+    capability_review: VerifierCapabilityReview | None,
+    headline: str | None,
+    first_next_action_override: AgentControlAction | None,
+    base_status: str,
+    base_ref: str | None,
+) -> AgentControl:
+    """Project verifier facts through the shared operational control engine."""
+
+    reason = (
+        headline
+        or (release_decision.reason if release_decision is not None else None)
+        or "Agents Shipgate verification completed."
+    )
+    if execution == "skipped" and release_decision is None:
+        return derive_agent_control(reason=reason)
+    if release_decision is not None and release_decision.decision == "passed":
+        return derive_agent_control(reason=reason)
+
+    if first_next_action_override is not None:
+        if isinstance(first_next_action_override, HumanControlAction):
+            return derive_agent_control(
+                reason=reason,
+                next_action=first_next_action_override,
+                human_review_required=True,
+                human_review_why=first_next_action_override.why,
+                stop_reason=first_next_action_override.why,
+            )
+        command = getattr(first_next_action_override, "command", None)
+        return derive_agent_control(
+            reason=reason,
+            next_action=first_next_action_override,
+            verify_required=True,
+            allowed_next_commands=[command] if command else [],
+        )
+
+    if fix_task is not None and fix_task.actor == "coding_agent" and fix_task.safe_to_attempt:
+        command = fix_task.verification_command
+        if not command:
+            raise ValueError("agent-safe verifier repair requires an exact rerun command")
+        return derive_agent_control(
+            reason=reason,
+            next_action=CodingAgentCommandAction(
+                kind="repair",
+                command=command,
+                why=fix_task.instructions[0] if fix_task.instructions else reason,
+            ),
+            verify_required=True,
+            allowed_next_commands=[command],
+        )
+
+    if execution == "failed" and base_status in {"ref_missing", "archive_failed"}:
+        expects = base_ref or "the requested base and head refs"
+        return derive_agent_control(
+            reason=reason,
+            next_action=CodingAgentFetchBaseAction(
+                kind="fetch_base",
+                expects=expects,
+                why="Make the requested diff refs available locally, then rerun verify.",
+            ),
+            verify_required=True,
+        )
+
+    review_reason = _self_approval_note(capability_review) or reason
+    unsafe_block = bool(release_decision is not None and release_decision.decision == "blocked")
+    return derive_agent_control(
+        reason=reason,
+        next_action=HumanControlAction(
+            kind="stop" if unsafe_block or execution == "failed" else "review",
+            why=review_reason,
+        ),
+        verify_required=release_decision is not None,
+        human_review_required=True,
+        unsafe_block=unsafe_block,
+        human_review_why=review_reason,
+        stop_reason=review_reason,
+    )
+
+
 def _build_verifier(
     *,
     git_root: Path,
@@ -944,8 +1009,7 @@ def _build_verifier(
     ci_mode: str | None = None,
     preview: bool = False,
     headline_override: str | None = None,
-    human_review_override: VerifierHumanReview | None = None,
-    first_next_action_override: VerifierNextAction | None = None,
+    first_next_action_override: AgentControlAction | None = None,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -959,21 +1023,25 @@ def _build_verifier(
         include_scan_artifacts=report is not None,
     )
     decision = release_decision_model.decision if release_decision_model else None
-    merge_verdict = merge_verdict_for(decision=decision, head_status=head_status)
-    applicability = applicability_for(decision=decision, head_status=head_status)
+    merge_verdict = merge_verdict_for(decision=decision, execution=head_status)
+    applicability = applicability_for(decision=decision, execution=head_status)
     agent_summary_model = report.agent_summary if report is not None else None
     capability_review = build_capability_review(report) if report is not None else None
-    human_review = human_review_override or _human_review(
-        merge_verdict=merge_verdict,
-        release_decision=release_decision_model,
-        capability_review=capability_review,
-    )
-    fix_task = build_fix_task(
-        report,
-        merge_verdict=merge_verdict,
-        capability_review=capability_review,
-        base_ref=base,
-        head_ref=head,
+    safe_recovery = first_next_action_override is not None or base_status in {
+        "ref_missing",
+        "archive_failed",
+        "missing_manifest",
+    }
+    fix_task = (
+        None
+        if safe_recovery
+        else build_fix_task(
+            report,
+            merge_verdict=merge_verdict,
+            capability_review=capability_review,
+            base_ref=base,
+            head_ref=head,
+        )
     )
     can_merge = _can_merge_without_human(
         merge_verdict=merge_verdict,
@@ -986,20 +1054,16 @@ def _build_verifier(
         head_status=head_status,
         capability_review=capability_review,
     )
-    # Imperative controller projection — a pure restatement of the verdict
-    # above. Not emitted for --preview, which is a pre-gate relevance check
-    # (the agent reads first_next_action there).
-    agent_controller = (
-        None
-        if preview
-        else build_agent_controller(
-            merge_verdict=merge_verdict,
-            can_merge_without_human=can_merge,
-            fix_task=fix_task,
-            capability_review=capability_review,
-            human_review=human_review,
-            headline=headline,
-        )
+    control = _derive_verifier_control(
+        execution=head_status,
+        merge_verdict=merge_verdict,
+        release_decision=release_decision_model,
+        fix_task=fix_task,
+        capability_review=capability_review,
+        headline=headline,
+        first_next_action_override=first_next_action_override,
+        base_status=base_status,
+        base_ref=base,
     )
     return VerifierArtifact(
         workspace=str(git_root),
@@ -1016,7 +1080,8 @@ def _build_verifier(
             _display_path(base_report, git_root) if base_report is not None else None
         ),
         base_notes=base_notes,
-        head_status=head_status,  # type: ignore[arg-type]
+        execution=head_status,  # type: ignore[arg-type]
+        head_status=head_status,  # compatibility mirror
         head_report_json=artifacts.get("report_json") if report is not None else None,
         head_exit_code=head_exit_code,
         release_decision=release_decision,
@@ -1039,18 +1104,11 @@ def _build_verifier(
         merge_verdict=merge_verdict,
         applicability=applicability,
         can_merge_without_human=can_merge,
+        control=control,
         headline=headline,
-        human_review=human_review,
-        first_next_action=first_next_action_override
-        or _first_next_action(
-            merge_verdict=merge_verdict,
-            fix_task=fix_task,
-            agent_summary=agent_summary_model,
-            reason=release_decision_model.reason if release_decision_model else None,
-            capability_review=capability_review,
-        ),
         fix_task=fix_task,
-        agent_controller=agent_controller,
+        forbidden_file_edits=list(PROTECTED_FILE_EDITS),
+        forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts=artifacts,
     )
 
@@ -1105,6 +1163,15 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         if path.is_file() or path.is_symlink():
             with contextlib.suppress(OSError):
                 path.unlink()
+
+
+def _clear_trusted_handoff(out_dir: Path) -> None:
+    """Remove any prior handoff before constructing a new trusted projection."""
+
+    path = out_dir / "agent-handoff.json"
+    if path.is_file() or path.is_symlink():
+        with contextlib.suppress(OSError):
+            path.unlink()
 
 
 def _write_artifacts(
@@ -1205,10 +1272,12 @@ def _write_verify_run_artifact(
     outcome = VerifyRunOutcome(
         exit_code=verifier.head_exit_code,
         base_status=verifier.base_status,
-        head_status=verifier.head_status,
+        execution=verifier.execution,
+        applicability=verifier.applicability,
         decision=verifier.decision,
         merge_verdict=verifier.merge_verdict,
         can_merge_without_human=verifier.can_merge_without_human,
+        control=verifier.control,
     )
     artifact = build_verify_run_artifact(
         subject=subject,
@@ -1393,8 +1462,6 @@ def _preview_init_command(workspace: Path) -> str:
             "--workspace",
             str(workspace),
             "--write",
-            "--ci",
-            "--agent-instructions=default",
             "--json",
         ]
     )
@@ -1450,6 +1517,7 @@ def run_preview(
     config_path = _resolve_under_workspace(root, config)
     out_dir = _resolve_under_workspace(root, out or DEFAULT_OUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
+    _clear_trusted_handoff(out_dir)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
     agent_handoff_path = out_dir / "agent-handoff.json"
@@ -1498,10 +1566,9 @@ def run_preview(
     )
 
     if diff_unavailable and manifest_present:
-        next_action = VerifierNextAction(
-            actor="coding_agent",
+        next_action: AgentControlAction = CodingAgentFetchBaseAction(
             kind="fetch_base",
-            command=None,
+            expects=base or head or "the requested base and head refs",
             why=(
                 "Preview could not inspect the requested PR diff; make the base "
                 "and head refs available locally, then rerun preview or verify."
@@ -1509,17 +1576,15 @@ def run_preview(
         )
         headline = "Shipgate preview could not inspect the requested PR diff."
     elif manifest_present:
-        next_action = VerifierNextAction(
-            actor="coding_agent",
-            kind="command",
+        next_action = CodingAgentCommandAction(
+            kind="verify",
             command=verify_command,
             why="Shipgate is already set up here; run verify on the PR diff.",
         )
         headline = "Shipgate is configured; run verify on the PR to get a merge verdict."
     elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
-        next_action = VerifierNextAction(
-            actor="coding_agent",
-            kind="command",
+        next_action = CodingAgentCommandAction(
+            kind="initialize",
             command=init_command,
             why=(
                 "This unconfigured workspace looks agent-related; initialize "
@@ -1528,9 +1593,8 @@ def run_preview(
         )
         headline = "Shipgate is relevant to this diff; initialize the local agent workflow."
     elif not (base or head):
-        next_action = VerifierNextAction(
-            actor="coding_agent",
-            kind="command",
+        next_action = CodingAgentCommandAction(
+            kind="initialize",
             command=init_command,
             why=(
                 "No PR diff was supplied and no shipgate.yaml was found; "
@@ -1539,9 +1603,8 @@ def run_preview(
         )
         headline = "Shipgate is not set up here yet; initialize it to gate agent-capability PRs."
     else:
-        next_action = VerifierNextAction(
-            actor="coding_agent",
-            kind="command",
+        next_action = CodingAgentCommandAction(
+            kind="initialize",
             command=init_command,
             why=(
                 "No shipgate.yaml was found. Initialize the local Shipgate "
@@ -1550,6 +1613,14 @@ def run_preview(
         )
         headline = "Shipgate is not configured in this workspace."
 
+    control = derive_agent_control(
+        reason=headline,
+        next_action=next_action,
+        verify_required=True,
+        allowed_next_commands=(
+            [next_action.command] if isinstance(next_action, CodingAgentCommandAction) else []
+        ),
+    )
     verifier = VerifierArtifact(
         workspace=str(root),
         config=_display_path(config_path, root),
@@ -1560,14 +1631,17 @@ def run_preview(
         trigger=trigger,
         base_status="not_requested",
         base_notes=notes,
-        head_status="skipped",
+        execution="not_run",
+        head_status="not_run",
         head_exit_code=0,
         mode="preview",
         merge_verdict="unknown",
+        applicability="not_evaluated",
         can_merge_without_human=False,
+        control=control,
         headline=headline,
-        human_review=VerifierHumanReview(required=False, why=None),
-        first_next_action=next_action,
+        forbidden_file_edits=list(PROTECTED_FILE_EDITS),
+        forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts={
             "verifier_json": _display_path(verifier_path.resolve(), root),
             "verify_run_json": _display_path(verify_run_path.resolve(), root),
