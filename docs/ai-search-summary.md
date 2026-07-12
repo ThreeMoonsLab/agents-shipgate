@@ -89,8 +89,8 @@ Per-agent guides cover [Codex](agents/use-with-codex.md),
 [Claude Code](agents/use-with-claude-code.md), and
 [Cursor](agents/use-with-cursor.md).
 
-The current source tree is `0.16.0b1` (runtime contract v12); the latest
-published release remains `v0.15.0` until that beta is cut. In report v0.30,
+The current source tree is `0.16.0b2` (runtime contract v13); the latest
+published release remains `v0.15.0` until that beta is cut. In report v0.31,
 `passed` is an evidence-backed static verdict: every in-scope action has
 complete, conflict-free surface, effect, and authority evidence, all applicable
 controls were evaluated, and no policy condition requires review. It does not
@@ -167,6 +167,6 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema (current): [`report-schema.v0.30.json`](report-schema.v0.30.json) (v0.29 frozen at [`report-schema.v0.29.json`](report-schema.v0.29.json), v0.28 frozen at [`report-schema.v0.28.json`](report-schema.v0.28.json))
-- Packet schema (current): [`packet-schema.v0.9.json`](packet-schema.v0.9.json) (v0.8 frozen at [`packet-schema.v0.8.json`](packet-schema.v0.8.json))
+- Report schema (current): [`report-schema.v0.31.json`](report-schema.v0.31.json) (v0.30 frozen at [`report-schema.v0.30.json`](report-schema.v0.30.json), v0.29 frozen at [`report-schema.v0.29.json`](report-schema.v0.29.json))
+- Packet schema (current): [`packet-schema.v0.10.json`](packet-schema.v0.10.json) (v0.9 frozen at [`packet-schema.v0.9.json`](packet-schema.v0.9.json))
 - Check catalog: [`checks.json`](checks.json)

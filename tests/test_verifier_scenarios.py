@@ -19,6 +19,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import yaml
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
@@ -50,6 +51,7 @@ _BASE_TOOLS = {
             "name": "support.search_kb",
             "description": "Search the support knowledge base.",
             "annotations": {"readOnlyHint": True, "idempotentHint": True},
+            "auth": {"mode": "none"},
             "inputSchema": {
                 "type": "object",
                 "properties": {"q": {"type": "string"}},
@@ -115,6 +117,27 @@ def _export_capability_lock(repo: Path) -> None:
 
 def _write_tools(repo: Path, payload: dict) -> None:
     (repo / "tools.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    manifest_path = repo / "shipgate.yaml"
+    if manifest_path.is_file():
+        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        manifest["agent_bindings"] = {
+            "declarations": [
+                {
+                    "agent": "root",
+                    "complete": True,
+                    "tools": [
+                        {"tool": tool["name"], "source_id": "tools"}
+                        for tool in payload["tools"]
+                    ],
+                    "handoffs": [],
+                    "reason": "reviewed verifier scenario binding",
+                }
+            ]
+        }
+        manifest_path.write_text(
+            yaml.safe_dump(manifest, sort_keys=False),
+            encoding="utf-8",
+        )
 
 
 def _verify(repo: Path) -> dict:
@@ -154,7 +177,7 @@ def test_scenario_codex_adds_refund_tool_blocks(tmp_path: Path) -> None:
     assert payload["head_status"] == "succeeded"
     assert payload["merge_verdict"] == "blocked"
     assert payload["can_merge_without_human"] is False
-    assert payload["capability_review"]["trust_root_touched"] is False
+    assert payload["capability_review"]["trust_root_touched"] is True
     # The top capability change references the money-moving refund action.
     refund_adds = [
         c
@@ -223,7 +246,7 @@ def test_scenario_committed_base_lock_emits_semantic_capability_diff(
     )
     reports = repo / "agents-shipgate-reports"
     diff_payload = json.loads((reports / "capability-lock-diff.json").read_text(encoding="utf-8"))
-    assert diff_payload["capability_lock_diff_schema_version"] == "0.5"
+    assert diff_payload["capability_lock_diff_schema_version"] == "0.6"
     assert diff_payload["summary"]["added"] == 1
     assert diff_payload["summary"]["changed"] == 0
     assert diff_payload["added"][0]["identity"]["tool_name"] == "stripe.create_refund"

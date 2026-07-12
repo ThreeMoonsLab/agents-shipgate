@@ -90,6 +90,11 @@ class _CrewAiExtractor:
         self.discovered_tools: list[Tool] = []
         self.list_vars: dict[str, list[str] | None] = {}
         self.agent_vars: set[str] = set()
+        self.call_targets = {
+            id(call): assignment_target(node)
+            for node in ordered_nodes(self.tree, (ast.Assign, ast.AnnAssign))
+            if (call := assignment_call(node)) is not None
+        }
         self.warnings: list[str] = []
 
     def extract(self) -> tuple[list[Tool], list[str]]:
@@ -246,7 +251,13 @@ class _CrewAiExtractor:
         if call_kind == "Agent":
             tools_expr = keyword(call, "tools")
             names = self._resolve_tool_names(tools_expr) if tools_expr is not None else []
-            record = {"source_ref": self.source_ref, "line": call.lineno, "tools": names or []}
+            record = {
+                "name": self.call_targets.get(id(call)) or "root",
+                "source_id": self.source_id,
+                "source_ref": self.source_ref,
+                "line": call.lineno,
+                "tools": names or [],
+            }
             self.artifacts.agents.append(record)
             if tools_expr is not None and names is None:
                 self._dynamic(
@@ -256,7 +267,13 @@ class _CrewAiExtractor:
             agents_expr = keyword(call, "agents")
             agents = _resolve_names(agents_expr) if agents_expr is not None else []
             self.artifacts.crews.append(
-                {"source_ref": self.source_ref, "line": call.lineno, "agents": agents or []}
+                {
+                    "name": self.call_targets.get(id(call)) or "crew",
+                    "source_id": self.source_id,
+                    "source_ref": self.source_ref,
+                    "line": call.lineno,
+                    "agents": agents or [],
+                }
             )
 
     def _resolve_tool_names(self, node: ast.AST | None) -> list[str] | None:

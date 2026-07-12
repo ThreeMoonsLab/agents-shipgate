@@ -305,6 +305,15 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: dangerous.write
+          source_id: tools
+      handoffs: []
+      reason: reviewed test binding
 ci:
   mode: advisory
 """,
@@ -382,6 +391,15 @@ tool_sources:
   - id: api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: get_or_delete_record
+          source_id: api
+      handoffs: []
+      reason: reviewed test binding
 ci:
   mode: advisory
 """,
@@ -454,6 +472,15 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: dangerous.write
+          source_id: tools
+      handoffs: []
+      reason: reviewed test binding
 policies:
   require_approval_for_tools:
     - some.other.tool
@@ -566,6 +593,22 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: docs.lookup
+          source_id: tools
+      handoffs: []
+      reason: reviewed test binding
+action_surface:
+  actions:
+    - tool: docs.lookup
+      source_id: tools
+      effect: read
+      authority:
+        mode: none
 ci:
   mode: advisory
 """,
@@ -584,7 +627,7 @@ ci:
     assert any("shipgate.yaml:" in warning for warning in placeholder_warnings)
     assert report.release_decision is not None
     assert report.release_decision.evidence_coverage.source_warning_count >= 1
-    assert report.release_decision.decision == "insufficient_evidence"
+    assert report.release_decision.decision == "review_required"
     # advisory mode does not fail CI, but the gate above is still routed.
     assert exit_code == 0
 
@@ -679,6 +722,22 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: docs.short
+          source_id: tools
+      handoffs: []
+      reason: reviewed test binding
+action_surface:
+  actions:
+    - tool: docs.short
+      source_id: tools
+      effect: read
+      authority:
+        mode: none
 checks:
   severity_overrides:
     SHIP-DOC-MISSING-DESCRIPTION: critical
@@ -846,6 +905,15 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: process_order
+          source_id: tools
+      handoffs: []
+      reason: reviewed test binding
 action_surface:
   actions:
     - tool: process_order
@@ -938,6 +1006,15 @@ tool_sources:
   - id: tools
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: support.lookup
+          source_id: tools
+      handoffs: []
+      reason: reviewed test binding
 ci:
   mode: strict
 """,
@@ -972,6 +1049,16 @@ ci:
   ]
 }
 """,
+        encoding="utf-8",
+    )
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            "        - tool: support.lookup\n          source_id: tools\n",
+            "        - tool: support.lookup\n"
+            "          source_id: tools\n"
+            "        - tool: billing.create_refund\n"
+            "          source_id: tools\n",
+        ),
         encoding="utf-8",
     )
 
@@ -1093,6 +1180,17 @@ tool_sources:
   - id: mcp
     type: mcp
     path: mcp.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: shared.lookup
+          source_id: api
+        - tool: shared.lookup
+          source_id: mcp
+      handoffs: []
+      reason: reviewed provider-specific test bindings
 """,
         encoding="utf-8",
     )
@@ -1161,6 +1259,15 @@ tool_sources:
   - id: api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: ticket.create
+          source_id: api
+      handoffs: []
+      reason: reviewed test binding
 permissions:
   scopes:
     - support:tickets:write
@@ -1514,6 +1621,17 @@ tool_sources:
   - id: goose-api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: get_session
+          source_id: goose-api
+        - tool: get_session_detail
+          source_id: goose-api
+      handoffs: []
+      reason: reviewed collision test bindings
 """,
         encoding="utf-8",
     )
@@ -1602,6 +1720,17 @@ tool_sources:
   - id: goose-api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: get_session
+          source_id: goose-api
+        - tool: get_session_detail
+          source_id: goose-api
+      handoffs: []
+      reason: reviewed collision test bindings
 """,
         encoding="utf-8",
     )

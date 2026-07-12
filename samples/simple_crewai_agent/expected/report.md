@@ -14,7 +14,7 @@ Blockers (0): none
 Review items (1):
 - HIGH SHIP-AUTH-MISSING-SCOPE — FileReadTool lacks declared auth scopes
 
-Evidence coverage: static (1 source warning(s); 1 semantic review concern(s); 2/3 actions pass-eligible; human review recommended)
+Evidence coverage: static (1 source warning(s); 3/3 catalog tools reachable; 1 semantic review concern(s); 2/3 actions pass-eligible; human review recommended)
 
 Baseline delta: not enabled
 
@@ -126,7 +126,14 @@ CrewAI warnings:
 
 - HIGH: SHIP-AUTH-MISSING-SCOPE [FileReadTool] - FileReadTool lacks declared auth scopes
 
-## Appendix: Normalized Tool Inventory
+## Agent Binding Surface
+
+Status: structural
+Root agent: agent\_v1:db222e5ee84f5d3b4a7f0ca1
+Pass eligible: true
+Catalog partition: 3 reachable, 0 possible, 0 unbound
+
+## Appendix: Root-Reachable Tool Inventory
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 CapabilityHashName = Literal[
     "identity_hash",
+    "binding_hash",
     "effect_hash",
     "authority_hash",
     "control_hash",

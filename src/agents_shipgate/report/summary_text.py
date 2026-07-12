@@ -10,6 +10,13 @@ def evidence_coverage_text(evidence: EvidenceCoverageDecision) -> str:
     if evidence.source_warning_count:
         extras.append(f"{evidence.source_warning_count} source warning(s)")
     semantic = evidence.semantic_coverage
+    binding = evidence.binding_coverage
+    if binding.gap_count:
+        extras.append(f"{binding.gap_count} binding evidence gap(s)")
+    if binding.total_catalog_tools:
+        extras.append(
+            f"{binding.reachable_tools}/{binding.total_catalog_tools} catalog tools reachable"
+        )
     if semantic.gap_count:
         extras.append(f"{semantic.gap_count} semantic evidence gap(s)")
     if semantic.review_concern_count:

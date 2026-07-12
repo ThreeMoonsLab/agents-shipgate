@@ -26,7 +26,7 @@ SemanticActionEffect = Literal[
     "code_execution",
     "identity_access",
 ]
-SemanticDimension = Literal["identity", "effect", "authority"]
+SemanticDimension = Literal["identity", "binding", "effect", "authority"]
 IdentityEvidenceStatus = Literal[
     "declared",
     "structural",
@@ -65,6 +65,14 @@ SemanticIssueKind = Literal[
     "partial_authority_evidence",
     "conflicting_authority_evidence",
     "invalid_semantic_annotation",
+    "missing_binding_evidence",
+    "partial_binding_evidence",
+    "conflicting_binding_evidence",
+    "ambiguous_root_agent",
+    "unresolved_agent_binding",
+    "unresolved_bound_tool",
+    "incomplete_handoff_graph",
+    "invalid_binding_annotation",
 ]
 
 
@@ -125,6 +133,28 @@ class ToolIdentityEvidence(BaseModel):
     pass_eligible: bool
 
 
+class BindingSemanticEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["declared", "structural", "partial", "unknown", "conflicting"]
+    confidence: Confidence
+    root_agent_id: str | None = None
+    reachable_path: list[str] = Field(default_factory=list)
+    claims: list[SemanticClaimEvidence] = Field(default_factory=list)
+    issues: list[SemanticIssueEvidence] = Field(default_factory=list)
+    pass_eligible: bool = False
+
+
+def _legacy_direct_binding() -> BindingSemanticEvidence:
+    return BindingSemanticEvidence(
+        status="structural",
+        confidence="high",
+        root_agent_id="legacy_direct",
+        reachable_path=["legacy_direct"],
+        pass_eligible=True,
+    )
+
+
 class ToolSemanticEvidence(BaseModel):
     """Public semantic assessment attached to action and capability facts."""
 
@@ -132,6 +162,7 @@ class ToolSemanticEvidence(BaseModel):
 
     conservative_effect: SemanticActionEffect
     identity: ToolIdentityEvidence | None = None
+    binding: BindingSemanticEvidence = Field(default_factory=_legacy_direct_binding)
     effect: EffectSemanticEvidence
     authority: AuthoritySemanticEvidence
     pass_eligible: bool
@@ -141,6 +172,7 @@ __all__ = [
     "AuthorityEvidenceStatus",
     "AuthorityMode",
     "AuthoritySemanticEvidence",
+    "BindingSemanticEvidence",
     "EffectEvidenceStatus",
     "EffectSemanticEvidence",
     "IdentityEvidenceStatus",

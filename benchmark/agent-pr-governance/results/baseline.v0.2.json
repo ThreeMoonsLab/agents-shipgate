@@ -16,8 +16,8 @@
   "metrics": [
     {
       "metric": "authority_routing",
-      "total": 6,
-      "passed": 6,
+      "total": 8,
+      "passed": 8,
       "failed": 0
     },
     {
@@ -40,8 +40,8 @@
     },
     {
       "metric": "safe_pass_rate",
-      "total": 4,
-      "passed": 4,
+      "total": 2,
+      "passed": 2,
       "failed": 0
     },
     {
@@ -153,17 +153,17 @@
       "skipped": false,
       "failures": [],
       "expected": {
-        "decision": "passed",
-        "merge_verdict": "mergeable",
-        "next_actor": "coding_agent"
+        "decision": "review_required",
+        "merge_verdict": "human_review_required",
+        "next_actor": "human"
       },
       "actual": {
-        "decision": "passed",
-        "merge_verdict": "mergeable",
-        "next_actor": "coding_agent",
-        "can_merge_without_human": true,
-        "fix_task_actor": null,
-        "fix_task_safe_to_attempt": null
+        "decision": "review_required",
+        "merge_verdict": "human_review_required",
+        "next_actor": "human",
+        "can_merge_without_human": false,
+        "fix_task_actor": "human",
+        "fix_task_safe_to_attempt": false
       },
       "capability_diff": {
         "added": 0,
@@ -175,6 +175,11 @@
       },
       "metric_results": [
         {
+          "metric": "authority_routing",
+          "passed": true,
+          "rationale": "authority gap routed to human"
+        },
+        {
           "metric": "capability_semantic_fidelity",
           "passed": true,
           "rationale": "capability expectations matched"
@@ -183,11 +188,6 @@
           "metric": "explanation_usefulness",
           "passed": true,
           "rationale": "verifier evidence references expected subject"
-        },
-        {
-          "metric": "safe_pass_rate",
-          "passed": true,
-          "rationale": "safe case was mergeable"
         }
       ]
     },
@@ -524,17 +524,17 @@
       "skipped": false,
       "failures": [],
       "expected": {
-        "decision": "passed",
-        "merge_verdict": "mergeable",
-        "next_actor": "coding_agent"
+        "decision": "review_required",
+        "merge_verdict": "human_review_required",
+        "next_actor": "human"
       },
       "actual": {
-        "decision": "passed",
-        "merge_verdict": "mergeable",
-        "next_actor": "coding_agent",
-        "can_merge_without_human": true,
-        "fix_task_actor": null,
-        "fix_task_safe_to_attempt": null
+        "decision": "review_required",
+        "merge_verdict": "human_review_required",
+        "next_actor": "human",
+        "can_merge_without_human": false,
+        "fix_task_actor": "human",
+        "fix_task_safe_to_attempt": false
       },
       "capability_diff": {
         "added": 1,
@@ -546,6 +546,11 @@
       },
       "metric_results": [
         {
+          "metric": "authority_routing",
+          "passed": true,
+          "rationale": "authority gap routed to human"
+        },
+        {
           "metric": "capability_semantic_fidelity",
           "passed": true,
           "rationale": "capability expectations matched"
@@ -554,11 +559,6 @@
           "metric": "explanation_usefulness",
           "passed": true,
           "rationale": "verifier evidence references expected subject"
-        },
-        {
-          "metric": "safe_pass_rate",
-          "passed": true,
-          "rationale": "safe case was mergeable"
         }
       ]
     }

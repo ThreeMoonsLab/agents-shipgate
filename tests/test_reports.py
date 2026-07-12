@@ -1213,6 +1213,14 @@ tool_sources:
   - id: docs
     type: mcp
     path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: docs.lookup, source_id: docs}
+      handoffs: []
+      reason: reviewed clean fixture binding
 action_surface:
   actions:
     - tool: docs.lookup

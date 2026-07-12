@@ -39,6 +39,7 @@ from agents_shipgate.core.privacy import (
     sanitize_model,
     sanitize_tools,
 )
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import (
     BaselineSummary,
@@ -135,6 +136,47 @@ def _sanitize_for_output(
         else None
     )
     public_tools = sanitize_tools(tools_and_agent.tools, stats=privacy_stats)
+    public_tool_catalog = sanitize_tools(tools_and_agent.tool_catalog, stats=privacy_stats)
+    public_binding_graph = sanitize_model(
+        tools_and_agent.binding_graph,
+        AgentBindingGraphAssessment,
+        stats=privacy_stats,
+        path="binding_surface_facts",
+    )
+    base_binding = diffs.diff_reference.binding_facts if diffs.diff_reference else None
+    if base_binding is None:
+        public_binding_diff = BindingSurfaceDiff(
+            enabled=False,
+            base_report_schema_version=(
+                diffs.diff_reference.report_schema_version if diffs.diff_reference else None
+            ),
+            notes=[
+                "Binding diff requires a report_schema_version 0.31 base report."
+            ] if diffs.diff_reference is not None else [],
+        )
+    else:
+        current_handoffs = {
+            f"{edge.source_agent_id}->{edge.target_agent_id}:{edge.edge_type}"
+            for edge in public_binding_graph.handoff_edges
+        }
+        base_handoffs = {
+            f"{edge.source_agent_id}->{edge.target_agent_id}:{edge.edge_type}"
+            for edge in base_binding.handoff_edges
+        }
+        public_binding_diff = BindingSurfaceDiff(
+            enabled=True,
+            base_report_schema_version=diffs.diff_reference.report_schema_version,
+            added_reachable_tool_ids=sorted(
+                set(public_binding_graph.reachable_tool_ids)
+                - set(base_binding.reachable_tool_ids)
+            ),
+            removed_reachable_tool_ids=sorted(
+                set(base_binding.reachable_tool_ids)
+                - set(public_binding_graph.reachable_tool_ids)
+            ),
+            added_handoffs=sorted(current_handoffs - base_handoffs),
+            removed_handoffs=sorted(base_handoffs - current_handoffs),
+        )
     public_findings = sanitize_findings(decision.findings, stats=privacy_stats)
     assign_finding_ids(public_findings)
     public_capability_runtime_evidence = sanitize_model(
@@ -310,6 +352,9 @@ def _sanitize_for_output(
         environment=public_environment,
         agent=public_agent,
         tools=public_tools,
+        tool_catalog=public_tool_catalog,
+        binding_graph=public_binding_graph,
+        binding_surface_diff=public_binding_diff,
         findings=public_findings,
         source_warnings=public_source_warnings,
         api_artifacts=public_api_artifacts,

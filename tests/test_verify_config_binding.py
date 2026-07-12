@@ -485,9 +485,9 @@ def test_config_binding_removal_routes_to_review(tmp_path):
         verification_context=VerificationContext(changed_files=["support_agent.py"]),
         packet_enabled=False,
     )
-    # The statically-visible binding removal lifts the verdict out of silent
-    # insufficient_evidence parity.
-    assert head_report.release_decision.decision in {"blocked", "review_required"}
+    # The statically-visible removal remains fail-closed: without a complete
+    # root-reachable graph, the named concern cannot become a pass.
+    assert head_report.release_decision.decision == "insufficient_evidence"
     gating = {
         item.check_id
         for item in [

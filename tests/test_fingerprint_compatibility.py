@@ -10,7 +10,6 @@ from agents_shipgate.core.findings.identity import (
 from agents_shipgate.schemas.report import Finding
 
 V015_FINGERPRINTS = {
-    ("SHIP-INVENTORY-WILDCARD-TOOLS", "wildcard_mcp_tools.*"): "fp_fc02d8ecd30f2578",
     ("SHIP-SCHEMA-MISSING-BOUNDS", "stripe.create_refund"): "fp_ab60b01cb53cfcbe",
     ("SHIP-SCHEMA-BROAD-FREE-TEXT", "zendesk.update_ticket"): "fp_ff2f028953d1c220",
     ("SHIP-SCHEMA-BROAD-FREE-TEXT", "gmail.send_customer_email"): "fp_acd63b899d49aa1c",
@@ -37,6 +36,8 @@ def test_v015_unchanged_finding_fingerprints_remain_stable(tmp_path: Path) -> No
         for finding in report.findings
     }
     assert {key: observed.get(key) for key in V015_FINGERPRINTS} == V015_FINGERPRINTS
+    assert any(row["name"] == "wildcard_mcp_tools.*" for row in report.tool_catalog)
+    assert all(row["name"] != "wildcard_mcp_tools.*" for row in report.tool_inventory)
 
 
 def test_v015_freeform_output_fingerprint_remains_stable_after_sample_migration() -> None:

@@ -463,7 +463,9 @@ def test_verify_real_base_scan_enables_head_diff(tmp_path: Path) -> None:
         (repo / "agents-shipgate-reports" / "report.json").read_text(encoding="utf-8")
     )
     assert report_payload["tool_surface_diff"]["enabled"] is True
-    assert report_payload["tool_surface_diff"]["summary"]["tools_added"] == 1
+    assert report_payload["tool_surface_diff"]["summary"]["tools_added"] == 0
+    assert len(report_payload["tool_catalog"]) == 1
+    assert report_payload["release_decision"]["decision"] == "insufficient_evidence"
 
 
 def test_pr_comment_keeps_code_span_values_unescaped() -> None:

@@ -24,6 +24,7 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import CapabilityRuntimeEvidence
@@ -52,6 +53,8 @@ class ScanContext:
     agent: Agent
     tools: list[Tool]
     config_path: Path
+    tool_catalog: list[Tool] = field(default_factory=list)
+    binding_graph: AgentBindingGraphAssessment | None = None
     framework_artifacts: ArtifactBag = field(default_factory=ArtifactBag)
     action_surface_facts: ActionSurfaceFacts = field(default_factory=ActionSurfaceFacts)
     capability_facts: list[CapabilityFactV1] = field(default_factory=list)

@@ -79,7 +79,7 @@ def test_runner_executes_selected_case_deterministically(tmp_path: Path) -> None
     assert first.summary.selected_cases == 1
     assert first.summary.passed_cases == 1
     assert first.cases[0].actual is not None
-    assert first.cases[0].actual.merge_verdict == "mergeable"
+    assert first.cases[0].actual.merge_verdict == "human_review_required"
     assert first.cases[0].capability_diff is not None
     assert first.cases[0].capability_diff.added == 1
 
@@ -97,11 +97,11 @@ def test_full_executable_governance_benchmark_passes(tmp_path: Path) -> None:
     assert result.summary.selected_cases == 10
     assert result.summary.failed_cases == 0
     assert {metric.metric: metric.total for metric in result.metrics} == {
-        "authority_routing": 6,
+        "authority_routing": 8,
         "capability_semantic_fidelity": 6,
         "explanation_usefulness": 10,
         "remediation_boundary": 6,
-        "safe_pass_rate": 4,
+        "safe_pass_rate": 2,
         "unsafe_merge_prevention": 4,
     }
 
@@ -227,7 +227,7 @@ def test_governance_benchmark_schemas_validate_catalog_and_result(tmp_path: Path
 
 
 def test_governance_benchmark_preserves_public_schema_boundaries() -> None:
-    assert ReadinessReport.model_fields["report_schema_version"].default == "0.30"
-    assert CAPABILITY_LOCK_SCHEMA_VERSION == "0.4"
-    assert CAPABILITY_LOCK_DIFF_SCHEMA_VERSION == "0.5"
+    assert ReadinessReport.model_fields["report_schema_version"].default == "0.31"
+    assert CAPABILITY_LOCK_SCHEMA_VERSION == "0.5"
+    assert CAPABILITY_LOCK_DIFF_SCHEMA_VERSION == "0.6"
     assert GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION == "0.2"

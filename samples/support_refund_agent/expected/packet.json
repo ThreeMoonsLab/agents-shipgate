@@ -69,8 +69,7 @@
       "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
       "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
       "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
-      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
-      "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac"
+      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
     ],
     "tools": [
       "shopify.cancel_order",
@@ -79,8 +78,7 @@
       "refund_status_lookup",
       "stripe.create_refund",
       "zendesk.update_ticket",
-      "gmail.send_customer_email",
-      "wildcard_mcp_tools.*"
+      "gmail.send_customer_email"
     ]
   },
   "approval_coverage": {
@@ -102,7 +100,7 @@
           "pointer": "/policies/require_approval_for_tools",
           "ref": "shipgate.yaml#/policies/require_approval_for_tools",
           "start_column": null,
-          "start_line": 64,
+          "start_line": 82,
           "type": "manifest"
         },
         "severity": "critical",
@@ -218,8 +216,7 @@
       "tool_v2_61891eb768365da25408e00518646b94299be76989cba28407f47015112f86be",
       "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
       "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
-      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
-      "tool_v2_f21044a7610ceecc48cc135e8454cad369c1f60958e269277a05bc4812629fac"
+      "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
     ],
     "observed_tools": [
       "gmail.send_customer_email",
@@ -228,7 +225,6 @@
       "shopify.cancel_order",
       "stripe.create_refund",
       "support.search_kb",
-      "wildcard_mcp_tools.*",
       "zendesk.update_ticket"
     ],
     "prohibited_actions": [
@@ -255,7 +251,6 @@
           "shopify.cancel_order",
           "stripe.create_refund",
           "support.search_kb",
-          "wildcard_mcp_tools.*",
           "zendesk.update_ticket"
         ]
       },
@@ -314,13 +309,6 @@
         ],
         "scenario": "Manual review for SHIP-AUTH-SCOPE-COVERAGE-MISSING",
         "why": "Add the required scopes for shopify.cancel_order to permissions.scopes or narrow the tool's declared auth requirements."
-      },
-      {
-        "finding_ids": [
-          "fp_a00e34cdb33a5596"
-        ],
-        "scenario": "Manual review for SHIP-INVENTORY-WILDCARD-TOOLS",
-        "why": "Replace wildcard tool exposure with an explicit tool allowlist before release review."
       },
       {
         "finding_ids": [
@@ -401,42 +389,16 @@
     "rows": [
       {
         "blocking_findings": [],
-        "confidence": "high",
+        "confidence": "medium",
         "domain": "Inventory",
-        "evidence_present": "partial",
+        "evidence_present": "covered",
         "evidence_source": [
           "tool_inventory",
           "tool_surface",
-          "source_warnings",
-          "findings[]"
+          "source_warnings"
         ],
-        "missing_controls": [
-          "SHIP-INVENTORY-WILDCARD-TOOLS on wildcard_mcp_tools.*: Wildcard tool exposure declared"
-        ],
-        "review_items": [
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
-            "fingerprint": "fp_a00e34cdb33a5596",
-            "id": "fp_a00e34cdb33a5596",
-            "policy_evidence_source": null,
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": ".agents-shipgate/wildcard-tools.json",
-              "pointer": "/wildcard",
-              "ref": ".agents-shipgate/wildcard-tools.json",
-              "start_column": null,
-              "start_line": null,
-              "type": "mcp"
-            },
-            "title": "Wildcard tool exposure declared"
-          }
-        ]
+        "missing_controls": [],
+        "review_items": []
       },
       {
         "blocking_findings": [],
@@ -557,7 +519,7 @@
               "pointer": "/permissions/scopes",
               "ref": "shipgate.yaml",
               "start_column": null,
-              "start_line": 73,
+              "start_line": 91,
               "type": "manifest"
             },
             "title": "Manifest declares broad permission scopes"
@@ -693,7 +655,7 @@
               "pointer": "/policies/require_approval_for_tools",
               "ref": "shipgate.yaml#/policies/require_approval_for_tools",
               "start_column": null,
-              "start_line": 64,
+              "start_line": 82,
               "type": "manifest"
             },
             "severity": "critical",
@@ -776,7 +738,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 67,
+              "start_line": 85,
               "type": "manifest"
             },
             "severity": "high",
@@ -809,7 +771,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 67,
+              "start_line": 85,
               "type": "manifest"
             },
             "severity": "high",
@@ -844,7 +806,7 @@
               "pointer": "/policies/require_idempotency_for_tools",
               "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
               "start_column": null,
-              "start_line": 69,
+              "start_line": 87,
               "type": "manifest"
             },
             "severity": "critical",
@@ -916,7 +878,7 @@
               "pointer": "/policies/require_approval_for_tools",
               "ref": "shipgate.yaml#/policies/require_approval_for_tools",
               "start_column": null,
-              "start_line": 64,
+              "start_line": 82,
               "type": "manifest"
             },
             "severity": "critical",
@@ -947,7 +909,7 @@
               "pointer": "/policies/require_idempotency_for_tools",
               "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
               "start_column": null,
-              "start_line": 69,
+              "start_line": 87,
               "type": "manifest"
             },
             "severity": "critical",
@@ -1111,7 +1073,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 67,
+              "start_line": 85,
               "type": "manifest"
             },
             "severity": "high",
@@ -1144,7 +1106,7 @@
               "pointer": "/policies/require_confirmation_for_tools",
               "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
               "start_column": null,
-              "start_line": 67,
+              "start_line": 85,
               "type": "manifest"
             },
             "severity": "high",
@@ -1407,7 +1369,7 @@
         "tool_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
       }
     ],
-    "total_tools": 8
+    "total_tools": 7
   },
   "human_in_the_loop": {
     "approval_required_tools": [
@@ -1452,7 +1414,7 @@
           "pointer": "/policies/require_idempotency_for_tools",
           "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
           "start_column": null,
-          "start_line": 69,
+          "start_line": 87,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1527,7 +1489,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.9",
+  "packet_schema_version": "0.10",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -1559,7 +1521,7 @@
           "pointer": "/policies/require_approval_for_tools",
           "ref": "shipgate.yaml#/policies/require_approval_for_tools",
           "start_column": null,
-          "start_line": 64,
+          "start_line": 82,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1590,7 +1552,7 @@
           "pointer": "/policies/require_idempotency_for_tools",
           "ref": "shipgate.yaml#/policies/require_idempotency_for_tools",
           "start_column": null,
-          "start_line": 69,
+          "start_line": 87,
           "type": "manifest"
         },
         "severity": "critical",
@@ -1675,90 +1637,209 @@
     ],
     "decision": "blocked",
     "evidence_coverage": {
+      "binding_coverage": {
+        "gap_count": 1,
+        "pass_eligible": false,
+        "possible_tools": 0,
+        "reachable_tools": 7,
+        "reason_counts": {
+          "conflicting_binding_evidence": 1
+        },
+        "total_catalog_tools": 8,
+        "unbound_tools": 1
+      },
       "evidence_gaps": [
         {
-          "kind": "incomplete_surface",
+          "kind": "conflicting_binding_evidence",
           "next_action": {
             "accepted_values": [
-              "complete_mcp_export",
-              "openapi_spec",
-              "reviewed_explicit_inventory"
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": {
+              "agent_bindings": {
+                "declarations": [
+                  {
+                    "agent": "root",
+                    "complete": true,
+                    "handoffs": [],
+                    "reason": "<REVIEW_REQUIRED>",
+                    "tools": []
+                  }
+                ],
+                "root": {
+                  "object": "<REVIEW_REQUIRED>",
+                  "source_id": "<REVIEW_REQUIRED>"
+                }
+              }
+            },
+            "expects": "Reconcile the declaration with positive structural evidence and rerun verification.",
+            "kind": "resolve_binding_conflict",
+            "path": "shipgate.yaml#agent_bindings.declarations",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "A complete root-reachable static binding graph is required for passed."
+          },
+          "source_ref": "/agent_bindings/declarations/0",
+          "source_type": null,
+          "subject": "agent_v1:7cb237a00d64b7400f4adc3b",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "next_action": {
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
             ],
             "auto_apply": false,
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
             "declaration_template": null,
-            "expects": "Provide a complete MCP export, OpenAPI spec, or reviewed explicit tool inventory, then rerun verification.",
-            "kind": "provide_complete_inventory",
-            "path": "shipgate.yaml#tool_sources",
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "kind": "resolve_binding_conflict",
+            "path": "shipgate.yaml#agent_bindings",
             "requires_human_review": true,
             "suggested_patch_kind": "manual",
-            "why": "The complete statically-bound tool surface must be enumerable."
+            "why": "Conflicting binding evidence cannot be auto-resolved."
           },
-          "source_ref": "/wildcard",
+          "source_ref": "/agent_bindings/declarations/0",
           "source_type": "mcp",
-          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
-          "why": "tool surface enumeration is incomplete or not high confidence"
+          "subject": "gmail.send_customer_email [support_mcp_tools]",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
         },
         {
-          "kind": "missing_authority_evidence",
+          "kind": "conflicting_binding_evidence",
           "next_action": {
             "accepted_values": [
-              "none",
-              "scoped",
-              "unscoped",
-              "ambient"
+              "match_structural_graph",
+              "correct_source_wiring"
             ],
             "auto_apply": false,
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "declaration_template": {
-              "authority": {
-                "mode": "<REVIEW_REQUIRED>"
-              },
-              "tool": "wildcard_mcp_tools.*"
-            },
-            "expects": "Declare reviewed authority under action_surface.actions in shipgate.yaml, then rerun verification.",
-            "kind": "declare_action_authority",
-            "path": "shipgate.yaml#action_surface.actions[tool='wildcard_mcp_tools.*']",
+            "declaration_template": null,
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "kind": "resolve_binding_conflict",
+            "path": "shipgate.yaml#agent_bindings",
             "requires_human_review": true,
             "suggested_patch_kind": "manual",
-            "why": "A complete authority mode and grant are required."
+            "why": "Conflicting binding evidence cannot be auto-resolved."
           },
-          "source_ref": "/wildcard",
-          "source_type": "mcp",
-          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
-          "why": "tool has no explicit or structural authority evidence"
+          "source_ref": "/agent_bindings/declarations/0",
+          "source_type": "openapi",
+          "subject": "refund_status_lookup [support_openapi]",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
         },
         {
-          "kind": "missing_effect_evidence",
+          "kind": "conflicting_binding_evidence",
           "next_action": {
             "accepted_values": [
-              "read",
-              "write",
-              "destructive",
-              "external_communication",
-              "financial_write",
-              "production_operation",
-              "privileged_data_access",
-              "code_execution",
-              "identity_access"
+              "match_structural_graph",
+              "correct_source_wiring"
             ],
             "auto_apply": false,
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "declaration_template": {
-              "effect": "<REVIEW_REQUIRED>",
-              "tool": "wildcard_mcp_tools.*"
-            },
-            "expects": "Declare the conservative effect under action_surface.actions in shipgate.yaml, then rerun verification.",
-            "kind": "declare_action_effect",
-            "path": "shipgate.yaml#action_surface.actions[tool='wildcard_mcp_tools.*']",
+            "declaration_template": null,
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "kind": "resolve_binding_conflict",
+            "path": "shipgate.yaml#agent_bindings",
             "requires_human_review": true,
             "suggested_patch_kind": "manual",
-            "why": "A reviewed or structural effect is required for an evidence-backed pass."
+            "why": "Conflicting binding evidence cannot be auto-resolved."
           },
-          "source_ref": "/wildcard",
+          "source_ref": "/agent_bindings/declarations/0",
           "source_type": "mcp",
-          "subject": "wildcard_mcp_tools.* [wildcard_mcp_tools]",
-          "why": "MCP tool has no explicit or structural effect evidence"
+          "subject": "send_email_preview [openai_sdk_static]",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "next_action": {
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "kind": "resolve_binding_conflict",
+            "path": "shipgate.yaml#agent_bindings",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Conflicting binding evidence cannot be auto-resolved."
+          },
+          "source_ref": "/agent_bindings/declarations/0",
+          "source_type": "openapi",
+          "subject": "shopify.cancel_order [support_openapi]",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "next_action": {
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "kind": "resolve_binding_conflict",
+            "path": "shipgate.yaml#agent_bindings",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Conflicting binding evidence cannot be auto-resolved."
+          },
+          "source_ref": "/agent_bindings/declarations/0",
+          "source_type": "openapi",
+          "subject": "stripe.create_refund [support_openapi]",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "next_action": {
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "kind": "resolve_binding_conflict",
+            "path": "shipgate.yaml#agent_bindings",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Conflicting binding evidence cannot be auto-resolved."
+          },
+          "source_ref": "/agent_bindings/declarations/0",
+          "source_type": "mcp",
+          "subject": "support.search_kb [support_mcp_tools]",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
+        },
+        {
+          "kind": "conflicting_binding_evidence",
+          "next_action": {
+            "accepted_values": [
+              "match_structural_graph",
+              "correct_source_wiring"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Reconcile positive structural evidence and reviewed declarations, then rerun verification.",
+            "kind": "resolve_binding_conflict",
+            "path": "shipgate.yaml#agent_bindings",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Conflicting binding evidence cannot be auto-resolved."
+          },
+          "source_ref": "/agent_bindings/declarations/0",
+          "source_type": "openapi",
+          "subject": "zendesk.update_ticket [support_openapi]",
+          "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
         },
         {
           "kind": "source_warning",
@@ -1784,25 +1865,23 @@
       "identity_coverage": {
         "ambiguous_name_count": 0,
         "bound_tools": 1,
-        "canonical_tools": 8,
+        "canonical_tools": 7,
         "gap_count": 0,
-        "pass_eligible_tools": 8,
+        "pass_eligible_tools": 7,
         "reason_counts": {},
-        "total_observations": 9
+        "total_observations": 8
       },
       "level": "static",
       "low_confidence_tool_count": 0,
       "semantic_coverage": {
-        "gap_count": 3,
-        "pass_eligible_actions": 6,
+        "gap_count": 7,
+        "pass_eligible_actions": 0,
         "reason_counts": {
-          "incomplete_surface": 1,
-          "missing_authority_evidence": 1,
-          "missing_effect_evidence": 1,
+          "conflicting_binding_evidence": 7,
           "unscoped_authority": 1
         },
         "review_concern_count": 1,
-        "total_actions": 8
+        "total_actions": 7
       },
       "source_warning_count": 1
     },
@@ -1815,28 +1894,6 @@
     },
     "reason": "5 active findings block release.",
     "review_items": [
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-INVENTORY-WILDCARD-TOOLS",
-        "fingerprint": "fp_a00e34cdb33a5596",
-        "id": "fp_a00e34cdb33a5596",
-        "policy_evidence_source": null,
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": ".agents-shipgate/wildcard-tools.json",
-          "pointer": "/wildcard",
-          "ref": ".agents-shipgate/wildcard-tools.json",
-          "start_column": null,
-          "start_line": null,
-          "type": "mcp"
-        },
-        "title": "Wildcard tool exposure declared"
-      },
       {
         "baseline_status": null,
         "blocks_release": false,
@@ -1920,7 +1977,7 @@
           "pointer": "/permissions/scopes",
           "ref": "shipgate.yaml",
           "start_column": null,
-          "start_line": 73,
+          "start_line": 91,
           "type": "manifest"
         },
         "title": "Manifest declares broad permission scopes"
@@ -2092,7 +2149,7 @@
           "pointer": "/policies/require_confirmation_for_tools",
           "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
           "start_column": null,
-          "start_line": 67,
+          "start_line": 85,
           "type": "manifest"
         },
         "severity": "high",
@@ -2125,7 +2182,7 @@
           "pointer": "/policies/require_confirmation_for_tools",
           "ref": "shipgate.yaml#/policies/require_confirmation_for_tools",
           "start_column": null,
-          "start_line": 67,
+          "start_line": 85,
           "type": "manifest"
         },
         "severity": "high",
@@ -2191,7 +2248,7 @@
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "verdict": "BLOCKED"
   },
-  "run_id": "agents_shipgate_7429a94499efb630",
+  "run_id": "agents_shipgate_5ad1a92a984aacac",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

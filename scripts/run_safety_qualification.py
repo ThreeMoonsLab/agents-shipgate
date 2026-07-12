@@ -331,6 +331,26 @@ def _evaluate_receipt(
             or semantic_coverage["pass_eligible_actions"] != semantic_coverage["total_actions"]
         ):
             raise ValueError("passed receipt violates evidence-backed pass invariants")
+        binding_coverage = evidence_coverage.get("binding_coverage")
+        if not isinstance(binding_coverage, dict):
+            raise ValueError("qualification report is missing binding_coverage")
+        required_binding_fields = {
+            "total_catalog_tools",
+            "reachable_tools",
+            "possible_tools",
+            "unbound_tools",
+            "pass_eligible",
+            "gap_count",
+            "reason_counts",
+        }
+        if not required_binding_fields.issubset(binding_coverage):
+            raise ValueError("qualification report binding_coverage is incomplete")
+        if receipt_decision == "passed" and (
+            binding_coverage["gap_count"] != 0
+            or binding_coverage["possible_tools"] != 0
+            or binding_coverage["pass_eligible"] is not True
+        ):
+            raise ValueError("passed receipt violates binding-backed pass invariants")
         return receipt_decision, receipt_hash, []
     except (OSError, UnicodeError, json.JSONDecodeError, ValidationError, ValueError) as exc:
         errors.append(str(exc))

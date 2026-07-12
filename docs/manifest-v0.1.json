@@ -552,6 +552,98 @@
       "title": "ActionSurfaceConfig",
       "type": "object"
     },
+    "AgentBindingDeclarationConfig": {
+      "additionalProperties": false,
+      "description": "Reviewed, closed-world tool and handoff set for one agent.",
+      "properties": {
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "complete": {
+          "const": true,
+          "default": true,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "handoffs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Handoffs",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/BoundToolSelectorConfig"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "agent",
+        "reason"
+      ],
+      "title": "AgentBindingDeclarationConfig",
+      "type": "object"
+    },
+    "AgentBindingRootConfig": {
+      "additionalProperties": false,
+      "description": "Exact selector for the statically reviewed root agent.",
+      "properties": {
+        "object": {
+          "title": "Object",
+          "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        }
+      },
+      "required": [
+        "object"
+      ],
+      "title": "AgentBindingRootConfig",
+      "type": "object"
+    },
+    "AgentBindingsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "declarations": {
+          "items": {
+            "$ref": "#/$defs/AgentBindingDeclarationConfig"
+          },
+          "title": "Declarations",
+          "type": "array"
+        },
+        "root": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentBindingRootConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AgentBindingsConfig",
+      "type": "object"
+    },
     "AgentConfig": {
       "additionalProperties": false,
       "properties": {
@@ -743,6 +835,69 @@
         }
       },
       "title": "BaselineConfig",
+      "type": "object"
+    },
+    "BoundToolSelectorConfig": {
+      "additionalProperties": false,
+      "description": "One canonical tool selector inside a reviewed binding declaration.",
+      "properties": {
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Id"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "BoundToolSelectorConfig",
       "type": "object"
     },
     "ChecksConfig": {
@@ -2214,6 +2369,9 @@
     },
     "agent": {
       "$ref": "#/$defs/AgentConfig"
+    },
+    "agent_bindings": {
+      "$ref": "#/$defs/AgentBindingsConfig"
     },
     "anthropic": {
       "anyOf": [

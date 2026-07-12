@@ -23,6 +23,16 @@ anthropic:
   policy_rules:
     - path: policies/anthropic-policy.yaml
 
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: create_refund}
+        - {tool: get_help_article}
+      handoffs: []
+      reason: reviewed Anthropic Messages fixture binding
+
 action_surface:
   actions:
     - tool: create_refund

@@ -17,6 +17,7 @@ from agents_shipgate.schemas.capability_semantics import (
 
 SEMANTIC_CAPABILITY_HASH_FIELDS: tuple[CapabilityHashName, ...] = (
     "identity_hash",
+    "binding_hash",
     "effect_hash",
     "authority_hash",
     "control_hash",
@@ -668,6 +669,7 @@ def _semantic_direction(
 def _hash_name_explained(name: CapabilityHashName, fields: set[str]) -> bool:
     prefixes = {
         "identity_hash": ("identity.",),
+        "binding_hash": ("semantic_assessment.binding.",),
         "effect_hash": ("effect.",),
         "authority_hash": ("authority.",),
         "control_hash": ("controls.",),

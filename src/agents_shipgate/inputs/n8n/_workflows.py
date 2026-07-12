@@ -269,6 +269,11 @@ def _extract_workflow(
         for item in active_node_items
         if item.name and _node_kind(item.node_type) == "mcp_server_trigger"
     }
+    ai_agent_names = {
+        item.name
+        for item in active_node_items
+        if item.name and _node_kind(item.node_type) == "ai_agent"
+    }
     human_review_names = {
         item.name for item in active_node_items if item.name and _is_human_review_node(item)
     }
@@ -346,6 +351,7 @@ def _extract_workflow(
                 node_by_id=node_by_id,
                 node_by_name=node_by_name,
                 record_node_findings=index == 0,
+                bound_agent_names=sorted(set(targets) & ai_agent_names),
             )
             tools.extend(extracted)
 

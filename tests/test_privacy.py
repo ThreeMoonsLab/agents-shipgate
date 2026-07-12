@@ -284,6 +284,15 @@ tool_sources:
     type: openapi
     path: openapi.yaml
     optional: false
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: refund_{raw_secret}
+          source_id: openapi
+      handoffs: []
+      reason: reviewed privacy fixture binding
 """,
         encoding="utf-8",
     )
@@ -398,6 +407,17 @@ tool_sources:
     type: openapi
     path: openapi.yaml
     optional: false
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - tool: "send_{raw_one}"
+          source_id: openapi
+        - tool: "send_{raw_two}"
+          source_id: openapi
+      handoffs: []
+      reason: reviewed privacy fixture bindings
 """,
         encoding="utf-8",
     )

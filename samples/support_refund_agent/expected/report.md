@@ -16,8 +16,7 @@ Blockers (5):
 - HIGH SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING — stripe.create\_refund has external communication capability without required controls
 - CRITICAL SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING — stripe.create\_refund has financial write capability without required controls
 
-Review items (15):
-- HIGH SHIP-INVENTORY-WILDCARD-TOOLS — Wildcard tool exposure declared
+Review items (14):
 - HIGH SHIP-SCHEMA-MISSING-BOUNDS — stripe.create\_refund.amount has no maximum bound
 - HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — zendesk.update\_ticket accepts broad free-form action input
 - HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — gmail.send\_customer\_email accepts broad free-form action input
@@ -33,7 +32,7 @@ Review items (15):
 - HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — shopify.cancel\_order is high-risk but has no owner
 - MEDIUM SHIP-MANIFEST-UNUSED-SCOPE — Manifest declares unused permission scope zendesk:tickets:read
 
-Evidence coverage: static (1 source warning(s); 3 semantic evidence gap(s); 1 semantic review concern(s); 6/8 actions pass-eligible; human review recommended)
+Evidence coverage: static (1 source warning(s); 1 binding evidence gap(s); 7/8 catalog tools reachable; 7 semantic evidence gap(s); 1 semantic review concern(s); 0/7 actions pass-eligible; human review recommended)
 
 Baseline delta: not enabled
 
@@ -42,7 +41,7 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 ## Summary
 
 - Critical: 3
-- High: 16
+- High: 15
 - Medium: 1
 - Low: 0
 - Suppressed: 0
@@ -76,7 +75,7 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 
 | Provenance kind | Active findings |
 | --- | ---: |
-| `static_declaration` | 15 |
+| `static_declaration` | 14 |
 | `ast_extraction` | 0 |
 | `keyword_heuristic` | 5 |
 | `regex_heuristic` | 0 |
@@ -103,7 +102,7 @@ Actual capabilities:
 - shopify.cancel\_order: capability=destructive, risk=destructive, write, control=missing
 - stripe.create\_refund: capability=financial\_action, risk=external\_write, financial\_action, write, control=missing
 - support.search\_kb: capability=read\_only, risk=read\_only, control=missing
-- 2 more in report.json
+- 1 more in report.json
 
 Policy/control gaps:
 
@@ -122,7 +121,7 @@ Policy/control gaps:
 - HIGH control\_missing \[shopify.cancel\_order\]: shopify.cancel\_order is high-risk but has no owner. (at specs/support-tools.openapi.yaml:116)
   Requires: Manifest metadata must match the active release surface.
   Release implication: Release review metadata is incomplete or stale.
-- 15 more in report.json
+- 14 more in report.json
 
 Release implication:
 
@@ -135,8 +134,8 @@ Next validation:
 - Approval gate for high-risk action: The run records human approval before the tool call and denies calls without approval.
 - Tool schema boundary check: The tool accepts bounded structured inputs and returns structured outputs where needed.
 - High-risk tool validation case: A declared test or review scenario covers the high-risk tool path.
-- Explicit tool inventory review: The release exposes a static allowlist instead of wildcard or unbounded tools.
-- 3 more in report.json
+- Confirmation gate for external or destructive action: The run records explicit confirmation before the side effect occurs.
+- 2 more in report.json
 
 ## Recommended Next Actions
 
@@ -155,11 +154,11 @@ Next validation:
 
 ## Tool Surface Summary
 
-- Total tools: 8
+- Total tools: 7
 - High-risk tools: 3
-- Wildcard tools: 1
+- Wildcard tools: 0
 - Missing descriptions: 0
-- Sources: mcp=4, openapi=4
+- Sources: mcp=3, openapi=4
 
 ## Action Surface Diff
 
@@ -191,10 +190,6 @@ No local runtime trace artifacts were declared for capability evidence.
 - HIGH: SHIP-AUTH-SCOPE-COVERAGE-MISSING [shopify.cancel\_order] - shopify.cancel\_order requires scopes not declared in the manifest
 - HIGH: SHIP-AUTH-SCOPE-COVERAGE-MISSING [support.search\_kb] - support.search\_kb requires scopes not declared in the manifest
 
-### Inventory
-
-- HIGH: SHIP-INVENTORY-WILDCARD-TOOLS [wildcard\_mcp\_tools.\*] - Wildcard tool exposure declared
-
 ### Manifest
 
 - HIGH: SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING [shopify.cancel\_order] - shopify.cancel\_order is high-risk but has no owner
@@ -221,7 +216,21 @@ No local runtime trace artifacts were declared for capability evidence.
 
 - CRITICAL: SHIP-SIDEFX-IDEMPOTENCY-MISSING [stripe.create\_refund] - stripe.create\_refund lacks idempotency evidence
 
-## Appendix: Normalized Tool Inventory
+## Agent Binding Surface
+
+Status: conflicting
+Root agent: agent\_v1:7cb237a00d64b7400f4adc3b
+Pass eligible: false
+Catalog partition: 7 reachable, 0 possible, 1 unbound
+
+Binding gaps:
+- `conflicting\_binding\_evidence` — Closed-world declaration for 'root' does not match the complete structural tool set.
+
+### Unbound Catalog Entries
+
+- `wildcard\_mcp\_tools.\*` (mcp)
+
+## Appendix: Root-Reachable Tool Inventory
 
 | Tool | Source | Risk Tags | Risk Confidence | Auth Scopes | Owner |
 | --- | --- | --- | --- | --- | --- |
@@ -232,7 +241,6 @@ No local runtime trace artifacts were declared for capability evidence.
 | stripe.create\_refund | openapi | external\_write, financial\_action, write | external\_write=high, financial\_action=high, write=high | stripe:refunds:write | payments-platform |
 | zendesk.update\_ticket | openapi | write | write=high | zendesk:tickets:write | \- |
 | gmail.send\_customer\_email | mcp | customer\_communication, external\_write | customer\_communication=high, external\_write=high | gmail:send | support-platform |
-| wildcard\_mcp\_tools.\* | mcp | \- | \- | \- | \- |
 
 
 ## Disclaimer

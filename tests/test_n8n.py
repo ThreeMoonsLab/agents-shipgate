@@ -223,12 +223,9 @@ n8n:
     frameworks = report.frameworks["n8n"]
     assert frameworks["mcp_server_trigger_count"] == 1
     assert frameworks["mcp_server_exposed_tool_count"] == 1
-    tool = next(item for item in report.tool_inventory if item["name"] == "Lookup Case")
+    tool = next(item for item in report.tool_catalog if item["name"] == "Lookup Case")
     assert tool["source_type"] == "mcp"
-    loaded_tool = next(
-        item for item in report.tool_surface_facts.tools if item.name == "Lookup Case"
-    )
-    assert loaded_tool.source_type == "mcp"
+    assert report.tool_inventory == []
 
 
 def test_n8n_directory_mode_filters_non_workflows_and_is_deterministic(tmp_path):
@@ -264,7 +261,7 @@ n8n:
 
     assert report.frameworks["n8n"]["workflow_file_count"] == 2
     assert [
-        tool["name"] for tool in report.tool_inventory if tool["name"] in {"A Tool", "B Tool"}
+        tool["name"] for tool in report.tool_catalog if tool["name"] in {"A Tool", "B Tool"}
     ] == [
         "A Tool",
         "B Tool",
@@ -531,22 +528,12 @@ n8n:
         ci_mode="advisory",
     )
 
-    shared_tools = [
-        tool for tool in report.tool_surface_facts.tools if tool.name == "shared_delete"
-    ]
+    shared_tools = [tool for tool in report.tool_catalog if tool["name"] == "shared_delete"]
     assert len(shared_tools) == 2
     assert report.frameworks["n8n"]["human_review_node_count"] == 1
-    findings = [
-        finding
-        for finding in report.findings
-        if finding.check_id == "SHIP-POLICY-APPROVAL-MISSING"
-        and finding.tool_name == "shared_delete"
-    ]
-    assert len(findings) == 2
-    assert {finding.source.ref for finding in findings if finding.source is not None} == {
-        "workflows/a-reviewed.json#node:reviewed-tool",
-        "workflows/b-unreviewed.json#node:unreviewed-tool",
-    }
+    assert report.binding_surface_facts.status == "unknown"
+    assert report.tool_inventory == []
+    assert not [finding for finding in report.findings if finding.tool_name == "shared_delete"]
 
 
 def test_n8n_regular_code_node_bound_as_ai_tool_gets_code_execution_hint(tmp_path):
@@ -828,7 +815,7 @@ n8n:
     )
 
     inventory_entries = [
-        tool for tool in report.tool_inventory if tool["name"] == "lookup_customer"
+        tool for tool in report.tool_catalog if tool["name"] == "lookup_customer"
     ]
     assert len(inventory_entries) == 2
     assert {tool["source_ref"] for tool in inventory_entries} == {
@@ -871,7 +858,7 @@ n8n:
     )
 
     assert report.frameworks["n8n"]["workflow_count"] == 2
-    inventory = {tool["name"]: tool for tool in report.tool_inventory}
+    inventory = {tool["name"]: tool for tool in report.tool_catalog}
     assert inventory["alpha_tool"]["source_ref"] == "bundle.json#node:a-tool"
     assert inventory["beta_tool"]["source_ref"] == "bundle.json#node:b-tool"
 
@@ -1138,7 +1125,7 @@ n8n:
         ci_mode="advisory",
     )
 
-    entries = [tool for tool in report.tool_inventory if tool["name"] == "Dual Tool"]
+    entries = [tool for tool in report.tool_catalog if tool["name"] == "Dual Tool"]
     assert {tool["source_type"] for tool in entries} == {"mcp", "n8n_workflow_tool"}
     assert report.frameworks["n8n"]["ai_agent_count"] == 2
     assert report.frameworks["n8n"]["mcp_server_trigger_count"] == 1

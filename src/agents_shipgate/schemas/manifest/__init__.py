@@ -41,6 +41,12 @@ from agents_shipgate.schemas.manifest.agent import (
     AgentConfig,
     AgentSdkConfig,
 )
+from agents_shipgate.schemas.manifest.agent_bindings import (
+    AgentBindingDeclarationConfig,
+    AgentBindingRootConfig,
+    AgentBindingsConfig,
+    BoundToolSelectorConfig,
+)
 from agents_shipgate.schemas.manifest.anthropic import AnthropicConfig
 from agents_shipgate.schemas.manifest.baseline import (
     BaselineConfig,
@@ -126,6 +132,10 @@ __all__ = [
     # agent
     "AgentConfig",
     "AgentSdkConfig",
+    "AgentBindingDeclarationConfig",
+    "AgentBindingRootConfig",
+    "AgentBindingsConfig",
+    "BoundToolSelectorConfig",
     # root
     "AgentsShipgateManifest",
     # anthropic

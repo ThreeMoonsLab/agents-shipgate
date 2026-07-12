@@ -597,6 +597,20 @@ def _write_scan_project(
         },
         "environment": {"target": "production_like"},
         "tool_sources": [{"id": "tools", "type": "mcp", "path": "tools.json"}],
+        "agent_bindings": {
+            "declarations": [
+                {
+                    "agent": "root",
+                    "complete": True,
+                    "tools": [
+                        {"tool": str(tool["name"]), "source_id": "tools"}
+                        for tool in tools
+                    ],
+                    "handoffs": [],
+                    "reason": "reviewed exact P0 semantic canary surface",
+                }
+            ]
+        },
         "ci": {"mode": "advisory"},
         "output": {"directory": "reports", "formats": ["json"]},
     }

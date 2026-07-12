@@ -16,6 +16,15 @@ tool_sources:
     type: mcp
     path: tools.json
 
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: docs.lookup, source_id: docs_tools}
+      handoffs: []
+      reason: reviewed local fixture binding
+
 permissions:
   scopes:
     - docs:read

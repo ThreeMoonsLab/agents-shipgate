@@ -14,6 +14,33 @@ from ruamel.yaml.error import YAMLError
 from agents_shipgate.core.domain import ToolParameter
 from agents_shipgate.core.errors import InputParseError
 
+# These keys are authority-bearing inputs to the binding resolver. Catalog
+# formats may carry arbitrary extension metadata, so their loaders must never
+# pass these names through from source-controlled annotation dictionaries.
+RESERVED_BINDING_ANNOTATION_KEYS = frozenset(
+    {
+        "agent_bindings",
+        "agent_handoffs",
+        "adk_agent_name",
+        "adk_agent_source_id",
+        "binding_surface_partial",
+        "n8n_workflow_id",
+    }
+)
+
+
+def strip_untrusted_binding_annotations(
+    annotations: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Remove binding-resolver keys from an untrusted catalog annotation map."""
+
+    rejected = sorted(RESERVED_BINDING_ANNOTATION_KEYS.intersection(annotations))
+    return (
+        {key: value for key, value in annotations.items() if key not in rejected},
+        rejected,
+    )
+
+
 HTTP_METHODS = {"get", "put", "post", "delete", "patch", "options", "head", "trace"}
 MAX_INPUT_FILE_BYTES = 10 * 1024 * 1024
 CONVENTIONAL_TOOL_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,128}$")

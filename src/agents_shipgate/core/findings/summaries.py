@@ -91,6 +91,11 @@ def tool_inventory(tools: list[Tool]) -> list[dict[str, object]]:
                 if tool.semantic_assessment is not None
                 else None
             ),
+            "binding_assessment": (
+                tool.binding_assessment.model_dump(mode="json")
+                if tool.binding_assessment is not None
+                else None
+            ),
         }
         for tool in sorted(tools, key=lambda item: item.id)
     ]

@@ -6,12 +6,40 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
-from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.cli.scan import run_scan as _run_scan
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
 from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding
 
 runner = CliRunner()
+
+
+def run_scan(*args, **kwargs):
+    """Keep policy-pack fixtures focused on policy evaluation, not binding gaps."""
+
+    config_path = Path(kwargs["config_path"])
+    text = config_path.read_text(encoding="utf-8")
+    if (
+        "agent_bindings:" not in text
+        and "type: openapi" in text
+        and "path: openapi.yaml" in text
+        and (config_path.parent / "openapi.yaml").is_file()
+    ):
+        config_path.write_text(
+            text
+            + """
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: create_refund, source_id: api}
+      handoffs: []
+      reason: reviewed policy-pack fixture binding
+""",
+            encoding="utf-8",
+        )
+    return _run_scan(*args, **kwargs)
 
 ROUTING_EVIDENCE_KEYS = {
     "policy_owner",
@@ -880,6 +908,14 @@ tool_sources:
   - id: api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: create_refund, source_id: api}
+      handoffs: []
+      reason: reviewed policy-pack fixture binding
 """
 
 
