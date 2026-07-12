@@ -86,7 +86,7 @@ Verifier artifacts: `verifier_json` points at `verifier.json`, and
 The default PR comment style is `capability-review`: it leads with
 two sections: a human summary with `merge_verdict`, capability delta, next
 actor, and artifact links; then a fenced JSON agent instruction block with
-`first_next_action`, `fix_task`, and `agent_controller`. The underlying release
+`control.next_action`, `fix_task`, and `control`. The underlying release
 gate remains `report.json.release_decision.decision`. For one minor release
 cycle, existing adopters can set `pr_comment_style: findings` to keep the v1
 findings-oriented comment while updating downstream automation.

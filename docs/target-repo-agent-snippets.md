@@ -5,8 +5,10 @@ Agents Shipgate visible to coding agents working in that target repo, not only
 to agents reading the Agents Shipgate source repo.
 
 > The CLI plants these snippets for you. Run
-> `agents-shipgate init --write --ci --agent-instructions=default --json` for the
-> default downstream kit (`AGENTS.md`, `CLAUDE.md`, Cursor rule, Claude command,
+> `agents-shipgate init --write --json` for the minimal preview route. Add CI
+> and agent-instruction trust roots as separate reviewed changes. After review,
+> `init --write --agent-instructions=default` installs the full default
+> downstream kit (`AGENTS.md`, `CLAUDE.md`, Cursor rule, Claude command,
 > local contract, advisory CI), or pass an explicit subset such as
 > `--agent-instructions=agents-md,codex-skill`. Shared host files use managed
 > `<!-- agents-shipgate:start -->` blocks; full-file and skill-bundle targets
@@ -58,21 +60,24 @@ shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
-`shipgate.codex_boundary_result/v1`; switch on `decision`,
-`completion_allowed`, and `must_stop`, then follow `first_next_action`,
-`human_review`, `repair`, and `policy`. Do not infer a decision from prose.
+`shipgate.codex_boundary_result/v2`; switch on `control.state`, then follow
+`control.next_action`, `control.allowed_next_commands`, and
+`control.human_review`. Treat `decision` as diagnostic context, not as the
+operational control signal. Do not infer control from prose.
 
 Before finishing an agent-related diff, run `shipgate check`. If
-`decision=allow` or `warn`, continue and summarize. If `first_next_action.kind`
-is `repair` and `repair.safe_to_attempt=true`, make only the listed mechanical
-repair and rerun the command. If `human_review.required=true` or
-`must_stop=true`, stop and surface the JSON result to a human.
+`control.state=complete`, summarize the result and finish. If
+`control.state=agent_action_required`, perform only the exact coding-agent
+action and command authorized by `control.next_action`, then rerun the command.
+If `control.state=human_review_required`, stop and surface the JSON result to a
+human. Conversation-level acknowledgement never clears this state; only a new
+verifier artifact can do so.
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
-`gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
-`agents-shipgate-reports/verifier.json` for detailed controller context,
+`gate.merge_verdict`, `gate.can_merge_without_human`, and `control`; then read
+`agents-shipgate-reports/verifier.json` for detailed control context,
 `agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
 `agents-shipgate-reports/report.json.release_decision.decision` for the
 release gate.
@@ -162,21 +167,24 @@ shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
-`shipgate.codex_boundary_result/v1`; switch on `decision`,
-`completion_allowed`, and `must_stop`, then follow `first_next_action`,
-`human_review`, `repair`, and `policy`.
+`shipgate.codex_boundary_result/v2`; switch on `control.state`, then follow
+`control.next_action`, `control.allowed_next_commands`, and
+`control.human_review`. Treat `decision` as diagnostic context, not as the
+operational control signal.
 
 Before finishing an agent-related diff, run `shipgate check`. If
-`decision=allow` or `warn`, continue and summarize. If `first_next_action.kind`
-is `repair` and `repair.safe_to_attempt=true`, make only the listed mechanical
-repair and rerun the command. If `human_review.required=true` or
-`must_stop=true`, stop and surface the JSON result to a human.
+`control.state=complete`, summarize the result and finish. If
+`control.state=agent_action_required`, perform only the exact coding-agent
+action and command authorized by `control.next_action`, then rerun the command.
+If `control.state=human_review_required`, stop and surface the JSON result to a
+human. Conversation-level acknowledgement never clears this state; only a new
+verifier artifact can do so.
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
-`gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
-`agents-shipgate-reports/verifier.json` for detailed controller context,
+`gate.merge_verdict`, `gate.can_merge_without_human`, and `control`; then read
+`agents-shipgate-reports/verifier.json` for detailed control context,
 `agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
 `agents-shipgate-reports/report.json.release_decision.decision` for the
 release gate.
@@ -241,15 +249,17 @@ For local agent control, run:
   shipgate check --agent cursor --workspace . --format codex-boundary-json
 
 Read the check stdout JSON only. It is
-`shipgate.codex_boundary_result/v1`; switch on `decision`,
-`completion_allowed`, and `must_stop`, then follow `first_next_action`,
-`human_review`, `repair`, `policy`, and `verify_required`. Do not infer a decision from prose.
+`shipgate.codex_boundary_result/v2`; switch on `control.state`, then follow
+`control.next_action`, `control.allowed_next_commands`, and
+`control.human_review`. Treat `decision` as diagnostic context, not as the
+operational control signal. Do not infer control from prose.
 
-If `decision=allow` or `warn`, continue and summarize. If
-`first_next_action.kind` is `repair` and `repair.safe_to_attempt=true`, make
-only the listed mechanical repair and rerun the command. If
-`human_review.required=true` or `must_stop=true`, stop and surface the JSON
-result to a human.
+If `control.state=complete`, summarize the result and finish. If
+`control.state=agent_action_required`, perform only the exact coding-agent
+action and command authorized by `control.next_action`, then rerun the command.
+If `control.state=human_review_required`, stop and surface the JSON result to a
+human. Conversation-level acknowledgement never clears this state; only a new
+verifier artifact can do so.
 
 For local verification, run:
 
@@ -258,8 +268,8 @@ For local verification, run:
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
 fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
-`gate.merge_verdict`, `gate.can_merge_without_human`, and `controller`; then read
-`agents-shipgate-reports/verifier.json` for detailed controller context,
+`gate.merge_verdict`, `gate.can_merge_without_human`, and `control`; then read
+`agents-shipgate-reports/verifier.json` for detailed control context,
 `agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
 `agents-shipgate-reports/report.json.release_decision.decision` for the
 release gate.
@@ -384,11 +394,10 @@ Before claiming completion on any PR that changes agent tools, MCP exports,
 OpenAPI specs, prompts, permissions, policies, CI gates, or shipgate.yaml, run:
 `agents-shipgate verify --base origin/main --head HEAD --json`. Read
 agents-shipgate-reports/agent-handoff.json first: gate.merge_verdict,
-gate.can_merge_without_human, controller, next_action, fix_task, and
+control.state, gate.can_merge_without_human, next_action, fix_task, and
 capability_review.top_changes. Then read report.json.release_decision.decision;
-it is the gate. Do not claim completion when merge_verdict is blocked,
-insufficient_evidence, or human_review_required unless the user has explicitly
-accepted the human review requirement. Never weaken shipgate.yaml, Shipgate CI,
+it is the gate. Do not claim completion unless control.state is complete.
+Conversation-level acknowledgement cannot clear a human-review route. Never weaken shipgate.yaml, Shipgate CI,
 AGENTS.md, skills, policy packs, baselines, waivers, or suppressions merely to
 make Shipgate pass.
 ```

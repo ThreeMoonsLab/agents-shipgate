@@ -266,16 +266,22 @@ outputs:
     description: "PR/controller verdict projected from release_decision (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Use `decision` for CI gating."
     value: ${{ steps.report_outputs.outputs.merge_verdict }}
   can_merge_without_human:
-    description: Whether the verifier projection says the PR can merge without human authority gaps (`true`/`false`).
+    description: True only for a verified passed result or a completed deterministic not-applicable skip.
     value: ${{ steps.report_outputs.outputs.can_merge_without_human }}
+  agent_control_state:
+    description: Authoritative agent control state (`complete`, `agent_action_required`, or `human_review_required`).
+    value: ${{ steps.report_outputs.outputs.agent_control_state }}
+  agent_control_reason:
+    description: Deterministic reason for the authoritative agent control state.
+    value: ${{ steps.report_outputs.outputs.agent_control_reason }}
   agent_controller_must_stop:
-    description: Whether verifier.json.agent_controller says the agent must stop (`true`/`false`).
+    description: Compatibility mirror of verifier.json.control.must_stop (`true`/`false`).
     value: ${{ steps.report_outputs.outputs.agent_controller_must_stop }}
   agent_controller_stop_reason:
-    description: Stop reason from verifier.json.agent_controller.
+    description: Compatibility mirror of verifier.json.control.stop_reason.
     value: ${{ steps.report_outputs.outputs.agent_controller_stop_reason }}
   agent_controller_completion_allowed:
-    description: Whether verifier.json.agent_controller allows agent completion (`true`/`false`).
+    description: Compatibility mirror of verifier.json.control.completion_allowed (`true`/`false`).
     value: ${{ steps.report_outputs.outputs.agent_controller_completion_allowed }}
   trust_root_touched:
     description: Whether verifier_summary reports a touched release trust root (`true`/`false`). Review signal; not a second gate.

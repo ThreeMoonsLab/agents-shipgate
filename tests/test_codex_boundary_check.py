@@ -13,7 +13,7 @@ from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus" / "codex_boundary"
 GOLDEN = ROOT / "tests" / "golden" / "codex_boundary_result"
-SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v1.json"
+SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v2.json"
 
 runner = CliRunner()
 
@@ -56,6 +56,9 @@ def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
         assert payload == json.loads((GOLDEN / f"{case}.json").read_text(encoding="utf-8"))
         assert payload["decision"] == decision
         assert [item["id"] for item in payload["violated_rules"]] == rule_ids
+        control = _control(payload)
+        expected_state = "complete" if decision == "allow" else "human_review_required"
+        assert control["state"] == expected_state
 
 
 def test_codex_check_audit_id_is_stable(tmp_path: Path) -> None:
@@ -91,6 +94,34 @@ def _validate(payload: dict) -> None:
     Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(payload)
 
 
+def _control(payload: dict) -> dict:
+    """Return the only operational authority published by boundary v2."""
+
+    assert payload["schema_version"] == "shipgate.codex_boundary_result/v2"
+    for retired in (
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "first_next_action",
+        "human_review",
+        "exit_code_hint",
+    ):
+        assert retired not in payload
+    control = payload["control"]
+    assert set(control) == {
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason",
+    }
+    return control
+
+
 def test_declared_tool_surface_change_warns_and_routes_to_verify(tmp_path: Path) -> None:
     result = evaluate_codex_boundary_result(
         workspace=tmp_path,
@@ -98,19 +129,21 @@ def test_declared_tool_surface_change_warns_and_routes_to_verify(tmp_path: Path)
         agent="claude-code",
         capability_surfaces_changed=["mcp-tools.json"],
     )
-    payload = result.model_dump(mode="json", exclude_none=True)
+    payload = result.model_dump(mode="json")
     _validate(payload)
     # Was a bare allow before the fix; now a warn that defers to verify.
     assert payload["decision"] == "warn"
-    assert payload["completion_allowed"] is True
-    assert payload["must_stop"] is False
-    assert payload["first_next_action"]["kind"] == "warn"
-    assert payload["first_next_action"]["command"].startswith("agents-shipgate verify")
+    control = _control(payload)
+    assert control["state"] == "agent_action_required"
+    assert control["completion_allowed"] is False
+    assert control["must_stop"] is False
+    assert control["next_action"]["kind"] == "verify"
+    assert control["next_action"]["command"].startswith("agents-shipgate verify")
     assert any(d["code"] == "capability_change_requires_verify" for d in payload["diagnostics"])
     assert any(t["step"] == "coverage" for t in payload["trace"])
-    # v10: the deferral is machine-readable, not just prose/diagnostics —
-    # agents switch on this instead of parsing the warning text.
-    assert payload["verify_required"] is True
+    # Contract v14: the deferral is machine-readable, not just
+    # prose/diagnostics; agents switch on control.state.
+    assert control["verify_required"] is True
 
 
 def test_no_coverage_signal_keeps_clean_allow(tmp_path: Path) -> None:
@@ -122,8 +155,9 @@ def test_no_coverage_signal_keeps_clean_allow(tmp_path: Path) -> None:
         capability_surfaces_changed=None,
     )
     assert result.decision == "allow"
-    assert result.first_next_action.kind == "continue"
-    assert result.verify_required is False
+    assert result.control.state == "complete"
+    assert result.control.next_action is None
+    assert result.control.verify_required is False
 
 
 def test_coverage_gap_only_escalates_from_allow_never_downgrades_a_block(tmp_path: Path) -> None:
@@ -140,7 +174,7 @@ def test_coverage_gap_only_escalates_from_allow_never_downgrades_a_block(tmp_pat
 
 def test_check_warns_when_manifest_declares_changed_tool_source(tmp_path: Path) -> None:
     (tmp_path / "shipgate.yaml").write_text(
-        "version: \"0.1\"\n"
+        'version: "0.1"\n'
         "project:\n  name: demo\n"
         "agent:\n  name: bot\n  declared_purpose:\n    - answer questions\n"
         "environment:\n  target: production_like\n"
@@ -156,12 +190,14 @@ def test_check_warns_when_manifest_declares_changed_tool_source(tmp_path: Path) 
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("agents-shipgate verify")
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert result.control.next_action.command.startswith("agents-shipgate verify")
 
 
 def _write_manifest(tmp_path: Path, tool_sources: str) -> None:
     (tmp_path / "shipgate.yaml").write_text(
-        "version: \"0.1\"\n"
+        'version: "0.1"\n'
         "project:\n  name: demo\n"
         "agent:\n  name: bot\n  declared_purpose:\n    - answer questions\n"
         "environment:\n  target: production_like\n"
@@ -193,7 +229,9 @@ def test_check_warns_on_change_under_declared_directory_source(tmp_path: Path) -
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("agents-shipgate verify")
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert result.control.next_action.command.startswith("agents-shipgate verify")
 
 
 def test_check_does_not_warn_on_broad_root_source(tmp_path: Path) -> None:
@@ -221,10 +259,11 @@ def test_check_does_not_warn_on_broad_root_source(tmp_path: Path) -> None:
     assert result.decision == "allow"
 
 
-def test_check_does_not_warn_on_docs_change_in_opted_in_repo(tmp_path: Path) -> None:
-    # The "no noise on docs-only diffs" property must survive the coverage fix.
+def test_check_requires_verify_on_docs_change_in_opted_in_repo(tmp_path: Path) -> None:
+    # The manifest is an explicit force-run opt-in, including for docs-only
+    # diffs.  The diagnostic boundary can stay allow, but completion cannot.
     (tmp_path / "shipgate.yaml").write_text(
-        "version: \"0.1\"\n"
+        'version: "0.1"\n'
         "project:\n  name: demo\n"
         "agent:\n  name: bot\n  declared_purpose:\n    - answer questions\n"
         "environment:\n  target: production_like\n"
@@ -248,6 +287,9 @@ def test_check_does_not_warn_on_docs_change_in_opted_in_repo(tmp_path: Path) -> 
         policy=None,
     )
     assert result.decision == "allow"
+    assert result.control.state == "agent_action_required"
+    assert result.control.verify_required is True
+    assert result.control.next_action.kind == "verify"
 
 
 # --- Undeclared coverage gap: a changed file IS a tool surface but the --------
@@ -279,21 +321,23 @@ def test_undeclared_surface_warns_and_routes_to_detect_when_manifest_present(
         undeclared_capability_surfaces=["mcp-tools.json"],
         manifest_present=True,
     )
-    payload = result.model_dump(mode="json", exclude_none=True)
+    payload = result.model_dump(mode="json")
     _validate(payload)
     # Was a bare allow before the fix; now a warn that routes to detect so the
     # agent gets suggested_sources before editing shipgate.yaml.
     assert payload["decision"] == "warn"
-    assert payload["completion_allowed"] is True
-    assert payload["must_stop"] is False
-    assert payload["first_next_action"]["kind"] == "warn"
-    assert payload["first_next_action"]["command"] == "shipgate detect --workspace . --json"
-    assert "suggested_sources" in payload["first_next_action"]["why"]
+    control = _control(payload)
+    assert control["state"] == "agent_action_required"
+    assert control["completion_allowed"] is False
+    assert control["must_stop"] is False
+    assert control["next_action"]["kind"] == "discover"
+    assert control["next_action"]["command"] == "shipgate detect --workspace . --json"
+    assert "suggested_sources" in control["next_action"]["why"]
     assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
     assert any(t["step"] == "coverage" for t in payload["trace"])
     assert payload["suggested_fixes"][0] == "shipgate detect --workspace . --json"
     assert any(fix.startswith("agents-shipgate verify") for fix in payload["suggested_fixes"])
-    assert payload["verify_required"] is True
+    assert control["verify_required"] is True
 
 
 def test_mixed_declared_and_undeclared_routes_to_detect_when_manifest_present(
@@ -312,7 +356,8 @@ def test_mixed_declared_and_undeclared_routes_to_detect_when_manifest_present(
         manifest_present=True,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command == "shipgate detect --workspace . --json"
+    assert result.control.next_action.kind == "discover"
+    assert result.control.next_action.command == "shipgate detect --workspace . --json"
     payload = result.model_dump(mode="json", exclude_none=True)
     diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
     assert "api/openapi.yaml" in diag["message"]
@@ -331,7 +376,8 @@ def test_no_manifest_capability_add_via_check_warns_and_routes_to_verify_preview
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command.startswith("agents-shipgate verify --preview")
+    assert result.control.next_action.kind == "configure"
+    assert result.control.next_action.command.startswith("agents-shipgate verify --preview")
 
 
 def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other(
@@ -353,10 +399,11 @@ def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command == "shipgate detect --workspace . --json"
+    assert result.control.next_action.kind == "discover"
+    assert result.control.next_action.command == "shipgate detect --workspace . --json"
     payload = result.model_dump(mode="json", exclude_none=True)
     assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
-    assert "suggested_sources" in payload["first_next_action"]["why"]
+    assert "suggested_sources" in payload["control"]["next_action"]["why"]
 
 
 def test_mixed_declared_and_undeclared_via_check_routes_to_detect(
@@ -376,7 +423,8 @@ def test_mixed_declared_and_undeclared_via_check_routes_to_detect(
         policy=None,
     )
     assert result.decision == "warn"
-    assert result.first_next_action.command == "shipgate detect --workspace . --json"
+    assert result.control.next_action.kind == "discover"
+    assert result.control.next_action.command == "shipgate detect --workspace . --json"
     payload = result.model_dump(mode="json", exclude_none=True)
     diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
     assert "api/openapi.yaml" in diag["message"]
@@ -571,11 +619,13 @@ def test_codex_check_rejects_one_sided_git_refs(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(payload)
     assert payload["decision"] == "block"
-    assert payload["completion_allowed"] is False
-    assert payload["first_next_action"]["actor"] == "coding_agent"
-    assert payload["first_next_action"]["kind"] == "repair"
+    control = _control(payload)
+    assert control["state"] == "agent_action_required"
+    assert control["completion_allowed"] is False
+    assert control["must_stop"] is False
+    assert control["next_action"]["actor"] == "coding_agent"
+    assert control["next_action"]["kind"] == "repair"
     assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
-    assert payload["exit_code_hint"] == 2
 
 
 def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) -> None:
@@ -621,9 +671,7 @@ index 1111111..2222222 100644
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
 
     assert result.decision == "require_review"
-    assert [item.id for item in result.violated_rules] == [
-        "CODEX-DANGER-FULL-ACCESS"
-    ]
+    assert [item.id for item in result.violated_rules] == ["CODEX-DANGER-FULL-ACCESS"]
     assert result.diagnostics[0].code == "content_source"
     assert "diff_applied_to_workspace_base" in result.diagnostics[0].message
 
@@ -648,9 +696,7 @@ index 1111111..2222222 100644
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
 
     assert result.decision == "require_review"
-    assert [item.id for item in result.violated_rules] == [
-        "CODEX-DANGER-FULL-ACCESS"
-    ]
+    assert [item.id for item in result.violated_rules] == ["CODEX-DANGER-FULL-ACCESS"]
     assert "workspace_already_contains_diff_head" in result.diagnostics[0].message
 
 
@@ -681,10 +727,7 @@ def test_codex_config_hooks_are_delta_scoped(tmp_path: Path) -> None:
     config = tmp_path / ".codex" / "config.toml"
     config.parent.mkdir()
     config.write_text(
-        'model = "old"\n'
-        "[hooks.pre_command]\n"
-        'type = "command"\n'
-        'command = "echo existing"\n',
+        'model = "old"\n[hooks.pre_command]\ntype = "command"\ncommand = "echo existing"\n',
         encoding="utf-8",
     )
     diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
@@ -712,11 +755,7 @@ def test_codex_hooks_json_is_delta_scoped(tmp_path: Path) -> None:
         json.dumps(
             {
                 "version": 1,
-                "hooks": {
-                    "pre_command": [
-                        {"type": "command", "command": "echo existing"}
-                    ]
-                },
+                "hooks": {"pre_command": [{"type": "command", "command": "echo existing"}]},
             },
             indent=2,
         )
@@ -746,10 +785,7 @@ def test_codex_hook_command_change_requires_review(tmp_path: Path) -> None:
     config = tmp_path / ".codex" / "config.toml"
     config.parent.mkdir()
     config.write_text(
-        'model = "gpt-5"\n'
-        "[hooks.pre_command]\n"
-        'type = "command"\n'
-        'command = "echo old"\n',
+        'model = "gpt-5"\n[hooks.pre_command]\ntype = "command"\ncommand = "echo old"\n',
         encoding="utf-8",
     )
     diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
@@ -767,9 +803,7 @@ index 1111111..2222222 100644
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
 
     assert result.decision == "require_review"
-    assert [item.id for item in result.violated_rules] == [
-        "CODEX-HOOK-COMMAND-CHANGED"
-    ]
+    assert [item.id for item in result.violated_rules] == ["CODEX-HOOK-COMMAND-CHANGED"]
 
 
 def test_codex_mcp_auto_approve_tokenizes_risky_tool_names(tmp_path: Path) -> None:
@@ -787,9 +821,7 @@ index 0000000..1111111
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
 
     assert result.decision == "require_review"
-    assert [item.id for item in result.violated_rules] == [
-        "CODEX-MCP-AUTO-APPROVE-UNKNOWN"
-    ]
+    assert [item.id for item in result.violated_rules] == ["CODEX-MCP-AUTO-APPROVE-UNKNOWN"]
 
 
 def test_codex_mcp_auto_approve_blocks_inflected_destructive_tools(
@@ -809,9 +841,7 @@ index 0000000..1111111
     result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
 
     assert result.decision == "block"
-    assert [item.id for item in result.violated_rules] == [
-        "CODEX-MCP-AUTO-APPROVE-WRITE"
-    ]
+    assert [item.id for item in result.violated_rules] == ["CODEX-MCP-AUTO-APPROVE-WRITE"]
 
 
 def test_codex_agents_softening_keeps_shipgate_term_requires_review(
@@ -889,7 +919,7 @@ def test_codex_shipgate_workflow_accepts_repo_local_action_with_policy_input(
         "  using: composite\n"
         "  steps:\n"
         "    - shell: bash\n"
-        "      run: agents-shipgate \"${args[@]}\"\n",
+        '      run: agents-shipgate "${args[@]}"\n',
         encoding="utf-8",
     )
     workflow = tmp_path / ".github" / "workflows" / "agents-shipgate.yml"
@@ -930,17 +960,13 @@ def test_codex_shipgate_workflow_rejects_spoofed_local_action_name(
         "  using: composite\n"
         "  steps:\n"
         "    - shell: bash\n"
-        "      run: echo \"agents-shipgate gate disabled\"\n",
+        '      run: echo "agents-shipgate gate disabled"\n',
         encoding="utf-8",
     )
     workflow = tmp_path / ".github" / "workflows" / "agents-shipgate.yml"
     workflow.parent.mkdir(parents=True)
     workflow.write_text(
-        "name: Agents Shipgate\n"
-        "jobs:\n"
-        "  verify:\n"
-        "    steps:\n"
-        "      - uses: ./\n",
+        "name: Agents Shipgate\njobs:\n  verify:\n    steps:\n      - uses: ./\n",
         encoding="utf-8",
     )
     diff_text = """diff --git a/.github/workflows/agents-shipgate.yml b/.github/workflows/agents-shipgate.yml
@@ -968,11 +994,7 @@ def test_codex_shipgate_workflow_rejects_unrelated_repo_local_action(
     workflow = tmp_path / ".github" / "workflows" / "agents-shipgate.yml"
     workflow.parent.mkdir(parents=True)
     workflow.write_text(
-        "name: Agents Shipgate\n"
-        "jobs:\n"
-        "  verify:\n"
-        "    steps:\n"
-        "      - uses: ./\n",
+        "name: Agents Shipgate\njobs:\n  verify:\n    steps:\n      - uses: ./\n",
         encoding="utf-8",
     )
     diff_text = """diff --git a/.github/workflows/agents-shipgate.yml b/.github/workflows/agents-shipgate.yml
@@ -1040,9 +1062,7 @@ index 1111111..2222222 100644
     assert result.decision == "require_review"
     assert result.diagnostics[0].code == "content_source"
     assert "diff_workspace_mismatch" in result.diagnostics[0].message
-    assert [item.id for item in result.violated_rules] == [
-        "CODEX-CONFIG-PARSE-FAILED"
-    ]
+    assert [item.id for item in result.violated_rules] == ["CODEX-CONFIG-PARSE-FAILED"]
 
 
 def test_codex_check_accepts_already_applied_insertion_diff(
@@ -1051,9 +1071,7 @@ def test_codex_check_accepts_already_applied_insertion_diff(
     config = tmp_path / ".codex" / "config.toml"
     config.parent.mkdir()
     config.write_text(
-        'model = "gpt-5"\n'
-        "[sandbox_workspace_write]\n"
-        "network_access = true\n",
+        'model = "gpt-5"\n[sandbox_workspace_write]\nnetwork_access = true\n',
         encoding="utf-8",
     )
     diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
@@ -1081,4 +1099,5 @@ def test_codex_boundary_result_never_contradicts_release_decision(tmp_path: Path
     )
 
     assert result.decision == "block"
-    assert result.first_next_action.kind == "stop"
+    assert result.control.state == "human_review_required"
+    assert result.control.next_action.kind == "stop"

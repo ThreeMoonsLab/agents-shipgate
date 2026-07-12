@@ -74,7 +74,7 @@ success path.
 ## Pilot Commands
 
 Run these from the target repo root. The `verify` and `feedback` commands
-require Agents Shipgate contract v7 or newer, so the block leads with `pipx install`
+require Agents Shipgate runtime contract 14, so the block leads with `pipx install`
 then `pipx upgrade`: a plain `pipx install` is a no-op when an older build
 is already installed, and the follow-up `pipx upgrade` brings a stale copy
 current. If `pipx` is unavailable, use
@@ -102,9 +102,9 @@ pre-commit verifier run, then rerun with base/head refs after opening the PR.
 
 Read `agents-shipgate-reports/agent-handoff.json` first:
 
-1. `gate.merge_verdict`
+1. `control.state`
 2. `gate.can_merge_without_human`
-3. `controller`
+3. `gate.merge_verdict`
 4. `next_action` / `fix_task`
 5. `capability_review.top_changes`
 
@@ -112,7 +112,7 @@ Then read `agents-shipgate-reports/report.json.release_decision.decision`.
 `merge_verdict` is the reviewer-facing projection; `release_decision.decision`
 remains the release gate.
 
-Do not self-resolve authority gaps. If `first_next_action.actor` or
+Do not self-resolve authority gaps. If `control.next_action.actor` or
 `fix_task.actor` is `human`, the coding agent must surface that item for a
 person rather than inventing action effect, action authority, approval,
 confirmation, idempotency, broad-scope, prohibited-action, waiver, baseline,
@@ -127,7 +127,7 @@ Add Agents Shipgate as an advisory verifier for this AI-generated
 agent-capability PR.
 
 Use the v0.15.0 verifier-first path:
-1. Install or upgrade agents-shipgate (the pilot needs contract v7 or newer):
+1. Install or upgrade agents-shipgate (the pilot needs runtime contract 14):
    pipx install agents-shipgate
    pipx upgrade agents-shipgate
    A plain pipx install is a no-op when an older build is already installed,
@@ -143,7 +143,7 @@ Use the v0.15.0 verifier-first path:
    agents-shipgate verify --workspace . --config shipgate.yaml \
      --base origin/main --head HEAD --ci-mode advisory --format json
 5. Read agents-shipgate-reports/agent-handoff.json first. Lead with
-   gate.merge_verdict, gate.can_merge_without_human, controller, next_action,
+   control.state, gate.merge_verdict, gate.can_merge_without_human, next_action,
    fix_task, and capability_review.top_changes. Then read
    agents-shipgate-reports/report.json.release_decision.decision.
 6. Export redacted design-partner feedback:
@@ -192,7 +192,7 @@ Template: copy into a private tracker:
 | `verifier.json` / `pr-comment.md` / `report.json` |  |
 | `merge_verdict` |  |
 | `can_merge_without_human` |  |
-| `first_next_action.actor` |  |
+| `control.next_action.actor` |  |
 | `fix_task.actor` |  |
 | `trust_root_touched` |  |
 | `policy_weakened` |  |
@@ -210,7 +210,7 @@ Ask these after the first verifier artifact lands:
 - Did the coding agent discover and run the verifier without
   command-by-command coaching?
 - Did `merge_verdict` match what the human reviewer would do before merge?
-- Was `first_next_action` clear enough to route work to the right actor?
+- Was `control.next_action` clear enough to route work to the right actor?
 - Did `fix_task` draw the right boundary between mechanical fixes and human
   authority?
 - Did `capability_review.top_changes` describe the actual capability delta?

@@ -129,7 +129,7 @@ def _probe_cli_surface() -> dict[str, str]:
     probes = {
         "scan": "agents_shipgate.cli.scan",
         "check": "agents_shipgate.cli.check",
-        "agent-result": "agents_shipgate.schemas.agent_result_v1",
+        "agent-result": "agents_shipgate.schemas.agent_result",
         "init": "agents_shipgate.cli.discovery",
         "doctor": "agents_shipgate.cli.scan",
         "contract": "agents_shipgate.schemas.contract",

@@ -164,19 +164,14 @@ def verify(
     # wrong fix.
     try:
         configure_logging(verbose=verbose)
-        stdout_format = _resolve_verify_format(
-            format_, json_output=json_output, preview=preview
-        )
+        stdout_format = _resolve_verify_format(format_, json_output=json_output, preview=preview)
         if ci_mode and ci_mode not in {"advisory", "strict"}:
             raise ConfigError("--ci-mode must be advisory or strict")
         parsed_fail_on = _parse_fail_on(fail_on)
         parsed_pr_comment_style = _parse_pr_comment_style(pr_comment_style)
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        guidance = (
-            "Fix the invalid CLI flag value referenced in the error and "
-            "re-run verify."
-        )
+        guidance = "Fix the invalid CLI flag value referenced in the error and re-run verify."
         emit_agent_mode_error(
             "config_error",
             message=str(exc),
@@ -186,9 +181,7 @@ def verify(
                 NextAction(
                     kind="review",
                     why=guidance,
-                    expects=(
-                        "Re-run with a flag value the option parser accepts."
-                    ),
+                    expects=("Re-run with a flag value the option parser accepts."),
                 ).model_dump(mode="json")
             ],
         )
@@ -261,8 +254,7 @@ def verify(
                     kind="review",
                     why=guidance,
                     expects=(
-                        "Referenced file is present, parseable, and inside "
-                        "the manifest directory."
+                        "Referenced file is present, parseable, and inside the manifest directory."
                     ),
                 ).model_dump(mode="json")
             ],
@@ -279,9 +271,7 @@ def verify(
             message=str(exc),
             exit_code=4,
             next_action=guidance,
-            next_actions=[
-                NextAction(kind="review", why=guidance).model_dump(mode="json")
-            ],
+            next_actions=[NextAction(kind="review", why=guidance).model_dump(mode="json")],
         )
         raise typer.Exit(4) from exc
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
@@ -305,7 +295,7 @@ def verify(
         typer.echo(json.dumps(verifier.model_dump(mode="json"), indent=2))
     else:
         verdict = (
-            verifier.release_decision.get("decision")
+            verifier.release_decision.decision
             if verifier.release_decision is not None
             else ("skipped" if verifier.head_status == "skipped" else "failed")
         )
@@ -354,9 +344,7 @@ def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
     )
 
 
-def _resolve_verify_format(
-    value: str | None, *, json_output: bool, preview: bool
-) -> str:
+def _resolve_verify_format(value: str | None, *, json_output: bool, preview: bool) -> str:
     """Resolve the stdout format from flags and the agent-mode environment.
 
     Precedence: explicit ``--format`` > ``--json`` shortcut > agent-mode

@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
 from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.core.boundary_diff import parse_unified_diff
 from agents_shipgate.core.errors import ConfigError, InputParseError
@@ -24,6 +25,10 @@ from agents_shipgate.core.host_grants import (
 from agents_shipgate.core.lenses.effective_policy import (
     build_effective_policy_snapshot,
 )
+from agents_shipgate.schemas.agent_control import (
+    CodingAgentCommandAction,
+    HumanControlAction,
+)
 from agents_shipgate.schemas.preflight import (
     CapabilityRequestV1,
     HostPermissionRequestV1,
@@ -35,6 +40,7 @@ from agents_shipgate.schemas.preflight import (
     PreflightRequiredEvidence,
     PreflightResultV1,
     PreflightResultV2,
+    PreflightResultV3,
     PreflightSignalV1,
     ProtectedSurfaceScopeType,
     TrustRootGraphV1,
@@ -44,9 +50,7 @@ from agents_shipgate.schemas.surfaces import ActionEffect
 
 _FORBIDDEN_EDIT_CLASSES = frozenset({"ci_gate", "agent_instructions", "policy"})
 _KEY_LEVEL_CLASSES = frozenset({"manifest", "shipgate_state"})
-_CAPABILITY_SURFACE_CLASSES = frozenset(
-    {"codex_plugin", "tool_surface_decl", "prompts"}
-)
+_CAPABILITY_SURFACE_CLASSES = frozenset({"codex_plugin", "tool_surface_decl", "prompts"})
 _CODEX_EXTRA_SURFACES: tuple[tuple[str, str], ...] = (
     ("codex_config", "**/.codex/config.toml"),
     ("codex_config", "**/.codex/config.json"),
@@ -117,8 +121,7 @@ _TRUST_ROOT_WALK_SKIP_DIRS = frozenset(
     }
 )
 _VERIFY_COMMAND = (
-    "agents-shipgate verify --workspace . --config shipgate.yaml "
-    "--ci-mode advisory --json"
+    "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
 )
 _SIGNAL_KIND_RANK = {
     "protected_surface_touch": 0,
@@ -212,8 +215,7 @@ def forbidden_file_edits() -> tuple[str, ...]:
     patterns = [
         spec.pattern
         for spec in protected_surface_specs()
-        if spec.kind in _FORBIDDEN_EDIT_CLASSES
-        or spec.kind in _CODEX_WHOLE_FILE_CLASSES
+        if spec.kind in _FORBIDDEN_EDIT_CLASSES or spec.kind in _CODEX_WHOLE_FILE_CLASSES
     ]
     return tuple(sorted(set(patterns)))
 
@@ -227,9 +229,11 @@ def build_preflight_result(
     capability_requests: list[CapabilityRequestV1 | dict[str, Any]] | None = None,
     host_permission_requests: list[HostPermissionRequestV1 | dict[str, Any]] | None = None,
     plan: PreflightPlanV1 | dict[str, Any] | None = None,
-    base_preflight: PreflightResultV1 | PreflightResultV2 | dict[str, Any] | None = None,
+    base_preflight: (
+        PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | dict[str, Any] | None
+    ) = None,
     host_baseline: Path | None = None,
-) -> PreflightResultV2:
+) -> PreflightResultV3:
     root = workspace.resolve()
     config_path = config if config.is_absolute() else root / config
     config_path = config_path.resolve()
@@ -266,8 +270,7 @@ def build_preflight_result(
     )
     required_evidence = required_evidence_for_capability_requests(requests)
     requires_human_review = bool(touches) or any(
-        not item.satisfied and item.severity in {"high", "critical"}
-        for item in required_evidence
+        not item.satisfied and item.severity in {"high", "critical"} for item in required_evidence
     )
     base = _coerce_base_preflight(base_preflight)
     policy_drift = None
@@ -304,12 +307,17 @@ def build_preflight_result(
     first_next_action = _first_next_action(signals=signals)
     allowed_next_commands = (
         [_VERIFY_COMMAND]
-        if first_next_action.actor == "coding_agent"
-        and first_next_action.kind == "verify"
+        if first_next_action.actor == "coding_agent" and first_next_action.kind == "verify"
         else []
     )
+    control = _derive_preflight_control(
+        first_next_action=first_next_action,
+        requires_human_review=requires_human_review,
+        requires_verify=requires_verify,
+        allowed_next_commands=allowed_next_commands,
+    )
 
-    return PreflightResultV2(
+    return PreflightResultV3(
         workspace=str(root),
         config=_display_path(config_path, root),
         protected_surfaces=surfaces,
@@ -337,6 +345,7 @@ def build_preflight_result(
             signals=signals,
         ),
         host_grant_drift=host_grant_drift,
+        control=control,
     )
 
 
@@ -575,8 +584,7 @@ def least_privilege_signals(
                 subject=subject,
                 path=None,
                 reason=(
-                    "Capability request includes broad scope(s): "
-                    + ", ".join(sorted(set(broad)))
+                    "Capability request includes broad scope(s): " + ", ".join(sorted(set(broad)))
                 ),
                 recommendation=(
                     "Replace broad scopes with operation-specific scopes or route "
@@ -751,11 +759,7 @@ def _walk_trust_root_files(root: Path) -> tuple[str, ...]:
 
     out: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            dirname
-            for dirname in dirnames
-            if dirname not in _TRUST_ROOT_WALK_SKIP_DIRS
-        ]
+        dirnames[:] = [dirname for dirname in dirnames if dirname not in _TRUST_ROOT_WALK_SKIP_DIRS]
         dirnames.sort()
         root_path = Path(dirpath)
         for filename in sorted(filenames):
@@ -871,12 +875,17 @@ def _coerce_host_permission_requests(
 
 
 def _coerce_base_preflight(
-    value: PreflightResultV1 | PreflightResultV2 | dict[str, Any] | None,
-) -> PreflightResultV1 | PreflightResultV2 | None:
-    if value is None or isinstance(value, (PreflightResultV1, PreflightResultV2)):
+    value: (PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | dict[str, Any] | None),
+) -> PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | None:
+    if value is None or isinstance(
+        value, (PreflightResultV1, PreflightResultV2, PreflightResultV3)
+    ):
         return value
     try:
-        if value.get("preflight_schema_version") == "0.2":
+        version = value.get("preflight_schema_version")
+        if version == "0.3":
+            return PreflightResultV3.model_validate(value)
+        if version == "0.2":
             return PreflightResultV2.model_validate(value)
         return PreflightResultV1.model_validate(value)
     except ValidationError as exc:
@@ -976,11 +985,11 @@ def _host_request_expands_runtime_boundary(text: str) -> bool:
         "network access",
         "network:true",
         "sandbox disabled",
-        "sandbox\":\"disabled",
+        'sandbox":"disabled',
         "write-all",
         "pull_request_target",
         "new hook",
-        "\"hooks\"",
+        '"hooks"',
         "pretooluse",
         "posttooluse",
         "stop hook",
@@ -1038,9 +1047,7 @@ def _plan_summary(
 
 
 def _is_high_risk_request(request: CapabilityRequestV1) -> bool:
-    return request.effect in _HIGH_RISK_EFFECTS or bool(
-        set(request.risk_tags) & _HIGH_RISK_TAGS
-    )
+    return request.effect in _HIGH_RISK_EFFECTS or bool(set(request.risk_tags) & _HIGH_RISK_TAGS)
 
 
 def _needs_idempotency(request: CapabilityRequestV1) -> bool:
@@ -1136,6 +1143,42 @@ def _first_next_action(
         command=None,
         why="No requested protected-surface touch, host drift, or evidence gap was found by preflight.",
     )
+
+
+def _derive_preflight_control(
+    *,
+    first_next_action: PreflightNextAction,
+    requires_human_review: bool,
+    requires_verify: bool,
+    allowed_next_commands: list[str],
+):
+    """Project preflight signals through the shared control derivation."""
+
+    reason = first_next_action.why
+    if requires_human_review:
+        return derive_agent_control(
+            reason=reason,
+            next_action=HumanControlAction(kind="stop", why=reason),
+            verify_required=requires_verify,
+            human_review_required=True,
+            human_review_why=reason,
+            stop_reason=reason,
+        )
+    if requires_verify:
+        command = first_next_action.command
+        if first_next_action.kind != "verify" or not command:
+            raise ValueError("preflight verification obligation requires an exact verify command")
+        return derive_agent_control(
+            reason=reason,
+            next_action=CodingAgentCommandAction(
+                kind="verify",
+                command=command,
+                why=reason,
+            ),
+            verify_required=True,
+            allowed_next_commands=allowed_next_commands,
+        )
+    return derive_agent_control(reason=reason)
 
 
 def _display_path(path: Path, root: Path) -> str:

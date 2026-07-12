@@ -7,13 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate import __version__
+from agents_shipgate.schemas.agent_result import AgentResult, AgentResultV2
 from agents_shipgate.schemas.agent_result_v1 import (
-    AgentResult,
     AgentResultAffectedFile,
     AgentResultDecision,
     AgentResultDiagnostic,
-    AgentResultHumanReview,
-    AgentResultNextAction,
     AgentResultPolicy,
     AgentResultRepair,
     AgentResultRiskLevel,
@@ -25,7 +23,7 @@ from agents_shipgate.schemas.agent_result_v1 import (
 from agents_shipgate.schemas.report import Finding, ReadinessReport, ReleaseDecisionItem
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
-AGENT_RESULT_SCHEMA_VERSION = "agent_result_v1"
+AGENT_RESULT_SCHEMA_VERSION = "agent_result_v2"
 AgentResultFile = AgentResultAffectedFile
 AgentResultRule = AgentResultViolatedRule
 _REVIEW_TOKEN_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -53,14 +51,7 @@ def build_agent_result(
     policy_hash = _policy_snapshot_sha256(report)
     risk_level = _risk_level(decision, items, release_decision, verifier)
     affected_files = _affected_files(items, verifier)
-    required_reviewers = _required_reviewers(
-        decision=decision,
-        items=items,
-        release_decision_value=(
-            release_decision.decision if release_decision is not None else None
-        ),
-        verifier=verifier,
-    )
+    required_reviewers = list(verifier.control.human_review.required_reviewers)
     trace = _trace(
         verifier=verifier,
         report=report,
@@ -70,22 +61,6 @@ def build_agent_result(
         violated_rules=violated_rules,
     )
     repair = _repair(verifier)
-    human_review = _human_review(
-        decision=decision,
-        verifier=verifier,
-        required_reviewers=required_reviewers,
-    )
-    first_next_action = _first_next_action(
-        decision=decision,
-        verifier=verifier,
-        repair=repair,
-        human_review=human_review,
-    )
-    completion_allowed = decision in {"allow", "warn"}
-    must_stop = (
-        not completion_allowed
-        and not (decision == "block" and repair.actor == "coding_agent" and repair.safe_to_attempt)
-    )
     audit_id = _audit_id(
         verifier=verifier,
         report=report,
@@ -93,7 +68,7 @@ def build_agent_result(
         policy_hash=policy_hash,
         violated_rules=violated_rules,
     )
-    return AgentResult(
+    return AgentResultV2(
         agent="codex",
         subject=_subject(verifier, report),
         decision=decision,
@@ -102,15 +77,12 @@ def build_agent_result(
         policy_version=_policy_version(policy_hash),
         summary=_explanation(verifier, report, decision),
         changed_files=list(verifier.changed_files),
-        completion_allowed=completion_allowed,
-        must_stop=must_stop,
-        first_next_action=first_next_action,
-        human_review=human_review,
+        control=verifier.control,
         repair=repair,
         policy=_policy(policy_hash),
         violated_rules=violated_rules,
         affected_files=affected_files,
-        required_reviewers=human_review.required_reviewers,
+        required_reviewers=required_reviewers,
         explanation=_explanation(verifier, report, decision),
         suggested_fixes=_suggested_fixes(verifier, decision),
         agent_repair_instructions=_agent_repair_instructions(verifier, decision),
@@ -120,12 +92,15 @@ def build_agent_result(
         release_decision=(
             release_decision.model_dump(mode="json")
             if release_decision is not None
-            else verifier.release_decision
+            else (
+                verifier.release_decision.model_dump(mode="json")
+                if verifier.release_decision is not None
+                else None
+            )
         ),
         trigger=verifier.trigger,
         finding_fingerprints=_finding_fingerprints(items, advisory_findings),
         policy_snapshot_sha256=policy_hash,
-        exit_code_hint=_exit_code_hint(decision),
     )
 
 
@@ -231,11 +206,7 @@ def _advisory_findings(
     for rule in release_decision.contribution_rules:
         if rule.category != "excluded" or rule.rule != "sub_threshold":
             continue
-        finding = (
-            findings_by_fingerprint.get(rule.fingerprint)
-            if rule.fingerprint
-            else None
-        )
+        finding = findings_by_fingerprint.get(rule.fingerprint) if rule.fingerprint else None
         if finding is None:
             candidates = findings_by_check.get(rule.check_id) or []
             finding = candidates[0] if len(candidates) == 1 else None
@@ -473,37 +444,6 @@ def _matches_review_marker(
     return bool(tokens.intersection(exact)) or any(phrase in text for phrase in phrases)
 
 
-def _human_review(
-    *,
-    decision: AgentResultDecision,
-    verifier: VerifierArtifact,
-    required_reviewers: list[str],
-) -> AgentResultHumanReview:
-    fix_task = verifier.fix_task
-    agent_safe_block = (
-        decision == "block"
-        and fix_task is not None
-        and fix_task.actor == "coding_agent"
-        and fix_task.safe_to_attempt
-    )
-    required = decision == "require_review" or (decision == "block" and not agent_safe_block)
-    why = None
-    if required:
-        if verifier.human_review is not None and verifier.human_review.why:
-            why = verifier.human_review.why
-        elif verifier.headline:
-            why = verifier.headline
-        elif fix_task is not None and fix_task.instructions:
-            why = fix_task.instructions[0]
-        else:
-            why = "A human must review this agent-capability change before completion."
-    return AgentResultHumanReview(
-        required=required,
-        why=why,
-        required_reviewers=required_reviewers if required else [],
-    )
-
-
 def _repair(verifier: VerifierArtifact) -> AgentResultRepair:
     fix_task = verifier.fix_task
     if fix_task is None:
@@ -514,47 +454,6 @@ def _repair(verifier: VerifierArtifact) -> AgentResultRepair:
         instructions=list(fix_task.instructions),
         command=fix_task.verification_command,
         forbidden_shortcuts=list(fix_task.forbidden_shortcuts),
-    )
-
-
-def _first_next_action(
-    *,
-    decision: AgentResultDecision,
-    verifier: VerifierArtifact,
-    repair: AgentResultRepair,
-    human_review: AgentResultHumanReview,
-) -> AgentResultNextAction:
-    if decision == "allow":
-        return AgentResultNextAction(
-            actor="coding_agent",
-            kind="continue",
-            why="Shipgate allows this agent-capability change.",
-        )
-    if decision == "warn":
-        return AgentResultNextAction(
-            actor="coding_agent",
-            kind="warn",
-            why="Shipgate allows completion with non-gating advisories.",
-        )
-    if decision == "block" and repair.actor == "coding_agent" and repair.safe_to_attempt:
-        return AgentResultNextAction(
-            actor="coding_agent",
-            kind="repair",
-            command=repair.command,
-            why=repair.instructions[0] if repair.instructions else "Repair and rerun Shipgate.",
-        )
-    if decision == "require_review":
-        return AgentResultNextAction(
-            actor="human",
-            kind="review",
-            why=human_review.why or "Human review is required.",
-        )
-    return AgentResultNextAction(
-        actor="human",
-        kind="stop",
-        why=human_review.why
-        or verifier.headline
-        or "Shipgate blocked this change; a coding agent must stop.",
     )
 
 
@@ -695,12 +594,12 @@ def _agent_repair_instructions(
         if fix_task.verification_command:
             instructions.append(f"Then rerun: {fix_task.verification_command}")
         if fix_task.actor == "human":
-            instructions.append("Stop and request human review; do not self-resolve this authority gap.")
+            instructions.append(
+                "Stop and request human review; do not self-resolve this authority gap."
+            )
     elif decision in {"block", "require_review"}:
         instructions.append("Stop and request human review unless the fix task is agent-safe.")
-    controller = verifier.agent_controller
-    if controller is not None:
-        instructions.extend(controller.forbidden_actions[:4])
+    instructions.extend(verifier.forbidden_actions[:4])
     return _dedupe_preserve_order(instructions)
 
 
@@ -713,10 +612,6 @@ def _dedupe_preserve_order(values: list[str]) -> list[str]:
         seen.add(value)
         out.append(value)
     return out
-
-
-def _exit_code_hint(decision: AgentResultDecision) -> int:
-    return 20 if decision == "block" else 0
 
 
 __all__ = [

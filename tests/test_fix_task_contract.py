@@ -14,10 +14,8 @@ import pytest
 from pydantic import ValidationError
 
 from agents_shipgate.cli.verify.fix_task import build_fix_task
-from agents_shipgate.cli.verify.orchestrator import _first_next_action
+from agents_shipgate.cli.verify.orchestrator import _derive_verifier_control
 from agents_shipgate.schemas.report import (
-    AgentSummary,
-    AgentSummaryAction,
     BaselineDelta,
     EvidenceCoverageDecision,
     EvidenceGap,
@@ -143,6 +141,20 @@ def _fix_task(report, *, capability_review=None, base_ref="origin/main", head_re
     )
 
 
+def _control_for_task(task: VerifierFixTask, *, merge_verdict: str):
+    return _derive_verifier_control(
+        execution="succeeded",
+        merge_verdict=merge_verdict,  # type: ignore[arg-type]
+        release_decision=None,
+        fix_task=task,
+        capability_review=_review(),
+        headline="Fix-task routing.",
+        first_next_action_override=None,
+        base_status="succeeded",
+        base_ref="origin/main",
+    )
+
+
 # --- Routing ----------------------------------------------------------------
 
 
@@ -190,9 +202,7 @@ def test_semantic_gap_routes_human_with_structured_declaration_repair() -> None:
     assert task.safe_to_attempt is False
     assert gap.next_action.suggested_patch_kind == "manual"
     repair = next(
-        repair
-        for repair in task.allowed_repairs
-        if repair.kind == "declare_action_authority"
+        repair for repair in task.allowed_repairs if repair.kind == "declare_action_authority"
     )
     assert "process_order" in (repair.target or "")
     assert repair.command == gap.next_action.command
@@ -345,7 +355,9 @@ def test_forbidden_shortcuts_and_verification_command_present() -> None:
 
 def test_instructions_are_deduped_and_capped() -> None:
     findings = [
-        _finding(f"F{i}", requires_human_review=True, autofix_safe=False, recommendation="Same rec.")
+        _finding(
+            f"F{i}", requires_human_review=True, autofix_safe=False, recommendation="Same rec."
+        )
         for i in range(8)
     ]
     task = _fix_task(_report(decision="blocked", findings=findings, blockers=findings))
@@ -400,9 +412,7 @@ def test_mechanical_allowed_repairs_reserve_terminal_verify_step() -> None:
             )
         ]
 
-    task = _fix_task(
-        _report(decision="blocked", findings=findings, blockers=findings)
-    )
+    task = _fix_task(_report(decision="blocked", findings=findings, blockers=findings))
 
     assert task is not None
     assert len(task.allowed_repairs) == 10
@@ -417,28 +427,22 @@ def test_mechanical_allowed_repairs_reserve_terminal_verify_step() -> None:
 
 def test_first_next_action_actor_matches_fix_task() -> None:
     mech = _finding("F1", requires_human_review=False, autofix_safe=True)
-    mech_task = _fix_task(
-        _report(decision="review_required", findings=[mech], review_items=[mech])
-    )
+    mech_task = _fix_task(_report(decision="review_required", findings=[mech], review_items=[mech]))
     assert (
-        _first_next_action(
+        _control_for_task(
+            mech_task,
             merge_verdict="human_review_required",
-            fix_task=mech_task,
-            agent_summary=None,
-            reason="r",
-        ).actor
+        ).next_action.actor
         == "coding_agent"
     )
 
     auth = _finding("F2", requires_human_review=True, autofix_safe=False)
     auth_task = _fix_task(_report(decision="blocked", findings=[auth], blockers=[auth]))
     assert (
-        _first_next_action(
+        _control_for_task(
+            auth_task,
             merge_verdict="blocked",
-            fix_task=auth_task,
-            agent_summary=None,
-            reason="r",
-        ).actor
+        ).next_action.actor
         == "human"
     )
 
@@ -456,7 +460,21 @@ def test_human_fix_task_unsafe_is_valid() -> None:
 
 
 def test_coding_agent_fix_task_safe_is_valid() -> None:
-    VerifierFixTask(actor="coding_agent", safe_to_attempt=True)
+    VerifierFixTask(
+        actor="coding_agent",
+        safe_to_attempt=True,
+        verification_command="agents-shipgate verify --base origin/main --head HEAD --json",
+    )
+
+
+def test_coding_agent_safe_fix_requires_exact_rerun_path_in_model_and_schema() -> None:
+    payload = {"actor": "coding_agent", "safe_to_attempt": True}
+    with pytest.raises(ValidationError):
+        VerifierFixTask.model_validate(payload)
+
+    from jsonschema import Draft202012Validator
+
+    assert list(Draft202012Validator(VerifierFixTask.model_json_schema()).iter_errors(payload))
 
 
 # --- Fail-closed routing (review feedback) ----------------------------------
@@ -535,54 +553,28 @@ def test_verification_command_quotes_shell_metacharacters() -> None:
 # --- first_next_action / fix_task coherence ---------------------------------
 
 
-def test_first_next_action_ignores_recommendation_that_contradicts_fix_task() -> None:
-    # fix_task says the coding agent can act, but the agent summary points a
-    # human at a review surface (info kind). The next-action must follow the
-    # fix_task, not borrow the contradictory recommendation.
+def test_control_next_action_follows_agent_safe_fix_task() -> None:
     mech = _finding("F1", requires_human_review=False, autofix_safe=True)
-    task = _fix_task(
-        _report(decision="review_required", findings=[mech], review_items=[mech])
-    )
-    summary = AgentSummary(
-        verdict="review_required",
-        headline="h",
-        first_recommended_action=AgentSummaryAction(
-            kind="info", command=None, why="A human must look at this."
-        ),
-    )
-    action = _first_next_action(
+    task = _fix_task(_report(decision="review_required", findings=[mech], review_items=[mech]))
+    control = _control_for_task(
+        task,
         merge_verdict="human_review_required",
-        fix_task=task,
-        agent_summary=summary,
-        reason="r",
     )
+    action = control.next_action
     assert action.actor == "coding_agent"
-    assert action.why != "A human must look at this."
     assert action.command == task.verification_command
 
 
-def test_first_next_action_borrows_consistent_recommendation() -> None:
+def test_control_does_not_substitute_summary_commands_for_fix_task_contract() -> None:
     mech = _finding("F1", requires_human_review=False, autofix_safe=True)
-    task = _fix_task(
-        _report(decision="review_required", findings=[mech], review_items=[mech])
-    )
-    summary = AgentSummary(
-        verdict="review_required",
-        headline="h",
-        first_recommended_action=AgentSummaryAction(
-            kind="command",
-            command="agents-shipgate apply-patches --confidence high --apply",
-            why="Apply the safe manifest patches.",
-        ),
-    )
-    action = _first_next_action(
+    task = _fix_task(_report(decision="review_required", findings=[mech], review_items=[mech]))
+    control = _control_for_task(
+        task,
         merge_verdict="human_review_required",
-        fix_task=task,
-        agent_summary=summary,
-        reason="r",
     )
+    action = control.next_action
     assert action.actor == "coding_agent"
-    assert action.command == "agents-shipgate apply-patches --confidence high --apply"
+    assert action.command == task.verification_command
 
 
 def test_mechanical_task_projects_machine_patches() -> None:
@@ -667,9 +659,7 @@ def test_fix_task_without_suggest_patches_has_empty_patches() -> None:
 
 def test_insufficient_evidence_names_low_confidence_sources() -> None:
     f = _finding("F1", requires_human_review=False, autofix_safe=True)
-    report = _report(
-        decision="insufficient_evidence", findings=[f], review_items=[f]
-    )
+    report = _report(decision="insufficient_evidence", findings=[f], review_items=[f])
     report.tool_inventory = [
         {
             "name": "stripe.toolkit_factory",
@@ -711,9 +701,7 @@ def test_insufficient_evidence_names_low_confidence_sources() -> None:
 
 def test_insufficient_evidence_without_inventory_gives_generic_remedy() -> None:
     f = _finding("F1", requires_human_review=False, autofix_safe=True)
-    report = _report(
-        decision="insufficient_evidence", findings=[f], review_items=[f]
-    )
+    report = _report(decision="insufficient_evidence", findings=[f], review_items=[f])
 
     task = build_fix_task(
         report,

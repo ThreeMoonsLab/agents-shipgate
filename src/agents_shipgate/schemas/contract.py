@@ -33,26 +33,34 @@ from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["13"] = "13"
+CONTRACT_VERSION: Literal["14"] = "14"
+MINIMUM_CONTROL_CONTRACT_VERSION: Literal["14"] = "14"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
-AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v1"] = "agent_result_v1"
-AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v1.json"] = (
-    "docs/agent-result-schema.v1.json"
+AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v2"] = "agent_result_v2"
+AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v2.json"] = (
+    "docs/agent-result-schema.v2.json"
 )
 AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
     "decision",
-    "completion_allowed",
-    "must_stop",
-    "first_next_action",
-    "human_review",
+    "control",
     "repair",
     "policy",
-    # v10: the check→verify deferral, machine-readable. True when the diff
-    # touches a tool surface the boundary check cannot gate; the evaluator
-    # escalates to decision="warn" at the same time, and agents must run
-    # verify before completion. Lives on AgentResultV1 so this list is valid
-    # against both the boundary and the legacy agent-result schema.
+)
+AGENT_CONTROL_FIELDS: tuple[str, ...] = (
+    "state",
+    "reason",
+    "completion_allowed",
+    "must_stop",
     "verify_required",
+    "next_action",
+    "allowed_next_commands",
+    "human_review",
+    "stop_reason",
+)
+AGENT_CONTROL_STATES: tuple[str, ...] = (
+    "complete",
+    "agent_action_required",
+    "human_review_required",
 )
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "agent_handoff",
@@ -154,13 +162,9 @@ COMMANDS: dict[str, str] = {
     "agent_check_cursor": (
         "shipgate check --agent cursor --workspace . --format codex-boundary-json"
     ),
-    "preflight": (
-        "agents-shipgate preflight --workspace . --config shipgate.yaml --plan - --json"
-    ),
+    "preflight": ("agents-shipgate preflight --workspace . --config shipgate.yaml --plan - --json"),
     "preview": "agents-shipgate verify --preview --json",
-    "install_agent_workflow": (
-        "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
-    ),
+    "install_agent_workflow": "agents-shipgate init --workspace . --write --json",
     "verify_local": (
         "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
     ),
@@ -169,8 +173,7 @@ COMMANDS: dict[str, str] = {
         "--base origin/main --head HEAD --ci-mode advisory --json"
     ),
     "agent_handoff": (
-        "agents-shipgate agent handoff --from "
-        "agents-shipgate-reports/verifier.json --json"
+        "agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json"
     ),
     "attest": (
         "agents-shipgate attest --from agents-shipgate-reports/verifier.json "
@@ -184,29 +187,20 @@ COMMANDS: dict[str, str] = {
     "org_policy_packs": "agents-shipgate org policy-packs --config shipgate.yaml --json",
     "registry_summary": "agents-shipgate registry summary --registry .agents-shipgate/registry.jsonl --json",
     "registry_verify": "agents-shipgate registry verify --registry .agents-shipgate/registry.jsonl --json",
-    "host_audit": (
-        "shipgate audit --host --json --out "
-        "agents-shipgate-reports/host-grants.json"
-    ),
+    "host_audit": ("shipgate audit --host --json --out agents-shipgate-reports/host-grants.json"),
     "contract": "agents-shipgate contract --json",
 }
 PRIMARY_COMMANDS: dict[str, str] = {
-    "check_codex": (
-        "shipgate check --agent codex --workspace . --format codex-boundary-json"
-    ),
+    "check_codex": ("shipgate check --agent codex --workspace . --format codex-boundary-json"),
     "check_claude_code": (
         "shipgate check --agent claude-code --workspace . --format codex-boundary-json"
     ),
-    "check_cursor": (
-        "shipgate check --agent cursor --workspace . --format codex-boundary-json"
-    ),
+    "check_cursor": ("shipgate check --agent cursor --workspace . --format codex-boundary-json"),
     "verify_pr": (
         "agents-shipgate verify --workspace . --config shipgate.yaml "
         "--base origin/main --head HEAD --ci-mode advisory --json"
     ),
-    "host_audit": (
-        "shipgate audit --host --json --out agents-shipgate-reports/host-grants.json"
-    ),
+    "host_audit": ("shipgate audit --host --json --out agents-shipgate-reports/host-grants.json"),
 }
 ARTIFACTS: dict[str, str] = {
     "verifier": "agents-shipgate-reports/verifier.json",
@@ -223,19 +217,20 @@ ARTIFACTS: dict[str, str] = {
 }
 AGENT_READ_ORDER: tuple[str, ...] = (
     "agent-handoff.json",
-    "verifier.json.merge_verdict",
-    "verifier.json.agent_controller",
+    "agent-handoff.json.control.state",
+    "verifier.json.control.state",
     "verify-run.json",
     "report.json.release_decision.decision",
 )
 VERIFIER_READ_ORDER: tuple[str, ...] = (
+    "control.state",
+    "execution",
     "merge_verdict",
     "applicability",
     "can_merge_without_human",
-    "first_next_action",
+    "control.next_action",
     "fix_task",
     "capability_review.top_changes",
-    "agent_controller",
     "release_decision.decision",
 )
 MERGE_VERDICTS: tuple[str, ...] = (
@@ -279,6 +274,7 @@ class ContractPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     contract_version: str
+    minimum_control_contract_version: str
     cli_version: str
     report_schema_version: str
     packet_schema_version: str
@@ -303,6 +299,8 @@ class ContractPayload(BaseModel):
     agent_result_schema_version: str
     agent_result_schema_path: str
     agent_result_control_fields: list[str]
+    agent_control_fields: list[str]
+    agent_control_states: list[str]
     manual_review_signals: list[str]
     agent_interface_operations: list[str]
     exit_code_policy: dict[str, str]
@@ -326,6 +324,7 @@ def build_contract_payload() -> ContractPayload:
     verifier_schema_version = VerifierArtifact.model_fields["verifier_schema_version"].default
     return ContractPayload(
         contract_version=CONTRACT_VERSION,
+        minimum_control_contract_version=MINIMUM_CONTROL_CONTRACT_VERSION,
         cli_version=__version__,
         report_schema_version=str(report_schema_version),
         packet_schema_version=str(packet_schema_version),
@@ -350,6 +349,8 @@ def build_contract_payload() -> ContractPayload:
         agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
         agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
         agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
+        agent_control_fields=list(AGENT_CONTROL_FIELDS),
+        agent_control_states=list(AGENT_CONTROL_STATES),
         manual_review_signals=list(MANUAL_REVIEW_SIGNALS),
         agent_interface_operations=list(AGENT_INTERFACE_OPERATIONS),
         exit_code_policy=dict(EXIT_CODE_POLICY),
@@ -368,6 +369,9 @@ def build_contract_payload() -> ContractPayload:
 
 __all__ = [
     "CONTRACT_VERSION",
+    "MINIMUM_CONTROL_CONTRACT_VERSION",
+    "AGENT_CONTROL_FIELDS",
+    "AGENT_CONTROL_STATES",
     "AGENT_RESULT_CONTROL_FIELDS",
     "AGENT_RESULT_SCHEMA_PATH",
     "AGENT_RESULT_SCHEMA_VERSION",

@@ -1,9 +1,9 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "unavailable"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
@@ -14,17 +14,28 @@
   "policy_version": "unavailable",
   "summary": "Agents Shipgate is not installed.",
   "changed_files": [],
-  "completion_allowed": false,
-  "must_stop": true,
-  "first_next_action": {
-    "actor": "coding_agent",
-    "kind": "install",
-    "command": "pipx install agents-shipgate",
-    "why": "Agents Shipgate is not installed."
-  },
-  "human_review": {
-    "required": false,
-    "required_reviewers": []
+  "control": {
+    "state": "agent_action_required",
+    "reason": "Agents Shipgate is not installed.",
+    "completion_allowed": false,
+    "must_stop": false,
+    "verify_required": false,
+    "next_action": {
+      "actor": "coding_agent",
+      "kind": "install",
+      "command": "pipx install agents-shipgate",
+      "expects": null,
+      "why": "Agents Shipgate is not installed."
+    },
+    "allowed_next_commands": [
+      "pipx install agents-shipgate"
+    ],
+    "human_review": {
+      "required": false,
+      "why": null,
+      "required_reviewers": []
+    },
+    "stop_reason": null
   },
   "repair": {
     "actor": "coding_agent",
@@ -68,7 +79,5 @@
     }
   ],
   "source_artifacts": {},
-  "finding_fingerprints": [],
-  "policy_snapshot_sha256": null,
-  "exit_code_hint": 127
+  "finding_fingerprints": []
 }

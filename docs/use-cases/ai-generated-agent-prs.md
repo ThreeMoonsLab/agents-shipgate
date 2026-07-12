@@ -66,7 +66,7 @@ refunds." It adds `stripe.create_refund` to the tool surface and opens a PR.
   idempotency evidence, both `blocks_release: true`;
 - `merge_verdict: blocked` (projected from `release_decision.decision: blocked`);
 - `can_merge_without_human: false`;
-- a `first_next_action` naming a **human** actor: a business owner must decide
+- a `control.next_action` naming a **human** actor: a business owner must decide
   whether refunds require approval above a threshold.
 
 The coding agent cannot resolve this by editing the report or asserting approval
@@ -84,7 +84,7 @@ readiness issue, its patch removes a blocker by editing `shipgate.yaml`.
 - a `capability_review.top_changes[]` row for the Shipgate policy change;
 - a review-required finding, so `merge_verdict` is at best
   `human_review_required` and `can_merge_without_human` is `false`;
-- `first_next_action` names a **human**: a reviewer must confirm the policy
+- `control.next_action` names a **human**: a reviewer must confirm the policy
   change is intentional.
 
 Touching a release-gate trust root requires at least human review. The attempt to
@@ -100,19 +100,16 @@ block release through ordinary `SHIP-VERIFY-*` findings.
 ```bash
 pipx install agents-shipgate
 agents-shipgate verify --preview --json
-agents-shipgate init --workspace . --write --ci --agent-instructions=default --json
+agents-shipgate init --workspace . --write --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
 - `verify --preview --json` is a lightweight relevance check — no scan, no
-  manifest required, exits 0. It emits `mode: "preview"` and a `first_next_action`
+  manifest required, exits 0. It emits `mode: "preview"` and `control.next_action`
   with an exact init command for unconfigured repos or an exact verify command
   for configured repos. Use it as the first touch on any repo or PR.
-- `init --write --ci --agent-instructions=default --json` writes
-  `shipgate.yaml`, the advisory CI workflow, and the default agent surfaces
-  (`AGENTS.md`, the Cursor rule, the Claude `/shipgate` command, and
-  `.shipgate/agent-contract.json`). Skill bundles stay explicit targets such as
-  `codex-skill`.
+- `init --write --json` writes only `shipgate.yaml`. CI and agent-instruction
+  trust roots remain separate, explicitly reviewed setup steps.
 - `verify --base origin/main --head HEAD --json` runs the authoritative head
   scan with diff context and writes the verifier artifacts. `verify` never
   fetches, so make the base ref available first (`fetch-depth: 0` in CI, or
@@ -189,7 +186,7 @@ Read `agents-shipgate-reports/verifier.json` in this order:
    (`passed`→`mergeable`, `review_required`→`human_review_required`,
    `insufficient_evidence`→`insufficient_evidence`, `blocked`→`blocked`, missing
    decision→`unknown`). Also read `can_merge_without_human`, `headline`, and
-   `human_review.{required, why}`, plus `first_next_action.{actor, kind, command,
+   `control.human_review.{required, why}`, plus `control.next_action.{actor, kind, command,
    why}` — the actor distinguishes coding-agent work from human-only work.
 2. **`capability_review`** — what tool/action access changed, before any generic
    finding. It carries `trust_root_touched`, `policy_weakened`, capability
@@ -205,8 +202,8 @@ Read `agents-shipgate-reports/verifier.json` in this order:
 / `head_status` / `changed_files`, `mode`, and an `artifacts` map. Use
 `base_status` to understand whether diff enrichment ran — never as a release
 verdict. The full schema is
-[`docs/verifier-schema.v0.1.json`](../verifier-schema.v0.1.json)
-(`verifier_schema_version: "0.2"`).
+[`docs/verifier-schema.v0.3.json`](../verifier-schema.v0.3.json)
+(`verifier_schema_version: "0.3"`).
 
 After `verifier.json`, read `agents-shipgate-reports/report.json` for the full
 finding detail. The human PR surface is `agents-shipgate-reports/pr-comment.md`.
@@ -228,11 +225,11 @@ Coding agents must **not** invent authority-bearing evidence:
 - runtime trace evidence;
 - business-owner acceptance or human acknowledgement of policy weakening.
 
-When a capability change requires authority, `first_next_action.actor` is
-`human` and the change must be reviewed by a person. A coding agent must not
-claim completion when `merge_verdict` is `blocked`, `insufficient_evidence`, or
-`human_review_required` unless the user has explicitly accepted the human-review
-requirement. And a coding agent must **never** weaken `shipgate.yaml`, Shipgate
+When a capability change requires authority, `control.state` is
+`human_review_required` and the change must be reviewed by a person. A coding
+agent must not claim completion unless a newly generated artifact reports
+`control.state="complete"`; conversation-level acknowledgement cannot change
+the state. And a coding agent must **never** weaken `shipgate.yaml`, Shipgate
 CI, `AGENTS.md`, policy packs, baselines, waivers, or suppressions merely to make
 Shipgate pass — doing so is itself a trust-root change that the gate will flag.
 

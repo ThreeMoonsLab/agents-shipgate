@@ -8,9 +8,10 @@ For the normative agent protocol, use [codex.md](codex.md) and
 shipgate check --agent codex --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `shipgate.codex_boundary_result/v1` and switch on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, `policy`, and `verify_required`. Do not infer a local control decision from prose.
+Parse stdout as `shipgate.codex_boundary_result/v2`, switch on
+`control.state`, and follow `control.next_action`,
+`control.allowed_next_commands`, and `control.human_review`. Treat `decision`
+as diagnostic context only; do not infer local control from prose.
 
 Agents Shipgate ships a skill-only Codex plugin so users can install it from
 the Codex plugin experience, start a new thread, invoke `$agents-shipgate`, and
@@ -77,7 +78,7 @@ codex plugin add agents-shipgate@agents-shipgate
 
 The Codex plugin supplies workflow instructions, not the scanner binary. Before
 asking Codex to scan or verify a repo, make sure the CLI is available and
-`agents-shipgate contract --json` reports contract v7 or newer:
+`agents-shipgate contract --json` reports `minimum_control_contract_version: 14`:
 
 ```bash
 pipx install agents-shipgate
@@ -86,7 +87,7 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-When `$agents-shipgate` runs and the CLI is missing or older than contract v7,
+When `$agents-shipgate` runs and the CLI is missing or older than runtime contract 14,
 Codex should ask for an install or upgrade instead of continuing to `detect`,
 `init`, `scan`, or `verify`.
 
@@ -108,7 +109,7 @@ Passing evidence:
 
 - `plugin list` shows `agents-shipgate@agents-shipgate`.
 - `plugin add` reports the plugin was added from `agents-shipgate`.
-- `agents-shipgate contract --json` reports contract v7 or newer.
+- `agents-shipgate contract --json` reports `minimum_control_contract_version: 14`.
 - the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
 - the `codex exec` response is `LOADED agents-shipgate`.
 
@@ -173,7 +174,7 @@ Open Codex in the project and run these checks:
 
 1. Install the Agents Shipgate plugin from Codex, start a new thread, and ask:
    "$agents-shipgate verify this agent PR and summarize the merge verdict."
-   Codex should load the plugin skill, require contract v7 or newer, then
+   Codex should load the plugin skill, require runtime contract 14, then
    read `agents-shipgate-reports/agent-handoff.json` and lead with
    `gate.merge_verdict`; it then reads `agents-shipgate-reports/report.json`
    for `release_decision.decision`.
@@ -185,7 +186,7 @@ Open Codex in the project and run these checks:
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
    `shipgate check --agent codex --workspace . --format codex-boundary-json`
-   and parse `shipgate.codex_boundary_result/v1`; run
+   and parse `shipgate.codex_boundary_result/v2.control.state`; run
    `agents-shipgate preflight --workspace . --plan - --json` before
    protected-surface edits; then run
    `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`
@@ -209,24 +210,23 @@ agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
-If preflight returns `requires_human_review: true`, Codex must stop for a human
+If preflight returns `control.state="human_review_required"`, Codex must stop for a human
 before editing the protected surface or asserting missing high-risk evidence.
 
-Then read `agents-shipgate-reports/agent-handoff.json` and **lead with
-`gate.merge_verdict`** (`mergeable` / `human_review_required` /
+Then read `agents-shipgate-reports/agent-handoff.json` and **switch on
+`control.state`**, then read `gate.merge_verdict` (`mergeable` / `human_review_required` /
 `insufficient_evidence` / `blocked` / `unknown`). It is a deterministic
 projection of `release_decision.decision`, which remains the gate in
 `agents-shipgate-reports/report.json`. Read
 `capability_review.top_changes[]` next to see the highest-signal tool/action
-access changes, and check `controller`, `next_action`, and `fix_task`. Use
-`verifier.json` only for detailed controller context.
+access changes, and check `control.next_action` and `fix_task`. Use
+`verifier.json` only for detailed control context.
 Legacy `agent-result.json` surfaces are supporting/provisional compatibility
 projections and not the verifier read path.
 
-Codex must not claim completion when `merge_verdict` is `blocked`,
-`insufficient_evidence`, or `human_review_required` unless the user has
-explicitly accepted the human-review requirement. Follow `fix_task` as the
-repair boundary. When `first_next_action.actor` or `fix_task.actor` is `human` —
+Codex must not claim completion unless `control.state` is `complete`.
+Conversation-level acknowledgement cannot clear a human-review route. Follow `fix_task` as the
+repair boundary. When `control.next_action.actor` or `fix_task.actor` is `human` —
 action effect, action authority, approval, confirmation, idempotency,
 broad-scope, prohibited-action, acknowledgement, waiver, baseline, or policy
 decisions — Codex surfaces the item for a person rather than resolving it.

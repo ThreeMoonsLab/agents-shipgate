@@ -27,9 +27,10 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
 make the base ref available first because `verify` never fetches. Read
 `agents-shipgate-reports/agent-handoff.json` first and lead with
-`gate.merge_verdict`, `gate.can_merge_without_human`, `controller`,
+`control.state`, `gate.merge_verdict`, `gate.can_merge_without_human`,
 `next_action`, `fix_task`, and `capability_review.top_changes[]`. Fall back to
-`verifier.json` only for older installed CLIs that do not report contract v7.
+`verifier.json` only for older installed CLIs that do not report runtime
+contract 14.
 Then read `report.json.release_decision.decision`, which remains the only
 release gate.
 
@@ -37,19 +38,21 @@ Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules,
 policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
 `agents-shipgate preflight --workspace . --plan - --json` with a
-`PreflightPlanV1` object. Legacy `--changed-files` remains available. If
-`requires_human_review` is true, stop for a human.
+`PreflightPlanV1` object. Legacy `--changed-files` remains available. Switch on
+`control.state`. If it is `human_review_required`, stop for a human; if it is
+`agent_action_required`, perform only the exact coding-agent action and command
+in `control.next_action`.
 
-Do not claim completion when `merge_verdict` is `blocked`,
-`insufficient_evidence`, or `human_review_required` unless the user explicitly
-accepts human review.
+Do not claim completion unless `control.state` is `complete`. Conversation-level
+acknowledgement never changes control state; only a newly generated verifier
+artifact can clear an obligation.
 
 ## Recipe 1 · First adoption helper
 
 Use this when a repo doesn't yet have `shipgate.yaml` and the user wants a
 scan-oriented first pass. The verifier-first path is
 `verify --preview --json` →
-`init --write --ci --agent-instructions=default --json` →
+`init --write --json` →
 `verify --base origin/main --head HEAD`. The helper below remains useful when a
 coding agent should also apply high-confidence manifest cleanup in the same
 turn. Ongoing PR work should use Recipe 0.

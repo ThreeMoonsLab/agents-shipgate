@@ -19,6 +19,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "schema_version",
         "agents_shipgate_version",
         "contract_version",
+        "minimum_control_contract_version",
         "default_paths",
         "primary_commands",
         "commands",
@@ -39,6 +40,8 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "agent_result_schema_version",
         "agent_result_schema_path",
         "agent_result_control_fields",
+        "agent_control_fields",
+        "agent_control_states",
         "agent_interface_operations",
         "exit_code_policy",
         "mcp_tools",
@@ -49,6 +52,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION
     assert payload["agents_shipgate_version"] == __version__
     assert payload["contract_version"] == CONTRACT_VERSION
+    assert payload["minimum_control_contract_version"] == "14"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
     assert set(payload["primary_commands"]) == {
@@ -61,7 +65,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
     assert payload["commands"]["install_agent_workflow"] == (
-        "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
+        "agents-shipgate init --workspace . --write --json"
     )
     assert payload["commands"]["agent_check_codex"] == (
         "shipgate check --agent codex --workspace . --format codex-boundary-json"
@@ -77,40 +81,37 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["artifacts"]["agent_handoff"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["agent_read_order"] == [
         "agent-handoff.json",
-        "verifier.json.merge_verdict",
-        "verifier.json.agent_controller",
+        "agent-handoff.json.control.state",
+        "verifier.json.control.state",
         "verify-run.json",
         "report.json.release_decision.decision",
     ]
-    assert payload["verifier_read_order"][0] == "merge_verdict"
+    assert payload["verifier_read_order"][0] == "control.state"
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.2"
-    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v1"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v2"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v2.json"
+    assert payload["verifier_schema_version"] == "0.3"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v2"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v3"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v3.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
-    assert (
-        payload["codex_boundary_result_schema_version"]
-        == "shipgate.codex_boundary_result/v1"
-    )
+    assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["attestation_schema_version"] == "0.4"
     assert payload["registry_schema_version"] == "0.3"
-    assert payload["org_evidence_bundle_schema_version"] == (
-        "shipgate.org_evidence_bundle/v1"
-    )
+    assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v1")
     assert payload["host_grants_inventory_schema_version"] == "0.1"
-    assert payload["agent_result_schema_version"] == "agent_result_v1"
-    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v1.json"
+    assert payload["agent_result_schema_version"] == "agent_result_v2"
+    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v2.json"
     assert payload["agent_result_control_fields"] == [
         "decision",
-        "completion_allowed",
-        "must_stop",
-        "first_next_action",
-        "human_review",
+        "control",
         "repair",
         "policy",
-        "verify_required",
     ]
+    assert payload["agent_control_states"] == [
+        "complete",
+        "agent_action_required",
+        "human_review_required",
+    ]
+    assert "stop_reason" in payload["agent_control_fields"]
     assert payload["agent_interface_operations"] == [
         "verify_pr",
         "verify_local",

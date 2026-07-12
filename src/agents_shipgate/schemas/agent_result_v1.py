@@ -88,7 +88,22 @@ class AgentResultHumanReview(BaseModel):
 
 
 class AgentResultRepair(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "if": {
+                "properties": {"safe_to_attempt": {"const": True}},
+                "required": ["safe_to_attempt"],
+            },
+            "then": {
+                "properties": {
+                    "actor": {"const": "coding_agent"},
+                    "command": {"type": "string", "minLength": 1, "pattern": "\\S"},
+                },
+                "required": ["actor", "command"],
+            },
+        },
+    )
 
     actor: AgentResultActor = "human"
     safe_to_attempt: bool = False
@@ -100,6 +115,8 @@ class AgentResultRepair(BaseModel):
     def _safe_repairs_route_to_agent(self) -> AgentResultRepair:
         if self.safe_to_attempt and self.actor != "coding_agent":
             raise ValueError("safe repairs must route to the coding agent")
+        if self.safe_to_attempt and (not self.command or not self.command.strip()):
+            raise ValueError("safe repairs must provide an exact command")
         return self
 
 

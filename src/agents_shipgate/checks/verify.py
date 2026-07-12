@@ -74,8 +74,8 @@ TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
 #     ``.codex-plugin/**``) — those are the capability surface UNDER review,
 #     which a PR may legitimately edit.
 #
-# Single home so the verify ``agent_controller`` and the ``agent_handoff``
-# fallback (preview, where no controller is computed) emit the IDENTICAL
+# Single home so the verifier and the ``agent_handoff`` preview fallback emit
+# the IDENTICAL
 # standing deny-list — a passing/preview verdict never reads as "anything goes".
 _FORBIDDEN_EDIT_CLASSES = frozenset({"ci_gate", "agent_instructions", "policy"})
 PROTECTED_FILE_EDITS: tuple[str, ...] = tuple(

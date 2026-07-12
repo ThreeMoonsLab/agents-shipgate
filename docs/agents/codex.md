@@ -6,12 +6,13 @@ Codex uses the shared agent-native protocol:
 shipgate check --agent codex --workspace . --format codex-boundary-json
 ```
 
-Parse stdout as `shipgate.codex_boundary_result/v1`. Switch only on `decision`,
-`completion_allowed`, `must_stop`, `first_next_action`, `human_review`,
-`repair`, `policy`, and `verify_required`.
+Parse stdout as `shipgate.codex_boundary_result/v2`. Switch only on
+`control.state`; follow `control.next_action`, `control.allowed_next_commands`,
+and `control.human_review`. Treat `decision` as diagnostic context only.
 
 If the binary is missing, surface the schema-valid install fixture with
-`first_next_action.kind="install"` and command `pipx install agents-shipgate`.
+`control.state="agent_action_required"`, `control.next_action.kind="install"`,
+and command `pipx install agents-shipgate`.
 After installation, rerun `shipgate check`; do not invent a natural-language
 decision.
 

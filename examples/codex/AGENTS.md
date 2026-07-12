@@ -9,13 +9,12 @@ git diff --no-ext-diff --unified=0 HEAD > /tmp/codex.diff
 shipgate check --agent codex --diff /tmp/codex.diff --format codex-boundary-json
 ```
 
-Read stdout as `shipgate.codex_boundary_result/v1` JSON only. Use `decision`
-as the local next-action signal:
+Read stdout as `shipgate.codex_boundary_result/v2` JSON only. Switch on
+`control.state`; `decision` is diagnostic context:
 
-- `allow`: continue normally.
-- `warn`: continue and mention the warning.
-- `require_review`: stop and surface `first_next_action.why` to a human.
-- `block`: stop; do not claim the change is complete.
+- `complete`: continue and report the diagnostic decision.
+- `agent_action_required`: perform only `control.next_action`, then rerun.
+- `human_review_required`: stop and surface `control.next_action.why` to a human.
 
 Do not weaken `shipgate.yaml`, the Shipgate workflow, AGENTS.md, skills, hooks,
 policies, baselines, waivers, or suppressions to make the local check pass.

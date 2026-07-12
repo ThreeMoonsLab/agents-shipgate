@@ -123,12 +123,8 @@ def test_frozen_v028_report_schema_does_not_backport_v029_semantic_evidence() ->
     v29_action = _report_schema_action_fact_properties("0.29")
     v28_capability = _report_schema_definition_properties("0.28", "CapabilityFact")
     v29_capability = _report_schema_definition_properties("0.29", "CapabilityFact")
-    v28_coverage = _report_schema_definition_properties(
-        "0.28", "EvidenceCoverageDecision"
-    )
-    v29_coverage = _report_schema_definition_properties(
-        "0.29", "EvidenceCoverageDecision"
-    )
+    v28_coverage = _report_schema_definition_properties("0.28", "EvidenceCoverageDecision")
+    v29_coverage = _report_schema_definition_properties("0.29", "EvidenceCoverageDecision")
     v28_decision = _report_schema_definition_properties("0.28", "ReleaseDecision")
     v29_decision = _report_schema_definition_properties("0.29", "ReleaseDecision")
     v28_gap_action = _report_schema_definition_properties("0.28", "EvidenceGapAction")
@@ -170,14 +166,10 @@ def test_frozen_v07_packet_schema_does_not_backport_v08_static_boundary() -> Non
 
 def test_controller_schemas_publish_the_static_verdict_boundary() -> None:
     verifier = json.loads(
-        (REPO_ROOT / "docs" / "verifier-schema.v0.1.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "docs" / "verifier-schema.v0.1.json").read_text(encoding="utf-8")
     )
     handoff = json.loads(
-        (REPO_ROOT / "docs" / "agent-handoff-schema.v2.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "docs" / "agent-handoff-schema.v2.json").read_text(encoding="utf-8")
     )
     boundary = {
         "static_analysis_only",
@@ -193,45 +185,35 @@ def test_controller_schemas_publish_the_static_verdict_boundary() -> None:
 
 def _report_schema_action_fact_properties(version: str) -> set[str]:
     schema = json.loads(
-        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(encoding="utf-8")
     )
     return set(schema["$defs"]["ActionFact"]["properties"])
 
 
 def _loaded_policy_pack_properties(version: str) -> set[str]:
     schema = json.loads(
-        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(encoding="utf-8")
     )
     return set(schema["$defs"]["LoadedPolicyPack"]["properties"])
 
 
 def _finding_properties(version: str) -> set[str]:
     schema = json.loads(
-        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(encoding="utf-8")
     )
     return set(schema["$defs"]["Finding"]["properties"])
 
 
 def _report_schema_definition_properties(version: str, definition: str) -> set[str]:
     schema = json.loads(
-        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "docs" / f"report-schema.v{version}.json").read_text(encoding="utf-8")
     )
     return set(schema["$defs"][definition]["properties"])
 
 
 def _packet_schema_definition_properties(version: str, definition: str) -> set[str]:
     schema = json.loads(
-        (REPO_ROOT / "docs" / f"packet-schema.v{version}.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "docs" / f"packet-schema.v{version}.json").read_text(encoding="utf-8")
     )
     return set(schema["$defs"][definition]["properties"])
 
@@ -397,6 +379,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
 
     assert ContractPayload(
         contract_version="12",
+        minimum_control_contract_version="12",
         cli_version="0.0.0",
         report_schema_version="0.31",
         packet_schema_version="0.9",
@@ -421,6 +404,8 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         agent_result_schema_version="agent_result_v1",
         agent_result_schema_path="docs/agent-result-schema.v1.json",
         agent_result_control_fields=["decision"],
+        agent_control_fields=[],
+        agent_control_states=[],
         manual_review_signals=[],
         agent_interface_operations=["verify_pr"],
         exit_code_policy={"3": "input parse or missing artifact error"},
@@ -446,6 +431,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         do_not_auto_assert=["approval"],
     ).model_dump(mode="json") == {
         "contract_version": "12",
+        "minimum_control_contract_version": "12",
         "cli_version": "0.0.0",
         "report_schema_version": "0.31",
         "packet_schema_version": "0.9",
@@ -470,6 +456,8 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "agent_result_schema_version": "agent_result_v1",
         "agent_result_schema_path": "docs/agent-result-schema.v1.json",
         "agent_result_control_fields": ["decision"],
+        "agent_control_fields": [],
+        "agent_control_states": [],
         "manual_review_signals": [],
         "agent_interface_operations": ["verify_pr"],
         "exit_code_policy": {"3": "input parse or missing artifact error"},

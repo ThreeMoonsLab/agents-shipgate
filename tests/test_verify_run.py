@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from agents_shipgate.core.agent_control import derive_agent_control
+from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.verify_run import (
     VerifyRunArtifact,
     VerifyRunArtifactRef,
@@ -37,10 +39,12 @@ def test_verify_run_id_excludes_outcome_and_artifact_hashes() -> None:
         outcome=VerifyRunOutcome(
             exit_code=0,
             base_status="succeeded",
-            head_status="succeeded",
+            execution="succeeded",
+            applicability="verified",
             decision="passed",
             merge_verdict="mergeable",
             can_merge_without_human=True,
+            control=derive_agent_control(reason="Static verification passed."),
         ),
         artifacts={
             "verifier_json": VerifyRunArtifactRef(
@@ -56,10 +60,19 @@ def test_verify_run_id_excludes_outcome_and_artifact_hashes() -> None:
         outcome=VerifyRunOutcome(
             exit_code=20,
             base_status="succeeded",
-            head_status="succeeded",
+            execution="succeeded",
+            applicability="verified",
             decision="blocked",
             merge_verdict="blocked",
             can_merge_without_human=False,
+            control=derive_agent_control(
+                reason="A blocking policy condition requires a human.",
+                next_action=HumanControlAction(
+                    kind="stop",
+                    why="A blocking policy condition requires a human.",
+                ),
+                human_review_required=True,
+            ),
         ),
         artifacts={
             "verifier_json": VerifyRunArtifactRef(
@@ -93,10 +106,14 @@ def test_verify_run_rejects_run_id_that_does_not_match_identity() -> None:
         outcome=VerifyRunOutcome(
             exit_code=0,
             base_status="skipped",
-            head_status="skipped",
+            execution="skipped",
+            applicability="not_applicable",
             decision=None,
             merge_verdict="mergeable",
             can_merge_without_human=True,
+            control=derive_agent_control(
+                reason="The deterministic trigger found no applicable changes."
+            ),
         ),
         artifacts={},
     )
@@ -105,3 +122,22 @@ def test_verify_run_rejects_run_id_that_does_not_match_identity() -> None:
 
     with pytest.raises(ValidationError):
         VerifyRunArtifact.model_validate(payload)
+
+
+def test_verify_run_rejects_noncomplete_control_for_merge_authority() -> None:
+    human = derive_agent_control(
+        reason="Human review is required.",
+        next_action=HumanControlAction(kind="review", why="Human review is required."),
+        human_review_required=True,
+    )
+    with pytest.raises(ValidationError):
+        VerifyRunOutcome(
+            exit_code=0,
+            base_status="succeeded",
+            execution="succeeded",
+            applicability="verified",
+            decision="passed",
+            merge_verdict="mergeable",
+            can_merge_without_human=True,
+            control=human,
+        )

@@ -329,9 +329,7 @@ def test_well_known_metadata_lists_packet_outputs():
     assert package.get("github_action") == (
         f"ThreeMoonsLab/agents-shipgate@v{LATEST_PUBLISHED_VERSION}"
     )
-    assert data.get("release_status", {}).get("latest_release") == (
-        f"v{LATEST_PUBLISHED_VERSION}"
-    )
+    assert data.get("release_status", {}).get("latest_release") == (f"v{LATEST_PUBLISHED_VERSION}")
     outputs = data.get("outputs", [])
     for expected in (
         "packet_md",
@@ -363,9 +361,7 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("static_analysis_only") is True
     assert data.get("runtime_behavior_verified") is False
     assert data.get("static_verdict_disclaimer") == STATIC_VERDICT_DISCLAIMER
-    assert data.get("passed_verdict_contract", "").endswith(
-        "/docs/passed-verdict-contract.md"
-    )
+    assert data.get("passed_verdict_contract", "").endswith("/docs/passed-verdict-contract.md")
     assert data.get("report_schema_version") == contract["report_schema_version"]
     assert data.get("packet_schema_version") == contract["packet_schema_version"]
     assert data.get("agent_result_schema_version") == contract["agent_result_schema_version"]
@@ -376,15 +372,17 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("agent_handoff_schema_version") == contract["agent_handoff_schema_version"]
     assert data.get("agent_handoff_schema_path") == contract["agent_handoff_schema_path"]
     assert data.get("agent_handoff_artifact") == contract["agent_handoff_artifact"]
-    assert data.get("codex_boundary_result_schema_version") == (
-        contract["codex_boundary_result_schema_version"]
+    assert (
+        data.get("codex_boundary_result_schema_version")
+        == (contract["codex_boundary_result_schema_version"])
     )
     assert data.get("capability_standard_version") == CAPABILITY_STANDARD_VERSION
-    assert data.get("capability_lock_schema_version") == (
-        contract["capability_lock_schema_version"]
+    assert (
+        data.get("capability_lock_schema_version") == (contract["capability_lock_schema_version"])
     )
-    assert data.get("capability_lock_diff_schema_version") == (
-        contract["capability_lock_diff_schema_version"]
+    assert (
+        data.get("capability_lock_diff_schema_version")
+        == (contract["capability_lock_diff_schema_version"])
     )
     assert data.get("agent_read_order") == contract["agent_read_order"]
     assert data.get("verifier_read_order") == contract["verifier_read_order"]
@@ -396,8 +394,8 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("mcp_tools") == contract["mcp_tools"]
     commands = data.get("commands", {})
     assert commands.get("agent_check_codex") == contract["commands"]["agent_check_codex"]
-    assert commands.get("agent_check_claude_code") == (
-        contract["commands"]["agent_check_claude_code"]
+    assert (
+        commands.get("agent_check_claude_code") == (contract["commands"]["agent_check_claude_code"])
     )
     assert commands.get("agent_check_cursor") == contract["commands"]["agent_check_cursor"]
     artifacts = data.get("artifacts", {})
@@ -439,11 +437,13 @@ def test_well_known_metadata_lists_packet_outputs():
     )
     assert data.get("attestation_schema_version") == contract["attestation_schema_version"]
     assert data.get("registry_schema_version") == contract["registry_schema_version"]
-    assert data.get("org_evidence_bundle_schema_version") == (
-        contract["org_evidence_bundle_schema_version"]
+    assert (
+        data.get("org_evidence_bundle_schema_version")
+        == (contract["org_evidence_bundle_schema_version"])
     )
-    assert data.get("host_grants_inventory_schema_version") == (
-        contract["host_grants_inventory_schema_version"]
+    assert (
+        data.get("host_grants_inventory_schema_version")
+        == (contract["host_grants_inventory_schema_version"])
     )
     registry_url = schemas.get("registry", "")
     assert f"registry-schema.v{REGISTRY_SCHEMA_VERSION}.json" in registry_url, (
@@ -452,9 +452,7 @@ def test_well_known_metadata_lists_packet_outputs():
     )
     bundle_url = schemas.get("org_evidence_bundle", "")
     assert "org-evidence-bundle-schema.v1.json" in bundle_url
-    assert data.get("org_evidence_bundle_schema_version") == (
-        ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
-    )
+    assert data.get("org_evidence_bundle_schema_version") == (ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION)
     host_grants_url = schemas.get("host_grants_inventory", "")
     assert (
         f"host-grants-inventory-schema.v{HOST_GRANTS_INVENTORY_SCHEMA_VERSION}.json"
@@ -479,14 +477,11 @@ def test_well_known_metadata_lists_packet_outputs():
         ".well-known schemas.governance_benchmark_result must point to the "
         f"current result schema; got {benchmark_result_url!r}."
     )
-    assert "verify_run" in schemas and "verify-run-schema.v1.json" in schemas["verify_run"]
-    assert (
-        "agent_handoff" in schemas
-        and "agent-handoff-schema.v2.json" in schemas["agent_handoff"]
-    )
+    assert "verify_run" in schemas and "verify-run-schema.v2.json" in schemas["verify_run"]
+    assert "agent_handoff" in schemas and "agent-handoff-schema.v3.json" in schemas["agent_handoff"]
     assert (
         "codex_boundary_result" in schemas
-        and "codex-boundary-result-schema.v1.json" in schemas["codex_boundary_result"]
+        and "codex-boundary-result-schema.v2.json" in schemas["codex_boundary_result"]
     )
 
 
@@ -687,9 +682,7 @@ def test_runtime_and_published_versions_propagate_to_metadata_surfaces():
         f".well-known package.github_action pins "
         f"v{action_match.group(1)}; latest published is v{LATEST_PUBLISHED_VERSION}."
     )
-    assert well_known["release_status"]["latest_release"] == (
-        f"v{LATEST_PUBLISHED_VERSION}"
-    )
+    assert well_known["release_status"]["latest_release"] == (f"v{LATEST_PUBLISHED_VERSION}")
 
     # llms.txt install/release guidance must name the published tag.
     llms_text = _read("llms.txt")
@@ -727,10 +720,10 @@ def test_release_tag_consistency_checks_published_tag_not_prerelease_runtime():
     """
 
     workflow = _read(".github/workflows/ci.yml")
-    assert '.well-known/agents-shipgate.json' in workflow
+    assert ".well-known/agents-shipgate.json" in workflow
     assert '["release_status"]["latest_release"]' in workflow
-    assert 'refs/tags/${latest_release}' in workflow
-    assert 'refs/tags/v${version}' not in workflow
+    assert "refs/tags/${latest_release}" in workflow
+    assert "refs/tags/v${version}" not in workflow
 
 
 def _file_lines_with_pin(path: str, pattern: re.Pattern[str]):
@@ -1439,14 +1432,10 @@ def test_well_known_advertises_agent_feedback_loop():
     assert "unsafe_pass" in feedback.get("when", [])
     assert feedback.get("export_command") == data["commands"]["feedback_export"]
     assert "--redact" in feedback.get("export_command", "")
-    assert feedback.get("issue_template", "").endswith(
-        "/issues/new?template=agent_feedback.yml"
-    )
+    assert feedback.get("issue_template", "").endswith("/issues/new?template=agent_feedback.yml")
     assert "shipgate-feedback.json" in feedback.get("attach", [])
     forbidden = set(feedback.get("do_not_attach", []))
-    assert {"unredacted reports", "raw tool outputs", "secrets", "chain-of-thought"} <= (
-        forbidden
-    )
+    assert {"unredacted reports", "raw tool outputs", "secrets", "chain-of-thought"} <= (forbidden)
 
 
 def test_well_known_seo_geo_positioning_fields_are_pinned():
@@ -1518,7 +1507,7 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert commands.get("preview") == "agents-shipgate verify --preview --json"
     assert commands.get("verify_local", "").startswith("agents-shipgate verify ")
     assert commands.get("install_ai_coding_workflow") == (
-        "agents-shipgate init --workspace . --write --ci --agent-instructions=default --json"
+        "agents-shipgate init --workspace . --write --json"
     )
     assert data.get("check_run_policies") == [
         "advisory",
@@ -1526,9 +1515,7 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
         "require-mergeable",
     ]
     assert (
-        data.get("github_action_pr_workflow", {})
-        .get("recommended_inputs", {})
-        .get("diff_base")
+        data.get("github_action_pr_workflow", {}).get("recommended_inputs", {}).get("diff_base")
         == "target"
     )
     assert "feedback export" in commands.get("feedback_export", "")
@@ -1536,14 +1523,16 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert data.get("static_scan_fixture_run") == (
         "agents-shipgate fixture run support_refund_agent"
     )
-    assert data.get("verifier_read_order", [])[:7] == [
+    assert data.get("verifier_read_order", [])[:9] == [
+        "control.state",
+        "execution",
         "merge_verdict",
         "applicability",
         "can_merge_without_human",
-        "first_next_action",
+        "control.next_action",
         "fix_task",
         "capability_review.top_changes",
-        "agent_controller",
+        "release_decision.decision",
     ]
     assert data.get("supporting_provisional_surfaces", []) == [
         "agent_result",
@@ -1596,19 +1585,15 @@ def test_prominent_surfaces_only_promote_check_verify_and_host_audit():
         "## Supporting zero-install relevance check", 1
     )[0]
     slash = _read(".claude/commands/shipgate.md")
-    slash_commands = slash.split("Prominent commands:", 1)[1].split(
-        "Required behavior", 1
-    )[0]
+    slash_commands = slash.split("Prominent commands:", 1)[1].split("Required behavior", 1)[0]
     target_snippets = _read("docs/target-repo-agent-snippets.md")
-    agents_block = target_snippets.split("## `AGENTS.md`", 1)[1].split(
-        "## Codex Skill", 1
-    )[0]
+    agents_block = target_snippets.split("## `AGENTS.md`", 1)[1].split("## Codex Skill", 1)[0]
     claude_block = target_snippets.split("## `CLAUDE.md`", 1)[1].split(
         "## `.cursor/rules/agents-shipgate.mdc`", 1
     )[0]
-    cursor_block = target_snippets.split("## `.cursor/rules/agents-shipgate.mdc`", 1)[
-        1
-    ].split("## `.github/pull_request_template.md`", 1)[0]
+    cursor_block = target_snippets.split("## `.cursor/rules/agents-shipgate.mdc`", 1)[1].split(
+        "## `.github/pull_request_template.md`", 1
+    )[0]
 
     surfaces = {
         "README quickstart": readme_top,

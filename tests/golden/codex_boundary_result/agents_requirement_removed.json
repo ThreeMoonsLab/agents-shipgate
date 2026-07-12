@@ -1,34 +1,43 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b2"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "codex_boundary_373a01e0f55653595a978071",
+  "audit_id": "codex_boundary_e84911f93fec41b5722009d2",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) require human review.",
   "changed_files": [
     "AGENTS.md"
   ],
-  "completion_allowed": false,
-  "must_stop": true,
-  "first_next_action": {
-    "actor": "human",
-    "kind": "review",
-    "why": "AGENTS.md removed a Shipgate requirement"
-  },
-  "human_review": {
-    "required": true,
-    "why": "AGENTS.md removed a Shipgate requirement",
-    "required_reviewers": [
-      "agent-platform"
-    ]
+  "control": {
+    "state": "human_review_required",
+    "reason": "1 Codex boundary change(s) require human review.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": false,
+    "next_action": {
+      "actor": "human",
+      "kind": "review",
+      "command": null,
+      "expects": null,
+      "why": "AGENTS.md removed a Shipgate requirement"
+    },
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "AGENTS.md removed a Shipgate requirement",
+      "required_reviewers": [
+        "agent-platform"
+      ]
+    },
+    "stop_reason": "AGENTS.md removed a Shipgate requirement"
   },
   "repair": {
     "actor": "human",
@@ -114,7 +123,7 @@
       {
         "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
         "action": "skip_shipgate",
-        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' \u2014 a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
+        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' — a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
         "command": null
       }
     ],
@@ -131,7 +140,5 @@
   "finding_fingerprints": [
     "fp_e3eff6c19a8ab16d"
   ],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 0,
-  "verify_required": false
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
 }

@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.schemas.agent_result import AgentResultV2
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus" / "mcp_permission_expansion"
+AGENT_RESULT_SCHEMA = ROOT / "docs" / "agent-result-schema.v2.json"
 runner = CliRunner()
 
 
@@ -62,9 +65,25 @@ def test_mcp_audit_agent_json(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["schema_version"] == "agent_result_v1"
+    Draft202012Validator(json.loads(AGENT_RESULT_SCHEMA.read_text(encoding="utf-8"))).validate(
+        payload
+    )
+    AgentResultV2.model_validate(payload)
+    assert payload["schema_version"] == "agent_result_v2"
     assert payload["decision"] == "require_review"
-    assert payload["first_next_action"]["kind"] == "review"
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["must_stop"] is True
+    assert payload["control"]["next_action"]["kind"] == "review"
+    assert payload["control"]["human_review"]["required"] is True
+    for retired in (
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "first_next_action",
+        "human_review",
+        "exit_code_hint",
+    ):
+        assert retired not in payload
 
 
 def test_mcp_audit_reads_mcp_json_diff(tmp_path: Path) -> None:

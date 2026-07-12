@@ -85,11 +85,10 @@ def _human_summary_lines(
     lines = ["", "### Human summary"]
     lines.append(f"- Merge verdict: `{verifier.merge_verdict}`")
     lines.append(f"- Can merge without human: `{str(verifier.can_merge_without_human).lower()}`")
-    if verifier.agent_controller is not None:
-        lines.append(
-            f"- Agent controller must stop: `{str(verifier.agent_controller.must_stop).lower()}`"
-        )
-        lines.append(f"- Agent controller stop reason: `{verifier.agent_controller.stop_reason}`")
+    lines.append(f"- Agent control state: `{verifier.control.state}`")
+    lines.append(f"- Agent must stop: `{str(verifier.control.must_stop).lower()}`")
+    if verifier.control.stop_reason:
+        lines.append(f"- Agent stop reason: `{verifier.control.stop_reason}`")
 
     headline = _headline(verifier, report)
     if headline:
@@ -221,33 +220,19 @@ def _agent_instruction_payload(
     verifier_json = verifier.artifacts.get("verifier_json")
     handoff_json = verifier.artifacts.get("agent_handoff_json")
     fix_task = verifier.fix_task.model_dump(mode="json") if verifier.fix_task is not None else None
-    agent_controller = (
-        verifier.agent_controller.model_dump(mode="json")
-        if verifier.agent_controller is not None
-        else None
-    )
+    control = verifier.control.model_dump(mode="json")
     if compact:
         if fix_task is not None:
             fix_task = _artifact_pointer(
                 handoff_json or verifier_json,
                 "fix_task omitted from PR comment size budget; read agent-handoff.json or verifier.json.fix_task.",
             )
-        if agent_controller is not None:
-            agent_controller = _artifact_pointer(
-                handoff_json or verifier_json,
-                "agent_controller omitted from PR comment size budget; read agent-handoff.json or verifier.json.agent_controller.",
-            )
     payload = {
         "agent_handoff": handoff_json,
         "merge_verdict": verifier.merge_verdict,
         "can_merge_without_human": verifier.can_merge_without_human,
-        "first_next_action": (
-            verifier.first_next_action.model_dump(mode="json")
-            if verifier.first_next_action is not None
-            else None
-        ),
+        "control": control,
         "fix_task": fix_task,
-        "agent_controller": agent_controller,
         "verification_command": (
             verifier.fix_task.verification_command if verifier.fix_task is not None else None
         ),

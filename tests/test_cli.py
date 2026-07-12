@@ -20,6 +20,8 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_STANDARD_VERSION,
 )
 from agents_shipgate.schemas.contract import (
+    AGENT_CONTROL_FIELDS,
+    AGENT_CONTROL_STATES,
     AGENT_HANDOFF_SCHEMA_PATH,
     AGENT_HANDOFF_SCHEMA_VERSION,
     AGENT_INTERFACE_OPERATIONS,
@@ -41,6 +43,7 @@ from agents_shipgate.schemas.contract import (
     MANUAL_REVIEW_SIGNALS,
     MCP_TOOLS,
     MERGE_VERDICTS,
+    MINIMUM_CONTROL_CONTRACT_VERSION,
     ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
     PRIMARY_COMMANDS,
     REGISTRY_SCHEMA_VERSION,
@@ -245,6 +248,7 @@ def test_cli_contract_json_outputs_runtime_contract():
     # Key order is part of the agent-facing contract payload.
     assert list(payload) == [
         "contract_version",
+        "minimum_control_contract_version",
         "cli_version",
         "report_schema_version",
         "packet_schema_version",
@@ -269,6 +273,8 @@ def test_cli_contract_json_outputs_runtime_contract():
         "agent_result_schema_version",
         "agent_result_schema_path",
         "agent_result_control_fields",
+        "agent_control_fields",
+        "agent_control_states",
         "manual_review_signals",
         "agent_interface_operations",
         "exit_code_policy",
@@ -285,6 +291,7 @@ def test_cli_contract_json_outputs_runtime_contract():
     ]
     assert payload == {
         "contract_version": CONTRACT_VERSION,
+        "minimum_control_contract_version": MINIMUM_CONTROL_CONTRACT_VERSION,
         "cli_version": __version__,
         "report_schema_version": str(ReadinessReport.model_fields["report_schema_version"].default),
         "packet_schema_version": str(EvidencePacket.model_fields["packet_schema_version"].default),
@@ -313,6 +320,8 @@ def test_cli_contract_json_outputs_runtime_contract():
         "agent_result_schema_version": AGENT_RESULT_SCHEMA_VERSION,
         "agent_result_schema_path": AGENT_RESULT_SCHEMA_PATH,
         "agent_result_control_fields": list(AGENT_RESULT_CONTROL_FIELDS),
+        "agent_control_fields": list(AGENT_CONTROL_FIELDS),
+        "agent_control_states": list(AGENT_CONTROL_STATES),
         "manual_review_signals": list(MANUAL_REVIEW_SIGNALS),
         "agent_interface_operations": list(AGENT_INTERFACE_OPERATIONS),
         "exit_code_policy": dict(EXIT_CODE_POLICY),

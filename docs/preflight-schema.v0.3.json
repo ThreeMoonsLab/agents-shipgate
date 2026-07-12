@@ -1,0 +1,1112 @@
+{
+  "$defs": {
+    "AgentActionRequiredControl": {
+      "additionalProperties": false,
+      "description": "Non-terminal state with one exact coding-agent-owned next step.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/CodingAgentAction"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "agent_action_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "AgentActionRequiredControl",
+      "type": "object"
+    },
+    "AgentControl": {
+      "discriminator": {
+        "mapping": {
+          "agent_action_required": "#/$defs/AgentActionRequiredControl",
+          "complete": "#/$defs/CompleteAgentControl",
+          "human_review_required": "#/$defs/HumanReviewRequiredControl"
+        },
+        "propertyName": "state"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CompleteAgentControl"
+        },
+        {
+          "$ref": "#/$defs/AgentActionRequiredControl"
+        },
+        {
+          "$ref": "#/$defs/HumanReviewRequiredControl"
+        }
+      ]
+    },
+    "CodingAgentAction": {
+      "discriminator": {
+        "mapping": {
+          "configure": "#/$defs/CodingAgentCommandAction",
+          "discover": "#/$defs/CodingAgentCommandAction",
+          "fetch_base": "#/$defs/CodingAgentFetchBaseAction",
+          "initialize": "#/$defs/CodingAgentCommandAction",
+          "install": "#/$defs/CodingAgentCommandAction",
+          "repair": "#/$defs/CodingAgentCommandAction",
+          "rerun": "#/$defs/CodingAgentCommandAction",
+          "verify": "#/$defs/CodingAgentCommandAction"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CodingAgentCommandAction"
+        },
+        {
+          "$ref": "#/$defs/CodingAgentFetchBaseAction"
+        }
+      ]
+    },
+    "CodingAgentCommandAction": {
+      "additionalProperties": false,
+      "description": "An executable, exact next step owned by the coding agent.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "verify",
+            "discover",
+            "configure",
+            "initialize",
+            "repair",
+            "install",
+            "rerun"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentCommandAction",
+      "type": "object"
+    },
+    "CodingAgentFetchBaseAction": {
+      "additionalProperties": false,
+      "description": "A structured input request when an exact fetch command is unavailable.\n\nShipgate never fetches refs itself.  ``expects`` therefore names the exact\nref or artifact a caller must make available before rerunning verification.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "minLength": 1,
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "const": "fetch_base",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentFetchBaseAction",
+      "type": "object"
+    },
+    "CompleteAgentControl": {
+      "additionalProperties": false,
+      "description": "Terminal state: the coding agent may report the task complete.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": true,
+          "default": true,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "default": null,
+          "title": "Next Action",
+          "type": "null"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "complete",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "const": false,
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "CompleteAgentControl",
+      "type": "object"
+    },
+    "HumanControlAction": {
+      "additionalProperties": false,
+      "description": "A human-owned route.  Human actions never expose executable commands.",
+      "properties": {
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "review",
+            "stop"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "HumanControlAction",
+      "type": "object"
+    },
+    "HumanReviewRequiredControl": {
+      "additionalProperties": false,
+      "description": "Stopping state: no further coding-agent action is authorized.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": true,
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanControlAction"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "human_review_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "minLength": 1,
+          "title": "Stop Reason",
+          "type": "string"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "HumanReviewRequiredControl",
+      "type": "object"
+    },
+    "NoHumanReview": {
+      "additionalProperties": false,
+      "description": "Exact negative human-review projection for non-stopping states.",
+      "properties": {
+        "required": {
+          "const": false,
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "default": null,
+          "title": "Why",
+          "type": "null"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "NoHumanReview",
+      "type": "object"
+    },
+    "PreflightDriftSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added",
+          "type": "array"
+        },
+        "base_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Hash"
+        },
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "head_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Hash"
+        },
+        "modified": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Modified",
+          "type": "array"
+        },
+        "removed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "changed"
+      ],
+      "title": "PreflightDriftSummary",
+      "type": "object"
+    },
+    "PreflightNextAction": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "kind": {
+          "enum": [
+            "continue",
+            "review",
+            "gather_evidence",
+            "verify"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "why"
+      ],
+      "title": "PreflightNextAction",
+      "type": "object"
+    },
+    "PreflightProtectedSurface": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "human_review_required": {
+          "default": true,
+          "title": "Human Review Required",
+          "type": "boolean"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "present": {
+          "default": false,
+          "title": "Present",
+          "type": "boolean"
+        },
+        "present_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Present Paths",
+          "type": "array"
+        },
+        "scope_type": {
+          "enum": [
+            "whole_file",
+            "key_level",
+            "capability_surface"
+          ],
+          "title": "Scope Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "pattern",
+        "scope_type",
+        "description"
+      ],
+      "title": "PreflightProtectedSurface",
+      "type": "object"
+    },
+    "PreflightProtectedSurfaceTouch": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "requires_human_review": {
+          "default": true,
+          "title": "Requires Human Review",
+          "type": "boolean"
+        },
+        "scope_type": {
+          "enum": [
+            "whole_file",
+            "key_level",
+            "capability_surface"
+          ],
+          "title": "Scope Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "pattern",
+        "scope_type"
+      ],
+      "title": "PreflightProtectedSurfaceTouch",
+      "type": "object"
+    },
+    "PreflightRequiredEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "recommendation": {
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "satisfied": {
+          "title": "Satisfied",
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "field",
+        "satisfied",
+        "severity",
+        "reason",
+        "recommendation"
+      ],
+      "title": "PreflightRequiredEvidence",
+      "type": "object"
+    },
+    "PreflightSignalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "protected_surface_touch",
+            "host_grant_drift",
+            "missing_evidence",
+            "least_privilege",
+            "policy_drift",
+            "verify_required"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "recommendation": {
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "related_command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Related Command"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "severity",
+        "actor",
+        "subject",
+        "reason",
+        "recommendation"
+      ],
+      "title": "PreflightSignalV1",
+      "type": "object"
+    },
+    "RequiredHumanReview": {
+      "additionalProperties": false,
+      "description": "Human-review evidence carried by the stopping state.",
+      "properties": {
+        "required": {
+          "const": true,
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "RequiredHumanReview",
+      "type": "object"
+    },
+    "TrustRootGraphV1": {
+      "additionalProperties": false,
+      "properties": {
+        "graph_hash": {
+          "title": "Graph Hash",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/TrustRootNodeV1"
+          },
+          "title": "Nodes",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "graph_hash"
+      ],
+      "title": "TrustRootGraphV1",
+      "type": "object"
+    },
+    "TrustRootNodeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "file_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "File Hashes",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "present_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Present Paths",
+          "type": "array"
+        },
+        "scope_type": {
+          "enum": [
+            "whole_file",
+            "key_level",
+            "capability_surface"
+          ],
+          "title": "Scope Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "pattern",
+        "scope_type"
+      ],
+      "title": "TrustRootNodeV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.3.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "control": {
+            "properties": {
+              "state": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          }
+        },
+        "required": [
+          "control"
+        ]
+      },
+      "then": {
+        "properties": {
+          "first_next_action": {
+            "properties": {
+              "actor": {
+                "const": "coding_agent"
+              },
+              "command": {
+                "type": "null"
+              },
+              "kind": {
+                "const": "continue"
+              }
+            }
+          },
+          "requires_human_review": {
+            "const": false
+          },
+          "requires_verify": {
+            "const": false
+          },
+          "verification_command": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "control": {
+            "properties": {
+              "state": {
+                "const": "human_review_required"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          }
+        },
+        "required": [
+          "control"
+        ]
+      },
+      "then": {
+        "properties": {
+          "first_next_action": {
+            "properties": {
+              "actor": {
+                "const": "human"
+              },
+              "command": {
+                "type": "null"
+              }
+            }
+          },
+          "requires_human_review": {
+            "const": true
+          }
+        }
+      }
+    }
+  ],
+  "description": "JSON Schema for shipgate preflight --json. Generated from agents_shipgate.schemas.preflight.PreflightResultV3. It is a proactive routing/projection surface, not a release gate; release_decision.decision remains the only gate.",
+  "properties": {
+    "allowed_next_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Next Commands",
+      "type": "array"
+    },
+    "changed_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Files",
+      "type": "array"
+    },
+    "config": {
+      "title": "Config",
+      "type": "string"
+    },
+    "control": {
+      "$ref": "#/$defs/AgentControl"
+    },
+    "first_next_action": {
+      "$ref": "#/$defs/PreflightNextAction"
+    },
+    "forbidden_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Actions",
+      "type": "array"
+    },
+    "forbidden_file_edits": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden File Edits",
+      "type": "array"
+    },
+    "host_grant_drift": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Host Grant Drift"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "plan_summary": {
+      "additionalProperties": true,
+      "title": "Plan Summary",
+      "type": "object"
+    },
+    "policy_drift": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreflightDriftSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "policy_snapshot_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Snapshot Hash"
+    },
+    "preflight_schema_version": {
+      "const": "0.3",
+      "default": "0.3",
+      "title": "Preflight Schema Version",
+      "type": "string"
+    },
+    "protected_surface_touches": {
+      "items": {
+        "$ref": "#/$defs/PreflightProtectedSurfaceTouch"
+      },
+      "title": "Protected Surface Touches",
+      "type": "array"
+    },
+    "protected_surfaces": {
+      "items": {
+        "$ref": "#/$defs/PreflightProtectedSurface"
+      },
+      "title": "Protected Surfaces",
+      "type": "array"
+    },
+    "required_evidence": {
+      "items": {
+        "$ref": "#/$defs/PreflightRequiredEvidence"
+      },
+      "title": "Required Evidence",
+      "type": "array"
+    },
+    "requires_human_review": {
+      "default": false,
+      "title": "Requires Human Review",
+      "type": "boolean"
+    },
+    "requires_verify": {
+      "default": false,
+      "title": "Requires Verify",
+      "type": "boolean"
+    },
+    "signals": {
+      "items": {
+        "$ref": "#/$defs/PreflightSignalV1"
+      },
+      "title": "Signals",
+      "type": "array"
+    },
+    "trust_root_graph": {
+      "$ref": "#/$defs/TrustRootGraphV1"
+    },
+    "trust_root_graph_diff": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreflightDriftSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "trust_root_graph_hash": {
+      "title": "Trust Root Graph Hash",
+      "type": "string"
+    },
+    "verification_command": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verification Command"
+    },
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workspace",
+    "config",
+    "trust_root_graph_hash",
+    "trust_root_graph",
+    "first_next_action",
+    "control"
+  ],
+  "title": "Agents Shipgate Preflight Result v0.3",
+  "type": "object"
+}

@@ -1,9 +1,9 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.11.0"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
@@ -14,17 +14,28 @@
   "policy_version": "unavailable",
   "summary": "Installed Agents Shipgate is older than the required version.",
   "changed_files": [],
-  "completion_allowed": false,
-  "must_stop": true,
-  "first_next_action": {
-    "actor": "coding_agent",
-    "kind": "install",
-    "command": "pipx upgrade agents-shipgate",
-    "why": "Installed Agents Shipgate is older than the required contract v7; a stale binary can emit an outdated schema or miss commands."
-  },
-  "human_review": {
-    "required": false,
-    "required_reviewers": []
+  "control": {
+    "state": "agent_action_required",
+    "reason": "Installed Agents Shipgate is older than the required contract v14; a stale binary can emit an outdated schema or miss commands.",
+    "completion_allowed": false,
+    "must_stop": false,
+    "verify_required": false,
+    "next_action": {
+      "actor": "coding_agent",
+      "kind": "install",
+      "command": "pipx upgrade agents-shipgate",
+      "expects": null,
+      "why": "Installed Agents Shipgate is older than the required contract v14; a stale binary can emit an outdated schema or miss commands."
+    },
+    "allowed_next_commands": [
+      "pipx upgrade agents-shipgate"
+    ],
+    "human_review": {
+      "required": false,
+      "why": null,
+      "required_reviewers": []
+    },
+    "stop_reason": null
   },
   "repair": {
     "actor": "coding_agent",
@@ -47,19 +58,19 @@
   "violated_rules": [],
   "affected_files": [],
   "required_reviewers": [],
-  "explanation": "Upgrade Agents Shipgate to contract v7, then rerun shipgate check.",
+  "explanation": "Upgrade Agents Shipgate to contract v14, then rerun shipgate check.",
   "suggested_fixes": [
-    "Install or upgrade agents-shipgate to contract v7"
+    "Install or upgrade agents-shipgate to contract v14"
   ],
   "agent_repair_instructions": [
-    "Install or upgrade Agents Shipgate, then confirm agents-shipgate contract --json reports contract_version >= 7.",
+    "Install or upgrade Agents Shipgate, then confirm agents-shipgate contract --json reports contract_version >= 14.",
     "Rerun shipgate check --agent codex --workspace . --format codex-boundary-json."
   ],
   "diagnostics": [
     {
       "level": "error",
       "code": "shipgate_stale_install",
-      "message": "The installed shipgate binary is older than the required contract v7."
+      "message": "The installed shipgate binary is older than the required contract v14."
     }
   ],
   "trace": [
@@ -69,7 +80,5 @@
     }
   ],
   "source_artifacts": {},
-  "finding_fingerprints": [],
-  "policy_snapshot_sha256": null,
-  "exit_code_hint": 20
+  "finding_fingerprints": []
 }

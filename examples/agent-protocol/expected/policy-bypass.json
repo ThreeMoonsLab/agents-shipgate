@@ -1,35 +1,44 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b2"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "block",
   "risk_level": "critical",
-  "audit_id": "codex_boundary_ad016ac045ea6397062e1140",
+  "audit_id": "codex_boundary_62d8ddf4a61711b1d8cc9750",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) block local continuation.",
   "changed_files": [
     "policies/codex-boundary.shipgate.yaml"
   ],
-  "completion_allowed": false,
-  "must_stop": true,
-  "first_next_action": {
-    "actor": "human",
-    "kind": "stop",
-    "why": "Codex boundary policy was weakened"
-  },
-  "human_review": {
-    "required": true,
-    "why": "Codex boundary policy was weakened",
-    "required_reviewers": [
-      "agent-platform",
-      "security"
-    ]
+  "control": {
+    "state": "human_review_required",
+    "reason": "1 Codex boundary change(s) block local continuation.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": false,
+    "next_action": {
+      "actor": "human",
+      "kind": "stop",
+      "command": null,
+      "expects": null,
+      "why": "Codex boundary policy was weakened"
+    },
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "Codex boundary policy was weakened",
+      "required_reviewers": [
+        "agent-platform",
+        "security"
+      ]
+    },
+    "stop_reason": "Codex boundary policy was weakened"
   },
   "repair": {
     "actor": "human",
@@ -87,7 +96,14 @@
   "agent_repair_instructions": [
     "Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval."
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from diff_deleted_file.",
+      "path": "policies/codex-boundary.shipgate.yaml"
+    }
+  ],
   "trace": [
     {
       "step": "policy_discovery",
@@ -124,13 +140,12 @@
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "agents-shipgate detect --workspace . --json",
-      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+      "command": "agents-shipgate verify --preview --json",
+      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
     }
   },
   "finding_fingerprints": [
     "fp_dfa43032b18bd8a6"
   ],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 20
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
 }

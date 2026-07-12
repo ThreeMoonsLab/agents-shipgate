@@ -1,31 +1,35 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b2"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "allow",
   "risk_level": "none",
-  "audit_id": "codex_boundary_66c2eab26e09c037dd52e50a",
+  "audit_id": "codex_boundary_40e6127aa64d7d270dff675d",
   "policy_version": "1",
   "summary": "No Codex boundary changes require action.",
   "changed_files": [
     ".codex/config.toml"
   ],
-  "completion_allowed": true,
-  "must_stop": false,
-  "first_next_action": {
-    "actor": "coding_agent",
-    "kind": "continue",
-    "why": "No Codex boundary rule requires review or blocking."
-  },
-  "human_review": {
-    "required": false,
-    "required_reviewers": []
+  "control": {
+    "state": "complete",
+    "reason": "No Codex boundary changes require action.",
+    "completion_allowed": true,
+    "must_stop": false,
+    "verify_required": false,
+    "next_action": null,
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": false,
+      "why": null,
+      "required_reviewers": []
+    },
+    "stop_reason": null
   },
   "repair": {
     "actor": "coding_agent",
@@ -103,10 +107,9 @@
     "next_action": {
       "kind": "command",
       "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
-      "why": "This change looks agent-related; detect tool surfaces and adopt Shipgate."
+      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
     }
   },
   "finding_fingerprints": [],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 0
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
 }

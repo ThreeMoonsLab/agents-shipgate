@@ -1,35 +1,44 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b2"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "block",
   "risk_level": "critical",
-  "audit_id": "codex_boundary_b35914149e88e184aba64e3b",
+  "audit_id": "codex_boundary_934bd06aeab559a6fde445b7",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) block local continuation.",
   "changed_files": [
     ".github/workflows/agents-shipgate.yml"
   ],
-  "completion_allowed": false,
-  "must_stop": true,
-  "first_next_action": {
-    "actor": "human",
-    "kind": "stop",
-    "why": "Shipgate GitHub Action no longer invokes the gate"
-  },
-  "human_review": {
-    "required": true,
-    "why": "Shipgate GitHub Action no longer invokes the gate",
-    "required_reviewers": [
-      "agent-platform",
-      "security"
-    ]
+  "control": {
+    "state": "human_review_required",
+    "reason": "1 Codex boundary change(s) block local continuation.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": false,
+    "next_action": {
+      "actor": "human",
+      "kind": "stop",
+      "command": null,
+      "expects": null,
+      "why": "Shipgate GitHub Action no longer invokes the gate"
+    },
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "Shipgate GitHub Action no longer invokes the gate",
+      "required_reviewers": [
+        "agent-platform",
+        "security"
+      ]
+    },
+    "stop_reason": "Shipgate GitHub Action no longer invokes the gate"
   },
   "repair": {
     "actor": "human",
@@ -138,7 +147,5 @@
   "finding_fingerprints": [
     "fp_fe55c27fa455ddfd"
   ],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 20,
-  "verify_required": false
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
 }

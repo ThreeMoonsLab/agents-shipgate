@@ -81,14 +81,13 @@ def test_action_outputs_prefer_canonical_capability_and_verifier_blocks(
                 "protected_surface_touched": True,
                 "policy_weakened": False,
             },
-            "findings": [
-                {"check_id": "SHIP-VERIFY-POLICY-WEAKENED", "suppressed": False}
-            ],
+            "findings": [{"check_id": "SHIP-VERIFY-POLICY-WEAKENED", "suppressed": False}],
         },
     )
     _write_json(
         output_dir / "verifier.json",
         {
+            "execution": "succeeded",
             "head_status": "succeeded",
             "trigger": {
                 "should_run": True,
@@ -128,6 +127,7 @@ def test_action_outputs_fall_back_to_verifier_artifact_for_older_reports(
     _write_json(
         output_dir / "verifier.json",
         {
+            "execution": "succeeded",
             "head_status": "succeeded",
             "capability_review": {
                 "added": 1,
@@ -148,7 +148,7 @@ def test_action_outputs_fall_back_to_verifier_artifact_for_older_reports(
     assert outputs["policy_weakened"] == "true"
 
 
-def test_action_outputs_include_verify_run_and_agent_controller_fields(tmp_path: Path) -> None:
+def test_action_outputs_include_verify_run_and_agent_control_fields(tmp_path: Path) -> None:
     output_dir = tmp_path / "agents-shipgate-reports"
     output_dir.mkdir()
     _write_json(
@@ -166,13 +166,30 @@ def test_action_outputs_include_verify_run_and_agent_controller_fields(tmp_path:
     _write_json(
         output_dir / "verifier.json",
         {
+            "execution": "succeeded",
             "head_status": "succeeded",
             "merge_verdict": "human_review_required",
             "can_merge_without_human": False,
-            "agent_controller": {
+            "control": {
+                "state": "human_review_required",
+                "reason": "A human must review the capability change.",
                 "must_stop": True,
-                "stop_reason": "human_review_required",
+                "stop_reason": "A human must review the capability change.",
                 "completion_allowed": False,
+                "verify_required": False,
+                "next_action": {
+                    "actor": "human",
+                    "kind": "review",
+                    "command": None,
+                    "expects": None,
+                    "why": "A human must review the capability change.",
+                },
+                "allowed_next_commands": [],
+                "human_review": {
+                    "required": True,
+                    "why": "A human must review the capability change.",
+                    "required_reviewers": [],
+                },
             },
         },
     )
@@ -185,26 +202,91 @@ def test_action_outputs_include_verify_run_and_agent_controller_fields(tmp_path:
     assert outputs["run_id"] == "sha256:" + "a" * 64
     assert outputs["check_annotations_json"] == output_dir / "check-annotations.json"
     assert outputs["capability_lock_json"] == output_dir / "capabilities.lock.json"
-    assert (
-        outputs["base_capability_lock_json"]
-        == output_dir / "base.capabilities.lock.json"
-    )
-    assert (
-        outputs["capability_lock_diff_json"]
-        == output_dir / "capability-lock-diff.json"
-    )
+    assert outputs["base_capability_lock_json"] == output_dir / "base.capabilities.lock.json"
+    assert outputs["capability_lock_diff_json"] == output_dir / "capability-lock-diff.json"
     assert outputs["attestation_json"] == output_dir / "attestation.json"
-    assert (
-        outputs["org_evidence_bundle_json"]
-        == output_dir / "org-evidence-bundle.json"
-    )
+    assert outputs["org_evidence_bundle_json"] == output_dir / "org-evidence-bundle.json"
     assert outputs["host_grants_json"] == output_dir / "host-grants.json"
     assert outputs["org_status_json"] == output_dir / "org-status.json"
     assert outputs["merge_verdict"] == "human_review_required"
     assert outputs["can_merge_without_human"] == "false"
+    assert outputs["agent_control_state"] == "human_review_required"
+    assert outputs["agent_control_reason"] == "A human must review the capability change."
     assert outputs["agent_controller_must_stop"] == "true"
-    assert outputs["agent_controller_stop_reason"] == "human_review_required"
+    assert outputs["agent_controller_stop_reason"] == "A human must review the capability change."
     assert outputs["agent_controller_completion_allowed"] == "false"
+
+
+def test_action_boolean_outputs_are_exact_control_mirrors(tmp_path: Path) -> None:
+    output_dir = tmp_path / "agents-shipgate-reports"
+    output_dir.mkdir()
+    _write_json(
+        output_dir / "verifier.json",
+        {
+            "execution": "skipped",
+            "head_status": "skipped",
+            "merge_verdict": "mergeable",
+            "can_merge_without_human": True,
+            "control": {
+                "state": "complete",
+                "reason": "The deterministic trigger found no applicable changes.",
+                "completion_allowed": True,
+                "must_stop": False,
+                "verify_required": False,
+                "next_action": None,
+                "allowed_next_commands": [],
+                "human_review": {
+                    "required": False,
+                    "why": None,
+                    "required_reviewers": [],
+                },
+                "stop_reason": None,
+            },
+        },
+    )
+
+    outputs = extract_outputs(output_dir)
+
+    assert outputs["agent_control_state"] == "complete"
+    assert outputs["agent_controller_completion_allowed"] == "true"
+    assert outputs["agent_controller_must_stop"] == "false"
+    assert outputs["can_merge_without_human"] == "true"
+
+
+def test_action_outputs_reject_merge_authority_that_contradicts_control(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "agents-shipgate-reports"
+    output_dir.mkdir()
+    _write_json(
+        output_dir / "verifier.json",
+        {
+            "execution": "skipped",
+            "head_status": "skipped",
+            "merge_verdict": "mergeable",
+            "applicability": "not_applicable",
+            "can_merge_without_human": False,
+            "control": {
+                "state": "complete",
+                "reason": "No applicable change.",
+                "completion_allowed": True,
+                "must_stop": False,
+                "verify_required": False,
+                "next_action": None,
+                "allowed_next_commands": [],
+                "human_review": {
+                    "required": False,
+                    "why": None,
+                    "required_reviewers": [],
+                },
+                "stop_reason": None,
+            },
+        },
+    )
+
+    with pytest.raises(ValueError, match="contradicts"):
+        extract_outputs(output_dir)
+
 
 def test_action_outputs_do_not_allow_failed_missing_config_verify(
     tmp_path: Path,
@@ -254,9 +336,33 @@ def test_step_summary_leads_with_verifier_merge_state(
     _write_json(
         output_dir / "verifier.json",
         {
+            "execution": "succeeded",
+            "head_status": "succeeded",
+            "applicability": "verified",
+            "decision": "blocked",
             "merge_verdict": "blocked",
             "can_merge_without_human": False,
-            "first_next_action": {"actor": "human", "kind": "review"},
+            "control": {
+                "state": "human_review_required",
+                "reason": "A blocker requires human review.",
+                "must_stop": True,
+                "completion_allowed": False,
+                "verify_required": False,
+                "next_action": {
+                    "actor": "human",
+                    "kind": "review",
+                    "command": None,
+                    "expects": None,
+                    "why": "A blocker requires human review.",
+                },
+                "allowed_next_commands": [],
+                "human_review": {
+                    "required": True,
+                    "why": "A blocker requires human review.",
+                    "required_reviewers": [],
+                },
+                "stop_reason": "A blocker requires human review.",
+            },
         },
     )
     values = extract_outputs(output_dir)
@@ -266,13 +372,11 @@ def test_step_summary_leads_with_verifier_merge_state(
     text = summary_path.read_text(encoding="utf-8")
     assert text.index("Merge verdict: `blocked`") < text.index("Release gate: `blocked`")
     assert "Can merge without human: `false`" in text
+    assert "Agent control: state=`human_review_required`" in text
     assert "First next action: `human/review`" in text
     assert f"Verifier JSON: `{output_dir / 'verifier.json'}`" in text
     assert f"Attestation JSON: `{output_dir / 'attestation.json'}`" in text
-    assert (
-        f"Org evidence bundle JSON: `{output_dir / 'org-evidence-bundle.json'}`"
-        in text
-    )
+    assert f"Org evidence bundle JSON: `{output_dir / 'org-evidence-bundle.json'}`" in text
     assert f"Host grants JSON: `{output_dir / 'host-grants.json'}`" in text
     assert f"Org status JSON: `{output_dir / 'org-status.json'}`" in text
     assert f"Verify-run JSON: `{output_dir / 'verify-run.json'}`" in text

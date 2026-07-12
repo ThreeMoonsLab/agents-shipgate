@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from agents_shipgate.core.agent_control import derive_agent_control
+
 # The shared unified-diff plumbing moved to
 # ``agents_shipgate.core.boundary_diff``. These re-exports preserve the
 # pre-split import surface of this module: existing imports such as
@@ -34,6 +36,10 @@ from agents_shipgate.core.boundary_diff import (  # noqa: F401
     _unresolved_text,
     parse_unified_diff,
 )
+from agents_shipgate.schemas.agent_control import (
+    CodingAgentCommandAction,
+    HumanControlAction,
+)
 from agents_shipgate.schemas.codex_boundary_result import (
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
 )
@@ -56,7 +62,7 @@ from agents_shipgate.schemas.codex_boundary_result import (
     CodexBoundaryRepair as AgentResultRepair,
 )
 from agents_shipgate.schemas.codex_boundary_result import (
-    CodexBoundaryResultV1 as AgentResultV1,
+    CodexBoundaryResultV2 as AgentResultV2,
 )
 from agents_shipgate.schemas.codex_boundary_result import (
     CodexBoundaryRiskLevel as AgentResultRiskLevel,
@@ -82,7 +88,9 @@ _RISK_BY_ACTION: dict[str, AgentResultRiskLevel] = {
     "require_review": "medium",
     "block": "critical",
 }
-_AGENT_SAFE_REPAIR_RULE_IDS = frozenset({"CODEX-MCP-AUTO-APPROVE-WRITE"})
+# Editing Codex auto-approval is a protected trust-root change.  It must never
+# be advertised as an agent-safe repair by the local boundary.
+_AGENT_SAFE_REPAIR_RULE_IDS: frozenset[str] = frozenset()
 
 _SHIPGATE_TERMS = (
     "agents-shipgate",
@@ -378,7 +386,7 @@ def evaluate_codex_boundary_result(
     capability_surfaces_changed: list[str] | None = None,
     undeclared_capability_surfaces: list[str] | None = None,
     manifest_present: bool | None = None,
-) -> AgentResultV1:
+) -> AgentResultV2:
     """Return the local Codex boundary-result projection for a unified diff.
 
     The boundary evaluator does not inspect tool surfaces (only ``verify``
@@ -500,9 +508,7 @@ def evaluate_codex_boundary_result(
     )
     if undeclared_gap:
         first_next_action = _undeclared_next_action(manifest_present=is_adopted_repo)
-        summary = _undeclared_summary(
-            undeclared_surfaces, manifest_present=is_adopted_repo
-        )
+        summary = _undeclared_summary(undeclared_surfaces, manifest_present=is_adopted_repo)
         diagnostics = [*diagnostics, _undeclared_diagnostic(undeclared_surfaces)]
         trace = [
             *_trace_for(policy, decision, violations),
@@ -528,7 +534,22 @@ def evaluate_codex_boundary_result(
         summary = _summary_for(decision, violations)
         trace = _trace_for(policy, decision, violations)
         suggested_fixes = [item.recommendation for item in violations[:5]]
-    return AgentResultV1(
+    trigger_verify_required = bool(
+        release_decision is None and trigger and trigger.get("force_run")
+    )
+    verify_required = bool(undeclared_gap or coverage_gap or trigger_verify_required)
+    control = _control_for_result(
+        decision=decision,
+        summary=summary,
+        first_next_action=first_next_action,
+        human_review=human_review,
+        repair=repair,
+        verify_required=verify_required,
+        undeclared_gap=undeclared_gap,
+        coverage_gap=coverage_gap,
+        trigger_verify_required=trigger_verify_required,
+    )
+    return AgentResultV2(
         agent=agent,  # type: ignore[arg-type]
         subject=AgentResultSubject(agent=agent),
         decision=decision,  # type: ignore[arg-type]
@@ -537,13 +558,7 @@ def evaluate_codex_boundary_result(
         policy_version=policy.version,
         summary=summary,
         changed_files=changed_files,
-        # Machine-readable form of the check→verify deferral: the boundary
-        # verdict does not cover a changed tool surface, declared or not.
-        verify_required=bool(undeclared_gap or coverage_gap),
-        completion_allowed=decision in {"allow", "warn"},
-        must_stop=decision in {"require_review", "block"} and not repair.safe_to_attempt,
-        first_next_action=first_next_action,
-        human_review=human_review,
+        control=control,
         repair=repair,
         policy=_policy_result(policy),
         violated_rules=violations,
@@ -558,8 +573,83 @@ def evaluate_codex_boundary_result(
         trigger=trigger,
         finding_fingerprints=finding_fingerprints,
         policy_snapshot_sha256=policy.snapshot_sha256,
-        exit_code_hint=20 if decision == "block" else 0,
     )
+
+
+def _control_for_result(
+    *,
+    decision: str,
+    summary: str,
+    first_next_action: AgentResultNextAction,
+    human_review: AgentResultHumanReview,
+    repair: AgentResultRepair,
+    verify_required: bool,
+    undeclared_gap: bool,
+    coverage_gap: bool,
+    trigger_verify_required: bool,
+):
+    """Translate boundary facts into the one shared operational projector."""
+
+    if decision in {"require_review", "block"} and not repair.safe_to_attempt:
+        why = human_review.why or first_next_action.why or summary
+        return derive_agent_control(
+            reason=summary,
+            next_action=HumanControlAction(
+                kind="stop" if decision == "block" else "review",
+                why=why,
+            ),
+            verify_required=verify_required,
+            human_review_required=True,
+            unsafe_block=decision == "block",
+            human_review_why=why,
+            required_reviewers=human_review.required_reviewers,
+            stop_reason=why,
+        )
+
+    if repair.safe_to_attempt:
+        command = repair.command or first_next_action.command
+        if not command:
+            raise ValueError("agent-safe boundary repair requires an exact rerun command")
+        return derive_agent_control(
+            reason=summary,
+            next_action=CodingAgentCommandAction(
+                kind="repair",
+                command=command,
+                why=first_next_action.why or summary,
+            ),
+            verify_required=True,
+            allowed_next_commands=[command],
+        )
+
+    if verify_required:
+        command = first_next_action.command or _VERIFY_COMMAND
+        if undeclared_gap:
+            kind = "discover" if command == _DETECT_COMMAND else "configure"
+        elif coverage_gap or trigger_verify_required:
+            kind = "verify"
+            # Advisory warnings may have a non-verification next action; the
+            # outstanding manifest trigger is authoritative here.
+            command = _VERIFY_COMMAND
+        else:  # pragma: no cover - defensive exhaustiveness.
+            kind = "verify"
+        why = (
+            "This repository has adopted Shipgate, so its force-run contract "
+            "requires verification before completion."
+            if trigger_verify_required and not (undeclared_gap or coverage_gap)
+            else first_next_action.why or "Run verification before completing."
+        )
+        return derive_agent_control(
+            reason=summary,
+            next_action=CodingAgentCommandAction(
+                kind=kind,  # type: ignore[arg-type]
+                command=command,
+                why=why,
+            ),
+            verify_required=True,
+            allowed_next_commands=[command],
+        )
+
+    return derive_agent_control(reason=summary)
 
 
 def load_codex_boundary_policy(
@@ -668,8 +758,7 @@ def load_codex_boundary_policy(
             invalid_rule = True
             continue
         unknown_rule_fields = sorted(
-            set(raw_rule)
-            - {"id", "check_id", "title", "action", "risk_level", "recommendation"}
+            set(raw_rule) - {"id", "check_id", "title", "action", "risk_level", "recommendation"}
         )
         if unknown_rule_fields:
             invalid_rule = True
@@ -679,8 +768,7 @@ def load_codex_boundary_policy(
                     code="policy_unknown_fields",
                     message=(
                         f"Codex boundary policy rule {raw_rule['id']!r} contains "
-                        "unknown fields: "
-                        + ", ".join(unknown_rule_fields)
+                        "unknown fields: " + ", ".join(unknown_rule_fields)
                     ),
                     path=display_path,
                 )
@@ -695,9 +783,7 @@ def load_codex_boundary_policy(
             invalid_rule = True
             action = "require_review"
         raw_risk = str(raw_rule.get("risk_level", base.risk_level))
-        risk: AgentResultRiskLevel = (
-            raw_risk if raw_risk in _RISK_RANK else _RISK_BY_ACTION[action]
-        )  # type: ignore[assignment]
+        risk: AgentResultRiskLevel = raw_risk if raw_risk in _RISK_RANK else _RISK_BY_ACTION[action]  # type: ignore[assignment]
         rules[rule_id] = CodexBoundaryRule(
             id=rule_id,
             check_id=str(raw_rule.get("check_id", base.check_id)),
@@ -902,9 +988,7 @@ def _evaluate_mcp_servers(
             tool_names = _server_tool_names(server)
             risky = sorted(name for name in tool_names if _is_risky_tool_name(name))
             add(
-                "CODEX-MCP-AUTO-APPROVE-WRITE"
-                if risky
-                else "CODEX-MCP-AUTO-APPROVE-UNKNOWN",
+                "CODEX-MCP-AUTO-APPROVE-WRITE" if risky else "CODEX-MCP-AUTO-APPROVE-UNKNOWN",
                 path=path,
                 evidence={
                     "kind": "mcp_default_auto_approve",
@@ -1065,16 +1149,18 @@ def _evaluate_agent_instructions(diff_file: DiffFile, add) -> None:
     removed_requirement = any(
         _contains_shipgate_requirement(line) for line in diff_file.removed_lines
     )
-    added_requirement = any(
-        _contains_shipgate_requirement(line) for line in diff_file.added_lines
-    )
+    added_requirement = any(_contains_shipgate_requirement(line) for line in diff_file.added_lines)
     softened_shipgate = any(
         _contains_shipgate_term(line) and _contains_weakening_term(line)
         for line in diff_file.added_lines
     )
     if diff_file.is_deleted or (
         removed_shipgate
-        and (not added_shipgate or softened_shipgate or (removed_requirement and not added_requirement))
+        and (
+            not added_shipgate
+            or softened_shipgate
+            or (removed_requirement and not added_requirement)
+        )
     ):
         add(
             "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
@@ -1099,8 +1185,7 @@ def _evaluate_shipgate_workflow(
 ) -> None:
     path = diff_file.path
     invocation_present = bool(
-        resolved.new_text
-        and _has_shipgate_gate_invocation(resolved.new_text, workspace=workspace)
+        resolved.new_text and _has_shipgate_gate_invocation(resolved.new_text, workspace=workspace)
     )
     if diff_file.is_deleted or resolved.new_text is None or not invocation_present:
         add(
@@ -1221,12 +1306,7 @@ def _policy_rules_from_text(
 
 def _policy_side_text_from_diff(diff_file: DiffFile, *, side: str) -> str:
     kinds = {"old": {" ", "-"}, "new": {" ", "+"}}[side]
-    return "\n".join(
-        text
-        for hunk in diff_file.hunks
-        for kind, text in hunk.lines
-        if kind in kinds
-    )
+    return "\n".join(text for hunk in diff_file.hunks for kind, text in hunk.lines if kind in kinds)
 
 
 def _policy_rules_from_yaml_text(text: str) -> dict[str, dict[str, str]]:
@@ -1714,10 +1794,7 @@ def _violation_fingerprint(item: AgentResultViolatedRule) -> str:
 def _dedupe_violations(
     violations: list[AgentResultViolatedRule],
 ) -> list[AgentResultViolatedRule]:
-    by_key = {
-        json.dumps(item.model_dump(mode="json"), sort_keys=True): item
-        for item in violations
-    }
+    by_key = {json.dumps(item.model_dump(mode="json"), sort_keys=True): item for item in violations}
     return [by_key[key] for key in sorted(by_key)]
 
 
@@ -1734,10 +1811,7 @@ def _load_packaged_default_policy() -> dict[str, Any] | None:
 
 def _packaged_policy_text() -> str | None:
     candidate = (
-        Path(__file__).resolve().parents[1]
-        / "_meta"
-        / "policies"
-        / "codex-boundary.shipgate.yaml"
+        Path(__file__).resolve().parents[1] / "_meta" / "policies" / "codex-boundary.shipgate.yaml"
     )
     try:
         if candidate.is_file():
@@ -1787,9 +1861,7 @@ def _policy_snapshot_sha256(data: dict[str, Any], raw_text: str | None) -> str:
     else:
         payload = data
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
-            "utf-8"
-        )
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
 
 
@@ -1928,11 +2000,14 @@ def _is_agent_instructions_path(path: str) -> bool:
 
 
 def _is_shipgate_workflow_path(path: str) -> bool:
-    return path in {
-        ".github/workflows/agents-shipgate.yml",
-        ".github/workflows/agents-shipgate.yaml",
-    } or path.endswith("/.github/workflows/agents-shipgate.yml") or path.endswith(
-        "/.github/workflows/agents-shipgate.yaml"
+    return (
+        path
+        in {
+            ".github/workflows/agents-shipgate.yml",
+            ".github/workflows/agents-shipgate.yaml",
+        }
+        or path.endswith("/.github/workflows/agents-shipgate.yml")
+        or path.endswith("/.github/workflows/agents-shipgate.yaml")
     )
 
 
@@ -1943,9 +2018,8 @@ def _is_codex_boundary_policy_path(path: str) -> bool:
 
 
 def _is_codex_skill_path(path: str) -> bool:
-    return (
-        path.endswith("/SKILL.md")
-        and (path.startswith(".agents/skills/") or "/.agents/skills/" in path)
+    return path.endswith("/SKILL.md") and (
+        path.startswith(".agents/skills/") or "/.agents/skills/" in path
     )
 
 

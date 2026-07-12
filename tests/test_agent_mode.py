@@ -59,10 +59,7 @@ def test_is_agent_mode_ignores_empty_hint_values() -> None:
 
 def test_is_agent_mode_unrecognized_explicit_value_falls_back_to_hints() -> None:
     assert is_agent_mode({"AGENTS_SHIPGATE_AGENT_MODE": "maybe"}) is False
-    assert (
-        is_agent_mode({"AGENTS_SHIPGATE_AGENT_MODE": "maybe", "CLAUDECODE": "1"})
-        is True
-    )
+    assert is_agent_mode({"AGENTS_SHIPGATE_AGENT_MODE": "maybe", "CLAUDECODE": "1"}) is True
 
 
 def test_is_agent_mode_reads_process_environment(
@@ -107,9 +104,7 @@ def test_emit_agent_mode_error_respects_explicit_opt_out(
 
 
 def test_resolve_format_explicit_flag_wins_over_json_shortcut() -> None:
-    assert (
-        _resolve_verify_format("text", json_output=True, preview=False) == "text"
-    )
+    assert _resolve_verify_format("text", json_output=True, preview=False) == "text"
 
 
 def test_resolve_format_json_shortcut_is_verifier_surface() -> None:
@@ -156,9 +151,7 @@ def _init_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"], cwd=repo, check=True
-    )
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
     return repo
 
@@ -227,16 +220,17 @@ def test_verify_json_shortcut_prints_verifier_artifact(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.2"
+    assert payload["verifier_schema_version"] == "0.3"
     assert payload["merge_verdict"] == "insufficient_evidence"
     assert payload["can_merge_without_human"] is False
+    assert payload["control"]["state"] == "human_review_required"
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
     assert (repo / "agents-shipgate-reports" / "verify-run.json").is_file()
     handoff_path = repo / "agents-shipgate-reports" / "agent-handoff.json"
     assert handoff_path.is_file()
     handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
-    assert handoff["schema_version"] == "shipgate.agent_handoff/v2"
+    assert handoff["schema_version"] == "shipgate.agent_handoff/v3"
     assert handoff["operation"] == "verify_pr"
     assert not (repo / "agents-shipgate-reports" / "agent-result.json").exists()
 
@@ -257,14 +251,13 @@ def test_verify_preview_writes_agent_handoff(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     handoff = json.loads(
-        (repo / "agents-shipgate-reports" / "agent-handoff.json").read_text(
-            encoding="utf-8"
-        )
+        (repo / "agents-shipgate-reports" / "agent-handoff.json").read_text(encoding="utf-8")
     )
-    assert handoff["schema_version"] == "shipgate.agent_handoff/v2"
+    assert handoff["schema_version"] == "shipgate.agent_handoff/v3"
     assert handoff["operation"] == "verify_preview"
     assert handoff["gate"]["decision"] is None
-    assert handoff["controller"]["completion_allowed"] is False
+    assert handoff["control"]["state"] == "agent_action_required"
+    assert handoff["control"]["completion_allowed"] is False
 
 
 def test_verify_format_json_still_prints_full_verifier_artifact(
@@ -276,7 +269,8 @@ def test_verify_format_json_still_prints_full_verifier_artifact(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.2"
+    assert payload["verifier_schema_version"] == "0.3"
+    assert payload["execution"] == "succeeded"
     assert payload["head_status"] == "succeeded"
     assert payload["trigger"]["run_shipgate"] is True
     assert payload["trigger"]["force_run"] is True
@@ -292,7 +286,7 @@ def test_verify_agent_environment_defaults_to_verifier_json(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.2"
+    assert payload["verifier_schema_version"] == "0.3"
     assert payload["merge_verdict"] == "insufficient_evidence"
 
 

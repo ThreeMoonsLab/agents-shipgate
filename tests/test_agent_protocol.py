@@ -9,10 +9,10 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.mcp_server import shipgate_check
-from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
+from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v1.json"
+SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v2.json"
 GOLDEN = ROOT / "tests" / "golden" / "agent_protocol"
 EXAMPLES = ROOT / "examples" / "agent-protocol"
 
@@ -27,23 +27,51 @@ def _validator() -> Draft202012Validator:
     return Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
 
 
+def _control(payload: dict[str, Any]) -> dict[str, Any]:
+    assert payload["schema_version"] == "shipgate.codex_boundary_result/v2"
+    for retired in (
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "first_next_action",
+        "human_review",
+        "exit_code_hint",
+    ):
+        assert retired not in payload
+    control = payload["control"]
+    assert set(control) == {
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason",
+    }
+    return control
+
+
 def test_agent_protocol_golden_fixtures_validate_schema() -> None:
     validator = _validator()
     for path in sorted(GOLDEN.glob("*.json")) + sorted((EXAMPLES / "expected").glob("*.json")):
         payload = _load_json(path)
         validator.validate(payload)
-        CodexBoundaryResultV1.model_validate(payload)
+        CodexBoundaryResultV2.model_validate(payload)
 
 
 def test_codex_block_stop_fixture_stops_for_human() -> None:
     payload = _load_json(GOLDEN / "codex-block-stop.json")
 
     assert payload["decision"] == "block"
-    assert payload["completion_allowed"] is False
-    assert payload["must_stop"] is True
-    assert payload["first_next_action"]["actor"] == "human"
-    assert payload["first_next_action"]["kind"] == "stop"
-    assert payload["human_review"]["required"] is True
+    control = _control(payload)
+    assert control["state"] == "human_review_required"
+    assert control["completion_allowed"] is False
+    assert control["must_stop"] is True
+    assert control["next_action"]["actor"] == "human"
+    assert control["next_action"]["kind"] == "stop"
+    assert control["human_review"]["required"] is True
     assert payload["repair"]["safe_to_attempt"] is False
 
 
@@ -78,9 +106,11 @@ def test_policy_weakening_blocks_and_is_not_agent_repairable(tmp_path: Path) -> 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["decision"] == "block"
-    assert payload["must_stop"] is True
-    assert payload["first_next_action"]["kind"] == "stop"
-    assert payload["human_review"]["required"] is True
+    control = _control(payload)
+    assert control["state"] == "human_review_required"
+    assert control["must_stop"] is True
+    assert control["next_action"]["kind"] == "stop"
+    assert control["human_review"]["required"] is True
     assert payload["violated_rules"][0]["id"] == "CODEX-POLICY-WEAKENED"
 
 
@@ -185,7 +215,9 @@ index 1111111..2222222 100644
     assert evidence["weakened_rules"][0]["id"] == "CODEX-MCP-AUTO-APPROVE-WRITE"
 
 
-def test_repairable_boundary_violation_allows_after_rerun(tmp_path: Path) -> None:
+def test_codex_mcp_auto_approval_requires_human_then_clean_diff_completes(
+    tmp_path: Path,
+) -> None:
     before = runner.invoke(
         app,
         [
@@ -216,13 +248,16 @@ def test_repairable_boundary_violation_allows_after_rerun(tmp_path: Path) -> Non
     before_payload = json.loads(before.output)
     after_payload = json.loads(after.output)
     assert before_payload["decision"] == "block"
-    assert before_payload["first_next_action"]["kind"] == "repair"
-    assert before_payload["first_next_action"]["actor"] == "coding_agent"
-    assert before_payload["repair"]["safe_to_attempt"] is True
-    assert before_payload["repair"]["command"]
+    before_control = _control(before_payload)
+    assert before_control["state"] == "human_review_required"
+    assert before_control["next_action"]["kind"] == "stop"
+    assert before_control["next_action"]["actor"] == "human"
+    assert before_payload["repair"]["safe_to_attempt"] is False
     assert after_payload["decision"] == "allow"
-    assert after_payload["completion_allowed"] is True
-    assert after_payload["must_stop"] is False
+    after_control = _control(after_payload)
+    assert after_control["state"] == "complete"
+    assert after_control["completion_allowed"] is True
+    assert after_control["must_stop"] is False
 
 
 def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: Path) -> None:
@@ -244,14 +279,16 @@ def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: P
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     _validator().validate(payload)
-    CodexBoundaryResultV1.model_validate(payload)
+    CodexBoundaryResultV2.model_validate(payload)
     assert payload["agent"] == "claude-code"
-    assert payload["schema_version"] == "shipgate.codex_boundary_result/v1"
+    assert payload["schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["decision"] == "block"
-    assert payload["completion_allowed"] is False
-    assert payload["must_stop"] is False
-    assert payload["first_next_action"]["actor"] == "coding_agent"
-    assert payload["first_next_action"]["kind"] == "repair"
+    control = _control(payload)
+    assert control["state"] == "agent_action_required"
+    assert control["completion_allowed"] is False
+    assert control["must_stop"] is False
+    assert control["next_action"]["actor"] == "coding_agent"
+    assert control["next_action"]["kind"] == "repair"
     assert payload["repair"]["safe_to_attempt"] is True
     assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
 
@@ -260,25 +297,29 @@ def test_missing_install_fixture_is_schema_valid_and_actionable() -> None:
     payload = _load_json(GOLDEN / "missing-install.json")
 
     _validator().validate(payload)
-    CodexBoundaryResultV1.model_validate(payload)
-    assert payload["first_next_action"]["kind"] == "install"
-    assert payload["first_next_action"]["command"] == "pipx install agents-shipgate"
-    assert payload["completion_allowed"] is False
-    assert payload["must_stop"] is True
+    CodexBoundaryResultV2.model_validate(payload)
+    control = _control(payload)
+    assert control["state"] == "agent_action_required"
+    assert control["next_action"]["kind"] == "install"
+    assert control["next_action"]["command"] == "pipx install agents-shipgate"
+    assert control["completion_allowed"] is False
+    assert control["must_stop"] is False
 
 
 def test_stale_install_fixture_is_schema_valid_and_routes_to_upgrade() -> None:
     payload = _load_json(GOLDEN / "stale-install.json")
 
     _validator().validate(payload)
-    CodexBoundaryResultV1.model_validate(payload)
+    CodexBoundaryResultV2.model_validate(payload)
     # Reuses the install action kind; only the
     # command carries the upgrade. Stale binaries must fail closed, never green.
     assert payload["decision"] == "block"
-    assert payload["first_next_action"]["kind"] == "install"
-    assert payload["first_next_action"]["command"] == "pipx upgrade agents-shipgate"
-    assert payload["completion_allowed"] is False
-    assert payload["must_stop"] is True
+    control = _control(payload)
+    assert control["state"] == "agent_action_required"
+    assert control["next_action"]["kind"] == "install"
+    assert control["next_action"]["command"] == "pipx upgrade agents-shipgate"
+    assert control["completion_allowed"] is False
+    assert control["must_stop"] is False
     assert payload["diagnostics"][0]["code"] == "shipgate_stale_install"
 
 
@@ -295,7 +336,7 @@ def test_protocol_state_machine_documents_install_branch() -> None:
     # state-machine branch; a consumer implementing the protocol must have a
     # row for it, not just repairable/human blocks (PR #201 review).
     text = (ROOT / "docs" / "agents" / "protocol.md").read_text(encoding="utf-8")
-    assert '`first_next_action.kind="install"`' in text
+    assert '`control.next_action.kind="install"`' in text
     assert "#missing-install" in text
     assert "#stale-install" in text
 
@@ -312,14 +353,34 @@ def test_mcp_shipgate_check_is_read_only_static_adapter(
         raise AssertionError("MCP adapter must not shell out to git")
 
     monkeypatch.setattr(agent_result_module, "_git_diff_context", _fail_git)
+    diff_path = EXAMPLES / "diffs" / "repair-after.diff"
+    diff_text = diff_path.read_text(encoding="utf-8")
     payload = shipgate_check(
         agent="cursor",
         workspace=str(tmp_path),
-        diff_text=(EXAMPLES / "diffs" / "repair-after.diff").read_text(encoding="utf-8"),
+        diff_text=diff_text,
+    )
+    cli = runner.invoke(
+        app,
+        [
+            "check",
+            "--agent",
+            "cursor",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            "-",
+            "--format",
+            "codex-boundary-json",
+        ],
+        input=diff_text,
     )
 
     after = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
     assert before == after
-    assert payload["schema_version"] == "shipgate.codex_boundary_result/v1"
+    assert cli.exit_code == 0, cli.output
+    assert payload == json.loads(cli.output)
+    assert payload["schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["agent"] == "cursor"
     assert payload["decision"] == "allow"
+    assert _control(payload)["state"] == "complete"

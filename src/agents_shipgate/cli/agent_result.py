@@ -10,7 +10,7 @@ from agents_shipgate.core.codex_boundary import (
     is_boundary_path,
     parse_unified_diff,
 )
-from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
+from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 from agents_shipgate.triggers import _git_diff_context, load_triggers
 from agents_shipgate.triggers import evaluate as evaluate_trigger
 
@@ -41,7 +41,7 @@ def build_codex_agent_result(
     diff_text: str,
     config: Path,
     policy: Path | None,
-) -> CodexBoundaryResultV1:
+) -> CodexBoundaryResultV2:
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted({item.path for item in diff_files if item.path})
@@ -121,8 +121,7 @@ def _undeclared_tool_surfaces_changed(
         # catalog skips it. Only treat the file as a tool surface when the
         # trigger actually runs AND a tool-source rule is what carried it.
         if result.get("run_shipgate") and any(
-            rule.get("id") in _TOOL_SOURCE_TRIGGER_IDS
-            for rule in result.get("matched_rules", [])
+            rule.get("id") in _TOOL_SOURCE_TRIGGER_IDS for rule in result.get("matched_rules", [])
         ):
             undeclared.append(path)
     return sorted(dict.fromkeys(undeclared))
@@ -205,9 +204,11 @@ def git_diff_text(
     return diff_text
 
 
-def agent_result_json_payload(result: CodexBoundaryResultV1) -> dict[str, Any]:
-    return result.model_dump(mode="json", exclude_none=True)
+def agent_result_json_payload(result: CodexBoundaryResultV2) -> dict[str, Any]:
+    payload = result.model_dump(mode="json", exclude_none=True)
+    payload["control"] = result.control.model_dump(mode="json")
+    return payload
 
 
-def agent_result_json(result: CodexBoundaryResultV1) -> str:
+def agent_result_json(result: CodexBoundaryResultV2) -> str:
     return json.dumps(agent_result_json_payload(result), indent=2, sort_keys=False)

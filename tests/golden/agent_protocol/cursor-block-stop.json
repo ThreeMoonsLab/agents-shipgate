@@ -1,35 +1,44 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "cursor",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b2"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "cursor"
   },
   "decision": "block",
   "risk_level": "critical",
-  "audit_id": "codex_boundary_09e9439b32f4a0c65e606a06",
+  "audit_id": "codex_boundary_2af3a603590c5b22704905cd",
   "policy_version": "1",
   "summary": "1 Codex boundary change(s) block local continuation.",
   "changed_files": [
     "policies/codex-boundary.shipgate.yaml"
   ],
-  "completion_allowed": false,
-  "must_stop": true,
-  "first_next_action": {
-    "actor": "human",
-    "kind": "stop",
-    "why": "Codex boundary policy was weakened"
-  },
-  "human_review": {
-    "required": true,
-    "why": "Codex boundary policy was weakened",
-    "required_reviewers": [
-      "agent-platform",
-      "security"
-    ]
+  "control": {
+    "state": "human_review_required",
+    "reason": "1 Codex boundary change(s) block local continuation.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": false,
+    "next_action": {
+      "actor": "human",
+      "kind": "stop",
+      "command": null,
+      "expects": null,
+      "why": "Codex boundary policy was weakened"
+    },
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "Codex boundary policy was weakened",
+      "required_reviewers": [
+        "agent-platform",
+        "security"
+      ]
+    },
+    "stop_reason": "Codex boundary policy was weakened"
   },
   "repair": {
     "actor": "human",
@@ -66,7 +75,16 @@
         "kind": "codex_boundary_policy_weakened",
         "deleted": false,
         "weakened_action": true,
-        "weakened_risk": false
+        "weakened_risk": false,
+        "weakened_rules": [
+          {
+            "id": "CODEX-MCP-AUTO-APPROVE-WRITE",
+            "old_action": "block",
+            "new_action": "require_review",
+            "old_risk_level": "critical",
+            "new_risk_level": "critical"
+          }
+        ]
       },
       "recommendation": "Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval."
     }
@@ -87,7 +105,14 @@
   "agent_repair_instructions": [
     "Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval."
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "level": "warning",
+      "code": "content_source",
+      "message": "Evaluated Codex boundary file from workspace_file_missing.",
+      "path": "policies/codex-boundary.shipgate.yaml"
+    }
+  ],
   "trace": [
     {
       "step": "policy_discovery",
@@ -129,8 +154,7 @@
     }
   },
   "finding_fingerprints": [
-    "fp_056a03eff7fb8a68"
+    "fp_db9eb20807fcce76"
   ],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 20
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
 }

@@ -23,11 +23,7 @@ _HAS_MCP_SDK = importlib.util.find_spec("mcp") is not None
 
 
 def _snapshot(root: Path) -> list[str]:
-    return sorted(
-        path.relative_to(root).as_posix()
-        for path in root.rglob("*")
-        if path.is_file()
-    )
+    return sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
 
 
 def test_shipgate_check_returns_boundary_result_without_writes(tmp_path: Path) -> None:
@@ -52,10 +48,11 @@ index 0000000..1111111
 
     after = _snapshot(tmp_path)
     assert after == before
-    assert payload["schema_version"] == "shipgate.codex_boundary_result/v1"
+    assert payload["schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["agent"] == "cursor"
     assert payload["decision"] == "block"
-    assert payload["first_next_action"]["kind"] in {"repair", "stop"}
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["next_action"]["kind"] == "stop"
     json.dumps(payload)
 
 
@@ -75,12 +72,14 @@ def test_mcp_preflight_handler_is_read_only(tmp_path: Path) -> None:
         ),
     )
 
-    assert payload["preflight_schema_version"] == "0.2"
+    assert payload["preflight_schema_version"] == "0.3"
     assert payload["requires_human_review"] is True
     assert payload["requires_verify"] is True
-    assert {
-        touch["path"] for touch in payload["protected_surface_touches"]
-    } >= {"shipgate.yaml", ".cursor/rules/agents-shipgate.mdc"}
+    assert payload["control"]["state"] == "human_review_required"
+    assert {touch["path"] for touch in payload["protected_surface_touches"]} >= {
+        "shipgate.yaml",
+        ".cursor/rules/agents-shipgate.mdc",
+    }
     assert any(signal["kind"] == "protected_surface_touch" for signal in payload["signals"])
     assert _snapshot(workspace) == before
 
@@ -109,8 +108,9 @@ def test_mcp_preflight_accepts_plan_without_writes(tmp_path: Path) -> None:
         },
     )
 
-    assert payload["preflight_schema_version"] == "0.2"
+    assert payload["preflight_schema_version"] == "0.3"
     assert payload["first_next_action"]["actor"] == "human"
+    assert payload["control"]["state"] == "human_review_required"
     assert any(signal["kind"] == "least_privilege" for signal in payload["signals"])
     assert _snapshot(workspace) == before
 
@@ -147,20 +147,50 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
         {
             "workspace": str(tmp_path),
             "config": "shipgate.yaml",
+            "execution": "succeeded",
             "head_status": "succeeded",
-            "release_decision": {"decision": "passed", "blockers": [], "review_items": []},
+            "release_decision": {
+                "decision": "passed",
+                "reason": "All required static verification passed.",
+                "blockers": [],
+                "review_items": [],
+                "evidence_coverage": {
+                    "level": "complete",
+                    "human_review_recommended": False,
+                    "source_warning_count": 0,
+                    "low_confidence_tool_count": 0,
+                    "evidence_gaps": [],
+                },
+                "baseline_delta": {"enabled": False},
+                "fail_policy": {
+                    "ci_mode": "advisory",
+                    "fail_on": [],
+                    "new_findings_only": False,
+                    "would_fail_ci": False,
+                    "exit_code": 0,
+                },
+            },
             "decision": "passed",
             "merge_verdict": "mergeable",
             "applicability": "verified",
             "can_merge_without_human": True,
-            "agent_controller": {
+            "control": {
+                "state": "complete",
+                "reason": "All required static verification passed.",
                 "completion_allowed": True,
                 "must_stop": False,
+                "verify_required": False,
+                "next_action": None,
+                "human_review": {
+                    "required": False,
+                    "why": None,
+                    "required_reviewers": [],
+                },
                 "stop_reason": None,
                 "allowed_next_commands": [],
-                "forbidden_file_edits": [],
-                "forbidden_actions": [],
             },
+            "forbidden_file_edits": [],
+            "forbidden_actions": [],
             "artifacts": {
                 "verifier_json": str(output_dir / "verifier.json"),
                 "agent_handoff_json": str(output_dir / "agent-handoff.json"),
@@ -172,8 +202,9 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
 
     payload = shipgate_handoff(verifier_path=str(output_dir / "verifier.json"))
 
-    assert payload["schema_version"] == "shipgate.agent_handoff/v2"
+    assert payload["schema_version"] == "shipgate.agent_handoff/v3"
     assert payload["gate"]["merge_verdict"] == "mergeable"
+    assert payload["control"]["state"] == "complete"
     assert _snapshot(tmp_path) == before
 
 

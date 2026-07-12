@@ -126,8 +126,7 @@ def _write_tools(repo: Path, payload: dict) -> None:
                     "agent": "root",
                     "complete": True,
                     "tools": [
-                        {"tool": tool["name"], "source_id": "tools"}
-                        for tool in payload["tools"]
+                        {"tool": tool["name"], "source_id": "tools"} for tool in payload["tools"]
                     ],
                     "handoffs": [],
                     "reason": "reviewed verifier scenario binding",
@@ -310,8 +309,10 @@ def test_scenario_docs_only_no_shipgate_fails_closed(tmp_path: Path) -> None:
     assert payload["trigger"]["should_run"] is False
     assert payload["head_status"] == "failed"
     assert payload["merge_verdict"] == "unknown"
-    assert payload["applicability"] == "unknown"
+    assert payload["applicability"] == "failed"
     assert payload["can_merge_without_human"] is False
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["must_stop"] is False
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
 
 

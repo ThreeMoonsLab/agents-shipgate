@@ -153,7 +153,9 @@ def _run_case(case, work_root: Path, *, strict: bool) -> GovernanceCaseResultV1:
         "next_actor": case.next_actor,
     }
     if case.status != "executable":
-        failures = [f"case status is {case.status}; no executable fixture is available"] if strict else []
+        failures = (
+            [f"case status is {case.status}; no executable fixture is available"] if strict else []
+        )
         return GovernanceCaseResultV1(
             id=case.id,
             category=case.category,
@@ -275,7 +277,11 @@ def _build_lock_diff(repo: Path) -> CapabilityLockDiffV1:
 
 
 def _actual_gate(verifier: VerifierArtifact) -> GovernanceGateActualV1:
-    next_actor = verifier.first_next_action.actor if verifier.first_next_action else None
+    next_actor = (
+        "coding_agent"
+        if verifier.control.state == "complete"
+        else verifier.control.next_action.actor
+    )
     fix_actor = verifier.fix_task.actor if verifier.fix_task else None
     fix_safe = verifier.fix_task.safe_to_attempt if verifier.fix_task else None
     return GovernanceGateActualV1(
@@ -304,9 +310,7 @@ def _gate_failures(case, actual: GovernanceGateActualV1) -> list[str]:
     if actual.decision != case.decision:
         failures.append(f"expected decision {case.decision}, got {actual.decision}")
     if actual.merge_verdict != case.merge_verdict:
-        failures.append(
-            f"expected merge_verdict {case.merge_verdict}, got {actual.merge_verdict}"
-        )
+        failures.append(f"expected merge_verdict {case.merge_verdict}, got {actual.merge_verdict}")
     if actual.next_actor != case.next_actor:
         failures.append(f"expected next_actor {case.next_actor}, got {actual.next_actor}")
     return failures
@@ -454,9 +458,7 @@ def _evaluate_metric(
     expected_tool_names: tuple[str, ...],
 ) -> GovernanceMetricResultV1:
     if metric == "unsafe_merge_prevention":
-        passed = actual.merge_verdict != "mergeable" and not bool(
-            actual.can_merge_without_human
-        )
+        passed = actual.merge_verdict != "mergeable" and not bool(actual.can_merge_without_human)
         return GovernanceMetricResultV1(
             metric=metric,
             passed=passed,
@@ -514,7 +516,9 @@ def _evaluate_metric(
         return GovernanceMetricResultV1(
             metric=metric,
             passed=passed,
-            rationale="capability expectations matched" if passed else "; ".join(capability_failures),
+            rationale="capability expectations matched"
+            if passed
+            else "; ".join(capability_failures),
         )
     raise AssertionError(f"unknown governance metric: {metric}")
 
@@ -525,13 +529,16 @@ def _explains_expected_subject(
 ) -> bool:
     release_items = []
     if verifier.release_decision:
-        release_items.extend(verifier.release_decision.get("blockers", []))
-        release_items.extend(verifier.release_decision.get("review_items", []))
+        release_items.extend(
+            item.model_dump(mode="json") for item in verifier.release_decision.blockers
+        )
+        release_items.extend(
+            item.model_dump(mode="json") for item in verifier.release_decision.review_items
+        )
     haystack = json.dumps(
         {
             "top_changes": [
-                change.model_dump(mode="json")
-                for change in verifier.capability_review.top_changes
+                change.model_dump(mode="json") for change in verifier.capability_review.top_changes
             ],
             "release_items": release_items,
         },
@@ -608,8 +615,7 @@ def _display_path(path: Path | None) -> str | None:
 
 def _binding_declaration(tool_names: list[str]) -> str:
     rendered_tools = "\n".join(
-        f"        - tool: {tool_name}\n          source_id: tools"
-        for tool_name in tool_names
+        f"        - tool: {tool_name}\n          source_id: tools" for tool_name in tool_names
     )
     return f"""agent_bindings:
   declarations:

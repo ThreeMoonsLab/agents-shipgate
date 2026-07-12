@@ -2,19 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
-from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.schemas.agent_handoff import (
     AgentHandoffArtifact,
     AgentHandoffBlockedBy,
-    AgentHandoffController,
-    AgentHandoffGate,
+    AgentHandoffGateV3,
     AgentHandoffRemediationStep,
     AgentHandoffReproducibility,
     AgentHandoffSubject,
 )
 from agents_shipgate.schemas.contract import CONTRACT_VERSION
 from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verify_run import VerifyRunArtifact
 
 
 def build_agent_handoff(
@@ -35,9 +33,46 @@ def build_agent_handoff(
     verifier_payload = verifier_model.model_dump(mode="json")
     report_payload = _model_payload(report) if report is not None else {}
     verify_run_payload = _model_payload(verify_run) if verify_run is not None else {}
+    verify_run_model = (
+        VerifyRunArtifact.model_validate(verify_run_payload)
+        if verify_run_payload.get("schema_version") == "shipgate.verify_run/v2"
+        else None
+    )
+    if verify_run_model is not None:
+        verify_run_payload = verify_run_model.model_dump(mode="json")
+    verify_run_control = _dict(_dict(verify_run_payload.get("outcome")).get("control"))
+    verifier_control = verifier_model.control.model_dump(mode="json")
+    if verify_run_control and verify_run_control != verifier_control:
+        raise ValueError(
+            "verify-run outcome control and verifier control disagree; refusing "
+            "to emit a trusted handoff"
+        )
+    if verify_run_model is not None:
+        outcome = verify_run_model.outcome
+        projections = {
+            "execution": (outcome.execution, verifier_model.execution),
+            "applicability": (outcome.applicability, verifier_model.applicability),
+            "decision": (outcome.decision, verifier_model.decision),
+            "merge_verdict": (outcome.merge_verdict, verifier_model.merge_verdict),
+            "can_merge_without_human": (
+                outcome.can_merge_without_human,
+                verifier_model.can_merge_without_human,
+            ),
+            "base_status": (outcome.base_status, verifier_model.base_status),
+        }
+        mismatches = [
+            name
+            for name, (run_value, verifier_value) in projections.items()
+            if run_value != verifier_value
+        ]
+        if mismatches:
+            raise ValueError(
+                "verify-run outcome and verifier disagree on "
+                f"{', '.join(mismatches)}; refusing to emit a trusted handoff"
+            )
     release_decision = _release_decision(verifier_payload, report_payload)
     operation = _operation(verifier_payload)
-    gate = AgentHandoffGate(
+    gate = AgentHandoffGateV3(
         static_analysis_only=verifier_model.static_analysis_only,
         runtime_behavior_verified=verifier_model.runtime_behavior_verified,
         static_verdict_disclaimer=verifier_model.static_verdict_disclaimer,
@@ -58,13 +93,13 @@ def build_agent_handoff(
             changed_files=list(verifier_model.changed_files),
         ),
         gate=gate,
-        controller=_controller(verifier_payload, gate=gate, operation=operation),
-        next_action=_dict_or_none(verifier_payload.get("first_next_action")),
-        human_review=_dict_or_none(verifier_payload.get("human_review")),
+        control=verifier_model.control,
         fix_task=_dict_or_none(verifier_payload.get("fix_task")),
         blocked_by=_blocked_by(release_decision),
         remediation_plan=_remediation_plan(verifier_payload.get("fix_task")),
         capability_review=_dict(verifier_payload.get("capability_review")),
+        forbidden_file_edits=list(verifier_model.forbidden_file_edits),
+        forbidden_actions=list(verifier_model.forbidden_actions),
         reproducibility=_reproducibility(verify_run_payload),
         artifacts=_artifacts(verifier_payload),
     )
@@ -109,42 +144,6 @@ def _ci_would_fail(release_decision: dict[str, Any]) -> bool | None:
     fail_policy = _dict(release_decision.get("fail_policy"))
     value = fail_policy.get("would_fail_ci")
     return value if isinstance(value, bool) else None
-
-
-def _controller(
-    verifier: dict[str, Any],
-    *,
-    gate: AgentHandoffGate,
-    operation: str,
-) -> AgentHandoffController:
-    controller = _dict(verifier.get("agent_controller"))
-    if controller:
-        return AgentHandoffController(
-            completion_allowed=bool(controller.get("completion_allowed")),
-            must_stop=bool(controller.get("must_stop")),
-            stop_reason=_str_or_none(controller.get("stop_reason")),
-            allowed_next_commands=_str_list(controller.get("allowed_next_commands")),
-            forbidden_file_edits=_str_list(controller.get("forbidden_file_edits")),
-            forbidden_actions=_str_list(controller.get("forbidden_actions")),
-        )
-    next_action = _dict(verifier.get("first_next_action"))
-    allowed_next_commands = []
-    command = next_action.get("command")
-    if isinstance(command, str) and command:
-        allowed_next_commands.append(command)
-    return AgentHandoffController(
-        completion_allowed=gate.can_merge_without_human,
-        must_stop=False if operation == "verify_preview" else not gate.can_merge_without_human,
-        stop_reason=None,
-        allowed_next_commands=allowed_next_commands,
-        # Standing negative affordance: the forbidden lists are present on EVERY
-        # verdict (per the verifier/handoff contract), including the preview
-        # operation where no agent_controller is computed. Emit the same
-        # canonical deny-lists the verify controller uses so a preview handoff
-        # never reads as "nothing is forbidden".
-        forbidden_file_edits=list(PROTECTED_FILE_EDITS),
-        forbidden_actions=list(FORBIDDEN_SHORTCUTS),
-    )
 
 
 def _blocked_by(release_decision: dict[str, Any]) -> list[AgentHandoffBlockedBy]:

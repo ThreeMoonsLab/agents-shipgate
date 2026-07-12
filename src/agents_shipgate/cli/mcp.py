@@ -10,6 +10,7 @@ from typing import Any
 import typer
 import yaml
 
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.capability_delta import diff_capability_fact_sets
 from agents_shipgate.core.capability_lattice import classify_tool_permission
@@ -26,14 +27,14 @@ from agents_shipgate.inputs.mcp_manifest import (
     normalize_mcp_json_servers,
     tools_from_normalized_mcp_servers,
 )
+from agents_shipgate.schemas.agent_control import HumanControlAction
+from agents_shipgate.schemas.agent_result import AgentResultV2
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultAffectedFile,
     AgentResultDiagnostic,
     AgentResultHumanReview,
-    AgentResultNextAction,
     AgentResultPolicy,
     AgentResultRepair,
-    AgentResultV1,
     AgentResultViolatedRule,
 )
 from agents_shipgate.schemas.common import parse_confidence
@@ -592,7 +593,7 @@ def _violation(
     }
 
 
-def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV1:
+def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
     decision = audit["decision"]
     human_review = _human_review(decision, audit["violated_rules"])
     repair = AgentResultRepair(
@@ -604,17 +605,31 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV1:
             "Do not suppress or baseline MCP permission expansion without human review.",
         ],
     )
-    return AgentResultV1(
+    summary = audit["summary"]
+    control = (
+        derive_agent_control(
+            reason=summary,
+            next_action=HumanControlAction(
+                kind="stop" if decision == "block" else "review",
+                why=human_review.why or summary,
+            ),
+            human_review_required=True,
+            unsafe_block=decision == "block",
+            human_review_why=human_review.why or summary,
+            required_reviewers=human_review.required_reviewers,
+            stop_reason=human_review.why or summary,
+        )
+        if decision in {"block", "require_review"}
+        else derive_agent_control(reason=summary)
+    )
+    return AgentResultV2(
         decision=decision,  # type: ignore[arg-type]
         risk_level=audit["risk_level"],
         audit_id=audit["audit_id"],
         policy_version=audit["policy_version"],
-        summary=audit["summary"],
+        summary=summary,
         changed_files=audit["changed_files"],
-        completion_allowed=decision in {"allow", "warn"},
-        must_stop=decision in {"block", "require_review"},
-        first_next_action=_next_action(decision, audit["violated_rules"]),
-        human_review=human_review,
+        control=control,
         repair=repair,
         policy=AgentResultPolicy(
             id="mcp-permissions",
@@ -630,7 +645,6 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV1:
         diagnostics=[AgentResultDiagnostic.model_validate(item) for item in audit["diagnostics"]],
         finding_fingerprints=[_fingerprint(item) for item in audit["violated_rules"]],
         source_artifacts={"mcp_audit": "stdout"},
-        exit_code_hint=20 if decision == "block" else 0,
     )
 
 
@@ -644,26 +658,6 @@ def _human_review(decision: str, violations: list[dict[str, Any]]) -> AgentResul
         why=why,
         required_reviewers=reviewers,
     )
-
-
-def _next_action(decision: str, violations: list[dict[str, Any]]) -> AgentResultNextAction:
-    if decision == "allow":
-        return AgentResultNextAction(
-            actor="coding_agent",
-            kind="continue",
-            why="No MCP permission rule requires review or blocking.",
-        )
-    if decision == "warn":
-        return AgentResultNextAction(
-            actor="coding_agent",
-            kind="warn",
-            why="MCP audit completed with warnings.",
-        )
-    if decision == "require_review":
-        why = violations[0]["title"] if violations else "MCP permission review required"
-        return AgentResultNextAction(actor="human", kind="review", why=why)
-    why = violations[0]["title"] if violations else "MCP permission change blocked"
-    return AgentResultNextAction(actor="human", kind="stop", why=why)
 
 
 def _minimal_manifest():
@@ -787,8 +781,10 @@ def _dedupe_violations(violations: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [by_key[key] for key in sorted(by_key)]
 
 
-def _agent_result_json(result: AgentResultV1) -> str:
-    return json.dumps(result.model_dump(mode="json", exclude_none=True), indent=2)
+def _agent_result_json(result: AgentResultV2) -> str:
+    payload = result.model_dump(mode="json", exclude_none=True)
+    payload["control"] = result.control.model_dump(mode="json")
+    return json.dumps(payload, indent=2)
 
 
 __all__ = ["build_mcp_audit", "mcp_app"]

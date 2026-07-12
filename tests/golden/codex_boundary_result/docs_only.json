@@ -1,31 +1,35 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v1",
+  "schema_version": "shipgate.codex_boundary_result/v2",
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b2"
+    "version": "0.16.0b3"
   },
   "subject": {
     "agent": "codex"
   },
   "decision": "allow",
   "risk_level": "none",
-  "audit_id": "codex_boundary_ff3add534ca3d93b767ac67a",
+  "audit_id": "codex_boundary_b807f88aa44a2479a95df4a5",
   "policy_version": "1",
   "summary": "No Codex boundary changes require action.",
   "changed_files": [
     "docs/readme.md"
   ],
-  "completion_allowed": true,
-  "must_stop": false,
-  "first_next_action": {
-    "actor": "coding_agent",
-    "kind": "continue",
-    "why": "No Codex boundary rule requires review or blocking."
-  },
-  "human_review": {
-    "required": false,
-    "required_reviewers": []
+  "control": {
+    "state": "complete",
+    "reason": "No Codex boundary changes require action.",
+    "completion_allowed": true,
+    "must_stop": false,
+    "verify_required": false,
+    "next_action": null,
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": false,
+      "why": null,
+      "required_reviewers": []
+    },
+    "stop_reason": null
   },
   "repair": {
     "actor": "coding_agent",
@@ -85,7 +89,7 @@
       {
         "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
         "action": "skip_shipgate",
-        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' \u2014 a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
+        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' — a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
         "command": null
       }
     ],
@@ -100,7 +104,5 @@
     }
   },
   "finding_fingerprints": [],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-  "exit_code_hint": 0,
-  "verify_required": false
+  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
 }

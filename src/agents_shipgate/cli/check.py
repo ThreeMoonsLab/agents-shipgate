@@ -10,7 +10,9 @@ from agents_shipgate.cli.agent_result import (
     build_codex_agent_result,
     git_diff_text,
 )
-from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV1
+from agents_shipgate.core.agent_control import derive_agent_control
+from agents_shipgate.schemas.agent_control import CodingAgentCommandAction
+from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
 
 def check(
@@ -112,9 +114,10 @@ def _diff_input_error_result(
     base: str | None,
     head: str | None,
     error: str,
-) -> CodexBoundaryResultV1:
+) -> CodexBoundaryResultV2:
     command = _rerun_command(agent=agent, diff=diff, base=base, head=head)
-    return CodexBoundaryResultV1(
+    summary = "Agents Shipgate could not resolve the diff input for local agent control."
+    return CodexBoundaryResultV2(
         agent=agent,
         subject={
             "workspace": str(workspace),
@@ -127,19 +130,20 @@ def _diff_input_error_result(
         risk_level="medium",
         audit_id="agent_check_diff_input_error",
         policy_version="unresolved",
-        summary="Agents Shipgate could not resolve the diff input for local agent control.",
+        summary=summary,
         changed_files=[],
-        completion_allowed=False,
-        must_stop=False,
-        first_next_action={
-            "actor": "coding_agent",
-            "kind": "repair",
-            "command": command,
-            "why": (
-                "Fix the diff input, make the requested git refs available, or omit "
-                "--base/--head for local uncommitted changes; then rerun shipgate check."
+        control=derive_agent_control(
+            reason=summary,
+            next_action=CodingAgentCommandAction(
+                kind="repair",
+                command=command,
+                why=(
+                    "Fix the diff input, make the requested git refs available, or omit "
+                    "--base/--head for local uncommitted changes; then rerun shipgate check."
+                ),
             ),
-        },
+            allowed_next_commands=[command],
+        ),
         repair={
             "actor": "coding_agent",
             "safe_to_attempt": True,
@@ -174,7 +178,6 @@ def _diff_input_error_result(
             }
         ],
         source_artifacts={},
-        exit_code_hint=2,
     )
 
 

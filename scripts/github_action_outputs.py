@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.schemas.agent_control import validate_agent_control
+
 TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
 POLICY_WEAKENING_CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
 MERGE_VERDICTS = {
@@ -112,10 +114,11 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         verifier_payload,
     )
     verifier_verdict = _verifier_verdict(release_decision, verifier_summary, verifier_payload)
-    merge_verdict = verifier_payload.get("merge_verdict") or _merge_verdict(
-        verifier_verdict
+    merge_verdict = verifier_payload.get("merge_verdict") or _merge_verdict(verifier_verdict)
+    control, can_merge_without_human = _control_projection(
+        verifier_payload,
+        release_decision,
     )
-    agent_controller = verifier_payload.get("agent_controller") or {}
 
     return {
         "status": summary.get("status", ""),
@@ -163,22 +166,71 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         ),
         "verifier_verdict": verifier_verdict,
         "merge_verdict": merge_verdict,
-        "can_merge_without_human": str(
-            bool(verifier_payload.get("can_merge_without_human"))
-        ).lower(),
-        "agent_controller_must_stop": str(
-            bool(agent_controller.get("must_stop"))
-        ).lower(),
-        "agent_controller_stop_reason": agent_controller.get("stop_reason", ""),
-        "agent_controller_completion_allowed": str(
-            bool(agent_controller.get("completion_allowed"))
-        ).lower(),
+        "can_merge_without_human": str(can_merge_without_human).lower(),
+        "agent_control_state": control.get("state", ""),
+        "agent_control_reason": control.get("reason", ""),
+        "agent_controller_must_stop": str(bool(control.get("must_stop"))).lower(),
+        "agent_controller_stop_reason": control.get("stop_reason", ""),
+        "agent_controller_completion_allowed": str(bool(control.get("completion_allowed"))).lower(),
         "trust_root_touched": str(trust_root_touched).lower(),
         "policy_weakened": str(policy_weakened).lower(),
         "capability_changes_added": capability_added,
         "capability_changes_modified": capability_modified,
         "capability_changes_removed": capability_removed,
     }
+
+
+def _control_projection(
+    verifier_payload: dict[str, Any],
+    report_release_decision: dict[str, Any],
+) -> tuple[dict[str, Any], bool]:
+    """Validate current control once and derive every compatibility mirror.
+
+    Legacy verifier artifacts have no ``control`` and retain their old
+    top-level fallback.  A current artifact with a malformed or contradictory
+    control fails closed instead of publishing mutually inconsistent GitHub
+    outputs.
+    """
+
+    raw = verifier_payload.get("control")
+    if raw is None:
+        legacy = verifier_payload.get("agent_controller") or {}
+        return (
+            legacy if isinstance(legacy, dict) else {},
+            bool(verifier_payload.get("can_merge_without_human")),
+        )
+
+    control_model = validate_agent_control(raw)
+    control = control_model.model_dump(mode="json")
+    execution = verifier_payload.get("execution") or verifier_payload.get("head_status")
+    applicability = verifier_payload.get("applicability")
+    embedded_release = verifier_payload.get("release_decision") or {}
+    decision = (
+        verifier_payload.get("decision")
+        or (embedded_release.get("decision") if isinstance(embedded_release, dict) else None)
+        or report_release_decision.get("decision")
+    )
+    expected = bool(
+        control_model.state == "complete"
+        and (
+            (execution == "succeeded" and decision == "passed")
+            or (
+                execution == "skipped"
+                and decision is None
+                and applicability in {None, "not_applicable"}
+            )
+        )
+    )
+    declared = verifier_payload.get("can_merge_without_human")
+    if declared is not None and bool(declared) != expected:
+        raise ValueError(
+            "verifier can_merge_without_human contradicts the canonical control projection"
+        )
+    if control_model.completion_allowed != expected:
+        raise ValueError(
+            "verifier control completion authority contradicts execution/applicability"
+        )
+    return control, expected
 
 
 def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
@@ -200,7 +252,10 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
     blocker_count = len(release_decision.get("blockers") or [])
     review_item_count = len(release_decision.get("review_items") or [])
     would_fail_ci = str(bool(fail_policy.get("would_fail_ci"))).lower()
-    first_next_action = verifier_payload.get("first_next_action") or {}
+    control = verifier_payload.get("control") or verifier_payload.get("agent_controller") or {}
+    first_next_action = (
+        control.get("next_action") or verifier_payload.get("first_next_action") or {}
+    )
     with open(step_summary, "a", encoding="utf-8") as summary_file:
         summary_file.write("## Agents Shipgate\n\n")
         if verifier_payload:
@@ -210,13 +265,12 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
             if verify_run.get("run_id"):
                 summary_file.write(f"- Run ID: `{clean(verify_run.get('run_id'))}`\n")
             summary_file.write(
-                "- Can merge without human: "
-                f"`{clean(values.get('can_merge_without_human'))}`\n"
+                f"- Can merge without human: `{clean(values.get('can_merge_without_human'))}`\n"
             )
-            agent_controller = verifier_payload.get("agent_controller") or {}
-            if isinstance(agent_controller, dict) and agent_controller:
+            if isinstance(control, dict) and control:
                 summary_file.write(
-                    "- Agent controller: "
+                    "- Agent control: "
+                    f"state=`{clean(values.get('agent_control_state'))}`, "
                     f"must_stop=`{clean(values.get('agent_controller_must_stop'))}`, "
                     f"completion_allowed="
                     f"`{clean(values.get('agent_controller_completion_allowed'))}`"
@@ -233,33 +287,25 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
                 if action:
                     summary_file.write(f"- First next action: `{action}`\n")
         if release_decision:
-            summary_file.write(
-                f"- Release gate: `{clean(release_decision.get('decision'))}`\n"
-            )
+            summary_file.write(f"- Release gate: `{clean(release_decision.get('decision'))}`\n")
             agent_summary = payload.get("agent_summary") or {}
             if agent_summary.get("headline"):
-                summary_file.write(
-                    f"- Summary: {clean(agent_summary.get('headline'))}\n"
-                )
+                summary_file.write(f"- Summary: {clean(agent_summary.get('headline'))}\n")
             summary_file.write(f"- Blockers: {blocker_count}\n")
             summary_file.write(f"- Review items: {review_item_count}\n")
             evidence = release_decision.get("evidence_coverage") or {}
             ev_parts = []
             if evidence.get("low_confidence_tool_count"):
                 ev_parts.append(
-                    f"{clean(evidence.get('low_confidence_tool_count'))} "
-                    "low-confidence tool(s)"
+                    f"{clean(evidence.get('low_confidence_tool_count'))} low-confidence tool(s)"
                 )
             if evidence.get("source_warning_count"):
-                ev_parts.append(
-                    f"{clean(evidence.get('source_warning_count'))} source warning(s)"
-                )
+                ev_parts.append(f"{clean(evidence.get('source_warning_count'))} source warning(s)")
             if evidence.get("human_review_recommended"):
                 ev_parts.append("human review recommended")
             ev_suffix = f" ({'; '.join(ev_parts)})" if ev_parts else ""
             summary_file.write(
-                f"- Evidence coverage: {clean(evidence.get('level', 'unknown'))}"
-                f"{ev_suffix}\n"
+                f"- Evidence coverage: {clean(evidence.get('level', 'unknown'))}{ev_suffix}\n"
             )
             summary_file.write(
                 "- Fail policy: "
@@ -284,8 +330,7 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
             )
         elif action_surface_diff.get("notes"):
             summary_file.write(
-                "- Action-surface diff: "
-                f"{clean(action_surface_diff.get('notes')[0])}\n"
+                f"- Action-surface diff: {clean(action_surface_diff.get('notes')[0])}\n"
             )
         if tool_surface_diff.get("enabled"):
             summary_file.write(
@@ -298,45 +343,30 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
                 f"{clean(diff_summary.get('new_findings', 0))} new finding(s)\n"
             )
         elif tool_surface_diff.get("notes"):
-            summary_file.write(
-                f"- Tool-surface diff: {clean(tool_surface_diff.get('notes')[0])}\n"
-            )
+            summary_file.write(f"- Tool-surface diff: {clean(tool_surface_diff.get('notes')[0])}\n")
         summary_file.write(f"- Report JSON: `{clean(values.get('report_json'))}`\n")
         if values.get("verifier_json"):
-            summary_file.write(
-                f"- Verifier JSON: `{clean(values.get('verifier_json'))}`\n"
-            )
+            summary_file.write(f"- Verifier JSON: `{clean(values.get('verifier_json'))}`\n")
         if values.get("verify_run_json"):
-            summary_file.write(
-                f"- Verify-run JSON: `{clean(values.get('verify_run_json'))}`\n"
-            )
+            summary_file.write(f"- Verify-run JSON: `{clean(values.get('verify_run_json'))}`\n")
         if values.get("agent_handoff_json"):
             summary_file.write(
-                "- Agent handoff JSON: "
-                f"`{clean(values.get('agent_handoff_json'))}`\n"
+                f"- Agent handoff JSON: `{clean(values.get('agent_handoff_json'))}`\n"
             )
         if values.get("pr_comment_markdown"):
             summary_file.write(
-                "- PR comment Markdown: "
-                f"`{clean(values.get('pr_comment_markdown'))}`\n"
+                f"- PR comment Markdown: `{clean(values.get('pr_comment_markdown'))}`\n"
             )
         if values.get("attestation_json"):
-            summary_file.write(
-                f"- Attestation JSON: `{clean(values.get('attestation_json'))}`\n"
-            )
+            summary_file.write(f"- Attestation JSON: `{clean(values.get('attestation_json'))}`\n")
         if values.get("org_evidence_bundle_json"):
             summary_file.write(
-                "- Org evidence bundle JSON: "
-                f"`{clean(values.get('org_evidence_bundle_json'))}`\n"
+                f"- Org evidence bundle JSON: `{clean(values.get('org_evidence_bundle_json'))}`\n"
             )
         if values.get("host_grants_json"):
-            summary_file.write(
-                f"- Host grants JSON: `{clean(values.get('host_grants_json'))}`\n"
-            )
+            summary_file.write(f"- Host grants JSON: `{clean(values.get('host_grants_json'))}`\n")
         if values.get("org_status_json"):
-            summary_file.write(
-                f"- Org status JSON: `{clean(values.get('org_status_json'))}`\n"
-            )
+            summary_file.write(f"- Org status JSON: `{clean(values.get('org_status_json'))}`\n")
 
 
 def write_github_outputs(values: dict[str, object]) -> None:
@@ -423,10 +453,7 @@ def _verifier_flags(
     return (
         bool(payload.get("protected_surface_changes"))
         or any(finding.get("check_id") == TRUST_ROOT_CHECK_ID for finding in active_findings),
-        any(
-            finding.get("check_id") == POLICY_WEAKENING_CHECK_ID
-            for finding in active_findings
-        ),
+        any(finding.get("check_id") == POLICY_WEAKENING_CHECK_ID for finding in active_findings),
     )
 
 
