@@ -27,6 +27,10 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.core.boundary_registry import (
+    boundary_adapters_for_path,
+    is_agent_boundary_path,
+)
 from agents_shipgate.core.globbing import glob_match as _glob_match
 
 _TRIGGERS_FILENAME = "triggers.json"
@@ -48,6 +52,37 @@ ACTION_DRY_RUN = "dry_run"
 VALID_ACTIONS = frozenset(
     {ACTION_FORCE_RUN, ACTION_RUN, ACTION_SKIP, ACTION_DRY_RUN}
 )
+
+# Semantic class of the surface a rule describes. Rule IDs are stable audit
+# labels, not a type system: consumers must switch on ``surface_class`` instead
+# of maintaining ID allow-lists that silently miss newly-added adapters.
+SURFACE_CLASS_CAPABILITY = "capability"
+SURFACE_CLASS_HOST_BOUNDARY = "host_boundary"
+VALID_SURFACE_CLASSES = frozenset(
+    {
+        SURFACE_CLASS_CAPABILITY,
+        SURFACE_CLASS_HOST_BOUNDARY,
+        "governance",
+        "adoption",
+        "dependency",
+        "negative",
+    }
+)
+
+
+def result_has_surface_class(result: dict[str, Any], surface_class: str) -> bool:
+    """Return whether any matched rule carries ``surface_class``.
+
+    Callers should separately honor the evaluator's winning action. A negative
+    rule can match alongside a positive rule, so this helper deliberately does
+    not reinterpret action precedence.
+    """
+
+    return any(
+        match.get("surface_class") == surface_class
+        for match in result.get("matched_rules", [])
+        if isinstance(match, dict)
+    )
 
 
 def load_triggers() -> dict[str, Any]:
@@ -243,6 +278,16 @@ def _eval_predicate(
         if isinstance(globs, str):
             globs = [globs]
         return not any(_glob_match(g, p) for g in globs for p in paths)
+    if "boundary_adapter" in pred:
+        adapter_id = pred["boundary_adapter"]
+        return any(
+            any(adapter.id == adapter_id for adapter in boundary_adapters_for_path(path))
+            for path in paths
+        )
+    if "none_match_boundary_surface" in pred:
+        return bool(pred["none_match_boundary_surface"]) and not any(
+            is_agent_boundary_path(path) for path in paths
+        )
     if "file_present" in pred:
         return pred["file_present"] == "shipgate.yaml" and manifest_present
     if "file_absent" in pred:
@@ -337,6 +382,7 @@ def evaluate(
                 {
                     "id": rule["id"],
                     "action": rule["action"],
+                    "surface_class": rule.get("surface_class"),
                     "rationale": rule.get("rationale", ""),
                     "command": rule.get("command"),
                 }

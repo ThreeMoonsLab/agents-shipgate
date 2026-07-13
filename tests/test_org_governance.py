@@ -332,6 +332,51 @@ organization:
     ]
 
 
+def test_org_status_treats_incomparable_host_baseline_as_violation(
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / ".agents-shipgate" / "host-grants.json"
+    baseline.parent.mkdir(parents=True)
+    baseline.write_text(
+        json.dumps(
+            {
+                "host_grants_schema_version": "0.1",
+                "inventory_sha256": "legacy",
+                "inventory": {"mcp_servers": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_minimal_manifest(tmp_path, "\norganization:\n  id: acme\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "org",
+            "status",
+            "--workspace",
+            str(tmp_path),
+            "--as-of",
+            "2026-06-12",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 20, result.output
+    payload = json.loads(result.output)
+    assert payload["summary"]["host_grant_drift"] is True
+    assert payload["host_grant_drift"]["comparison_status"] == "incomparable"
+    assert payload["host_grant_drift"]["has_drift"] is None
+    assert payload["violations"] == [
+        {
+            "kind": "host_grant_drift",
+            "source": ".agents-shipgate/host-grants.json",
+            "record_kind": "host_grants",
+            "subject": "host_grants",
+        }
+    ]
+
+
 def test_org_policy_packs_command_reports_rule_counts_and_owner(tmp_path: Path) -> None:
     pack = tmp_path / "org-pack.yaml"
     pack.write_text(
@@ -535,7 +580,7 @@ checks:
     assert payload["registry_row"]["source_attestation_sha256"] == attestation_sha256
     assert payload["org_status"]["summary"]["policy_pack_count"] == 1
     assert payload["policy_packs"][0]["status"] == "verified"
-    assert payload["host_grants"]["host_grants_inventory_schema_version"] == "0.1"
+    assert payload["host_grants"]["host_grants_inventory_schema_version"] == "0.2"
     assert payload["artifacts"]["verifier"]["sha256"]
 
 

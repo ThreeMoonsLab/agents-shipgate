@@ -59,32 +59,36 @@ def _working_tree_line(workspace: Path) -> str:
     body, so they surface as "stage and run check" rather than a verdict.
     """
 
-    from agents_shipgate.cli.agent_result import build_codex_agent_result
-    from agents_shipgate.cli.verify.git import working_tree_context
+    from agents_shipgate.cli.agent_result import (
+        build_agent_boundary_result,
+        git_boundary_change_set,
+    )
 
     try:
-        changed_paths, diff_text = working_tree_context(workspace)
+        change_set = git_boundary_change_set(workspace=workspace, base=None, head=None)
     except Exception:  # noqa: BLE001 - not a git checkout / no HEAD to diff.
         return "not a git checkout — skipped"
-    if not diff_text.strip():
-        if changed_paths:
-            count = len(changed_paths)
+    if not change_set.diff_text.strip():
+        if change_set.changed_paths:
+            count = len(change_set.changed_paths)
             return (
-                f"{count} untracked file{'s' if count != 1 else ''} not yet "
-                "checkable — stage them and run `shipgate check`"
+                f"{count} untracked file{'s' if count != 1 else ''} found, but no "
+                "recognized boundary content changed"
             )
         return "clean — no uncommitted changes to check"
     try:
-        result = build_codex_agent_result(
+        result = build_agent_boundary_result(
             agent="claude-code",
             workspace=workspace,
-            diff_text=diff_text,
+            diff_text=change_set.diff_text,
             config=workspace / "shipgate.yaml",
             policy=None,
+            input_mode="worktree",
+            input_issues=list(change_set.issues),
         )
     except Exception:  # noqa: BLE001 - a first look must never hard-fail.
         return "uncommitted changes present (run `shipgate check` for the verdict)"
-    count = len(result.changed_files)
+    count = len(change_set.changed_paths)
     files = f"{count} changed file{'s' if count != 1 else ''}"
     if result.decision == "allow":
         return f"allow — {files}, no boundary issues"
@@ -116,14 +120,59 @@ def _classification_line(workspace: Path) -> tuple[str, bool]:
 
 
 def _host_grants_line(workspace: Path) -> tuple[str | None, bool]:
-    """One-line count of coding-agent host grants, or ``None`` when there are none."""
+    """Summarize grants without ever presenting incomplete coverage as empty."""
 
     from agents_shipgate.cli.host_audit import host_audit_inventory
 
     try:
         inventory = host_audit_inventory(workspace)
     except Exception:  # noqa: BLE001 - host audit is best-effort here.
-        return None, False
+        return (
+            "inventory unavailable (run `shipgate audit --host` for the coverage issue)",
+            True,
+        )
+
+    if inventory.get("host_grants_inventory_schema_version") == "0.2":
+        grants = inventory.get("grants") or []
+        kind_labels = {
+            "mcp_server": "MCP server",
+            "permission_rule": "permission rule",
+            "permission_mode": "permission mode",
+            "hook": "hook",
+            "sandbox": "sandbox setting",
+            "additional_path": "additional path",
+            "plugin_or_app": "plugin/app",
+            "workflow": "workflow",
+            "instruction_trust_root": "instruction trust root",
+        }
+        parts: list[str] = []
+        for kind in sorted(kind_labels):
+            count = sum(1 for grant in grants if grant.get("kind") == kind)
+            if count:
+                label = kind_labels[kind]
+                parts.append(f"{count} {label}{'s' if count != 1 else ''}")
+
+        incomplete_hosts = sorted(
+            {
+                f"{coverage.get('host')}={coverage.get('status')}"
+                for coverage in inventory.get("host_coverage") or []
+                if coverage.get("status") != "complete"
+            }
+        )
+        blocking_issues = [
+            issue for issue in inventory.get("issues") or [] if issue.get("blocking")
+        ]
+        if incomplete_hosts or blocking_issues:
+            detail = ", ".join(incomplete_hosts) or (
+                f"{len(blocking_issues)} blocking issue"
+                f"{'s' if len(blocking_issues) != 1 else ''}"
+            )
+            parts.append(f"coverage incomplete ({detail})")
+
+        if not parts:
+            return None, False
+        return ", ".join(parts) + " (run `shipgate audit --host` for details)", True
+
     parts: list[str] = []
     for key, label in (
         ("mcp_servers", "MCP server"),
@@ -136,6 +185,12 @@ def _host_grants_line(workspace: Path) -> tuple[str | None, bool]:
             parts.append(f"{count} {label}{'s' if count != 1 else ''}")
     if inventory.get("codex_config_present"):
         parts.append("codex config")
+    warnings = inventory.get("parse_warnings") or []
+    if warnings:
+        parts.append(
+            f"coverage incomplete ({len(warnings)} parse warning"
+            f"{'s' if len(warnings) != 1 else ''})"
+        )
     if not parts:
         return None, False
     return ", ".join(parts) + " (run `shipgate audit --host` for the inventory)", True

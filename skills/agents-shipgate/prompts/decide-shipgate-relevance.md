@@ -22,7 +22,7 @@ the rules to the changed file list.
    - **Local repo** (already adopted Shipgate): read `docs/triggers.json` directly.
    - **Remote** (target repo without Shipgate): fetch
      `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`.
-   - The catalog has `schema_version: "0.1"` and is stable for `0.x`.
+   - The catalog has `schema_version: "0.2"`; match `surface_class` instead of maintaining a parallel path list.
 
 3. **Apply the rules.** Two equivalent options:
 

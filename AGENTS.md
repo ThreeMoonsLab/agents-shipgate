@@ -77,13 +77,18 @@ Reports land at `agents-shipgate-reports/report.{md,json}`.
 change complete, run the local control loop and parse stdout JSON:
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
-shipgate check --agent claude-code --workspace . --format codex-boundary-json
-shipgate check --agent cursor --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
+shipgate check --agent claude-code --workspace . --format agent-boundary-json
+shipgate check --agent cursor --workspace . --format agent-boundary-json
 ```
 
-Read the single stdout object as `shipgate.codex_boundary_result/v2`. Switch on
-`control.state`; follow `control.next_action`,
+`--agent` identifies the caller; it never selects host coverage. Every
+recognized changed Codex, Claude Code, Cursor, VS Code MCP, shared trust-root,
+and GitHub workflow surface is evaluated on every run.
+
+Read the single stdout object as `shipgate.agent_boundary_result/v1`. Switch on
+`control.state`; inspect `input_coverage`, `host_coverage`, `affected_hosts`,
+`policies`, `violations`, and `issues`; then follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
 as diagnostic context, never as the operational control signal, and never
 infer control from Markdown, PR comments, or prose. If
@@ -284,6 +289,7 @@ Do NOT use it for:
 |---|---|
 | Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json` | Yes |
 | Adds/changes Codex repo config, hooks, or permission profiles | Yes |
+| Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
 | Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |
@@ -485,7 +491,8 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.25 frozen reference) | [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) | `0.25` |
 | Verify-run schema | [`docs/verify-run-schema.v2.json`](docs/verify-run-schema.v2.json) | `shipgate.verify_run/v2` |
 | Agent handoff schema | [`docs/agent-handoff-schema.v3.json`](docs/agent-handoff-schema.v3.json) | `shipgate.agent_handoff/v3` |
-| Codex boundary result schema | [`docs/codex-boundary-result-schema.v2.json`](docs/codex-boundary-result-schema.v2.json) | `shipgate.codex_boundary_result/v2` |
+| Agent boundary result schema | [`docs/agent-boundary-result-schema.v1.json`](docs/agent-boundary-result-schema.v1.json) | `shipgate.agent_boundary_result/v1` |
+| Codex boundary result schema (deprecated frozen projection) | [`docs/codex-boundary-result-schema.v2.json`](docs/codex-boundary-result-schema.v2.json) | `shipgate.codex_boundary_result/v2` |
 | Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
 | Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
 | Report schema (v0.22 frozen reference) | [`docs/report-schema.v0.22.json`](docs/report-schema.v0.22.json) | `0.22` |
@@ -510,6 +517,9 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Verifier schema (current) | [`docs/verifier-schema.v0.3.json`](docs/verifier-schema.v0.3.json) | `0.3` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v3.json`](docs/agent-handoff-schema.v3.json) | `shipgate.agent_handoff/v3` |
 | Preflight schema (current) | [`docs/preflight-schema.v0.3.json`](docs/preflight-schema.v0.3.json) | `0.3` |
+| Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.2.json`](docs/host-grants-inventory-schema.v0.2.json) | `0.2` |
+| Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.2.json`](docs/host-grants-baseline-schema.v0.2.json) | `0.2` |
+| Host-grants drift schema | [`docs/host-grants-drift-schema.v0.2.json`](docs/host-grants-drift-schema.v0.2.json) | `0.2` |
 | Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.4` |
 | Capability lock schema | [`docs/capability-lock-schema.v0.5.json`](docs/capability-lock-schema.v0.5.json) | `0.5` |
 | Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.6.json`](docs/capability-lock-diff-schema.v0.6.json) | `0.6` |
@@ -554,7 +564,7 @@ Newer commands (stable intent, flags may still evolve):
 
 | Command | Purpose |
 |---|---|
-| `shipgate audit --host` | Zero-config, read-only inventory of coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes); `--json` available. Works without `shipgate.yaml`. |
+| `shipgate audit --host` | Zero-config, read-only static inventory of coding-agent host grants with per-host coverage; deterministic repository scope by default, optional `--scope local-static`. Works without `shipgate.yaml`. |
 | `agents-shipgate mcp-serve` | Local read-only stdio MCP server (`[mcp]` extra) exposing `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, `shipgate.capabilities`, and `shipgate.handoff`. See [`docs/mcp-server.md`](docs/mcp-server.md). |
 | `agents-shipgate org status` | Local organization governance projection over exception hygiene, policy-pack pins, host-grant drift, and registry readiness; `--json` available and governance violations exit `20`. |
 | `agents-shipgate registry` | `ingest --attestation <file>` / `query` / `report --bypass` — local capability-release ledger over attestations. |

@@ -33,10 +33,15 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "agent_handoff_schema_path",
         "agent_handoff_artifact",
         "codex_boundary_result_schema_version",
+        "agent_boundary_result_schema_version",
+        "agent_boundary_result_schema_path",
         "attestation_schema_version",
         "registry_schema_version",
         "org_evidence_bundle_schema_version",
         "host_grants_inventory_schema_version",
+        "host_grants_baseline_schema_version",
+        "host_grants_drift_schema_version",
+        "trigger_catalog_schema_version",
         "agent_result_schema_version",
         "agent_result_schema_path",
         "agent_result_control_fields",
@@ -68,13 +73,13 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "agents-shipgate init --workspace . --write --json"
     )
     assert payload["commands"]["agent_check_codex"] == (
-        "shipgate check --agent codex --workspace . --format codex-boundary-json"
+        "shipgate check --agent codex --workspace . --format agent-boundary-json"
     )
     assert payload["commands"]["agent_check_claude_code"] == (
-        "shipgate check --agent claude-code --workspace . --format codex-boundary-json"
+        "shipgate check --agent claude-code --workspace . --format agent-boundary-json"
     )
     assert payload["commands"]["agent_check_cursor"] == (
-        "shipgate check --agent cursor --workspace . --format codex-boundary-json"
+        "shipgate check --agent cursor --workspace . --format agent-boundary-json"
     )
     assert payload["artifacts"]["verifier"] == "agents-shipgate-reports/verifier.json"
     assert payload["artifacts"]["verify_run"] == "agents-shipgate-reports/verify-run.json"
@@ -94,10 +99,19 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v3.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
+    assert payload["agent_boundary_result_schema_version"] == (
+        "shipgate.agent_boundary_result/v1"
+    )
+    assert payload["agent_boundary_result_schema_path"] == (
+        "docs/agent-boundary-result-schema.v1.json"
+    )
     assert payload["attestation_schema_version"] == "0.4"
     assert payload["registry_schema_version"] == "0.3"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v1")
-    assert payload["host_grants_inventory_schema_version"] == "0.1"
+    assert payload["host_grants_inventory_schema_version"] == "0.2"
+    assert payload["host_grants_baseline_schema_version"] == "0.2"
+    assert payload["host_grants_drift_schema_version"] == "0.2"
+    assert payload["trigger_catalog_schema_version"] == "0.2"
     assert payload["agent_result_schema_version"] == "agent_result_v2"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v2.json"
     assert payload["agent_result_control_fields"] == [

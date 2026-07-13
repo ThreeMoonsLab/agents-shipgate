@@ -22,11 +22,11 @@ Run one local boundary check before reporting an agent-capability change
 complete:
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
 ```
 
 Use `--agent claude-code` for Claude Code and `--agent cursor` for Cursor.
-Parse stdout as `shipgate.codex_boundary_result/v2`; switch on
+Parse stdout as `shipgate.agent_boundary_result/v1`; switch on
 `control.state`, follow `control.next_action`, `control.allowed_next_commands`,
 and `control.human_review`, and treat `decision` as diagnostic context only.
 Do not infer control from prose.

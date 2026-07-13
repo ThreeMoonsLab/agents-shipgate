@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "name": "agents-shipgate-triggers",
   "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent can fetch this and apply the rules to a PR diff or repo state to decide whether to run `agents-shipgate verify --preview --json` or the full verifier. Stable for 0.x: rule IDs, predicate vocabulary, and action enum will not change in minor versions.",
   "source_of_truth": "AGENTS.md#should-i-run-shipgate-on-this-pr",
@@ -13,14 +13,54 @@
     "file_absent": "The named path does NOT exist in the working tree at the head commit.",
     "every_file_matches": "Every changed file in this PR matches at least one of the listed globs (or the single glob, if a string). False on an empty PR.",
     "none_match_glob": "No changed file matches any of the listed globs.",
+    "boundary_adapter": "Any changed file matches the named entry in `boundary_adapters`. Matching is case-insensitive. The adapter registry is the authoritative path source shared by check, verify, preflight, audit, and triggers.",
+    "none_match_boundary_surface": "No changed file matches any path in `boundary_adapters`. Used by negative rules so a host trust root is never treated as a docs-only change.",
     "any_of": "Logical OR over a list of nested predicates.",
     "all_of": "Logical AND over a list of nested predicates.",
     "detect_returns": "Result of `agents-shipgate detect --workspace . --json` matches the given `key: value` pair (`is_agent_project: false`, `suggested_sources: []`, etc.). Used in `stop_conditions` only.",
     "user_did_not_request": "The user did not explicitly ask for a Shipgate run in their prompt. Used in `stop_conditions` only."
   },
+  "boundary_adapters": [
+    {
+      "id": "codex",
+      "hosts": ["codex"],
+      "exact_paths": [".codex/config.toml", ".codex/hooks.json", ".codex/requirements.toml"],
+      "globs": ["**/.codex/config.toml", "**/.codex/hooks.json", "**/.codex/requirements.toml"],
+      "experimental": false
+    },
+    {
+      "id": "claude_code",
+      "hosts": ["claude-code"],
+      "exact_paths": [".claude/settings.json", ".claude/settings.local.json", ".mcp.json", "CLAUDE.md"],
+      "globs": ["**/.mcp.json", ".claude/commands/*", ".claude/commands/**", ".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
+      "experimental": false
+    },
+    {
+      "id": "cursor",
+      "hosts": ["cursor"],
+      "exact_paths": [".cursor/cli.json", ".cursor/mcp.json"],
+      "globs": [".cursor/rules/*", ".cursor/rules/**"],
+      "experimental": false
+    },
+    {
+      "id": "vscode_mcp",
+      "hosts": ["vscode"],
+      "exact_paths": [".vscode/mcp.json"],
+      "globs": [],
+      "experimental": true
+    },
+    {
+      "id": "shared",
+      "hosts": ["codex", "claude-code", "cursor"],
+      "exact_paths": ["AGENTS.md", "AGENTS.override.md", "shipgate.yaml", ".shipgate/agent-contract.json", "policies/agent-boundary.shipgate.yaml", "policies/codex-boundary.shipgate.yaml", "policies/host-boundary.shipgate.yaml"],
+      "globs": [".agents/skills/*/SKILL.md", ".agents/skills/**/SKILL.md", ".github/workflows/*.yml", ".github/workflows/*.yaml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", ".agents-shipgate/baseline*.json", ".agents-shipgate/*waiver*.json", ".agents-shipgate/state*.json", "policies/*.shipgate.yaml"],
+      "experimental": false
+    }
+  ],
   "rules": [
     {
       "id": "TRIGGER-MCP-EXPORT-CHANGED",
+      "surface_class": "capability",
       "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
       "when": {
         "any_of": [
@@ -34,6 +74,7 @@
     },
     {
       "id": "TRIGGER-OPENAPI-SPEC-CHANGED",
+      "surface_class": "capability",
       "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
       "when": {
         "any_of": [
@@ -51,6 +92,7 @@
     },
     {
       "id": "TRIGGER-STATIC-TOOL-INVENTORY-CHANGED",
+      "surface_class": "capability",
       "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
       "when": {
         "any_of": [
@@ -64,21 +106,52 @@
     },
     {
       "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+      "surface_class": "host_boundary",
       "agents_md_row": "Adds/changes Codex repo config, hooks, or permission profiles",
-      "when": {
-        "any_of": [
-          {"glob": ".codex/config.toml"},
-          {"glob": "**/.codex/config.toml"},
-          {"glob": ".codex/hooks.json"},
-          {"glob": "**/.codex/hooks.json"}
-        ]
-      },
+      "when": {"boundary_adapter": "codex"},
       "action": "run_shipgate",
       "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-      "command": "shipgate check --agent codex --workspace . --format codex-boundary-json"
+      "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
+    },
+    {
+      "id": "TRIGGER-CLAUDE-BOUNDARY-CONFIG-CHANGED",
+      "surface_class": "host_boundary",
+      "agents_md_row": "Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows",
+      "when": {"boundary_adapter": "claude_code"},
+      "action": "run_shipgate",
+      "rationale": "Claude Code project settings and MCP declarations control permissions, hooks, sandboxing, network access, and reachable servers; changes need a local boundary check.",
+      "command": "shipgate check --agent claude-code --workspace . --format agent-boundary-json"
+    },
+    {
+      "id": "TRIGGER-CURSOR-BOUNDARY-CONFIG-CHANGED",
+      "surface_class": "host_boundary",
+      "agents_md_row": "Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows",
+      "when": {"boundary_adapter": "cursor"},
+      "action": "run_shipgate",
+      "rationale": "Cursor project permissions, MCP declarations, and rules define the coding-agent boundary; changes need a local boundary check.",
+      "command": "shipgate check --agent cursor --workspace . --format agent-boundary-json"
+    },
+    {
+      "id": "TRIGGER-VSCODE-MCP-BOUNDARY-CHANGED",
+      "surface_class": "host_boundary",
+      "agents_md_row": "Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows",
+      "when": {"boundary_adapter": "vscode_mcp"},
+      "action": "run_shipgate",
+      "rationale": "VS Code workspace MCP declarations are an experimental host boundary and must fail closed when changed.",
+      "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
+    },
+    {
+      "id": "TRIGGER-SHARED-HOST-BOUNDARY-CHANGED",
+      "surface_class": "host_boundary",
+      "agents_md_row": "Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows",
+      "when": {"boundary_adapter": "shared"},
+      "action": "run_shipgate",
+      "rationale": "Workflow permissions, pull_request_target, and write-capable automation are shared coding-agent trust roots.",
+      "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
     },
     {
       "id": "TRIGGER-CODEX-PLUGIN-CHANGED",
+      "surface_class": "capability",
       "agents_md_row": "Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files",
       "when": {
         "any_of": [
@@ -97,6 +170,7 @@
     },
     {
       "id": "TRIGGER-N8N-WORKFLOW-CHANGED",
+      "surface_class": "capability",
       "agents_md_row": "Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories",
       "when": {
         "any_of": [
@@ -112,6 +186,7 @@
     },
     {
       "id": "TRIGGER-CONDUCTOR-WORKFLOW-CHANGED",
+      "surface_class": "capability",
       "agents_md_row": "Adds/changes Conductor OSS workflow JSON with AI/MCP tasks",
       "when": {
         "any_of": [
@@ -127,6 +202,7 @@
     },
     {
       "id": "TRIGGER-FUNCTION-TOOL-DECORATOR",
+      "surface_class": "capability",
       "agents_md_row": "Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK)",
       "when": {
         "any_of": [
@@ -140,6 +216,7 @@
     },
     {
       "id": "TRIGGER-PROMPTS-OR-POLICIES",
+      "surface_class": "governance",
       "agents_md_row": "Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml`",
       "when": {
         "any_of": [
@@ -152,6 +229,7 @@
     },
     {
       "id": "TRIGGER-SHIPGATE-MANIFEST",
+      "surface_class": "governance",
       "agents_md_row": "Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml`",
       "when": {"glob": "shipgate.yaml"},
       "action": "run_shipgate",
@@ -159,6 +237,7 @@
     },
     {
       "id": "TRIGGER-SHIPGATE-CI-WORKFLOW",
+      "surface_class": "governance",
       "agents_md_row": "Adds/edits `.github/workflows/agents-shipgate.yml` or related CI",
       "when": {
         "any_of": [
@@ -172,6 +251,7 @@
     },
     {
       "id": "TRIGGER-EXISTING-MANIFEST-PRESENT",
+      "surface_class": "adoption",
       "agents_md_row": "Repo already opted in (shipgate.yaml present in the workspace)",
       "when": {"file_present": "shipgate.yaml"},
       "action": "force_run",
@@ -179,6 +259,7 @@
     },
     {
       "id": "TRIGGER-FRAMEWORK-VERSION-BUMP",
+      "surface_class": "dependency",
       "agents_md_row": "(Optional) Refactor or framework upgrade that may shift the extracted tool surface",
       "when": {
         "any_of": [
@@ -194,6 +275,7 @@
     },
     {
       "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
+      "surface_class": "negative",
       "agents_md_row": "Pure read-only doc/test changes with no manifest impact",
       "when": {
         "all_of": [
@@ -211,10 +293,6 @@
             "shipgate.yaml",
             "**/*tools*.json",
             "**/*mcp*.json",
-            ".codex/config.toml",
-            "**/.codex/config.toml",
-            ".codex/hooks.json",
-            "**/.codex/hooks.json",
             ".codex-plugin/**",
             "**/.codex-plugin/**",
             ".agents/plugins/**",
@@ -227,7 +305,8 @@
             "**/*openapi*.json",
             "prompts/**",
             "policies/**"
-          ]}
+          ]},
+          {"none_match_boundary_surface": true}
         ]
       },
       "action": "skip_shipgate",

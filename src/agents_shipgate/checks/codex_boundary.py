@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from agents_shipgate.core.codex_boundary import (
-    evaluate_codex_boundary_result,
-)
+from agents_shipgate.core.agent_boundary import assessment_for_scan_context
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.schemas.common import SourceReference, parse_confidence, parse_severity
 from agents_shipgate.schemas.report import Finding
@@ -14,15 +10,11 @@ def run(context: ScanContext) -> list[Finding]:
     verification = context.verification
     if verification is None:
         return []
-    diff_text = verification.diff_text or _synthetic_diff(verification.changed_files)
-    result = evaluate_codex_boundary_result(
-        workspace=Path(context.config_path).resolve().parent,
-        diff_text=diff_text,
-        policy_path=None,
-        trigger=verification.trigger_result,
-    )
+    result = assessment_for_scan_context(context)
     findings: list[Finding] = []
-    for violated in result.violated_rules:
+    for violated in result.violations:
+        if not violated.id.startswith("CODEX-"):
+            continue
         findings.append(
             Finding(
                 check_id=violated.check_id,
@@ -49,7 +41,3 @@ def _severity_for(risk_level: str) -> str:
         "high": "high",
         "critical": "critical",
     }.get(risk_level, "medium")
-
-
-def _synthetic_diff(changed_files: list[str]) -> str:
-    return "\n".join(f"diff --git a/{path} b/{path}" for path in changed_files)

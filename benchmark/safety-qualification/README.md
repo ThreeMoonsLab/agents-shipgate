@@ -1,6 +1,6 @@
 # Evidence-Backed Pass Safety Qualification
 
-This directory is the runbook for the `0.16.0b3` beta safety qualification.
+This directory is the runbook for the `0.16.0b4` beta safety qualification.
 The repository does **not** ship fabricated human labels or a passing result.
 Until a real frozen corpus and its verifier receipts exist,
 `safety-qualification.json` must not be published as qualified.
@@ -52,7 +52,7 @@ are marked `qualification_tier: test` and can never set
 
 ```bash
 PYTHONPATH=src python scripts/run_safety_qualification.py \
-  --wheel dist/agents_shipgate-0.16.0b3-py3-none-any.whl \
+  --wheel dist/agents_shipgate-0.16.0b4-py3-none-any.whl \
   --corpus /secure/frozen-corpus.json \
   --receipts /secure/receipt-index.json \
   --policy /secure/qualification-policy/ \

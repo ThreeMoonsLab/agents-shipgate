@@ -454,7 +454,11 @@ def test_manifest_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None
         config=Path("shipgate.yaml"),
         policy=None,
     )
-    assert result.decision == "allow"
+    assert result.decision == "require_review"
+    assert result.control.state == "human_review_required"
+    assert [item.check_id for item in result.violated_rules] == [
+        "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+    ]
     payload = result.model_dump(mode="json", exclude_none=True)
     assert not any(
         d["code"] == "undeclared_capability_surface" for d in payload.get("diagnostics", [])

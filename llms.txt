@@ -13,7 +13,7 @@
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
 - Latest public release: v0.15.0
-- Current source-tree runtime: 0.16.0b3 (contract 14; pre-release)
+- Current source-tree runtime: 0.16.0b4 (contract 15; pre-release)
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 
@@ -81,7 +81,9 @@
 - Attestation schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.4.json
 - Registry schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/registry-schema.v0.3.json
 - Org evidence bundle schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/org-evidence-bundle-schema.v1.json
-- Host-grants inventory schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.1.json
+- Host-grants inventory schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.2.json
+- Host-grants baseline schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-baseline-schema.v0.2.json
+- Host-grants drift schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-drift-schema.v0.2.json
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
 - Governance benchmark catalog/result schemas: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-result-schema.v0.2.json
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json
@@ -93,7 +95,7 @@
 - Install with pipx: `pipx install agents-shipgate`.
 - Install with pip: `python -m pip install agents-shipgate`.
 - Install with uv: `uv tool install agents-shipgate`.
-- Local Codex boundary control: `shipgate check --agent codex --workspace . --format codex-boundary-json` (or `--agent claude-code` / `--agent cursor`); parse stdout `shipgate.codex_boundary_result/v2`, switch on `control.state`, and follow `control.next_action`, `control.allowed_next_commands`, and `control.human_review`. `decision` is diagnostic context only.
+- Multi-host boundary control: `shipgate check --agent codex --workspace . --format agent-boundary-json` (or `--agent claude-code` / `--agent cursor`); parse stdout `shipgate.agent_boundary_result/v1`, switch on `control.state`, and follow `control.next_action`, `control.allowed_next_commands`, and `control.human_review`. `--agent` identifies the caller and does not limit evaluated hosts. `decision` is diagnostic context only.
 - Preview whether Shipgate is relevant: `agents-shipgate verify --preview --json`.
 - Before editing protected surfaces, run `agents-shipgate preflight --workspace . --plan - --json` with a `PreflightPlanV1` object; stop when `requires_human_review` is true.
 - Configure the minimal preview route: `agents-shipgate init --workspace . --write --json`. CI and agent-instruction trust roots are separate reviewed changes.

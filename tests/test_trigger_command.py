@@ -12,7 +12,12 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
-from agents_shipgate.triggers import evaluate
+from agents_shipgate.triggers import (
+    SURFACE_CLASS_CAPABILITY,
+    SURFACE_CLASS_HOST_BOUNDARY,
+    evaluate,
+    result_has_surface_class,
+)
 
 runner = CliRunner()
 
@@ -23,7 +28,13 @@ def _catalog(when: dict) -> dict:
         "schema_version": "test",
         "default_command": "agents-shipgate verify --preview --json",
         "rules": [
-            {"id": "R", "action": "run_shipgate", "when": when, "rationale": ""}
+            {
+                "id": "R",
+                "action": "run_shipgate",
+                "surface_class": "capability",
+                "when": when,
+                "rationale": "",
+            }
         ],
     }
 
@@ -107,7 +118,7 @@ def test_trigger_subcommand_json_shape(tmp_path):
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert M1_KEYS <= set(payload)
-    assert payload["schema_version"] == "0.1"
+    assert payload["schema_version"] == "0.2"
     assert payload["should_run"] is True
     assert payload["force_run"] is True  # shipgate.yaml present in workspace
     assert payload["skip_reason"] is None
@@ -148,7 +159,7 @@ def test_trigger_subcommand_list_rules_json():
     result = runner.invoke(app, ["trigger", "--list-rules", "--json"])
     assert result.exit_code == 0
     catalog = json.loads(result.stdout)
-    assert catalog["schema_version"] == "0.1"
+    assert catalog["schema_version"] == "0.2"
     rule_ids = {r["id"] for r in catalog["rules"]}
     assert "TRIGGER-N8N-WORKFLOW-CHANGED" in rule_ids
 
@@ -347,9 +358,44 @@ def test_predicate_none_match_glob_any_of_all_of():
             "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         ),
         (
-            ["packages/agent/.codex/hooks.json"],
+            [".codex/hooks.json"],
             "",
             "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        ),
+        (
+            [".claude/settings.json"],
+            "",
+            "TRIGGER-CLAUDE-BOUNDARY-CONFIG-CHANGED",
+        ),
+        (
+            [".claude/settings.local.json"],
+            "",
+            "TRIGGER-CLAUDE-BOUNDARY-CONFIG-CHANGED",
+        ),
+        (
+            [".cursor/cli.json"],
+            "",
+            "TRIGGER-CURSOR-BOUNDARY-CONFIG-CHANGED",
+        ),
+        (
+            [".cursor/mcp.json"],
+            "",
+            "TRIGGER-CURSOR-BOUNDARY-CONFIG-CHANGED",
+        ),
+        (
+            [".vscode/mcp.json"],
+            "",
+            "TRIGGER-VSCODE-MCP-BOUNDARY-CHANGED",
+        ),
+        (
+            [".github/workflows/deploy.yml"],
+            "",
+            "TRIGGER-SHARED-HOST-BOUNDARY-CHANGED",
+        ),
+        (
+            ["workflows/payment.json"],
+            '+{"type": "CALL_MCP_TOOL"}',
+            "TRIGGER-CONDUCTOR-WORKFLOW-CHANGED",
         ),
         (["tools/agent/.mcp.json"], "", "TRIGGER-CODEX-PLUGIN-CHANGED"),
         (["skills/x/SKILL.md"], "", "TRIGGER-CODEX-PLUGIN-CHANGED"),
@@ -370,6 +416,19 @@ def test_run_rules_fire_for_paths(paths, diff_text, expected_rule):
     res = evaluate(paths=paths, diff_text=diff_text)
     assert res["should_run"] is True, res["rationale"]
     assert expected_rule in {m["id"] for m in res["matched_rules"]}
+
+
+def test_surface_class_is_a_stable_consumer_discriminator():
+    conductor = evaluate(
+        paths=["workflows/payment.json"],
+        diff_text='+{"type": "CALL_MCP_TOOL"}',
+    )
+    assert result_has_surface_class(conductor, SURFACE_CLASS_CAPABILITY)
+    assert not result_has_surface_class(conductor, SURFACE_CLASS_HOST_BOUNDARY)
+
+    claude = evaluate(paths=[".claude/settings.json"])
+    assert result_has_surface_class(claude, SURFACE_CLASS_HOST_BOUNDARY)
+    assert not result_has_surface_class(claude, "not-a-real-class")
 
 
 # --- M1.1: malformed-catalog robustness ------------------------------------

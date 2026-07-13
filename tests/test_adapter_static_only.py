@@ -237,7 +237,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=480,
+        line=526,
         snippet="subprocess.run(names_cmd, **run_kwargs)",
         rationale=(
             "git-diff change-name pass: ``git diff --name-only "
@@ -249,7 +249,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=481,
+        line=527,
         snippet="subprocess.run(body_cmd, **run_kwargs)",
         rationale=(
             "git-diff body pass: ``git diff base...HEAD`` for full "
@@ -260,7 +260,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:subprocess.run",
-        line=486,
+        line=532,
         snippet=(
             "subprocess.run(['git', 'ls-files', '--others', "
             "'--exclude-standard'], **run_kwargs)"
@@ -377,7 +377,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:importlib.resources.files",
-        line=62,
+        line=97,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves the bundled trigger catalog (docs/triggers.json) "

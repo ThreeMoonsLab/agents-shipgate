@@ -27,6 +27,7 @@ from typing import get_args
 import pytest
 
 from agents_shipgate import __version__
+from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
 from agents_shipgate.report.markdown import DISCLAIMER
 from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
@@ -53,7 +54,7 @@ from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHE
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
-from agents_shipgate.triggers import evaluate, load_triggers
+from agents_shipgate.triggers import VALID_SURFACE_CLASSES, evaluate, load_triggers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -976,8 +977,8 @@ def test_triggers_json_loads_via_canonical_loader():
     reaches a different verdict than this loader, that's a drift bug —
     catch it by exercising the loader during CI."""
     triggers = load_triggers()
-    assert triggers["schema_version"] == "0.1", (
-        "docs/triggers.json schema_version moved off 0.1; bump the "
+    assert triggers["schema_version"] == "0.2", (
+        "docs/triggers.json schema_version moved off 0.2; bump the "
         "test constant deliberately so external consumers are notified."
     )
     assert isinstance(triggers.get("rules"), list) and triggers["rules"], (
@@ -988,11 +989,32 @@ def test_triggers_json_loads_via_canonical_loader():
             f"rule {rule['id']!r} has unknown action {rule['action']!r}; "
             f"allowed: {sorted(_VALID_TRIGGER_ACTIONS)}."
         )
+        assert rule.get("surface_class") in VALID_SURFACE_CLASSES, (
+            f"rule {rule['id']!r} has missing or unknown surface_class "
+            f"{rule.get('surface_class')!r}; allowed: "
+            f"{sorted(VALID_SURFACE_CLASSES)}."
+        )
         assert rule.get("when"), f"rule {rule['id']!r} missing `when` clause."
         assert rule.get("agents_md_row"), (
             f"rule {rule['id']!r} missing `agents_md_row`; the row text "
             "is what the contract test pins against AGENTS.md prose."
         )
+
+
+def test_trigger_boundary_adapter_projection_matches_runtime_registry():
+    catalog = _load_triggers_json()
+    expected = [
+        {
+            "id": adapter.id,
+            "hosts": list(adapter.hosts),
+            "exact_paths": list(adapter.exact_paths),
+            "globs": list(adapter.globs),
+            "experimental": adapter.experimental,
+        }
+        for adapter in BOUNDARY_ADAPTERS
+    ]
+
+    assert catalog["boundary_adapters"] == expected
 
 
 def test_triggers_json_rule_rows_appear_verbatim_in_agents_md():
@@ -1095,6 +1117,32 @@ def test_triggers_evaluator_smoke():
     codex_config_change = evaluate(paths=[".codex/config.toml"])
     assert codex_config_change["run_shipgate"] is True, (
         f"Codex repo config change must trigger Shipgate; got {codex_config_change!r}."
+    )
+    for host_path in (
+        ".claude/settings.json",
+        ".cursor/cli.json",
+        ".cursor/mcp.json",
+        ".vscode/mcp.json",
+        ".github/workflows/deploy.yml",
+    ):
+        host_change = evaluate(paths=[host_path])
+        assert host_change["run_shipgate"] is True, (
+            f"Host boundary change {host_path!r} must trigger Shipgate; "
+            f"got {host_change!r}."
+        )
+        assert any(
+            match["surface_class"] == "host_boundary"
+            for match in host_change["matched_rules"]
+        )
+
+    conductor_change = evaluate(
+        paths=["workflows/fulfillment.json"],
+        diff_text='+{"type": "CALL_MCP_TOOL"}',
+    )
+    assert conductor_change["run_shipgate"] is True
+    assert any(
+        match["surface_class"] == "capability"
+        for match in conductor_change["matched_rules"]
     )
     decorator = evaluate(
         paths=["agent.py"],
@@ -1860,9 +1908,34 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
     ],
     "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED": [
         ".codex/config.toml",
-        "packages/agent/.codex/config.toml",
         ".codex/hooks.json",
-        "packages/agent/.codex/hooks.json",
+        ".codex/requirements.toml",
+        "sub/.codex/config.toml",
+    ],
+    "TRIGGER-CLAUDE-BOUNDARY-CONFIG-CHANGED": [
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        ".mcp.json",
+        ".claude/commands/review.md",
+        "claude.md",
+    ],
+    "TRIGGER-CURSOR-BOUNDARY-CONFIG-CHANGED": [
+        ".cursor/cli.json",
+        ".cursor/mcp.json",
+        ".cursor/rules/security.mdc",
+    ],
+    "TRIGGER-VSCODE-MCP-BOUNDARY-CHANGED": [
+        ".vscode/mcp.json",
+    ],
+    "TRIGGER-SHARED-HOST-BOUNDARY-CHANGED": [
+        "AGENTS.md",
+        "AGENTS.override.md",
+        "CLAUDE.md",
+        ".agents/skills/shipgate/SKILL.md",
+        ".claude/skills/shipgate/SKILL.md",
+        ".github/workflows/release.yml",
+        "sub/.github/workflows/release.yml",
+        ".shipgate/agent-contract.json",
     ],
     "TRIGGER-PROMPTS-OR-POLICIES": [
         "prompts/system.md",
@@ -1933,7 +2006,7 @@ def test_pre_commit_hook_regex_skips_docs_only_paths():
         "docs/index.md",
         "tests/test_foo.py",
         "src/agents_shipgate/cli/main.py",
-        ".github/workflows/release.yml",  # non-shipgate workflow
+        "docs/release-notes.yml",
     ]
     for path in docs_only_paths:
         assert not pattern.match(path), (
@@ -1978,9 +2051,11 @@ def test_pre_commit_local_docs_show_same_path_trigger_clauses():
     text = _read("docs/integrations.md")
     for clause in (
         r".*swagger.*\.(yaml|yml|json)",
-        r"(.*/)?\.codex/(config\.toml|hooks\.json)",
+        r"(.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)",
+        r"(.*/)?\.claude/(settings(\.local)?\.json|commands/.*)",
+        r"(.*/)?\.shipgate/agent-contract\.json",
         r"\.agents-shipgate/.*\.json",
-        r"\.github/workflows/agents-shipgate\.(yaml|yml)",
+        r"(.*/)?\.github/workflows/.*\.(yaml|yml)",
     ):
         assert clause in text, (
             "docs/integrations.md local pre-commit snippet is missing "

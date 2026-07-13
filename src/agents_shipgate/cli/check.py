@@ -7,10 +7,12 @@ import typer
 
 from agents_shipgate.cli.agent_result import (
     agent_result_json,
+    build_agent_boundary_result,
     build_codex_agent_result,
-    git_diff_text,
+    git_boundary_change_set,
 )
 from agents_shipgate.core.agent_control import derive_agent_control
+from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
 from agents_shipgate.schemas.agent_control import CodingAgentCommandAction
 from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
@@ -31,14 +33,14 @@ def check(
         ),
     ),
     format_: str = typer.Option(
-        "codex-boundary-json",
+        "agent-boundary-json",
         "--format",
-        help="Output format. Supports codex-boundary-json.",
+        help="Output format. Supports agent-boundary-json and deprecated codex-boundary-json.",
     ),
     workspace: Path = typer.Option(
         Path("."),
         "--workspace",
-        help="Workspace root containing the Codex-local surfaces.",
+        help="Workspace root containing coding-agent boundary surfaces.",
     ),
     config: Path = typer.Option(
         Path("shipgate.yaml"),
@@ -49,7 +51,7 @@ def check(
     policy: Path | None = typer.Option(
         None,
         "--policy",
-        help="Optional Codex boundary policy file. Defaults to workspace policy then packaged default.",
+        help="Optional unified agent boundary policy. Defaults to workspace policy then packaged policy families.",
     ),
     base: str | None = typer.Option(
         None,
@@ -70,20 +72,30 @@ def check(
     if format_ == "agent-json":
         typer.echo(
             "--format agent-json was removed in the 0.14.0 contract cleanup. "
-            "Use --format codex-boundary-json.",
+            "Use --format agent-boundary-json.",
             err=True,
         )
         raise typer.Exit(2)
-    if format_ != "codex-boundary-json":
-        typer.echo("--format must be 'codex-boundary-json'.", err=True)
+    if format_ not in {"agent-boundary-json", "codex-boundary-json"}:
+        typer.echo(
+            "--format must be 'agent-boundary-json' or 'codex-boundary-json'.",
+            err=True,
+        )
         raise typer.Exit(2)
     try:
+        input_issues = []
         if diff == "-":
             diff_text = sys.stdin.read()
         elif diff:
             diff_text = Path(diff).read_text(encoding="utf-8")
         else:
-            diff_text = git_diff_text(workspace=workspace, base=base, head=head)
+            change_set = git_boundary_change_set(
+                workspace=workspace,
+                base=base,
+                head=head,
+            )
+            diff_text = change_set.diff_text
+            input_issues = list(change_set.issues)
     except (OSError, RuntimeError) as exc:
         result = _diff_input_error_result(
             agent=agent,
@@ -93,16 +105,27 @@ def check(
             head=head,
             error=str(exc) or "diff input could not be resolved",
         )
+        if format_ == "agent-boundary-json":
+            result = _neutral_diff_input_error(result, agent=agent, base=base, diff=diff)
         typer.echo(agent_result_json(result))
         return
 
-    result = build_codex_agent_result(
-        agent=agent,
-        workspace=workspace,
-        diff_text=diff_text,
-        config=config,
-        policy=policy,
+    builder = (
+        build_agent_boundary_result
+        if format_ == "agent-boundary-json"
+        else build_codex_agent_result
     )
+    kwargs = {
+        "agent": agent,
+        "workspace": workspace,
+        "diff_text": diff_text,
+        "config": config,
+        "policy": policy,
+        "input_issues": input_issues,
+    }
+    if format_ == "agent-boundary-json":
+        kwargs["input_mode"] = "provided_diff" if diff else "git_range" if base else "worktree"
+    result = builder(**kwargs)
     typer.echo(agent_result_json(result))
 
 
@@ -193,5 +216,27 @@ def _rerun_command(
         parts.extend(["--diff", diff])
     elif base and head:
         parts.extend(["--base", base, "--head", head])
-    parts.extend(["--format", "codex-boundary-json"])
+    parts.extend(["--format", "agent-boundary-json"])
     return " ".join(parts)
+
+
+def _neutral_diff_input_error(
+    legacy: CodexBoundaryResultV2,
+    *,
+    agent: str,
+    base: str | None,
+    diff: str | None,
+) -> AgentBoundaryResultV1:
+    return AgentBoundaryResultV1(
+        **legacy.model_dump(mode="python", exclude={"schema_version"}),
+        actor=agent,  # type: ignore[arg-type]
+        input_mode="provided_diff" if diff else "git_range" if base else "worktree",
+        input_coverage="unknown",
+        host_coverage=[],
+        affected_hosts=[],
+        policies=[legacy.policy],
+        policy_set_sha256="0" * 64,
+        issues=["diff_input_unresolved"],
+        violations=list(legacy.violated_rules),
+        excluded_scopes=["runtime_tool_behavior"],
+    )

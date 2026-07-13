@@ -93,7 +93,8 @@ def build_org_governance_status(
                     "subject": pack.id or pack.source or pack.path,
                 }
             )
-    if host_drift is not None and host_drift.get("has_drift"):
+    host_drift_requires_review = _host_grant_drift_requires_review(host_drift)
+    if host_drift_requires_review:
         violations.append(
             {
                 "kind": "host_grant_drift",
@@ -117,7 +118,7 @@ def build_org_governance_status(
         exception_violation_count=sum(len(record.violations) for record in exceptions),
         policy_pack_count=len(policy_packs),
         policy_pack_violation_count=sum(len(pack.violations) for pack in policy_packs),
-        host_grant_drift=bool(host_drift and host_drift.get("has_drift")),
+        host_grant_drift=host_drift_requires_review,
         registry_configured=registry is not None,
     )
 
@@ -388,6 +389,17 @@ def host_grant_drift_payload(
     )
 
 
+def _host_grant_drift_requires_review(
+    host_drift: dict[str, Any] | None,
+) -> bool:
+    if not host_drift:
+        return False
+    comparison_status = host_drift.get("comparison_status")
+    if comparison_status is not None and comparison_status != "comparable":
+        return True
+    return host_drift.get("has_drift") is not False
+
+
 def render_org_status_markdown(status: OrgGovernanceStatusV1) -> str:
     lines = ["# Shipgate Organization Status", ""]
     org = status.organization or {}
@@ -416,7 +428,13 @@ def render_org_status_markdown(status: OrgGovernanceStatusV1) -> str:
         f"({status.summary.policy_pack_violation_count} violation(s))"
     )
     if status.summary.host_grant_drift:
-        lines.append("Host grants: drift detected")
+        if (
+            status.host_grant_drift is not None
+            and status.host_grant_drift.get("comparison_status") == "incomparable"
+        ):
+            lines.append("Host grants: comparison incomplete; human review required")
+        else:
+            lines.append("Host grants: drift detected")
     elif status.host_grant_drift is not None:
         lines.append("Host grants: no drift")
     return "\n".join(lines) + "\n"

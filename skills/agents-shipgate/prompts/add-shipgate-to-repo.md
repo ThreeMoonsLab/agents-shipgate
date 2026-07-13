@@ -9,7 +9,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the unified agent-control contract and requires **runtime contract 14**; an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
+1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the neutral multi-host boundary contract and requires **runtime contract 15**; an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
    ```bash
    SG="uvx agents-shipgate@0.15.0"         # uv: ephemeral, latest published build
    # or: SG="pipx run agents-shipgate==0.15.0"

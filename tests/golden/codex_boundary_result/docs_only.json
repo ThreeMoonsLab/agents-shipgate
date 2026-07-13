@@ -1,108 +1,108 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v2",
-  "agent": "codex",
-  "tool": {
-    "name": "agents-shipgate",
-    "version": "0.16.0b3"
-  },
-  "subject": {
-    "agent": "codex"
-  },
-  "decision": "allow",
-  "risk_level": "none",
-  "audit_id": "codex_boundary_b807f88aa44a2479a95df4a5",
-  "policy_version": "1",
-  "summary": "No Codex boundary changes require action.",
-  "changed_files": [
-    "docs/readme.md"
-  ],
-  "control": {
-    "state": "complete",
-    "reason": "No Codex boundary changes require action.",
-    "completion_allowed": true,
-    "must_stop": false,
-    "verify_required": false,
-    "next_action": null,
-    "allowed_next_commands": [],
-    "human_review": {
-      "required": false,
-      "why": null,
-      "required_reviewers": []
+    "schema_version": "shipgate.codex_boundary_result/v2",
+    "agent": "codex",
+    "tool": {
+        "name": "agents-shipgate",
+        "version": "0.16.0b4"
     },
-    "stop_reason": null
-  },
-  "repair": {
-    "actor": "coding_agent",
-    "safe_to_attempt": false,
-    "instructions": [],
-    "forbidden_shortcuts": [
-      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
-      "Do not lower severity or add a waiver just to pass the gate.",
-      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
-      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
-    ]
-  },
-  "policy": {
-    "id": "codex-boundary-default",
-    "version": "1",
-    "source": "packaged_default",
-    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-    "discovery": [
-      "workspace_missing:policies/codex-boundary.shipgate.yaml",
-      "packaged_default"
-    ]
-  },
-  "violated_rules": [],
-  "affected_files": [
-    {
-      "path": "docs/readme.md"
-    }
-  ],
-  "required_reviewers": [],
-  "explanation": "No Codex boundary changes require action.",
-  "suggested_fixes": [],
-  "agent_repair_instructions": [],
-  "diagnostics": [],
-  "trace": [
-    {
-      "step": "policy_discovery",
-      "summary": "Loaded policy codex-boundary-default from packaged_default."
+    "subject": {
+        "agent": "codex"
     },
-    {
-      "step": "decision",
-      "summary": "Projected 0 violation(s) to allow."
-    }
-  ],
-  "source_artifacts": {},
-  "trigger": {
-    "schema_version": "0.1",
-    "should_run": false,
-    "run_shipgate": false,
-    "skip": true,
-    "force_run": false,
-    "dry_run_recommended": false,
-    "skip_reason": "skip_rule",
-    "stop_conditions_fired": false,
-    "stop_conditions_evaluated": false,
-    "rationale": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE.",
-    "matched_rules": [
-      {
-        "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
-        "action": "skip_shipgate",
-        "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' — a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
-        "command": null
-      }
-    ],
+    "decision": "allow",
+    "risk_level": "none",
+    "audit_id": "agent_boundary_bcae9dc247f5dae731a41e8c",
+    "policy_version": "1",
+    "summary": "No recognized coding-agent boundary change requires action.",
     "changed_files": [
-      "docs/readme.md"
+        "docs/readme.md"
     ],
-    "diff_tokens": [],
-    "next_action": {
-      "kind": "none",
-      "command": null,
-      "why": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE."
-    }
-  },
-  "finding_fingerprints": [],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
+    "control": {
+        "state": "complete",
+        "reason": "No recognized coding-agent boundary change requires action.",
+        "completion_allowed": true,
+        "must_stop": false,
+        "verify_required": false,
+        "next_action": null,
+        "allowed_next_commands": [],
+        "human_review": {
+            "required": false,
+            "why": null,
+            "required_reviewers": []
+        },
+        "stop_reason": null
+    },
+    "repair": {
+        "actor": "coding_agent",
+        "safe_to_attempt": false,
+        "instructions": [],
+        "forbidden_shortcuts": [
+            "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+            "Do not lower severity or add a waiver just to pass the gate.",
+            "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+            "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+        ]
+    },
+    "policy": {
+        "id": "agent-boundary",
+        "version": "1",
+        "source": "packaged_default",
+        "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+        "discovery": [
+            "packaged_default:agent-boundary"
+        ]
+    },
+    "violated_rules": [],
+    "affected_files": [
+        {
+            "path": "docs/readme.md"
+        }
+    ],
+    "required_reviewers": [],
+    "explanation": "No recognized coding-agent boundary change requires action.",
+    "suggested_fixes": [],
+    "agent_repair_instructions": [],
+    "diagnostics": [],
+    "trace": [
+        {
+            "step": "policy_discovery",
+            "summary": "Loaded 2 coding-agent boundary policy families."
+        },
+        {
+            "step": "decision",
+            "summary": "Projected 0 violation(s) to allow."
+        }
+    ],
+    "source_artifacts": {},
+    "trigger": {
+        "schema_version": "0.2",
+        "should_run": false,
+        "run_shipgate": false,
+        "skip": true,
+        "force_run": false,
+        "dry_run_recommended": false,
+        "skip_reason": "skip_rule",
+        "stop_conditions_fired": false,
+        "stop_conditions_evaluated": false,
+        "rationale": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE.",
+        "matched_rules": [
+            {
+                "id": "TRIGGER-DOCS-ONLY-NEGATIVE",
+                "action": "skip_shipgate",
+                "surface_class": "negative",
+                "rationale": "Docs-only OR tests-only PR; no tool surface impact. Covers the AGENTS.md row 'Pure read-only doc/test changes' \u2014 a tests/ directory edit that incidentally mentions `@tool` in a fixture or assertion no longer falsely triggers Shipgate.",
+                "command": null
+            }
+        ],
+        "changed_files": [
+            "docs/readme.md"
+        ],
+        "diff_tokens": [],
+        "next_action": {
+            "kind": "none",
+            "command": null,
+            "why": "skip_shipgate rule(s) matched (beats run_shipgate): TRIGGER-DOCS-ONLY-NEGATIVE."
+        }
+    },
+    "finding_fingerprints": [],
+    "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
 }

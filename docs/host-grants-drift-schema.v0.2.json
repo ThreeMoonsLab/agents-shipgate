@@ -1,0 +1,318 @@
+{
+  "$defs": {
+    "HostArtifactChangeV2": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "baseline": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current"
+        }
+      },
+      "required": [
+        "artifact_id"
+      ],
+      "title": "HostArtifactChangeV2",
+      "type": "object"
+    },
+    "HostCoverageChangeV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "title": "HostCoverageChangeV2",
+      "type": "object"
+    },
+    "HostGrantChangeV2": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id"
+      ],
+      "title": "HostGrantChangeV2",
+      "type": "object"
+    },
+    "HostGrantsDriftV2": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_changes": {
+          "items": {
+            "$ref": "#/$defs/HostArtifactChangeV2"
+          },
+          "title": "Artifact Changes",
+          "type": "array"
+        },
+        "baseline_file": {
+          "title": "Baseline File",
+          "type": "string"
+        },
+        "baseline_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Sha256"
+        },
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/HostGrantChangeV2"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "comparison_status": {
+          "enum": [
+            "comparable",
+            "incomparable"
+          ],
+          "title": "Comparison Status",
+          "type": "string"
+        },
+        "coverage_changes": {
+          "items": {
+            "$ref": "#/$defs/HostCoverageChangeV2"
+          },
+          "title": "Coverage Changes",
+          "type": "array"
+        },
+        "current_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Sha256"
+        },
+        "expansion_signals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expansion Signals",
+          "type": "array"
+        },
+        "has_drift": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Has Drift"
+        },
+        "host_grants_schema_version": {
+          "const": "0.2",
+          "default": "0.2",
+          "title": "Host Grants Schema Version",
+          "type": "string"
+        },
+        "incomparable_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Incomparable Reasons",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/HostInventoryIssueV2"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "next_action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Action"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseline_file",
+        "scope",
+        "comparison_status",
+        "has_drift"
+      ],
+      "title": "HostGrantsDriftV2",
+      "type": "object"
+    },
+    "HostInventoryIssueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking": {
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "issue_id": {
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "parse_failed",
+            "unreadable",
+            "unsupported",
+            "unresolved_precedence",
+            "dynamic_source_excluded",
+            "remote_source_excluded"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issue_id",
+        "kind",
+        "host",
+        "source",
+        "message",
+        "blocking"
+      ],
+      "title": "HostInventoryIssueV2",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-drift-schema.v0.2.json",
+  "$ref": "#/$defs/HostGrantsDriftV2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "JSON Schema for scope-aware host-grant drift and incomparability.",
+  "title": "Agents Shipgate Host Grants Drift v0.2"
+}

@@ -1,151 +1,158 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v2",
-  "agent": "codex",
-  "tool": {
-    "name": "agents-shipgate",
-    "version": "0.16.0b3"
-  },
-  "subject": {
-    "agent": "codex"
-  },
-  "decision": "block",
-  "risk_level": "critical",
-  "audit_id": "codex_boundary_934bd06aeab559a6fde445b7",
-  "policy_version": "1",
-  "summary": "1 Codex boundary change(s) block local continuation.",
-  "changed_files": [
-    ".github/workflows/agents-shipgate.yml"
-  ],
-  "control": {
-    "state": "human_review_required",
-    "reason": "1 Codex boundary change(s) block local continuation.",
-    "completion_allowed": false,
-    "must_stop": true,
-    "verify_required": false,
-    "next_action": {
-      "actor": "human",
-      "kind": "stop",
-      "command": null,
-      "expects": null,
-      "why": "Shipgate GitHub Action no longer invokes the gate"
+    "schema_version": "shipgate.codex_boundary_result/v2",
+    "agent": "codex",
+    "tool": {
+        "name": "agents-shipgate",
+        "version": "0.16.0b4"
     },
-    "allowed_next_commands": [],
-    "human_review": {
-      "required": true,
-      "why": "Shipgate GitHub Action no longer invokes the gate",
-      "required_reviewers": [
+    "subject": {
+        "agent": "codex"
+    },
+    "decision": "block",
+    "risk_level": "critical",
+    "audit_id": "agent_boundary_488574aef143b8ccc5744839",
+    "policy_version": "1",
+    "summary": "1 coding-agent boundary change(s) block local continuation.",
+    "changed_files": [
+        ".github/workflows/agents-shipgate.yml"
+    ],
+    "control": {
+        "state": "human_review_required",
+        "reason": "1 coding-agent boundary change(s) block local continuation.",
+        "completion_allowed": false,
+        "must_stop": true,
+        "verify_required": false,
+        "next_action": {
+            "actor": "human",
+            "kind": "stop",
+            "command": null,
+            "expects": null,
+            "why": "Shipgate GitHub Action no longer invokes the gate"
+        },
+        "allowed_next_commands": [],
+        "human_review": {
+            "required": true,
+            "why": "Shipgate GitHub Action no longer invokes the gate",
+            "required_reviewers": [
+                "agent-platform",
+                "security"
+            ]
+        },
+        "stop_reason": "Shipgate GitHub Action no longer invokes the gate"
+    },
+    "repair": {
+        "actor": "human",
+        "safe_to_attempt": false,
+        "instructions": [
+            "Restore the Shipgate workflow or get human approval to remove it."
+        ],
+        "forbidden_shortcuts": [
+            "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+            "Do not lower severity or add a waiver just to pass the gate.",
+            "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+            "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+        ]
+    },
+    "policy": {
+        "id": "agent-boundary",
+        "version": "1",
+        "source": "packaged_default",
+        "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+        "discovery": [
+            "packaged_default:agent-boundary"
+        ]
+    },
+    "violated_rules": [
+        {
+            "id": "CODEX-CI-GATE-REMOVED",
+            "check_id": "SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED",
+            "action": "block",
+            "risk_level": "critical",
+            "title": "Shipgate GitHub Action no longer invokes the gate",
+            "path": ".github/workflows/agents-shipgate.yml",
+            "evidence": {
+                "kind": "shipgate_ci_gate_removed",
+                "deleted": true,
+                "source": "diff_deleted_file",
+                "shipgate_invocation_present": false
+            },
+            "recommendation": "Restore the Shipgate workflow or get human approval to remove it."
+        }
+    ],
+    "affected_files": [
+        {
+            "path": ".github/workflows/agents-shipgate.yml"
+        }
+    ],
+    "required_reviewers": [
         "agent-platform",
         "security"
-      ]
+    ],
+    "explanation": "1 coding-agent boundary change(s) block local continuation.",
+    "suggested_fixes": [
+        "Restore the Shipgate workflow or get human approval to remove it."
+    ],
+    "agent_repair_instructions": [
+        "Restore the Shipgate workflow or get human approval to remove it."
+    ],
+    "diagnostics": [
+        {
+            "level": "info",
+            "code": "content_source",
+            "message": "Evaluated coding-agent boundary file from diff_deleted_file.",
+            "path": ".github/workflows/agents-shipgate.yml"
+        }
+    ],
+    "trace": [
+        {
+            "step": "policy_discovery",
+            "summary": "Loaded 2 coding-agent boundary policy families."
+        },
+        {
+            "step": "decision",
+            "summary": "Projected 1 violation(s) to block."
+        }
+    ],
+    "source_artifacts": {},
+    "trigger": {
+        "schema_version": "0.2",
+        "should_run": true,
+        "run_shipgate": true,
+        "skip": false,
+        "force_run": false,
+        "dry_run_recommended": false,
+        "skip_reason": null,
+        "stop_conditions_fired": false,
+        "stop_conditions_evaluated": false,
+        "rationale": "2 run_shipgate rule(s) matched.",
+        "matched_rules": [
+            {
+                "id": "TRIGGER-SHARED-HOST-BOUNDARY-CHANGED",
+                "action": "run_shipgate",
+                "surface_class": "host_boundary",
+                "rationale": "Workflow permissions, pull_request_target, and write-capable automation are shared coding-agent trust roots.",
+                "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
+            },
+            {
+                "id": "TRIGGER-SHIPGATE-CI-WORKFLOW",
+                "action": "run_shipgate",
+                "surface_class": "governance",
+                "rationale": "CI gate changes touch the release-readiness path itself.",
+                "command": null
+            }
+        ],
+        "changed_files": [
+            ".github/workflows/agents-shipgate.yml"
+        ],
+        "diff_tokens": [],
+        "next_action": {
+            "kind": "command",
+            "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
+            "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
+        }
     },
-    "stop_reason": "Shipgate GitHub Action no longer invokes the gate"
-  },
-  "repair": {
-    "actor": "human",
-    "safe_to_attempt": false,
-    "instructions": [
-      "Restore the Shipgate workflow or get human approval to remove it."
+    "finding_fingerprints": [
+        "fp_fe55c27fa455ddfd"
     ],
-    "forbidden_shortcuts": [
-      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
-      "Do not lower severity or add a waiver just to pass the gate.",
-      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
-      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
-    ]
-  },
-  "policy": {
-    "id": "codex-boundary-default",
-    "version": "1",
-    "source": "packaged_default",
-    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-    "discovery": [
-      "workspace_missing:policies/codex-boundary.shipgate.yaml",
-      "packaged_default"
-    ]
-  },
-  "violated_rules": [
-    {
-      "id": "CODEX-CI-GATE-REMOVED",
-      "check_id": "SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED",
-      "action": "block",
-      "risk_level": "critical",
-      "title": "Shipgate GitHub Action no longer invokes the gate",
-      "path": ".github/workflows/agents-shipgate.yml",
-      "evidence": {
-        "kind": "shipgate_ci_gate_removed",
-        "deleted": true,
-        "source": "diff_deleted_file",
-        "shipgate_invocation_present": false
-      },
-      "recommendation": "Restore the Shipgate workflow or get human approval to remove it."
-    }
-  ],
-  "affected_files": [
-    {
-      "path": ".github/workflows/agents-shipgate.yml"
-    }
-  ],
-  "required_reviewers": [
-    "agent-platform",
-    "security"
-  ],
-  "explanation": "1 Codex boundary change(s) block local continuation.",
-  "suggested_fixes": [
-    "Restore the Shipgate workflow or get human approval to remove it."
-  ],
-  "agent_repair_instructions": [
-    "Restore the Shipgate workflow or get human approval to remove it."
-  ],
-  "diagnostics": [
-    {
-      "level": "info",
-      "code": "content_source",
-      "message": "Evaluated Codex boundary file from diff_deleted_file.",
-      "path": ".github/workflows/agents-shipgate.yml"
-    }
-  ],
-  "trace": [
-    {
-      "step": "policy_discovery",
-      "summary": "Loaded policy codex-boundary-default from packaged_default."
-    },
-    {
-      "step": "decision",
-      "summary": "Projected 1 violation(s) to block."
-    }
-  ],
-  "source_artifacts": {},
-  "trigger": {
-    "schema_version": "0.1",
-    "should_run": true,
-    "run_shipgate": true,
-    "skip": false,
-    "force_run": false,
-    "dry_run_recommended": false,
-    "skip_reason": null,
-    "stop_conditions_fired": false,
-    "stop_conditions_evaluated": false,
-    "rationale": "1 run_shipgate rule(s) matched.",
-    "matched_rules": [
-      {
-        "id": "TRIGGER-SHIPGATE-CI-WORKFLOW",
-        "action": "run_shipgate",
-        "rationale": "CI gate changes touch the release-readiness path itself.",
-        "command": null
-      }
-    ],
-    "changed_files": [
-      ".github/workflows/agents-shipgate.yml"
-    ],
-    "diff_tokens": [],
-    "next_action": {
-      "kind": "command",
-      "command": "agents-shipgate verify --preview --json",
-      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
-    }
-  },
-  "finding_fingerprints": [
-    "fp_fe55c27fa455ddfd"
-  ],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
+    "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
 }

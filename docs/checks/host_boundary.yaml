@@ -2,6 +2,46 @@
 #
 # This file is loaded by agents_shipgate.checks._metadata_loader.
 checks:
+- id: SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: A protected coding-agent surface changed without an explicit safe static classification.
+  rationale: Absence of a specialized risk finding is not evidence that a host or trust-root change is non-broadening.
+  fires_when: A recognized coding-agent host, instruction, policy, state, or workflow surface changes and no specialized rule proves its classification.
+  evidence_fields: [kind]
+  recommendation: Have a human review the protected boundary change.
+- id: SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: An experimental coding-agent boundary adapter observed a change.
+  rationale: Experimental adapter coverage is not strong enough to authorize completion automatically.
+  fires_when: A changed surface is recognized only by an adapter marked experimental.
+  evidence_fields: [kind]
+  recommendation: Have a human review the experimental boundary surface.
+- id: SHIP-AGENT-BOUNDARY-STATIC-REQUIREMENTS-CHANGED
+  default_severity: high
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: Static host-enforced requirements changed.
+  rationale: Requirements files constrain the host's approval, sandbox, and network boundary and are reviewer-owned trust roots.
+  fires_when: A repository .codex/requirements.toml file changes.
+  evidence_fields: [kind]
+  recommendation: Have a human review the static host requirements change.
+- id: SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: Boundary input could not be evaluated completely.
+  rationale: Truncated, malformed, unsafe, or unresolved diff inputs cannot justify a completion decision.
+  fires_when: A relevant diff or file is missing coherent content, unsafe to read, traversing, binary, oversized, or otherwise unresolved.
+  evidence_fields: [kind, code]
+  recommendation: Provide a complete, coherent boundary diff and rerun the check.
 - id: SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
   default_severity: medium
   floor_severity: medium

@@ -270,17 +270,20 @@ def test_wildcard_shapes_classify_as_wildcard(tmp_path: Path) -> None:
         workspace=tmp_path, diff_text=diff
     )
 
-    by_rule = {item.evidence["rule"]: item.id for item in violations}
-    assert by_rule == {
-        "*": "HOST-PERMISSION-WILDCARD-ALLOW",
-        "WebFetch": "HOST-PERMISSION-WILDCARD-ALLOW",
-        "Bash(*)": "HOST-PERMISSION-WILDCARD-ALLOW",
-        "Bash(*:*)": "HOST-PERMISSION-WILDCARD-ALLOW",
-        # Scoped prefix rules keep an explicit tool + argument prefix; the
-        # trailing `*` widens only within that prefix, so they expand the
-        # allowlist (review) without being wildcard-shaped (block).
-        "mcp__db(query:*)": "HOST-PERMISSION-ALLOW-EXPANDED",
-        "Bash(npm run build)": "HOST-PERMISSION-ALLOW-EXPANDED",
+    assert [item.id for item in violations].count(
+        "HOST-PERMISSION-WILDCARD-ALLOW"
+    ) == 4
+    assert [item.id for item in violations].count(
+        "HOST-PERMISSION-ALLOW-EXPANDED"
+    ) == 2
+    # Arguments are never serialized into durable check evidence.
+    assert {item.evidence["rule"] for item in violations} <= {
+        "*",
+        "WebFetch",
+        "Bash(*)",
+        "Bash(<wildcard>)",
+        "Bash(<redacted-arguments>)",
+        "mcp__db(<redacted-arguments>)",
     }
 
 
@@ -303,7 +306,7 @@ def test_non_wildcard_allow_requires_review(tmp_path: Path) -> None:
     assert finding.blocks_release is False
     assert finding.evidence == {
         "kind": "permission_allow_expanded",
-        "rule": "Bash(npm run build)",
+        "rule": "Bash(<redacted-arguments>)",
     }
 
 
@@ -353,9 +356,8 @@ def test_hooks_change_requires_review(tmp_path: Path) -> None:
     }
 
 
-def test_unchanged_settings_keys_emit_nothing(tmp_path: Path) -> None:
-    """Delta-scoped: pre-existing allow rules, deny rules, and hooks do not
-    fire when an unrelated key changes."""
+def test_unclassified_settings_change_fails_closed(tmp_path: Path) -> None:
+    """Absence of a specialized risk finding is not a safety receipt."""
     old_text = json.dumps(
         {
             "permissions": {"allow": ["Bash(*)"], "deny": ["WebFetch"]},
@@ -375,7 +377,11 @@ def test_unchanged_settings_keys_emit_nothing(tmp_path: Path) -> None:
     _write(tmp_path, ".claude/settings.json", old_text)
     diff = _change_diff(".claude/settings.json", old_text, new_text)
 
-    assert host_boundary_run(_context(tmp_path, diff)) == []
+    findings = host_boundary_run(_context(tmp_path, diff))
+    assert [item.check_id for item in findings] == [
+        "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+    ]
+    assert findings[0].evidence["kind"] == "protected_surface_unclassified"
 
 
 # --- GitHub workflows -----------------------------------------------------------
@@ -508,9 +514,9 @@ def test_pull_request_target_added(tmp_path: Path) -> None:
     assert finding.evidence == {"kind": "workflow_pull_request_target_added"}
 
 
-def test_deleted_workflow_is_skipped(tmp_path: Path) -> None:
-    """Gate removal is covered by SHIP-VERIFY-CI-GATE-REMOVED — the host
-    boundary check must not duplicate it."""
+def test_deleted_workflow_fails_closed_when_local_content_is_unavailable(
+    tmp_path: Path,
+) -> None:
     diff = (
         "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n"
         "deleted file mode 100644\n"
@@ -522,7 +528,11 @@ def test_deleted_workflow_is_skipped(tmp_path: Path) -> None:
         "-on: push\n"
     )
 
-    assert host_boundary_run(_context(tmp_path, diff)) == []
+    findings = host_boundary_run(_context(tmp_path, diff))
+    assert [item.check_id for item in findings] == [
+        "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+    ]
+    assert findings[0].evidence["kind"] == "protected_surface_unclassified"
 
 
 # --- Reward-hacking guard: suppression immunity ---------------------------------

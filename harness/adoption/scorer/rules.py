@@ -39,16 +39,24 @@ STATIC_LINT_AGENTS: frozenset[str] = frozenset({"cursor-static"})
 
 SHIPGATE_CMD_RE = re.compile(r"\bagents-shipgate\s+(\w[\w-]*)\b")
 SHIPGATE_CHECK_RE = re.compile(r"\b(?:agents-shipgate|shipgate)\s+check\b")
-AGENT_JSON_FLAG_RE = re.compile(r"--format(?:=|\s+)codex-boundary-json\b")
+AGENT_JSON_FLAG_RE = re.compile(
+    r"--format(?:=|\s+)(?:agent-boundary-json|codex-boundary-json)\b"
+)
 SHIPGATE_MENTION_RE = re.compile(r"\bagents-shipgate\b|\bshipgate\b", re.IGNORECASE)
-BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.codex_boundary_result/v2"
+BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.agent_boundary_result/v1"
 LEGACY_BOUNDARY_RESULT_SCHEMA_VERSIONS: frozenset[str] = frozenset(
-    {"shipgate.codex_boundary_result/v1", "agent_result_v1"}
+    {
+        "shipgate.codex_boundary_result/v2",
+        "shipgate.codex_boundary_result/v1",
+        "agent_result_v1",
+    }
 )
 BOUNDARY_RESULT_SCHEMA_VERSIONS: frozenset[str] = frozenset(
     {BOUNDARY_RESULT_SCHEMA_VERSION, *LEGACY_BOUNDARY_RESULT_SCHEMA_VERSIONS}
 )
-AGENT_RESULT_RE = re.compile(r"shipgate\.codex_boundary_result/v[12]|agent_result_v1")
+AGENT_RESULT_RE = re.compile(
+    r"shipgate\.agent_boundary_result/v1|shipgate\.codex_boundary_result/v[12]|agent_result_v1"
+)
 AGENT_RESULT_DECISION_RE = re.compile(r"\bdecision\b", re.IGNORECASE)
 AGENT_RESULT_DECISION_VALUE_RE = re.compile(r"\b(allow|warn|require_review|block)\b", re.IGNORECASE)
 AGENT_RESULT_MUST_STOP_RE = re.compile(r"\bmust_stop\b", re.IGNORECASE)
@@ -497,9 +505,9 @@ def runs_agent_check(art: CellArtifacts) -> CriterionResult:
         status="pass" if agent_json else "fail",
         severity="info",
         signal=(
-            "`shipgate check --format codex-boundary-json` invoked."
+            "`shipgate check --format agent-boundary-json` invoked."
             if agent_json
-            else "`shipgate check` invoked without `--format codex-boundary-json`."
+            else "`shipgate check` invoked without `--format agent-boundary-json`."
         ),
     )
 

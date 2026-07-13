@@ -109,6 +109,10 @@ baseline summary and do not fail CI.
 | `SHIP-CODEX-BOUNDARY-POLICY-WEAKENED` | critical | Codex boundary policy was weakened. |
 | `SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED` | high | A Codex executable hook changed. |
 | `SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` | medium | A Codex skill gained command-bearing instructions. |
+| `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` | medium | A protected coding-agent surface lacks a safe static classification. |
+| `SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED` | high | An experimental coding-agent boundary surface changed. |
+| `SHIP-AGENT-BOUNDARY-STATIC-REQUIREMENTS-CHANGED` | high | Static host requirements changed. |
+| `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` | medium | Boundary input could not be evaluated completely. |
 | `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
@@ -596,6 +600,27 @@ before relying on them.
 
 A changed `.agents/skills/**/SKILL.md` adds command-like text. Review
 command-bearing skill changes before local automation.
+
+### SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED
+
+A recognized host, instruction, policy, state, or workflow surface changed
+without a specialized safe classification. Human review is required because
+absence of a risk finding is not evidence of non-broadening behavior.
+
+### SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED
+
+An adapter marked experimental observed a boundary change. Experimental
+coverage cannot authorize coding-agent completion without human review.
+
+### SHIP-AGENT-BOUNDARY-STATIC-REQUIREMENTS-CHANGED
+
+The repository's `.codex/requirements.toml` changed. This is a reviewer-owned
+host trust root for approvals, sandboxing, and network constraints.
+
+### SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE
+
+A relevant diff or file was truncated, malformed, unsafe to read, traversing,
+binary, oversized, or otherwise unresolved. Supply coherent input and rerun.
 
 ### SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
 

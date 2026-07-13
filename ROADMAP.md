@@ -28,15 +28,19 @@ Two real surfaces share one engine: **(A)** tool-surface readiness for teams tha
 declare an agent's capabilities in-repo, and **(B)** boundary governance over what
 a *coding agent* changes in any repo — host config, MCP permission grants, CI
 gates, and agent instructions. **B is the lead wedge.** Its inputs are the
-declarative host files Shipgate already reads with high fidelity, it delivers a
-first verdict with no manifest, and its audience is every team running Claude
-Code, Codex, or Cursor — not only teams building tool-using agents. A stays the
+declarative host files Shipgate reads statically, it delivers a first verdict
+with no manifest, and its audience is every team running Claude Code, Codex, or
+Cursor — not only teams building tool-using agents. The original cut was
+incomplete: the three caller labels shared a Codex-only local evaluator and the
+audit omitted material Codex/Cursor authority. `0.16.0b4` closes that P0 with a
+single multi-host assessment, explicit coverage, and fail-closed input handling.
+A stays the
 depth story: the capability-delta engine that makes the verdict precise.
 
 What this locks: lead positioning, the zero-config first-run experience, and the
-proof effort all target B. The next unit of work is **proof and activation on
-that wedge** — a labeled verdict-accuracy benchmark and default-on, hard-to-skip
-checks — **not** more host surface. New surface of any kind is governed by the
+proof effort all target B. After the P0 contract is qualified, the next unit of
+work is **proof and activation on that wedge** — a labeled verdict-accuracy
+benchmark and default-on, hard-to-skip checks. New surface of any kind is governed by the
 [non-goals](#explicit-non-goals) below and the surface-discipline gate in
 [`CONTRIBUTING.md`](CONTRIBUTING.md#surface-discipline).
 
@@ -97,11 +101,13 @@ into replayable evidence. Active themes, in priority order:
    expand the mechanical-patch catalog — never approval, confirmation, or
    idempotency evidence, which stay manual permanently.
 
-6. **Host-capability governance (first cut shipped).** Gating what the coding
-   agent itself is allowed to do in a repo ("ring 2"): `audit --host` with
-   host-grant drift detection, plus MCP-permission and host-boundary checks, are
-   live. This is the **lead wedge** (see [Lead wedge (focus)](#lead-wedge-focus));
-   the near-term work on it is proof and activation, not more host surface. Org
+6. **Host-capability governance (multi-host P0 in `0.16.0b4`).** Gating
+   repository-declared changes to what the coding agent may do ("ring 2"):
+   `shipgate check` supplies the zero-manifest control verdict and
+   `audit --host` supplies a scope-bound evidence inventory and drift record.
+   Neither claims runtime-effective authority. This is the **lead wedge** (see
+   [Lead wedge (focus)](#lead-wedge-focus)); after P0 qualification, near-term
+   work is proof and activation rather than unbounded host breadth. Org
    policy-pack distribution with integrity pins and a cross-repo attestation
    registry remain **design only** —
    [docs/engineering/agent-native-governance-platform.md](docs/engineering/agent-native-governance-platform.md)

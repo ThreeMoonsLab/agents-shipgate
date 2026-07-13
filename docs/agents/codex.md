@@ -3,10 +3,10 @@
 Codex uses the shared agent-native protocol:
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
 ```
 
-Parse stdout as `shipgate.codex_boundary_result/v2`. Switch only on
+Parse stdout as `shipgate.agent_boundary_result/v1`. Switch only on
 `control.state`; follow `control.next_action`, `control.allowed_next_commands`,
 and `control.human_review`. Treat `decision` as diagnostic context only.
 

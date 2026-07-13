@@ -7,6 +7,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from agents_shipgate import __version__
+from agents_shipgate.schemas.agent_boundary import (
+    AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.agent_handoff import (
     AGENT_HANDOFF_SCHEMA_PATH,
     AGENT_HANDOFF_SCHEMA_VERSION,
@@ -24,7 +27,11 @@ from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
 )
-from agents_shipgate.schemas.host_grants import HOST_GRANTS_INVENTORY_SCHEMA_VERSION
+from agents_shipgate.schemas.host_grants import (
+    HOST_GRANTS_BASELINE_SCHEMA_VERSION,
+    HOST_GRANTS_DRIFT_SCHEMA_VERSION,
+    HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
@@ -33,13 +40,17 @@ from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["14"] = "14"
+CONTRACT_VERSION: Literal["15"] = "15"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["14"] = "14"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v2"] = "agent_result_v2"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v2.json"] = (
     "docs/agent-result-schema.v2.json"
 )
+AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal[
+    "docs/agent-boundary-result-schema.v1.json"
+] = "docs/agent-boundary-result-schema.v1.json"
+TRIGGER_CATALOG_SCHEMA_VERSION: Literal["0.2"] = "0.2"
 AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
     "decision",
     "control",
@@ -73,6 +84,9 @@ EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "org_governance",
     "org_evidence_bundle",
     "host_grants_inventory",
+    "host_grants_baseline",
+    "host_grants_drift",
+    "agent_boundary_result",
     "governance_benchmark_catalog",
     "governance_benchmark_result",
 )
@@ -154,13 +168,13 @@ MCP_TOOLS: tuple[str, ...] = (
 )
 COMMANDS: dict[str, str] = {
     "agent_check_codex": (
-        "shipgate check --agent codex --workspace . --format codex-boundary-json"
+        "shipgate check --agent codex --workspace . --format agent-boundary-json"
     ),
     "agent_check_claude_code": (
-        "shipgate check --agent claude-code --workspace . --format codex-boundary-json"
+        "shipgate check --agent claude-code --workspace . --format agent-boundary-json"
     ),
     "agent_check_cursor": (
-        "shipgate check --agent cursor --workspace . --format codex-boundary-json"
+        "shipgate check --agent cursor --workspace . --format agent-boundary-json"
     ),
     "preflight": ("agents-shipgate preflight --workspace . --config shipgate.yaml --plan - --json"),
     "preview": "agents-shipgate verify --preview --json",
@@ -191,11 +205,11 @@ COMMANDS: dict[str, str] = {
     "contract": "agents-shipgate contract --json",
 }
 PRIMARY_COMMANDS: dict[str, str] = {
-    "check_codex": ("shipgate check --agent codex --workspace . --format codex-boundary-json"),
+    "check_codex": ("shipgate check --agent codex --workspace . --format agent-boundary-json"),
     "check_claude_code": (
-        "shipgate check --agent claude-code --workspace . --format codex-boundary-json"
+        "shipgate check --agent claude-code --workspace . --format agent-boundary-json"
     ),
-    "check_cursor": ("shipgate check --agent cursor --workspace . --format codex-boundary-json"),
+    "check_cursor": ("shipgate check --agent cursor --workspace . --format agent-boundary-json"),
     "verify_pr": (
         "agents-shipgate verify --workspace . --config shipgate.yaml "
         "--base origin/main --head HEAD --ci-mode advisory --json"
@@ -284,6 +298,8 @@ class ContractPayload(BaseModel):
     agent_handoff_schema_path: str
     agent_handoff_artifact: str
     codex_boundary_result_schema_version: str
+    agent_boundary_result_schema_version: str
+    agent_boundary_result_schema_path: str
     capability_lock_schema_version: str
     capability_lock_diff_schema_version: str
     preflight_schema_version: str
@@ -294,6 +310,10 @@ class ContractPayload(BaseModel):
     registry_schema_version: str
     org_evidence_bundle_schema_version: str
     host_grants_inventory_schema_version: str
+    host_grants_baseline_schema_version: str
+    host_grants_drift_schema_version: str
+    trigger_catalog_schema_version: str
+    deprecated_surfaces: dict[str, str]
     external_integration_surfaces: list[str]
     gating_signal: str
     agent_result_schema_version: str
@@ -334,6 +354,8 @@ def build_contract_payload() -> ContractPayload:
         agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
         agent_handoff_artifact=ARTIFACTS["agent_handoff"],
         codex_boundary_result_schema_version=CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+        agent_boundary_result_schema_version=AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        agent_boundary_result_schema_path=AGENT_BOUNDARY_RESULT_SCHEMA_PATH,
         capability_lock_schema_version=CAPABILITY_LOCK_SCHEMA_VERSION,
         capability_lock_diff_schema_version=CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         preflight_schema_version=PREFLIGHT_SCHEMA_VERSION,
@@ -344,6 +366,15 @@ def build_contract_payload() -> ContractPayload:
         registry_schema_version=REGISTRY_SCHEMA_VERSION,
         org_evidence_bundle_schema_version=ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
         host_grants_inventory_schema_version=HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
+        host_grants_baseline_schema_version=HOST_GRANTS_BASELINE_SCHEMA_VERSION,
+        host_grants_drift_schema_version=HOST_GRANTS_DRIFT_SCHEMA_VERSION,
+        trigger_catalog_schema_version=TRIGGER_CATALOG_SCHEMA_VERSION,
+        deprecated_surfaces={
+            "codex-boundary-json": (
+                "Deprecated compatibility projection through 0.16.x; use "
+                "agent-boundary-json."
+            )
+        },
         external_integration_surfaces=list(EXTERNAL_INTEGRATION_SURFACES),
         gating_signal=GATING_SIGNAL,
         agent_result_schema_version=AGENT_RESULT_SCHEMA_VERSION,
@@ -372,6 +403,8 @@ __all__ = [
     "MINIMUM_CONTROL_CONTRACT_VERSION",
     "AGENT_CONTROL_FIELDS",
     "AGENT_CONTROL_STATES",
+    "AGENT_BOUNDARY_RESULT_SCHEMA_PATH",
+    "AGENT_BOUNDARY_RESULT_SCHEMA_VERSION",
     "AGENT_RESULT_CONTROL_FIELDS",
     "AGENT_RESULT_SCHEMA_PATH",
     "AGENT_RESULT_SCHEMA_VERSION",
@@ -389,6 +422,8 @@ __all__ = [
     "EXTERNAL_INTEGRATION_SURFACES",
     "GATING_SIGNAL",
     "HOST_GRANTS_INVENTORY_SCHEMA_VERSION",
+    "HOST_GRANTS_BASELINE_SCHEMA_VERSION",
+    "HOST_GRANTS_DRIFT_SCHEMA_VERSION",
     "MANUAL_REVIEW_SIGNALS",
     "MERGE_VERDICTS",
     "MCP_TOOLS",
@@ -397,6 +432,7 @@ __all__ = [
     "REGISTRY_SCHEMA_VERSION",
     "RELEASE_DECISIONS",
     "SUPPORTED_INPUTS",
+    "TRIGGER_CATALOG_SCHEMA_VERSION",
     "VERIFY_RUN_SCHEMA_VERSION",
     "VERIFIER_READ_ORDER",
     "ContractPayload",

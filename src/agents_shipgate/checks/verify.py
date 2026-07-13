@@ -19,6 +19,7 @@ verdict.
 
 from __future__ import annotations
 
+from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.globbing import glob_match
 from agents_shipgate.schemas.common import (
@@ -35,7 +36,7 @@ CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
 # Shipgate (target-repo trust roots, §5.2). First match wins; one
 # finding per changed file. ``**/`` prefixes match at any depth
 # (including the repo root) per agents_shipgate.core.globbing.
-TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
+_LEGACY_TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
     ("manifest", "**/shipgate.yaml"),
     ("shipgate_state", "**/.agents-shipgate/**"),
     ("policy", "**/policies/**"),
@@ -59,6 +60,35 @@ TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
     ("tool_surface_decl", "**/SKILL.md"),
 )
 
+
+def _registry_trust_root_surfaces() -> tuple[tuple[str, str], ...]:
+    """Project registry paths not already covered by a legacy trust-root glob.
+
+    Existing classifications stay stable for finding fingerprints and reviewer
+    copy. Newly registered boundary paths automatically become trust roots,
+    which prevents trigger/check/preflight coverage from drifting apart.
+    """
+
+    existing_patterns = tuple(pattern for _kind, pattern in _LEGACY_TRUST_ROOT_SURFACES)
+    additions: list[tuple[str, str]] = []
+    seen: set[str] = set(existing_patterns)
+    for adapter in BOUNDARY_ADAPTERS:
+        for pattern in (*adapter.exact_paths, *adapter.globs):
+            if pattern in seen:
+                continue
+            representative = pattern.replace("**", "nested").replace("*", "item")
+            if any(glob_match(existing, representative) for existing in existing_patterns):
+                continue
+            seen.add(pattern)
+            additions.append(("host_boundary", pattern))
+    return tuple(additions)
+
+
+TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
+    *_LEGACY_TRUST_ROOT_SURFACES,
+    *_registry_trust_root_surfaces(),
+)
+
 # The deny-list of trust-root files a coding agent must never edit *to make a
 # verdict pass*, derived from ``TRUST_ROOT_SURFACES`` (single source of truth),
 # restricted to the classes whose trust boundary is the WHOLE FILE: the
@@ -77,7 +107,9 @@ TRUST_ROOT_SURFACES: tuple[tuple[str, str], ...] = (
 # Single home so the verifier and the ``agent_handoff`` preview fallback emit
 # the IDENTICAL
 # standing deny-list — a passing/preview verdict never reads as "anything goes".
-_FORBIDDEN_EDIT_CLASSES = frozenset({"ci_gate", "agent_instructions", "policy"})
+_FORBIDDEN_EDIT_CLASSES = frozenset(
+    {"ci_gate", "agent_instructions", "policy", "host_boundary"}
+)
 PROTECTED_FILE_EDITS: tuple[str, ...] = tuple(
     pattern for kind, pattern in TRUST_ROOT_SURFACES if kind in _FORBIDDEN_EDIT_CLASSES
 )

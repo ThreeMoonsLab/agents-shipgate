@@ -1,7 +1,9 @@
 # Agent Protocol Examples
 
-These examples exercise the `shipgate check` /
-`shipgate.codex_boundary_result/v2` control loop.
+These examples preserve the deprecated `shipgate check` /
+`shipgate.codex_boundary_result/v2` compatibility projection. New consumers
+should request `agent-boundary-json` and parse
+`shipgate.agent_boundary_result/v1`.
 
 Run a fixture diff:
 
@@ -18,5 +20,5 @@ Expected outputs are under `expected/`:
 - `missing-install.json` — the instruction-level fallback when the binary is missing.
 - `stale-install.json` — the instruction-level fallback when the binary is present but older than contract v14.
 
-The MCP server exposes the same shape through the read-only `shipgate.check`
-tool when a caller supplies `diff_text`.
+The MCP server exposes the neutral v1 shape through the read-only
+`shipgate.check` tool when a caller supplies `diff_text`.

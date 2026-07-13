@@ -1,149 +1,149 @@
 {
-  "schema_version": "shipgate.codex_boundary_result/v2",
-  "agent": "codex",
-  "tool": {
-    "name": "agents-shipgate",
-    "version": "0.16.0b3"
-  },
-  "subject": {
-    "agent": "codex"
-  },
-  "decision": "require_review",
-  "risk_level": "high",
-  "audit_id": "codex_boundary_dacbec703043db617de3880f",
-  "policy_version": "1",
-  "summary": "1 Codex boundary change(s) require human review.",
-  "changed_files": [
-    ".codex/config.toml"
-  ],
-  "control": {
-    "state": "human_review_required",
-    "reason": "1 Codex boundary change(s) require human review.",
-    "completion_allowed": false,
-    "must_stop": true,
-    "verify_required": false,
-    "next_action": {
-      "actor": "human",
-      "kind": "review",
-      "command": null,
-      "expects": null,
-      "why": "Codex network profile allows a wildcard domain"
+    "schema_version": "shipgate.codex_boundary_result/v2",
+    "agent": "codex",
+    "tool": {
+        "name": "agents-shipgate",
+        "version": "0.16.0b4"
     },
-    "allowed_next_commands": [],
-    "human_review": {
-      "required": true,
-      "why": "Codex network profile allows a wildcard domain",
-      "required_reviewers": [
-        "agent-platform"
-      ]
+    "subject": {
+        "agent": "codex"
     },
-    "stop_reason": "Codex network profile allows a wildcard domain"
-  },
-  "repair": {
-    "actor": "human",
-    "safe_to_attempt": false,
-    "instructions": [
-      "Replace wildcard network access with explicit allowed domains."
-    ],
-    "forbidden_shortcuts": [
-      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
-      "Do not lower severity or add a waiver just to pass the gate.",
-      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
-      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
-    ]
-  },
-  "policy": {
-    "id": "codex-boundary-default",
-    "version": "1",
-    "source": "packaged_default",
-    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
-    "discovery": [
-      "workspace_missing:policies/codex-boundary.shipgate.yaml",
-      "packaged_default"
-    ]
-  },
-  "violated_rules": [
-    {
-      "id": "CODEX-NETWORK-WILDCARD",
-      "check_id": "SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD",
-      "action": "require_review",
-      "risk_level": "high",
-      "title": "Codex network profile allows a wildcard domain",
-      "path": ".codex/config.toml",
-      "evidence": {
-        "kind": "network_domain_wildcard",
-        "profile": "workspace",
-        "domain": "*",
-        "value": "allow"
-      },
-      "recommendation": "Replace wildcard network access with explicit allowed domains."
-    }
-  ],
-  "affected_files": [
-    {
-      "path": ".codex/config.toml"
-    }
-  ],
-  "required_reviewers": [
-    "agent-platform"
-  ],
-  "explanation": "1 Codex boundary change(s) require human review.",
-  "suggested_fixes": [
-    "Replace wildcard network access with explicit allowed domains."
-  ],
-  "agent_repair_instructions": [
-    "Replace wildcard network access with explicit allowed domains."
-  ],
-  "diagnostics": [
-    {
-      "level": "info",
-      "code": "content_source",
-      "message": "Evaluated Codex boundary file from diff_new_file.",
-      "path": ".codex/config.toml"
-    }
-  ],
-  "trace": [
-    {
-      "step": "policy_discovery",
-      "summary": "Loaded policy codex-boundary-default from packaged_default."
-    },
-    {
-      "step": "decision",
-      "summary": "Projected 1 violation(s) to require_review."
-    }
-  ],
-  "source_artifacts": {},
-  "trigger": {
-    "schema_version": "0.1",
-    "should_run": true,
-    "run_shipgate": true,
-    "skip": false,
-    "force_run": false,
-    "dry_run_recommended": false,
-    "skip_reason": null,
-    "stop_conditions_fired": false,
-    "stop_conditions_evaluated": false,
-    "rationale": "1 run_shipgate rule(s) matched.",
-    "matched_rules": [
-      {
-        "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
-        "action": "run_shipgate",
-        "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --workspace . --format codex-boundary-json"
-      }
-    ],
+    "decision": "require_review",
+    "risk_level": "high",
+    "audit_id": "agent_boundary_1697437c484c034da283fa0e",
+    "policy_version": "1",
+    "summary": "1 coding-agent boundary change(s) require human review.",
     "changed_files": [
-      ".codex/config.toml"
+        ".codex/config.toml"
     ],
-    "diff_tokens": [],
-    "next_action": {
-      "kind": "command",
-      "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
-      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
-    }
-  },
-  "finding_fingerprints": [
-    "fp_97b6fa25c1f62073"
-  ],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
+    "control": {
+        "state": "human_review_required",
+        "reason": "1 coding-agent boundary change(s) require human review.",
+        "completion_allowed": false,
+        "must_stop": true,
+        "verify_required": false,
+        "next_action": {
+            "actor": "human",
+            "kind": "review",
+            "command": null,
+            "expects": null,
+            "why": "Codex network profile allows a wildcard domain"
+        },
+        "allowed_next_commands": [],
+        "human_review": {
+            "required": true,
+            "why": "Codex network profile allows a wildcard domain",
+            "required_reviewers": [
+                "agent-platform"
+            ]
+        },
+        "stop_reason": "Codex network profile allows a wildcard domain"
+    },
+    "repair": {
+        "actor": "human",
+        "safe_to_attempt": false,
+        "instructions": [
+            "Replace wildcard network access with explicit allowed domains."
+        ],
+        "forbidden_shortcuts": [
+            "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+            "Do not lower severity or add a waiver just to pass the gate.",
+            "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+            "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+        ]
+    },
+    "policy": {
+        "id": "agent-boundary",
+        "version": "1",
+        "source": "packaged_default",
+        "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+        "discovery": [
+            "packaged_default:agent-boundary"
+        ]
+    },
+    "violated_rules": [
+        {
+            "id": "CODEX-NETWORK-WILDCARD",
+            "check_id": "SHIP-CODEX-BOUNDARY-NETWORK-WILDCARD",
+            "action": "require_review",
+            "risk_level": "high",
+            "title": "Codex network profile allows a wildcard domain",
+            "path": ".codex/config.toml",
+            "evidence": {
+                "kind": "network_domain_wildcard",
+                "profile": "workspace",
+                "domain": "*",
+                "value": "allow"
+            },
+            "recommendation": "Replace wildcard network access with explicit allowed domains."
+        }
+    ],
+    "affected_files": [
+        {
+            "path": ".codex/config.toml"
+        }
+    ],
+    "required_reviewers": [
+        "agent-platform"
+    ],
+    "explanation": "1 coding-agent boundary change(s) require human review.",
+    "suggested_fixes": [
+        "Replace wildcard network access with explicit allowed domains."
+    ],
+    "agent_repair_instructions": [
+        "Replace wildcard network access with explicit allowed domains."
+    ],
+    "diagnostics": [
+        {
+            "level": "info",
+            "code": "content_source",
+            "message": "Evaluated coding-agent boundary file from diff_new_file.",
+            "path": ".codex/config.toml"
+        }
+    ],
+    "trace": [
+        {
+            "step": "policy_discovery",
+            "summary": "Loaded 2 coding-agent boundary policy families."
+        },
+        {
+            "step": "decision",
+            "summary": "Projected 1 violation(s) to require_review."
+        }
+    ],
+    "source_artifacts": {},
+    "trigger": {
+        "schema_version": "0.2",
+        "should_run": true,
+        "run_shipgate": true,
+        "skip": false,
+        "force_run": false,
+        "dry_run_recommended": false,
+        "skip_reason": null,
+        "stop_conditions_fired": false,
+        "stop_conditions_evaluated": false,
+        "rationale": "1 run_shipgate rule(s) matched.",
+        "matched_rules": [
+            {
+                "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+                "action": "run_shipgate",
+                "surface_class": "host_boundary",
+                "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
+                "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
+            }
+        ],
+        "changed_files": [
+            ".codex/config.toml"
+        ],
+        "diff_tokens": [],
+        "next_action": {
+            "kind": "command",
+            "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
+            "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
+        }
+    },
+    "finding_fingerprints": [
+        "fp_97b6fa25c1f62073"
+    ],
+    "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
 }

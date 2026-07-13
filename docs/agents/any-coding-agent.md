@@ -24,10 +24,10 @@ export AGENTS_SHIPGATE_AGENT_MODE=1
 
 Before reporting an agent-capability change complete, run the local boundary
 check and parse the single stdout JSON object
-(`shipgate.codex_boundary_result/v2`):
+(`shipgate.agent_boundary_result/v1`):
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
 ```
 
 `--agent codex` is the generic profile; use it when your harness has no named

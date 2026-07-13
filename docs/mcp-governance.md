@@ -26,18 +26,19 @@ of agent-product code. These files are capability grants:
 |---|---|---|
 | `.mcp.json` | Claude Code (project scope) | MCP servers: commands, URLs, env passthrough |
 | `.claude/settings.json`, `.claude/settings.local.json` | Claude Code | `permissions.allow` / `deny` rules, hooks, env |
-| `.cursor/mcp.json` | Cursor | MCP servers |
+| `.cursor/mcp.json`, `.cursor/cli.json` | Cursor | MCP servers and Shell/Read/Write permission rules |
 | `.vscode/mcp.json` | VS Code | MCP servers |
 | `.codex/config.toml`, `.codex/hooks.json` | Codex | network profile, MCP auto-approval, hooks (see the `SHIP-CODEX-BOUNDARY-*` checks) |
 | `.github/workflows/*.yml` | CI | workflow `permissions:`, triggers |
 
-Two layers govern these:
+One normalized static boundary assessment feeds two projections:
 
 1. **Trust-root flagging** (`SHIP-VERIFY-TRUST-ROOT-TOUCHED`): any change
    to a protected surface routes the PR to human review. Suppression-
    immune. This is the coarse layer — "a hand touched the boundary."
-2. **Host-boundary semantics** (`SHIP-HOST-BOUNDARY-*`, diff-aware, fires
-   only during `verify`): the change is parsed old-vs-new and classified.
+2. **Host-boundary semantics** (`SHIP-HOST-BOUNDARY-*` and
+   `SHIP-CODEX-BOUNDARY-*`, diff-aware): `shipgate check`, MCP, and `verify`
+   consume the same old-vs-new classification.
    This is the fine layer — "the boundary moved, in this direction."
 
 ### Host-boundary checks
@@ -91,17 +92,29 @@ like code:
 ## Zero-config audit
 
 To inventory host grants without a `shipgate.yaml` (for example, on a
-repo you are evaluating), see `shipgate audit --host` — it reads
-the same host files and prints a one-page Markdown inventory without
-writing anything.
+repo you are evaluating), use `shipgate audit --host`. It reads the same
+normalized repository host surfaces as `check` and prints a one-page Markdown
+inventory without writing anything unless `--out` or `--save-baseline` is
+selected.
 For CI or fleet ingestion, emit the versioned JSON artifact:
 
 ```bash
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
-The payload includes `host_grants_inventory_schema_version: "0.1"` and validates
-against [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json).
+Repository scope is deterministic and default. The explicit
+`--scope local-static` option additionally reads supported user and file-based
+managed configuration. It does not execute hosts or policy helpers and still
+excludes invocation flags, transient approvals, UI/session state, remote
+managed settings, runtime enforcement, and actual tool behavior.
+
+The payload includes `host_grants_inventory_schema_version: "0.2"`, typed
+redacted `grants[]`, `artifacts[]`, `host_coverage[]`, `issues[]`, and
+`excluded_scopes[]`, and validates against
+[`host-grants-inventory-schema.v0.2.json`](host-grants-inventory-schema.v0.2.json).
+An incomplete inventory cannot be saved as a baseline.
+The exact host, path, scope, and non-claim matrix is published in
+[`host-boundary-support.md`](host-boundary-support.md).
 
 ## Host-grant drift detection
 
@@ -122,13 +135,16 @@ shipgate audit --host --save-baseline
 shipgate audit --host --drift --fail-on-drift
 ```
 
-The baseline is content-only (no timestamps, no machine paths), so
+The v0.2 baseline is content-only (no timestamps, raw secrets, or machine
+paths), so
 re-saving an unchanged state is byte-identical, and it is meant to be
 committed: `.agents-shipgate/` is already a verify trust-root surface,
 so a PR that edits the snapshot is release-visible like any other
 policy change. The stored `inventory_sha256` is verified on every
-`--drift` load — a hand-edited or corrupted baseline fails closed
-(exit 2) instead of silently reporting no drift.
+`--drift` load — a hand-edited or corrupted baseline fails closed instead of
+silently reporting no drift. A v0.1 baseline, scope mismatch, or incomplete
+comparison is reported as `comparison_status="incomparable"`; advisory mode
+exits 0 and `--fail-on-drift` exits 20 with an exact re-export command.
 
 MCP server and hook entries carry a `config_sha256` over their full
 configuration. Inside `env`/`headers`, only values under
