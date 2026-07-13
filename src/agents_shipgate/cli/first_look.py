@@ -59,32 +59,36 @@ def _working_tree_line(workspace: Path) -> str:
     body, so they surface as "stage and run check" rather than a verdict.
     """
 
-    from agents_shipgate.cli.agent_result import build_codex_agent_result
-    from agents_shipgate.cli.verify.git import working_tree_context
+    from agents_shipgate.cli.agent_result import (
+        build_agent_boundary_result,
+        git_boundary_change_set,
+    )
 
     try:
-        changed_paths, diff_text = working_tree_context(workspace)
+        change_set = git_boundary_change_set(workspace=workspace, base=None, head=None)
     except Exception:  # noqa: BLE001 - not a git checkout / no HEAD to diff.
         return "not a git checkout — skipped"
-    if not diff_text.strip():
-        if changed_paths:
-            count = len(changed_paths)
+    if not change_set.diff_text.strip():
+        if change_set.changed_paths:
+            count = len(change_set.changed_paths)
             return (
-                f"{count} untracked file{'s' if count != 1 else ''} not yet "
-                "checkable — stage them and run `shipgate check`"
+                f"{count} untracked file{'s' if count != 1 else ''} found, but no "
+                "recognized boundary content changed"
             )
         return "clean — no uncommitted changes to check"
     try:
-        result = build_codex_agent_result(
+        result = build_agent_boundary_result(
             agent="claude-code",
             workspace=workspace,
-            diff_text=diff_text,
+            diff_text=change_set.diff_text,
             config=workspace / "shipgate.yaml",
             policy=None,
+            input_mode="worktree",
+            input_issues=list(change_set.issues),
         )
     except Exception:  # noqa: BLE001 - a first look must never hard-fail.
         return "uncommitted changes present (run `shipgate check` for the verdict)"
-    count = len(result.changed_files)
+    count = len(change_set.changed_paths)
     files = f"{count} changed file{'s' if count != 1 else ''}"
     if result.decision == "allow":
         return f"allow — {files}, no boundary issues"

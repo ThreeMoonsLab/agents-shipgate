@@ -111,6 +111,30 @@ def test_first_look_reports_untracked_files_as_not_clean(
     assert "clean" not in working_tree_line
 
 
+def test_first_look_evaluates_untracked_host_boundary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("hi\n", encoding="utf-8")
+    _commit(repo)
+    settings = repo / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(
+        '{"permissions":{"allow":["Bash(*)"]}}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0, result.output
+    working_tree_line = next(
+        line for line in result.output.splitlines() if "working tree:" in line
+    )
+    assert "human_review" in working_tree_line or "block" in working_tree_line
+    assert "allow" not in working_tree_line
+
+
 def test_bare_invocation_outside_git_does_not_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
