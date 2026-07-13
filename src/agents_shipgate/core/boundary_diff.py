@@ -14,7 +14,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from agents_shipgate.schemas.agent_result_v1 import AgentResultDiagnostic
 
@@ -37,6 +37,7 @@ class DiffFile:
     hunks: list[DiffHunk] = field(default_factory=list)
     is_deleted: bool = False
     is_new: bool = False
+    is_rename: bool = False
 
     @property
     def path(self) -> str:
@@ -50,6 +51,23 @@ class ResolvedFileText:
     source: str
     old_sha256: str | None
     new_sha256: str | None
+
+
+@dataclass(frozen=True)
+class BoundaryInputIssue:
+    code: str
+    path: str
+    message: str
+
+
+@dataclass(frozen=True)
+class BoundaryChangeSet:
+    mode: Literal["worktree", "git_range", "provided_diff"]
+    scope: Literal["repository"]
+    completeness: Literal["complete", "partial", "unknown"]
+    diff_text: str
+    changed_paths: tuple[str, ...]
+    issues: tuple[BoundaryInputIssue, ...] = ()
 
 
 def parse_unified_diff(diff_text: str) -> list[DiffFile]:
@@ -73,6 +91,7 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
                 hunks=current.get("hunks", []),
                 is_deleted=bool(current.get("is_deleted")),
                 is_new=bool(current.get("is_new")),
+                is_rename=bool(current.get("is_rename")),
             )
         )
         current = None
@@ -91,6 +110,7 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
                 "hunks": [],
                 "is_deleted": False,
                 "is_new": False,
+                "is_rename": False,
             }
             current_hunk = None
             continue
@@ -100,6 +120,12 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
             current["is_deleted"] = True
         elif raw_line.startswith("new file mode"):
             current["is_new"] = True
+        elif raw_line.startswith("rename from "):
+            current["old_path"] = raw_line[len("rename from ") :].strip()
+            current["is_rename"] = True
+        elif raw_line.startswith("rename to "):
+            current["new_path"] = raw_line[len("rename to ") :].strip()
+            current["is_rename"] = True
         elif raw_line.startswith("--- "):
             value = raw_line[4:].strip()
             current["old_path"] = None if value == "/dev/null" else _strip_diff_prefix(value)
@@ -153,12 +179,13 @@ def _resolve_changed_file_text(
 ) -> ResolvedFileText:
     path = diff_file.path
     if diff_file.is_deleted:
+        old_text = _old_text_from_hunks(diff_file)
         resolved = ResolvedFileText(
-            old_text=None,
-            new_text=None,
+            old_text=old_text,
+            new_text="" if old_text is not None else None,
             source="diff_deleted_file",
-            old_sha256=None,
-            new_sha256=None,
+            old_sha256=_sha256_text(old_text) if old_text is not None else None,
+            new_sha256=_sha256_text("") if old_text is not None else None,
         )
         diagnostics.append(_content_source_diagnostic(path, resolved))
         return resolved
@@ -168,6 +195,28 @@ def _resolve_changed_file_text(
             old_text="",
             new_text=new_text,
             source="diff_new_file",
+            old_sha256=_sha256_text(""),
+            new_sha256=_sha256_text(new_text),
+        )
+        diagnostics.append(_content_source_diagnostic(path, resolved))
+        return resolved
+
+    if diff_file.is_rename:
+        head_path = _safe_workspace_path(workspace, path)
+        if head_path is None or head_path.is_symlink() or not head_path.is_file():
+            resolved = _unresolved_text("renamed_file_unresolved")
+            diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
+            return resolved
+        try:
+            new_text = head_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            resolved = _unresolved_text("renamed_file_read_failed")
+            diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
+            return resolved
+        resolved = ResolvedFileText(
+            old_text="",
+            new_text=new_text,
+            source="workspace_renamed_file",
             old_sha256=_sha256_text(""),
             new_sha256=_sha256_text(new_text),
         )
@@ -258,7 +307,7 @@ def _content_source_diagnostic(
     return AgentResultDiagnostic(
         level=level,  # type: ignore[arg-type]
         code="content_source",
-        message=f"Evaluated Codex boundary file from {resolved.source}.",
+        message=f"Evaluated coding-agent boundary file from {resolved.source}.",
         path=path,
     )
 
@@ -284,6 +333,20 @@ def _new_text_from_hunks(diff_file: DiffFile) -> str:
     if diff_file.added_lines:
         return _join_lines(diff_file.added_lines)
     return ""
+
+
+def _old_text_from_hunks(diff_file: DiffFile) -> str | None:
+    if diff_file.hunks:
+        lines = [
+            text
+            for hunk in diff_file.hunks
+            for kind, text in hunk.lines
+            if kind in {" ", "-"}
+        ]
+        return _join_lines(lines)
+    if diff_file.removed_lines:
+        return _join_lines(diff_file.removed_lines)
+    return None
 
 
 def _apply_hunks(

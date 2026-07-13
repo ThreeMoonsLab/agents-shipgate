@@ -22,25 +22,25 @@ rules:
     recommendation: Review the changed MCP server command, URL, args, or env keys.
   - id: HOST-PERMISSION-WILDCARD-ALLOW
     check_id: SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW
-    title: Claude Code allow rule grants a wildcard tool surface
+    title: Coding-agent allow rule grants a wildcard tool surface
     action: block
     risk_level: critical
     recommendation: Do not allow wildcard tool permissions; scope the rule to specific commands.
   - id: HOST-PERMISSION-ALLOW-EXPANDED
     check_id: SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
-    title: Claude Code permission allowlist expanded
+    title: Coding-agent permission allowlist expanded
     action: require_review
     risk_level: high
     recommendation: Have a human approve the new permission allow rule.
   - id: HOST-PERMISSION-DENY-REMOVED
     check_id: SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
-    title: Claude Code permission deny rule removed
+    title: Coding-agent permission deny rule removed
     action: require_review
     risk_level: high
     recommendation: Have a human confirm the removed deny rule is no longer needed.
   - id: HOST-HOOK-CHANGED
     check_id: SHIP-HOST-BOUNDARY-HOOK-CHANGED
-    title: Claude Code hooks changed
+    title: Coding-agent executable hooks changed
     action: require_review
     risk_level: high
     recommendation: Review executable hook changes before the agent relies on them.

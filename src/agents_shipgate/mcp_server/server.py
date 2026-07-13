@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate.checks.registry import check_catalog
-from agents_shipgate.cli.agent_result import agent_result_json_payload, build_codex_agent_result
+from agents_shipgate.cli.agent_result import agent_result_json_payload, build_agent_boundary_result
 from agents_shipgate.cli.capability import build_capability_lock_from_config
 from agents_shipgate.cli.explain_finding import explain_finding_payload
 from agents_shipgate.core.agent_handoff import build_agent_handoff
@@ -34,15 +34,16 @@ def shipgate_check(
     This function intentionally accepts diff text from the caller and does not
     shell out to git, write reports, apply patches, call tools, or touch the
     network. It is an adapter over the same local static evaluator used by
-    ``shipgate check --format codex-boundary-json``.
+    ``shipgate check --format agent-boundary-json``.
     """
 
-    result = build_codex_agent_result(
+    result = build_agent_boundary_result(
         agent=agent,
         workspace=Path(workspace),
         diff_text=diff_text,
         config=Path(config),
         policy=Path(policy) if policy else None,
+        input_mode="provided_diff",
     )
     return agent_result_json_payload(result)
 

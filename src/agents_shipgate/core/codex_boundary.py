@@ -36,6 +36,7 @@ from agents_shipgate.core.boundary_diff import (  # noqa: F401
     _unresolved_text,
     parse_unified_diff,
 )
+from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -386,6 +387,8 @@ def evaluate_codex_boundary_result(
     capability_surfaces_changed: list[str] | None = None,
     undeclared_capability_surfaces: list[str] | None = None,
     manifest_present: bool | None = None,
+    policy_override: CodexBoundaryPolicy | None = None,
+    policy_diagnostics: list[AgentResultDiagnostic] | None = None,
 ) -> AgentResultV2:
     """Return the local Codex boundary-result projection for a unified diff.
 
@@ -413,10 +416,14 @@ def evaluate_codex_boundary_result(
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted({item.path for item in diff_files if item.path})
-    policy, diagnostics = load_codex_boundary_policy(
-        workspace=workspace,
-        policy_path=policy_path,
-    )
+    if policy_override is None:
+        policy, diagnostics = load_codex_boundary_policy(
+            workspace=workspace,
+            policy_path=policy_path,
+        )
+    else:
+        policy = policy_override
+        diagnostics = list(policy_diagnostics or [])
     violations: list[AgentResultViolatedRule] = []
     evaluated_files: list[dict[str, Any]] = []
 
@@ -460,6 +467,14 @@ def evaluate_codex_boundary_result(
             resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
             evaluated_files.append(_evaluated_file_record(path, resolved))
             _evaluate_hooks_json(diff_file, resolved, add)
+        if _is_codex_requirements_path(normalized):
+            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            evaluated_files.append(_evaluated_file_record(path, resolved))
+            add(
+                "CODEX-UNKNOWN-PERMISSION-KEY",
+                path=path,
+                evidence={"kind": "codex_static_requirements_changed"},
+            )
         if _is_agent_instructions_path(normalized):
             _evaluate_agent_instructions(diff_file, add)
         if _is_shipgate_workflow_path(normalized):
@@ -656,6 +671,7 @@ def load_codex_boundary_policy(
     *,
     workspace: Path,
     policy_path: Path | None,
+    allow_foreign_rules: bool = False,
 ) -> tuple[CodexBoundaryPolicy, list[AgentResultDiagnostic]]:
     diagnostics: list[AgentResultDiagnostic] = []
     discovery: list[str] = []
@@ -764,7 +780,7 @@ def load_codex_boundary_policy(
             invalid_rule = True
             diagnostics.append(
                 AgentResultDiagnostic(
-                    level="error" if explicit else "warning",
+                    level="error",
                     code="policy_unknown_fields",
                     message=(
                         f"Codex boundary policy rule {raw_rule['id']!r} contains "
@@ -776,14 +792,43 @@ def load_codex_boundary_policy(
         rule_id = raw_rule["id"]
         base = rules.get(rule_id)
         if base is None:
-            invalid_rule = True
+            if not allow_foreign_rules:
+                invalid_rule = True
             continue
         action = str(raw_rule.get("action", base.action))
         if action not in _DECISION_RANK:
             invalid_rule = True
             action = "require_review"
+        if _DECISION_RANK[action] < _DECISION_RANK[base.action]:
+            invalid_rule = True
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="error",
+                    code="policy_safety_floor_downgrade",
+                    message=(
+                        f"Boundary policy rule {rule_id!r} cannot lower action "
+                        f"below {base.action}."
+                    ),
+                    path=display_path,
+                )
+            )
+            action = base.action
         raw_risk = str(raw_rule.get("risk_level", base.risk_level))
         risk: AgentResultRiskLevel = raw_risk if raw_risk in _RISK_RANK else _RISK_BY_ACTION[action]  # type: ignore[assignment]
+        if _RISK_RANK[risk] < _RISK_RANK[base.risk_level]:
+            invalid_rule = True
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="error",
+                    code="policy_safety_floor_downgrade",
+                    message=(
+                        f"Boundary policy rule {rule_id!r} cannot lower risk "
+                        f"below {base.risk_level}."
+                    ),
+                    path=display_path,
+                )
+            )
+            risk = base.risk_level
         rules[rule_id] = CodexBoundaryRule(
             id=rule_id,
             check_id=str(raw_rule.get("check_id", base.check_id)),
@@ -816,22 +861,22 @@ def _evaluate_config_file(
     add,
 ) -> None:
     path = diff_file.path
+    if diff_file.is_deleted:
+        add(
+            "CODEX-UNKNOWN-PERMISSION-KEY",
+            path=path,
+            evidence={"kind": "codex_config_deleted"},
+        )
+        return
     if resolved.new_text is None:
-        if diff_file.is_deleted:
-            add(
-                "CODEX-UNKNOWN-PERMISSION-KEY",
-                path=path,
-                evidence={"kind": "codex_config_deleted"},
-            )
-        else:
-            add(
-                "CODEX-CONFIG-PARSE-FAILED",
-                path=path,
-                evidence={
-                    "kind": "codex_config_content_unresolved",
-                    "source": resolved.source,
-                },
-            )
+        add(
+            "CODEX-CONFIG-PARSE-FAILED",
+            path=path,
+            evidence={
+                "kind": "codex_config_content_unresolved",
+                "source": resolved.source,
+            },
+        )
         return
     try:
         data = tomllib.loads(resolved.new_text)
@@ -851,15 +896,28 @@ def _evaluate_config_file(
             evidence={"kind": "old_toml_parse_failed", "error": str(exc)},
         )
         return
-    if _changed_to(old_data, data, ("sandbox_mode",), "danger-full-access"):
+    effective = _effective_codex_profile(data)
+    old_effective = _effective_codex_profile(old_data)
+    for key in sorted(data):
+        if (
+            key not in _CODEX_TOP_LEVEL_GRANT_KEYS
+            and _looks_like_grant_key(key)
+            and _canonical_json(data.get(key)) != _canonical_json(old_data.get(key))
+        ):
+            add(
+                "CODEX-UNKNOWN-PERMISSION-KEY",
+                path=path,
+                evidence={"kind": "unknown_codex_grant_key", "key": key},
+            )
+    if _changed_to(old_effective, effective, ("sandbox_mode",), "danger-full-access"):
         add(
             "CODEX-DANGER-FULL-ACCESS",
             path=path,
             evidence={"kind": "sandbox_mode", "value": "danger-full-access"},
         )
     if _changed_to(
-        old_data,
-        data,
+        old_effective,
+        effective,
         ("default_permissions",),
         ":danger-full-access",
     ):
@@ -869,8 +927,8 @@ def _evaluate_config_file(
             evidence={"kind": "default_permissions", "value": ":danger-full-access"},
         )
     if _changed_to(
-        old_data,
-        data,
+        old_effective,
+        effective,
         ("sandbox_workspace_write", "network_access"),
         True,
     ):
@@ -878,6 +936,16 @@ def _evaluate_config_file(
             "CODEX-NETWORK-EXPANDED",
             path=path,
             evidence={"kind": "workspace_write_network_access", "value": True},
+        )
+    approval = effective.get("approval_policy", effective.get("ask_for_approval"))
+    old_approval = old_effective.get(
+        "approval_policy", old_effective.get("ask_for_approval")
+    )
+    if approval in {"never", "on-failure"} and approval != old_approval:
+        add(
+            "CODEX-UNKNOWN-PERMISSION-KEY",
+            path=path,
+            evidence={"kind": "approval_policy_widened", "value": approval},
         )
     _evaluate_permission_profiles(
         old_data.get("permissions"),
@@ -895,6 +963,51 @@ def _evaluate_config_file(
     _evaluate_plugin_mcp_servers(old_data.get("plugins"), data.get("plugins"), path, add)
     _evaluate_hooks(old_data.get("hooks"), data.get("hooks"), path, add)
     _evaluate_apps(old_data.get("apps"), data.get("apps"), path, add)
+
+
+_CODEX_TOP_LEVEL_GRANT_KEYS = {
+    "approval_policy",
+    "apps",
+    "ask_for_approval",
+    "default_permissions",
+    "hooks",
+    "mcp_servers",
+    "network_access",
+    "permissions",
+    "plugins",
+    "profile",
+    "profiles",
+    "sandbox_mode",
+    "sandbox_workspace_write",
+}
+
+
+def _effective_codex_profile(data: dict[str, Any]) -> dict[str, Any]:
+    effective = dict(data)
+    selected = data.get("profile")
+    profiles = data.get("profiles")
+    if isinstance(selected, str) and isinstance(profiles, dict):
+        overlay = profiles.get(selected)
+        if isinstance(overlay, dict):
+            effective.update(overlay)
+    return effective
+
+
+def _looks_like_grant_key(value: str) -> bool:
+    lowered = value.lower()
+    return any(
+        token in lowered
+        for token in (
+            "allow",
+            "approval",
+            "deny",
+            "hook",
+            "mcp",
+            "network",
+            "permission",
+            "sandbox",
+        )
+    )
 
 
 def _evaluate_permission_profiles(
@@ -1994,9 +2107,17 @@ def _is_codex_hooks_path(path: str) -> bool:
     return path == ".codex/hooks.json" or path.endswith("/.codex/hooks.json")
 
 
+def _is_codex_requirements_path(path: str) -> bool:
+    return path == ".codex/requirements.toml" or path.endswith(
+        "/.codex/requirements.toml"
+    )
+
+
 def _is_agent_instructions_path(path: str) -> bool:
     name = Path(path).name
-    return name in {"AGENTS.md", "AGENTS.override.md"}
+    return name in {"AGENTS.md", "AGENTS.override.md", "CLAUDE.md"} or path.startswith(
+        ".cursor/rules/"
+    )
 
 
 def _is_shipgate_workflow_path(path: str) -> bool:
@@ -2012,31 +2133,26 @@ def _is_shipgate_workflow_path(path: str) -> bool:
 
 
 def _is_codex_boundary_policy_path(path: str) -> bool:
-    return path == DEFAULT_POLICY_PATH.as_posix() or path.endswith(
-        f"/{DEFAULT_POLICY_PATH.as_posix()}"
+    policy_paths = {
+        DEFAULT_POLICY_PATH.as_posix(),
+        "policies/agent-boundary.shipgate.yaml",
+        "policies/host-boundary.shipgate.yaml",
+    }
+    return path in policy_paths or any(
+        path.endswith(f"/{candidate}") for candidate in policy_paths
     )
 
 
 def _is_codex_skill_path(path: str) -> bool:
     return path.endswith("/SKILL.md") and (
-        path.startswith(".agents/skills/") or "/.agents/skills/" in path
+        path.startswith(".agents/skills/")
+        or "/.agents/skills/" in path
+        or path.startswith(".claude/skills/")
+        or "/.claude/skills/" in path
     )
 
 
 def is_boundary_path(path: str) -> bool:
-    """True when ``evaluate_codex_boundary_result`` inspects this path.
+    """Compatibility alias for the authoritative multi-host registry."""
 
-    These are the host/trust-root surfaces ``check`` fully evaluates, so they
-    are not capability-coverage gaps even when a manifest also declares them as
-    a tool source (e.g. a ``codex_config`` source pointing at ``.codex/``).
-    """
-
-    normalized = path.replace("\\", "/")
-    return (
-        _is_codex_config_path(normalized)
-        or _is_codex_hooks_path(normalized)
-        or _is_agent_instructions_path(normalized)
-        or _is_shipgate_workflow_path(normalized)
-        or _is_codex_boundary_policy_path(normalized)
-        or _is_codex_skill_path(normalized)
-    )
+    return is_agent_boundary_path(path)

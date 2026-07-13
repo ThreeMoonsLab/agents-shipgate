@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeVar
 
+from agents_shipgate.core.agent_boundary import AgentBoundaryAssessment
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexBoundaryArtifacts,
@@ -88,6 +89,8 @@ class ScanContext:
     # ``diff_reference.facts.policies``. Empty when no recognized toolkit
     # constructor is present.
     toolkit_bounds: list[ToolkitScopeBound] = field(default_factory=list)
+    # Computed once during verify and shared by all boundary Finding projections.
+    agent_boundary: AgentBoundaryAssessment | None = None
 
     def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
         return self.framework_artifacts.get(source_type, expected_type)

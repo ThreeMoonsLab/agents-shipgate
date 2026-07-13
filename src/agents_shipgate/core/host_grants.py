@@ -14,9 +14,10 @@ import os
 import re
 import sys
 import tomllib
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 from pydantic import ValidationError
@@ -74,6 +75,75 @@ _SPACE_ARG_SECRET_RE = re.compile(
 _URL_RE = re.compile(r"(?:https?|wss?)://[^\s'\"<>]+")
 
 
+@dataclass
+class HostStaticParseCache:
+    """Invocation-local cache proving each static source is read/parsed once."""
+
+    _reads: dict[tuple[str, str], tuple[str | None, str | None]] = field(
+        default_factory=dict
+    )
+    _parses: dict[
+        tuple[str, str], tuple[Any, str | None, str | None]
+    ] = field(default_factory=dict)
+    read_counts: dict[str, int] = field(default_factory=dict)
+    parse_counts: dict[str, int] = field(default_factory=dict)
+
+    @staticmethod
+    def _key(path: Path, containment_root: Path) -> tuple[str, str]:
+        return (str(containment_root.absolute()), str(path.absolute()))
+
+    def read(
+        self, path: Path, *, containment_root: Path
+    ) -> tuple[str | None, str | None]:
+        key = self._key(path, containment_root)
+        if key not in self._reads:
+            display = str(path.absolute())
+            self.read_counts[display] = self.read_counts.get(display, 0) + 1
+            self._reads[key] = _safe_read(path, containment_root=containment_root)
+        return self._reads[key]
+
+    def parse(
+        self, path: Path, *, containment_root: Path
+    ) -> tuple[Any, str | None, str | None]:
+        key = self._key(path, containment_root)
+        if key in self._parses:
+            return self._parses[key]
+        text, read_error = self.read(path, containment_root=containment_root)
+        if read_error is not None:
+            result = (None, "unreadable", read_error)
+            self._parses[key] = result
+            return result
+        assert text is not None
+        display = str(path.absolute())
+        self.parse_counts[display] = self.parse_counts.get(display, 0) + 1
+        try:
+            if path.suffix == ".toml":
+                data = tomllib.loads(text)
+            elif path.suffix in {".yml", ".yaml"}:
+                data = yaml.safe_load(text)
+            else:
+                data = json.loads(text)
+        except (tomllib.TOMLDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+            result = (
+                None,
+                "parse_failed",
+                f"static parser rejected this {path.suffix.lstrip('.')} file "
+                f"({exc.__class__.__name__})",
+            )
+        else:
+            result = (data, None, None)
+        self._parses[key] = result
+        return result
+
+
+@dataclass(frozen=True)
+class HostBoundarySnapshot:
+    """Reusable normalized snapshot for audit/check/verify projections."""
+
+    inventory: dict[str, Any]
+    cache: HostStaticParseCache
+
+
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -102,10 +172,15 @@ def _sanitize_url(value: str) -> str:
         return value
     hostname = parsed.hostname or ""
     netloc = hostname
-    if parsed.port is not None:
-        netloc = f"{hostname}:{parsed.port}"
-    query = urlencode([(key, "<redacted>") for key, _ in parse_qsl(parsed.query)])
-    return urlunsplit((parsed.scheme, netloc, parsed.path, query, ""))
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+        netloc = "<invalid-host>"
+    if port is not None:
+        netloc = f"{hostname}:{port}"
+    path = "/<redacted-path>" if parsed.path not in {"", "/"} else parsed.path
+    return urlunsplit((parsed.scheme, netloc, path, "", ""))
 
 
 def _sanitize_sensitive_string(value: str) -> str:
@@ -121,6 +196,8 @@ def _sanitize_sensitive_string(value: str) -> str:
 
 
 def _redact_secret_values(value: Any, *, parent_key: str | None = None) -> Any:
+    if parent_key is not None and _is_secret_key(parent_key):
+        return "<redacted>"
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for key, inner in value.items():
@@ -247,27 +324,19 @@ def _safe_read(path: Path, *, containment_root: Path) -> tuple[str | None, str |
 
 def _load_structured(
     *, path: Path, source: str, host: str, kind: str, scope: HostScope,
-    containment_root: Path, artifacts: list[dict[str, Any]], issues: list[dict[str, Any]],
+    containment_root: Path, cache: HostStaticParseCache,
+    artifacts: list[dict[str, Any]], issues: list[dict[str, Any]],
 ) -> Any:
-    text, read_error = _safe_read(path, containment_root=containment_root)
-    if read_error is not None:
+    data, error_kind, error_message = cache.parse(
+        path, containment_root=containment_root
+    )
+    if error_kind is not None:
+        assert error_message is not None
         issues.append(_inventory_issue(
-            kind="unreadable", host=host, source=source, message=read_error, blocking=True
-        ))
-        artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
-        return None
-    assert text is not None
-    try:
-        if path.suffix == ".toml":
-            data = tomllib.loads(text)
-        elif path.suffix in {".yml", ".yaml"}:
-            data = yaml.safe_load(text)
-        else:
-            data = json.loads(text)
-    except (tomllib.TOMLDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
-        issues.append(_inventory_issue(
-            kind="parse_failed", host=host, source=source,
-            message=f"static parser rejected this {path.suffix.lstrip('.')} file ({exc.__class__.__name__})",
+            kind=error_kind,
+            host=host,
+            source=source,
+            message=error_message,
             blocking=True,
         ))
         artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
@@ -284,7 +353,10 @@ def _endpoint(server: Any) -> str | None:
         return _sanitize_url(url)
     command = server.get("command")
     if isinstance(command, str):
-        return Path(command).name or command
+        first = command.strip().split(maxsplit=1)[0] if command.strip() else ""
+        return _sanitize_sensitive_string(Path(first).name or first) or None
+    if isinstance(command, list) and command and isinstance(command[0], str):
+        return _sanitize_sensitive_string(Path(command[0]).name or command[0])
     return None
 
 
@@ -456,6 +528,79 @@ def _codex_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str,
                 ),
                 "name": str(name), "enabled": enabled if isinstance(enabled, bool) else None,
             })
+    selected_profile = data.get("profile")
+    if isinstance(selected_profile, str) and selected_profile.strip():
+        profile_name = selected_profile.strip()
+        profiles = data.get("profiles")
+        profile_config = (
+            profiles.get(profile_name) if isinstance(profiles, dict) else None
+        )
+        resolved = isinstance(profile_config, dict)
+        grants.append(
+            {
+                **_grant_base(
+                    host="codex",
+                    scope=scope,
+                    source=source,
+                    kind="profile",
+                    identity=profile_name,
+                    config={"profile": profile_name, "resolved": resolved},
+                    access="unknown",
+                    risk="medium",
+                ),
+                "profile": profile_name,
+                "resolved": resolved,
+            }
+        )
+        if resolved:
+            assert isinstance(profile_config, dict)
+            grants.extend(
+                _codex_grants(
+                    {key: value for key, value in profile_config.items() if key != "profile"},
+                    scope=scope,
+                    source=f"{source}#profiles.{profile_name}",
+                )
+            )
+    return grants
+
+
+def _flatten_requirements(data: Any, *, prefix: str = "") -> list[tuple[str, Any]]:
+    if isinstance(data, dict):
+        flattened: list[tuple[str, Any]] = []
+        for key, value in sorted(data.items()):
+            name = f"{prefix}.{key}" if prefix else str(key)
+            flattened.extend(_flatten_requirements(value, prefix=name))
+        return flattened
+    return [(prefix or "value", data)]
+
+
+def _codex_requirement_grants(
+    data: Any, *, scope: HostScope, source: str
+) -> list[dict[str, Any]]:
+    grants: list[dict[str, Any]] = []
+    for name, raw_value in _flatten_requirements(data):
+        redacted_value = _redact_secret_values(raw_value, parent_key=name)
+        rendered = (
+            _canonical(redacted_value)
+            if isinstance(redacted_value, (dict, list))
+            else str(redacted_value)
+        )
+        grants.append(
+            {
+                **_grant_base(
+                    host="codex",
+                    scope=scope,
+                    source=source,
+                    kind="requirement",
+                    identity=name,
+                    config={name: redacted_value},
+                    access="none",
+                    risk="medium",
+                ),
+                "requirement": name,
+                "value": rendered,
+            }
+        )
     return grants
 
 
@@ -529,11 +674,11 @@ def _instruction_grant(*, host: str, scope: HostScope, source: str, data: str) -
 
 def _collect_file(
     *, path: Path, source: str, host: str, scope: HostScope, kind: str,
-    containment_root: Path,
+    containment_root: Path, cache: HostStaticParseCache,
     artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
-) -> None:
+) -> Any:
     if kind == "instructions":
-        text, error = _safe_read(path, containment_root=containment_root)
+        text, error = cache.read(path, containment_root=containment_root)
         if error:
             issues.append(_inventory_issue(kind="unreadable", host=host, source=source, message=error, blocking=True))
             artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
@@ -542,11 +687,12 @@ def _collect_file(
         redacted_text = _sanitize_sensitive_string(text)
         artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="parsed", data={"sha256": hashlib.sha256(redacted_text.encode()).hexdigest()}))
         grants.append(_instruction_grant(host=host, scope=scope, source=source, data=text))
-        return
+        return text
 
     data = _load_structured(
         path=path, source=source, host=host, kind=kind, scope=scope,
-        containment_root=containment_root, artifacts=artifacts, issues=issues,
+        containment_root=containment_root, cache=cache,
+        artifacts=artifacts, issues=issues,
     )
     if data is None:
         return
@@ -569,14 +715,35 @@ def _collect_file(
         grant = _workflow_grant(data, source=source)
         if grant is not None:
             grants.append(grant)
+    elif host == "codex" and kind == "requirements":
+        grants.extend(_codex_requirement_grants(data, scope=scope, source=source))
     elif host == "codex" and path.suffix == ".toml":
         grants.extend(_codex_grants(data, scope=scope, source=source))
+        if isinstance(data, dict) and isinstance(data.get("profile"), str):
+            selected = data["profile"].strip()
+            profiles = data.get("profiles")
+            if selected and not (
+                isinstance(profiles, dict) and isinstance(profiles.get(selected), dict)
+            ):
+                issues.append(
+                    _inventory_issue(
+                        kind="unsupported",
+                        host="codex",
+                        source=source,
+                        message=(
+                            f"selected profile {selected!r} has no statically "
+                            "resolvable [profiles] declaration"
+                        ),
+                        blocking=True,
+                    )
+                )
     elif host == "claude-code":
         grants.extend(_claude_grants(data, scope=scope, source=source))
     elif host == "cursor":
         grants.extend(_cursor_grants(data, scope=scope, source=source))
     elif kind == "hooks":
         grants.extend(_hooks_grants(data, host=host, scope=scope, source=source))
+    return data
 
 
 def _source_kind(path: str) -> str:
@@ -664,31 +831,19 @@ def _local_paths(home: Path) -> list[tuple[Path, str, str, str, Path]]:
 
 
 def _collect_claude_project_state(
-    *, root: Path, home: Path, artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
+    *, root: Path, home: Path, cache: HostStaticParseCache,
+    artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
 ) -> None:
     path = home / ".claude.json"
     if not (path.exists() or path.is_symlink()):
         return
     source = "~/.claude.json#current-workspace"
-    text, error = _safe_read(path, containment_root=home)
-    if error is not None:
+    data, error_kind, error = cache.parse(path, containment_root=home)
+    if error_kind is not None:
+        assert error is not None
         issues.append(_inventory_issue(
-            kind="unreadable", host="claude-code", source=source,
+            kind=error_kind, host="claude-code", source=source,
             message=error, blocking=True,
-        ))
-        artifacts.append(_artifact(
-            host="claude-code", scope="local_static", source=source,
-            kind="config", status="failed",
-        ))
-        return
-    assert text is not None
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        issues.append(_inventory_issue(
-            kind="parse_failed", host="claude-code", source=source,
-            message=f"static parser rejected this json file ({exc.__class__.__name__})",
-            blocking=True,
         ))
         artifacts.append(_artifact(
             host="claude-code", scope="local_static", source=source,
@@ -763,13 +918,17 @@ def _coverage(
     return coverage
 
 
-def host_audit_inventory(
-    workspace: Path, *, scope: HostScope = "repository"
-) -> dict[str, Any]:
-    """Return a schema-validated, deterministic, redacted host inventory."""
+def build_host_boundary_snapshot(
+    workspace: Path,
+    *,
+    scope: HostScope = "repository",
+    cache: HostStaticParseCache | None = None,
+) -> HostBoundarySnapshot:
+    """Build the reusable, schema-validated static boundary snapshot."""
 
     root = workspace.resolve()
     home = Path.home().resolve()
+    cache = cache or HostStaticParseCache()
     artifacts: list[dict[str, Any]] = []
     grants: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
@@ -777,7 +936,7 @@ def host_audit_inventory(
     for path, source, host, kind in _repository_paths(root):
         _collect_file(
             path=path, source=source, host=host, scope="repository", kind=kind,
-            containment_root=root,
+            containment_root=root, cache=cache,
             artifacts=artifacts, grants=grants, issues=issues,
         )
 
@@ -794,11 +953,12 @@ def host_audit_inventory(
         for path, source, host, kind, containment_root in _local_paths(home):
             _collect_file(
                 path=path, source=source, host=host, scope="local_static", kind=kind,
-                containment_root=containment_root,
+                containment_root=containment_root, cache=cache,
                 artifacts=artifacts, grants=grants, issues=issues,
             )
         _collect_claude_project_state(
-            root=root, home=home, artifacts=artifacts, grants=grants, issues=issues
+            root=root, home=home, cache=cache,
+            artifacts=artifacts, grants=grants, issues=issues
         )
     else:  # pragma: no cover - CLI and typing constrain this; defensive API guard.
         raise ValueError(f"Unsupported host audit scope: {scope!r}")
@@ -818,7 +978,29 @@ def host_audit_inventory(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    return HostGrantsInventoryV2.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV2.model_validate(payload).model_dump(mode="json")
+    return HostBoundarySnapshot(inventory=inventory, cache=cache)
+
+
+def host_audit_inventory(
+    workspace: Path,
+    *,
+    scope: HostScope = "repository",
+    snapshot: HostBoundarySnapshot | None = None,
+    cache: HostStaticParseCache | None = None,
+) -> dict[str, Any]:
+    """Project a precomputed snapshot, or build one when none was supplied."""
+
+    if snapshot is None:
+        snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
+    inventory = HostGrantsInventoryV2.model_validate(snapshot.inventory)
+    if inventory.scope != scope:
+        raise ValueError(
+            f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
+        )
+    if Path(inventory.workspace).resolve() != workspace.resolve():
+        raise ValueError("Host boundary snapshot belongs to a different workspace")
+    return inventory.model_dump(mode="json")
 
 
 def inventory_is_complete(inventory: dict[str, Any]) -> bool:
@@ -837,6 +1019,10 @@ def normalized_host_grants(inventory: dict[str, Any]) -> dict[str, Any]:
         "grants": sorted(
             list(inventory.get("grants") or []),
             key=lambda item: (str(item.get("grant_id")), _canonical(item)),
+        ),
+        "host_coverage": sorted(
+            list(inventory.get("host_coverage") or []),
+            key=lambda item: (str(item.get("host")), _canonical(item)),
         ),
     }
 
@@ -884,8 +1070,11 @@ def load_host_grants_baseline(path: Path) -> dict[str, Any]:
         )
     try:
         parsed = HostGrantsBaselineV2.model_validate(data).model_dump(mode="json")
-    except ValidationError as exc:
-        raise ValueError(f"Host-grants baseline {path} is malformed ({exc}). Re-record it: {rerun}") from exc
+    except ValidationError:
+        return {
+            "host_grants_schema_version": "0.2-invalid",
+            "_load_error": "malformed_v0.2_baseline",
+        }
     stored = parsed["inventory_sha256"]
     recomputed = host_grants_sha256(parsed["inventory"])
     if stored != recomputed:
@@ -923,6 +1112,22 @@ def _diff_host_artifacts(
             changes.append(
                 {"artifact_id": artifact_id, "baseline": before, "current": after}
             )
+    return changes
+
+
+def _diff_host_coverage(
+    baseline: dict[str, Any], current: dict[str, Any]
+) -> list[dict[str, Any]]:
+    base_by_host = {item["host"]: item for item in baseline.get("host_coverage", [])}
+    current_by_host = {
+        item["host"]: item for item in current.get("host_coverage", [])
+    }
+    changes: list[dict[str, Any]] = []
+    for host in sorted(set(base_by_host) | set(current_by_host)):
+        before = base_by_host.get(host)
+        after = current_by_host.get(host)
+        if before != after:
+            changes.append({"host": host, "baseline": before, "current": after})
     return changes
 
 
@@ -966,6 +1171,7 @@ def _incomparable_payload(
         "has_drift": None,
         "changes": [],
         "artifact_changes": [],
+        "coverage_changes": [],
         "expansion_signals": [],
         "issues": inventory.get("issues", []),
         "incomparable_reasons": sorted(reasons),
@@ -981,7 +1187,9 @@ def build_host_drift_payload(
     if baseline.get("host_grants_schema_version") == "0.1":
         reasons.append("baseline_schema_v0.1_lacks_typed_grants_and_scope")
     elif baseline.get("host_grants_schema_version") != HOST_GRANTS_BASELINE_SCHEMA_VERSION:
-        reasons.append("unsupported_baseline_schema")
+        reasons.append(
+            str(baseline.get("_load_error") or "unsupported_baseline_schema")
+        )
     if not inventory_is_complete(inventory):
         reasons.append("current_inventory_incomplete")
     baseline_scope = baseline.get("scope")
@@ -994,6 +1202,7 @@ def build_host_drift_payload(
     baseline_inventory = baseline["inventory"]
     changes = diff_host_grants(baseline_inventory, current)
     artifact_changes = _diff_host_artifacts(baseline_inventory, current)
+    coverage_changes = _diff_host_coverage(baseline_inventory, current)
     payload = {
         "host_grants_schema_version": HOST_GRANTS_DRIFT_SCHEMA_VERSION,
         "baseline_file": baseline_file,
@@ -1001,9 +1210,10 @@ def build_host_drift_payload(
         "comparison_status": "comparable",
         "baseline_sha256": host_grants_sha256(baseline_inventory),
         "current_sha256": host_grants_sha256(current),
-        "has_drift": bool(changes or artifact_changes),
+        "has_drift": bool(changes or artifact_changes or coverage_changes),
         "changes": changes,
         "artifact_changes": artifact_changes,
+        "coverage_changes": coverage_changes,
         "expansion_signals": host_grant_expansion_signals(changes),
         "issues": inventory.get("issues", []),
         "incomparable_reasons": [],
@@ -1090,6 +1300,9 @@ __all__ = [
     "DEFAULT_BASELINE_FILE",
     "HOST_GRANTS_INVENTORY_SCHEMA_VERSION",
     "HOST_GRANTS_SCHEMA_VERSION",
+    "HostBoundarySnapshot",
+    "HostStaticParseCache",
+    "build_host_boundary_snapshot",
     "build_host_drift_payload",
     "build_host_grants_baseline",
     "diff_host_grants",

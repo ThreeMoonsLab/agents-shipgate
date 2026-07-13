@@ -33,6 +33,7 @@ from agents_shipgate.core.boundary_diff import (
     _resolve_changed_file_text,
     parse_unified_diff,
 )
+from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.codex_boundary import (
     _DECISION_RANK,
     _RISK_BY_ACTION,
@@ -52,7 +53,19 @@ DEFAULT_POLICY_PATH = Path("policies/host-boundary.shipgate.yaml")
 # Server-config keys whose change re-shapes what the host will execute or
 # connect to. Env var VALUES never reach evidence — only the key name
 # ``env`` appears in ``changed_keys``.
-_MCP_SERVER_KEYS = ("args", "command", "env", "serverUrl", "url")
+_MCP_SERVER_KEYS = (
+    "alwaysAllow",
+    "args",
+    "command",
+    "disabled",
+    "env",
+    "excludeTools",
+    "headers",
+    "includeTools",
+    "serverUrl",
+    "tools",
+    "url",
+)
 
 
 @dataclass(frozen=True)
@@ -100,7 +113,7 @@ DEFAULT_RULES: dict[str, HostBoundaryRule] = {
     "HOST-PERMISSION-WILDCARD-ALLOW": HostBoundaryRule(
         id="HOST-PERMISSION-WILDCARD-ALLOW",
         check_id="SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW",
-        title="Claude Code allow rule grants a wildcard tool surface",
+        title="Coding-agent allow rule grants a wildcard tool surface",
         action="block",
         risk_level="critical",
         recommendation="Do not allow wildcard tool permissions; scope the rule to specific commands.",
@@ -108,7 +121,7 @@ DEFAULT_RULES: dict[str, HostBoundaryRule] = {
     "HOST-PERMISSION-ALLOW-EXPANDED": HostBoundaryRule(
         id="HOST-PERMISSION-ALLOW-EXPANDED",
         check_id="SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED",
-        title="Claude Code permission allowlist expanded",
+        title="Coding-agent permission allowlist expanded",
         action="require_review",
         risk_level="high",
         recommendation="Have a human approve the new permission allow rule.",
@@ -116,7 +129,7 @@ DEFAULT_RULES: dict[str, HostBoundaryRule] = {
     "HOST-PERMISSION-DENY-REMOVED": HostBoundaryRule(
         id="HOST-PERMISSION-DENY-REMOVED",
         check_id="SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED",
-        title="Claude Code permission deny rule removed",
+        title="Coding-agent permission deny rule removed",
         action="require_review",
         risk_level="high",
         recommendation="Have a human confirm the removed deny rule is no longer needed.",
@@ -124,7 +137,7 @@ DEFAULT_RULES: dict[str, HostBoundaryRule] = {
     "HOST-HOOK-CHANGED": HostBoundaryRule(
         id="HOST-HOOK-CHANGED",
         check_id="SHIP-HOST-BOUNDARY-HOOK-CHANGED",
-        title="Claude Code hooks changed",
+        title="Coding-agent executable hooks changed",
         action="require_review",
         risk_level="high",
         recommendation="Review executable hook changes before the agent relies on them.",
@@ -161,6 +174,7 @@ def evaluate_host_boundary(
     workspace: Path,
     diff_text: str,
     policy_path: Path | None = None,
+    policy_override: HostBoundaryPolicy | None = None,
 ) -> tuple[list[AgentResultViolatedRule], list[AgentResultDiagnostic]]:
     """Evaluate host-boundary rules for a unified diff.
 
@@ -171,10 +185,14 @@ def evaluate_host_boundary(
 
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
-    policy, diagnostics = load_host_boundary_policy(
-        workspace=workspace,
-        policy_path=policy_path or DEFAULT_POLICY_PATH,
-    )
+    if policy_override is None:
+        policy, diagnostics = load_host_boundary_policy(
+            workspace=workspace,
+            policy_path=policy_path or DEFAULT_POLICY_PATH,
+        )
+    else:
+        policy = policy_override
+        diagnostics = []
     violations: list[AgentResultViolatedRule] = []
 
     def add(rule_id: str, *, path: str | None, evidence: dict[str, Any]) -> None:
@@ -198,22 +216,15 @@ def evaluate_host_boundary(
             continue
         normalized = path.replace("\\", "/")
         if _is_mcp_server_path(normalized):
-            if diff_file.is_deleted:
-                # Removing the declaration shrinks the tool surface; the
-                # trust-root touch is still surfaced by SHIP-VERIFY checks.
-                continue
             resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
             _evaluate_mcp_file(diff_file, resolved, add)
         if _is_claude_settings_path(normalized):
-            if diff_file.is_deleted:
-                continue
             resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
             _evaluate_claude_settings(diff_file, resolved, add)
+        if _is_cursor_settings_path(normalized):
+            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            _evaluate_cursor_settings(diff_file, resolved, add)
         if _is_workflow_path(normalized):
-            if diff_file.is_deleted:
-                # Gate removal is covered by SHIP-VERIFY-CI-GATE-REMOVED;
-                # do not duplicate.
-                continue
             resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
             _evaluate_workflow(diff_file, resolved, add)
 
@@ -270,10 +281,36 @@ def load_host_boundary_policy(
         action = str(raw_rule.get("action", base.action))
         if action not in _DECISION_RANK:
             action = "require_review"
+        if _DECISION_RANK[action] < _DECISION_RANK[base.action]:
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="error",
+                    code="policy_safety_floor_downgrade",
+                    message=(
+                        f"Host boundary policy rule {rule_id!r} cannot lower "
+                        f"action below {base.action}."
+                    ),
+                    path=_display_path(candidate, workspace),
+                )
+            )
+            action = base.action
         raw_risk = str(raw_rule.get("risk_level", base.risk_level))
         risk: AgentResultRiskLevel = (
             raw_risk if raw_risk in _RISK_RANK else _RISK_BY_ACTION[action]
         )  # type: ignore[assignment]
+        if _RISK_RANK[risk] < _RISK_RANK[base.risk_level]:
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="error",
+                    code="policy_safety_floor_downgrade",
+                    message=(
+                        f"Host boundary policy rule {rule_id!r} cannot lower "
+                        f"risk below {base.risk_level}."
+                    ),
+                    path=_display_path(candidate, workspace),
+                )
+            )
+            risk = base.risk_level
         rules[rule_id] = HostBoundaryRule(
             id=rule_id,
             check_id=str(raw_rule.get("check_id", base.check_id)),
@@ -378,28 +415,55 @@ def _evaluate_claude_settings(diff_file, resolved, add) -> None:
     if pair is None:
         return
     old_data, new_data = pair
+    _evaluate_unknown_keys(
+        old_data,
+        new_data,
+        path,
+        allowed={
+            "$schema",
+            "apiKeyHelper",
+            "attribution",
+            "autoUpdatesChannel",
+            "cleanupPeriodDays",
+            "companyAnnouncements",
+            "env",
+            "forceLoginMethod",
+            "forceLoginOrgUUID",
+            "hooks",
+            "includeCoAuthoredBy",
+            "language",
+            "model",
+            "permissions",
+            "plugins",
+            "sandbox",
+            "statusLine",
+        },
+        add=add,
+    )
     permissions = _dict_value(new_data, "permissions")
     old_permissions = _dict_value(old_data, "permissions")
+    _evaluate_unknown_permission_keys(old_permissions, permissions, path, add)
+    _evaluate_permission_mode(old_permissions, permissions, path, add)
     old_allow = set(_string_entries(old_permissions.get("allow")))
     for rule in sorted(set(_string_entries(permissions.get("allow"))) - old_allow):
         if _is_wildcard_allow(rule):
             add(
                 "HOST-PERMISSION-WILDCARD-ALLOW",
                 path=path,
-                evidence={"kind": "permission_wildcard_allow", "rule": rule},
+                evidence={"kind": "permission_wildcard_allow", "rule": _safe_rule(rule)},
             )
         else:
             add(
                 "HOST-PERMISSION-ALLOW-EXPANDED",
                 path=path,
-                evidence={"kind": "permission_allow_expanded", "rule": rule},
+                evidence={"kind": "permission_allow_expanded", "rule": _safe_rule(rule)},
             )
     new_deny = set(_string_entries(permissions.get("deny")))
     for rule in sorted(set(_string_entries(old_permissions.get("deny"))) - new_deny):
         add(
             "HOST-PERMISSION-DENY-REMOVED",
             path=path,
-            evidence={"kind": "permission_deny_removed", "rule": rule},
+            evidence={"kind": "permission_deny_removed", "rule": _safe_rule(rule)},
         )
     hooks = new_data.get("hooks") if isinstance(new_data, dict) else None
     old_hooks = old_data.get("hooks") if isinstance(old_data, dict) else None
@@ -409,6 +473,133 @@ def _evaluate_claude_settings(diff_file, resolved, add) -> None:
         if events:
             evidence["events"] = events
         add("HOST-HOOK-CHANGED", path=path, evidence=evidence)
+
+    for key in ("sandbox", "plugins"):
+        if _canonical_json(new_data.get(key)) != _canonical_json(old_data.get(key)):
+            add(
+                "HOST-PERMISSION-ALLOW-EXPANDED",
+                path=path,
+                evidence={"kind": f"claude_{key}_changed"},
+            )
+
+
+def _evaluate_cursor_settings(diff_file, resolved, add) -> None:
+    """Evaluate Cursor CLI grants using the shared permission lattice."""
+
+    path = diff_file.path
+    pair = _parse_json_pair(resolved, path, add)
+    if pair is None:
+        return
+    old_data, new_data = pair
+    _evaluate_unknown_keys(
+        old_data,
+        new_data,
+        path,
+        allowed={"$schema", "permissions", "shell", "read", "write", "network"},
+        add=add,
+    )
+    permissions = _dict_value(new_data, "permissions")
+    old_permissions = _dict_value(old_data, "permissions")
+    for key in sorted(set(permissions) - {"allow", "deny"}):
+        if _canonical_json(permissions.get(key)) != _canonical_json(
+            old_permissions.get(key)
+        ):
+            add(
+                "HOST-PERMISSION-ALLOW-EXPANDED",
+                path=path,
+                evidence={"kind": "cursor_permission_boundary_changed", "key": key},
+            )
+    if _canonical_json(new_data.get("network")) != _canonical_json(
+        old_data.get("network")
+    ):
+        add(
+            "HOST-PERMISSION-ALLOW-EXPANDED",
+            path=path,
+            evidence={"kind": "cursor_network_boundary_changed"},
+        )
+    # Cursor has shipped both nested permission arrays and category-specific
+    # top-level arrays.  Normalize both without executing the host.
+    for key in ("allow", "deny"):
+        values = _string_entries(permissions.get(key))
+        old_values = _string_entries(old_permissions.get(key))
+        for category in ("shell", "read", "write"):
+            values.extend(_string_entries(new_data.get(category)))
+            old_values.extend(_string_entries(old_data.get(category)))
+        if key == "allow":
+            for rule in sorted(set(values) - set(old_values)):
+                add(
+                    "HOST-PERMISSION-WILDCARD-ALLOW"
+                    if _is_wildcard_allow(rule)
+                    else "HOST-PERMISSION-ALLOW-EXPANDED",
+                    path=path,
+                    evidence={
+                        "kind": "cursor_permission_allow_expanded",
+                        "rule": _safe_rule(rule),
+                    },
+                )
+        else:
+            for rule in sorted(set(old_values) - set(values)):
+                add(
+                    "HOST-PERMISSION-DENY-REMOVED",
+                    path=path,
+                    evidence={
+                        "kind": "cursor_permission_deny_removed",
+                        "rule": _safe_rule(rule),
+                    },
+                )
+
+
+def _evaluate_permission_mode(old_permissions, permissions, path: str, add) -> None:
+    old_mode = old_permissions.get("defaultMode")
+    new_mode = permissions.get("defaultMode")
+    if new_mode == old_mode:
+        return
+    if new_mode in {"bypassPermissions", "dontAsk"}:
+        add(
+            "HOST-PERMISSION-WILDCARD-ALLOW",
+            path=path,
+            evidence={"kind": "permission_mode_expanded", "mode": new_mode},
+        )
+    elif new_mode is not None:
+        add(
+            "HOST-PERMISSION-ALLOW-EXPANDED",
+            path=path,
+            evidence={"kind": "permission_mode_changed", "mode": str(new_mode)},
+        )
+
+
+def _evaluate_unknown_permission_keys(old_permissions, permissions, path: str, add) -> None:
+    passive = {"allow", "ask", "deny", "defaultMode"}
+    for key in sorted(set(permissions) - passive):
+        if _canonical_json(permissions.get(key)) == _canonical_json(
+            old_permissions.get(key)
+        ):
+            continue
+        add(
+            "HOST-PERMISSION-ALLOW-EXPANDED",
+            path=path,
+            evidence={"kind": "claude_permission_boundary_changed", "key": key},
+        )
+
+
+def _evaluate_unknown_keys(
+    old_data: Any,
+    new_data: Any,
+    path: str,
+    *,
+    allowed: set[str],
+    add,
+) -> None:
+    if not isinstance(new_data, dict):
+        return
+    old_map = old_data if isinstance(old_data, dict) else {}
+    for key in sorted(set(new_data) - allowed):
+        if _canonical_json(new_data.get(key)) != _canonical_json(old_map.get(key)):
+            add(
+                "HOST-CONFIG-PARSE-FAILED",
+                path=path,
+                evidence={"kind": "unknown_host_config_key", "key": str(key)},
+            )
 
 
 def _dict_value(data: Any, key: str) -> dict[str, Any]:
@@ -440,6 +631,20 @@ def _is_wildcard_allow(rule: str) -> bool:
         return True
     argument = stripped[open_paren + 1 :].lstrip()
     return argument.startswith("*")
+
+
+def _safe_rule(rule: str) -> str:
+    stripped = rule.strip()
+    open_paren = stripped.find("(")
+    if open_paren == -1:
+        return stripped
+    tool = stripped[:open_paren]
+    argument = stripped[open_paren + 1 :].rstrip(")").strip()
+    if argument == "*":
+        return f"{tool}(*)"
+    if argument.startswith("*"):
+        return f"{tool}(<wildcard>)"
+    return f"{tool}(<redacted-arguments>)"
 
 
 def _changed_hook_events(old_hooks: Any, hooks: Any) -> list[str]:
@@ -698,6 +903,16 @@ def _is_mcp_server_path(path: str) -> bool:
 
 def _is_claude_settings_path(path: str) -> bool:
     return path in (".claude/settings.json", ".claude/settings.local.json")
+
+
+def _is_cursor_settings_path(path: str) -> bool:
+    return path == ".cursor/cli.json"
+
+
+def is_host_boundary_path(path: str) -> bool:
+    """Compatibility predicate backed by the central adapter registry."""
+
+    return is_agent_boundary_path(path)
 
 
 def _is_workflow_path(path: str) -> bool:

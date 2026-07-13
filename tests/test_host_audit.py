@@ -14,6 +14,12 @@ from agents_shipgate.cli.host_audit import (
 )
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+from agents_shipgate.core.host_grants import (
+    HostStaticParseCache,
+    build_host_boundary_snapshot,
+    build_host_drift_payload,
+    build_host_grants_baseline,
+)
 from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV2,
     HostGrantsDriftV2,
@@ -38,7 +44,10 @@ def _seed_workspace(tmp_path: Path) -> Path:
                         },
                     },
                     "remote": {
-                        "url": "https://user:pass@mcp.example.test/sse?token=secret",
+                        "url": (
+                            "https://user:pass@mcp.example.test/services/"
+                            "WEBHOOK-PATH-TOP-SECRET?token=secret"
+                        ),
                         "headers": {"Authorization": "Bearer secret"},
                     },
                 }
@@ -180,12 +189,13 @@ def test_inventory_redacts_env_headers_urls_and_userinfo(tmp_path: Path) -> None
         "user:pass",
         "api_key=secret",
         "INLINE-TOP-SECRET",
+        "WEBHOOK-PATH-TOP-SECRET",
     ):
         assert secret not in rendered
         assert secret not in render_host_audit_markdown(inventory)
     remote = next(grant for grant in _grants(inventory, "mcp_server") if grant["server"] == "remote")
     assert remote["header_keys"] == ["Authorization"]
-    assert "redacted" in remote["endpoint"]
+    assert remote["endpoint"] == "https://mcp.example.test/<redacted-path>"
     assert len(remote["config_sha256"]) == 64
 
 
@@ -373,6 +383,40 @@ def test_inventory_coverage_paths_are_owned_by_central_boundary_registry(tmp_pat
     assert reported == registered
 
 
+def test_shared_snapshot_reads_and_parses_each_file_once(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("Use least privilege.\n", encoding="utf-8")
+    (tmp_path / "shipgate.yaml").write_text("version: 1\n", encoding="utf-8")
+    claude = tmp_path / ".claude"
+    claude.mkdir()
+    (claude / "settings.json").write_text("{}", encoding="utf-8")
+    cache = HostStaticParseCache()
+    snapshot = build_host_boundary_snapshot(tmp_path, cache=cache)
+    agents_path = str((tmp_path / "AGENTS.md").absolute())
+    manifest_path = str((tmp_path / "shipgate.yaml").absolute())
+    settings_path = str((claude / "settings.json").absolute())
+    assert cache.read_counts[agents_path] == 1
+    assert cache.read_counts[manifest_path] == 1
+    assert cache.parse_counts[settings_path] == 1
+    assert agents_path not in cache.parse_counts
+    assert manifest_path not in cache.parse_counts
+    before_reads = dict(cache.read_counts)
+    before_parses = dict(cache.parse_counts)
+    projected = host_audit_inventory(tmp_path, snapshot=snapshot)
+    assert projected == snapshot.inventory
+    assert cache.read_counts == before_reads
+    assert cache.parse_counts == before_parses
+
+
+def test_snapshot_projection_rejects_scope_or_workspace_mismatch(tmp_path: Path) -> None:
+    snapshot = build_host_boundary_snapshot(tmp_path)
+    with pytest.raises(ValueError, match="scope"):
+        host_audit_inventory(tmp_path, scope="local_static", snapshot=snapshot)
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(ValueError, match="different workspace"):
+        host_audit_inventory(other, snapshot=snapshot)
+
+
 def test_v02_baseline_is_typed_portable_redacted_and_idempotent(tmp_path: Path) -> None:
     _seed_workspace(tmp_path)
     baseline_path = _save_baseline(tmp_path)
@@ -381,6 +425,8 @@ def test_v02_baseline_is_typed_portable_redacted_and_idempotent(tmp_path: Path) 
     assert payload["host_grants_schema_version"] == "0.2"
     assert payload["scope"] == "repository"
     assert "workspace" not in payload["inventory"]
+    assert payload["inventory"]["artifacts"]
+    assert payload["inventory"]["host_coverage"]
     assert payload["inventory_sha256"] == host_grants_sha256(payload["inventory"])
     assert "secret-token-value" not in baseline_path.read_text(encoding="utf-8")
     first = baseline_path.read_bytes()
@@ -412,6 +458,133 @@ def test_clean_and_changed_v02_drift(tmp_path: Path) -> None:
     assert changed["has_drift"] is True
     assert changed["changes"]
     assert "mcp_server_changed: claude-code:github" in changed["expansion_signals"]
+
+
+def test_zero_grant_recognized_artifact_is_bound_into_drift(tmp_path: Path) -> None:
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    hooks = codex / "hooks.json"
+    hooks.write_text("{}", encoding="utf-8")
+    initial = host_audit_inventory(tmp_path)
+    assert not [grant for grant in initial["grants"] if grant["source"] == ".codex/hooks.json"]
+    _save_baseline(tmp_path)
+
+    hooks.write_text(json.dumps({"metadata": "changed"}), encoding="utf-8")
+    code, payload = _drift_json(tmp_path)
+    assert code == 0
+    assert payload["comparison_status"] == "comparable"
+    assert payload["has_drift"] is True
+    assert payload["changes"] == []
+    assert payload["artifact_changes"]
+
+
+def test_coverage_metadata_is_bound_into_baseline_and_drift(tmp_path: Path) -> None:
+    inventory = host_audit_inventory(tmp_path)
+    baseline = build_host_grants_baseline(inventory)
+    changed = json.loads(json.dumps(inventory))
+    codex = next(item for item in changed["host_coverage"] if item["host"] == "codex")
+    codex["sources_expected"].append(".codex/future-static-surface.toml")
+    payload = build_host_drift_payload(
+        baseline=baseline,
+        inventory=changed,
+        baseline_file=".agents-shipgate/host-grants.json",
+    )
+    assert payload["comparison_status"] == "comparable"
+    assert payload["has_drift"] is True
+    assert payload["coverage_changes"] == [
+        {
+            "host": "codex",
+            "baseline": next(
+                item
+                for item in baseline["inventory"]["host_coverage"]
+                if item["host"] == "codex"
+            ),
+            "current": codex,
+        }
+    ]
+
+
+def test_codex_requirements_emit_typed_grants_and_drift(tmp_path: Path) -> None:
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    requirements = codex / "requirements.toml"
+    requirements.write_text(
+        'allowed_sandbox_modes = ["workspace-write"]\napi_key = "REQUIREMENT-TOP-SECRET"\n',
+        encoding="utf-8",
+    )
+    inventory = host_audit_inventory(tmp_path)
+    requirements_by_name = {
+        grant["requirement"]: grant
+        for grant in inventory["grants"]
+        if grant["kind"] == "requirement"
+    }
+    requirement = requirements_by_name["allowed_sandbox_modes"]
+    assert requirements_by_name["api_key"]["value"] == "<redacted>"
+    assert "REQUIREMENT-TOP-SECRET" not in json.dumps(inventory)
+    assert {
+        grant["requirement"]
+        for grant in inventory["grants"]
+        if grant["kind"] == "requirement"
+    } == {
+        "allowed_sandbox_modes",
+        "api_key",
+    }
+    matching = [
+        grant for grant in inventory["grants"] if grant["kind"] == "requirement"
+    ]
+    assert len(matching) == 2
+    assert requirement["requirement"] == "allowed_sandbox_modes"
+    assert requirement["value"] == '["workspace-write"]'
+    _save_baseline(tmp_path)
+
+    requirements.write_text(
+        'allowed_sandbox_modes = ["workspace-write"]\n'
+        'api_key = "ROTATED-REQUIREMENT-TOP-SECRET"\n',
+        encoding="utf-8",
+    )
+    rotated = _drift_json(tmp_path)[1]
+    assert rotated["has_drift"] is False
+    assert "ROTATED-REQUIREMENT-TOP-SECRET" not in json.dumps(rotated)
+
+    requirements.write_text(
+        'allowed_sandbox_modes = ["workspace-write", "danger-full-access"]\n'
+        'api_key = "ROTATED-REQUIREMENT-TOP-SECRET"\n',
+        encoding="utf-8",
+    )
+    payload = _drift_json(tmp_path)[1]
+    assert payload["has_drift"] is True
+    assert any(
+        change["current"] and change["current"]["kind"] == "requirement"
+        for change in payload["changes"]
+    )
+
+
+def test_codex_selected_profile_is_resolved_or_coverage_is_partial(tmp_path: Path) -> None:
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    config = codex / "config.toml"
+    config.write_text(
+        'profile = "reviewed"\n[profiles.reviewed]\nsandbox_mode = "workspace-write"\n',
+        encoding="utf-8",
+    )
+    inventory = host_audit_inventory(tmp_path)
+    [profile] = [grant for grant in inventory["grants"] if grant["kind"] == "profile"]
+    assert profile["profile"] == "reviewed"
+    assert profile["resolved"] is True
+    assert not inventory["issues"]
+
+    config.write_text('profile = "missing"\n', encoding="utf-8")
+    unresolved = host_audit_inventory(tmp_path)
+    [profile] = [grant for grant in unresolved["grants"] if grant["kind"] == "profile"]
+    assert profile["resolved"] is False
+    assert any(
+        issue["kind"] == "unsupported" and issue["host"] == "codex"
+        for issue in unresolved["issues"]
+    )
+    codex_coverage = next(
+        item for item in unresolved["host_coverage"] if item["host"] == "codex"
+    )
+    assert codex_coverage["status"] == "partial"
 
 
 def test_drift_all_env_header_value_rotation_quiet_but_key_addition_fires(tmp_path: Path) -> None:
@@ -458,6 +631,28 @@ def test_parse_error_never_echoes_secret_file_content(tmp_path: Path) -> None:
     assert secret not in result.output
 
 
+@pytest.mark.parametrize(
+    ("relative", "content"),
+    [
+        (".codex/config.toml", 'approval_policy = "TOML-PARSER-TOP-SECRET\n'),
+        (
+            ".github/workflows/release.yml",
+            "permissions: [YAML-PARSER-TOP-SECRET\n",
+        ),
+    ],
+)
+def test_toml_yaml_parser_errors_never_echo_source_lines(
+    tmp_path: Path, relative: str, content: str
+) -> None:
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_text(content, encoding="utf-8")
+    inventory = host_audit_inventory(tmp_path)
+    rendered = json.dumps(inventory)
+    assert "TOP-SECRET" not in rendered
+    assert any(issue["kind"] == "parse_failed" for issue in inventory["issues"])
+
+
 def test_deny_removal_and_hook_change_are_expansion_signals(tmp_path: Path) -> None:
     _seed_workspace(tmp_path)
     _save_baseline(tmp_path)
@@ -496,6 +691,48 @@ def test_legacy_v01_baseline_is_incomparable_advisory_and_strict_20(tmp_path: Pa
         app,
         [
             "audit", "--host", "--workspace", str(tmp_path), "--drift", "--json",
+            "--fail-on-drift",
+        ],
+    )
+    assert strict.exit_code == 20
+
+
+def test_malformed_nested_v02_baseline_is_incomparable_not_a_crash(tmp_path: Path) -> None:
+    baseline = tmp_path / ".agents-shipgate/host-grants.json"
+    baseline.parent.mkdir()
+    baseline.write_text(
+        json.dumps(
+            {
+                "host_grants_schema_version": "0.2",
+                "scope": "repository",
+                "inventory_sha256": "not-trusted-before-validation",
+                "inventory": {
+                    "scope": "repository",
+                    "artifacts": [],
+                    "grants": ["malformed-grant"],
+                    "host_coverage": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, payload = _drift_json(tmp_path)
+    assert code == 0
+    assert payload["comparison_status"] == "incomparable"
+    assert payload["has_drift"] is None
+    assert payload["incomparable_reasons"] == ["malformed_v0.2_baseline"]
+    assert payload["next_action"] == (
+        "shipgate audit --host --scope repository --save-baseline"
+    )
+    strict = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--drift",
+            "--json",
             "--fail-on-drift",
         ],
     )

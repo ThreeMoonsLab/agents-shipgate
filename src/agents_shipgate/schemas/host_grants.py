@@ -167,6 +167,18 @@ class HostPluginGrantV2(HostGrantBaseV2):
     enabled: bool | None = None
 
 
+class HostProfileGrantV2(HostGrantBaseV2):
+    kind: Literal["profile"] = "profile"
+    profile: str
+    resolved: bool
+
+
+class HostRequirementGrantV2(HostGrantBaseV2):
+    kind: Literal["requirement"] = "requirement"
+    requirement: str
+    value: str
+
+
 class HostWorkflowGrantV2(HostGrantBaseV2):
     kind: Literal["workflow"] = "workflow"
     triggers: list[str] = Field(default_factory=list)
@@ -188,6 +200,8 @@ HostGrantV2 = Annotated[
     | HostSandboxGrantV2
     | HostAdditionalPathGrantV2
     | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
     | HostWorkflowGrantV2
     | HostInstructionGrantV2,
     Field(discriminator="kind"),
@@ -213,13 +227,24 @@ class HostGrantsInventoryV2(BaseModel):
     runtime_session_verified: Literal[False] = False
 
 
+class HostGrantsNormalizedSnapshotV2(BaseModel):
+    """Portable, redacted subset bound into a v0.2 baseline."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: HostGrantScope
+    artifacts: list[HostArtifactV2] = Field(default_factory=list)
+    grants: list[HostGrantV2] = Field(default_factory=list)
+    host_coverage: list[HostCoverageV2] = Field(default_factory=list)
+
+
 class HostGrantsBaselineV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     host_grants_schema_version: Literal["0.2"] = HOST_GRANTS_BASELINE_SCHEMA_VERSION
     scope: HostGrantScope
     inventory_sha256: str
-    inventory: dict[str, Any]
+    inventory: HostGrantsNormalizedSnapshotV2
 
 
 class HostGrantChangeV2(BaseModel):
@@ -238,6 +263,14 @@ class HostArtifactChangeV2(BaseModel):
     current: dict[str, Any] | None = None
 
 
+class HostCoverageChangeV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: HostName
+    baseline: dict[str, Any] | None = None
+    current: dict[str, Any] | None = None
+
+
 class HostGrantsDriftV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -250,6 +283,7 @@ class HostGrantsDriftV2(BaseModel):
     has_drift: bool | None
     changes: list[HostGrantChangeV2] = Field(default_factory=list)
     artifact_changes: list[HostArtifactChangeV2] = Field(default_factory=list)
+    coverage_changes: list[HostCoverageChangeV2] = Field(default_factory=list)
     expansion_signals: list[str] = Field(default_factory=list)
     issues: list[HostInventoryIssueV2] = Field(default_factory=list)
     incomparable_reasons: list[str] = Field(default_factory=list)
