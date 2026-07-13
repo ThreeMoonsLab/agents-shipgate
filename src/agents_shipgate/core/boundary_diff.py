@@ -176,6 +176,7 @@ def _resolve_changed_file_text(
     workspace: Path,
     diff_file: DiffFile,
     diagnostics: list[AgentResultDiagnostic],
+    read_cache: Any | None = None,
 ) -> ResolvedFileText:
     path = diff_file.path
     if diff_file.is_deleted:
@@ -208,7 +209,15 @@ def _resolve_changed_file_text(
             diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
             return resolved
         try:
-            new_text = head_path.read_text(encoding="utf-8")
+            if read_cache is None:
+                new_text = head_path.read_text(encoding="utf-8")
+                read_error = None
+            else:
+                new_text, read_error = read_cache.read(
+                    head_path, containment_root=workspace
+                )
+            if read_error is not None or new_text is None:
+                raise OSError(read_error or "read failed")
         except (OSError, UnicodeDecodeError):
             resolved = _unresolved_text("renamed_file_read_failed")
             diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
@@ -233,8 +242,16 @@ def _resolve_changed_file_text(
         diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
         return resolved
     try:
-        workspace_text = head_path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
+        if read_cache is None:
+            workspace_text = head_path.read_text(encoding="utf-8")
+            read_error = None
+        else:
+            workspace_text, read_error = read_cache.read(
+                head_path, containment_root=workspace
+            )
+        if read_error is not None or workspace_text is None:
+            raise OSError(read_error or "read failed")
+    except (OSError, UnicodeDecodeError) as exc:
         resolved = _unresolved_text("workspace_read_failed")
         diagnostics.append(
             AgentResultDiagnostic(

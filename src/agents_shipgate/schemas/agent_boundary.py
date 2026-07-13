@@ -7,7 +7,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.agent_result import AgentResultV2
-from agents_shipgate.schemas.agent_result_v1 import AgentResultAgent, AgentResultPolicy
+from agents_shipgate.schemas.agent_result_v1 import (
+    AgentResultAgent,
+    AgentResultPolicy,
+    AgentResultViolatedRule,
+)
 
 AGENT_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.agent_boundary_result/v1"
 
@@ -37,6 +41,7 @@ class AgentBoundaryResultV1(AgentResultV2):
     policies: list[AgentResultPolicy]
     policy_set_sha256: str
     issues: list[str] = Field(default_factory=list)
+    violations: list[AgentResultViolatedRule]
     static_analysis_only: Literal[True] = True
     runtime_session_verified: Literal[False] = False
     excluded_scopes: list[str] = Field(default_factory=list)
@@ -51,6 +56,8 @@ class AgentBoundaryResultV1(AgentResultV2):
             item.status in {"partial", "experimental"} for item in self.host_coverage
         ):
             raise ValueError("partial or experimental host coverage cannot allow completion")
+        if self.violations != self.violated_rules:
+            raise ValueError("violations must exactly project legacy violated_rules")
         return self
 
 

@@ -29,11 +29,16 @@ from urllib.parse import urlsplit
 import yaml
 
 from agents_shipgate.core.boundary_diff import (
+    DiffFile,
+    ResolvedFileText,
     _canonical_json,
     _resolve_changed_file_text,
     parse_unified_diff,
 )
-from agents_shipgate.core.boundary_registry import is_agent_boundary_path
+from agents_shipgate.core.boundary_registry import (
+    boundary_adapters_for_path,
+    is_agent_boundary_path,
+)
 from agents_shipgate.core.codex_boundary import (
     _DECISION_RANK,
     _RISK_BY_ACTION,
@@ -175,6 +180,9 @@ def evaluate_host_boundary(
     diff_text: str,
     policy_path: Path | None = None,
     policy_override: HostBoundaryPolicy | None = None,
+    diff_files_override: list[DiffFile] | None = None,
+    resolved_text_cache: dict[str, ResolvedFileText] | None = None,
+    static_read_cache: Any | None = None,
 ) -> tuple[list[AgentResultViolatedRule], list[AgentResultDiagnostic]]:
     """Evaluate host-boundary rules for a unified diff.
 
@@ -184,7 +192,11 @@ def evaluate_host_boundary(
     """
 
     workspace = workspace.resolve()
-    diff_files = parse_unified_diff(diff_text)
+    diff_files = (
+        diff_files_override
+        if diff_files_override is not None
+        else parse_unified_diff(diff_text)
+    )
     if policy_override is None:
         policy, diagnostics = load_host_boundary_policy(
             workspace=workspace,
@@ -194,6 +206,15 @@ def evaluate_host_boundary(
         policy = policy_override
         diagnostics = []
     violations: list[AgentResultViolatedRule] = []
+    resolved_text_cache = resolved_text_cache if resolved_text_cache is not None else {}
+
+    def resolve(diff_file: DiffFile) -> ResolvedFileText:
+        path = diff_file.path
+        if path not in resolved_text_cache:
+            resolved_text_cache[path] = _resolve_changed_file_text(
+                workspace, diff_file, diagnostics, static_read_cache
+            )
+        return resolved_text_cache[path]
 
     def add(rule_id: str, *, path: str | None, evidence: dict[str, Any]) -> None:
         rule = policy.rules.get(rule_id) or DEFAULT_RULES[rule_id]
@@ -216,16 +237,16 @@ def evaluate_host_boundary(
             continue
         normalized = path.replace("\\", "/")
         if _is_mcp_server_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             _evaluate_mcp_file(diff_file, resolved, add)
         if _is_claude_settings_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             _evaluate_claude_settings(diff_file, resolved, add)
         if _is_cursor_settings_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             _evaluate_cursor_settings(diff_file, resolved, add)
         if _is_workflow_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             _evaluate_workflow(diff_file, resolved, add)
 
     return _dedupe_violations(violations), diagnostics
@@ -249,7 +270,10 @@ def load_host_boundary_policy(
                 AgentResultDiagnostic(
                     level="warning",
                     code="policy_load_failed",
-                    message=f"Could not load host boundary policy: {exc}",
+                    message=(
+                        "Could not load host boundary policy "
+                        f"({type(exc).__name__})."
+                    ),
                     path=_display_path(candidate, workspace),
                 )
             )
@@ -680,7 +704,7 @@ def _evaluate_workflow(diff_file, resolved, add) -> None:
         add(
             "HOST-CONFIG-PARSE-FAILED",
             path=path,
-            evidence={"kind": "workflow_yaml_parse_failed", "error": str(exc)},
+            evidence=_parser_error("workflow_yaml_parse_failed", exc),
         )
         return
     if not isinstance(new_loaded, dict):
@@ -699,7 +723,7 @@ def _evaluate_workflow(diff_file, resolved, add) -> None:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
-                evidence={"kind": "old_workflow_yaml_parse_failed", "error": str(exc)},
+                evidence=_parser_error("old_workflow_yaml_parse_failed", exc),
             )
             return
     new_map = _normalize_workflow_keys(new_loaded)
@@ -850,7 +874,7 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
         add(
             "HOST-CONFIG-PARSE-FAILED",
             path=path,
-            evidence={"kind": "json_parse_failed", "error": str(exc)},
+            evidence=_parser_error("json_parse_failed", exc),
         )
         return None
     if not resolved.old_text:
@@ -862,10 +886,25 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
-                evidence={"kind": "old_json_parse_failed", "error": str(exc)},
+                evidence=_parser_error("old_json_parse_failed", exc),
             )
             return None
     return old_data, new_data
+
+
+def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
+    evidence: dict[str, Any] = {"kind": kind, "parser": type(exc).__name__}
+    line = getattr(exc, "lineno", None)
+    column = getattr(exc, "colno", None)
+    mark = getattr(exc, "problem_mark", None)
+    if mark is not None:
+        line = getattr(mark, "line", -1) + 1
+        column = getattr(mark, "column", -1) + 1
+    if isinstance(line, int) and line > 0:
+        evidence["line"] = line
+    if isinstance(column, int) and column > 0:
+        evidence["column"] = column
+    return evidence
 
 
 def _load_packaged_default_policy() -> dict[str, Any] | None:
@@ -898,15 +937,20 @@ def _load_packaged_default_policy() -> dict[str, Any] | None:
 
 
 def _is_mcp_server_path(path: str) -> bool:
-    return path in (".mcp.json", ".cursor/mcp.json", ".vscode/mcp.json")
+    return Path(path).name in {".mcp.json", "mcp.json"} and bool(
+        boundary_adapters_for_path(path)
+    )
 
 
 def _is_claude_settings_path(path: str) -> bool:
-    return path in (".claude/settings.json", ".claude/settings.local.json")
+    return _has_boundary_adapter(path, "claude_code") and Path(path).name in {
+        "settings.json",
+        "settings.local.json",
+    }
 
 
 def _is_cursor_settings_path(path: str) -> bool:
-    return path == ".cursor/cli.json"
+    return _has_boundary_adapter(path, "cursor") and Path(path).name == "cli.json"
 
 
 def is_host_boundary_path(path: str) -> bool:
@@ -915,10 +959,14 @@ def is_host_boundary_path(path: str) -> bool:
     return is_agent_boundary_path(path)
 
 
+def _has_boundary_adapter(path: str, adapter_id: str) -> bool:
+    return any(item.id == adapter_id for item in boundary_adapters_for_path(path))
+
+
 def _is_workflow_path(path: str) -> bool:
     if not (path.endswith(".yml") or path.endswith(".yaml")):
         return False
-    if not path.startswith(".github/workflows/"):
+    if not _has_boundary_adapter(path, "shared"):
         # Nested copies (samples/x/.github/workflows/…) never execute;
         # see the root-anchoring note above.
         return False

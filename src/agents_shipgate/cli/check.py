@@ -40,7 +40,7 @@ def check(
     workspace: Path = typer.Option(
         Path("."),
         "--workspace",
-        help="Workspace root containing the Codex-local surfaces.",
+        help="Workspace root containing coding-agent boundary surfaces.",
     ),
     config: Path = typer.Option(
         Path("shipgate.yaml"),
@@ -51,7 +51,7 @@ def check(
     policy: Path | None = typer.Option(
         None,
         "--policy",
-        help="Optional Codex boundary policy file. Defaults to workspace policy then packaged default.",
+        help="Optional unified agent boundary policy. Defaults to workspace policy then packaged policy families.",
     ),
     base: str | None = typer.Option(
         None,
@@ -72,7 +72,7 @@ def check(
     if format_ == "agent-json":
         typer.echo(
             "--format agent-json was removed in the 0.14.0 contract cleanup. "
-            "Use --format codex-boundary-json.",
+            "Use --format agent-boundary-json.",
             err=True,
         )
         raise typer.Exit(2)
@@ -216,7 +216,7 @@ def _rerun_command(
         parts.extend(["--diff", diff])
     elif base and head:
         parts.extend(["--base", base, "--head", head])
-    parts.extend(["--format", "codex-boundary-json"])
+    parts.extend(["--format", "agent-boundary-json"])
     return " ".join(parts)
 
 
@@ -237,5 +237,6 @@ def _neutral_diff_input_error(
         policies=[legacy.policy],
         policy_set_sha256="0" * 64,
         issues=["diff_input_unresolved"],
+        violations=list(legacy.violated_rules),
         excluded_scopes=["runtime_tool_behavior"],
     )

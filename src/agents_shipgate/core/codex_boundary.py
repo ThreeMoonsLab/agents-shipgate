@@ -36,7 +36,10 @@ from agents_shipgate.core.boundary_diff import (  # noqa: F401
     _unresolved_text,
     parse_unified_diff,
 )
-from agents_shipgate.core.boundary_registry import is_agent_boundary_path
+from agents_shipgate.core.boundary_registry import (
+    boundary_adapters_for_path,
+    is_agent_boundary_path,
+)
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -389,6 +392,9 @@ def evaluate_codex_boundary_result(
     manifest_present: bool | None = None,
     policy_override: CodexBoundaryPolicy | None = None,
     policy_diagnostics: list[AgentResultDiagnostic] | None = None,
+    diff_files_override: list[DiffFile] | None = None,
+    resolved_text_cache: dict[str, ResolvedFileText] | None = None,
+    static_read_cache: Any | None = None,
 ) -> AgentResultV2:
     """Return the local Codex boundary-result projection for a unified diff.
 
@@ -414,7 +420,11 @@ def evaluate_codex_boundary_result(
     # agents_shipgate.ci.agent_result.build_agent_result; both produce
     # boundary-result routing fields for different substrates.
     workspace = workspace.resolve()
-    diff_files = parse_unified_diff(diff_text)
+    diff_files = (
+        diff_files_override
+        if diff_files_override is not None
+        else parse_unified_diff(diff_text)
+    )
     changed_files = sorted({item.path for item in diff_files if item.path})
     if policy_override is None:
         policy, diagnostics = load_codex_boundary_policy(
@@ -426,6 +436,15 @@ def evaluate_codex_boundary_result(
         diagnostics = list(policy_diagnostics or [])
     violations: list[AgentResultViolatedRule] = []
     evaluated_files: list[dict[str, Any]] = []
+    resolved_text_cache = resolved_text_cache if resolved_text_cache is not None else {}
+
+    def resolve(diff_file: DiffFile) -> ResolvedFileText:
+        path = diff_file.path
+        if path not in resolved_text_cache:
+            resolved_text_cache[path] = _resolve_changed_file_text(
+                workspace, diff_file, diagnostics, static_read_cache
+            )
+        return resolved_text_cache[path]
 
     def add(rule_id: str, *, path: str | None, evidence: dict[str, Any]) -> None:
         rule = policy.rules.get(rule_id) or DEFAULT_RULES[rule_id]
@@ -460,29 +479,24 @@ def evaluate_codex_boundary_result(
             continue
         normalized = path.replace("\\", "/")
         if _is_codex_config_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
             _evaluate_config_file(diff_file, resolved, add)
         if _is_codex_hooks_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
             _evaluate_hooks_json(diff_file, resolved, add)
         if _is_codex_requirements_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
-            add(
-                "CODEX-UNKNOWN-PERMISSION-KEY",
-                path=path,
-                evidence={"kind": "codex_static_requirements_changed"},
-            )
         if _is_agent_instructions_path(normalized):
             _evaluate_agent_instructions(diff_file, add)
         if _is_shipgate_workflow_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
             _evaluate_shipgate_workflow(diff_file, resolved, add, workspace=workspace)
         if _is_codex_boundary_policy_path(normalized):
-            resolved = _resolve_changed_file_text(workspace, diff_file, diagnostics)
+            resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
             _evaluate_codex_boundary_policy(diff_file, resolved, add)
         if _is_codex_skill_path(normalized):
@@ -716,7 +730,10 @@ def load_codex_boundary_policy(
                 AgentResultDiagnostic(
                     level="error" if explicit else "warning",
                     code="policy_load_failed",
-                    message=f"Could not load Codex boundary policy: {exc}",
+                    message=(
+                        "Could not load Codex boundary policy "
+                        f"({type(exc).__name__})."
+                    ),
                     path=display_path,
                 )
             )
@@ -884,7 +901,7 @@ def _evaluate_config_file(
         add(
             "CODEX-CONFIG-PARSE-FAILED",
             path=path,
-            evidence={"kind": "toml_parse_failed", "error": str(exc)},
+            evidence=_parser_error("toml_parse_failed", exc),
         )
         return
     try:
@@ -893,7 +910,7 @@ def _evaluate_config_file(
         add(
             "CODEX-CONFIG-PARSE-FAILED",
             path=path,
-            evidence={"kind": "old_toml_parse_failed", "error": str(exc)},
+            evidence=_parser_error("old_toml_parse_failed", exc),
         )
         return
     effective = _effective_codex_profile(data)
@@ -1217,7 +1234,7 @@ def _evaluate_hooks_json(
         add(
             "CODEX-CONFIG-PARSE-FAILED",
             path=path,
-            evidence={"kind": "hooks_json_parse_failed", "error": str(exc)},
+            evidence=_parser_error("hooks_json_parse_failed", exc),
         )
         return
     hooks = data.get("hooks") if isinstance(data, dict) else data
@@ -1230,7 +1247,7 @@ def _evaluate_hooks_json(
             add(
                 "CODEX-CONFIG-PARSE-FAILED",
                 path=path,
-                evidence={"kind": "old_hooks_json_parse_failed", "error": str(exc)},
+                evidence=_parser_error("old_hooks_json_parse_failed", exc),
             )
             return
         old_hooks = old_data.get("hooks") if isinstance(old_data, dict) else old_data
@@ -1762,7 +1779,7 @@ def _repair_for(
     )
     safe_to_attempt = _agent_safe_repairable(decision, violations)
     command = (
-        f"shipgate check --agent {agent} --workspace . --format codex-boundary-json"
+        f"shipgate check --agent {agent} --workspace . --format agent-boundary-json"
         if safe_to_attempt
         else None
     )
@@ -1985,6 +2002,17 @@ def _display_path(path: Path, workspace: Path) -> str:
         return str(path)
 
 
+def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
+    evidence: dict[str, Any] = {"kind": kind, "parser": type(exc).__name__}
+    line = getattr(exc, "lineno", None)
+    column = getattr(exc, "colno", None)
+    if isinstance(line, int) and line > 0:
+        evidence["line"] = line
+    if isinstance(column, int) and column > 0:
+        evidence["column"] = column
+    return evidence
+
+
 def _is_allow(value: Any) -> bool:
     return value is True or str(value).lower() == "allow"
 
@@ -2084,7 +2112,7 @@ def _run_script_invokes_shipgate(value: str) -> bool:
 
 
 def _is_codex_config_path(path: str) -> bool:
-    return path == ".codex/config.toml" or path.endswith("/.codex/config.toml")
+    return _has_boundary_adapter(path, "codex") and Path(path).name == "config.toml"
 
 
 def is_codex_config_path(path: str) -> bool:
@@ -2092,7 +2120,7 @@ def is_codex_config_path(path: str) -> bool:
 
 
 def is_mcp_json_path(path: str) -> bool:
-    return path == ".mcp.json" or path.endswith("/.mcp.json")
+    return Path(path).name == ".mcp.json" and bool(boundary_adapters_for_path(path))
 
 
 def resolve_changed_file_text(
@@ -2104,16 +2132,20 @@ def resolve_changed_file_text(
 
 
 def _is_codex_hooks_path(path: str) -> bool:
-    return path == ".codex/hooks.json" or path.endswith("/.codex/hooks.json")
+    return _has_boundary_adapter(path, "codex") and Path(path).name == "hooks.json"
 
 
 def _is_codex_requirements_path(path: str) -> bool:
-    return path == ".codex/requirements.toml" or path.endswith(
-        "/.codex/requirements.toml"
-    )
+    return _has_boundary_adapter(path, "codex") and Path(path).name == "requirements.toml"
+
+
+def _has_boundary_adapter(path: str, adapter_id: str) -> bool:
+    return any(item.id == adapter_id for item in boundary_adapters_for_path(path))
 
 
 def _is_agent_instructions_path(path: str) -> bool:
+    if not boundary_adapters_for_path(path):
+        return False
     name = Path(path).name
     return name in {"AGENTS.md", "AGENTS.override.md", "CLAUDE.md"} or path.startswith(
         ".cursor/rules/"
@@ -2121,35 +2153,18 @@ def _is_agent_instructions_path(path: str) -> bool:
 
 
 def _is_shipgate_workflow_path(path: str) -> bool:
-    return (
-        path
-        in {
-            ".github/workflows/agents-shipgate.yml",
-            ".github/workflows/agents-shipgate.yaml",
-        }
-        or path.endswith("/.github/workflows/agents-shipgate.yml")
-        or path.endswith("/.github/workflows/agents-shipgate.yaml")
-    )
+    return _has_boundary_adapter(path, "shared") and Path(path).name in {
+        "agents-shipgate.yml",
+        "agents-shipgate.yaml",
+    }
 
 
 def _is_codex_boundary_policy_path(path: str) -> bool:
-    policy_paths = {
-        DEFAULT_POLICY_PATH.as_posix(),
-        "policies/agent-boundary.shipgate.yaml",
-        "policies/host-boundary.shipgate.yaml",
-    }
-    return path in policy_paths or any(
-        path.endswith(f"/{candidate}") for candidate in policy_paths
-    )
+    return _has_boundary_adapter(path, "shared") and path.startswith("policies/")
 
 
 def _is_codex_skill_path(path: str) -> bool:
-    return path.endswith("/SKILL.md") and (
-        path.startswith(".agents/skills/")
-        or "/.agents/skills/" in path
-        or path.startswith(".claude/skills/")
-        or "/.claude/skills/" in path
-    )
+    return Path(path).name == "SKILL.md" and bool(boundary_adapters_for_path(path))
 
 
 def is_boundary_path(path: str) -> bool:

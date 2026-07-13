@@ -12,6 +12,7 @@ from agents_shipgate.cli.agent_result import (
     git_boundary_change_set,
 )
 from agents_shipgate.cli.main import app
+from agents_shipgate.core.agent_boundary import evaluate_agent_boundary
 from agents_shipgate.mcp_server.server import shipgate_check
 
 runner = CliRunner()
@@ -252,6 +253,52 @@ def test_mcp_authorization_header_change_is_redacted_and_reviewed(tmp_path: Path
     assert any(item.evidence.get("changed_keys") == ["headers"] for item in result.violated_rules)
 
 
+def test_mcp_tool_restriction_change_requires_review(tmp_path: Path) -> None:
+    old = json.dumps({"mcpServers": {"remote": {"url": "https://example.com"}}})
+    new = json.dumps(
+        {
+            "mcpServers": {
+                "remote": {
+                    "url": "https://example.com",
+                    "includeTools": ["write_secret"],
+                }
+            }
+        }
+    )
+    (tmp_path / ".mcp.json").write_text(old, encoding="utf-8")
+    result = _build(tmp_path, _change_diff(".mcp.json", old, new))
+    assert result.control.state == "human_review_required"
+    assert any(
+        "includeTools" in item.evidence.get("changed_keys", [])
+        for item in result.violated_rules
+    )
+
+
+def test_repeated_boundary_assessments_are_byte_identical(tmp_path: Path) -> None:
+    diff = _new_file_diff(
+        ".cursor/cli.json",
+        json.dumps({"permissions": {"autoRun": True}}),
+    )
+    first = _build(tmp_path, diff).model_dump_json()
+    second = _build(tmp_path, diff).model_dump_json()
+    assert first == second
+
+
+def test_central_snapshot_reads_each_static_source_at_most_once(tmp_path: Path) -> None:
+    old = json.dumps({"mcpServers": {"one": {"url": "https://example.com"}}})
+    new = json.dumps(
+        {"mcpServers": {"one": {"url": "https://api.example.com"}}}
+    )
+    (tmp_path / ".mcp.json").write_text(old, encoding="utf-8")
+    assessment = evaluate_agent_boundary(
+        workspace=tmp_path,
+        diff_text=_change_diff(".mcp.json", old, new),
+    )
+    assert assessment.host_snapshot.cache.read_counts
+    assert max(assessment.host_snapshot.cache.read_counts.values()) == 1
+    assert max(assessment.host_snapshot.cache.parse_counts.values()) == 1
+
+
 @pytest.mark.parametrize(
     ("path", "old", "new"),
     [
@@ -288,7 +335,7 @@ def test_unclassified_workflow_behavior_change_requires_review(tmp_path: Path) -
     )
     assert result.control.state == "human_review_required"
     assert any(
-        item.evidence.get("kind") == "protected_workflow_change_unclassified"
+        item.evidence.get("kind") == "protected_surface_unclassified"
         for item in result.violated_rules
     )
 
@@ -436,6 +483,130 @@ def test_cli_and_mcp_never_serialize_permission_argument_secrets(tmp_path: Path)
     mcp = shipgate_check(workspace=str(tmp_path), diff_text=diff)
     assert secret not in cli.output
     assert secret not in json.dumps(mcp)
+
+
+@pytest.mark.parametrize(
+    ("path", "content"),
+    [
+        (".claude/settings.json", '{"permissions": [TOPSECRET_SENTINEL}'),
+        (".codex/config.toml", 'sandbox_mode = "TOPSECRET_SENTINEL'),
+        (
+            ".github/workflows/secret.yml",
+            "name: test\non: [push\nTOPSECRET_SENTINEL: [",
+        ),
+    ],
+)
+def test_malformed_parser_errors_never_serialize_source_secrets(
+    tmp_path: Path,
+    path: str,
+    content: str,
+) -> None:
+    result = _build(tmp_path, _new_file_diff(path, content))
+    dumped = json.dumps(result.model_dump(mode="json"))
+    assert result.control.state == "human_review_required"
+    assert "TOPSECRET_SENTINEL" not in dumped
+
+
+@pytest.mark.parametrize("payload_kind", ["oversized", "binary", "symlink"])
+def test_tracked_unsafe_rename_into_boundary_never_completes(
+    tmp_path: Path,
+    payload_kind: str,
+) -> None:
+    _init_repo(tmp_path)
+    payload = tmp_path / "payload.json"
+    if payload_kind == "oversized":
+        payload.write_bytes(b"{" + b" " * (129 * 1024) + b"}")
+    elif payload_kind == "binary":
+        payload.write_bytes(b"\x00TOPSECRET_SENTINEL")
+    else:
+        outside = tmp_path.parent / f"{tmp_path.name}-tracked-outside"
+        outside.write_text("{}", encoding="utf-8")
+        payload.symlink_to(outside)
+    subprocess.run(["git", "add", "payload.json"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "payload"], cwd=tmp_path, check=True)
+    (tmp_path / ".claude").mkdir()
+    subprocess.run(
+        ["git", "mv", "payload.json", ".claude/settings.json"],
+        cwd=tmp_path,
+        check=True,
+    )
+    change_set = git_boundary_change_set(workspace=tmp_path, base=None, head=None)
+    result = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=change_set.diff_text,
+        config=Path("shipgate.yaml"),
+        policy=None,
+        input_mode=change_set.mode,
+        input_issues=list(change_set.issues),
+    )
+    assert result.control.state == "human_review_required"
+    assert result.input_coverage == "partial"
+
+
+def test_deleted_boundary_file_never_completes(tmp_path: Path) -> None:
+    old = json.dumps({"permissions": {"deny": ["Bash(*)"]}})
+    lines = old.splitlines()
+    diff = (
+        "diff --git a/.claude/settings.json b/.claude/settings.json\n"
+        "deleted file mode 100644\n--- a/.claude/settings.json\n+++ /dev/null\n"
+        f"@@ -1,{len(lines)} +0,0 @@\n"
+        + "\n".join(f"-{line}" for line in lines)
+        + "\n"
+    )
+    result = _build(tmp_path, diff)
+    assert result.control.state == "human_review_required"
+
+
+@pytest.mark.parametrize("noise_count", [1, 10, 100])
+def test_boundary_violation_cannot_be_diluted_by_unrelated_files(
+    tmp_path: Path,
+    noise_count: int,
+) -> None:
+    dangerous = _new_file_diff(
+        ".claude/settings.json",
+        json.dumps({"permissions": {"allow": ["Bash(*)"]}}),
+    )
+    noise = "".join(
+        _new_file_diff(f"docs/noise-{index}.md", "safe")
+        for index in range(noise_count)
+    )
+    result = _build(tmp_path, dangerous + noise)
+    assert result.decision == "block"
+    assert result.control.state == "human_review_required"
+
+
+def test_reordered_diff_files_produce_same_boundary_decision(tmp_path: Path) -> None:
+    first = _new_file_diff(
+        ".claude/settings.json",
+        json.dumps({"permissions": {"allow": ["Bash(*)"]}}),
+    )
+    second = _new_file_diff("docs/readme.md", "safe")
+    left = _build(tmp_path, first + second)
+    right = _build(tmp_path, second + first)
+    assert left.decision == right.decision == "block"
+    assert left.control.model_dump(mode="json") == right.control.model_dump(mode="json")
+    assert [item.model_dump(mode="json") for item in left.violated_rules] == [
+        item.model_dump(mode="json") for item in right.violated_rules
+    ]
+
+
+def test_manifest_suppression_cannot_hide_boundary_violation(tmp_path: Path) -> None:
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "0.1"\nproject:\n  name: demo\nagent:\n  name: bot\n'
+        "  declared_purpose: [test]\nenvironment:\n  target: production_like\n"
+        "checks:\n  ignore:\n    - check_id: SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW\n"
+        "      reason: attempted bypass\n",
+        encoding="utf-8",
+    )
+    result = _build(
+        tmp_path,
+        _new_file_diff(
+            ".claude/settings.json",
+            json.dumps({"permissions": {"allow": ["Bash(*)"]}}),
+        ),
+    )
+    assert result.decision == "block"
 
 
 @pytest.mark.parametrize("direction", ["into", "out_of"])

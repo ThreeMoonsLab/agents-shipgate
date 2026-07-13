@@ -379,9 +379,9 @@ def test_unclassified_settings_change_fails_closed(tmp_path: Path) -> None:
 
     findings = host_boundary_run(_context(tmp_path, diff))
     assert [item.check_id for item in findings] == [
-        "SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED"
+        "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
     ]
-    assert findings[0].evidence["kind"] == "protected_boundary_change_unclassified"
+    assert findings[0].evidence["kind"] == "protected_surface_unclassified"
 
 
 # --- GitHub workflows -----------------------------------------------------------

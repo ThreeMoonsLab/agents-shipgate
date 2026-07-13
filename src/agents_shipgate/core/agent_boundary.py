@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from agents_shipgate.core.boundary_diff import BoundaryInputIssue, parse_unified_diff
 from agents_shipgate.core.boundary_registry import (
@@ -45,6 +47,10 @@ from agents_shipgate.core.host_boundary import (
     evaluate_host_boundary,
     load_host_boundary_policy,
 )
+from agents_shipgate.core.host_grants import (
+    HostBoundarySnapshot,
+    build_host_boundary_snapshot,
+)
 from agents_shipgate.schemas.agent_boundary import (
     AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
     AgentBoundaryResultV1,
@@ -76,6 +82,7 @@ class AgentBoundaryAssessment:
     policy_set_sha256: str
     issues: tuple[str, ...]
     completion_eligible: bool
+    host_snapshot: HostBoundarySnapshot
     legacy_result: CodexBoundaryResultV2
 
 
@@ -87,6 +94,52 @@ class _PolicySet:
     records: tuple[AgentResultPolicy, ...]
     digest: str
     issues: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _GenericBoundaryRule:
+    id: str
+    check_id: str
+    title: str
+    action: str
+    risk_level: str
+    recommendation: str
+
+
+_GENERIC_RULES = {
+    "PROTECTED-SURFACE-UNCLASSIFIED": _GenericBoundaryRule(
+        id="BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
+        check_id="SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
+        title="Protected coding-agent surface lacks a safe static classification",
+        action="require_review",
+        risk_level="medium",
+        recommendation="Have a human review the protected boundary change.",
+    ),
+    "EXPERIMENTAL-SURFACE-CHANGED": _GenericBoundaryRule(
+        id="BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED",
+        check_id="SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED",
+        title="Experimental coding-agent boundary surface changed",
+        action="require_review",
+        risk_level="high",
+        recommendation="Have a human review the experimental boundary surface.",
+    ),
+    "STATIC-REQUIREMENTS-CHANGED": _GenericBoundaryRule(
+        id="BOUNDARY-STATIC-REQUIREMENTS-CHANGED",
+        check_id="SHIP-AGENT-BOUNDARY-STATIC-REQUIREMENTS-CHANGED",
+        title="Static host requirements changed",
+        action="require_review",
+        risk_level="high",
+        recommendation="Have a human review the static host requirements change.",
+    ),
+    "INPUT-INCOMPLETE": _GenericBoundaryRule(
+        id="BOUNDARY-INPUT-INCOMPLETE",
+        check_id="SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE",
+        title="Boundary input is incomplete",
+        action="require_review",
+        risk_level="medium",
+        recommendation="Provide a complete, coherent boundary diff and rerun the check.",
+    ),
+}
 
 
 def evaluate_agent_boundary(
@@ -102,8 +155,13 @@ def evaluate_agent_boundary(
     manifest_present: bool | None = None,
     input_mode: Literal["worktree", "git_range", "provided_diff"] = "provided_diff",
     input_issues: list[BoundaryInputIssue] | None = None,
+    host_snapshot: HostBoundarySnapshot | None = None,
 ) -> AgentBoundaryAssessment:
     workspace = workspace.resolve()
+    host_snapshot = host_snapshot or build_host_boundary_snapshot(
+        workspace,
+        scope="repository",
+    )
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted(
         {
@@ -122,6 +180,7 @@ def evaluate_agent_boundary(
         ),
     ]
     policies = _load_policy_set(workspace=workspace, explicit=policy_path)
+    resolved_text_cache = {}
 
     legacy = evaluate_codex_boundary_result(
         workspace=workspace,
@@ -134,11 +193,17 @@ def evaluate_agent_boundary(
         manifest_present=manifest_present,
         policy_override=policies.codex,
         policy_diagnostics=list(policies.diagnostics),
+        diff_files_override=diff_files,
+        resolved_text_cache=resolved_text_cache,
+        static_read_cache=host_snapshot.cache,
     )
     host_violations, host_diagnostics = evaluate_host_boundary(
         workspace=workspace,
         diff_text=diff_text,
         policy_override=policies.host,
+        diff_files_override=diff_files,
+        resolved_text_cache=resolved_text_cache,
+        static_read_cache=host_snapshot.cache,
     )
     diagnostics = _dedupe_diagnostics(
         [*legacy.diagnostics, *host_diagnostics, *policies.diagnostics]
@@ -166,9 +231,7 @@ def evaluate_agent_boundary(
     )
     combined = _sanitize_violations(combined)
     if input_issues:
-        from agents_shipgate.core.host_boundary import DEFAULT_RULES as HOST_DEFAULT_RULES
-
-        rule = HOST_DEFAULT_RULES["HOST-CONFIG-PARSE-FAILED"]
+        rule = _GENERIC_RULES["INPUT-INCOMPLETE"]
         combined = _dedupe_violations(
             [
                 *combined,
@@ -177,7 +240,7 @@ def evaluate_agent_boundary(
                         id=rule.id,
                         check_id=rule.check_id,
                         action=rule.action,  # type: ignore[arg-type]
-                        risk_level=rule.risk_level,
+                        risk_level=rule.risk_level,  # type: ignore[arg-type]
                         title=rule.title,
                         path=issue.path,
                         evidence={
@@ -235,9 +298,7 @@ def evaluate_agent_boundary(
         }
         for item in combined
     ):
-        from agents_shipgate.core.host_boundary import DEFAULT_RULES as HOST_DEFAULT_RULES
-
-        rule = HOST_DEFAULT_RULES["HOST-CONFIG-PARSE-FAILED"]
+        rule = _GENERIC_RULES["INPUT-INCOMPLETE"]
         witness = next(
             (item.path for item in diagnostics if item.level in {"warning", "error"}),
             None,
@@ -249,7 +310,7 @@ def evaluate_agent_boundary(
                     id=rule.id,
                     check_id=rule.check_id,
                     action=rule.action,  # type: ignore[arg-type]
-                    risk_level=rule.risk_level,
+                    risk_level=rule.risk_level,  # type: ignore[arg-type]
                     title=rule.title,
                     path=witness,
                     evidence={
@@ -302,6 +363,7 @@ def evaluate_agent_boundary(
         policy_set_sha256=policies.digest,
         issues=tuple(sorted(dict.fromkeys(issue_codes))),
         completion_eligible=completion_eligible,
+        host_snapshot=host_snapshot,
         legacy_result=projected,
     )
 
@@ -321,6 +383,7 @@ def build_agent_boundary_result(assessment: AgentBoundaryAssessment) -> AgentBou
         policies=list(assessment.policies),
         policy_set_sha256=assessment.policy_set_sha256,
         issues=list(assessment.issues),
+        violations=list(assessment.violations),
         static_analysis_only=True,
         runtime_session_verified=False,
         excluded_scopes=[
@@ -391,8 +454,8 @@ def _project_legacy(
         decision = legacy.decision
         risk = legacy.risk_level
         repair = legacy.repair
-        summary = legacy.summary
-        control = legacy.control
+        summary = _boundary_summary(decision, violations)
+        control = legacy.control.model_copy(update={"reason": summary})
     fingerprints = [_violation_fingerprint(item) for item in violations]
     aggregate = AgentResultPolicy(
         id="agent-boundary",
@@ -652,84 +715,32 @@ def _with_unclassified_protected_changes(
     additions: list[AgentResultViolatedRule] = []
     for path in changed_files:
         normalized = path.replace("\\", "/")
-        if normalized in covered:
+        if normalized in covered or not is_agent_boundary_path(normalized):
             continue
-        if (
-            normalized in {"AGENTS.md", "AGENTS.override.md", "CLAUDE.md"}
-            or normalized.startswith(".cursor/rules/")
-            or normalized.startswith(".agents/skills/")
-            or normalized.startswith(".claude/skills/")
-        ):
-            rule = CODEX_DEFAULT_RULES[
-                "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED"
-            ]
-            additions.append(
-                AgentResultViolatedRule(
-                    id=rule.id,
-                    check_id=rule.check_id,
-                    action=rule.action,  # type: ignore[arg-type]
-                    risk_level=rule.risk_level,
-                    title="Coding-agent instruction trust root changed",
-                    path=path,
-                    evidence={"kind": "protected_instruction_change_unclassified"},
-                    recommendation=(
-                        "Have a human review the instruction trust-root change."
-                    ),
-                )
-            )
-        elif normalized.startswith(".github/workflows/") and normalized.count("/") == 2:
-            from agents_shipgate.core.host_boundary import DEFAULT_RULES as HOST_DEFAULT_RULES
-
-            rule = HOST_DEFAULT_RULES["HOST-WORKFLOW-PERMISSIONS-EXPANDED"]
-            additions.append(
-                AgentResultViolatedRule(
-                    id=rule.id,
-                    check_id=rule.check_id,
-                    action=rule.action,  # type: ignore[arg-type]
-                    risk_level=rule.risk_level,
-                    title="Coding-agent workflow trust root changed",
-                    path=path,
-                    evidence={"kind": "protected_workflow_change_unclassified"},
-                    recommendation="Have a human review the workflow behavior change.",
-                )
-            )
-        elif is_agent_boundary_path(normalized):
-            if normalized.startswith(".codex/") or normalized.startswith("policies/"):
-                rule = CODEX_DEFAULT_RULES["CODEX-UNKNOWN-PERMISSION-KEY"]
-                additions.append(
-                    AgentResultViolatedRule(
-                        id=rule.id,
-                        check_id=rule.check_id,
-                        action=rule.action,  # type: ignore[arg-type]
-                        risk_level=rule.risk_level,
-                        title="Coding-agent boundary trust root changed",
-                        path=path,
-                        evidence={"kind": "protected_boundary_change_unclassified"},
-                        recommendation=(
-                            "Have a human review the host boundary change."
-                        ),
+        kind = (
+            "STATIC-REQUIREMENTS-CHANGED"
+            if normalized == ".codex/requirements.toml"
+            else "PROTECTED-SURFACE-UNCLASSIFIED"
+        )
+        rule = _GENERIC_RULES[kind]
+        additions.append(
+            AgentResultViolatedRule(
+                id=rule.id,
+                check_id=rule.check_id,
+                action=rule.action,  # type: ignore[arg-type]
+                risk_level=rule.risk_level,  # type: ignore[arg-type]
+                title=rule.title,
+                path=path,
+                evidence={
+                    "kind": (
+                        "static_requirements_changed"
+                        if kind == "STATIC-REQUIREMENTS-CHANGED"
+                        else "protected_surface_unclassified"
                     )
-                )
-            else:
-                from agents_shipgate.core.host_boundary import (
-                    DEFAULT_RULES as HOST_DEFAULT_RULES,
-                )
-
-                rule = HOST_DEFAULT_RULES["HOST-CONFIG-PARSE-FAILED"]
-                additions.append(
-                    AgentResultViolatedRule(
-                        id=rule.id,
-                        check_id=rule.check_id,
-                        action=rule.action,  # type: ignore[arg-type]
-                        risk_level=rule.risk_level,
-                        title="Coding-agent boundary trust root changed",
-                        path=path,
-                        evidence={"kind": "protected_boundary_change_unclassified"},
-                        recommendation=(
-                            "Have a human review the host boundary change."
-                        ),
-                    )
-                )
+                },
+                recommendation=rule.recommendation,
+            )
+        )
     return _dedupe_violations([*violations, *additions])
 
 
@@ -738,17 +749,16 @@ def _sanitize_violations(
 ) -> list[AgentResultViolatedRule]:
     # Reuse the host-inventory sanitizer so check/audit cannot disagree about
     # what credential-bearing strings may enter durable JSON.
-    from agents_shipgate.core.host_grants import (
-        _redact_secret_values,
-        _sanitize_sensitive_string,
-    )
+    from agents_shipgate.core.host_grants import _redact_secret_values
 
     return [
         item.model_copy(
             update={
-                "title": _sanitize_sensitive_string(item.title),
-                "evidence": _redact_secret_values(item.evidence),
-                "recommendation": _sanitize_sensitive_string(item.recommendation),
+                "title": _sanitize_boundary_string(item.title),
+                "evidence": _sanitize_boundary_value(
+                    _redact_secret_values(item.evidence)
+                ),
+                "recommendation": _sanitize_boundary_string(item.recommendation),
             }
         )
         for item in violations
@@ -758,14 +768,45 @@ def _sanitize_violations(
 def _sanitize_diagnostics(
     diagnostics: list[AgentResultDiagnostic],
 ) -> list[AgentResultDiagnostic]:
-    from agents_shipgate.core.host_grants import _sanitize_sensitive_string
-
     return [
         item.model_copy(
-            update={"message": _sanitize_sensitive_string(item.message)}
+            update={"message": _sanitize_boundary_string(item.message)}
         )
         for item in diagnostics
     ]
+
+
+_BOUNDARY_URL_RE = re.compile(r"(?:https?|wss?)://[^\s'\"<>]+")
+
+
+def _sanitize_boundary_string(value: str) -> str:
+    from agents_shipgate.core.host_grants import _sanitize_sensitive_string
+
+    sanitized = _sanitize_sensitive_string(value)
+
+    def replace_url(match: re.Match[str]) -> str:
+        try:
+            parsed = urlsplit(match.group(0))
+            hostname = parsed.hostname or ""
+            netloc = f"{hostname}:{parsed.port}" if parsed.port is not None else hostname
+            path = "/<redacted-path>" if parsed.path not in {"", "/"} else parsed.path
+            return f"{parsed.scheme}://{netloc}{path}"
+        except ValueError:
+            return "<redacted-url>"
+
+    return _BOUNDARY_URL_RE.sub(replace_url, sanitized)
+
+
+def _sanitize_boundary_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _sanitize_boundary_value(inner) for key, inner in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_boundary_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_boundary_value(item) for item in value]
+    if isinstance(value, str):
+        return _sanitize_boundary_string(value)
+    return value
 
 
 def _with_experimental_adapter_changes(
@@ -781,21 +822,17 @@ def _with_experimental_adapter_changes(
         adapters = [item for item in BOUNDARY_ADAPTERS if item.matches(path)]
         if not any(item.experimental for item in adapters):
             continue
-        from agents_shipgate.core.host_boundary import DEFAULT_RULES as HOST_DEFAULT_RULES
-
-        rule = HOST_DEFAULT_RULES["HOST-CONFIG-PARSE-FAILED"]
+        rule = _GENERIC_RULES["EXPERIMENTAL-SURFACE-CHANGED"]
         additions.append(
             AgentResultViolatedRule(
                 id=rule.id,
                 check_id=rule.check_id,
                 action=rule.action,  # type: ignore[arg-type]
-                risk_level=rule.risk_level,
-                title="Experimental host boundary changed",
+                risk_level=rule.risk_level,  # type: ignore[arg-type]
+                title=rule.title,
                 path=path,
                 evidence={"kind": "experimental_boundary_surface_changed"},
-                recommendation=(
-                    "Have a human review this experimental host boundary surface."
-                ),
+                recommendation=rule.recommendation,
             )
         )
     return _dedupe_violations([*violations, *additions])

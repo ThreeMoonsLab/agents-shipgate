@@ -55,6 +55,12 @@ jobs:
         # Binding is a separate trust dimension from effect and authority.
         # Keep these exact outcomes visible before the aggregate coverage run.
 
+      - name: Multi-host boundary safety canaries (48+ exact outcomes)
+        run: python -m pytest tests/test_agent_boundary.py -q
+        # Cross-host boundary completeness is a separate trust dimension.
+        # Keep false-complete, input-integrity, and secret-redaction failures
+        # visible before the aggregate coverage run.
+
       - name: Test
         # v0.21 (E7): bumped from 75 → 85. Actual aggregate coverage on
         # current main is ~88%, so the gate is +10pp tighter with ~3pp

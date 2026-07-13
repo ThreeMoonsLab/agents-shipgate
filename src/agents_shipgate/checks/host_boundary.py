@@ -24,7 +24,7 @@ def run(context: ScanContext) -> list[Finding]:
     assessment = assessment_for_scan_context(context)
     findings: list[Finding] = []
     for violated in assessment.violations:
-        if not violated.id.startswith("HOST-"):
+        if not violated.id.startswith(("HOST-", "BOUNDARY-")):
             continue
         findings.append(
             Finding(
