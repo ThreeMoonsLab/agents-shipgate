@@ -6,41 +6,45 @@ local governance check before reporting an agent-capability change complete.
 Agents only need one command and one JSON schema:
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
 ```
 
 Use `--agent claude-code` for Claude Code and `--agent cursor` for Cursor.
+This value identifies the calling agent and changes only actor/rerun metadata;
+it never selects or disables host coverage. Every recognized changed boundary
+surface is evaluated on every invocation.
 The command writes no repo artifacts by default. It prints one JSON object to
-stdout: `shipgate.codex_boundary_result/v2`.
+stdout: `shipgate.agent_boundary_result/v1`.
 
 `agents-shipgate verify` and `agents-shipgate-reports/report.json` remain the
 full CI and reviewer substrate. Coding agents should use them for committed PR
 verification and reviewer evidence, but their local control loop is
-`shipgate check` plus `shipgate.codex_boundary_result/v2`.
+`shipgate check` plus `shipgate.agent_boundary_result/v1`.
 
 ## Command
 
 Default local check:
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
 ```
 
 Committed diff check:
 
 ```bash
-shipgate check --agent codex --workspace . --base origin/main --head HEAD --format codex-boundary-json
+shipgate check --agent codex --workspace . --base origin/main --head HEAD --format agent-boundary-json
 ```
 
 Fixture or MCP-provided diff:
 
 ```bash
-shipgate check --agent codex --workspace . --diff change.diff --format codex-boundary-json
-shipgate check --agent codex --workspace . --diff - --format codex-boundary-json
+shipgate check --agent codex --workspace . --diff change.diff --format agent-boundary-json
+shipgate check --agent codex --workspace . --diff - --format agent-boundary-json
 ```
 
 The no-`--diff` form resolves a git diff locally. With no `--base` or `--head`,
-it reads local uncommitted tracked changes. With `--base` and `--head`, it reads
+it reads local staged, unstaged, deleted, renamed, and relevant untracked
+changes. With `--base` and `--head`, it reads
 `base...head`. Supplying only one of `--base` or `--head` is invalid; omit both
 for local work or provide both for committed refs. Shipgate never fetches refs.
 
@@ -48,8 +52,15 @@ for local work or provide both for committed refs. Shipgate never fetches refs.
 
 The stdout object has:
 
-- `schema_version: "shipgate.codex_boundary_result/v2"`
-- `agent: "codex" | "claude-code" | "cursor"`
+- `schema_version: "shipgate.agent_boundary_result/v1"`
+- `actor: "codex" | "claude-code" | "cursor"`
+- `input_mode` and `scope`
+- `input_coverage`
+- `host_coverage[]` and `affected_hosts[]`
+- `policies[]` and `policy_set_sha256`
+- `issues[]` and `excluded_scopes[]`
+- `static_analysis_only: true`
+- `runtime_session_verified: false`
 - `decision: "allow" | "warn" | "block" | "require_review"`
 - `control.state: "complete" | "agent_action_required" | "human_review_required"`
 - `control.reason`
@@ -60,18 +71,18 @@ The stdout object has:
 - `control.allowed_next_commands`
 - `control.human_review`
 - `repair`
-- `policy`
+- `policies[]`
 - `source_artifacts`
 - `audit_id`
 
 Consumers must make decisions from JSON fields, never from prose or Markdown.
-The stable schema is `docs/codex-boundary-result-schema.v2.json`. Operational
+The stable schema is `docs/agent-boundary-result-schema.v1.json`. Operational
 consumers switch only on `control.state`; `decision` is diagnostic context.
 `control.completion_allowed` is true exactly for `complete`, and
 `control.must_stop` is true
 exactly for `human_review_required`. `risk_level` remains explanatory.
 
-With `--format codex-boundary-json`, schema-valid results exit `0`; wrappers
+With `--format agent-boundary-json`, schema-valid results exit `0`; wrappers
 must switch on `control.state`, not `$?`. Diff-input recovery is represented as
 `agent_action_required` with an exact next action. Unsupported
 CLI shape errors such as an invalid `--agent` or `--format` still exit nonzero
@@ -122,9 +133,12 @@ agents have the same trust-root boundary even when no finding fires.
 
 ## Coverage
 
-`shipgate check` is boundary-scoped: it evaluates host and trust-root surfaces
-(Codex/host config, MCP approvals, the Shipgate CI gate, agent instructions,
-policy, and skills) from the diff. It does **not** compute the tool-use
+`shipgate check` is repository-boundary-scoped: it evaluates Codex, Claude
+Code, Cursor, experimental VS Code MCP, shared instruction, Shipgate trust-root,
+and GitHub workflow surfaces from the diff. A complete result requires every
+registered host adapter to be either evaluated or proven inapplicable; malformed,
+unreadable, oversized, external, symlinked, and otherwise unresolved relevant
+inputs cannot produce `control.state="complete"`. It does **not** compute the tool-use
 capability delta — that is `verify`'s job, and `release_decision.decision`
 remains the one authoritative capability gate.
 
@@ -164,16 +178,24 @@ route to human review.
 Policy discovery is deterministic:
 
 1. `--policy <path>` wins.
-2. Then `policies/codex-boundary.shipgate.yaml` in the workspace.
-3. Then the packaged default policy.
+2. Then `policies/agent-boundary.shipgate.yaml` in the workspace.
+3. Then legacy Codex and host policy files, limited to their original rule
+   families.
+4. Then the packaged unified default for missing families.
+
+Coexisting unified and legacy workspace policies, duplicate inconsistent rule
+definitions, invalid explicit policy, and unknown explicit policy fields fail
+closed. Legacy policy discovery is deprecated through `0.16.x` and never
+auto-migrated.
 
 Every result includes:
 
-- `policy.source`
-- `policy.id`
-- `policy.version`
-- `policy.snapshot_sha256`
-- `policy.discovery[]`
+- `policies[].source`
+- `policies[].id`
+- `policies[].version`
+- `policies[].snapshot_sha256`
+- `policies[].discovery[]`
+- `policy_set_sha256`
 
 Invalid explicit policy and unknown explicit policy fields fail closed to
 `require_review`. A diff that weakens or deletes Shipgate policy emits
@@ -188,7 +210,7 @@ look like:
 
 ```json
 {
-  "schema_version": "shipgate.codex_boundary_result/v2",
+  "schema_version": "shipgate.agent_boundary_result/v1",
   "decision": "block",
   "control": {
     "state": "agent_action_required",
@@ -210,7 +232,7 @@ Shipgate JSON rather than agent-authored prose.
 
 ## Stale Install
 
-A binary that is present but older than runtime contract 14 is the other
+A binary that is present but older than runtime contract 15 is the other
 fail-safe case: a stale copy lingering on `PATH` can emit an outdated schema or
 lack the command this protocol expects (a plain `pipx install` is a no-op over
 an already-installed older build). Confirm the version first with
@@ -220,7 +242,7 @@ Surface a schema-valid boundary-result object that routes to an upgrade:
 
 ```json
 {
-  "schema_version": "shipgate.codex_boundary_result/v2",
+  "schema_version": "shipgate.agent_boundary_result/v1",
   "decision": "block",
   "control": {
     "state": "agent_action_required",
@@ -279,7 +301,7 @@ Input:
 }
 ```
 
-`shipgate.check` output is exactly `shipgate.codex_boundary_result/v2`.
+`shipgate.check` output is exactly `shipgate.agent_boundary_result/v1`.
 
 `shipgate.preflight` returns `PreflightResultV3`; prefer the `plan` argument
 with a `PreflightPlanV1` object for protected-surface routing, high-risk

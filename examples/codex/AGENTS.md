@@ -6,10 +6,10 @@ workflow, run:
 
 ```bash
 git diff --no-ext-diff --unified=0 HEAD > /tmp/codex.diff
-shipgate check --agent codex --diff /tmp/codex.diff --format codex-boundary-json
+shipgate check --agent codex --diff /tmp/codex.diff --format agent-boundary-json
 ```
 
-Read stdout as `shipgate.codex_boundary_result/v2` JSON only. Switch on
+Read stdout as `shipgate.agent_boundary_result/v1` JSON only. Switch on
 `control.state`; `decision` is diagnostic context:
 
 - `complete`: continue and report the diagnostic decision.

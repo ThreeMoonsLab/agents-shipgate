@@ -90,10 +90,11 @@ Per-agent guides cover [Codex](agents/use-with-codex.md),
 [Claude Code](agents/use-with-claude-code.md), and
 [Cursor](agents/use-with-cursor.md).
 
-The current source tree is `0.16.0b3` (runtime contract v14); the latest
-published release remains `v0.15.0` until that beta is cut. In report v0.31,
-`passed` is an evidence-backed static verdict: every in-scope action has
-complete, conflict-free surface, effect, and authority evidence, all applicable
+The current source tree is `0.16.0b4` (runtime contract v15); the latest
+published release remains `v0.15.0` until that beta is cut. In report v0.32,
+`passed` is an evidence-backed static verdict: the configured root has a
+complete reachable binding graph, every reachable action has complete,
+conflict-free identity, binding, effect, and authority evidence, all applicable
 controls were evaluated, and no policy condition requires review. It does not
 prove runtime behavior or enforcement. See the
 [`passed` verdict contract](passed-verdict-contract.md).

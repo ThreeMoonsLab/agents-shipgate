@@ -3,12 +3,14 @@
 Cursor uses the shared agent-native protocol:
 
 ```bash
-shipgate check --agent cursor --workspace . --format codex-boundary-json
+shipgate check --agent cursor --workspace . --format agent-boundary-json
 ```
 
-Parse stdout as `shipgate.codex_boundary_result/v2`. Switch only on
+Parse stdout as `shipgate.agent_boundary_result/v1`. Switch only on
 `control.state`; follow `control.next_action`, `control.allowed_next_commands`,
 and `control.human_review`. Treat `decision` as diagnostic context only.
+`--agent cursor` labels the caller; it does not limit the check to Cursor files
+or hide changes to another host's boundary.
 
 If the binary is missing, surface the schema-valid install fixture with
 `control.state="agent_action_required"`, `control.next_action.kind="install"`,
@@ -18,9 +20,15 @@ decision.
 
 Cursor-specific discovery surfaces:
 
+- `.cursor/cli.json` Shell/Read/Write permission rules
+- `.cursor/mcp.json` MCP server declarations
 - `.cursor/rules/agents-shipgate.mdc`
 - path globs for agent tools, policies, prompts, Codex plugin metadata, and CI
   release gates
+
+Use `shipgate audit --host --scope local-static` to include supported
+`~/.cursor/cli-config.json` and `~/.cursor/mcp.json` declarations. UI choices,
+session approvals, and invocation flags remain explicitly excluded.
 
 For committed PR verification, use the CI substrate after the local check:
 

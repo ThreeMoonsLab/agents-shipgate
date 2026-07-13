@@ -10,13 +10,16 @@ prominent flows.
 ### Local Boundary Check
 
 Coding agents run `shipgate check` before reporting an agent-capability change
-complete. Parse the stdout `shipgate.codex_boundary_result/v2` object:
+complete. Parse the stdout `shipgate.agent_boundary_result/v1` object:
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
-shipgate check --agent claude-code --workspace . --format codex-boundary-json
-shipgate check --agent cursor --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
+shipgate check --agent claude-code --workspace . --format agent-boundary-json
+shipgate check --agent cursor --workspace . --format agent-boundary-json
 ```
+
+The `--agent` value is caller identity, not a coverage selector. Every
+recognized changed host boundary is evaluated on every invocation.
 
 Switch on `control.state`; follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
@@ -66,6 +69,10 @@ hooks, workflow scopes, or other host grants, capture the host inventory:
 ```bash
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
+
+This defaults to deterministic repository-declared static grants. Add
+`--scope local-static` only for an explicit local user/managed-file audit;
+inspect `host_coverage`, `issues`, and `excluded_scopes` before relying on it.
 
 ## Supporting zero-install relevance check
 

@@ -283,6 +283,35 @@ def test_policy_helper_is_never_run_and_makes_coverage_partial(
     assert f"touch {marker}" not in json.dumps(inventory)
 
 
+def test_local_static_overlapping_layers_are_partial_until_precedence_is_projected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "repo"
+    (workspace / ".claude").mkdir(parents=True)
+    (workspace / ".claude/settings.json").write_text(
+        json.dumps({"permissions": {"deny": ["Bash(*)"]}}), encoding="utf-8"
+    )
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude/settings.json").write_text(
+        json.dumps({"permissions": {"allow": ["Read"]}}), encoding="utf-8"
+    )
+    monkeypatch.setenv("HOME", str(home))
+
+    inventory = host_audit_inventory(workspace, scope="local_static")
+
+    issue = next(
+        item for item in inventory["issues"] if item["kind"] == "unresolved_precedence"
+    )
+    assert issue["host"] == "claude-code"
+    coverage = next(
+        item for item in inventory["host_coverage"] if item["host"] == "claude-code"
+    )
+    assert coverage["status"] == "partial"
+    with pytest.raises(ValueError, match="cannot acknowledge missing evidence"):
+        build_host_grants_baseline(inventory)
+
+
 def test_invalid_config_is_structured_partial_coverage_and_cannot_baseline(tmp_path: Path) -> None:
     (tmp_path / ".mcp.json").write_text("{not-json", encoding="utf-8")
     inventory = host_audit_inventory(tmp_path)
@@ -595,8 +624,13 @@ def test_drift_all_env_header_value_rotation_quiet_but_key_addition_fires(tmp_pa
     data["mcpServers"]["github"]["env"]["GITHUB_TOKEN"] = "rotated"
     data["mcpServers"]["github"]["env"]["READ_ONLY"] = "false"
     data["mcpServers"]["remote"]["headers"]["Authorization"] = "Bearer rotated"
+    data["mcpServers"]["remote"]["url"] = (
+        "https://mcp.example.test/services/ROTATED-WEBHOOK-PATH-TOP-SECRET"
+    )
     path.write_text(json.dumps(data), encoding="utf-8")
-    assert _drift_json(tmp_path)[1]["has_drift"] is False
+    rotated = _drift_json(tmp_path)[1]
+    assert rotated["has_drift"] is False
+    assert "ROTATED-WEBHOOK-PATH-TOP-SECRET" not in json.dumps(rotated)
 
     data["mcpServers"]["github"]["env"]["NEW_GRANT_SHAPING_KEY"] = "any-value"
     data["mcpServers"]["remote"]["headers"]["X-Scope"] = "admin"

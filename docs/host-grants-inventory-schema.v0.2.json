@@ -1,0 +1,1336 @@
+{
+  "$defs": {
+    "HostAdditionalPathGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "additional_path",
+          "default": "additional_path",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "path"
+      ],
+      "title": "HostAdditionalPathGrantV2",
+      "type": "object"
+    },
+    "HostArtifactV2": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "config",
+            "mcp",
+            "hooks",
+            "workflow",
+            "instructions",
+            "requirements"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "parse_status": {
+          "enum": [
+            "parsed",
+            "failed",
+            "unsupported"
+          ],
+          "title": "Parse Status",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "redacted_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redacted Sha256"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "host",
+        "scope",
+        "path",
+        "kind",
+        "parse_status"
+      ],
+      "title": "HostArtifactV2",
+      "type": "object"
+    },
+    "HostCoverageV2": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "issue_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Issue Ids",
+          "type": "array"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "sources_expected": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources Expected",
+          "type": "array"
+        },
+        "sources_observed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources Observed",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "experimental"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "scope",
+        "status"
+      ],
+      "title": "HostCoverageV2",
+      "type": "object"
+    },
+    "HostGrantsInventoryV2": {
+      "additionalProperties": false,
+      "description": "Typed, redacted static inventory emitted by ``audit --host``.",
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/HostArtifactV2"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "excluded_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Scopes",
+          "type": "array"
+        },
+        "grants": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "additional_path": "#/$defs/HostAdditionalPathGrantV2",
+                "hook": "#/$defs/HostHookGrantV2",
+                "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
+                "mcp_server": "#/$defs/HostMcpServerGrantV2",
+                "permission_mode": "#/$defs/HostPermissionModeGrantV2",
+                "permission_rule": "#/$defs/HostPermissionRuleGrantV2",
+                "plugin_or_app": "#/$defs/HostPluginGrantV2",
+                "profile": "#/$defs/HostProfileGrantV2",
+                "requirement": "#/$defs/HostRequirementGrantV2",
+                "sandbox": "#/$defs/HostSandboxGrantV2",
+                "workflow": "#/$defs/HostWorkflowGrantV2"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/HostMcpServerGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostPermissionRuleGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostPermissionModeGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostHookGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostSandboxGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostAdditionalPathGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostPluginGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostProfileGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostRequirementGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostWorkflowGrantV2"
+              },
+              {
+                "$ref": "#/$defs/HostInstructionGrantV2"
+              }
+            ]
+          },
+          "title": "Grants",
+          "type": "array"
+        },
+        "host_coverage": {
+          "items": {
+            "$ref": "#/$defs/HostCoverageV2"
+          },
+          "title": "Host Coverage",
+          "type": "array"
+        },
+        "host_grants_inventory_schema_version": {
+          "const": "0.2",
+          "default": "0.2",
+          "title": "Host Grants Inventory Schema Version",
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/HostInventoryIssueV2"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "runtime_session_verified": {
+          "const": false,
+          "default": false,
+          "title": "Runtime Session Verified",
+          "type": "boolean"
+        },
+        "scope": {
+          "default": "repository",
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "static_analysis_only": {
+          "const": true,
+          "default": true,
+          "title": "Static Analysis Only",
+          "type": "boolean"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace"
+      ],
+      "title": "HostGrantsInventoryV2",
+      "type": "object"
+    },
+    "HostHookGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "event": {
+          "title": "Event",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "hook",
+          "default": "hook",
+          "title": "Kind",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "event"
+      ],
+      "title": "HostHookGrantV2",
+      "type": "object"
+    },
+    "HostInstructionGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "instruction_trust_root",
+          "default": "instruction_trust_root",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "path"
+      ],
+      "title": "HostInstructionGrantV2",
+      "type": "object"
+    },
+    "HostInventoryIssueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking": {
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "issue_id": {
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "parse_failed",
+            "unreadable",
+            "unsupported",
+            "unresolved_precedence",
+            "dynamic_source_excluded",
+            "remote_source_excluded"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issue_id",
+        "kind",
+        "host",
+        "source",
+        "message",
+        "blocking"
+      ],
+      "title": "HostInventoryIssueV2",
+      "type": "object"
+    },
+    "HostMcpServerGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint"
+        },
+        "env_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Keys",
+          "type": "array"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "header_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Header Keys",
+          "type": "array"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "mcp_server",
+          "default": "mcp_server",
+          "title": "Kind",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "server": {
+          "title": "Server",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "transport": {
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "server",
+        "transport"
+      ],
+      "title": "HostMcpServerGrantV2",
+      "type": "object"
+    },
+    "HostPermissionModeGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "permission_mode",
+          "default": "permission_mode",
+          "title": "Kind",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "setting": {
+          "title": "Setting",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "setting",
+        "value"
+      ],
+      "title": "HostPermissionModeGrantV2",
+      "type": "object"
+    },
+    "HostPermissionRuleGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "allow",
+            "ask",
+            "deny"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "permission_rule",
+          "default": "permission_rule",
+          "title": "Kind",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "wildcard": {
+          "default": false,
+          "title": "Wildcard",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "disposition",
+        "rule"
+      ],
+      "title": "HostPermissionRuleGrantV2",
+      "type": "object"
+    },
+    "HostPluginGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "plugin_or_app",
+          "default": "plugin_or_app",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "name"
+      ],
+      "title": "HostPluginGrantV2",
+      "type": "object"
+    },
+    "HostProfileGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "profile",
+          "default": "profile",
+          "title": "Kind",
+          "type": "string"
+        },
+        "profile": {
+          "title": "Profile",
+          "type": "string"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "boolean"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "profile",
+        "resolved"
+      ],
+      "title": "HostProfileGrantV2",
+      "type": "object"
+    },
+    "HostRequirementGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "requirement",
+          "default": "requirement",
+          "title": "Kind",
+          "type": "string"
+        },
+        "requirement": {
+          "title": "Requirement",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "requirement",
+        "value"
+      ],
+      "title": "HostRequirementGrantV2",
+      "type": "object"
+    },
+    "HostSandboxGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "sandbox",
+          "default": "sandbox",
+          "title": "Kind",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "setting": {
+          "title": "Setting",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "setting",
+        "value"
+      ],
+      "title": "HostSandboxGrantV2",
+      "type": "object"
+    },
+    "HostWorkflowGrantV2": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "workflow",
+          "default": "workflow",
+          "title": "Kind",
+          "type": "string"
+        },
+        "pull_request_target": {
+          "default": false,
+          "title": "Pull Request Target",
+          "type": "boolean"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "triggers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Triggers",
+          "type": "array"
+        },
+        "write_all": {
+          "default": false,
+          "title": "Write All",
+          "type": "boolean"
+        },
+        "write_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Write Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk"
+      ],
+      "title": "HostWorkflowGrantV2",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.2.json",
+  "$ref": "#/$defs/HostGrantsInventoryV2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "JSON Schema for shipgate audit --host --json. The inventory summarizes local coding-agent host grants and does not gate releases.",
+  "title": "Agents Shipgate Host Grants Inventory v0.2"
+}

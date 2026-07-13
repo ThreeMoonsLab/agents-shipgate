@@ -408,19 +408,21 @@ def _host_grant_summary(
     *,
     registry_path: str | None,
 ) -> dict[str, Any]:
-    rules = inventory.get("permission_rules") or []
-    workflows = inventory.get("workflows") or []
+    grants = [item for item in inventory.get("grants") or [] if isinstance(item, dict)]
+    rules = [item for item in grants if item.get("kind") == "permission_rule"]
+    workflows = [item for item in grants if item.get("kind") == "workflow"]
+    issues = [item for item in inventory.get("issues") or [] if isinstance(item, dict)]
     return {
         "host_grants_inventory_schema_version": inventory.get(
             "host_grants_inventory_schema_version"
         ),
         "registry_path": registry_path,
-        "mcp_server_count": len(inventory.get("mcp_servers") or []),
+        "mcp_server_count": sum(1 for item in grants if item.get("kind") == "mcp_server"),
         "permission_rule_count": len(rules),
         "wildcard_permission_rule_count": sum(
             1 for item in rules if isinstance(item, dict) and item.get("wildcard")
         ),
-        "hook_count": len(inventory.get("hooks") or []),
+        "hook_count": sum(1 for item in grants if item.get("kind") == "hook"),
         "workflow_count": len(workflows),
         "workflow_with_write_scope_count": sum(
             1
@@ -428,7 +430,7 @@ def _host_grant_summary(
             if isinstance(item, dict)
             and (item.get("write_scopes") or item.get("pull_request_target"))
         ),
-        "parse_warning_count": len(inventory.get("parse_warnings") or []),
+        "parse_warning_count": sum(1 for item in issues if item.get("blocking")),
     }
 
 

@@ -27,7 +27,7 @@ Claude Code registration (`.mcp.json`):
 
 | Tool | Input | Output |
 |---|---|---|
-| `shipgate.check` | `{agent, workspace, diff_text, config?, policy?}` | exact `shipgate.codex_boundary_result/v2` |
+| `shipgate.check` | `{agent, workspace, diff_text, config?, policy?}` | exact `shipgate.agent_boundary_result/v1` |
 | `shipgate.preflight` | `{workspace?, config?, plan?, changed_files?, diff_text?, capability_request?, base_preflight?}` | exact `PreflightResultV3` |
 | `shipgate.explain` | `{check_id}` or `{fingerprint, report_path}` | deterministic check/finding explanation JSON |
 | `shipgate.capabilities` | `{config}` or `{base_lock, head_lock}` | capability lock or capability lock diff JSON |

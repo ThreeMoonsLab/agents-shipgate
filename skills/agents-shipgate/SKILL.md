@@ -47,14 +47,14 @@ Pick the matching task and follow the linked recipe verbatim. Recipes are bundle
 Always:
 
 1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors emit a `next_action` JSON line on stderr (auto-enabled inside Claude Code via the harness's `CLAUDECODE=1` env var, and Cursor via `CURSOR_TRACE_ID`).
-2. For local agent control, run `shipgate check --agent claude-code --workspace . --format codex-boundary-json` and read the stdout `shipgate.codex_boundary_result/v2` object. Switch on `control.state`; follow only `control.next_action`, `control.allowed_next_commands`, and `control.human_review`. Treat `decision` as diagnostic context only.
+2. For local agent control, run `shipgate check --agent claude-code --workspace . --format agent-boundary-json` and read the stdout `shipgate.agent_boundary_result/v1` object. Switch on `control.state`; follow only `control.next_action`, `control.allowed_next_commands`, and `control.human_review`. Treat `decision` as diagnostic context only.
 3. For verifier runs, parse `agents-shipgate-reports/agent-handoff.json` first, then `verifier.json` and `verify-run.json`:
    `control.state`, `merge_verdict`, `can_merge_without_human`, `control.next_action`,
    `fix_task`, and `capability_review.top_changes`. Then parse
    `agents-shipgate-reports/report.json.release_decision.decision`; it is the
    release gate.
 4. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, plan to run `agents-shipgate verify` before completion and route trust-root review to a human when the verifier requires it.
-5. Before finishing an agent-related diff, run `shipgate check --agent claude-code --workspace . --format codex-boundary-json`. For committed PR/CI verification, run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. `verify` never fetches. For host grants, run `shipgate audit --host --json --out agents-shipgate-reports/host-grants.json`.
+5. Before finishing an agent-related diff, run `shipgate check --agent claude-code --workspace . --format agent-boundary-json`. For committed PR/CI verification, run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. `verify` never fetches. For host grants, run `shipgate audit --host --json --out agents-shipgate-reports/host-grants.json`.
 6. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.
 7. Confirm with the user before any command that writes files (`init --write`, `baseline save`).
 

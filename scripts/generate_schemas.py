@@ -26,6 +26,9 @@ Writes / verifies:
                                  AgentHandoffArtifact)
 - docs/agent-result-schema.v2.json
                                 (from agents_shipgate.schemas.agent_result.AgentResultV2)
+- docs/agent-boundary-result-schema.v1.json
+                                (from agents_shipgate.schemas.agent_boundary.
+                                 AgentBoundaryResultV1)
 - docs/preflight-schema.v0.3.json
                                 (from agents_shipgate.schemas.preflight.
                                  PreflightResultV3)
@@ -38,9 +41,13 @@ Writes / verifies:
 - docs/registry-schema.v0.3.json
                                 (from agents_shipgate.schemas.registry.
                                  RegistryQueryResultV1)
-- docs/host-grants-inventory-schema.v0.1.json
+- docs/host-grants-inventory-schema.v0.2.json
                                 (from agents_shipgate.schemas.host_grants.
-                                 HostGrantsInventoryArtifactV1)
+                                 HostGrantsInventoryArtifactV2)
+- docs/host-grants-baseline-schema.v0.2.json
+                                (from HostGrantsBaselineArtifactV2)
+- docs/host-grants-drift-schema.v0.2.json
+                                (from HostGrantsDriftArtifactV2)
 - docs/capability-lock-schema.v0.5.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
@@ -1249,7 +1256,7 @@ def build_agent_result_schema() -> tuple[Path, str]:
 
 
 def build_codex_boundary_result_schema() -> tuple[Path, str]:
-    """Generate docs/codex-boundary-result-schema.v2.json."""
+    """Build the frozen v2 compatibility schema for explicit maintenance."""
 
     from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
@@ -1267,6 +1274,27 @@ def build_codex_boundary_result_schema() -> tuple[Path, str]:
         "Do not edit by hand."
     )
     target = DOCS / "codex-boundary-result-schema.v2.json"
+    return target, _canonical_json(schema)
+
+
+def build_agent_boundary_result_schema() -> tuple[Path, str]:
+    """Generate the current neutral multi-host boundary result schema."""
+
+    from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
+
+    schema = AgentBoundaryResultV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/agent-boundary-result-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Agent Boundary Result v1"
+    schema["description"] = (
+        "JSON Schema for shipgate check --format agent-boundary-json. "
+        "Generated from agents_shipgate.schemas.agent_boundary. "
+        "control.state is authoritative; the result is static and scope-bound."
+    )
+    target = DOCS / "agent-boundary-result-schema.v1.json"
     return target, _canonical_json(schema)
 
 
@@ -1576,10 +1604,10 @@ def build_host_grants_inventory_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.host_grants import (
         HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
-        HostGrantsInventoryArtifactV1,
+        HostGrantsInventoryArtifactV2,
     )
 
-    schema = HostGrantsInventoryArtifactV1.model_json_schema()
+    schema = HostGrantsInventoryArtifactV2.model_json_schema()
     minor = HOST_GRANTS_INVENTORY_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1595,6 +1623,52 @@ def build_host_grants_inventory_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_host_grants_baseline_schema() -> tuple[Path, str]:
+    """Generate the current host-grants baseline schema."""
+
+    from agents_shipgate.schemas.host_grants import (
+        HOST_GRANTS_BASELINE_SCHEMA_VERSION,
+        HostGrantsBaselineArtifactV2,
+    )
+
+    schema = HostGrantsBaselineArtifactV2.model_json_schema()
+    minor = HOST_GRANTS_BASELINE_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/host-grants-baseline-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Host Grants Baseline v{minor}"
+    schema["description"] = (
+        "JSON Schema for a human-acknowledged, scope-bound host-grants baseline."
+    )
+    target = DOCS / f"host-grants-baseline-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
+def build_host_grants_drift_schema() -> tuple[Path, str]:
+    """Generate the current host-grants drift schema."""
+
+    from agents_shipgate.schemas.host_grants import (
+        HOST_GRANTS_DRIFT_SCHEMA_VERSION,
+        HostGrantsDriftArtifactV2,
+    )
+
+    schema = HostGrantsDriftArtifactV2.model_json_schema()
+    minor = HOST_GRANTS_DRIFT_SCHEMA_VERSION
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/host-grants-drift-schema.v{minor}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Host Grants Drift v{minor}"
+    schema["description"] = (
+        "JSON Schema for scope-aware host-grant drift and incomparability."
+    )
+    target = DOCS / f"host-grants-drift-schema.v{minor}.json"
+    return target, _canonical_json(schema)
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
@@ -1607,7 +1681,9 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("verify_run", build_verify_run_schema),
     ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),
-    ("codex_boundary_result", build_codex_boundary_result_schema),
+    # codex_boundary_result v2 is a frozen compatibility schema and is not
+    # regenerated with current package defaults.
+    ("agent_boundary_result", build_agent_boundary_result_schema),
     ("preflight", build_preflight_schema),
     ("capability_lock", build_capability_lock_schema),
     ("capability_lock_diff", build_capability_lock_diff_schema),
@@ -1616,6 +1692,8 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("org_evidence_bundle", build_org_evidence_bundle_schema),
     ("registry", build_registry_schema),
     ("host_grants_inventory", build_host_grants_inventory_schema),
+    ("host_grants_baseline", build_host_grants_baseline_schema),
+    ("host_grants_drift", build_host_grants_drift_schema),
     ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),
     ("governance_benchmark_result", build_governance_benchmark_result_schema),
 )

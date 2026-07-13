@@ -918,6 +918,43 @@ def _coverage(
     return coverage
 
 
+def _local_precedence_issues(
+    artifacts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fail closed where several static layers require an effective merge.
+
+    The inventory retains every redacted declaration, but it must not claim
+    effective-authority coverage until host-specific precedence is projected
+    at the individual setting/grant level.
+    """
+
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for artifact in artifacts:
+        kind = str(artifact.get("kind"))
+        if kind not in {"config", "mcp", "requirements"}:
+            continue
+        key = (str(artifact.get("host")), kind)
+        grouped.setdefault(key, []).append(str(artifact.get("path")))
+    issues: list[dict[str, Any]] = []
+    for (host, kind), sources in sorted(grouped.items()):
+        unique_sources = sorted(dict.fromkeys(sources))
+        if len(unique_sources) < 2:
+            continue
+        issues.append(
+            _inventory_issue(
+                kind="unresolved_precedence",
+                host=host,
+                source=f"{host}:{kind}",
+                message=(
+                    f"Multiple {host} {kind} layers were observed; their "
+                    "runtime-effective precedence is not statically projected."
+                ),
+                blocking=True,
+            )
+        )
+    return issues
+
+
 def build_host_boundary_snapshot(
     workspace: Path,
     *,
@@ -962,6 +999,9 @@ def build_host_boundary_snapshot(
         )
     else:  # pragma: no cover - CLI and typing constrain this; defensive API guard.
         raise ValueError(f"Unsupported host audit scope: {scope!r}")
+
+    if scope == "local_static":
+        issues.extend(_local_precedence_issues(artifacts))
 
     artifacts.sort(key=lambda item: (item["host"], item["scope"], item["path"], item["kind"]))
     grants.sort(key=lambda item: item["grant_id"])

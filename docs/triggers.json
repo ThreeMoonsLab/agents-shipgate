@@ -24,7 +24,7 @@
     {
       "id": "codex",
       "hosts": ["codex"],
-      "exact_paths": [".codex/config.toml", ".codex/hooks.json"],
+      "exact_paths": [".codex/config.toml", ".codex/hooks.json", ".codex/requirements.toml"],
       "globs": [],
       "experimental": false
     },
@@ -32,7 +32,7 @@
       "id": "claude_code",
       "hosts": ["claude-code"],
       "exact_paths": [".claude/settings.json", ".claude/settings.local.json", ".mcp.json", "CLAUDE.md"],
-      "globs": [".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
+      "globs": [".claude/commands/*", ".claude/commands/**", ".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
       "experimental": false
     },
     {
@@ -52,8 +52,8 @@
     {
       "id": "shared",
       "hosts": ["codex", "claude-code", "cursor"],
-      "exact_paths": ["AGENTS.md", "AGENTS.override.md", "shipgate.yaml", "policies/agent-boundary.shipgate.yaml", "policies/codex-boundary.shipgate.yaml", "policies/host-boundary.shipgate.yaml"],
-      "globs": [".agents/skills/*/SKILL.md", ".agents/skills/**/SKILL.md", ".github/workflows/*.yml", ".github/workflows/*.yaml"],
+      "exact_paths": ["AGENTS.md", "AGENTS.override.md", "shipgate.yaml", ".shipgate/agent-contract.json", "policies/agent-boundary.shipgate.yaml", "policies/codex-boundary.shipgate.yaml", "policies/host-boundary.shipgate.yaml"],
+      "globs": [".agents/skills/*/SKILL.md", ".agents/skills/**/SKILL.md", ".github/workflows/*.yml", ".github/workflows/*.yaml", ".agents-shipgate/baseline*.json", ".agents-shipgate/*waiver*.json", ".agents-shipgate/state*.json", "policies/*.shipgate.yaml"],
       "experimental": false
     }
   ],

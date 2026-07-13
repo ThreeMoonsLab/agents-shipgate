@@ -26,7 +26,7 @@ pipx upgrade agents-shipgate
 ```
 
 Do not report the task complete until the CLI exists and reports runtime
-contract 14. Local boundary checks emit `shipgate.codex_boundary_result/v2`;
+contract 14. Local boundary checks emit `shipgate.agent_boundary_result/v1`;
 legacy v1 fixtures are retained only for older protocol integrations.
 
 ## Local Agent Check
@@ -35,7 +35,7 @@ Run the boundary check before reporting an agent-related local diff complete:
 
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 shipgate check \
-  --agent codex --workspace . --format codex-boundary-json
+  --agent codex --workspace . --format agent-boundary-json
 ```
 
 Read only stdout JSON. Switch on `control.state`, follow

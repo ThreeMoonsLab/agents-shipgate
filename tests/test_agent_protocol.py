@@ -371,7 +371,7 @@ def test_mcp_shipgate_check_is_read_only_static_adapter(
             "--diff",
             "-",
             "--format",
-            "codex-boundary-json",
+            "agent-boundary-json",
         ],
         input=diff_text,
     )
@@ -380,7 +380,7 @@ def test_mcp_shipgate_check_is_read_only_static_adapter(
     assert before == after
     assert cli.exit_code == 0, cli.output
     assert payload == json.loads(cli.output)
-    assert payload["schema_version"] == "shipgate.codex_boundary_result/v2"
+    assert payload["schema_version"] == "shipgate.agent_boundary_result/v1"
     assert payload["agent"] == "cursor"
     assert payload["decision"] == "allow"
-    assert _control(payload)["state"] == "complete"
+    assert payload["control"]["state"] == "complete"

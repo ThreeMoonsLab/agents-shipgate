@@ -497,6 +497,53 @@
       "title": "AgentResultViolatedRule",
       "type": "object"
     },
+    "BoundaryHostCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "hosts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hosts",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "not_applicable",
+            "partial",
+            "experimental"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "hosts",
+        "status"
+      ],
+      "title": "BoundaryHostCoverage",
+      "type": "object"
+    },
     "CodingAgentAction": {
       "discriminator": {
         "mapping": {
@@ -854,7 +901,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v2.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-boundary-result-schema.v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -933,13 +980,29 @@
       }
     }
   ],
-  "description": "JSON Schema for the compact local/MCP control projection. Generated from agents_shipgate.schemas.agent_result.AgentResultV2. Do not edit by hand.",
+  "description": "JSON Schema for shipgate check --format agent-boundary-json. Generated from agents_shipgate.schemas.agent_boundary. control.state is authoritative; the result is static and scope-bound.",
   "properties": {
+    "actor": {
+      "enum": [
+        "codex",
+        "claude-code",
+        "cursor"
+      ],
+      "title": "Actor",
+      "type": "string"
+    },
     "affected_files": {
       "items": {
         "$ref": "#/$defs/AgentResultAffectedFile"
       },
       "title": "Affected Files",
+      "type": "array"
+    },
+    "affected_hosts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Hosts",
       "type": "array"
     },
     "agent": {
@@ -990,6 +1053,13 @@
       "title": "Diagnostics",
       "type": "array"
     },
+    "excluded_scopes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Excluded Scopes",
+      "type": "array"
+    },
     "explanation": {
       "anyOf": [
         {
@@ -1009,8 +1079,51 @@
       "title": "Finding Fingerprints",
       "type": "array"
     },
+    "host_coverage": {
+      "items": {
+        "$ref": "#/$defs/BoundaryHostCoverage"
+      },
+      "title": "Host Coverage",
+      "type": "array"
+    },
+    "input_coverage": {
+      "enum": [
+        "complete",
+        "partial",
+        "unknown"
+      ],
+      "title": "Input Coverage",
+      "type": "string"
+    },
+    "input_mode": {
+      "enum": [
+        "worktree",
+        "git_range",
+        "provided_diff"
+      ],
+      "title": "Input Mode",
+      "type": "string"
+    },
+    "issues": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "policies": {
+      "items": {
+        "$ref": "#/$defs/AgentResultPolicy"
+      },
+      "title": "Policies",
+      "type": "array"
+    },
     "policy": {
       "$ref": "#/$defs/AgentResultPolicy"
+    },
+    "policy_set_sha256": {
+      "title": "Policy Set Sha256",
+      "type": "string"
     },
     "policy_snapshot_sha256": {
       "anyOf": [
@@ -1062,10 +1175,22 @@
       "title": "Risk Level",
       "type": "string"
     },
+    "runtime_session_verified": {
+      "const": false,
+      "default": false,
+      "title": "Runtime Session Verified",
+      "type": "boolean"
+    },
     "schema_version": {
-      "const": "agent_result_v2",
-      "default": "agent_result_v2",
+      "const": "shipgate.agent_boundary_result/v1",
+      "default": "shipgate.agent_boundary_result/v1",
       "title": "Schema Version",
+      "type": "string"
+    },
+    "scope": {
+      "const": "repository",
+      "default": "repository",
+      "title": "Scope",
       "type": "string"
     },
     "source_artifacts": {
@@ -1074,6 +1199,12 @@
       },
       "title": "Source Artifacts",
       "type": "object"
+    },
+    "static_analysis_only": {
+      "const": true,
+      "default": true,
+      "title": "Static Analysis Only",
+      "type": "boolean"
     },
     "subject": {
       "$ref": "#/$defs/AgentResultSubject"
@@ -1118,6 +1249,13 @@
       },
       "title": "Violated Rules",
       "type": "array"
+    },
+    "violations": {
+      "items": {
+        "$ref": "#/$defs/AgentResultViolatedRule"
+      },
+      "title": "Violations",
+      "type": "array"
     }
   },
   "required": [
@@ -1127,8 +1265,16 @@
     "policy_version",
     "summary",
     "control",
-    "policy"
+    "policy",
+    "actor",
+    "input_mode",
+    "input_coverage",
+    "host_coverage",
+    "affected_hosts",
+    "policies",
+    "policy_set_sha256",
+    "violations"
   ],
-  "title": "Agents Shipgate Agent Result v2",
+  "title": "Agents Shipgate Agent Boundary Result v1",
   "type": "object"
 }

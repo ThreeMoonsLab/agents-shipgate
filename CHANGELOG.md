@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **Complete zero-config multi-host boundary (`0.16.0b4`).** The local
+  boundary check now evaluates every recognized changed Codex, Claude Code,
+  Cursor, VS Code MCP, shared instruction, and GitHub workflow surface through
+  one static assessment. `--agent` identifies the caller and can no longer be
+  used as a coverage selector. Untracked, deleted, malformed, unreadable,
+  symlinked, and oversized protected inputs fail closed instead of disappearing
+  from the result.
+- **Host-neutral boundary contract.** Runtime contract advances to v15 and the
+  canonical check format becomes `agent-boundary-json` with schema
+  `shipgate.agent_boundary_result/v1`. The frozen
+  `shipgate.codex_boundary_result/v2` projection remains available through the
+  deprecated `codex-boundary-json` spelling for the `0.16.x` line. The shared
+  `AgentControl` contract remains v14.
+- **Evidence-bearing host inventory.** Host inventory, baseline, and drift
+  advance to v0.2 with typed redacted grants, artifact parse status, per-host
+  coverage, explicit excluded scopes, and incomparable migration for v0.1
+  baselines. Repository scope remains deterministic and default; the explicit
+  `local-static` audit scope reads supported local configuration without
+  executing hosts, helpers, tools, user code, or network calls.
+- **Correction to the original host-governance claim.** Earlier documentation
+  overstated the first host-audit cut as the effective/current grant set. The
+  contract is static and scope-bound: repository results cover
+  repository-declared surfaces, while local-static results still exclude
+  session approvals, invocation flags, UI state, remote managed settings, and
+  runtime enforcement.
+
 - **Unambiguous agent control contract (P0, `0.16.0b3`).** Check, preflight,
   verify, handoff, MCP, verify-run, and GitHub Action projections now share one
   schema-enforced `AgentControl` state: `complete`, `agent_action_required`, or

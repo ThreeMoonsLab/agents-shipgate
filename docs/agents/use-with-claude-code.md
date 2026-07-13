@@ -5,10 +5,10 @@ the normative agent protocol, use [claude-code.md](claude-code.md) and
 [protocol.md](protocol.md). The canonical Claude Code control command is:
 
 ```bash
-shipgate check --agent claude-code --workspace . --format codex-boundary-json
+shipgate check --agent claude-code --workspace . --format agent-boundary-json
 ```
 
-Parse stdout as `shipgate.codex_boundary_result/v2`, switch on
+Parse stdout as `shipgate.agent_boundary_result/v1`, switch on
 `control.state`, and follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
 as diagnostic context only; do not infer local control from prose.
@@ -51,7 +51,7 @@ update` instead of re-running `init`:
 Plugin commands are namespaced: the command installs as
 `/agents-shipgate:shipgate` (the committed-kit path keeps plain `/shipgate`).
 The plugin does not ship hooks or the scanner — install the CLI (`pipx
-install agents-shipgate`, runtime contract 14) and add hooks explicitly
+install agents-shipgate`, runtime contract 15) and add hooks explicitly
 with `agents-shipgate install-hooks --target claude-code --write`. To
 pre-provision the marketplace for a whole team, add it to
 `.claude/settings.json` under `extraKnownMarketplaces` and enable
@@ -148,7 +148,7 @@ gates, or `shipgate.yaml`, Claude Code should run the local control check before
 reporting the change as complete, then run `verify` for PR/reviewer evidence:
 
 ```bash
-shipgate check --agent claude-code --workspace . --format codex-boundary-json
+shipgate check --agent claude-code --workspace . --format agent-boundary-json
 agents-shipgate preflight --workspace . --plan - --json
 agents-shipgate verify --base origin/main --head HEAD --json
 ```

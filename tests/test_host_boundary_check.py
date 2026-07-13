@@ -530,9 +530,9 @@ def test_deleted_workflow_fails_closed_when_local_content_is_unavailable(
 
     findings = host_boundary_run(_context(tmp_path, diff))
     assert [item.check_id for item in findings] == [
-        "SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED"
+        "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
     ]
-    assert findings[0].evidence["kind"] == "workflow_not_a_mapping"
+    assert findings[0].evidence["kind"] == "protected_surface_unclassified"
 
 
 # --- Reward-hacking guard: suppression immunity ---------------------------------

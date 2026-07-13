@@ -10,6 +10,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-v1-consolidation-rc.md`](report-v1-consolidation-rc.md) — proposal to regroup the report's top level by reader and freeze v1.0 (no behavior change yet)
 - [`hosted-plane-design.md`](hosted-plane-design.md) — design boundary for a future optional hosted product over local attestations/registry rows; the gate stays local
 - [`mcp-governance.md`](mcp-governance.md) — the two MCP surfaces (agent tool exports vs coding-agent host grants) and the `SHIP-HOST-BOUNDARY-*` checks
+- [`host-boundary-support.md`](host-boundary-support.md) — exact static Codex/Claude Code/Cursor/VS Code/GitHub support and scope matrix
 - [`mcp-server.md`](mcp-server.md) — optional local MCP server mode (`mcp-serve`): read-only `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, and `shipgate.capabilities`
 - [`organization.md`](organization.md) — local-first organizational governance: policy-pack pins, exception hygiene, host-grant drift, attestations, and registry reporting
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
@@ -51,7 +52,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`agent-handoff-schema.v3.json`](agent-handoff-schema.v3.json) — current compact verifier handoff schema
 - [`agent-handoff-schema.v2.json`](agent-handoff-schema.v2.json) — frozen handoff v2 reference
 - [`agent-result-schema.v2.json`](agent-result-schema.v2.json) — current shared local-check and MCP result schema
-- [`codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json) — JSON Schema for `shipgate check --format codex-boundary-json`
+- [`agent-boundary-result-schema.v1.json`](agent-boundary-result-schema.v1.json) — current host-neutral JSON Schema for `shipgate check --format agent-boundary-json`
+- [`codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json) — frozen deprecated compatibility projection for `--format codex-boundary-json`
 - [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json) — frozen boundary v1 reference
 - [`agent-result-schema.v1.json`](agent-result-schema.v1.json) — legacy JSON Schema retained for existing local-agent protocol and MCP surfaces; not emitted by `agents-shipgate verify`
 - [`preflight-schema.v0.3.json`](preflight-schema.v0.3.json) — current proactive preflight control schema
@@ -62,7 +64,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`org-governance-schema.v0.1.json`](org-governance-schema.v0.1.json) — JSON Schema for `agents-shipgate org status --json`; local governance projection, not a release verdict
 - [`org-evidence-bundle-schema.v1.json`](org-evidence-bundle-schema.v1.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
 - [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
-- [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json) — JSON Schema for `shipgate audit --host --json`; versioned host MCP/permission/hook/workflow inventory
+- [`host-grants-inventory-schema.v0.2.json`](host-grants-inventory-schema.v0.2.json) — current typed, redacted, scope-aware host inventory
+- [`host-grants-baseline-schema.v0.2.json`](host-grants-baseline-schema.v0.2.json) — current acknowledged host-grant baseline
+- [`host-grants-drift-schema.v0.2.json`](host-grants-drift-schema.v0.2.json) — current comparable/incomparable host-grant drift result
+- [`host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json) — frozen legacy host inventory reference
 - [`attestation-schema.v0.3.json`](attestation-schema.v0.3.json) — frozen v0.3 attestation reference
 - [`attestation-schema.v0.2.json`](attestation-schema.v0.2.json) — frozen v0.2 attestation reference
 - [`attestation-schema.v0.1.json`](attestation-schema.v0.1.json) — frozen v0.1 attestation reference
@@ -134,7 +139,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 ## For agents
 
 - [`agents/README.md`](agents/README.md) — compact entry point for coding agents: discovery, local control, PR verify, and redacted feedback
-- [`agents/protocol.md`](agents/protocol.md) — normative local control protocol for `shipgate check --format codex-boundary-json`
+- [`agents/protocol.md`](agents/protocol.md) — normative local control protocol for `shipgate check --format agent-boundary-json`
 - [`agent-recipes.md`](agent-recipes.md) — copy-pasteable AI-agent workflows for verify-first PRs and first adoption (`detect → init → scan → apply-patches`)
 - [`agent-contract-current.md`](agent-contract-current.md) — current statement of which `report.json` fields agents and CI integrations should read
 - [`report-reading-for-agents.md`](report-reading-for-agents.md) — reader's primer for `report.json`; walks the file in the order a new consumer should read it

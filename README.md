@@ -23,7 +23,7 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 
 > [!IMPORTANT]
 > **Status: pre-1.0 (beta).** The decision engine is deterministic and stable.
-> This source tree is `0.16.0b3`; install and GitHub Action examples remain
+> This source tree is `0.16.0b4`; install and GitHub Action examples remain
 > pinned to the latest published tag, `v0.15.0`, until the beta is released.
 > Real-history accuracy numbers (small n, published in full in
 > [`benchmark/miner/README.md`](benchmark/miner/README.md)): across 361 mined
@@ -145,12 +145,14 @@ Then start from one of three prominent flows.
 ### Local Boundary Check
 
 Coding agents run `shipgate check` before reporting an agent-capability change
-complete. Parse the stdout `shipgate.codex_boundary_result/v2` object:
+complete. Parse the stdout `shipgate.agent_boundary_result/v1` object. The
+`--agent` value identifies the caller; every recognized changed host surface is
+evaluated regardless of that value:
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
-shipgate check --agent claude-code --workspace . --format codex-boundary-json
-shipgate check --agent cursor --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
+shipgate check --agent claude-code --workspace . --format agent-boundary-json
+shipgate check --agent cursor --workspace . --format agent-boundary-json
 ```
 
 Switch on `control.state`; follow `control.next_action`,
@@ -197,6 +199,12 @@ hooks, workflow scopes, or other host grants, capture the host inventory:
 ```bash
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
+
+The default audit is deterministic `repository` scope. Use
+`--scope local-static` only when you explicitly want supported user and
+file-based managed configuration included. Both modes publish per-host
+coverage and excluded sources; neither proves session or runtime authority.
+See the [static host-boundary support matrix](docs/host-boundary-support.md).
 
 The release gate is `agents-shipgate-reports/report.json` →
 `release_decision.decision` (`blocked | review_required | insufficient_evidence | passed`).
@@ -280,15 +288,15 @@ Evidence Packet in [`packet.md`](samples/support_refund_agent/expected/packet.md
 ```text
 Add a Tool-Use Readiness release gate for this tool-using AI agent with Agents Shipgate.
 Use only the prominent Shipgate flows as first-look commands:
-shipgate check --agent codex --workspace . --format codex-boundary-json
-shipgate check --agent claude-code --workspace . --format codex-boundary-json
-shipgate check --agent cursor --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
+shipgate check --agent claude-code --workspace . --format agent-boundary-json
+shipgate check --agent cursor --workspace . --format agent-boundary-json
 agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 For local control, parse the `shipgate check` stdout JSON
-(`shipgate.codex_boundary_result/v2`): switch on `control.state`, then follow
+(`shipgate.agent_boundary_result/v1`): switch on `control.state`, then follow
 `control.next_action`, `control.allowed_next_commands`, and
 `control.human_review`; `decision` is diagnostic context only. For local uncommitted verify work,
 omit `--base`/`--head`. For committed PR/CI refs,
@@ -353,7 +361,7 @@ agents-shipgate init --workspace . --write --agent-instructions=agents-md,codex-
 Then invoke `$agents-shipgate` in a fresh thread. The plugin supplies
 workflows, not the scanner binary — install the CLI (`pipx install
 agents-shipgate && pipx upgrade agents-shipgate`) where Codex runs commands and
-require contract v14 or newer. Marketplace details, kit overrides, and the beta-migration
+require contract v15 or newer. Marketplace details, kit overrides, and the beta-migration
 steps: [`docs/agents/use-with-codex.md`](docs/agents/use-with-codex.md).
 
 **Cursor** — `init --agent-instructions=cursor` writes the auto-attach rule;
@@ -521,7 +529,7 @@ When a PR changes what your agent can do, the verify loop writes these
 artifacts — in read order:
 
 - **`agents-shipgate-reports/agent-handoff.json`** — the **first artifact a coding agent reads**: the compact `shipgate.agent_handoff/v3` object. Lead with `control.state`, then `gate.merge_verdict`; it also projects `blocked_by[]`, `remediation_plan[]`, and verify-run reproducibility from existing artifacts, and it does not introduce a second verdict.
-- **`agents-shipgate-reports/verifier.json`** — the **authoritative PR/control evidence substrate** (`verifier_schema_version: "0.3"`). A coding agent switches on `control.state`, then reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `control.next_action`, and `fix_task` when producing reviewer evidence for an agent-capability PR. Local control comes from `shipgate check --format codex-boundary-json` and `shipgate.codex_boundary_result/v2`. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
+- **`agents-shipgate-reports/verifier.json`** — the **authoritative PR/control evidence substrate** (`verifier_schema_version: "0.3"`). A coding agent switches on `control.state`, then reads `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `control.next_action`, and `fix_task` when producing reviewer evidence for an agent-capability PR. Local control comes from `shipgate check --format agent-boundary-json` and `shipgate.agent_boundary_result/v1`. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.
 - **`agents-shipgate-reports/verify-run.json`** — the deterministic verify-run reproducibility artifact. It records stable subject/input hashes, policy-pack hashes, outcome, artifact paths, and `run_id` without wall-clock timestamps.
 - **`agents-shipgate-reports/attestation.json`** + **`agents-shipgate-reports/org-evidence-bundle.json`** — optional organization-governance projections over the same verifier/report artifacts. They are ledger inputs for platform teams, not release gates; `report.json.release_decision.decision` remains the decision engine.
 - **`agents-shipgate-reports/host-grants.json`** + **`agents-shipgate-reports/org-status.json`** — optional fleet-governance artifacts from `audit --host --out` and `org status --json`, useful for host-grant drift, policy-pack pin state, and exception hygiene.
@@ -572,7 +580,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`docs/ai-search-summary.md`](docs/ai-search-summary.md)** — human-readable summary for AI search, answer engines, and coding agents
 - **[`docs/manifest-v0.1.json`](docs/manifest-v0.1.json)** + **[`docs/report-schema.v0.32.json`](docs/report-schema.v0.32.json)** + **[`docs/agent-handoff-schema.v3.json`](docs/agent-handoff-schema.v3.json)** + **[`docs/preflight-schema.v0.3.json`](docs/preflight-schema.v0.3.json)** — JSON Schemas for live editor validation and agent routing. Reports carry `report_schema_version: "0.32"`; v0.32 adds the required Conductor OSS summary while `passed` still requires a complete root-reachable static binding graph plus complete identity, effect, and authority evidence for each reachable action. `tool_catalog[]` remains visible while `tool_inventory[]` contains only proven reachable tools. Every release decision carries `static_analysis_only: true`, `runtime_behavior_verified: false`, and a canonical static-verdict disclaimer; packet §1 mirrors them. Read `release_decision.decision` for gating and [`docs/passed-verdict-contract.md`](docs/passed-verdict-contract.md) for the exact non-runtime claim. v0.31 is frozen.
 - **[`docs/capability-lock-schema.v0.5.json`](docs/capability-lock-schema.v0.5.json)** + **[`docs/capability-lock-diff-schema.v0.6.json`](docs/capability-lock-diff-schema.v0.6.json)** — current capability standard v0.4 schemas, including binding hashes, for the static capability envelope and semantic diff; non-gating and separate from `report.json`.
-- **[`docs/attestation-schema.v0.4.json`](docs/attestation-schema.v0.4.json)** + **[`docs/org-governance-schema.v0.1.json`](docs/org-governance-schema.v0.1.json)** + **[`docs/org-evidence-bundle-schema.v1.json`](docs/org-evidence-bundle-schema.v1.json)** + **[`docs/registry-schema.v0.3.json`](docs/registry-schema.v0.3.json)** + **[`docs/host-grants-inventory-schema.v0.1.json`](docs/host-grants-inventory-schema.v0.1.json)** — deterministic local attestation, organization governance, org evidence bundle, append-only registry, and host-grant inventory schemas for multi-repo governance.
+- **[`docs/attestation-schema.v0.4.json`](docs/attestation-schema.v0.4.json)** + **[`docs/org-governance-schema.v0.1.json`](docs/org-governance-schema.v0.1.json)** + **[`docs/org-evidence-bundle-schema.v1.json`](docs/org-evidence-bundle-schema.v1.json)** + **[`docs/registry-schema.v0.3.json`](docs/registry-schema.v0.3.json)** + **[`docs/host-grants-inventory-schema.v0.2.json`](docs/host-grants-inventory-schema.v0.2.json)** — deterministic local attestation, organization governance, org evidence bundle, append-only registry, and scope-aware host-grant inventory schemas for multi-repo governance.
 - **[`docs/governance-benchmark-catalog-schema.v0.2.json`](docs/governance-benchmark-catalog-schema.v0.2.json)** + **[`docs/governance-benchmark-result-schema.v0.2.json`](docs/governance-benchmark-result-schema.v0.2.json)** — stable schemas for the research benchmark catalog and deterministic result artifact.
 - **[`docs/checks.json`](docs/checks.json)** — machine-readable check catalog
 

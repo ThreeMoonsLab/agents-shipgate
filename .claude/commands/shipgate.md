@@ -31,7 +31,7 @@ Prominent commands:
 
 ```bash
 AGENTS_SHIPGATE_AGENT_MODE=1 shipgate check \
-  --agent claude-code --workspace . --format codex-boundary-json
+  --agent claude-code --workspace . --format agent-boundary-json
 AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate verify \
   --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD \
@@ -51,7 +51,7 @@ Required behavior (do not skip):
 3. For verifier runs, parse `agents-shipgate-reports/agent-handoff.json` first,
    then `verifier.json`, `verify-run.json`, and
    `report.json.release_decision.decision` as the release gate.
-4. For check runs, parse stdout as `shipgate.codex_boundary_result/v2` and
+4. For check runs, parse stdout as `shipgate.agent_boundary_result/v1` and
    switch on `control.state`; follow `control.next_action`,
    `control.allowed_next_commands`, and `control.human_review`. Treat
    `decision` as diagnostic context only.

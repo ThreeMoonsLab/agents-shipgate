@@ -257,7 +257,10 @@ def _resolve_changed_file_text(
             AgentResultDiagnostic(
                 level="warning",
                 code="content_source",
-                message=f"Could not read changed Codex boundary file: {exc}",
+                message=(
+                    "Could not read changed coding-agent boundary file "
+                    f"({type(exc).__name__})."
+                ),
                 path=path,
             )
         )

@@ -148,7 +148,7 @@ Skip emission with `--no-packet`; re-render later with
 ## Is it production-ready?
 
 v0.15.0 is the latest published pre-1.0 beta. The in-tree runtime is
-`0.16.0b3`, which adds one schema-enforced agent control state on top of root-reachable binding proof for beta
+`0.16.0b4`, which adds one schema-enforced multi-host boundary state on top of root-reachable binding proof for beta
 qualification. The manifest schema remains stable across the 0.x series; see
 [`STABILITY.md`](../STABILITY.md). Public preview.
 

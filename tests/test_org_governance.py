@@ -535,7 +535,7 @@ checks:
     assert payload["registry_row"]["source_attestation_sha256"] == attestation_sha256
     assert payload["org_status"]["summary"]["policy_pack_count"] == 1
     assert payload["policy_packs"][0]["status"] == "verified"
-    assert payload["host_grants"]["host_grants_inventory_schema_version"] == "0.1"
+    assert payload["host_grants"]["host_grants_inventory_schema_version"] == "0.2"
     assert payload["artifacts"]["verifier"]["sha256"]
 
 

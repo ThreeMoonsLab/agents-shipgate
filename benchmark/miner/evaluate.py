@@ -466,7 +466,7 @@ def _boundary_check(row: MinedRow, head_wt: Path, diff_text: str, tmp_path: Path
             "--diff",
             str(diff_file),
             "--format",
-            "codex-boundary-json",
+            "agent-boundary-json",
         ]
     )
     payload = _parse_json(result.stdout)

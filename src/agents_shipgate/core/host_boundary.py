@@ -698,15 +698,18 @@ def _evaluate_workflow(diff_file, resolved, add) -> None:
             },
         )
         return
-    try:
-        new_loaded = yaml.safe_load(resolved.new_text)
-    except yaml.YAMLError as exc:
-        add(
-            "HOST-CONFIG-PARSE-FAILED",
-            path=path,
-            evidence=_parser_error("workflow_yaml_parse_failed", exc),
-        )
-        return
+    if diff_file.is_deleted:
+        new_loaded = {}
+    else:
+        try:
+            new_loaded = yaml.safe_load(resolved.new_text)
+        except yaml.YAMLError as exc:
+            add(
+                "HOST-CONFIG-PARSE-FAILED",
+                path=path,
+                evidence=_parser_error("workflow_yaml_parse_failed", exc),
+            )
+            return
     if not isinstance(new_loaded, dict):
         add(
             "HOST-CONFIG-PARSE-FAILED",
@@ -868,15 +871,18 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
             },
         )
         return None
-    try:
-        new_data = json.loads(resolved.new_text)
-    except json.JSONDecodeError as exc:
-        add(
-            "HOST-CONFIG-PARSE-FAILED",
-            path=path,
-            evidence=_parser_error("json_parse_failed", exc),
-        )
-        return None
+    if resolved.source == "diff_deleted_file" and resolved.new_text == "":
+        new_data = {}
+    else:
+        try:
+            new_data = json.loads(resolved.new_text)
+        except json.JSONDecodeError as exc:
+            add(
+                "HOST-CONFIG-PARSE-FAILED",
+                path=path,
+                evidence=_parser_error("json_parse_failed", exc),
+            )
+            return None
     if not resolved.old_text:
         old_data: Any = {}
     else:

@@ -10,8 +10,9 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v14 retains the v13 root-reachable agent-to-tool binding
-contract and publishes one discriminated `AgentControl` state across
+Runtime contract v15 retains the v14 unambiguous `AgentControl` and v13
+root-reachable agent-to-tool binding contracts. It adds one host-neutral,
+scope-bound boundary assessment across
 check, preflight, verify, handoff, MCP, and GitHub Action projections. Agents
 switch on `control.state`; `decision` remains diagnostic and
 `release_decision.decision` remains the release gate. Contract v14 requires
@@ -26,9 +27,12 @@ The runtime contract also exposes the local agent command spec:
 `release_decisions[]`, `do_not_auto_assert[]`, `verifier_schema_version`,
 `verify_run_schema_version`, `agent_handoff_schema_version`,
 `agent_handoff_schema_path`, `agent_handoff_artifact`,
+`agent_boundary_result_schema_version`, the deprecated
 `codex_boundary_result_schema_version`, `attestation_schema_version`,
 `registry_schema_version`, `org_evidence_bundle_schema_version`,
-`host_grants_inventory_schema_version`, `agent_interface_operations[]`,
+`host_grants_inventory_schema_version`, `host_grants_baseline_schema_version`,
+`host_grants_drift_schema_version`, `trigger_catalog_schema_version`,
+`agent_interface_operations[]`,
 `exit_code_policy`, `mcp_tools[]`, `minimum_control_contract_version`,
 `agent_control_fields[]`, and `agent_control_states[]`. The legacy
 `agent_result_*` fields are retained only for older protocol readers.
@@ -47,24 +51,26 @@ Downstream repos generated with
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v0.15.0`
-- In-tree runtime: `0.16.0b3` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `14` (minimum control contract: `14`)
+- In-tree runtime: `0.16.0b4` — see [pyproject.toml](../pyproject.toml)
+- Runtime contract: `15` (minimum control contract: `14`)
 - Current report schema: `0.32` — [`docs/report-schema.v0.32.json`](report-schema.v0.32.json)
 - Current packet schema: `0.10` — [`docs/packet-schema.v0.10.json`](packet-schema.v0.10.json)
 - Current shared agent result schema: `agent_result_v2` — [`docs/agent-result-schema.v2.json`](agent-result-schema.v2.json)
 - Current verifier schema: `0.3` — [`docs/verifier-schema.v0.3.json`](verifier-schema.v0.3.json)
 - Current verify-run schema: `shipgate.verify_run/v2` — [`docs/verify-run-schema.v2.json`](verify-run-schema.v2.json)
 - Current agent handoff schema: `shipgate.agent_handoff/v3` — [`docs/agent-handoff-schema.v3.json`](agent-handoff-schema.v3.json)
-- Current Codex boundary result schema: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
+- Current agent boundary result schema: `shipgate.agent_boundary_result/v1` — [`docs/agent-boundary-result-schema.v1.json`](agent-boundary-result-schema.v1.json)
+- Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
 - Current preflight schema: `0.3` — [`docs/preflight-schema.v0.3.json`](preflight-schema.v0.3.json)
-- Current downstream local agent contract schema: `3`
+- Current downstream local agent contract schema: `4`
 - Current capability standard: `0.4` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.5` — [`docs/capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json)
 - Current capability lock diff schema: `0.6` — [`docs/capability-lock-diff-schema.v0.6.json`](capability-lock-diff-schema.v0.6.json)
 - Current attestation schema: `0.4` — [`docs/attestation-schema.v0.4.json`](attestation-schema.v0.4.json)
 - Current registry schema: `0.3` — [`docs/registry-schema.v0.3.json`](registry-schema.v0.3.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v1` — [`docs/org-evidence-bundle-schema.v1.json`](org-evidence-bundle-schema.v1.json)
-- Current host-grants inventory schema: `0.1` — [`docs/host-grants-inventory-schema.v0.1.json`](host-grants-inventory-schema.v0.1.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.2` — [`inventory`](host-grants-inventory-schema.v0.2.json), [`baseline`](host-grants-baseline-schema.v0.2.json), [`drift`](host-grants-drift-schema.v0.2.json)
+- Current trigger catalog schema: `0.2` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
 - Frozen-reference report schemas: frozen [`v0.31`](report-schema.v0.31.json), frozen [`v0.30`](report-schema.v0.30.json), frozen [`v0.29`](report-schema.v0.29.json), frozen [`v0.28`](report-schema.v0.28.json), frozen [`v0.27`](report-schema.v0.27.json), frozen [`v0.26`](report-schema.v0.26.json), frozen [`v0.25`](report-schema.v0.25.json), frozen [`v0.24`](report-schema.v0.24.json), frozen [`v0.23`](report-schema.v0.23.json), frozen [`v0.22`](report-schema.v0.22.json), frozen [`v0.21`](report-schema.v0.21.json), frozen [`v0.20`](report-schema.v0.20.json), frozen [`v0.19`](report-schema.v0.19.json), frozen [`v0.18`](report-schema.v0.18.json), frozen [`v0.17`](report-schema.v0.17.json), frozen [`v0.16`](report-schema.v0.16.json), frozen [`v0.15`](report-schema.v0.15.json), frozen [`v0.14`](report-schema.v0.14.json), frozen [`v0.13`](report-schema.v0.13.json), frozen [`v0.12`](report-schema.v0.12.json), frozen [`v0.11`](report-schema.v0.11.json), frozen [`v0.10`](report-schema.v0.10.json), frozen [`v0.9`](report-schema.v0.9.json), frozen [`v0.8`](report-schema.v0.8.json), frozen [`v0.7`](report-schema.v0.7.json), frozen [`v0.6`](report-schema.v0.6.json), older
@@ -397,12 +403,19 @@ second verdict.
 ## Read this for local boundary control
 
 `shipgate check --agent <codex|claude-code|cursor> --workspace . --format
-codex-boundary-json` is the local Codex boundary command. The command emits
+agent-boundary-json` is the local static multi-host boundary command. The
+`--agent` value is caller identity, never a coverage selector. The command emits
 exactly one stdout JSON object using
-`schema_version: "shipgate.codex_boundary_result/v2"` and the schema in
-[`codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json).
-Boundary v1 remains a frozen reference for legacy readers; current emitters do
-not expose a v1 switch.
+`schema_version: "shipgate.agent_boundary_result/v1"` and the schema in
+[`agent-boundary-result-schema.v1.json`](agent-boundary-result-schema.v1.json).
+The old `codex-boundary-json` spelling remains a deprecated `0.16.x`
+compatibility projection of the same assessment.
+
+Read `input_coverage`, `host_coverage[]`, `affected_hosts[]`, `policies[]`,
+`issues[]`, and `excluded_scopes[]` before relying on the result. `complete`
+means complete only within the declared static input scope; it is not proof of
+session grants, runtime enforcement, or tool behavior. The detailed matrix is
+[`host-boundary-support.md`](host-boundary-support.md).
 
 Coding agents switch on `control.state`, then follow `control.next_action` and
 `control.allowed_next_commands`. `decision` is diagnostic only. A pending

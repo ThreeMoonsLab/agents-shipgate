@@ -5,10 +5,10 @@ For the normative agent protocol, use [codex.md](codex.md) and
 [protocol.md](protocol.md). The canonical Codex control command is:
 
 ```bash
-shipgate check --agent codex --workspace . --format codex-boundary-json
+shipgate check --agent codex --workspace . --format agent-boundary-json
 ```
 
-Parse stdout as `shipgate.codex_boundary_result/v2`, switch on
+Parse stdout as `shipgate.agent_boundary_result/v1`, switch on
 `control.state`, and follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
 as diagnostic context only; do not infer local control from prose.
@@ -87,7 +87,7 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-When `$agents-shipgate` runs and the CLI is missing or older than runtime contract 14,
+When `$agents-shipgate` runs and the CLI is missing or older than runtime contract 15,
 Codex should ask for an install or upgrade instead of continuing to `detect`,
 `init`, `scan`, or `verify`.
 
@@ -174,7 +174,7 @@ Open Codex in the project and run these checks:
 
 1. Install the Agents Shipgate plugin from Codex, start a new thread, and ask:
    "$agents-shipgate verify this agent PR and summarize the merge verdict."
-   Codex should load the plugin skill, require runtime contract 14, then
+   Codex should load the plugin skill, require runtime contract 15, then
    read `agents-shipgate-reports/agent-handoff.json` and lead with
    `gate.merge_verdict`; it then reads `agents-shipgate-reports/report.json`
    for `release_decision.decision`.
@@ -185,8 +185,8 @@ Open Codex in the project and run these checks:
    Shipgate is relevant.
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
-   `shipgate check --agent codex --workspace . --format codex-boundary-json`
-   and parse `shipgate.codex_boundary_result/v2.control.state`; run
+   `shipgate check --agent codex --workspace . --format agent-boundary-json`
+   and parse `shipgate.agent_boundary_result/v1.control.state`; run
    `agents-shipgate preflight --workspace . --plan - --json` before
    protected-surface edits; then run
    `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`

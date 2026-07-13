@@ -224,6 +224,14 @@ def evaluate_agent_boundary(
     combined = _with_unclassified_protected_changes(
         changed_files=changed_files,
         violations=combined,
+        evaluated_paths={
+            item.path
+            for item in diagnostics
+            if (
+                item.code == "content_source"
+                and item.path == ".codex/config.toml"
+            )
+        },
     )
     combined = _with_experimental_adapter_changes(
         changed_files=changed_files,
@@ -710,12 +718,17 @@ def _with_unclassified_protected_changes(
     *,
     changed_files: list[str],
     violations: list[AgentResultViolatedRule],
+    evaluated_paths: set[str],
 ) -> list[AgentResultViolatedRule]:
     covered = {item.path for item in violations if item.path}
     additions: list[AgentResultViolatedRule] = []
     for path in changed_files:
         normalized = path.replace("\\", "/")
-        if normalized in covered or not is_agent_boundary_path(normalized):
+        if (
+            normalized in covered
+            or normalized in evaluated_paths
+            or not is_agent_boundary_path(normalized)
+        ):
             continue
         kind = (
             "STATIC-REQUIREMENTS-CHANGED"

@@ -107,8 +107,8 @@ def test_agent_result_schema_matches_committed_file(generator):
     _assert_match(target, content)
 
 
-def test_codex_boundary_result_schema_matches_committed_file(generator):
-    target, content = generator.build_codex_boundary_result_schema()
+def test_agent_boundary_result_schema_matches_committed_file(generator):
+    target, content = generator.build_agent_boundary_result_schema()
     _assert_match(target, content)
 
 
@@ -179,7 +179,7 @@ def test_builders_are_pure(generator):
         generator.build_checks_catalog,
         generator.build_verifier_schema,
         generator.build_agent_result_schema,
-        generator.build_codex_boundary_result_schema,
+        generator.build_agent_boundary_result_schema,
         generator.build_verify_run_schema,
         generator.build_agent_handoff_schema,
         generator.build_attestation_schema,
@@ -187,6 +187,8 @@ def test_builders_are_pure(generator):
         generator.build_org_evidence_bundle_schema,
         generator.build_registry_schema,
         generator.build_host_grants_inventory_schema,
+        generator.build_host_grants_baseline_schema,
+        generator.build_host_grants_drift_schema,
     ):
         target_a, content_a = builder()
         target_b, content_b = builder()

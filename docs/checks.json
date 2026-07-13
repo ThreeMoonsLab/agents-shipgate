@@ -838,6 +838,87 @@
     },
     {
       "autofix_safe": false,
+      "category": "host_boundary",
+      "default_severity": "high",
+      "description": "An experimental coding-agent boundary adapter observed a change.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-agent-boundary-experimental-surface-changed",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "kind"
+      ],
+      "fires_when": "A changed surface is recognized only by an adapter marked experimental.",
+      "floor_severity": "medium",
+      "id": "SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED",
+      "mvp_tier": "lifecycle",
+      "rationale": "Experimental adapter coverage is not strong enough to authorize completion automatically.",
+      "recommendation": "Have a human review the experimental boundary surface.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "host_boundary",
+      "default_severity": "medium",
+      "description": "Boundary input could not be evaluated completely.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-agent-boundary-input-incomplete",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "kind",
+        "code"
+      ],
+      "fires_when": "A relevant diff or file is missing coherent content, unsafe to read, traversing, binary, oversized, or otherwise unresolved.",
+      "floor_severity": "medium",
+      "id": "SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE",
+      "mvp_tier": "lifecycle",
+      "rationale": "Truncated, malformed, unsafe, or unresolved diff inputs cannot justify a completion decision.",
+      "recommendation": "Provide a complete, coherent boundary diff and rerun the check.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "host_boundary",
+      "default_severity": "medium",
+      "description": "A protected coding-agent surface changed without an explicit safe static classification.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-agent-boundary-protected-surface-unclassified",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "kind"
+      ],
+      "fires_when": "A recognized coding-agent host, instruction, policy, state, or workflow surface changes and no specialized rule proves its classification.",
+      "floor_severity": "medium",
+      "id": "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED",
+      "mvp_tier": "lifecycle",
+      "rationale": "Absence of a specialized risk finding is not evidence that a host or trust-root change is non-broadening.",
+      "recommendation": "Have a human review the protected boundary change.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "host_boundary",
+      "default_severity": "high",
+      "description": "Static host-enforced requirements changed.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-agent-boundary-static-requirements-changed",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "kind"
+      ],
+      "fires_when": "A repository .codex/requirements.toml file changes.",
+      "floor_severity": "medium",
+      "id": "SHIP-AGENT-BOUNDARY-STATIC-REQUIREMENTS-CHANGED",
+      "mvp_tier": "lifecycle",
+      "rationale": "Requirements files constrain the host's approval, sandbox, and network boundary and are reviewer-owned trust roots.",
+      "recommendation": "Have a human review the static host requirements change.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
       "category": "api",
       "default_severity": "high",
       "description": "OpenAI API function schema is not strict enough for reliable tool calls.",

@@ -1,4 +1,4 @@
-# Stability Contract · 0.16.0b3
+# Stability Contract · 0.16.0b4
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -10,6 +10,38 @@ described here are stable within the `0.x` line, but the `report.json` schema
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-0-16-0b4"></a>
+
+## Migration Note: 0.16.0b4
+
+Runtime contract `14 → 15` replaces the Codex-labelled multi-host check with
+the host-neutral `shipgate.agent_boundary_result/v1` contract. The canonical
+format is `--format agent-boundary-json`; `--agent` is caller identity only,
+and every recognized changed host surface is evaluated regardless of that
+value. `control.state` remains the operational signal and the minimum control
+contract remains `14` because the discriminated `AgentControl` union is
+unchanged.
+
+The old `--format codex-boundary-json` spelling remains a deprecated `0.16.x`
+compatibility projection of the same assessment and continues to emit the
+frozen `shipgate.codex_boundary_result/v2` shape. It has no independent policy
+or decision logic.
+
+Host-grants inventory, baseline, and drift advance to `0.2`; the trigger
+catalog advances to `0.2`; and the generated downstream local contract
+advances to schema `4`. Report `0.32`, packet `0.10`, verifier `0.3`, handoff
+v3, preflight `0.3`, capability standard `0.4`, and capability lock/diff
+`0.5/0.6` are unchanged.
+
+Zero-config means no `shipgate.yaml`, not proof of runtime-effective
+authority. Repository scope is deterministic and default. The opt-in
+`audit --host --scope local-static` reads only supported static local sources;
+both scopes publish coverage and excluded sources. Session approvals,
+invocation flags, UI state, remote managed settings, runtime enforcement,
+agent execution, and tool behavior remain outside the contract.
 
 ---
 

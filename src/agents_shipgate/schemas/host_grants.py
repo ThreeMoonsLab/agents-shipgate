@@ -102,6 +102,7 @@ class HostInventoryIssueV2(BaseModel):
         "parse_failed",
         "unreadable",
         "unsupported",
+        "unresolved_precedence",
         "dynamic_source_excluded",
         "remote_source_excluded",
     ]

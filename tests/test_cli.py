@@ -20,6 +20,8 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_STANDARD_VERSION,
 )
 from agents_shipgate.schemas.contract import (
+    AGENT_BOUNDARY_RESULT_SCHEMA_PATH,
+    AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
     AGENT_CONTROL_FIELDS,
     AGENT_CONTROL_STATES,
     AGENT_HANDOFF_SCHEMA_PATH,
@@ -39,6 +41,8 @@ from agents_shipgate.schemas.contract import (
     EXIT_CODE_POLICY,
     EXTERNAL_INTEGRATION_SURFACES,
     GATING_SIGNAL,
+    HOST_GRANTS_BASELINE_SCHEMA_VERSION,
+    HOST_GRANTS_DRIFT_SCHEMA_VERSION,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     MANUAL_REVIEW_SIGNALS,
     MCP_TOOLS,
@@ -48,6 +52,7 @@ from agents_shipgate.schemas.contract import (
     PRIMARY_COMMANDS,
     REGISTRY_SCHEMA_VERSION,
     RELEASE_DECISIONS,
+    TRIGGER_CATALOG_SCHEMA_VERSION,
     VERIFIER_READ_ORDER,
     VERIFY_RUN_SCHEMA_VERSION,
 )
@@ -258,6 +263,8 @@ def test_cli_contract_json_outputs_runtime_contract():
         "agent_handoff_schema_path",
         "agent_handoff_artifact",
         "codex_boundary_result_schema_version",
+        "agent_boundary_result_schema_version",
+        "agent_boundary_result_schema_path",
         "capability_lock_schema_version",
         "capability_lock_diff_schema_version",
         "preflight_schema_version",
@@ -268,6 +275,10 @@ def test_cli_contract_json_outputs_runtime_contract():
         "registry_schema_version",
         "org_evidence_bundle_schema_version",
         "host_grants_inventory_schema_version",
+        "host_grants_baseline_schema_version",
+        "host_grants_drift_schema_version",
+        "trigger_catalog_schema_version",
+        "deprecated_surfaces",
         "external_integration_surfaces",
         "gating_signal",
         "agent_result_schema_version",
@@ -303,6 +314,8 @@ def test_cli_contract_json_outputs_runtime_contract():
         "agent_handoff_schema_path": AGENT_HANDOFF_SCHEMA_PATH,
         "agent_handoff_artifact": ARTIFACTS["agent_handoff"],
         "codex_boundary_result_schema_version": CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+        "agent_boundary_result_schema_version": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        "agent_boundary_result_schema_path": AGENT_BOUNDARY_RESULT_SCHEMA_PATH,
         "capability_lock_schema_version": CAPABILITY_LOCK_SCHEMA_VERSION,
         "capability_lock_diff_schema_version": CAPABILITY_LOCK_DIFF_SCHEMA_VERSION,
         "preflight_schema_version": PREFLIGHT_SCHEMA_VERSION,
@@ -315,6 +328,15 @@ def test_cli_contract_json_outputs_runtime_contract():
         "registry_schema_version": REGISTRY_SCHEMA_VERSION,
         "org_evidence_bundle_schema_version": ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION,
         "host_grants_inventory_schema_version": HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
+        "host_grants_baseline_schema_version": HOST_GRANTS_BASELINE_SCHEMA_VERSION,
+        "host_grants_drift_schema_version": HOST_GRANTS_DRIFT_SCHEMA_VERSION,
+        "trigger_catalog_schema_version": TRIGGER_CATALOG_SCHEMA_VERSION,
+        "deprecated_surfaces": {
+            "codex-boundary-json": (
+                "Deprecated compatibility projection through 0.16.x; "
+                "use agent-boundary-json."
+            )
+        },
         "external_integration_surfaces": list(EXTERNAL_INTEGRATION_SURFACES),
         "gating_signal": GATING_SIGNAL,
         "agent_result_schema_version": AGENT_RESULT_SCHEMA_VERSION,
