@@ -1,23 +1,28 @@
-"""Deterministic coding-agent host-grant inventory and drift helpers.
+"""Deterministic, redacted coding-agent host-grant inventory and drift.
 
-This module is intentionally pure and read-only: it parses local repository
-configuration files, redacts credential-looking values before hashing, and
-returns deterministic inventory/diff payloads. The CLI wrapper in
-``agents_shipgate.cli.host_audit`` handles all user interaction and writes.
+The module parses static files only. It never imports user code, executes a
+helper, starts an MCP server, reads a credential value into an artifact, or
+uses the network. ``repository`` scope is portable and deterministic;
+``local_static`` additionally reads documented on-disk user/managed sources.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import sys
+import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import yaml
+from pydantic import ValidationError
 
+from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.host_boundary import (
-    _command_or_url,
     _is_wildcard_allow,
     _is_write,
     _normalize_workflow_keys,
@@ -27,122 +32,450 @@ from agents_shipgate.core.host_boundary import (
     _trigger_names,
 )
 from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS
-
-MCP_FILES: tuple[tuple[str, str], ...] = (
-    (".mcp.json", "claude-code (project)"),
-    (".cursor/mcp.json", "cursor"),
-    (".vscode/mcp.json", "vscode"),
+from agents_shipgate.schemas.host_grants import (
+    HOST_GRANTS_BASELINE_SCHEMA_VERSION,
+    HOST_GRANTS_DRIFT_SCHEMA_VERSION,
+    HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
+    HostGrantsBaselineV2,
+    HostGrantsDriftV2,
+    HostGrantsInventoryV2,
 )
-CLAUDE_SETTINGS_FILES: tuple[str, ...] = (
-    ".claude/settings.json",
-    ".claude/settings.local.json",
-)
-CODEX_FILES: tuple[str, ...] = (".codex/config.toml", ".codex/hooks.json")
 
-HOST_GRANTS_SCHEMA_VERSION = "0.1"
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.1"
+HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
 DEFAULT_BASELINE_FILE = Path(".agents-shipgate/host-grants.json")
 
-_GRANT_CATEGORIES: tuple[tuple[str, tuple[str, ...] | None], ...] = (
-    ("mcp_servers", ("host", "file", "server")),
-    ("permission_rules", ("file", "kind", "rule")),
-    ("hooks", ("file", "event")),
-    ("workflows", ("file",)),
-    ("codex_config_present", None),
+HostScope = Literal["repository", "local_static"]
+MAX_HOST_CONFIG_BYTES = 1024 * 1024
+
+_SECRET_KEY_MARKERS = frozenset(SENSITIVE_VALUE_KEYS) | {
+    "authorization",
+    "cookie",
+    "credential",
+    "passphrase",
+    "private_key",
+}
+_CREDENTIAL_CONTAINER_KEYS = frozenset({"headers"})
+_SECRET_ARG_RE = re.compile(
+    r"(?i)(--?(?:api[-_]?key|auth|authorization|cookie|credential|password|secret|token))(=)(.+)"
 )
+_HEADER_SECRET_RE = re.compile(
+    r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key)"
+    r"(\s*:\s*)([^\s'\";,\)]+)"
+)
+_BEARER_SECRET_RE = re.compile(r"(?i)\b(bearer)(\s+)([^\s'\";,\)]+)")
+_ASSIGNMENT_SECRET_RE = re.compile(
+    r"(?i)\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL)[A-Z0-9_]*)"
+    r"(\s*=\s*)([^\s'\";,\)]+)"
+)
+_SPACE_ARG_SECRET_RE = re.compile(
+    r"(?i)(--?(?:api[-_]?key|auth|authorization|cookie|credential|password|secret|token))"
+    r"(\s+)([^\s'\";,\)]+)"
+)
+_URL_RE = re.compile(r"(?:https?|wss?)://[^\s'\"<>]+")
 
 
-def host_audit_inventory(workspace: Path) -> dict[str, Any]:
-    """Build the deterministic host-grant inventory for a workspace."""
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
-    root = workspace.resolve()
-    inventory: dict[str, Any] = {
-        "host_grants_inventory_schema_version": HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
-        "workspace": str(root),
-        "mcp_servers": [],
-        "permission_rules": [],
-        "hooks": [],
-        "workflows": [],
-        "codex_config_present": [],
-        "parse_warnings": [],
+
+def _sha(value: Any) -> str:
+    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+def _stable_id(prefix: str, *parts: object) -> str:
+    return f"{prefix}_{_sha([str(part) for part in parts])[:24]}"
+
+
+def _is_secret_key(key: object) -> bool:
+    if not isinstance(key, str):
+        return False
+    normalized = re.sub(r"[^a-z0-9_]+", "", key.lower())
+    return any(marker in normalized for marker in _SECRET_KEY_MARKERS)
+
+
+def _sanitize_url(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return "<redacted-url>"
+    if parsed.scheme not in {"http", "https", "ws", "wss", "sse"}:
+        return value
+    hostname = parsed.hostname or ""
+    netloc = hostname
+    if parsed.port is not None:
+        netloc = f"{hostname}:{parsed.port}"
+    query = urlencode([(key, "<redacted>") for key, _ in parse_qsl(parsed.query)])
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, ""))
+
+
+def _sanitize_sensitive_string(value: str) -> str:
+    value = _URL_RE.sub(lambda match: _sanitize_url(match.group(0)), value)
+    value = _HEADER_SECRET_RE.sub(r"\1\2<redacted>", value)
+    value = _BEARER_SECRET_RE.sub(r"\1\2<redacted>", value)
+    value = _ASSIGNMENT_SECRET_RE.sub(r"\1\2<redacted>", value)
+    value = _SPACE_ARG_SECRET_RE.sub(r"\1\2<redacted>", value)
+    match = _SECRET_ARG_RE.fullmatch(value)
+    if match:
+        return f"{match.group(1)}=<redacted>"
+    return value
+
+
+def _redact_secret_values(value: Any, *, parent_key: str | None = None) -> Any:
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, inner in value.items():
+            key_text = str(key)
+            if key_text == "policyHelper":
+                result[key_text] = "<excluded-dynamic-helper>"
+            elif _is_secret_key(key_text):
+                result[key_text] = "<redacted>"
+            elif parent_key in _CREDENTIAL_CONTAINER_KEYS:
+                result[key_text] = "<redacted>"
+            elif key_text in {"env", "headers"} and isinstance(inner, dict):
+                result[key_text] = {
+                    str(container_key): "<redacted>"
+                    for container_key in inner
+                }
+            else:
+                result[key_text] = _redact_secret_values(inner, parent_key=key_text)
+        return result
+    if isinstance(value, list):
+        redacted: list[Any] = []
+        redact_next = False
+        for item in value:
+            if redact_next:
+                redacted.append("<redacted>")
+                redact_next = False
+                continue
+            if isinstance(item, str):
+                match = _SECRET_ARG_RE.fullmatch(item)
+                if match:
+                    redacted.append(f"{match.group(1)}={match.group(3) and '<redacted>'}")
+                    continue
+                if item.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS:
+                    redact_next = True
+            redacted.append(_redact_secret_values(item, parent_key=parent_key))
+        return redacted
+    if isinstance(value, str):
+        return _sanitize_sensitive_string(value)
+    return value
+
+
+def redacted_config_sha256(config: Any) -> str:
+    return _sha(_redact_secret_values(config))
+
+
+def _display_path(path: Path, *, root: Path, home: Path) -> str:
+    try:
+        return path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        pass
+    try:
+        return f"~/{path.resolve().relative_to(home).as_posix()}"
+    except ValueError:
+        return str(path)
+
+
+def _inventory_issue(
+    *, kind: str, host: str, source: str, message: str, blocking: bool
+) -> dict[str, Any]:
+    return {
+        "issue_id": _stable_id("host_issue", kind, host, source, message),
+        "kind": kind,
+        "host": host,
+        "source": source,
+        "message": message,
+        "blocking": blocking,
     }
 
-    for relative, host in MCP_FILES:
-        path = root / relative
-        if not path.is_file():
-            continue
-        data = _load_json(path, inventory)
-        if data is None:
-            continue
-        for name, server in sorted(_server_map(data).items()):
-            env_keys = sorted(server.get("env", {}) or {}) if isinstance(server, dict) else []
-            inventory["mcp_servers"].append(
-                {
-                    "host": host,
-                    "file": relative,
-                    "server": name,
-                    "transport": _transport_hint(server),
-                    "command_or_url": _command_or_url(server),
-                    "env_keys": env_keys,
-                    "config_sha256": redacted_config_sha256(server),
-                }
-            )
 
-    for relative in CLAUDE_SETTINGS_FILES:
-        path = root / relative
-        if not path.is_file():
-            continue
-        data = _load_json(path, inventory)
-        if not isinstance(data, dict):
-            continue
-        permissions = data.get("permissions") or {}
-        if isinstance(permissions, dict):
-            for kind in ("allow", "ask", "deny"):
-                for rule in _string_entries(permissions.get(kind)):
-                    inventory["permission_rules"].append(
-                        {
-                            "file": relative,
-                            "kind": kind,
-                            "rule": rule,
-                            "wildcard": kind == "allow" and _is_wildcard_allow(rule),
-                        }
-                    )
-        hooks = data.get("hooks")
-        if isinstance(hooks, dict):
-            for event in sorted(hooks):
-                inventory["hooks"].append(
-                    {
-                        "file": relative,
-                        "event": str(event),
-                        "config_sha256": redacted_config_sha256(hooks[event]),
-                    }
-                )
-
-    workflows_dir = root / ".github" / "workflows"
-    if workflows_dir.is_dir():
-        for path in sorted(workflows_dir.glob("*.yml")) + sorted(
-            workflows_dir.glob("*.yaml")
-        ):
-            entry = _workflow_entry(path, root, inventory)
-            if entry is not None:
-                inventory["workflows"].append(entry)
-
-    for relative in CODEX_FILES:
-        if (root / relative).is_file():
-            inventory["codex_config_present"].append(relative)
-
-    return inventory
+def _artifact(
+    *, host: str, scope: HostScope, source: str, kind: str, status: str, data: Any = None
+) -> dict[str, Any]:
+    return {
+        "artifact_id": _stable_id("host_artifact", host, scope, source, kind),
+        "host": host,
+        "scope": scope,
+        "path": source,
+        "kind": kind,
+        "parse_status": status,
+        "redacted_sha256": redacted_config_sha256(data) if data is not None else None,
+    }
 
 
-def _workflow_entry(
-    path: Path, root: Path, inventory: dict[str, Any]
-) -> dict[str, Any] | None:
-    relative = path.relative_to(root).as_posix()
+def _grant_base(
+    *, host: str, scope: HostScope, source: str, kind: str, identity: str,
+    config: Any, access: str, risk: str,
+) -> dict[str, Any]:
+    return {
+        "grant_id": _stable_id("host_grant", host, scope, source, kind, identity),
+        "host": host,
+        "scope": scope,
+        "source": source,
+        "kind": kind,
+        "config_sha256": redacted_config_sha256(config),
+        "access": access,
+        "risk": risk,
+    }
+
+
+def _safe_read(path: Path, *, containment_root: Path) -> tuple[str | None, str | None]:
+    lexical_root = containment_root.absolute()
+    lexical_path = path.absolute()
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
-        inventory["parse_warnings"].append(f"{relative}: {exc}")
+        relative = lexical_path.relative_to(lexical_root)
+    except ValueError:
+        return None, "path is outside the allowlisted static configuration root"
+    current = lexical_root
+    if current.is_symlink():
+        return None, "symbolic-link configuration roots are not followed"
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            return None, "symbolic links in configuration paths are not followed"
+    try:
+        path.resolve().relative_to(containment_root.resolve())
+    except (OSError, ValueError):
+        return None, "resolved path is outside the allowlisted static configuration root"
+    try:
+        if path.stat().st_size > MAX_HOST_CONFIG_BYTES:
+            return None, f"file exceeds the {MAX_HOST_CONFIG_BYTES}-byte static audit limit"
+        return path.read_text(encoding="utf-8"), None
+    except (OSError, UnicodeError) as exc:
+        return None, f"file could not be read as UTF-8 ({exc.__class__.__name__})"
+
+
+def _load_structured(
+    *, path: Path, source: str, host: str, kind: str, scope: HostScope,
+    containment_root: Path, artifacts: list[dict[str, Any]], issues: list[dict[str, Any]],
+) -> Any:
+    text, read_error = _safe_read(path, containment_root=containment_root)
+    if read_error is not None:
+        issues.append(_inventory_issue(
+            kind="unreadable", host=host, source=source, message=read_error, blocking=True
+        ))
+        artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
         return None
+    assert text is not None
+    try:
+        if path.suffix == ".toml":
+            data = tomllib.loads(text)
+        elif path.suffix in {".yml", ".yaml"}:
+            data = yaml.safe_load(text)
+        else:
+            data = json.loads(text)
+    except (tomllib.TOMLDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+        issues.append(_inventory_issue(
+            kind="parse_failed", host=host, source=source,
+            message=f"static parser rejected this {path.suffix.lstrip('.')} file ({exc.__class__.__name__})",
+            blocking=True,
+        ))
+        artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
+        return None
+    artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="parsed", data=data))
+    return data
+
+
+def _endpoint(server: Any) -> str | None:
+    if not isinstance(server, dict):
+        return None
+    url = server.get("url") or server.get("serverUrl")
+    if isinstance(url, str):
+        return _sanitize_url(url)
+    command = server.get("command")
+    if isinstance(command, str):
+        return Path(command).name or command
+    return None
+
+
+def _mcp_grants(
+    data: Any, *, host: str, scope: HostScope, source: str
+) -> list[dict[str, Any]]:
+    grants: list[dict[str, Any]] = []
+    for name, server in sorted(_server_map(data).items()):
+        config = server if isinstance(server, dict) else {"value": server}
+        base = _grant_base(
+            host=host, scope=scope, source=source, kind="mcp_server",
+            identity=str(name), config=config, access="external", risk="high",
+        )
+        env = config.get("env") if isinstance(config.get("env"), dict) else {}
+        headers = config.get("headers") if isinstance(config.get("headers"), dict) else {}
+        grants.append({
+            **base,
+            "server": str(name),
+            "transport": _transport_hint(config),
+            "endpoint": _endpoint(config),
+            "env_keys": sorted(str(key) for key in env),
+            "header_keys": sorted(str(key) for key in headers),
+        })
+    return grants
+
+
+def _permission_rule_grants(
+    permissions: Any, *, host: str, scope: HostScope, source: str
+) -> list[dict[str, Any]]:
+    if not isinstance(permissions, dict):
+        return []
+    grants: list[dict[str, Any]] = []
+    for disposition in ("allow", "ask", "deny"):
+        for raw_rule in sorted(_string_entries(permissions.get(disposition))):
+            rule = _sanitize_sensitive_string(raw_rule)
+            wildcard = disposition == "allow" and _is_wildcard_allow(raw_rule)
+            access = "admin" if wildcard else ("execute" if disposition == "allow" else "none")
+            risk = "critical" if wildcard else ("high" if disposition == "allow" else "low")
+            grants.append({
+                **_grant_base(
+                    host=host, scope=scope, source=source, kind="permission_rule",
+                    identity=f"{disposition}:{rule}", config={"disposition": disposition, "rule": rule},
+                    access=access, risk=risk,
+                ),
+                "disposition": disposition,
+                "rule": rule,
+                "wildcard": wildcard,
+            })
+    return grants
+
+
+def _setting_grant(
+    *, host: str, scope: HostScope, source: str, kind: str, setting: str,
+    value: Any, access: str = "unknown", risk: str = "medium",
+) -> dict[str, Any]:
+    rendered = _canonical(value) if isinstance(value, (dict, list)) else str(value)
+    key = "setting"
+    if kind == "additional_path":
+        key = "path"
+    return {
+        **_grant_base(
+            host=host, scope=scope, source=source, kind=kind,
+            identity=f"{setting}:{rendered}", config={setting: value}, access=access, risk=risk,
+        ),
+        key: setting if kind == "additional_path" else setting,
+        **({"value": rendered} if kind in {"permission_mode", "sandbox"} else {}),
+    }
+
+
+def _hooks_grants(data: Any, *, host: str, scope: HostScope, source: str) -> list[dict[str, Any]]:
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    if not isinstance(hooks, dict):
+        return []
+    return [
+        {
+            **_grant_base(
+                host=host, scope=scope, source=source, kind="hook",
+                identity=str(event), config=config, access="execute", risk="high",
+            ),
+            "event": str(event),
+        }
+        for event, config in sorted(hooks.items())
+    ]
+
+
+def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    grants = _permission_rule_grants(data.get("permissions"), host="claude-code", scope=scope, source=source)
+    permissions = data.get("permissions") if isinstance(data.get("permissions"), dict) else {}
+    mode_keys = (
+        "defaultMode", "disableBypassPermissionsMode", "allowManagedPermissionRulesOnly",
+        "allowManagedHooksOnly", "skipDangerousModePermissionPrompt",
+        "enableAllProjectMcpServers", "disableAllHooks",
+    )
+    for setting in mode_keys:
+        container = permissions if setting in permissions else data
+        if setting in container:
+            value = container[setting]
+            risky = setting in {"skipDangerousModePermissionPrompt", "enableAllProjectMcpServers"} and bool(value)
+            grants.append(_setting_grant(
+                host="claude-code", scope=scope, source=source, kind="permission_mode",
+                setting=setting, value=value, access="admin" if risky else "unknown",
+                risk="critical" if risky else "medium",
+            ))
+    for path in sorted(_string_entries(permissions.get("additionalDirectories")) + _string_entries(data.get("additionalDirectories"))):
+        grant = _grant_base(
+            host="claude-code", scope=scope, source=source, kind="additional_path",
+            identity=path, config={"path": path}, access="write", risk="high",
+        )
+        grants.append({**grant, "path": path})
+    sandbox = data.get("sandbox")
+    if isinstance(sandbox, dict):
+        for setting, value in sorted(sandbox.items()):
+            grants.append(_setting_grant(
+                host="claude-code", scope=scope, source=source, kind="sandbox",
+                setting=f"sandbox.{setting}", value=value,
+                access="admin" if setting in {"enabled", "allowUnsandboxedCommands"} else "unknown",
+                risk="high",
+            ))
+    plugins = data.get("enabledPlugins")
+    if isinstance(plugins, dict):
+        for name, enabled in sorted(plugins.items()):
+            grants.append({
+                **_grant_base(
+                    host="claude-code", scope=scope, source=source, kind="plugin_or_app",
+                    identity=str(name), config={"enabled": enabled}, access="execute", risk="high",
+                ),
+                "name": str(name), "enabled": bool(enabled),
+            })
+    grants.extend(_hooks_grants(data, host="claude-code", scope=scope, source=source))
+    return grants
+
+
+def _codex_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    grants: list[dict[str, Any]] = []
+    for setting in ("approval_policy", "sandbox_mode", "network_access", "web_search"):
+        if setting in data:
+            value = data[setting]
+            risky = str(value).lower() in {"never", "danger-full-access", "enabled", "true"}
+            grants.append(_setting_grant(
+                host="codex", scope=scope, source=source,
+                kind="sandbox" if "sandbox" in setting or "network" in setting else "permission_mode",
+                setting=setting, value=value, access="admin" if risky else "unknown",
+                risk="critical" if str(value).lower() == "danger-full-access" else ("high" if risky else "medium"),
+            ))
+    workspace_write = data.get("sandbox_workspace_write")
+    if isinstance(workspace_write, dict):
+        for setting, value in sorted(workspace_write.items()):
+            grants.append(_setting_grant(
+                host="codex", scope=scope, source=source, kind="sandbox",
+                setting=f"sandbox_workspace_write.{setting}", value=value,
+                access="external" if setting == "network_access" and bool(value) else "unknown",
+                risk="high" if setting == "network_access" and bool(value) else "medium",
+            ))
+    mcp = data.get("mcp_servers")
+    if isinstance(mcp, dict):
+        grants.extend(_mcp_grants({"mcpServers": mcp}, host="codex", scope=scope, source=source))
+    apps = data.get("apps")
+    if isinstance(apps, dict):
+        for name, config in sorted(apps.items()):
+            enabled = config.get("enabled") if isinstance(config, dict) else None
+            grants.append({
+                **_grant_base(
+                    host="codex", scope=scope, source=source, kind="plugin_or_app",
+                    identity=str(name), config=config, access="external", risk="high",
+                ),
+                "name": str(name), "enabled": enabled if isinstance(enabled, bool) else None,
+            })
+    return grants
+
+
+def _cursor_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    grants = _permission_rule_grants(data.get("permissions"), host="cursor", scope=scope, source=source)
+    for setting in ("approvalMode", "sandbox", "network", "allowWrite"):
+        if setting in data:
+            value = data[setting]
+            grants.append(_setting_grant(
+                host="cursor", scope=scope, source=source,
+                kind="sandbox" if setting in {"sandbox", "network"} else "permission_mode",
+                setting=setting, value=value, access="admin" if bool(value) else "unknown",
+                risk="high" if bool(value) else "medium",
+            ))
+    return grants
+
+
+def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
     data = _normalize_workflow_keys(data)
@@ -155,11 +488,10 @@ def _workflow_entry(
         if perms == "write-all":
             write_all = True
             write_scopes.append(f"{where}: write-all")
-            return
-        if isinstance(perms, dict):
-            for scope, value in sorted(perms.items()):
+        elif isinstance(perms, dict):
+            for scope_name, value in sorted(perms.items()):
                 if _is_write(value):
-                    write_scopes.append(f"{where}: {scope}: {value}")
+                    write_scopes.append(f"{where}: {scope_name}: {value}")
 
     collect(data.get("permissions"), "<top-level>")
     jobs = data.get("jobs")
@@ -167,433 +499,590 @@ def _workflow_entry(
         for job_name, job in sorted(jobs.items()):
             if isinstance(job, dict):
                 collect(job.get("permissions"), str(job_name))
+    pull_target = "pull_request_target" in triggers
     return {
-        "file": relative,
+        **_grant_base(
+            host="github", scope="repository", source=source, kind="workflow",
+            identity=source, config=data,
+            access="admin" if write_all else ("write" if write_scopes or pull_target else "read"),
+            risk="critical" if write_all or pull_target else ("high" if write_scopes else "low"),
+        ),
         "triggers": triggers,
-        "pull_request_target": "pull_request_target" in triggers,
+        "pull_request_target": pull_target,
         "write_all": write_all,
-        "write_scopes": write_scopes,
+        "write_scopes": sorted(write_scopes),
     }
 
 
-def _load_json(path: Path, inventory: dict[str, Any]) -> Any:
+def _instruction_grant(*, host: str, scope: HostScope, source: str, data: str) -> dict[str, Any]:
+    redacted_text = _sanitize_sensitive_string(data)
+    return {
+        **_grant_base(
+            host=host, scope=scope, source=source, kind="instruction_trust_root",
+            identity=source,
+            config={"content_sha256": hashlib.sha256(redacted_text.encode()).hexdigest()},
+            access="execute", risk="medium",
+        ),
+        "path": source,
+    }
+
+
+def _collect_file(
+    *, path: Path, source: str, host: str, scope: HostScope, kind: str,
+    containment_root: Path,
+    artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
+) -> None:
+    if kind == "instructions":
+        text, error = _safe_read(path, containment_root=containment_root)
+        if error:
+            issues.append(_inventory_issue(kind="unreadable", host=host, source=source, message=error, blocking=True))
+            artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
+            return
+        assert text is not None
+        redacted_text = _sanitize_sensitive_string(text)
+        artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="parsed", data={"sha256": hashlib.sha256(redacted_text.encode()).hexdigest()}))
+        grants.append(_instruction_grant(host=host, scope=scope, source=source, data=text))
+        return
+
+    data = _load_structured(
+        path=path, source=source, host=host, kind=kind, scope=scope,
+        containment_root=containment_root, artifacts=artifacts, issues=issues,
+    )
+    if data is None:
+        return
+    if host == "claude-code" and isinstance(data, dict) and "policyHelper" in data:
+        issues.append(
+            _inventory_issue(
+                kind="unsupported",
+                host="claude-code",
+                source=source,
+                message=(
+                    "policyHelper is executable/dynamic policy input; the static "
+                    "audit does not run it and cannot establish complete coverage"
+                ),
+                blocking=True,
+            )
+        )
+    if kind == "mcp":
+        grants.extend(_mcp_grants(data, host=host, scope=scope, source=source))
+    elif kind == "workflow":
+        grant = _workflow_grant(data, source=source)
+        if grant is not None:
+            grants.append(grant)
+    elif host == "codex" and path.suffix == ".toml":
+        grants.extend(_codex_grants(data, scope=scope, source=source))
+    elif host == "claude-code":
+        grants.extend(_claude_grants(data, scope=scope, source=source))
+    elif host == "cursor":
+        grants.extend(_cursor_grants(data, scope=scope, source=source))
+    elif kind == "hooks":
+        grants.extend(_hooks_grants(data, host=host, scope=scope, source=source))
+
+
+def _source_kind(path: str) -> str:
+    if path.startswith(".github/workflows/"):
+        return "workflow"
+    if path.endswith((".mcp.json", "/mcp.json")):
+        return "mcp"
+    if path.endswith("hooks.json"):
+        return "hooks"
+    if path.endswith("requirements.toml"):
+        return "requirements"
+    if (
+        path.endswith((".md", ".mdc", "/SKILL.md"))
+        or path.startswith(".cursor/rules/")
+        or path.startswith(".agents/skills/")
+        or path.startswith("policies/")
+        or path == "shipgate.yaml"
+    ):
+        return "instructions"
+    return "config"
+
+
+def _audit_hosts(adapter_id: str, path: str, hosts: tuple[str, ...]) -> tuple[str, ...]:
+    if path.startswith(".github/workflows/"):
+        return ("github",)
+    if adapter_id == "vscode_mcp":
+        return ("vscode",)
+    return hosts
+
+
+def _repository_paths(root: Path) -> list[tuple[Path, str, str, str]]:
+    """Enumerate repository sources exclusively from the boundary registry."""
+
+    indexed: dict[tuple[str, str], tuple[Path, str, str, str]] = {}
+    for adapter in BOUNDARY_ADAPTERS:
+        candidates: list[tuple[Path, str]] = []
+        for relative in adapter.exact_paths:
+            path = root / relative
+            if path.exists() or path.is_symlink():
+                candidates.append((path, relative))
+        for pattern in adapter.globs:
+            for path in sorted(root.glob(pattern)):
+                if path.is_file() or path.is_symlink():
+                    candidates.append((path, path.relative_to(root).as_posix()))
+        for path, relative in candidates:
+            for host in _audit_hosts(adapter.id, relative, adapter.hosts):
+                indexed[(host, relative)] = (
+                    path,
+                    relative,
+                    host,
+                    _source_kind(relative),
+                )
+    return [indexed[key] for key in sorted(indexed)]
+
+
+def _repository_sources_expected(host: str) -> list[str]:
+    expected: set[str] = set()
+    for adapter in BOUNDARY_ADAPTERS:
+        paths = (*adapter.exact_paths, *adapter.globs)
+        for path in paths:
+            if host in _audit_hosts(adapter.id, path, adapter.hosts):
+                expected.add(path)
+    return sorted(expected)
+
+
+def _local_paths(home: Path) -> list[tuple[Path, str, str, str, Path]]:
+    codex_home = Path(os.environ.get("CODEX_HOME", home / ".codex")).expanduser()
+    candidates: list[tuple[Path, str, str, str, Path]] = [
+        (codex_home / "config.toml", "~/.codex/config.toml", "codex", "config", codex_home),
+        (codex_home / "requirements.toml", "~/.codex/requirements.toml", "codex", "requirements", codex_home),
+        (home / ".claude/settings.json", "~/.claude/settings.json", "claude-code", "config", home),
+        (home / ".cursor/cli-config.json", "~/.cursor/cli-config.json", "cursor", "config", home),
+        (home / ".cursor/mcp.json", "~/.cursor/mcp.json", "cursor", "mcp", home),
+    ]
+    if sys.platform == "darwin":
+        managed = Path("/Library/Application Support/ClaudeCode")
+        candidates.append((managed / "managed-settings.json", "/Library/Application Support/ClaudeCode/managed-settings.json", "claude-code", "config", managed))
+    elif os.name == "nt":
+        managed = Path("C:/Program Files/ClaudeCode")
+        candidates.append((managed / "managed-settings.json", "C:/Program Files/ClaudeCode/managed-settings.json", "claude-code", "config", managed))
+    else:
+        managed = Path("/etc/claude-code")
+        candidates.append((managed / "managed-settings.json", "/etc/claude-code/managed-settings.json", "claude-code", "config", managed))
+    return [item for item in candidates if item[0].exists() or item[0].is_symlink()]
+
+
+def _collect_claude_project_state(
+    *, root: Path, home: Path, artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
+) -> None:
+    path = home / ".claude.json"
+    if not (path.exists() or path.is_symlink()):
+        return
+    source = "~/.claude.json#current-workspace"
+    text, error = _safe_read(path, containment_root=home)
+    if error is not None:
+        issues.append(_inventory_issue(
+            kind="unreadable", host="claude-code", source=source,
+            message=error, blocking=True,
+        ))
+        artifacts.append(_artifact(
+            host="claude-code", scope="local_static", source=source,
+            kind="config", status="failed",
+        ))
+        return
+    assert text is not None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        inventory["parse_warnings"].append(f"{path.name}: {exc}")
-        return None
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        issues.append(_inventory_issue(
+            kind="parse_failed", host="claude-code", source=source,
+            message=f"static parser rejected this json file ({exc.__class__.__name__})",
+            blocking=True,
+        ))
+        artifacts.append(_artifact(
+            host="claude-code", scope="local_static", source=source,
+            kind="config", status="failed",
+        ))
+        return
+    if not isinstance(data, dict):
+        artifacts.append(_artifact(
+            host="claude-code", scope="local_static", source=source,
+            kind="config", status="parsed", data={},
+        ))
+        return
+    projects = data.get("projects")
+    if not isinstance(projects, dict):
+        artifacts.append(_artifact(
+            host="claude-code", scope="local_static", source=source,
+            kind="config", status="parsed", data={},
+        ))
+        return
+    resolved = str(root.resolve())
+    project = projects.get(resolved)
+    if not isinstance(project, dict):
+        artifacts.append(_artifact(
+            host="claude-code", scope="local_static", source=source,
+            kind="config", status="parsed", data={},
+        ))
+        return
+    # Only the current workspace projection is retained. Unrelated ~/.claude.json
+    # data is neither emitted nor hashed into grant identities.
+    artifacts.append(_artifact(
+        host="claude-code", scope="local_static", source=source,
+        kind="config", status="parsed", data=project,
+    ))
+    grants.extend(_mcp_grants(project, host="claude-code", scope="local_static", source=source))
+    grants.extend(_claude_grants(project, scope="local_static", source=source))
+    if "policyHelper" in project:
+        issues.append(
+            _inventory_issue(
+                kind="unsupported",
+                host="claude-code",
+                source=source,
+                message=(
+                    "policyHelper is executable/dynamic policy input; the static "
+                    "audit does not run it and cannot establish complete coverage"
+                ),
+                blocking=True,
+            )
+        )
 
 
-def render_host_audit_markdown(inventory: dict[str, Any]) -> str:
-    lines: list[str] = ["# Host Capability Audit", ""]
-    lines.append(
-        "What coding agents are currently granted in this repo, from "
-        "declared host configuration. Read-only snapshot; see "
-        "`docs/mcp-governance.md` for the review guidance."
+def _coverage(
+    *, scope: HostScope, artifacts: list[dict[str, Any]], issues: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    coverage: list[dict[str, Any]] = []
+    for host in ("codex", "claude-code", "cursor", "vscode", "github"):
+        host_artifacts = [item for item in artifacts if item["host"] == host]
+        host_issues = [item for item in issues if item["host"] == host and item["blocking"]]
+        status = "partial" if host_issues else "complete"
+        if host == "vscode" and host_artifacts:
+            status = "experimental"
+        expected = _repository_sources_expected(host)
+        if scope == "local_static":
+            expected.append("documented local static sources")
+        coverage.append({
+            "host": host,
+            "scope": scope,
+            "status": status,
+            "sources_expected": expected,
+            "sources_observed": sorted(item["path"] for item in host_artifacts),
+            "issue_ids": sorted(item["issue_id"] for item in host_issues),
+        })
+    return coverage
+
+
+def host_audit_inventory(
+    workspace: Path, *, scope: HostScope = "repository"
+) -> dict[str, Any]:
+    """Return a schema-validated, deterministic, redacted host inventory."""
+
+    root = workspace.resolve()
+    home = Path.home().resolve()
+    artifacts: list[dict[str, Any]] = []
+    grants: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
+
+    for path, source, host, kind in _repository_paths(root):
+        _collect_file(
+            path=path, source=source, host=host, scope="repository", kind=kind,
+            containment_root=root,
+            artifacts=artifacts, grants=grants, issues=issues,
+        )
+
+    excluded = [
+        "invocation flags and transient approvals",
+        "runtime sandbox enforcement and actual tool behavior",
+        "UI and session state",
+        "remote server-managed policy",
+        "dynamically registered extension MCP servers",
+    ]
+    if scope == "repository":
+        excluded.insert(0, "user and operating-system managed configuration")
+    elif scope == "local_static":
+        for path, source, host, kind, containment_root in _local_paths(home):
+            _collect_file(
+                path=path, source=source, host=host, scope="local_static", kind=kind,
+                containment_root=containment_root,
+                artifacts=artifacts, grants=grants, issues=issues,
+            )
+        _collect_claude_project_state(
+            root=root, home=home, artifacts=artifacts, grants=grants, issues=issues
+        )
+    else:  # pragma: no cover - CLI and typing constrain this; defensive API guard.
+        raise ValueError(f"Unsupported host audit scope: {scope!r}")
+
+    artifacts.sort(key=lambda item: (item["host"], item["scope"], item["path"], item["kind"]))
+    grants.sort(key=lambda item: item["grant_id"])
+    issues.sort(key=lambda item: item["issue_id"])
+    payload = {
+        "host_grants_inventory_schema_version": HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
+        "workspace": str(root),
+        "scope": scope,
+        "artifacts": artifacts,
+        "host_coverage": _coverage(scope=scope, artifacts=artifacts, issues=issues),
+        "grants": grants,
+        "issues": issues,
+        "excluded_scopes": sorted(excluded),
+        "static_analysis_only": True,
+        "runtime_session_verified": False,
+    }
+    return HostGrantsInventoryV2.model_validate(payload).model_dump(mode="json")
+
+
+def inventory_is_complete(inventory: dict[str, Any]) -> bool:
+    return not any(item.get("blocking") for item in inventory.get("issues", [])) and all(
+        item.get("status") == "complete" for item in inventory.get("host_coverage", [])
     )
-    lines.append("")
-
-    servers = inventory["mcp_servers"]
-    lines.append(f"## MCP servers ({len(servers)})")
-    lines.append("")
-    if servers:
-        lines.append("| Host | Server | Transport | Command / URL | Env keys |")
-        lines.append("|---|---|---|---|---|")
-        for item in servers:
-            env = ", ".join(item["env_keys"]) or "—"
-            lines.append(
-                f"| {item['host']} | `{item['server']}` | {item['transport']} "
-                f"| `{item['command_or_url'] or '—'}` | {env} |"
-            )
-    else:
-        lines.append("None declared.")
-    lines.append("")
-
-    rules = inventory["permission_rules"]
-    wildcard_rules = [r for r in rules if r["wildcard"]]
-    lines.append(f"## Claude Code permission rules ({len(rules)})")
-    lines.append("")
-    if rules:
-        lines.append("| File | Kind | Rule | Wildcard |")
-        lines.append("|---|---|---|---|")
-        for item in rules:
-            flag = "**yes**" if item["wildcard"] else ""
-            lines.append(
-                f"| {item['file']} | {item['kind']} | `{item['rule']}` | {flag} |"
-            )
-        if wildcard_rules:
-            lines.append("")
-            lines.append(
-                f"⚠ {len(wildcard_rules)} wildcard-shaped allow rule(s) — these "
-                "grant broad tool access and would block a Shipgate-verified PR "
-                "(`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`)."
-            )
-    else:
-        lines.append("None declared.")
-    lines.append("")
-
-    hooks = inventory["hooks"]
-    lines.append(f"## Claude Code hooks ({len(hooks)})")
-    lines.append("")
-    for item in hooks:
-        lines.append(f"- `{item['file']}` → `{item['event']}`")
-    if not hooks:
-        lines.append("None declared.")
-    lines.append("")
-
-    workflows = inventory["workflows"]
-    risky = [w for w in workflows if w["write_scopes"] or w["pull_request_target"]]
-    lines.append(
-        f"## GitHub workflows ({len(workflows)}; "
-        f"{len(risky)} with write scopes or pull_request_target)"
-    )
-    lines.append("")
-    for item in workflows:
-        marks: list[str] = []
-        if item["write_all"]:
-            marks.append("**write-all**")
-        if item["pull_request_target"]:
-            marks.append("**pull_request_target**")
-        suffix = f" — {', '.join(marks)}" if marks else ""
-        lines.append(f"- `{item['file']}`{suffix}")
-        for scope in item["write_scopes"]:
-            lines.append(f"  - write scope: `{scope}`")
-    if not workflows:
-        lines.append("None found.")
-    lines.append("")
-
-    if inventory["codex_config_present"]:
-        lines.append("## Codex configuration")
-        lines.append("")
-        for relative in inventory["codex_config_present"]:
-            lines.append(
-                f"- `{relative}` present — diff-time semantics are covered by "
-                "the `SHIP-CODEX-BOUNDARY-*` checks."
-            )
-        lines.append("")
-
-    if inventory["parse_warnings"]:
-        lines.append("## Parse warnings")
-        lines.append("")
-        for warning in inventory["parse_warnings"]:
-            lines.append(f"- {warning}")
-        lines.append("")
-
-    lines.append("---")
-    lines.append(
-        "Next: `agents-shipgate verify --preview --json` to check whether "
-        "Shipgate should gate this repo's PRs."
-    )
-    return "\n".join(lines) + "\n"
-
-
-_CREDENTIAL_CONTAINER_KEYS = frozenset({"env", "headers"})
-_SECRET_KEY_MARKERS = frozenset(SENSITIVE_VALUE_KEYS) | {"cookie", "passphrase"}
-
-
-def _is_secret_key(key: object) -> bool:
-    if not isinstance(key, str):
-        return False
-    normalized = re.sub(r"[^a-z0-9_]+", "", key.lower())
-    return any(marker in normalized for marker in _SECRET_KEY_MARKERS)
-
-
-def _redact_secret_values(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: (
-                {
-                    inner_key: (
-                        "<redacted>"
-                        if _is_secret_key(inner_key)
-                        else _redact_secret_values(inner_value)
-                    )
-                    for inner_key, inner_value in inner.items()
-                }
-                if key in _CREDENTIAL_CONTAINER_KEYS and isinstance(inner, dict)
-                else _redact_secret_values(inner)
-            )
-            for key, inner in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_secret_values(item) for item in value]
-    return value
-
-
-def redacted_config_sha256(config: Any) -> str:
-    redacted = _redact_secret_values(config)
-    return hashlib.sha256(
-        json.dumps(redacted, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
 
 
 def normalized_host_grants(inventory: dict[str, Any]) -> dict[str, Any]:
-    normalized: dict[str, Any] = {}
-    for category, _identity in _GRANT_CATEGORIES:
-        entries = inventory.get(category) or []
-        normalized[category] = sorted(
-            entries, key=lambda entry: json.dumps(entry, sort_keys=True)
-        )
-    return normalized
+    return {
+        "scope": inventory.get("scope", "repository"),
+        "artifacts": sorted(
+            list(inventory.get("artifacts") or []),
+            key=lambda item: (str(item.get("artifact_id")), _canonical(item)),
+        ),
+        "grants": sorted(
+            list(inventory.get("grants") or []),
+            key=lambda item: (str(item.get("grant_id")), _canonical(item)),
+        ),
+    }
 
 
 def host_grants_sha256(grants: dict[str, Any]) -> str:
-    return hashlib.sha256(
-        json.dumps(grants, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    return _sha(grants)
 
 
 def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
-    grants = normalized_host_grants(inventory)
-    return {
-        "host_grants_schema_version": HOST_GRANTS_SCHEMA_VERSION,
-        "inventory_sha256": host_grants_sha256(grants),
-        "inventory": grants,
+    if not inventory_is_complete(inventory):
+        raise ValueError(
+            "Host-grants inventory is incomplete or experimental; fix its coverage "
+            "issues before saving a baseline. A baseline cannot acknowledge missing evidence."
+        )
+    normalized = normalized_host_grants(inventory)
+    payload = {
+        "host_grants_schema_version": HOST_GRANTS_BASELINE_SCHEMA_VERSION,
+        "scope": inventory["scope"],
+        "inventory_sha256": host_grants_sha256(normalized),
+        "inventory": normalized,
     }
+    return HostGrantsBaselineV2.model_validate(payload).model_dump(mode="json")
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
+    rerun = "shipgate audit --host --scope repository --save-baseline"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
-        raise ValueError(
-            f"No host-grants baseline at {path} ({exc}). Record one first: "
-            "shipgate audit --host --save-baseline"
-        ) from exc
+        raise ValueError(f"No host-grants baseline at {path} ({exc}). Record one first: {rerun}") from exc
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Host-grants baseline {path} is not valid JSON ({exc}). "
-            "Re-record it: shipgate audit --host --save-baseline"
-        ) from exc
+        raise ValueError(f"Host-grants baseline {path} is not valid JSON ({exc}). Re-record it: {rerun}") from exc
     if not isinstance(data, dict):
-        raise ValueError(
-            f"Host-grants baseline {path} must be a JSON object. "
-            "Re-record it: shipgate audit --host --save-baseline"
-        )
+        raise ValueError(f"Host-grants baseline {path} must be a JSON object. Re-record it: {rerun}")
     version = data.get("host_grants_schema_version")
-    if version != HOST_GRANTS_SCHEMA_VERSION:
+    if version == "0.1":
+        # A valid-looking v0.1 artifact is intentionally not projected into v0.2:
+        # it lacks scope and typed grant identities, so any diff would be lossy.
+        if not isinstance(data.get("inventory"), dict):
+            raise ValueError(f"Host-grants baseline {path} is missing its inventory. Re-record it: {rerun}")
+        return data
+    if version != HOST_GRANTS_BASELINE_SCHEMA_VERSION:
         raise ValueError(
-            f"Host-grants baseline {path} has schema version {version!r}; "
-            f"this CLI supports {HOST_GRANTS_SCHEMA_VERSION!r}. Upgrade "
-            "agents-shipgate or re-record the baseline with this version."
+            f"Host-grants baseline {path} has unsupported schema version {version!r}. Re-record it: {rerun}"
         )
-    inventory = data.get("inventory")
-    if not isinstance(inventory, dict):
+    try:
+        parsed = HostGrantsBaselineV2.model_validate(data).model_dump(mode="json")
+    except ValidationError as exc:
+        raise ValueError(f"Host-grants baseline {path} is malformed ({exc}). Re-record it: {rerun}") from exc
+    stored = parsed["inventory_sha256"]
+    recomputed = host_grants_sha256(parsed["inventory"])
+    if stored != recomputed:
         raise ValueError(
-            f"Host-grants baseline {path} is missing its inventory. "
-            "Re-record it: shipgate audit --host --save-baseline"
+            f"Host-grants baseline {path} failed its integrity check: stored "
+            f"inventory_sha256 {stored!r} does not match {recomputed}. After human review, re-record it: {rerun}"
         )
-    for category, identity in _GRANT_CATEGORIES:
-        entries = inventory.get(category, [])
-        if not isinstance(entries, list):
-            raise ValueError(
-                f"Host-grants baseline {path} has a malformed {category!r} "
-                "category (expected a list). Re-record it: "
-                "shipgate audit --host --save-baseline"
-            )
-        expected = str if identity is None else dict
-        for entry in entries:
-            if not isinstance(entry, expected):
-                raise ValueError(
-                    f"Host-grants baseline {path} has a malformed entry in "
-                    f"{category!r} (expected {expected.__name__} entries). "
-                    "Re-record it: shipgate audit --host --save-baseline"
-                )
-    stored_sha = data.get("inventory_sha256")
-    recomputed_sha = host_grants_sha256(normalized_host_grants(inventory))
-    if stored_sha != recomputed_sha:
-        raise ValueError(
-            f"Host-grants baseline {path} failed its integrity check: "
-            f"stored inventory_sha256 {stored_sha!r} does not match the "
-            f"inventory content ({recomputed_sha}). The file was hand-edited "
-            "or corrupted. After a human reviews the current grants, "
-            "re-record it: shipgate audit --host --save-baseline"
-        )
-    return data
+    return parsed
 
 
-def _entries_by_key(
-    entries: list[dict[str, Any]], identity: tuple[str, ...]
-) -> dict[tuple[str, ...], dict[str, Any]]:
-    return {
-        tuple(str(entry.get(field)) for field in identity): entry for entry in entries
-    }
+def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[dict[str, Any]]:
+    base_by_id = {item["grant_id"]: item for item in baseline.get("grants", [])}
+    current_by_id = {item["grant_id"]: item for item in current.get("grants", [])}
+    changes: list[dict[str, Any]] = []
+    for grant_id in sorted(set(base_by_id) | set(current_by_id)):
+        before = base_by_id.get(grant_id)
+        after = current_by_id.get(grant_id)
+        if before != after:
+            changes.append({"grant_id": grant_id, "baseline": before, "current": after})
+    return changes
 
 
-def diff_host_grants(
+def _diff_host_artifacts(
     baseline: dict[str, Any], current: dict[str, Any]
-) -> dict[str, Any]:
-    drift: dict[str, Any] = {}
-    for category, identity in _GRANT_CATEGORIES:
-        base_entries = baseline.get(category) or []
-        cur_entries = current.get(category) or []
-        if identity is None:
-            base_set = set(base_entries)
-            cur_set = set(cur_entries)
-            drift[category] = {
-                "added": sorted(cur_set - base_set),
-                "removed": sorted(base_set - cur_set),
-                "changed": [],
-            }
-            continue
-
-        base_by_key = _entries_by_key(base_entries, identity)
-        cur_by_key = _entries_by_key(cur_entries, identity)
-        added = [cur_by_key[key] for key in sorted(set(cur_by_key) - set(base_by_key))]
-        removed = [
-            base_by_key[key] for key in sorted(set(base_by_key) - set(cur_by_key))
-        ]
-        changed = [
-            {"baseline": base_by_key[key], "current": cur_by_key[key]}
-            for key in sorted(set(base_by_key) & set(cur_by_key))
-            if base_by_key[key] != cur_by_key[key]
-        ]
-        drift[category] = {"added": added, "removed": removed, "changed": changed}
-    return drift
+) -> list[dict[str, Any]]:
+    base_by_id = {item["artifact_id"]: item for item in baseline.get("artifacts", [])}
+    current_by_id = {
+        item["artifact_id"]: item for item in current.get("artifacts", [])
+    }
+    changes: list[dict[str, Any]] = []
+    for artifact_id in sorted(set(base_by_id) | set(current_by_id)):
+        before = base_by_id.get(artifact_id)
+        after = current_by_id.get(artifact_id)
+        if before != after:
+            changes.append(
+                {"artifact_id": artifact_id, "baseline": before, "current": after}
+            )
+    return changes
 
 
-def host_grant_expansion_signals(drift: dict[str, Any]) -> list[str]:
+def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
     signals: list[str] = []
-    for server in drift["mcp_servers"]["added"]:
-        signals.append(f"mcp_server_added: {server['host']}:{server['server']}")
-    for change in drift["mcp_servers"]["changed"]:
-        server = change["current"]
-        signals.append(f"mcp_server_changed: {server['host']}:{server['server']}")
-    for rule in drift["permission_rules"]["added"]:
-        if rule["kind"] == "allow":
-            kind = "wildcard_allow_added" if rule.get("wildcard") else "allow_rule_added"
-            signals.append(f"{kind}: {rule['rule']}")
-    for rule in drift["permission_rules"]["removed"]:
-        if rule["kind"] == "deny":
-            signals.append(f"deny_rule_removed: {rule['rule']}")
-        elif rule["kind"] == "ask":
-            signals.append(f"ask_rule_removed: {rule['rule']}")
-    for hook in drift["hooks"]["added"]:
-        signals.append(f"hook_added: {hook['file']}:{hook['event']}")
-    for change in drift["hooks"]["changed"]:
-        hook = change["current"]
-        signals.append(f"hook_changed: {hook['file']}:{hook['event']}")
-    for workflow in drift["workflows"]["added"]:
-        if workflow["write_scopes"] or workflow["pull_request_target"]:
-            signals.append(f"workflow_write_added: {workflow['file']}")
-    for change in drift["workflows"]["changed"]:
-        before, after = change["baseline"], change["current"]
-        grew_scopes = set(after["write_scopes"]) - set(before["write_scopes"])
-        if (
-            grew_scopes
-            or (after["write_all"] and not before["write_all"])
-            or (after["pull_request_target"] and not before["pull_request_target"])
+    for change in changes:
+        before = change.get("baseline")
+        after = change.get("current")
+        if after is None:
+            if before and before.get("kind") == "permission_rule" and before.get("disposition") in {"deny", "ask"}:
+                signals.append(f"{before['disposition']}_rule_removed: {before['host']}:{before['rule']}")
+            continue
+        kind = after.get("kind")
+        prefix = "added" if before is None else "changed"
+        if kind == "mcp_server":
+            signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
+        elif kind == "permission_rule" and after.get("disposition") == "allow":
+            marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
+            signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
+        elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app", "hook"}:
+            signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind == "workflow" and (
+            after.get("write_all") or after.get("write_scopes") or after.get("pull_request_target")
         ):
-            signals.append(f"workflow_write_expanded: {after['file']}")
-    for path in drift["codex_config_present"]["added"]:
-        signals.append(f"codex_config_added: {path}")
-    return sorted(signals)
+            signals.append(f"workflow_write_{prefix}: {after['source']}")
+    return sorted(set(signals))
+
+
+def _incomparable_payload(
+    *, inventory: dict[str, Any], baseline_file: str, reasons: list[str]
+) -> dict[str, Any]:
+    scope = inventory.get("scope", "repository")
+    command = f"shipgate audit --host --scope {scope} --save-baseline"
+    payload = {
+        "host_grants_schema_version": HOST_GRANTS_DRIFT_SCHEMA_VERSION,
+        "baseline_file": baseline_file,
+        "scope": scope,
+        "comparison_status": "incomparable",
+        "baseline_sha256": None,
+        "current_sha256": host_grants_sha256(normalized_host_grants(inventory)),
+        "has_drift": None,
+        "changes": [],
+        "artifact_changes": [],
+        "expansion_signals": [],
+        "issues": inventory.get("issues", []),
+        "incomparable_reasons": sorted(reasons),
+        "next_action": command,
+    }
+    return HostGrantsDriftV2.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_drift_payload(
-    *,
-    baseline: dict[str, Any],
-    inventory: dict[str, Any],
-    baseline_file: str,
+    *, baseline: dict[str, Any], inventory: dict[str, Any], baseline_file: str
 ) -> dict[str, Any]:
+    reasons: list[str] = []
+    if baseline.get("host_grants_schema_version") == "0.1":
+        reasons.append("baseline_schema_v0.1_lacks_typed_grants_and_scope")
+    elif baseline.get("host_grants_schema_version") != HOST_GRANTS_BASELINE_SCHEMA_VERSION:
+        reasons.append("unsupported_baseline_schema")
+    if not inventory_is_complete(inventory):
+        reasons.append("current_inventory_incomplete")
+    baseline_scope = baseline.get("scope")
+    if baseline_scope is not None and baseline_scope != inventory.get("scope"):
+        reasons.append(f"scope_mismatch:{baseline_scope}->{inventory.get('scope')}")
+    if reasons:
+        return _incomparable_payload(inventory=inventory, baseline_file=baseline_file, reasons=reasons)
+
     current = normalized_host_grants(inventory)
-    baseline_grants = normalized_host_grants(baseline["inventory"])
-    drift = diff_host_grants(baseline_grants, current)
-    has_drift = any(
-        bucket
-        for category in drift.values()
-        for bucket in (category["added"], category["removed"], category["changed"])
-    )
-    return {
-        "host_grants_schema_version": HOST_GRANTS_SCHEMA_VERSION,
+    baseline_inventory = baseline["inventory"]
+    changes = diff_host_grants(baseline_inventory, current)
+    artifact_changes = _diff_host_artifacts(baseline_inventory, current)
+    payload = {
+        "host_grants_schema_version": HOST_GRANTS_DRIFT_SCHEMA_VERSION,
         "baseline_file": baseline_file,
-        "baseline_sha256": host_grants_sha256(baseline_grants),
+        "scope": inventory["scope"],
+        "comparison_status": "comparable",
+        "baseline_sha256": host_grants_sha256(baseline_inventory),
         "current_sha256": host_grants_sha256(current),
-        "has_drift": has_drift,
-        "drift": drift,
-        "expansion_signals": host_grant_expansion_signals(drift),
-        "parse_warnings": list(inventory.get("parse_warnings") or []),
+        "has_drift": bool(changes or artifact_changes),
+        "changes": changes,
+        "artifact_changes": artifact_changes,
+        "expansion_signals": host_grant_expansion_signals(changes),
+        "issues": inventory.get("issues", []),
+        "incomparable_reasons": [],
+        "next_action": None,
     }
+    return HostGrantsDriftV2.model_validate(payload).model_dump(mode="json")
 
 
-_CATEGORY_TITLES = {
-    "mcp_servers": "MCP servers",
-    "permission_rules": "Claude Code permission rules",
-    "hooks": "Claude Code hooks",
-    "workflows": "GitHub workflows",
-    "codex_config_present": "Codex configuration files",
-}
-
-
-def _drift_entry_label(category: str, entry: Any) -> str:
-    if category == "mcp_servers":
-        return f"`{entry['host']}` server `{entry['server']}` ({entry['file']})"
-    if category == "permission_rules":
-        wildcard = " **(wildcard)**" if entry.get("wildcard") else ""
-        return f"{entry['kind']} `{entry['rule']}`{wildcard} ({entry['file']})"
-    if category == "hooks":
-        return f"`{entry['event']}` ({entry['file']})"
-    if category == "workflows":
-        marks = []
-        if entry.get("write_all"):
-            marks.append("write-all")
-        if entry.get("pull_request_target"):
-            marks.append("pull_request_target")
-        suffix = f" — {', '.join(marks)}" if marks else ""
-        return f"`{entry['file']}`{suffix}"
-    return f"`{entry}`"
+def render_host_audit_markdown(inventory: dict[str, Any]) -> str:
+    lines = ["# Host Capability Audit", ""]
+    lines.append(
+        f"Static `{inventory['scope']}` inventory. Runtime session behavior was not verified."
+    )
+    lines.append("")
+    lines.append("## Coverage")
+    lines.append("")
+    lines.append("| Host | Status | Observed sources |")
+    lines.append("|---|---|---:|")
+    for item in inventory["host_coverage"]:
+        lines.append(f"| {item['host']} | {item['status']} | {len(item['sources_observed'])} |")
+    lines.append("")
+    by_kind: dict[str, list[dict[str, Any]]] = {}
+    for grant in inventory["grants"]:
+        by_kind.setdefault(grant["kind"], []).append(grant)
+    lines.append(f"## Grants ({len(inventory['grants'])})")
+    lines.append("")
+    if not inventory["grants"]:
+        lines.append("No statically declared grants found in the selected scope.")
+    else:
+        for kind, grants in sorted(by_kind.items()):
+            lines.append(f"- `{kind}`: {len(grants)}")
+        wildcard_rules = [
+            grant
+            for grant in by_kind.get("permission_rule", [])
+            if grant.get("disposition") == "allow" and grant.get("wildcard")
+        ]
+        if wildcard_rules:
+            lines.append("")
+            lines.append(
+                f"⚠ {len(wildcard_rules)} wildcard allow rule(s); verification "
+                "reports `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`."
+            )
+    lines.append("")
+    if inventory["issues"]:
+        lines.append("## Coverage issues")
+        lines.append("")
+        for issue in inventory["issues"]:
+            marker = "blocking" if issue["blocking"] else "declared exclusion"
+            lines.append(f"- `{issue['host']}` `{issue['source']}` ({marker}): {issue['message']}")
+        lines.append("")
+    lines.append("## Excluded scopes")
+    lines.append("")
+    for item in inventory["excluded_scopes"]:
+        lines.append(f"- {item}")
+    lines.extend(["", "---", "Next: `agents-shipgate verify --preview --json` for release gating."])
+    return "\n".join(lines) + "\n"
 
 
 def render_host_drift_markdown(payload: dict[str, Any]) -> str:
-    lines: list[str] = ["# Host Grant Drift", ""]
-    lines.append(
-        f"Baseline: `{payload['baseline_file']}` "
-        f"(sha256 `{payload['baseline_sha256'][:12]}…`) · "
-        f"current sha256 `{payload['current_sha256'][:12]}…`"
-    )
-    lines.append("")
+    lines = ["# Host Grant Drift", ""]
+    if payload["comparison_status"] == "incomparable":
+        lines.append("**Incomparable** — no trustworthy drift statement can be made.")
+        lines.append("")
+        for reason in payload["incomparable_reasons"]:
+            lines.append(f"- `{reason}`")
+        lines.extend(["", f"Next: `{payload['next_action']}`"])
+        return "\n".join(lines) + "\n"
     if not payload["has_drift"]:
         lines.append("No drift — current host grants match the acknowledged baseline.")
         return "\n".join(lines) + "\n"
-
-    lines.append("**Drift detected** — host grants differ from the acknowledged baseline.")
+    lines.append(f"**Drift detected** — {len(payload['changes'])} typed grant change(s).")
     lines.append("")
-
-    signals = payload["expansion_signals"]
-    if signals:
-        lines.append(f"## Expansion signals ({len(signals)})")
+    if payload["expansion_signals"]:
+        lines.append("## Expansion signals")
         lines.append("")
-        for signal in signals:
+        for signal in payload["expansion_signals"]:
             lines.append(f"- ⚠ `{signal}`")
         lines.append("")
-
-    for category, _identity in _GRANT_CATEGORIES:
-        buckets = payload["drift"][category]
-        if not (buckets["added"] or buckets["removed"] or buckets["changed"]):
-            continue
-        lines.append(f"## {_CATEGORY_TITLES[category]}")
-        lines.append("")
-        for entry in buckets["added"]:
-            lines.append(f"- added: {_drift_entry_label(category, entry)}")
-        for entry in buckets["removed"]:
-            lines.append(f"- removed: {_drift_entry_label(category, entry)}")
-        for change in buckets["changed"]:
-            lines.append(f"- changed: {_drift_entry_label(category, change['current'])}")
-        lines.append("")
-
-    if payload["parse_warnings"]:
-        lines.append("## Parse warnings (current state)")
-        lines.append("")
-        for warning in payload["parse_warnings"]:
-            lines.append(f"- {warning}")
-        lines.append("")
-
-    lines.append("---")
-    lines.append(
-        "After a human reviews this drift, re-acknowledge the new state: "
-        "`shipgate audit --host --save-baseline`. Do not re-save to "
-        "silence drift you have not reviewed."
-    )
+    lines.append("After human review, re-record with `shipgate audit --host --save-baseline`.")
     return "\n".join(lines) + "\n"
 
 
@@ -607,6 +1096,7 @@ __all__ = [
     "host_audit_inventory",
     "host_grant_expansion_signals",
     "host_grants_sha256",
+    "inventory_is_complete",
     "load_host_grants_baseline",
     "normalized_host_grants",
     "redacted_config_sha256",

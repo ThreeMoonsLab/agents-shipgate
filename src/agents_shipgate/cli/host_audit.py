@@ -17,6 +17,7 @@ from agents_shipgate.core.host_grants import (
     host_audit_inventory,
     host_grant_expansion_signals,
     host_grants_sha256,
+    inventory_is_complete,
     load_host_grants_baseline,
     normalized_host_grants,
     redacted_config_sha256,
@@ -35,6 +36,14 @@ def audit(
         False,
         "--host",
         help="Inventory coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes).",
+    ),
+    scope: str = typer.Option(
+        "repository",
+        "--scope",
+        help=(
+            "Static inventory scope: repository (default, portable) or "
+            "local-static (also reads supported on-disk user/managed config)."
+        ),
     ),
     save_baseline: bool = typer.Option(
         False,
@@ -78,6 +87,9 @@ def audit(
             err=True,
         )
         raise typer.Exit(2)
+    if scope not in {"repository", "local-static"}:
+        typer.echo("--scope must be 'repository' or 'local-static'.", err=True)
+        raise typer.Exit(2)
     if save_baseline and drift:
         typer.echo(
             "--save-baseline and --drift are mutually exclusive: record the "
@@ -89,7 +101,8 @@ def audit(
         typer.echo("--fail-on-drift requires --drift.", err=True)
         raise typer.Exit(2)
 
-    inventory = host_audit_inventory(workspace)
+    inventory_scope = "local_static" if scope == "local-static" else "repository"
+    inventory = host_audit_inventory(workspace, scope=inventory_scope)
     resolved_baseline = (
         baseline_file
         if baseline_file.is_absolute()
@@ -97,7 +110,11 @@ def audit(
     )
 
     if save_baseline:
-        payload = build_host_grants_baseline(inventory)
+        try:
+            payload = build_host_grants_baseline(inventory)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(2) from exc
         text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         if resolved_baseline.is_file() and resolved_baseline.read_text(
             encoding="utf-8"
@@ -110,6 +127,7 @@ def audit(
         outcome = {
             "baseline_file": str(baseline_file),
             "inventory_sha256": payload["inventory_sha256"],
+            "scope": payload["scope"],
             "status": status,
         }
         _write_json_out(out, outcome)
@@ -140,7 +158,9 @@ def audit(
         else:
             _write_json_out(out, payload)
             typer.echo(render_host_drift_markdown(payload), nl=False)
-        if fail_on_drift and payload["has_drift"]:
+        if fail_on_drift and (
+            payload["comparison_status"] != "comparable" or payload["has_drift"]
+        ):
             raise typer.Exit(20)
         return
 
@@ -170,6 +190,7 @@ __all__ = [
     "host_audit_inventory",
     "host_grant_expansion_signals",
     "host_grants_sha256",
+    "inventory_is_complete",
     "load_host_grants_baseline",
     "normalized_host_grants",
     "redacted_config_sha256",
