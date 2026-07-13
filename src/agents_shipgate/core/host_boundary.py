@@ -943,20 +943,21 @@ def _load_packaged_default_policy() -> dict[str, Any] | None:
 
 
 def _is_mcp_server_path(path: str) -> bool:
-    return Path(path).name in {".mcp.json", "mcp.json"} and bool(
-        boundary_adapters_for_path(path)
-    )
+    normalized = path.replace("\\", "/").removeprefix("./").casefold()
+    return normalized in {".mcp.json", ".cursor/mcp.json", ".vscode/mcp.json"}
 
 
 def _is_claude_settings_path(path: str) -> bool:
-    return _has_boundary_adapter(path, "claude_code") and Path(path).name in {
-        "settings.json",
-        "settings.local.json",
+    normalized = path.replace("\\", "/").removeprefix("./").casefold()
+    return normalized in {
+        ".claude/settings.json",
+        ".claude/settings.local.json",
     }
 
 
 def _is_cursor_settings_path(path: str) -> bool:
-    return _has_boundary_adapter(path, "cursor") and Path(path).name == "cli.json"
+    normalized = path.replace("\\", "/").removeprefix("./").casefold()
+    return normalized == ".cursor/cli.json"
 
 
 def is_host_boundary_path(path: str) -> bool:

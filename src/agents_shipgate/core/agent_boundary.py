@@ -621,7 +621,7 @@ def _load_policy_set(*, workspace: Path, explicit: Path | None) -> _PolicySet:
             else _display(codex_path, workspace)
         ),
     )
-    payloads = [_policy_payload(codex), _host_policy_payload(host)]
+    payloads = [_policy_payload(codex), _policy_payload(host)]
     digest = hashlib.sha256(
         json.dumps(payloads, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -985,15 +985,9 @@ def _aggregate_policy(assessment: AgentBoundaryAssessment) -> AgentResultPolicy:
     )
 
 
-def _policy_payload(policy: CodexBoundaryPolicy) -> dict[str, Any]:
-    return {
-        "id": policy.id,
-        "version": policy.version,
-        "rules": [vars(policy.rules[key]) for key in sorted(policy.rules)],
-    }
-
-
-def _host_policy_payload(policy: HostBoundaryPolicy) -> dict[str, Any]:
+def _policy_payload(
+    policy: CodexBoundaryPolicy | HostBoundaryPolicy,
+) -> dict[str, Any]:
     return {
         "id": policy.id,
         "version": policy.version,

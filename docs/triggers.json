@@ -13,7 +13,7 @@
     "file_absent": "The named path does NOT exist in the working tree at the head commit.",
     "every_file_matches": "Every changed file in this PR matches at least one of the listed globs (or the single glob, if a string). False on an empty PR.",
     "none_match_glob": "No changed file matches any of the listed globs.",
-    "boundary_adapter": "Any changed file matches the named entry in `boundary_adapters`. The adapter registry is the authoritative path source shared by check, verify, preflight, audit, and triggers.",
+    "boundary_adapter": "Any changed file matches the named entry in `boundary_adapters`. Matching is case-insensitive. The adapter registry is the authoritative path source shared by check, verify, preflight, audit, and triggers.",
     "none_match_boundary_surface": "No changed file matches any path in `boundary_adapters`. Used by negative rules so a host trust root is never treated as a docs-only change.",
     "any_of": "Logical OR over a list of nested predicates.",
     "all_of": "Logical AND over a list of nested predicates.",
@@ -25,14 +25,14 @@
       "id": "codex",
       "hosts": ["codex"],
       "exact_paths": [".codex/config.toml", ".codex/hooks.json", ".codex/requirements.toml"],
-      "globs": [],
+      "globs": ["**/.codex/config.toml", "**/.codex/hooks.json", "**/.codex/requirements.toml"],
       "experimental": false
     },
     {
       "id": "claude_code",
       "hosts": ["claude-code"],
       "exact_paths": [".claude/settings.json", ".claude/settings.local.json", ".mcp.json", "CLAUDE.md"],
-      "globs": [".claude/commands/*", ".claude/commands/**", ".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
+      "globs": ["**/.mcp.json", ".claude/commands/*", ".claude/commands/**", ".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
       "experimental": false
     },
     {
@@ -53,7 +53,7 @@
       "id": "shared",
       "hosts": ["codex", "claude-code", "cursor"],
       "exact_paths": ["AGENTS.md", "AGENTS.override.md", "shipgate.yaml", ".shipgate/agent-contract.json", "policies/agent-boundary.shipgate.yaml", "policies/codex-boundary.shipgate.yaml", "policies/host-boundary.shipgate.yaml"],
-      "globs": [".agents/skills/*/SKILL.md", ".agents/skills/**/SKILL.md", ".github/workflows/*.yml", ".github/workflows/*.yaml", ".agents-shipgate/baseline*.json", ".agents-shipgate/*waiver*.json", ".agents-shipgate/state*.json", "policies/*.shipgate.yaml"],
+      "globs": [".agents/skills/*/SKILL.md", ".agents/skills/**/SKILL.md", ".github/workflows/*.yml", ".github/workflows/*.yaml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", ".agents-shipgate/baseline*.json", ".agents-shipgate/*waiver*.json", ".agents-shipgate/state*.json", "policies/*.shipgate.yaml"],
       "experimental": false
     }
   ],

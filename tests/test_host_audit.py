@@ -199,6 +199,75 @@ def test_inventory_redacts_env_headers_urls_and_userinfo(tmp_path: Path) -> None
     assert len(remote["config_sha256"]) == 64
 
 
+def test_setting_grants_redact_values_in_inventory_baseline_and_drift(
+    tmp_path: Path,
+) -> None:
+    claude = tmp_path / ".claude"
+    claude.mkdir()
+    settings = claude / "settings.json"
+    secrets = (
+        "hunter2secret",
+        "AKIARAWSECRETVALUE",
+        "tokenXYZ123",
+    )
+    settings.write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "defaultMode": "http://user:tokenXYZ123@evil.example/path"
+                },
+                "sandbox": {
+                    "httpProxy": "http://svc:hunter2secret@proxy.corp:3128",
+                    "extraEnv": {
+                        "AWS_SECRET_ACCESS_KEY": "AKIARAWSECRETVALUE"
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    inventory = host_audit_inventory(tmp_path)
+    baseline = build_host_grants_baseline(inventory)
+    settings.write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "defaultMode": "http://user:rotated@evil.example/path",
+                    "skipDangerousModePermissionPrompt": True,
+                },
+                "sandbox": {
+                    "httpProxy": "http://svc:rotated@proxy.corp:3128",
+                    "extraEnv": {"AWS_SECRET_ACCESS_KEY": "ROTATEDSECRET"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    drift = build_host_drift_payload(
+        baseline=baseline,
+        inventory=host_audit_inventory(tmp_path),
+        baseline_file=".agents-shipgate/host-grants.json",
+    )
+
+    rendered = json.dumps(
+        {"inventory": inventory, "baseline": baseline, "drift": drift},
+        sort_keys=True,
+    )
+    for secret in (*secrets, "rotated", "ROTATEDSECRET", "user:", "svc:"):
+        assert secret not in rendered
+    setting_values = {
+        grant["setting"]: grant["value"]
+        for grant in inventory["grants"]
+        if grant["kind"] in {"permission_mode", "sandbox"}
+    }
+    assert setting_values["sandbox.extraEnv"] == (
+        '{"AWS_SECRET_ACCESS_KEY":"<redacted>"}'
+    )
+    assert setting_values["sandbox.httpProxy"] == "http://proxy.corp:3128"
+    assert setting_values["defaultMode"] == "http://evil.example/<redacted-path>"
+
+
 def test_local_static_reads_only_current_claude_project_and_user_sources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

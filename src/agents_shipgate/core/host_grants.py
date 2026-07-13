@@ -412,14 +412,22 @@ def _setting_grant(
     *, host: str, scope: HostScope, source: str, kind: str, setting: str,
     value: Any, access: str = "unknown", risk: str = "medium",
 ) -> dict[str, Any]:
-    rendered = _canonical(value) if isinstance(value, (dict, list)) else str(value)
+    redacted_value = _redact_secret_values(value, parent_key=setting)
+    rendered = (
+        _canonical(redacted_value)
+        if isinstance(redacted_value, (dict, list))
+        else str(redacted_value)
+    )
     key = "setting"
     if kind == "additional_path":
         key = "path"
     return {
         **_grant_base(
             host=host, scope=scope, source=source, kind=kind,
-            identity=f"{setting}:{rendered}", config={setting: value}, access=access, risk=risk,
+            identity=f"{setting}:{rendered}",
+            config={setting: redacted_value},
+            access=access,
+            risk=risk,
         ),
         key: setting if kind == "additional_path" else setting,
         **({"value": rendered} if kind in {"permission_mode", "sandbox"} else {}),

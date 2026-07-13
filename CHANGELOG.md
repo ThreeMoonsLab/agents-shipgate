@@ -21,6 +21,12 @@
   baselines. Repository scope remains deterministic and default; the explicit
   `local-static` audit scope reads supported local configuration without
   executing hosts, helpers, tools, user code, or network calls.
+- **Boundary beta hardening.** Visible permission-mode and sandbox grant values
+  now use the same recursive secret redaction as their hashes, so inventories,
+  saved baselines, and drift reports cannot persist raw credential-bearing
+  strings. Incomparable host baselines route preflight and organization status
+  to human review instead of appearing clean. Protected-path classification is
+  case-insensitive and retains nested Codex, MCP, and GitHub-workflow copies.
 - **Correction to the original host-governance claim.** Earlier documentation
   overstated the first host-audit cut as the effective/current grant set. The
   contract is static and scope-bound: repository results cover

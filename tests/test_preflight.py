@@ -584,6 +584,42 @@ def test_cli_preflight_reports_host_grant_drift_when_baseline_present(
     assert any(signal["kind"] == "host_grant_drift" for signal in payload["signals"])
 
 
+def test_cli_preflight_routes_incomparable_legacy_host_baseline_to_human(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    baseline_path = root / ".agents-shipgate" / "host-grants.json"
+    baseline_path.parent.mkdir(parents=True)
+    baseline_path.write_text(
+        json.dumps(
+            {
+                "host_grants_schema_version": "0.1",
+                "inventory_sha256": "legacy",
+                "inventory": {"mcp_servers": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["preflight", "--workspace", str(root), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["host_grant_drift"]["comparison_status"] == "incomparable"
+    assert payload["host_grant_drift"]["has_drift"] is None
+    assert payload["first_next_action"]["actor"] == "human"
+    signal = next(
+        item for item in payload["signals"] if item["kind"] == "host_grant_drift"
+    )
+    assert "could not be compared completely" in signal["reason"]
+    assert signal["related_command"] == (
+        "shipgate audit --host --scope repository --save-baseline"
+    )
+
+
 def test_cli_preflight_default_corrupt_host_baseline_warns_and_continues(
     tmp_path: Path,
 ) -> None:

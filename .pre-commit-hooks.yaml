@@ -32,14 +32,15 @@
   always_run: false
   stages: [pre-commit, pre-push]
   files: |
-    (?x)^(
+    (?ix)^(
       shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
-      (.*/)?\.codex/(config\.toml|hooks\.json)|
-      \.claude/settings(\.local)?\.json|
-      \.cursor/cli\.json|
-      \.cursor/rules/.*|
+      (.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)|
+      (.*/)?\.claude/(settings(\.local)?\.json|commands/.*)|
+      (.*/)?\.cursor/(cli\.json|mcp\.json|rules/.*)|
+      (.*/)?\.vscode/mcp\.json|
+      (.*/)?\.shipgate/agent-contract\.json|
       (AGENTS(\.override)?|CLAUDE)\.md|
       \.(agents|claude)/skills/.*|
       .*\.codex-plugin/.*|
@@ -51,7 +52,7 @@
       \.agents-shipgate/.*\.json|
       prompts/.*|
       policies/.*|
-      \.github/workflows/.*\.(yaml|yml)
+      (.*/)?\.github/workflows/.*\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"
 
@@ -67,14 +68,15 @@
   always_run: false
   stages: [pre-push]
   files: |
-    (?x)^(
+    (?ix)^(
       shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
-      (.*/)?\.codex/(config\.toml|hooks\.json)|
-      \.claude/settings(\.local)?\.json|
-      \.cursor/cli\.json|
-      \.cursor/rules/.*|
+      (.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)|
+      (.*/)?\.claude/(settings(\.local)?\.json|commands/.*)|
+      (.*/)?\.cursor/(cli\.json|mcp\.json|rules/.*)|
+      (.*/)?\.vscode/mcp\.json|
+      (.*/)?\.shipgate/agent-contract\.json|
       (AGENTS(\.override)?|CLAUDE)\.md|
       \.(agents|claude)/skills/.*|
       .*\.codex-plugin/.*|
@@ -86,7 +88,7 @@
       \.agents-shipgate/.*\.json|
       prompts/.*|
       policies/.*|
-      \.github/workflows/.*\.(yaml|yml)
+      (.*/)?\.github/workflows/.*\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"
 

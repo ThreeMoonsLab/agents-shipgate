@@ -697,12 +697,27 @@ def signals_for_policy_drift(
 def signals_for_host_grant_drift(
     host_grant_drift: dict[str, Any] | None,
 ) -> list[PreflightSignalV1]:
-    if not host_grant_drift or not host_grant_drift.get("has_drift"):
+    if not _host_grant_drift_requires_review(host_grant_drift):
         return []
-    reason = "Host grants differ from the acknowledged baseline."
+    assert host_grant_drift is not None
+    comparable = host_grant_drift.get("comparison_status") == "comparable"
+    reason = (
+        "Host grants differ from the acknowledged baseline."
+        if comparable
+        else "Host grants could not be compared completely with the acknowledged baseline."
+    )
+    incomparable_reasons = host_grant_drift.get("incomparable_reasons") or []
+    if incomparable_reasons:
+        reason += " Reasons: " + ", ".join(
+            str(item) for item in incomparable_reasons[:5]
+        )
     expansion = host_grant_drift.get("expansion_signals") or []
     if expansion:
         reason += " Expansion signals: " + ", ".join(str(item) for item in expansion[:5])
+    rerun = str(
+        host_grant_drift.get("next_action")
+        or "shipgate audit --host --drift --fail-on-drift"
+    )
     return [
         PreflightSignalV1(
             id="host_grant_drift:baseline",
@@ -713,12 +728,23 @@ def signals_for_host_grant_drift(
             path=str(host_grant_drift.get("baseline_file") or ""),
             reason=reason,
             recommendation=(
-                "Route the host-grant drift to a human. After review, "
-                "re-acknowledge with `shipgate audit --host --save-baseline`."
+                "Route the host-grant comparison to a human. After review, "
+                f"run `{rerun}`."
             ),
-            related_command="shipgate audit --host --drift --fail-on-drift",
+            related_command=rerun,
         )
     ]
+
+
+def _host_grant_drift_requires_review(
+    host_grant_drift: dict[str, Any] | None,
+) -> bool:
+    if not host_grant_drift:
+        return False
+    comparison_status = host_grant_drift.get("comparison_status")
+    if comparison_status is not None and comparison_status != "comparable":
+        return True
+    return host_grant_drift.get("has_drift") is not False
 
 
 def effective_policy_hash_for_config(config_path: Path) -> str | None:

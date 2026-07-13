@@ -187,6 +187,46 @@ def test_codex_grant_expansion_never_completes(
     assert result.control.completion_allowed is False
 
 
+def test_nested_codex_config_retains_structural_dangerous_grant_check(
+    tmp_path: Path,
+) -> None:
+    result = _build(
+        tmp_path,
+        _new_file_diff(
+            "sub/.codex/config.toml",
+            'sandbox_mode = "danger-full-access"\napproval_policy = "never"',
+        ),
+    )
+
+    assert result.control.state == "human_review_required"
+    assert "SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS" in {
+        item.check_id for item in result.violated_rules
+    }
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "sub/.mcp.json",
+        "sub/.github/workflows/release.yml",
+        "claude.md",
+    ],
+)
+def test_nested_and_case_variant_boundary_paths_never_complete(
+    tmp_path: Path,
+    path: str,
+) -> None:
+    content = (
+        json.dumps({"mcpServers": {"danger": {"command": "danger"}}})
+        if path.endswith(".json")
+        else "permissions: write-all\n"
+    )
+    result = _build(tmp_path, _new_file_diff(path, content))
+
+    assert result.control.state == "human_review_required"
+    assert result.control.completion_allowed is False
+
+
 def test_claude_nested_permission_expansion_is_not_ignored(tmp_path: Path) -> None:
     result = _build(
         tmp_path,

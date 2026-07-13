@@ -1909,11 +1909,15 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
     "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED": [
         ".codex/config.toml",
         ".codex/hooks.json",
+        ".codex/requirements.toml",
+        "sub/.codex/config.toml",
     ],
     "TRIGGER-CLAUDE-BOUNDARY-CONFIG-CHANGED": [
         ".claude/settings.json",
         ".claude/settings.local.json",
         ".mcp.json",
+        ".claude/commands/review.md",
+        "claude.md",
     ],
     "TRIGGER-CURSOR-BOUNDARY-CONFIG-CHANGED": [
         ".cursor/cli.json",
@@ -1930,6 +1934,8 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
         ".agents/skills/shipgate/SKILL.md",
         ".claude/skills/shipgate/SKILL.md",
         ".github/workflows/release.yml",
+        "sub/.github/workflows/release.yml",
+        ".shipgate/agent-contract.json",
     ],
     "TRIGGER-PROMPTS-OR-POLICIES": [
         "prompts/system.md",
@@ -2045,9 +2051,11 @@ def test_pre_commit_local_docs_show_same_path_trigger_clauses():
     text = _read("docs/integrations.md")
     for clause in (
         r".*swagger.*\.(yaml|yml|json)",
-        r"(.*/)?\.codex/(config\.toml|hooks\.json)",
+        r"(.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)",
+        r"(.*/)?\.claude/(settings(\.local)?\.json|commands/.*)",
+        r"(.*/)?\.shipgate/agent-contract\.json",
         r"\.agents-shipgate/.*\.json",
-        r"\.github/workflows/agents-shipgate\.(yaml|yml)",
+        r"(.*/)?\.github/workflows/.*\.(yaml|yml)",
     ):
         assert clause in text, (
             "docs/integrations.md local pre-commit snippet is missing "

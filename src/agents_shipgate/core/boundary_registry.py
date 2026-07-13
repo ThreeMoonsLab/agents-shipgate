@@ -20,9 +20,9 @@ class BoundaryAdapterSpec:
     experimental: bool = False
 
     def matches(self, path: str) -> bool:
-        normalized = path.replace("\\", "/").removeprefix("./")
-        return normalized in self.exact_paths or any(
-            glob_match(pattern, normalized) for pattern in self.globs
+        normalized = path.replace("\\", "/").removeprefix("./").casefold()
+        return any(normalized == item.casefold() for item in self.exact_paths) or any(
+            glob_match(pattern.casefold(), normalized) for pattern in self.globs
         )
 
 
@@ -35,6 +35,11 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
             ".codex/hooks.json",
             ".codex/requirements.toml",
         ),
+        globs=(
+            "**/.codex/config.toml",
+            "**/.codex/hooks.json",
+            "**/.codex/requirements.toml",
+        ),
     ),
     BoundaryAdapterSpec(
         id="claude_code",
@@ -46,6 +51,7 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
             "CLAUDE.md",
         ),
         globs=(
+            "**/.mcp.json",
             ".claude/commands/*",
             ".claude/commands/**",
             ".claude/skills/*/SKILL.md",
@@ -81,6 +87,8 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
             ".agents/skills/**/SKILL.md",
             ".github/workflows/*.yml",
             ".github/workflows/*.yaml",
+            "**/.github/workflows/*.yml",
+            "**/.github/workflows/*.yaml",
             ".agents-shipgate/baseline*.json",
             ".agents-shipgate/*waiver*.json",
             ".agents-shipgate/state*.json",

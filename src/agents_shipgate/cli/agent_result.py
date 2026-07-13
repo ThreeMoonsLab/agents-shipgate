@@ -221,15 +221,6 @@ def _declared_tool_surfaces_changed(
     return sorted(matched)
 
 
-def git_diff_text(
-    *,
-    workspace: Path,
-    base: str | None,
-    head: str | None,
-) -> str:
-    return git_boundary_change_set(workspace=workspace, base=base, head=head).diff_text
-
-
 def git_boundary_change_set(
     *,
     workspace: Path,

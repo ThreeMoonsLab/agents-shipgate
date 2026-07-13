@@ -24,6 +24,16 @@ and `audit --host`.
 A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
 external, symlinked, or unsupported input prevents a complete control result.
+Path classification is case-insensitive so protected files cannot evade review
+on macOS or Windows. Nested `.codex/**`, `.mcp.json`, and
+`.github/workflows/**` copies remain protected for repository-wide drift and
+trust-root review, even when the host only loads the root copy.
+
+The boundary is intentionally fail-closed above the adapters' specialized
+semantics. Most instruction, policy, skill, and workflow edits therefore route
+to human review unless a dedicated rule can prove the change safe. This can be
+noisier than the former Codex-only evaluator; it prevents an unclassified
+cross-host trust-root edit from being reported as complete.
 
 ## Local-static audit scope
 
