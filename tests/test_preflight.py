@@ -12,10 +12,12 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.preflight import _read_plan
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.host_grants import build_host_grants_baseline, host_audit_inventory
 from agents_shipgate.core.preflight import (
     build_preflight_result,
     build_trust_root_graph,
+    classify_protected_touches,
     forbidden_file_edits,
     required_evidence_for_capability_request,
 )
@@ -109,6 +111,9 @@ def test_preflight_routes_protected_surface_touches_to_human(tmp_path: Path) -> 
         (".agents-shipgate/waivers.json", "shipgate_state", "key_level"),
         (".codex/config.toml", "codex_config", "whole_file"),
         (".codex/hooks/preflight.sh", "codex_hooks", "whole_file"),
+        (".cursor/cli.json", "host_boundary", "whole_file"),
+        ("AGENTS.override.md", "host_boundary", "whole_file"),
+        (".github/workflows/deploy.yml", "host_boundary", "whole_file"),
         (".codex-plugin/plugin.json", "codex_plugin", "capability_surface"),
         ("servers/refund/.mcp.json", "tool_surface_decl", "capability_surface"),
         ("plugins/refund/.app.json", "tool_surface_decl", "capability_surface"),
@@ -129,6 +134,20 @@ def test_preflight_protected_surface_coverage(
     assert result.protected_surface_touches[0].path == path
     assert result.protected_surface_touches[0].kind == expected_kind
     assert result.protected_surface_touches[0].scope_type == expected_scope_type
+
+
+def test_every_registered_repository_boundary_path_is_preflight_protected() -> None:
+    candidates: list[str] = []
+    for adapter in BOUNDARY_ADAPTERS:
+        candidates.extend(adapter.exact_paths)
+        candidates.extend(
+            pattern.replace("**", "nested").replace("*", "item")
+            for pattern in adapter.globs
+        )
+
+    touches = classify_protected_touches(candidates)
+
+    assert {touch.path for touch in touches} == set(candidates)
 
 
 def test_capability_request_review_requires_evidence_for_financial_write() -> None:

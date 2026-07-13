@@ -74,6 +74,22 @@ def test_first_look_reports_host_grants(
     assert "MCP server" in result.output
 
 
+def test_first_look_never_hides_incomplete_host_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / ".mcp.json").write_text("{not valid json\n", encoding="utf-8")
+    _commit(repo)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0, result.output
+    assert "host grants:" in result.output
+    assert "coverage incomplete" in result.output
+    assert "no agent tool surface or host config detected" not in result.output
+
+
 def test_first_look_reports_untracked_files_as_not_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

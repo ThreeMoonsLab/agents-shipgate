@@ -107,13 +107,15 @@ def test_trust_root_classification(path, expected_class):
     assert finding.provenance_kind == "static_declaration"
 
 
-def test_ci_gate_only_matches_the_shipgate_workflow():
-    """A generic workflow change is NOT a trust root — only the Shipgate
-    gate workflow is. Keeps target-repo noise low."""
+def test_generic_workflows_are_shared_host_boundary_trust_roots():
+    """Workflow permissions and pull_request_target affect the host boundary."""
     findings = verify_run(
         _context(changed_files=[".github/workflows/test.yml", ".github/workflows/deploy.yaml"])
     )
-    assert findings == []
+    assert len(findings) == 2
+    assert {
+        finding.evidence["trust_root_class"] for finding in findings
+    } == {"host_boundary"}
 
 
 def test_duplicate_changed_files_are_deduplicated():

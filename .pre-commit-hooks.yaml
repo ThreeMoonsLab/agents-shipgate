@@ -8,8 +8,8 @@
 #
 # Scope: the `files:` regex below covers every **path-based** trigger from
 # `docs/triggers.json` — manifest, MCP/OpenAPI/Swagger exports, static tool
-# inventories, Codex repo config, Codex plugin package files,
-# prompts/policies, AND the Shipgate CI workflow files.
+# inventories, coding-agent host configuration/instructions, plugin package
+# files, prompts/policies, AND GitHub workflow files.
 # Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR` and
 # `TRIGGER-FRAMEWORK-VERSION-BUMP`) are not covered by the regex pre-gate —
 # pre-commit's `files:` regex is purely path-based and cannot inspect diff
@@ -37,6 +37,11 @@
       .*tools.*\.json|
       .*mcp.*\.json|
       (.*/)?\.codex/(config\.toml|hooks\.json)|
+      \.claude/settings(\.local)?\.json|
+      \.cursor/cli\.json|
+      \.cursor/rules/.*|
+      (AGENTS(\.override)?|CLAUDE)\.md|
+      \.(agents|claude)/skills/.*|
       .*\.codex-plugin/.*|
       .*\.agents/plugins/.*|
       .*\.app\.json|
@@ -46,7 +51,7 @@
       \.agents-shipgate/.*\.json|
       prompts/.*|
       policies/.*|
-      \.github/workflows/agents-shipgate\.(yaml|yml)
+      \.github/workflows/.*\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"
 
@@ -67,6 +72,11 @@
       .*tools.*\.json|
       .*mcp.*\.json|
       (.*/)?\.codex/(config\.toml|hooks\.json)|
+      \.claude/settings(\.local)?\.json|
+      \.cursor/cli\.json|
+      \.cursor/rules/.*|
+      (AGENTS(\.override)?|CLAUDE)\.md|
+      \.(agents|claude)/skills/.*|
       .*\.codex-plugin/.*|
       .*\.agents/plugins/.*|
       .*\.app\.json|
@@ -76,7 +86,7 @@
       \.agents-shipgate/.*\.json|
       prompts/.*|
       policies/.*|
-      \.github/workflows/agents-shipgate\.(yaml|yml)
+      \.github/workflows/.*\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"
 

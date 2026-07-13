@@ -48,7 +48,9 @@ from agents_shipgate.schemas.preflight import (
 )
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-_FORBIDDEN_EDIT_CLASSES = frozenset({"ci_gate", "agent_instructions", "policy"})
+_FORBIDDEN_EDIT_CLASSES = frozenset(
+    {"ci_gate", "agent_instructions", "policy", "host_boundary"}
+)
 _KEY_LEVEL_CLASSES = frozenset({"manifest", "shipgate_state"})
 _CAPABILITY_SURFACE_CLASSES = frozenset({"codex_plugin", "tool_surface_decl", "prompts"})
 _CODEX_EXTRA_SURFACES: tuple[tuple[str, str], ...] = (
