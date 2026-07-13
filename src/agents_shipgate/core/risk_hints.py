@@ -192,6 +192,47 @@ def is_write_tool(tool: Tool) -> bool:
     return assessment.conservative_effect != "read"
 
 
+def policy_eligible_effects(tool: Tool) -> set[str]:
+    """Effects allowed to drive hard controls and release policy.
+
+    The conservative bound may include lexical evidence for safety routing,
+    but those values are deliberately absent here. This helper is the only
+    compatibility projection policy consumers should use when a match can
+    affect the release decision. Conservative diagnostic helpers deliberately
+    continue to include inferred upper bounds.
+    """
+
+    from agents_shipgate.core.semantic_assessment import assess_tool_semantics
+
+    assessment = tool.semantic_assessment or assess_tool_semantics(tool)
+    if assessment.effect.status not in {"declared", "structural"}:
+        return set()
+    return {
+        claim.value
+        for claim in assessment.effect.claims
+        if claim.policy_eligible
+    }
+
+
+def is_policy_eligible_high_risk_tool(tool: Tool) -> bool:
+    return bool(
+        policy_eligible_effects(tool)
+        & {
+            "destructive",
+            "external_communication",
+            "financial_write",
+            "production_operation",
+            "privileged_data_access",
+            "code_execution",
+            "identity_access",
+        }
+    )
+
+
+def is_policy_eligible_write_tool(tool: Tool) -> bool:
+    return bool(policy_eligible_effects(tool) - {"read"})
+
+
 def _tokenize(text: str) -> set[str]:
     return set(re.findall(r"[a-z]+", text.lower()))
 
@@ -208,7 +249,14 @@ def _add_automatic_hints(tool: Tool) -> None:
     # at high confidence and exempt from name-keyword write inference.
     is_sdk_preview = tool.source_type == "sdk_function" and "preview" in tokens and not method
     if is_sdk_preview:
-        _add_hint(tool, "read_only", "keyword", "high", {"preview_only": True})
+        _add_hint(
+            tool,
+            "read_only",
+            "keyword",
+            "high",
+            {"preview_only": True},
+            basis="inferred_keyword",
+        )
 
     keyword_eligible = tool.source_type in _KEYWORD_GATED_SOURCE_TYPES and not is_sdk_preview
     keyword_source = (
@@ -222,14 +270,37 @@ def _add_automatic_hints(tool: Tool) -> None:
     )
 
     if keyword_eligible and READ_ONLY_KEYWORDS & tokens:
-        _add_hint(tool, "read_only", keyword_source, "medium", {})
+        _add_hint(
+            tool, "read_only", keyword_source, "medium", {}, basis="inferred_keyword"
+        )
     if keyword_eligible and WRITE_KEYWORDS & tokens:
-        _add_hint(tool, "write", keyword_source, "medium", {})
+        _add_hint(tool, "write", keyword_source, "medium", {}, basis="inferred_keyword")
     if tool.annotations.get("readOnlyHint") is True:
-        _add_hint(tool, "read_only", "mcp_annotation", "high", {"readOnlyHint": True})
+        _add_hint(
+            tool,
+            "read_only",
+            "mcp_annotation",
+            "high",
+            {"readOnlyHint": True},
+            basis="protocol_structure",
+        )
     if tool.annotations.get("destructiveHint") is True:
-        _add_hint(tool, "destructive", "mcp_annotation", "high", {"destructiveHint": True})
-        _add_hint(tool, "write", "mcp_annotation", "high", {"destructiveHint": True})
+        _add_hint(
+            tool,
+            "destructive",
+            "mcp_annotation",
+            "high",
+            {"destructiveHint": True},
+            basis="protocol_structure",
+        )
+        _add_hint(
+            tool,
+            "write",
+            "mcp_annotation",
+            "high",
+            {"destructiveHint": True},
+            basis="protocol_structure",
+        )
 
     if method == "DELETE" or DESTRUCTIVE_KEYWORDS & tokens:
         _add_hint(
@@ -242,9 +313,17 @@ def _add_automatic_hints(tool: Tool) -> None:
             "openapi_method" if method == "DELETE" else "keyword",
             "high" if method == "DELETE" else "medium",
             {"method": method or None},
+            basis=("protocol_structure" if method == "DELETE" else "inferred_keyword"),
         )
     if method in {"POST", "PUT", "PATCH", "DELETE"}:
-        _add_hint(tool, "write", "openapi_method", "high", {"method": method})
+        _add_hint(
+            tool,
+            "write",
+            "openapi_method",
+            "high",
+            {"method": method},
+            basis="protocol_structure",
+        )
 
     # Hint generation precedes the one declaration-aware semantic assessment.
     # Calling the full resolver from inside its own input-enrichment phase used
@@ -276,6 +355,10 @@ def _add_automatic_hints(tool: Tool) -> None:
             "auth_scope" if financial_in_scope else "keyword",
             confidence,
             {"scopes": tool.auth.scopes, "method": method or None},
+            # The write verb itself is structural evidence. A topical word
+            # such as `refund` inside a scope is still lexical classification
+            # and must never become authoritative financial evidence.
+            basis="inferred_keyword",
         )
     if COMMS_KEYWORDS & (tokens | scope_tokens):
         # The previous staged resolver saw a just-added financial hint as a
@@ -288,25 +371,62 @@ def _add_automatic_hints(tool: Tool) -> None:
         confidence = (
             "high" if comms_write else "low" if comms_read_only else "medium"
         )
-        _add_hint(tool, "customer_communication", "keyword", confidence, {"method": method or None})
+        _add_hint(
+            tool,
+            "customer_communication",
+            "keyword",
+            confidence,
+            {"method": method or None},
+            basis="inferred_keyword",
+        )
         # Once customer_communication existed, the former staged assessment
         # was no longer effectively read-only, even when its confidence was
         # low. Preserve that exact hint set without invoking the resolver.
         if EXTERNAL_ACTION_KEYWORDS & tokens:
-            _add_hint(tool, "external_write", "keyword", confidence, {"method": method or None})
+            _add_hint(
+                tool,
+                "external_write",
+                "keyword",
+                confidence,
+                {"method": method or None},
+                basis="inferred_keyword",
+            )
     if SENSITIVE_KEYWORDS & (tokens | scope_tokens):
-        _add_hint(tool, "sensitive_data_access", "keyword", "medium", {})
+        _add_hint(
+            tool,
+            "sensitive_data_access",
+            "keyword",
+            "medium",
+            {},
+            basis="inferred_keyword",
+        )
     if CODE_EXEC_KEYWORDS & tokens:
-        _add_hint(tool, "code_execution", "keyword", "medium", {})
+        _add_hint(
+            tool, "code_execution", "keyword", "medium", {}, basis="inferred_keyword"
+        )
     if INFRASTRUCTURE_KEYWORDS & tokens:
-        _add_hint(tool, "infrastructure_change", "keyword", "medium", {})
+        _add_hint(
+            tool,
+            "infrastructure_change",
+            "keyword",
+            "medium",
+            {},
+            basis="inferred_keyword",
+        )
 
     # GET endpoints without any mutation evidence are read-only with high
     # confidence. Bumping from medium to high lets is_effectively_read_only
     # short-circuit policy/scope checks for clear reads, even when they pick
     # up a topical keyword like "kubernetes" elsewhere in the path.
     if method == "GET" and not has_risk_tag(tool, WRITE_TAGS):
-        _add_hint(tool, "read_only", "openapi_method", "high", {"method": method})
+        _add_hint(
+            tool,
+            "read_only",
+            "openapi_method",
+            "high",
+            {"method": method},
+            basis="protocol_structure",
+        )
 
 
 def _apply_manual_override(tool: Tool, override) -> None:
@@ -341,16 +461,22 @@ def _apply_manual_override(tool: Tool, override) -> None:
             "manual",
             "high",
             {"reason": override.reason, "confidence": override.confidence},
+            basis="reviewed_declaration",
         )
 
 
 def _is_removable_heuristic_hint(hint: ToolRiskHint) -> bool:
-    source = hint.source.lower()
-    return source == "keyword" or source == "regex" or source.endswith("_keyword")
+    return hint.basis in {"inferred_keyword", "inferred_regex"}
 
 
 def _add_hint(
-    tool: Tool, tag: str, source: str, confidence: str, evidence: dict[str, object]
+    tool: Tool,
+    tag: str,
+    source: str,
+    confidence: str,
+    evidence: dict[str, object],
+    *,
+    basis: str,
 ) -> None:
     confidence_value = confidence if confidence in {"low", "medium", "high"} else "medium"
     for existing in tool.risk_hints:
@@ -364,6 +490,14 @@ def _add_hint(
             tag=tag,
             source=source,
             confidence=parse_confidence(confidence_value),
+            basis=basis,
+            provenance_kind=(
+                "keyword_heuristic"
+                if basis == "inferred_keyword"
+                else "regex_heuristic"
+                if basis == "inferred_regex"
+                else "static_declaration"
+            ),
             evidence={key: value for key, value in evidence.items() if value is not None},
         )
     )

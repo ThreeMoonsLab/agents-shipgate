@@ -148,11 +148,21 @@ def test_openai_api_scan_runs_new_and_existing_checks(tmp_path):
     check_ids = {finding.check_id for finding in report.findings}
     assert "SHIP-API-FUNCTION-SCHEMA-STRICTNESS" in check_ids
     assert "SHIP-API-STRUCTURED-OUTPUT-READINESS" in check_ids
-    assert "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH" in check_ids
+    assert "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH" not in check_ids
+    assert any(
+        gap.kind == "inferred_policy_applicability"
+        and gap.why.startswith("SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH:")
+        for gap in report.policy_evidence_gaps
+    )
     assert "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY" in check_ids
     assert "SHIP-API-TIMEOUT-MISSING" in check_ids
     assert "SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING" in check_ids
-    assert "SHIP-SCHEMA-MISSING-BOUNDS" in check_ids
+    assert "SHIP-SCHEMA-MISSING-BOUNDS" not in check_ids
+    assert any(
+        gap.kind == "inferred_policy_applicability"
+        and gap.why.startswith("SHIP-SCHEMA-MISSING-BOUNDS:")
+        for gap in report.policy_evidence_gaps
+    )
     assert "SHIP-SIDEFX-IDEMPOTENCY-MISSING" in check_ids
     trace_finding = next(
         finding

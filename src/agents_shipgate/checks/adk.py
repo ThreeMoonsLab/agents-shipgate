@@ -14,7 +14,7 @@ from agents_shipgate.core.artifact_models import (
     GoogleAdkToolset,
 )
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.risk_hints import is_high_risk_tool
+from agents_shipgate.core.risk_hints import is_policy_eligible_high_risk_tool
 
 
 def run(context: ScanContext):
@@ -135,7 +135,8 @@ def run(context: ScanContext):
         high_risk_adk_tools = [
             tool.name
             for tool in context.tools
-            if tool.source_type.startswith("google_adk") and is_high_risk_tool(tool)
+            if tool.source_type.startswith("google_adk")
+            and is_policy_eligible_high_risk_tool(tool)
         ]
         if high_risk_adk_tools:
             findings.append(

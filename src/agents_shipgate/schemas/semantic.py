@@ -27,6 +27,16 @@ SemanticActionEffect = Literal[
     "identity_access",
 ]
 SemanticDimension = Literal["identity", "binding", "effect", "authority"]
+EvidenceBasis = Literal[
+    "reviewed_declaration",
+    "protocol_structure",
+    "typed_provider_fact",
+    "structural_scope",
+    "inferred_keyword",
+    "inferred_regex",
+    "protocol_default",
+    "unknown",
+]
 IdentityEvidenceStatus = Literal[
     "declared",
     "structural",
@@ -73,16 +83,20 @@ SemanticIssueKind = Literal[
     "unresolved_bound_tool",
     "incomplete_handoff_graph",
     "invalid_binding_annotation",
+    "invalid_evidence_provenance",
 ]
 
 
 class SemanticClaimEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    claim_id: str | None = None
     dimension: SemanticDimension
     value: str
     confidence: Confidence
     provenance_kind: ProvenanceKind
+    basis: EvidenceBasis = "unknown"
+    policy_eligible: bool = False
     source: str
     source_pointer: str | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)

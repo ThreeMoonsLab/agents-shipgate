@@ -114,6 +114,7 @@
           "start_line": 97,
           "type": "openapi"
         },
+        "support": null,
         "title": "stripe.create_refund lacks a declared approval policy"
       }
     ],
@@ -145,70 +146,7 @@
       "prepare refund requests for human review",
       "update support ticket notes"
     ],
-    "divergence_findings": [
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "fingerprint": "fp_6f8e1ebab65f3607",
-        "id": "fp_6f8e1ebab65f3607",
-        "policy_evidence_source": {
-          "end_line": null,
-          "location": null,
-          "path": "shipgate.yaml",
-          "pointer": "/agent/prohibited_actions/0",
-          "ref": "shipgate.yaml#/agent/prohibited_actions/0",
-          "start_column": null,
-          "start_line": 22,
-          "type": "manifest"
-        },
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": "specs/support-tools.openapi.yaml",
-          "pointer": "/paths/~1refunds/post",
-          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-          "start_column": 5,
-          "start_line": 97,
-          "type": "openapi"
-        },
-        "title": "stripe.create_refund appears to overlap with a prohibited action"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "fingerprint": "fp_5faaaee860bcec8b",
-        "id": "fp_5faaaee860bcec8b",
-        "policy_evidence_source": {
-          "end_line": null,
-          "location": null,
-          "path": "shipgate.yaml",
-          "pointer": "/agent/prohibited_actions/2",
-          "ref": "shipgate.yaml#/agent/prohibited_actions/2",
-          "start_column": null,
-          "start_line": 24,
-          "type": "manifest"
-        },
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": ".agents-shipgate/mcp-tools.json",
-          "pointer": "/tools/1",
-          "ref": ".agents-shipgate/mcp-tools.json",
-          "start_column": null,
-          "start_line": null,
-          "type": "mcp"
-        },
-        "title": "gmail.send_customer_email appears to overlap with a prohibited action"
-      }
-    ],
+    "divergence_findings": [],
     "observed_tool_ids": [
       "tool_v2_08f6c9642ff3da07bd4dd33f949b747ad5fe79c245d1f76d450a81ff86cb1f6e",
       "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
@@ -239,10 +177,7 @@
           "prepare refund requests for human review",
           "update support ticket notes"
         ],
-        "divergent": [
-          "gmail.send_customer_email",
-          "stripe.create_refund"
-        ],
+        "divergent": [],
         "label": "Declared purpose",
         "observed": [
           "gmail.send_customer_email",
@@ -260,15 +195,12 @@
           "cancel order without explicit confirmation",
           "send external email without preview"
         ],
-        "divergent": [
-          "gmail.send_customer_email",
-          "stripe.create_refund"
-        ],
+        "divergent": [],
         "label": "Prohibited actions",
         "observed": []
       }
     ],
-    "status": "missing"
+    "status": "covered"
   },
   "dynamic_scenarios": {
     "scenarios": [
@@ -341,29 +273,6 @@
       },
       {
         "finding_ids": [
-          "fp_d58657d9b1c91a84",
-          "fp_ea4f18e4707f8e1d"
-        ],
-        "scenario": "Manual review for SHIP-SCHEMA-BROAD-FREE-TEXT",
-        "why": "Constrain zendesk.update_ticket.updates with an enum, structured schema, or narrower field-specific parameters."
-      },
-      {
-        "finding_ids": [
-          "fp_60fdf92126ba8844"
-        ],
-        "scenario": "Manual review for SHIP-SCHEMA-MISSING-BOUNDS",
-        "why": "Add a maximum bound to stripe.create_refund.amount or document an equivalent limit in the tool policy."
-      },
-      {
-        "finding_ids": [
-          "fp_5faaaee860bcec8b",
-          "fp_6f8e1ebab65f3607"
-        ],
-        "scenario": "Manual review for SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "why": "Remove stripe.create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other."
-      },
-      {
-        "finding_ids": [
           "fp_2cf0d6c77d9c3eee"
         ],
         "scenario": "Manual review for SHIP-SIDEFX-IDEMPOTENCY-MISSING",
@@ -402,86 +311,14 @@
       },
       {
         "blocking_findings": [],
-        "confidence": "mixed",
+        "confidence": "medium",
         "domain": "Schema",
-        "evidence_present": "partial",
+        "evidence_present": "covered",
         "evidence_source": [
-          "tool_surface_facts.tools[].hashes",
-          "findings[]"
+          "tool_surface_facts.tools[].hashes"
         ],
-        "missing_controls": [
-          "SHIP-SCHEMA-MISSING-BOUNDS on stripe.create_refund: stripe.create_refund.amount has no maximum bound",
-          "SHIP-SCHEMA-BROAD-FREE-TEXT on zendesk.update_ticket: zendesk.update_ticket accepts broad free-form action input",
-          "SHIP-SCHEMA-BROAD-FREE-TEXT on gmail.send_customer_email: gmail.send_customer_email accepts broad free-form action input"
-        ],
-        "review_items": [
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-            "fingerprint": "fp_60fdf92126ba8844",
-            "id": "fp_60fdf92126ba8844",
-            "policy_evidence_source": null,
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": "specs/support-tools.openapi.yaml",
-              "pointer": "/paths/~1refunds/post",
-              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-              "start_column": 5,
-              "start_line": 97,
-              "type": "openapi"
-            },
-            "title": "stripe.create_refund.amount has no maximum bound"
-          },
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-            "fingerprint": "fp_ea4f18e4707f8e1d",
-            "id": "fp_ea4f18e4707f8e1d",
-            "policy_evidence_source": null,
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": "specs/support-tools.openapi.yaml",
-              "pointer": "/paths/~1tickets~1{ticket_id}/patch",
-              "ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
-              "start_column": 5,
-              "start_line": 142,
-              "type": "openapi"
-            },
-            "title": "zendesk.update_ticket accepts broad free-form action input"
-          },
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-            "fingerprint": "fp_d58657d9b1c91a84",
-            "id": "fp_d58657d9b1c91a84",
-            "policy_evidence_source": null,
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": ".agents-shipgate/mcp-tools.json",
-              "pointer": "/tools/1",
-              "ref": ".agents-shipgate/mcp-tools.json",
-              "start_column": null,
-              "start_line": null,
-              "type": "mcp"
-            },
-            "title": "gmail.send_customer_email accepts broad free-form action input"
-          }
-        ]
+        "missing_controls": [],
+        "review_items": []
       },
       {
         "blocking_findings": [],
@@ -522,6 +359,7 @@
               "start_line": 91,
               "type": "manifest"
             },
+            "support": null,
             "title": "Manifest declares broad permission scopes"
           },
           {
@@ -544,6 +382,7 @@
               "start_line": 116,
               "type": "openapi"
             },
+            "support": null,
             "title": "shopify.cancel_order requires scopes not declared in the manifest"
           },
           {
@@ -566,6 +405,7 @@
               "start_line": null,
               "type": "mcp"
             },
+            "support": null,
             "title": "support.search_kb requires scopes not declared in the manifest"
           },
           {
@@ -588,6 +428,7 @@
               "start_line": 72,
               "type": "openapi"
             },
+            "support": null,
             "title": "refund_status_lookup lacks declared auth scopes"
           },
           {
@@ -610,6 +451,7 @@
               "start_line": null,
               "type": "mcp"
             },
+            "support": null,
             "title": "gmail.send_customer_email requires scopes not declared in the manifest"
           },
           {
@@ -632,6 +474,7 @@
               "start_line": null,
               "type": "manifest"
             },
+            "support": null,
             "title": "Manifest declares unused permission scope zendesk:tickets:read"
           }
         ]
@@ -669,6 +512,7 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": null,
             "title": "stripe.create_refund lacks a declared approval policy"
           },
           {
@@ -690,6 +534,32 @@
               "start_column": 5,
               "start_line": 97,
               "type": "openapi"
+            },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
             },
             "title": "stripe.create_refund has financial write capability without required controls"
           }
@@ -752,6 +622,7 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": null,
             "title": "stripe.create_refund lacks a declared confirmation policy"
           },
           {
@@ -785,6 +656,7 @@
               "start_line": null,
               "type": "mcp"
             },
+            "support": null,
             "title": "gmail.send_customer_email lacks a declared confirmation policy"
           }
         ]
@@ -820,6 +692,7 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": null,
             "title": "stripe.create_refund lacks idempotency evidence"
           },
           {
@@ -841,6 +714,32 @@
               "start_column": 5,
               "start_line": 97,
               "type": "openapi"
+            },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
             },
             "title": "stripe.create_refund has financial write capability without required controls"
           }
@@ -892,6 +791,7 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": null,
             "title": "stripe.create_refund lacks a declared approval policy"
           },
           {
@@ -923,6 +823,7 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": null,
             "title": "stripe.create_refund lacks idempotency evidence"
           },
           {
@@ -944,6 +845,32 @@
               "start_column": null,
               "start_line": null,
               "type": "mcp"
+            },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_49bfadd2eb7605a1065c24081f890481ee2f37e9718152ae533c8e43ddaab17a",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:2da4af706588e6b22a8dcb7b25419cf3fa22214d1fb76ea543afef8f4936a3f4"
             },
             "title": "gmail.send_customer_email has external communication capability without required controls"
           },
@@ -967,6 +894,32 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
+            },
             "title": "stripe.create_refund has external communication capability without required controls"
           },
           {
@@ -989,10 +942,36 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
+            },
             "title": "stripe.create_refund has financial write capability without required controls"
           }
         ],
-        "confidence": "mixed",
+        "confidence": "high",
         "domain": "Side effects",
         "evidence_present": "partial",
         "evidence_source": [
@@ -1001,8 +980,6 @@
           "findings[]"
         ],
         "missing_controls": [
-          "SHIP-SCHEMA-BROAD-FREE-TEXT on zendesk.update_ticket: zendesk.update_ticket accepts broad free-form action input",
-          "SHIP-SCHEMA-BROAD-FREE-TEXT on gmail.send_customer_email: gmail.send_customer_email accepts broad free-form action input",
           "SHIP-POLICY-APPROVAL-MISSING on stripe.create_refund: stripe.create_refund lacks a declared approval policy",
           "SHIP-POLICY-CONFIRMATION-MISSING on stripe.create_refund: stripe.create_refund lacks a declared confirmation policy",
           "SHIP-POLICY-CONFIRMATION-MISSING on gmail.send_customer_email: gmail.send_customer_email lacks a declared confirmation policy",
@@ -1012,50 +989,6 @@
           "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create_refund: stripe.create_refund has financial write capability without required controls"
         ],
         "review_items": [
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-            "fingerprint": "fp_ea4f18e4707f8e1d",
-            "id": "fp_ea4f18e4707f8e1d",
-            "policy_evidence_source": null,
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": "specs/support-tools.openapi.yaml",
-              "pointer": "/paths/~1tickets~1{ticket_id}/patch",
-              "ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
-              "start_column": 5,
-              "start_line": 142,
-              "type": "openapi"
-            },
-            "title": "zendesk.update_ticket accepts broad free-form action input"
-          },
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-            "fingerprint": "fp_d58657d9b1c91a84",
-            "id": "fp_d58657d9b1c91a84",
-            "policy_evidence_source": null,
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": ".agents-shipgate/mcp-tools.json",
-              "pointer": "/tools/1",
-              "ref": ".agents-shipgate/mcp-tools.json",
-              "start_column": null,
-              "start_line": null,
-              "type": "mcp"
-            },
-            "title": "gmail.send_customer_email accepts broad free-form action input"
-          },
           {
             "baseline_status": null,
             "blocks_release": false,
@@ -1087,6 +1020,7 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": null,
             "title": "stripe.create_refund lacks a declared confirmation policy"
           },
           {
@@ -1120,6 +1054,7 @@
               "start_line": null,
               "type": "mcp"
             },
+            "support": null,
             "title": "gmail.send_customer_email lacks a declared confirmation policy"
           }
         ]
@@ -1146,81 +1081,14 @@
         "blocking_findings": [],
         "confidence": "medium",
         "domain": "Prompt/scope alignment",
-        "evidence_present": "partial",
+        "evidence_present": "covered",
         "evidence_source": [
           "declared_intentions",
           "misalignments",
-          "capability_facts",
-          "findings[]"
+          "capability_facts"
         ],
-        "missing_controls": [
-          "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create_refund: stripe.create_refund appears to overlap with a prohibited action",
-          "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on gmail.send_customer_email: gmail.send_customer_email appears to overlap with a prohibited action"
-        ],
-        "review_items": [
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-            "fingerprint": "fp_6f8e1ebab65f3607",
-            "id": "fp_6f8e1ebab65f3607",
-            "policy_evidence_source": {
-              "end_line": null,
-              "location": null,
-              "path": "shipgate.yaml",
-              "pointer": "/agent/prohibited_actions/0",
-              "ref": "shipgate.yaml#/agent/prohibited_actions/0",
-              "start_column": null,
-              "start_line": 22,
-              "type": "manifest"
-            },
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": "specs/support-tools.openapi.yaml",
-              "pointer": "/paths/~1refunds/post",
-              "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-              "start_column": 5,
-              "start_line": 97,
-              "type": "openapi"
-            },
-            "title": "stripe.create_refund appears to overlap with a prohibited action"
-          },
-          {
-            "baseline_status": null,
-            "blocks_release": false,
-            "capability_refs": [],
-            "capability_trace_refs": [],
-            "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-            "fingerprint": "fp_5faaaee860bcec8b",
-            "id": "fp_5faaaee860bcec8b",
-            "policy_evidence_source": {
-              "end_line": null,
-              "location": null,
-              "path": "shipgate.yaml",
-              "pointer": "/agent/prohibited_actions/2",
-              "ref": "shipgate.yaml#/agent/prohibited_actions/2",
-              "start_column": null,
-              "start_line": 24,
-              "type": "manifest"
-            },
-            "severity": "high",
-            "source": {
-              "end_line": null,
-              "location": null,
-              "path": ".agents-shipgate/mcp-tools.json",
-              "pointer": "/tools/1",
-              "ref": ".agents-shipgate/mcp-tools.json",
-              "start_column": null,
-              "start_line": null,
-              "type": "mcp"
-            },
-            "title": "gmail.send_customer_email appears to overlap with a prohibited action"
-          }
-        ]
+        "missing_controls": [],
+        "review_items": []
       },
       {
         "blocking_findings": [],
@@ -1262,6 +1130,32 @@
               "start_line": null,
               "type": "mcp"
             },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_49bfadd2eb7605a1065c24081f890481ee2f37e9718152ae533c8e43ddaab17a",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:2da4af706588e6b22a8dcb7b25419cf3fa22214d1fb76ea543afef8f4936a3f4"
+            },
             "title": "gmail.send_customer_email has external communication capability without required controls"
           },
           {
@@ -1283,6 +1177,32 @@
               "start_column": 5,
               "start_line": 97,
               "type": "openapi"
+            },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
             },
             "title": "stripe.create_refund has external communication capability without required controls"
           },
@@ -1306,6 +1226,32 @@
               "start_line": 97,
               "type": "openapi"
             },
+            "support": {
+              "blocking_eligible": true,
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "predicates": [
+                {
+                  "claim_ids": [],
+                  "confidence": "high",
+                  "evidence_bases": [
+                    "protocol_structure"
+                  ],
+                  "expected": null,
+                  "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+                  "policy_eligible": true,
+                  "predicate": "deterministic_action_rule",
+                  "status": "matched",
+                  "why": null
+                }
+              ],
+              "status": "matched",
+              "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
+            },
             "title": "stripe.create_refund has financial write capability without required controls"
           }
         ],
@@ -1328,7 +1274,7 @@
   },
   "generated_at": "2026-01-01T00:00:00+00:00",
   "high_risk_surface": {
-    "high_risk_count": 3,
+    "high_risk_count": 5,
     "status": "partial",
     "tools": [
       {
@@ -1342,6 +1288,17 @@
         ],
         "source_type": "mcp",
         "tool_id": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9"
+      },
+      {
+        "has_approval_policy": false,
+        "has_idempotency_policy": false,
+        "name": "send_email_preview",
+        "provider": "openai_sdk_static",
+        "risk_tags": [
+          "read_only"
+        ],
+        "source_type": "mcp",
+        "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e"
       },
       {
         "has_approval_policy": true,
@@ -1367,6 +1324,17 @@
         ],
         "source_type": "openapi",
         "tool_id": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8"
+      },
+      {
+        "has_approval_policy": false,
+        "has_idempotency_policy": false,
+        "name": "support.search_kb",
+        "provider": "support_mcp_tools",
+        "risk_tags": [
+          "read_only"
+        ],
+        "source_type": "mcp",
+        "tool_id": "tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a"
       }
     ],
     "total_tools": 7
@@ -1428,6 +1396,7 @@
           "start_line": 97,
           "type": "openapi"
         },
+        "support": null,
         "title": "stripe.create_refund lacks idempotency evidence"
       }
     ],
@@ -1461,8 +1430,7 @@
   },
   "not_proven": {
     "additional_residuals": [
-      "Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available.",
-      "5 active finding(s) came from heuristic provenance (keyword_heuristic=5, regex_heuristic=0); review the finding evidence before acting."
+      "Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available."
     ],
     "headline": "Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generated agent capability changes, run as a local-first, static Tool-Use Readiness review. The packet below is derived from a scan; it does not, by itself, prove the following properties:",
     "low_confidence_tools": [],
@@ -1489,7 +1457,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.10",
+  "packet_schema_version": "0.11",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -1535,6 +1503,7 @@
           "start_line": 97,
           "type": "openapi"
         },
+        "support": null,
         "title": "stripe.create_refund lacks a declared approval policy"
       },
       {
@@ -1566,6 +1535,7 @@
           "start_line": 97,
           "type": "openapi"
         },
+        "support": null,
         "title": "stripe.create_refund lacks idempotency evidence"
       },
       {
@@ -1587,6 +1557,32 @@
           "start_column": null,
           "start_line": null,
           "type": "mcp"
+        },
+        "support": {
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "confidence": "high",
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "policy_eligible": true,
+          "predicates": [
+            {
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "expected": null,
+              "observed": "agent:support-refund-agent/refund-assistant:action_v2_49bfadd2eb7605a1065c24081f890481ee2f37e9718152ae533c8e43ddaab17a",
+              "policy_eligible": true,
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "why": null
+            }
+          ],
+          "status": "matched",
+          "support_hash": "sha256:2da4af706588e6b22a8dcb7b25419cf3fa22214d1fb76ea543afef8f4936a3f4"
         },
         "title": "gmail.send_customer_email has external communication capability without required controls"
       },
@@ -1610,6 +1606,32 @@
           "start_line": 97,
           "type": "openapi"
         },
+        "support": {
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "confidence": "high",
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "policy_eligible": true,
+          "predicates": [
+            {
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "expected": null,
+              "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+              "policy_eligible": true,
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "why": null
+            }
+          ],
+          "status": "matched",
+          "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
+        },
         "title": "stripe.create_refund has external communication capability without required controls"
       },
       {
@@ -1631,6 +1653,32 @@
           "start_column": 5,
           "start_line": 97,
           "type": "openapi"
+        },
+        "support": {
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "confidence": "high",
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "policy_eligible": true,
+          "predicates": [
+            {
+              "claim_ids": [],
+              "confidence": "high",
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "expected": null,
+              "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+              "policy_eligible": true,
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "why": null
+            }
+          ],
+          "status": "matched",
+          "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
         },
         "title": "stripe.create_refund has financial write capability without required controls"
       }
@@ -1842,6 +1890,174 @@
           "why": "Closed-world declaration for 'root' does not match the complete structural tool set."
         },
         {
+          "kind": "inferred_policy_applicability",
+          "next_action": {
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "kind": "provide_policy_evidence",
+            "path": "/tools/0",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
+          },
+          "source_ref": "inventories/sdk-tools.json",
+          "source_type": null,
+          "subject": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+          "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence."
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "next_action": {
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "kind": "provide_policy_evidence",
+            "path": "/paths/~1refunds/post",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
+          },
+          "source_ref": "specs/support-tools.openapi.yaml",
+          "source_type": null,
+          "subject": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+          "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence."
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "next_action": {
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "kind": "provide_policy_evidence",
+            "path": "/paths/~1tickets~1{ticket_id}/patch",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
+          },
+          "source_ref": "specs/support-tools.openapi.yaml",
+          "source_type": null,
+          "subject": "tool_v2_aa488250dc1213a6a8bb76a7e695da294f93052f3181d42817b6cd2cf83cfa33",
+          "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence."
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "next_action": {
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "kind": "provide_policy_evidence",
+            "path": "/tools/1",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
+          },
+          "source_ref": ".agents-shipgate/mcp-tools.json",
+          "source_type": null,
+          "subject": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+          "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence."
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "next_action": {
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "kind": "provide_policy_evidence",
+            "path": "/agent/prohibited_actions/2",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
+          },
+          "source_ref": "shipgate.yaml",
+          "source_type": null,
+          "subject": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence."
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "next_action": {
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "kind": "provide_policy_evidence",
+            "path": "/agent/prohibited_actions/0",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
+          },
+          "source_ref": "shipgate.yaml",
+          "source_type": null,
+          "subject": "tool_v2_8b559376c3236346b33a64fb9d460d342e6956579a68a0d5a331b2d2adf68ac8",
+          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence."
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "next_action": {
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "auto_apply": false,
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "declaration_template": null,
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "kind": "provide_policy_evidence",
+            "path": "/agent/prohibited_actions/2",
+            "requires_human_review": true,
+            "suggested_patch_kind": "manual",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding."
+          },
+          "source_ref": "shipgate.yaml",
+          "source_type": null,
+          "subject": "tool_v2_c69ebf76910efa80a2024a15d836f20366effdbd12f7a69b660ce4f4e5870ed9",
+          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence."
+        },
+        {
           "kind": "source_warning",
           "next_action": {
             "accepted_values": [],
@@ -1873,6 +2089,7 @@
       },
       "level": "static",
       "low_confidence_tool_count": 0,
+      "policy_gap_count": 7,
       "semantic_coverage": {
         "gap_count": 7,
         "pass_eligible_actions": 0,
@@ -1899,72 +2116,6 @@
         "blocks_release": false,
         "capability_refs": [],
         "capability_trace_refs": [],
-        "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-        "fingerprint": "fp_60fdf92126ba8844",
-        "id": "fp_60fdf92126ba8844",
-        "policy_evidence_source": null,
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": "specs/support-tools.openapi.yaml",
-          "pointer": "/paths/~1refunds/post",
-          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-          "start_column": 5,
-          "start_line": 97,
-          "type": "openapi"
-        },
-        "title": "stripe.create_refund.amount has no maximum bound"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-        "fingerprint": "fp_ea4f18e4707f8e1d",
-        "id": "fp_ea4f18e4707f8e1d",
-        "policy_evidence_source": null,
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": "specs/support-tools.openapi.yaml",
-          "pointer": "/paths/~1tickets~1{ticket_id}/patch",
-          "ref": "specs/support-tools.openapi.yaml#/paths/~1tickets~1{ticket_id}/patch",
-          "start_column": 5,
-          "start_line": 142,
-          "type": "openapi"
-        },
-        "title": "zendesk.update_ticket accepts broad free-form action input"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-        "fingerprint": "fp_d58657d9b1c91a84",
-        "id": "fp_d58657d9b1c91a84",
-        "policy_evidence_source": null,
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": ".agents-shipgate/mcp-tools.json",
-          "pointer": "/tools/1",
-          "ref": ".agents-shipgate/mcp-tools.json",
-          "start_column": null,
-          "start_line": null,
-          "type": "mcp"
-        },
-        "title": "gmail.send_customer_email accepts broad free-form action input"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
         "fingerprint": "fp_df4a990cca9f936b",
         "id": "fp_df4a990cca9f936b",
@@ -1980,6 +2131,7 @@
           "start_line": 91,
           "type": "manifest"
         },
+        "support": null,
         "title": "Manifest declares broad permission scopes"
       },
       {
@@ -2002,6 +2154,7 @@
           "start_line": 116,
           "type": "openapi"
         },
+        "support": null,
         "title": "shopify.cancel_order requires scopes not declared in the manifest"
       },
       {
@@ -2024,6 +2177,7 @@
           "start_line": null,
           "type": "mcp"
         },
+        "support": null,
         "title": "support.search_kb requires scopes not declared in the manifest"
       },
       {
@@ -2046,6 +2200,7 @@
           "start_line": 72,
           "type": "openapi"
         },
+        "support": null,
         "title": "refund_status_lookup lacks declared auth scopes"
       },
       {
@@ -2068,69 +2223,8 @@
           "start_line": null,
           "type": "mcp"
         },
+        "support": null,
         "title": "gmail.send_customer_email requires scopes not declared in the manifest"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "fingerprint": "fp_6f8e1ebab65f3607",
-        "id": "fp_6f8e1ebab65f3607",
-        "policy_evidence_source": {
-          "end_line": null,
-          "location": null,
-          "path": "shipgate.yaml",
-          "pointer": "/agent/prohibited_actions/0",
-          "ref": "shipgate.yaml#/agent/prohibited_actions/0",
-          "start_column": null,
-          "start_line": 22,
-          "type": "manifest"
-        },
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": "specs/support-tools.openapi.yaml",
-          "pointer": "/paths/~1refunds/post",
-          "ref": "specs/support-tools.openapi.yaml#/paths/~1refunds/post",
-          "start_column": 5,
-          "start_line": 97,
-          "type": "openapi"
-        },
-        "title": "stripe.create_refund appears to overlap with a prohibited action"
-      },
-      {
-        "baseline_status": null,
-        "blocks_release": false,
-        "capability_refs": [],
-        "capability_trace_refs": [],
-        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "fingerprint": "fp_5faaaee860bcec8b",
-        "id": "fp_5faaaee860bcec8b",
-        "policy_evidence_source": {
-          "end_line": null,
-          "location": null,
-          "path": "shipgate.yaml",
-          "pointer": "/agent/prohibited_actions/2",
-          "ref": "shipgate.yaml#/agent/prohibited_actions/2",
-          "start_column": null,
-          "start_line": 24,
-          "type": "manifest"
-        },
-        "severity": "high",
-        "source": {
-          "end_line": null,
-          "location": null,
-          "path": ".agents-shipgate/mcp-tools.json",
-          "pointer": "/tools/1",
-          "ref": ".agents-shipgate/mcp-tools.json",
-          "start_column": null,
-          "start_line": null,
-          "type": "mcp"
-        },
-        "title": "gmail.send_customer_email appears to overlap with a prohibited action"
       },
       {
         "baseline_status": null,
@@ -2163,6 +2257,7 @@
           "start_line": 97,
           "type": "openapi"
         },
+        "support": null,
         "title": "stripe.create_refund lacks a declared confirmation policy"
       },
       {
@@ -2196,6 +2291,7 @@
           "start_line": null,
           "type": "mcp"
         },
+        "support": null,
         "title": "gmail.send_customer_email lacks a declared confirmation policy"
       },
       {
@@ -2218,6 +2314,7 @@
           "start_line": 116,
           "type": "openapi"
         },
+        "support": null,
         "title": "shopify.cancel_order is high-risk but has no owner"
       },
       {
@@ -2240,6 +2337,7 @@
           "start_line": null,
           "type": "manifest"
         },
+        "support": null,
         "title": "Manifest declares unused permission scope zendesk:tickets:read"
       }
     ],
@@ -2248,7 +2346,7 @@
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "verdict": "BLOCKED"
   },
-  "run_id": "agents_shipgate_5ad1a92a984aacac",
+  "run_id": "agents_shipgate_ff9302d24e1b6891",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",
@@ -2276,6 +2374,7 @@
           "start_line": 116,
           "type": "openapi"
         },
+        "support": null,
         "title": "shopify.cancel_order requires scopes not declared in the manifest"
       },
       {
@@ -2298,6 +2397,7 @@
           "start_line": null,
           "type": "mcp"
         },
+        "support": null,
         "title": "support.search_kb requires scopes not declared in the manifest"
       },
       {
@@ -2320,6 +2420,7 @@
           "start_line": null,
           "type": "mcp"
         },
+        "support": null,
         "title": "gmail.send_customer_email requires scopes not declared in the manifest"
       },
       {
@@ -2342,6 +2443,7 @@
           "start_line": null,
           "type": "manifest"
         },
+        "support": null,
         "title": "Manifest declares unused permission scope zendesk:tickets:read"
       }
     ],

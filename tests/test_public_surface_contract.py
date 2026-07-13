@@ -479,7 +479,7 @@ def test_well_known_metadata_lists_packet_outputs():
         f"current result schema; got {benchmark_result_url!r}."
     )
     assert "verify_run" in schemas and "verify-run-schema.v2.json" in schemas["verify_run"]
-    assert "agent_handoff" in schemas and "agent-handoff-schema.v3.json" in schemas["agent_handoff"]
+    assert "agent_handoff" in schemas and "agent-handoff-schema.v4.json" in schemas["agent_handoff"]
     assert (
         "codex_boundary_result" in schemas
         and "codex-boundary-result-schema.v2.json" in schemas["codex_boundary_result"]

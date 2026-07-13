@@ -133,6 +133,8 @@ def test_manual_positive_risk_refines_structural_effect() -> None:
                     tag="financial_action",
                     source="manual",
                     confidence="high",
+                    basis="reviewed_declaration",
+                    provenance_kind="static_declaration",
                 )
             ],
             auth=AuthInfo(source="openapi", mode="none", explicit=True),
@@ -153,6 +155,8 @@ def test_manual_positive_risk_alone_cannot_close_effect_gap() -> None:
                     tag="financial_action",
                     source="manual",
                     confidence="high",
+                    basis="reviewed_declaration",
+                    provenance_kind="static_declaration",
                 )
             ],
             auth=AuthInfo(source="sdk_static", mode="none", explicit=True),
@@ -161,6 +165,95 @@ def test_manual_positive_risk_alone_cannot_close_effect_gap() -> None:
 
     assert assessment.conservative_effect == "financial_write"
     assert assessment.effect.status == "inferred"
+    assert assessment.pass_eligible is False
+
+
+def test_topical_auth_scope_is_not_authoritative_financial_evidence() -> None:
+    assessment = assess_tool_semantics(
+        _tool(
+            source_type="openapi",
+            risk_hints=[
+                ToolRiskHint(
+                    tag="financial_action",
+                    source="auth_scope",
+                    confidence="high",
+                    basis="inferred_keyword",
+                    provenance_kind="keyword_heuristic",
+                    evidence={"scope": "payments:refund:write"},
+                )
+            ],
+            auth=AuthInfo(
+                type="oauth2",
+                scopes=["payments:refund:write"],
+                source="openapi",
+                mode="scoped",
+                explicit=True,
+            ),
+        )
+    )
+
+    financial = next(
+        claim for claim in assessment.effect.claims if claim.value == "financial_write"
+    )
+    write = next(claim for claim in assessment.effect.claims if claim.value == "write")
+    assert financial.basis == "inferred_keyword"
+    assert financial.policy_eligible is False
+    assert financial.provenance_kind == "keyword_heuristic"
+    assert write.basis == "structural_scope"
+    assert write.policy_eligible is True
+    assert assessment.conservative_effect == "financial_write"
+    assert assessment.effect.status == "inferred"
+
+
+def test_heuristic_claim_cannot_conflict_with_reviewed_effect() -> None:
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "read",
+            "authority": {"mode": "none"},
+        }
+    )
+    assessment = assess_tool_semantics(
+        _tool(
+            source_type="langchain_inventory",
+            risk_hints=[
+                ToolRiskHint(
+                    tag="destructive",
+                    source="misleading_keyword",
+                    confidence="high",
+                    basis="inferred_keyword",
+                    provenance_kind="keyword_heuristic",
+                )
+            ],
+        ),
+        declaration,
+    )
+
+    assert assessment.conservative_effect == "destructive"
+    assert assessment.effect.status == "declared"
+    assert "conflicting_effect_evidence" not in {
+        issue.kind for issue in assessment.effect.issues
+    }
+
+
+def test_untyped_risk_hint_fails_closed() -> None:
+    assessment = assess_tool_semantics(
+        _tool(
+            source_type="langchain_inventory",
+            risk_hints=[
+                ToolRiskHint(
+                    tag="write",
+                    source="third_party_magic",
+                    confidence="high",
+                )
+            ],
+            auth=AuthInfo(source="inventory", mode="none", explicit=True),
+        )
+    )
+
+    assert "invalid_evidence_provenance" in {
+        issue.kind for issue in assessment.effect.issues
+    }
     assert assessment.pass_eligible is False
 
 

@@ -3,8 +3,8 @@
 Policy packs are local YAML files for organization-specific release rules. They
 are declarative data, not Python plugins, and are enabled by default only when
 declared in `shipgate.yaml` or passed on the CLI. The machine-readable schema is
-[`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) (v0.1 stays
-frozen for older builds); policy-pack files do not need to declare a
+[`policy-pack-schema.v0.4.json`](policy-pack-schema.v0.4.json) (v0.3 and older
+stay frozen for older builds); policy-pack files do not need to declare a
 schema-version key.
 
 ```yaml
@@ -53,10 +53,12 @@ Supported rule fields:
 - `description`: optional fallback finding title when `title` is omitted.
 - `category`: optional finding category; defaults to `policy_pack`.
 - `severity`: required `info`, `low`, `medium`, `high`, or `critical`.
-- `block`: optional boolean; when `true`, matching findings set
+- `block`: optional boolean; when `true`, authoritatively matched findings set
   `findings[].blocks_release` and block strict CI even if severity is below
   the configured `fail_on` threshold.
 - `confidence`: optional `low`, `medium`, or `high`; defaults to `medium`.
+  This is a ceiling requested by the rule, never an upgrade over predicate
+  evidence confidence.
 - `recommendation`: required remediation text.
 - `match`: required static predicate object.
 - `owner`, `reviewers`, `approval`: optional reviewer/audit routing metadata.
@@ -66,7 +68,9 @@ Supported rule fields:
 
 Supported legacy match fields:
 
-- `risk_tags`: fires when the tool has any listed medium-or-higher risk tag.
+- `risk_tags`: fires only when a listed tag is backed by policy-eligible
+  semantic claims. Keyword/regex candidates remain visible as indeterminate
+  applicability and do not create a finding.
 - `source_types`: fires only for matching normalized tool source types.
 - `environment_targets`: fires only for matching manifest environment targets.
 - `missing_owner`, `missing_auth_scopes`, `missing_approval_policy`,
@@ -149,6 +153,15 @@ Reports include `loaded_policy_packs` with pack name, version, path, and rule
 count. Policy-pack findings support suppressions, severity overrides,
 release-blocking `block: true`, baselines, Markdown, JSON, and SARIF like
 built-in findings.
+
+Each emitted policy finding carries `support`, including predicate status,
+effective confidence, evidence bases, contributing claim IDs, and a stable
+`support_hash`. A rule emits a finding only for an authoritative `matched`
+result. `indeterminate` or `conflicting` applicability is emitted through
+`policy_evidence_gaps[]` and release-decision `evidence_gaps[]`, outside the
+Finding model, so suppressions, severity overrides, baselines,
+acknowledgements, and `--no-heuristics` cannot hide it. Baseline matching also
+requires the support hash; changing the evidence basis makes the finding new.
 
 Routing metadata is non-enforcing. Shipgate validates declared team names
 against `organization.teams` when present, but it does not call GitHub or any

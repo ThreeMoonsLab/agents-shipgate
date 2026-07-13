@@ -97,7 +97,12 @@ def baseline_from_report(
         if not fingerprint:
             continue
         prior_entry = prior_by_fp.get(fingerprint)
-        if prior_entry is not None and prior_entry.provenance is not None:
+        support_hash = finding.support.support_hash if finding.support is not None else None
+        if (
+            prior_entry is not None
+            and prior_entry.provenance is not None
+            and prior_entry.support_hash == support_hash
+        ):
             provenance = prior_entry.provenance
             if apply_to_existing:
                 provenance = provenance.model_copy(
@@ -125,6 +130,7 @@ def baseline_from_report(
                 fingerprint_version="2",
                 severity=finding.severity,
                 title=finding.title,
+                support_hash=support_hash,
                 provenance=provenance,
             )
         )
@@ -358,9 +364,12 @@ def apply_baseline(
     display_path: str,
     legacy_fingerprints: Sequence[LegacyFingerprintEntry] | None = None,
 ) -> BaselineSummary:
-    baseline_fingerprints = {
-        finding.fingerprint for finding in baseline.findings if finding.fingerprint
+    baseline_by_fingerprint = {
+        finding.fingerprint: finding
+        for finding in baseline.findings
+        if finding.fingerprint
     }
+    baseline_fingerprints = set(baseline_by_fingerprint)
     current_active_fingerprints: set[str] = set()
     matched_legacy_fingerprints: set[str] = set()
     tool_ids_by_name: dict[str, set[str]] = {}
@@ -389,10 +398,21 @@ def apply_baseline(
         if not fingerprint:
             continue
         current_active_fingerprints.add(fingerprint)
-        if fingerprint in baseline_fingerprints:
+        entry = baseline_by_fingerprint.get(fingerprint)
+        current_support_hash = (
+            finding.support.support_hash if finding.support is not None else None
+        )
+        support_matches = (
+            entry is not None and entry.support_hash == current_support_hash
+        )
+        if fingerprint in baseline_fingerprints and support_matches:
             finding.baseline_status = "matched"
             matched += 1
-        elif legacy_matches := baseline_fingerprints & legacy_candidates:
+        elif legacy_matches := {
+            candidate
+            for candidate in baseline_fingerprints & legacy_candidates
+            if baseline_by_fingerprint[candidate].support_hash == current_support_hash
+        }:
             finding.baseline_status = "matched"
             matched += 1
             matched_legacy_fingerprints.update(legacy_matches)

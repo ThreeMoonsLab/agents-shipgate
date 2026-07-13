@@ -167,6 +167,9 @@ def _blocked_by(release_decision: dict[str, Any]) -> list[AgentHandoffBlockedBy]
                     blocks_release=_bool_or_none(item.get("blocks_release")),
                     capability_refs=_str_list(item.get("capability_refs")),
                     capability_trace_refs=_str_list(item.get("capability_trace_refs")),
+                    support_hash=_str_or_none(
+                        _dict(item.get("support")).get("support_hash")
+                    ),
                 )
             )
     return out

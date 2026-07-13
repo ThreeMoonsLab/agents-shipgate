@@ -182,3 +182,4 @@ class _SanitizedSurfaces:
     baseline_summary: Any
     privacy_audit: Any
     heuristics_filter: Any
+    policy_evidence_gaps: list[Any]

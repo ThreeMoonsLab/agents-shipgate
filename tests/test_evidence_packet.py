@@ -148,7 +148,7 @@ def test_packet_emits_alongside_report_by_default(tmp_path):
     out, packet = _scan_with_packet(tmp_path)
     for name in ("packet.md", "packet.json", "packet.html"):
         assert (out / name).exists(), name
-    assert packet.packet_schema_version == "0.10"
+    assert packet.packet_schema_version == "0.11"
 
 
 def test_packet_v07_keeps_capability_refs_on_release_items():
@@ -630,15 +630,19 @@ def test_verdict_derives_from_release_decision_not_fail_policy(tmp_path):
     assert "did not execute the agent" in section.static_verdict_disclaimer
 
 
-def test_capability_intent_diff_lists_observed_tools(tmp_path):
+def test_capability_intent_keeps_heuristic_policy_matches_out_of_findings(tmp_path):
     _, packet = _scan_with_packet(tmp_path)
     section = packet.capability_intent
     assert section.declared_purpose
     assert "stripe.create_refund" in section.observed_tools
-    # SHIP-SCOPE-PROHIBITED-TOOL-PRESENT fires twice on this fixture.
-    assert any(
+    assert not any(
         item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
         for item in section.divergence_findings
+    )
+    assert packet.release_decision.evidence_coverage.policy_gap_count > 0
+    assert any(
+        gap.why.startswith("SHIP-SCOPE-PROHIBITED-TOOL-PRESENT:")
+        for gap in packet.release_decision.evidence_coverage.evidence_gaps
     )
 
 
@@ -935,7 +939,7 @@ def test_load_packet_json_upgrades_v02_hitl_fields(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.10"
+    assert upgraded.packet_schema_version == "0.11"
     assert upgraded.evidence_matrix.notes
     assert upgraded.action_surface_diff.status == "not_declared"
     assert upgraded.action_surface_diff.enabled is False
@@ -958,7 +962,7 @@ def test_load_packet_json_upgrades_v01_to_v05(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.10"
+    assert upgraded.packet_schema_version == "0.11"
     assert upgraded.evidence_matrix.notes
     assert upgraded.tool_surface_diff.status == "not_declared"
     assert upgraded.tool_surface_diff.enabled is False
@@ -979,7 +983,7 @@ def test_load_packet_json_upgrades_v04_action_surface_section(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.10"
+    assert upgraded.packet_schema_version == "0.11"
     assert upgraded.action_surface_diff.status == "not_declared"
     assert upgraded.action_surface_diff.enabled is False
     assert upgraded.evidence_matrix.notes
@@ -993,7 +997,7 @@ def test_load_packet_json_upgrades_v05_evidence_matrix(tmp_path):
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.10"
+    assert upgraded.packet_schema_version == "0.11"
     assert len(upgraded.evidence_matrix.rows) == 13
     assert any("older packet schema" in note for note in upgraded.evidence_matrix.notes)
 
@@ -1034,7 +1038,7 @@ def test_legacy_passed_packet_downgrades_to_actionable_insufficient_evidence(
 
     upgraded = load_packet_json(payload)
 
-    assert upgraded.packet_schema_version == "0.10"
+    assert upgraded.packet_schema_version == "0.11"
     assert upgraded.release_decision.decision == "insufficient_evidence"
     assert upgraded.release_decision.verdict == "INSUFFICIENT EVIDENCE"
     assert "not a v0.8 safety statement" in upgraded.release_decision.reason
@@ -1270,7 +1274,7 @@ def test_evidence_packet_writes_packet_json_when_format_includes_json(tmp_path):
     # The written packet.json must round-trip.
     payload = (target / "packet.json").read_text(encoding="utf-8")
     reloaded = load_packet_json(payload)
-    assert reloaded.packet_schema_version == "0.10"
+    assert reloaded.packet_schema_version == "0.11"
 
 
 def test_evidence_packet_pdf_only_exits_zero_when_weasyprint_missing(tmp_path, monkeypatch):
@@ -1397,7 +1401,7 @@ def test_evidence_packet_cli_round_trips(tmp_path):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["packet_schema_version"] == "0.10"
+    assert payload["packet_schema_version"] == "0.11"
     assert payload["run_id"] == packet.run_id
 
 

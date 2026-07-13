@@ -476,7 +476,7 @@ def test_mixed_capability_standard_diff_requires_exact_reexport(
 
     assert str(exc_info.value) == (
         "Mixed capability-standard lock diff is not comparable "
-            "(base=0.2, head=0.4). Re-export the base lock from its source "
+            "(base=0.2, head=0.5). Re-export the base lock from its source "
         "workspace with the current engine using exactly: "
         f"`{command}`. Then rerun the capability diff."
     )

@@ -205,13 +205,15 @@ def mcp_permission_risk_hints(tool: Tool) -> list[ToolRiskHint]:
         tag = _risk_tag_for_class(permission_class)
         if tag is None:
             continue
+        source = _permission_hint_source(tool, permission_class)
         hints.append(
             ToolRiskHint(
                 tag=tag,
-                source=_permission_hint_source(tool, permission_class),
+                source=source,
                 confidence=parse_confidence(
                     _read_only_confidence(tool) if permission_class == "read" else "medium"
                 ),
+                basis=_permission_hint_basis(source),
                 evidence={
                     "permission_class": permission_class,
                     "risk_score": profile.risk_score,
@@ -225,10 +227,21 @@ def mcp_permission_risk_hints(tool: Tool) -> list[ToolRiskHint]:
                 tag="unknown_side_effect",
                 source="mcp_permission_lattice",
                 confidence=parse_confidence("high"),
+                basis="protocol_default",
                 evidence={"risk_score": profile.risk_score, "reasons": list(profile.reasons)},
             )
         )
     return hints
+
+
+def _permission_hint_basis(source: str) -> str:
+    if source == "mcp_annotation":
+        return "protocol_structure"
+    if source == "auth_scope":
+        return "structural_scope"
+    if source == "mcp_config":
+        return "protocol_default"
+    return "inferred_keyword"
 
 
 def is_secret_env_name(name: str) -> bool:

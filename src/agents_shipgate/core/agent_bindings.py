@@ -867,6 +867,11 @@ def _attach_binding_assessments(
                     value=f"{item.agent_id}->{tool.id}",
                     confidence=item.confidence,
                     provenance_kind=item.provenance_kind,
+                    basis=(
+                        "reviewed_declaration"
+                        if item.provenance_kind == "static_declaration"
+                        else "typed_provider_fact"
+                    ),
                     source=item.source,
                     source_pointer=item.source_pointer,
                     evidence={"edge_type": item.edge_type, "complete": item.complete},

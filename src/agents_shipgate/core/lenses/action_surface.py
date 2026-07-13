@@ -12,6 +12,11 @@ from agents_shipgate.core.domain import Action, Scope, Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
+from agents_shipgate.core.policy_evidence import (
+    finding_support,
+    policy_evidence_gap,
+    predicate_evidence,
+)
 from agents_shipgate.core.risk_hints import (
     derive_side_effect,
     is_effectively_read_only,
@@ -22,13 +27,19 @@ from agents_shipgate.core.tool_identity import ToolSelectorIndex
 from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
+    confidence_rank,
 )
 from agents_shipgate.schemas.manifest import (
     ActionDeclarationConfig,
     ActionPolicyConfig,
     AgentsShipgateManifest,
 )
-from agents_shipgate.schemas.report import Finding
+from agents_shipgate.schemas.report import (
+    EvidenceGap,
+    Finding,
+    FindingSupport,
+    PolicyPredicateEvidence,
+)
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import (
     ActionApprovalFact,
@@ -273,6 +284,7 @@ def evaluate_action_surface_policies(
     *,
     agent_id: str,
     tools: list[Tool] | None = None,
+    policy_evidence_gaps: list[EvidenceGap] | None = None,
 ) -> list[Finding]:
     """Evaluate action-surface policies for a current action snapshot.
 
@@ -340,7 +352,21 @@ def evaluate_action_surface_policies(
     )
     for policy in manifest.action_surface.policies:
         for action in facts.actions:
-            if not _policy_matches(policy, action):
+            match_status, support = _assess_action_policy_match(policy, action)
+            if match_status == "not_matched":
+                continue
+            if match_status != "matched" or not support.policy_eligible:
+                if policy_evidence_gaps is not None:
+                    policy_evidence_gaps.append(
+                        policy_evidence_gap(
+                            status=match_status,
+                            subject=f"{action.tool_name} [{action.tool_id}]",
+                            policy_id=policy.id,
+                            source_ref=action.source_ref,
+                            support=support,
+                            manifest_path=f"shipgate.yaml#action_surface.policies/{policy.id}/match",
+                        )
+                    )
                 continue
             missing, observed = _missing_requirements(policy, action)
             if not missing:
@@ -365,7 +391,8 @@ def evaluate_action_surface_policies(
                         evidence=evidence,
                         recommendation=policy.recommendation
                         or (f"Satisfy action surface policy {policy.id} for {action.tool_name}."),
-                        blocks_release=policy.block,
+                        blocks_release=policy.block and support.blocking_eligible,
+                        support=support,
                     )
                 )
     return _dedupe_findings(findings)
@@ -445,9 +472,7 @@ def build_action(
     semantic_effects = {
         claim.value
         for claim in semantic_assessment.effect.claims
-        if claim.confidence == "high"
-        and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
-        and claim.value in ACTION_EFFECT_RANK
+        if claim.policy_eligible and claim.value in ACTION_EFFECT_RANK
     }
     risk_tag_values = sorted(
         set(risk_tag_values)
@@ -1566,14 +1591,8 @@ def _control_effects(action: ActionFact) -> set[str]:
     if assessment is None:
         return {action.effect}
     effects: set[str] = set()
-    if assessment.effect.status in {"declared", "structural"}:
-        effects.add(action.effect)
     for claim in assessment.effect.claims:
-        if (
-            claim.confidence == "high"
-            and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
-            and claim.value in ACTION_EFFECT_RANK
-        ):
+        if claim.policy_eligible and claim.value in ACTION_EFFECT_RANK:
             effects.add(claim.value)
     return effects
 
@@ -1610,23 +1629,144 @@ def _missing_builtin_requirements(
     return missing
 
 
-def _policy_matches(policy: ActionPolicyConfig, action: ActionFact) -> bool:
+def _assess_action_policy_match(
+    policy: ActionPolicyConfig,
+    action: ActionFact,
+) -> tuple[str, FindingSupport]:
     match = policy.match
-    if match.action_ids and action.action_id not in match.action_ids:
-        return False
-    if match.tool_ids and action.tool_id not in match.tool_ids:
-        return False
-    if match.tools and action.tool_name not in match.tools:
-        return False
-    if match.effects and action.effect not in match.effects:
-        return False
-    if match.risk_tags and not set(_normalize_risk_tag_values(match.risk_tags)).intersection(
-        action.risk_tags
+    rows = []
+    for name, expected, observed in (
+        ("action_ids", match.action_ids, action.action_id),
+        ("tool_ids", match.tool_ids, action.tool_id),
+        ("tools", match.tools, action.tool_name),
     ):
-        return False
-    if match.scopes and not set(match.scopes).intersection(action.required_scopes):
-        return False
-    return True
+        if expected:
+            rows.append(
+                predicate_evidence(
+                    name,
+                    "matched" if observed in expected else "not_matched",
+                    expected=expected,
+                    observed=observed,
+                    confidence="high",
+                    evidence_bases=["protocol_structure"],
+                    policy_eligible=True,
+                )
+            )
+
+    assessment = action.semantic_assessment
+    claims = list(assessment.effect.claims) if assessment is not None else []
+    if match.effects:
+        eligible = [
+            claim
+            for claim in claims
+            if claim.policy_eligible and claim.value in match.effects
+        ]
+        possible = [claim for claim in claims if claim.value in match.effects]
+        rows.append(
+            _semantic_action_predicate(
+                "effects",
+                expected=list(match.effects),
+                eligible=eligible,
+                possible=possible,
+                assessment_status=(assessment.effect.status if assessment else "unknown"),
+            )
+        )
+    if match.risk_tags:
+        requested = set(_normalize_risk_tag_values(match.risk_tags))
+        eligible = [
+            claim
+            for claim in claims
+            if claim.policy_eligible and _RISK_TAG_MAP.get(claim.value, claim.value) in requested
+        ]
+        possible = [
+            claim
+            for claim in claims
+            if _RISK_TAG_MAP.get(claim.value, claim.value) in requested
+        ]
+        rows.append(
+            _semantic_action_predicate(
+                "risk_tags",
+                expected=sorted(requested),
+                eligible=eligible,
+                possible=possible,
+                assessment_status=(assessment.effect.status if assessment else "unknown"),
+            )
+        )
+    if match.scopes:
+        authority = assessment.authority if assessment is not None else None
+        matched_scopes = sorted(set(match.scopes).intersection(action.required_scopes))
+        if authority is None or authority.status in {"partial", "unknown", "conflicting"}:
+            rows.append(
+                predicate_evidence(
+                    "scopes",
+                    "conflicting"
+                    if authority is not None and authority.status == "conflicting"
+                    else "indeterminate",
+                    expected=match.scopes,
+                    observed=matched_scopes,
+                    confidence="low",
+                    claim_ids=[claim.claim_id for claim in authority.claims] if authority else [],
+                    evidence_bases=[claim.basis for claim in authority.claims]
+                    if authority
+                    else ["unknown"],
+                    why="authority scope evidence is incomplete or conflicting",
+                )
+            )
+        else:
+            rows.append(
+                predicate_evidence(
+                    "scopes",
+                    "matched" if matched_scopes else "not_matched",
+                    expected=match.scopes,
+                    observed=matched_scopes,
+                    confidence="high",
+                    claim_ids=[claim.claim_id for claim in authority.claims],
+                    evidence_bases=[claim.basis for claim in authority.claims],
+                    policy_eligible=all(claim.policy_eligible for claim in authority.claims),
+                )
+            )
+    support = finding_support(rows)
+    return support.status, support
+
+
+def _semantic_action_predicate(
+    predicate: str,
+    *,
+    expected: list[str],
+    eligible: list[Any],
+    possible: list[Any],
+    assessment_status: str,
+) -> PolicyPredicateEvidence:
+    if eligible:
+        status = "matched"
+        selected = eligible
+    elif possible or assessment_status in {"inferred", "unknown", "protocol_default", "conflicting"}:
+        status = "conflicting" if assessment_status == "conflicting" else "indeterminate"
+        selected = possible
+    else:
+        status = "not_matched"
+        selected = []
+    return predicate_evidence(
+        predicate,
+        status,
+        expected=expected,
+        observed=sorted({claim.value for claim in selected}),
+        confidence=(
+            min(
+                (claim.confidence for claim in selected),
+                key=confidence_rank,
+                default="low",
+            )
+        ),
+        claim_ids=[claim.claim_id for claim in selected],
+        evidence_bases=[claim.basis for claim in selected] or ["unknown"],
+        policy_eligible=status == "matched" and all(claim.policy_eligible for claim in selected),
+        why=(
+            None
+            if status in {"matched", "not_matched"}
+            else "action semantics are heuristic, unknown, or conflicting"
+        ),
+    )
 
 
 def _missing_requirements(
@@ -1686,7 +1826,20 @@ def _finding(
     evidence: dict[str, Any],
     recommendation: str,
     blocks_release: bool,
+    support: FindingSupport | None = None,
 ) -> Finding:
+    support = support or finding_support(
+        [
+            predicate_evidence(
+                "deterministic_action_rule",
+                "matched",
+                observed=action.action_id,
+                confidence="high",
+                evidence_bases=["protocol_structure"],
+                policy_eligible=True,
+            )
+        ]
+    )
     return Finding(
         check_id=check_id,
         title=title,
@@ -1696,7 +1849,7 @@ def _finding(
         tool_name=action.tool_name,
         agent_id=agent_id,
         evidence=evidence,
-        confidence="high",
+        confidence=support.confidence,
         provenance_kind="static_declaration",
         source=SourceReference(
             type=action.source_type or "action_surface",
@@ -1709,7 +1862,8 @@ def _finding(
             pointer=action.source_pointer,
         ),
         recommendation=recommendation,
-        blocks_release=blocks_release,
+        blocks_release=blocks_release and support.blocking_eligible,
+        support=support,
     )
 
 

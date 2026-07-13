@@ -627,7 +627,7 @@ def test_cli_explain_json_returns_full_metadata():
         assert key in payload
 
 
-def test_cli_findings_json_filters_by_provenance_kind(tmp_path):
+def test_cli_findings_json_reports_no_heuristic_policy_findings(tmp_path):
     run_scan(
         config_path=Path("samples/support_refund_agent/shipgate.yaml"),
         output_dir=tmp_path,
@@ -655,31 +655,14 @@ def test_cli_findings_json_filters_by_provenance_kind(tmp_path):
         "regex_heuristic",
     ]
     assert payload["filters"]["include_suppressed"] is False
-    assert payload["summary"]["matched_findings"] > 0
+    assert payload["summary"]["matched_findings"] == 0
     assert "suppressed_omitted" in payload["summary"]
     assert "suppressed_excluded" not in payload["summary"]
-    assert payload["summary"]["by_provenance_kind"]["keyword_heuristic"] > 0
-    assert {finding["provenance_kind"] for finding in payload["findings"]} <= {
-        "keyword_heuristic",
-        "regex_heuristic",
-    }
-    for finding in payload["findings"]:
-        assert {
-            "id",
-            "fingerprint",
-            "check_id",
-            "severity",
-            "title",
-            "tool_name",
-            "confidence",
-            "provenance_kind",
-            "agent_action",
-            "suppressed",
-            "source",
-        } <= set(finding)
+    assert payload["summary"]["by_provenance_kind"]["keyword_heuristic"] == 0
+    assert payload["findings"] == []
 
 
-def test_cli_findings_text_outputs_summary(tmp_path):
+def test_cli_findings_text_excludes_heuristic_policy_gaps(tmp_path):
     run_scan(
         config_path=Path("samples/support_refund_agent/shipgate.yaml"),
         output_dir=tmp_path,
@@ -703,7 +686,7 @@ def test_cli_findings_text_outputs_summary(tmp_path):
     assert "Scope: active findings only" in result.output
     assert "Provenance counts:" in result.output
     assert "keyword_heuristic:" in result.output
-    assert "SHIP-" in result.output
+    assert "No findings matched." in result.output
 
 
 def test_cli_findings_invalid_provenance_kind_exits_three(tmp_path):

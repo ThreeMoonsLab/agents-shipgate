@@ -44,6 +44,7 @@ from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import (
     BaselineSummary,
     CapabilityRuntimeEvidence,
+    EvidenceGap,
     LoadedPolicyPack,
     PolicyAudit,
 )
@@ -185,6 +186,15 @@ def _sanitize_for_output(
         stats=privacy_stats,
         path="capability_runtime_evidence",
     )
+    public_policy_evidence_gaps = [
+        sanitize_model(
+            gap,
+            EvidenceGap,
+            stats=privacy_stats,
+            path="policy_evidence_gaps[]",
+        )
+        for gap in decision.context.policy_evidence_gaps
+    ]
 
     public_project = redact_data(
         public_manifest.project.model_dump(exclude_none=True),
@@ -379,6 +389,7 @@ def _sanitize_for_output(
         baseline_summary=baseline_summary,
         privacy_audit=privacy_audit,
         heuristics_filter=decision.heuristics_filter,
+        policy_evidence_gaps=public_policy_evidence_gaps,
     )
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -9,6 +11,39 @@ from agents_shipgate.schemas.common import Confidence, ProvenanceKind, parse_con
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 SemanticDimension = Literal["identity", "binding", "effect", "authority"]
+EvidenceBasis = Literal[
+    "reviewed_declaration",
+    "protocol_structure",
+    "typed_provider_fact",
+    "structural_scope",
+    "inferred_keyword",
+    "inferred_regex",
+    "protocol_default",
+    "unknown",
+]
+POLICY_ELIGIBLE_EVIDENCE_BASES = frozenset(
+    {
+        "reviewed_declaration",
+        "protocol_structure",
+        "typed_provider_fact",
+        "structural_scope",
+    }
+)
+
+
+def provenance_for_evidence_basis(
+    basis: EvidenceBasis,
+    fallback: ProvenanceKind = "static_declaration",
+) -> ProvenanceKind:
+    if basis == "inferred_keyword":
+        return "keyword_heuristic"
+    if basis == "inferred_regex":
+        return "regex_heuristic"
+    if basis == "typed_provider_fact":
+        return "ast_extraction"
+    if basis in POLICY_ELIGIBLE_EVIDENCE_BASES or basis == "protocol_default":
+        return "static_declaration"
+    return fallback
 IdentityEvidenceStatus = Literal[
     "declared",
     "structural",
@@ -55,6 +90,7 @@ SemanticIssueKind = Literal[
     "unresolved_bound_tool",
     "incomplete_handoff_graph",
     "invalid_binding_annotation",
+    "invalid_evidence_provenance",
 ]
 
 
@@ -63,13 +99,49 @@ class SemanticClaim(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    claim_id: str | None = None
     dimension: SemanticDimension
     value: str
     confidence: Confidence
     provenance_kind: ProvenanceKind
+    basis: EvidenceBasis = "unknown"
+    policy_eligible: bool = False
     source: str
     source_pointer: str | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def derive_evidence_contract(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        basis = payload.get("basis", "unknown")
+        confidence = payload.get("confidence", "low")
+        payload["provenance_kind"] = provenance_for_evidence_basis(
+            basis,
+            payload.get("provenance_kind", "static_declaration"),
+        )
+        eligible = basis in POLICY_ELIGIBLE_EVIDENCE_BASES and confidence == "high"
+        payload["policy_eligible"] = eligible
+        if not payload.get("claim_id"):
+            identity = {
+                "dimension": payload.get("dimension"),
+                "value": payload.get("value"),
+                "confidence": confidence,
+                "basis": basis,
+                "source": payload.get("source"),
+                "source_pointer": payload.get("source_pointer"),
+                "evidence": payload.get("evidence") or {},
+            }
+            rendered = json.dumps(
+                identity,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            payload["claim_id"] = "clm_" + hashlib.sha256(rendered.encode()).hexdigest()[:20]
+        return payload
 
 
 class SemanticIssue(BaseModel):
@@ -225,7 +297,22 @@ class ToolRiskHint(BaseModel):
     tag: str
     source: str
     confidence: Confidence
+    basis: EvidenceBasis = "unknown"
+    provenance_kind: ProvenanceKind = "static_declaration"
     evidence: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def bind_provenance_to_basis(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        basis = payload.get("basis", "unknown")
+        payload["provenance_kind"] = provenance_for_evidence_basis(
+            basis,
+            payload.get("provenance_kind", "static_declaration"),
+        )
+        return payload
 
 
 class Tool(BaseModel):

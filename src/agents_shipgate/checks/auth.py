@@ -3,7 +3,7 @@ from __future__ import annotations
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.heuristics import is_broad_scope
-from agents_shipgate.core.risk_hints import is_write_tool, risk_tags
+from agents_shipgate.core.risk_hints import is_policy_eligible_write_tool, risk_tags
 
 
 def run(context: ScanContext):
@@ -110,7 +110,7 @@ def run(context: ScanContext):
     return findings
 
 def _tool_requires_scope(tool) -> bool:
-    return is_write_tool(tool)
+    return is_policy_eligible_write_tool(tool)
 
 
 def _scope_covered(required_scope: str, manifest_scopes: list[str]) -> bool:

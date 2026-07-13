@@ -28,7 +28,7 @@ from agents_shipgate.inputs.common import PositionIndex
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
-from agents_shipgate.schemas.report import CapabilityRuntimeEvidence
+from agents_shipgate.schemas.report import CapabilityRuntimeEvidence, EvidenceGap
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 from agents_shipgate.schemas.verification import VerificationContext
 
@@ -62,6 +62,7 @@ class ScanContext:
     capability_policy_subjects: list[CapabilityPolicySubject] = field(
         default_factory=list
     )
+    policy_evidence_gaps: list[EvidenceGap] = field(default_factory=list)
     capability_runtime_evidence: CapabilityRuntimeEvidence = field(
         default_factory=CapabilityRuntimeEvidence
     )

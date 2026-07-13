@@ -2,7 +2,6 @@ import hashlib
 import json
 from pathlib import Path
 
-from agents_shipgate.cli.explain_finding import explain_finding_payload
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.baseline import apply_baseline, baseline_resolved_fingerprints
 from agents_shipgate.core.findings import (
@@ -340,19 +339,14 @@ agent_bindings:
     assert all(raw_secret not in row.path for row in report.privacy_audit.redacted_paths)
 
     report_json = json.loads((reports / "report.json").read_text(encoding="utf-8"))
-    secret_finding = next(
-        finding
-        for finding in report_json["findings"]
-        if finding["check_id"] == "SHIP-DOC-SECRET-IN-DESCRIPTION"
+    assert any(
+        gap["kind"] == "inferred_policy_applicability"
+        and gap["why"].startswith("SHIP-DOC-SECRET-IN-DESCRIPTION:")
+        for gap in report_json["policy_evidence_gaps"]
     )
-    explanation = explain_finding_payload(
-        fingerprint=secret_finding["fingerprint"],
-        report_path=reports / "report.json",
-    )
-    rendered_explanation = json.dumps(explanation, sort_keys=True)
-    assert raw_secret not in rendered_explanation
-    assert github_token not in rendered_explanation
-    assert agent_secret not in rendered_explanation
+    # Heuristic-only secret detection is now an evidence gap and deliberately
+    # has no finding fingerprint that could be baselined or suppressed.
+    assert report_json["findings"] == []
 
 
 def test_scan_does_not_revalidate_manifest_after_redaction_collapses_action_tools(

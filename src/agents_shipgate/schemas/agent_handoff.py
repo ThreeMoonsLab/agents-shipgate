@@ -9,8 +9,8 @@ from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.verifier import Applicability, MergeVerdict, map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v3"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v3.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v4"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v4.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -77,6 +77,7 @@ class AgentHandoffBlockedBy(BaseModel):
     blocks_release: bool | None = None
     capability_refs: list[str] = Field(default_factory=list)
     capability_trace_refs: list[str] = Field(default_factory=list)
+    support_hash: str | None = None
 
 
 class AgentHandoffRemediationStep(BaseModel):
@@ -204,7 +205,7 @@ class AgentHandoffArtifact(BaseModel):
         },
     )
 
-    schema_version: Literal["shipgate.agent_handoff/v3"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v4"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation

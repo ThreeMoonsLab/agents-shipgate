@@ -57,6 +57,55 @@ class CapabilityPolicyEvidence(BaseModel):
     source: SourceReference | None = None
 
 
+PolicyMatchStatus = Literal["matched", "not_matched", "indeterminate", "conflicting"]
+EvidenceBasis = Literal[
+    "reviewed_declaration",
+    "protocol_structure",
+    "typed_provider_fact",
+    "structural_scope",
+    "inferred_keyword",
+    "inferred_regex",
+    "protocol_default",
+    "unknown",
+]
+
+
+class PolicyPredicateEvidence(BaseModel):
+    """One tri-state policy predicate and the evidence that supports it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    predicate: str
+    status: PolicyMatchStatus
+    expected: Any = None
+    observed: Any = None
+    confidence: Confidence = "low"
+    claim_ids: list[str] = Field(default_factory=list)
+    evidence_bases: list[EvidenceBasis] = Field(default_factory=list)
+    policy_eligible: bool = False
+    why: str | None = None
+
+
+class FindingSupport(BaseModel):
+    """Authoritative support for finding confidence and release contribution.
+
+    Rule metadata may request a severity or block, but it cannot upgrade the
+    underlying evidence. ``support_hash`` binds baselines and audit surfaces
+    to the predicate evidence that actually made the finding eligible.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: PolicyMatchStatus = "matched"
+    confidence: Confidence = "low"
+    policy_eligible: bool = False
+    blocking_eligible: bool = False
+    claim_ids: list[str] = Field(default_factory=list)
+    evidence_bases: list[EvidenceBasis] = Field(default_factory=list)
+    predicates: list[PolicyPredicateEvidence] = Field(default_factory=list)
+    support_hash: str
+
+
 CapabilityTraceMatchReason = Literal[
     "capability_id",
     "tool_name",
@@ -193,6 +242,9 @@ class Finding(BaseModel):
     # ``evidence`` so owner/reviewer/approval routing changes do not
     # affect fingerprints, suppressions, baselines, or release gating.
     policy_routing: PolicyRoutingMetadata | None = None
+    # v0.33: authoritative predicate support. Kept outside legacy evidence so
+    # fingerprints stay stable; baselines use support_hash separately.
+    support: FindingSupport | None = None
     # v0.25: opt-in local runtime trace/provenance evidence linked to
     # capability facts. Kept outside ``evidence`` so fingerprints,
     # baselines, run IDs, and de-dupe identity do not churn.
@@ -303,6 +355,7 @@ class ReleaseDecisionItem(BaseModel):
     capability_refs: list[str] = Field(default_factory=list)
     # v0.25: mirror Finding.capability_trace_refs for blocker/review rows.
     capability_trace_refs: list[str] = Field(default_factory=list)
+    support: FindingSupport | None = None
 
 
 class EvidenceGapAction(BaseModel):
@@ -332,6 +385,9 @@ class EvidenceGapAction(BaseModel):
         "provide_complete_binding_graph",
         "resolve_binding_conflict",
         "regenerate_binding_artifact",
+        "provide_policy_evidence",
+        "review_policy_evidence",
+        "resolve_policy_evidence_conflict",
     ]
     command: str | None = None
     path: str | None = None
@@ -385,6 +441,11 @@ class EvidenceGap(BaseModel):
         "unresolved_bound_tool",
         "incomplete_handoff_graph",
         "invalid_binding_annotation",
+        "invalid_evidence_provenance",
+        "inferred_policy_applicability",
+        "mixed_policy_evidence",
+        "unknown_policy_evidence",
+        "conflicting_policy_evidence",
     ]
     subject: str
     source_type: str | None = None
@@ -446,6 +507,7 @@ class EvidenceCoverageDecision(BaseModel):
     semantic_coverage: SemanticCoverageDecision = Field(default_factory=SemanticCoverageDecision)
     identity_coverage: IdentityCoverageDecision = Field(default_factory=IdentityCoverageDecision)
     binding_coverage: BindingCoverageDecision = Field(default_factory=BindingCoverageDecision)
+    policy_gap_count: int = 0
 
 
 class BaselineDelta(BaseModel):
@@ -486,6 +548,7 @@ ContributionRuleName = Literal[
     # for completeness so the audit table is exhaustive over
     # report.findings.
     "sub_threshold",
+    "unsupported_evidence",
     # Suppressed via `checks.ignore[]` in the manifest; excluded from
     # the active set entirely.
     "suppressed",
@@ -943,7 +1006,9 @@ class ReadinessReport(BaseModel):
     # v0.30: provider-scoped canonical tool identity.
     # v0.31: root-reachable agent binding facts, diffs, and coverage.
     # v0.32: required Conductor OSS workflow summary fields.
-    report_schema_version: str = "0.32"
+    # v0.33: typed evidence basis, predicate support, and unsuppressible
+    # indeterminate-policy evidence gaps.
+    report_schema_version: str = "0.33"
     run_id: str
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
@@ -1006,6 +1071,9 @@ class ReadinessReport(BaseModel):
     tool_inventory: list[dict[str, Any]] = Field(default_factory=list)
     tool_catalog: list[dict[str, Any]] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)
+    # v0.33: indeterminate policy applicability stays outside Finding so it
+    # cannot be baselined, suppressed, severity-overridden, or acknowledged.
+    policy_evidence_gaps: list[EvidenceGap] = Field(default_factory=list)
     # v0.12: top-level agent summary. Deterministic projection of
     # release_decision + findings[].agent_action. Optional at Python
     # level so older test helpers can construct minimal reports;

@@ -484,6 +484,62 @@ def test_action_surface_external_side_effect_alias_matches_external_communicatio
     )
 
 
+def test_custom_action_policy_cannot_launder_heuristic_risk_tag() -> None:
+    manifest = _manifest(
+        {
+            "action_surface": {
+                "policies": [
+                    {
+                        "id": "heuristic-financial-block",
+                        "match": {"risk_tags": ["financial_write"]},
+                        "require": {"approval.required": True},
+                        "severity": "critical",
+                        "block": True,
+                    }
+                ]
+            }
+        }
+    )
+    tool = Tool(
+        id="tool:refund_status",
+        name="refund_status",
+        source_type="langchain_inventory",
+        source_id="tools",
+        extraction_confidence="high",
+        risk_hints=[
+            ToolRiskHint(
+                tag="financial_action",
+                source="keyword",
+                confidence="high",
+                basis="inferred_keyword",
+                provenance_kind="keyword_heuristic",
+            )
+        ],
+    )
+    facts = build_action_surface_facts(
+        manifest,
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+    )
+    gaps = []
+
+    findings = evaluate_action_surface_policies(
+        manifest,
+        facts,
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+        tools=[tool],
+        policy_evidence_gaps=gaps,
+    )
+
+    assert not any(
+        finding.evidence.get("policy_id") == "heuristic-financial-block"
+        for finding in findings
+    )
+    gap = next(item for item in gaps if "heuristic-financial-block" in item.why)
+    assert gap.kind == "inferred_policy_applicability"
+
+
 def test_enrich_action_surface_diff_populates_structured_source_fields():
     """v0.19 reviewer-grade provenance: every change row gains
     structured ``source_path`` / ``source_start_line`` fields when the
@@ -1184,7 +1240,7 @@ agent_bindings:
     assert report.action_surface_diff.summary.actions_added == 1
     assert report.action_surface_diff.summary.blocking_findings == 0
     assert report.release_decision is not None
-    assert report.release_decision.decision == "review_required"
+    assert report.release_decision.decision == "insufficient_evidence"
     assert not any(
         finding.check_id == "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING" and finding.blocks_release
         for finding in report.findings

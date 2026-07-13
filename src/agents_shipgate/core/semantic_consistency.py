@@ -125,9 +125,29 @@ def validate_semantic_consistency(
         or identity_coverage.gap_count
         or identity_eligible != len(assessments)
         or pass_eligible != len(assessments)
+        or bool(report.policy_evidence_gaps)
+        or decision.evidence_coverage.policy_gap_count
     ):
         raise SemanticConsistencyError(
             "passed requires every semantic assessment to be pass-eligible"
+        )
+    if decision.evidence_coverage.policy_gap_count != len(report.policy_evidence_gaps):
+        raise SemanticConsistencyError("policy evidence gap coverage drift")
+    if any(
+        finding.support is not None
+        and not finding.support.blocking_eligible
+        and finding.blocks_release
+        for finding in report.findings
+    ):
+        raise SemanticConsistencyError(
+            "unsupported finding cannot assert blocks_release"
+        )
+    if any(
+        item.support is not None and not item.support.blocking_eligible
+        for item in decision.blockers
+    ):
+        raise SemanticConsistencyError(
+            "release blocker lacks authoritative predicate support"
         )
     if (
         decision.decision == "insufficient_evidence"

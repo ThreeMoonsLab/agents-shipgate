@@ -22,6 +22,7 @@ from agents_shipgate.core.lenses.action_surface import (
     compute_action_surface_diff,
     evaluate_action_surface_policies,
 )
+from agents_shipgate.core.policy_evidence import policy_evidence_gap
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
 from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
@@ -128,9 +129,32 @@ def _run_checks_and_decide(
             action_surface_diff,
             agent_id=tools_and_agent.agent.id,
             tools=tools_and_agent.tools,
+            policy_evidence_gaps=context.policy_evidence_gaps,
         )
     )
     findings = dedupe_findings(findings)
+    policy_eligible_findings = []
+    for finding in findings:
+        support = finding.support
+        if support is None or support.policy_eligible:
+            policy_eligible_findings.append(finding)
+            continue
+        source = finding.policy_evidence_source or finding.source
+        context.policy_evidence_gaps.append(
+            policy_evidence_gap(
+                status=support.status,
+                subject=finding.tool_id or finding.tool_name or finding.agent_id or finding.check_id,
+                policy_id=finding.check_id,
+                source_ref=(source.path or source.ref) if source is not None else None,
+                support=support,
+                manifest_path=(
+                    source.pointer
+                    if source is not None and source.pointer
+                    else f"/checks/{finding.check_id}"
+                ),
+            )
+        )
+    findings = policy_eligible_findings
     # v0.17 (M1) + v0.18 (PR #1): centralized aggregator covers every
     # catalog check with ``dynamic_default=True``. See
     # ``core/dynamic_defaults.py`` and ``severity_overrides.py`` for the

@@ -13,19 +13,13 @@ Blockers (2):
 - HIGH SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING — send\_customer\_email has external communication capability without required controls
 - CRITICAL SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING — create\_refund has financial write capability without required controls
 
-Review items (19):
-- HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — send\_customer\_email accepts broad free-form action input
-- HIGH SHIP-SCHEMA-MISSING-BOUNDS — create\_refund.amount has no maximum bound
+Review items (13):
 - HIGH SHIP-AUTH-MISSING-SCOPE — send\_customer\_email lacks declared auth scopes
 - HIGH SHIP-AUTH-MISSING-SCOPE — create\_refund lacks declared auth scopes
-- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — send\_customer\_email appears to overlap with a prohibited action
-- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — create\_refund appears to overlap with a prohibited action
 - HIGH SHIP-SIDEFX-IDEMPOTENCY-MISSING — create\_refund lacks idempotency evidence
 - HIGH SHIP-API-FUNCTION-SCHEMA-STRICTNESS — send\_customer\_email function schema is not strict enough
 - HIGH SHIP-API-FUNCTION-SCHEMA-STRICTNESS — create\_refund function schema is not strict enough
 - MEDIUM SHIP-API-STRUCTURED-OUTPUT-READINESS — Response format schemas/refund\_decision.schema.json is under-specified
-- HIGH SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH — Prompt says read-only or advise-only while write/high-risk tools are enabled
-- MEDIUM SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH — Prompt lacks approval/confirmation language for high-risk tools
 - MEDIUM SHIP-API-TIMEOUT-MISSING — OpenAI API flow lacks timeout metadata
 - HIGH SHIP-API-RETRY-WITHOUT-IDEMPOTENCY — send\_customer\_email may be retried without idempotency evidence
 - MEDIUM SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING — create\_refund lacks success/failure output modeling
@@ -43,8 +37,8 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 ## Summary
 
 - Critical: 1
-- High: 15
-- Medium: 5
+- High: 10
+- Medium: 4
 - Low: 0
 - Suppressed: 0
 - Status: Release blockers detected (legacy; see Release Decision above)
@@ -67,9 +61,9 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
    Evidence: issues=\['missing\_strict\_true', 'additional\_properties\_not\_false', 'properties\_missing\_from\_required:amount,reason', 'risky\_field\_unbounded:amount'\]; risk\_tags=\['financial\_action', 'write'\]
    Recommendation: Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
 
-5. Prompt says read-only or advise-only while write/high-risk tools are enabled
-   Evidence: tools=\['send\_customer\_email', 'create\_refund'\]
-   Recommendation: Align prompt scope with enabled tools or remove write/high-risk tools.
+5. send\_customer\_email may be retried without idempotency evidence
+   Evidence: retry\_policy=\{'max\_attempts': 2\}; risk\_tags=\['customer\_communication', 'external\_write', 'write'\]
+   Recommendation: Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
 
 ## Finding Provenance
 
@@ -79,7 +73,7 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 | --- | ---: |
 | `static_declaration` | 14 |
 | `ast_extraction` | 0 |
-| `keyword_heuristic` | 6 |
+| `keyword_heuristic` | 0 |
 | `regex_heuristic` | 0 |
 | `policy_pack` | 0 |
 | `runtime_trace` | 1 |
@@ -107,16 +101,16 @@ Policy/control gaps:
 - HIGH control\_missing \[create\_refund\]: create\_refund function schema is not strict enough. (at tools/openai-tools.json)
   Requires: API function schemas must be strict enough for reliable tool calls.
   Release implication: The model may send ambiguous or overbroad tool arguments.
-- HIGH control\_missing \[create\_refund\]: create\_refund.amount has no maximum bound. (at tools/openai-tools.json)
-  Requires: Risky numeric parameters must declare a maximum or equivalent limit.
-  Release implication: Release reviewers cannot verify blast-radius limits.
 - HIGH control\_missing \[create\_refund\]: create\_refund is high-risk but has no owner. (at tools/openai-tools.json)
   Requires: Manifest metadata must match the active release surface.
   Release implication: Release review metadata is incomplete or stale.
 - HIGH control\_missing \[create\_refund\]: create\_refund lacks idempotency evidence. (at tools/openai-tools.json)
   Requires: Risky write tools need idempotency evidence before retryable release.
   Release implication: Retries could duplicate financial, destructive, or external effects.
-- 19 more in report.json
+- HIGH control\_missing \[send\_customer\_email\]: send\_customer\_email function schema is not strict enough. (at tools/openai-tools.json)
+  Requires: API function schemas must be strict enough for reliable tool calls.
+  Release implication: The model may send ambiguous or overbroad tool arguments.
+- 11 more in report.json
 
 Release implication:
 
@@ -128,9 +122,8 @@ Next validation:
 - Tool schema boundary check: The tool accepts bounded structured inputs and returns structured outputs where needed.
 - High-risk tool validation case: A declared test or review scenario covers the high-risk tool path.
 - Retry behavior for risky write: Retries use idempotency evidence or the side effect is not retried.
-- Prompt and tool-surface alignment: The agent instructions match the enabled write and high-risk capabilities.
-- Prohibited-action guard: The prohibited action is blocked, removed, or covered by the stated control.
-- 2 more in report.json
+- Least-privilege scope review: Manifest and tool scopes match the narrow permissions needed for the release.
+- Approval gate for high-risk action: The run records human approval before the tool call and denies calls without approval.
 
 ## Recommended Next Actions
 
@@ -138,10 +131,10 @@ Next validation:
 - Declare confirmation policy and safeguards.audit\_log for this external communication action.
 - Make send\_customer\_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
 - Make create\_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.
-- Align prompt scope with enabled tools or remove write/high-risk tools.
 - Add idempotency evidence for send\_customer\_email or avoid retrying this side effect.
 - Add idempotency evidence for create\_refund or avoid retrying this side effect.
 - Declare operation-specific auth scopes for send\_customer\_email, or explicitly declare anonymous authority when the operation requires no credentials.
+- Declare operation-specific auth scopes for create\_refund, or explicitly declare anonymous authority when the operation requires no credentials.
 
 ## Tool Surface Summary
 
@@ -196,10 +189,8 @@ Matched trace rows:
 
 - HIGH: SHIP-API-FUNCTION-SCHEMA-STRICTNESS [create\_refund] - create\_refund function schema is not strict enough
 - HIGH: SHIP-API-FUNCTION-SCHEMA-STRICTNESS [send\_customer\_email] - send\_customer\_email function schema is not strict enough
-- HIGH: SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH - Prompt says read-only or advise-only while write/high-risk tools are enabled
 - HIGH: SHIP-API-RETRY-WITHOUT-IDEMPOTENCY [create\_refund] - create\_refund may be retried without idempotency evidence
 - HIGH: SHIP-API-RETRY-WITHOUT-IDEMPOTENCY [send\_customer\_email] - send\_customer\_email may be retried without idempotency evidence
-- MEDIUM: SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH - Prompt lacks approval/confirmation language for high-risk tools
 - MEDIUM: SHIP-API-STRUCTURED-OUTPUT-READINESS - Response format schemas/refund\_decision.schema.json is under-specified
 - MEDIUM: SHIP-API-TIMEOUT-MISSING - OpenAI API flow lacks timeout metadata
 - MEDIUM: SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING [create\_refund] - create\_refund lacks success/failure output modeling
@@ -214,16 +205,6 @@ Matched trace rows:
 
 - HIGH: SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING [create\_refund] - create\_refund is high-risk but has no owner
 - HIGH: SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING [send\_customer\_email] - send\_customer\_email is high-risk but has no owner
-
-### Schema
-
-- HIGH: SHIP-SCHEMA-BROAD-FREE-TEXT [send\_customer\_email] - send\_customer\_email accepts broad free-form action input
-- HIGH: SHIP-SCHEMA-MISSING-BOUNDS [create\_refund] - create\_refund.amount has no maximum bound
-
-### Scope
-
-- HIGH: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT [create\_refund] - create\_refund appears to overlap with a prohibited action
-- HIGH: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT [send\_customer\_email] - send\_customer\_email appears to overlap with a prohibited action
 
 ### Side Effects
 

@@ -45,10 +45,10 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "98ba22d7518ae4635ed109fd187323da0541281061dd4f259ac7fdb950c7b185"
+        "02e780f5a1506d948e4c1d77f6ee4c6b4193227a4fd2ced081847d1fb2e5fbd0"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "e35be58338a6343c712a6a63aff826f5785040f201aa0d7f5f6f257c27d12532"
+        "44648891d77a12f562913e4402c08bca4be6cff4aa8c69b7950ea97e7d5cc17b"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
         "53296f41b7c2bc8538555a4361707de8b990748b7a5d80ae4ce066af83af8fa7"
@@ -160,18 +160,18 @@ def test_committed_claude_command_matches_renderer() -> None:
 
 def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "4"
+    assert payload["schema_version"] == "5"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "15"
+    assert payload["contract_version"] == "16"
     assert payload["minimum_control_contract_version"] == "14"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.3"
+    assert payload["verifier_schema_version"] == "0.4"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v2"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v3"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v3.json"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v4"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v4.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["agent_boundary_result_schema_version"] == (

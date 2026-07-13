@@ -14,7 +14,7 @@ from agents_shipgate.core.capability_traces import (
 )
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Tool
-from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
+from agents_shipgate.core.risk_hints import is_policy_eligible_high_risk_tool, risk_tags
 from agents_shipgate.schemas.common import (
     HitlProvenanceType,
     HitlSourceProvenance,
@@ -240,7 +240,7 @@ def _high_risk_exclusion_findings(context: ScanContext) -> list[Finding]:
     findings: list[Finding] = []
     reason = "file_missing" if not exclusion_files else "tool_missing"
     for tool in sorted(context.tools, key=lambda item: item.name):
-        if not is_high_risk_tool(tool):
+        if not is_policy_eligible_high_risk_tool(tool):
             continue
         if tool.name not in approval_declared:
             continue

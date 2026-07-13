@@ -1,6 +1,6 @@
 # Evidence-Backed Pass Safety Qualification
 
-This directory is the runbook for the `0.16.0b4` beta safety qualification.
+This directory is the runbook for the `0.16.0b5` beta safety qualification.
 The repository does **not** ship fabricated human labels or a passing result.
 Until a real frozen corpus and its verifier receipts exist,
 `safety-qualification.json` must not be published as qualified.
@@ -11,12 +11,12 @@ The runner consumes four independently content-addressed inputs:
 
 1. A built `agents-shipgate` wheel. The runner reads wheel metadata without
    importing or executing it and records the wheel SHA-256.
-2. A `shipgate.safety_corpus/v2` JSON/YAML corpus. Every case has two blind,
+2. A `shipgate.safety_corpus/v3` JSON/YAML corpus. Every case has two blind,
    attributable labels (`security_governance` and `framework_tooling`), an
    evidence-backed final decision, a remediation condition, and a third-human
    adjudication for every disagreement. `frozen_labels_sha256` must match the
    canonical label payload.
-3. A `shipgate.safety_receipt_index/v2` JSON/YAML index created only after
+3. A `shipgate.safety_receipt_index/v3` JSON/YAML index created only after
    labels are frozen. It binds the exact wheel, corpus, labels, policy bundle,
    and one `shipgate.verify_run/v2` receipt per case.
 4. The qualification policy file(s) or directory. Directory hashing includes
@@ -52,7 +52,7 @@ are marked `qualification_tier: test` and can never set
 
 ```bash
 PYTHONPATH=src python scripts/run_safety_qualification.py \
-  --wheel dist/agents_shipgate-0.16.0b4-py3-none-any.whl \
+  --wheel dist/agents_shipgate-0.16.0b5-py3-none-any.whl \
   --corpus /secure/frozen-corpus.json \
   --receipts /secure/receipt-index.json \
   --policy /secure/qualification-policy/ \

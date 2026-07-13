@@ -16,17 +16,12 @@ Blockers (5):
 - HIGH SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING — stripe.create\_refund has external communication capability without required controls
 - CRITICAL SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING — stripe.create\_refund has financial write capability without required controls
 
-Review items (14):
-- HIGH SHIP-SCHEMA-MISSING-BOUNDS — stripe.create\_refund.amount has no maximum bound
-- HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — zendesk.update\_ticket accepts broad free-form action input
-- HIGH SHIP-SCHEMA-BROAD-FREE-TEXT — gmail.send\_customer\_email accepts broad free-form action input
+Review items (9):
 - HIGH SHIP-AUTH-MANIFEST-BROAD-SCOPE — Manifest declares broad permission scopes
 - HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — shopify.cancel\_order requires scopes not declared in the manifest
 - HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — support.search\_kb requires scopes not declared in the manifest
 - HIGH SHIP-AUTH-MISSING-SCOPE — refund\_status\_lookup lacks declared auth scopes
 - HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — gmail.send\_customer\_email requires scopes not declared in the manifest
-- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — stripe.create\_refund appears to overlap with a prohibited action
-- HIGH SHIP-SCOPE-PROHIBITED-TOOL-PRESENT — gmail.send\_customer\_email appears to overlap with a prohibited action
 - HIGH SHIP-POLICY-CONFIRMATION-MISSING — stripe.create\_refund lacks a declared confirmation policy
 - HIGH SHIP-POLICY-CONFIRMATION-MISSING — gmail.send\_customer\_email lacks a declared confirmation policy
 - HIGH SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING — shopify.cancel\_order is high-risk but has no owner
@@ -41,7 +36,7 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 ## Summary
 
 - Critical: 3
-- High: 15
+- High: 10
 - Medium: 1
 - Low: 0
 - Suppressed: 0
@@ -77,7 +72,7 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 | --- | ---: |
 | `static_declaration` | 14 |
 | `ast_extraction` | 0 |
-| `keyword_heuristic` | 5 |
+| `keyword_heuristic` | 0 |
 | `regex_heuristic` | 0 |
 | `policy_pack` | 0 |
 | `runtime_trace` | 0 |
@@ -99,9 +94,9 @@ Actual capabilities:
 
 - gmail.send\_customer\_email: capability=external\_write, risk=customer\_communication, external\_write, control=missing
 - refund\_status\_lookup: capability=read\_only, risk=read\_only, control=partial
+- send\_email\_preview: capability=read\_only, risk=read\_only, control=present
 - shopify.cancel\_order: capability=destructive, risk=destructive, write, control=missing
 - stripe.create\_refund: capability=financial\_action, risk=external\_write, financial\_action, write, control=missing
-- support.search\_kb: capability=read\_only, risk=read\_only, control=missing
 - 1 more in report.json
 
 Policy/control gaps:
@@ -115,13 +110,13 @@ Policy/control gaps:
 - CRITICAL undetected\_gap \[stripe.create\_refund\]: stripe.create\_refund has financial write capability without required controls. (at specs/support-tools.openapi.yaml:97)
   Requires: Static review requires deterministic evidence for release gaps.
   Release implication: Human review is required to interpret this finding.
-- HIGH control\_missing \[gmail.send\_customer\_email\]: gmail.send\_customer\_email accepts broad free-form action input. (at .agents-shipgate/mcp-tools.json)
-  Requires: Action-like tool inputs must constrain high-blast-radius fields.
-  Release implication: Release reviewers cannot bound the operation payload safely.
 - HIGH control\_missing \[shopify.cancel\_order\]: shopify.cancel\_order is high-risk but has no owner. (at specs/support-tools.openapi.yaml:116)
   Requires: Manifest metadata must match the active release surface.
   Release implication: Release review metadata is incomplete or stale.
-- 14 more in report.json
+- HIGH policy\_gap \[gmail.send\_customer\_email\]: gmail.send\_customer\_email lacks a declared confirmation policy. (at .agents-shipgate/mcp-tools.json)
+  Requires: Destructive, external, or customer actions require confirmation.
+  Release implication: Release review must verify explicit user confirmation before shipping.
+- 9 more in report.json
 
 Release implication:
 
@@ -132,10 +127,9 @@ Next validation:
 
 - Retry behavior for risky write: Retries use idempotency evidence or the side effect is not retried.
 - Approval gate for high-risk action: The run records human approval before the tool call and denies calls without approval.
-- Tool schema boundary check: The tool accepts bounded structured inputs and returns structured outputs where needed.
 - High-risk tool validation case: A declared test or review scenario covers the high-risk tool path.
 - Confirmation gate for external or destructive action: The run records explicit confirmation before the side effect occurs.
-- 2 more in report.json
+- Least-privilege scope review: Manifest and tool scopes match the narrow permissions needed for the release.
 
 ## Recommended Next Actions
 
@@ -155,7 +149,7 @@ Next validation:
 ## Tool Surface Summary
 
 - Total tools: 7
-- High-risk tools: 3
+- High-risk tools: 5
 - Wildcard tools: 0
 - Missing descriptions: 0
 - Sources: mcp=3, openapi=4
@@ -200,17 +194,6 @@ No local runtime trace artifacts were declared for capability evidence.
 - CRITICAL: SHIP-POLICY-APPROVAL-MISSING [stripe.create\_refund] - stripe.create\_refund lacks a declared approval policy
 - HIGH: SHIP-POLICY-CONFIRMATION-MISSING [gmail.send\_customer\_email] - gmail.send\_customer\_email lacks a declared confirmation policy
 - HIGH: SHIP-POLICY-CONFIRMATION-MISSING [stripe.create\_refund] - stripe.create\_refund lacks a declared confirmation policy
-
-### Schema
-
-- HIGH: SHIP-SCHEMA-BROAD-FREE-TEXT [gmail.send\_customer\_email] - gmail.send\_customer\_email accepts broad free-form action input
-- HIGH: SHIP-SCHEMA-BROAD-FREE-TEXT [zendesk.update\_ticket] - zendesk.update\_ticket accepts broad free-form action input
-- HIGH: SHIP-SCHEMA-MISSING-BOUNDS [stripe.create\_refund] - stripe.create\_refund.amount has no maximum bound
-
-### Scope
-
-- HIGH: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT [gmail.send\_customer\_email] - gmail.send\_customer\_email appears to overlap with a prohibited action
-- HIGH: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT [stripe.create\_refund] - stripe.create\_refund appears to overlap with a prohibited action
 
 ### Side Effects
 

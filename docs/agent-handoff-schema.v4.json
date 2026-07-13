@@ -1,0 +1,1023 @@
+{
+  "$defs": {
+    "AgentActionRequiredControl": {
+      "additionalProperties": false,
+      "description": "Non-terminal state with one exact coding-agent-owned next step.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/CodingAgentAction"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "agent_action_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "AgentActionRequiredControl",
+      "type": "object"
+    },
+    "AgentControl": {
+      "discriminator": {
+        "mapping": {
+          "agent_action_required": "#/$defs/AgentActionRequiredControl",
+          "complete": "#/$defs/CompleteAgentControl",
+          "human_review_required": "#/$defs/HumanReviewRequiredControl"
+        },
+        "propertyName": "state"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CompleteAgentControl"
+        },
+        {
+          "$ref": "#/$defs/AgentActionRequiredControl"
+        },
+        {
+          "$ref": "#/$defs/HumanReviewRequiredControl"
+        }
+      ]
+    },
+    "AgentHandoffBlockedBy": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Status"
+        },
+        "blocks_release": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocks Release"
+        },
+        "bucket": {
+          "enum": [
+            "blocker",
+            "review_item"
+          ],
+          "title": "Bucket",
+          "type": "string"
+        },
+        "capability_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Refs",
+          "type": "array"
+        },
+        "capability_trace_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Trace Refs",
+          "type": "array"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "support_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support Hash"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bucket",
+        "check_id",
+        "severity",
+        "title"
+      ],
+      "title": "AgentHandoffBlockedBy",
+      "type": "object"
+    },
+    "AgentHandoffGateV3": {
+      "additionalProperties": false,
+      "description": "Current gate projection with explicit execution applicability.",
+      "properties": {
+        "applicability": {
+          "enum": [
+            "not_evaluated",
+            "verified",
+            "not_applicable",
+            "failed"
+          ],
+          "title": "Applicability",
+          "type": "string"
+        },
+        "can_merge_without_human": {
+          "default": false,
+          "title": "Can Merge Without Human",
+          "type": "boolean"
+        },
+        "ci_would_fail": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci Would Fail"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "gating_signal": {
+          "const": "release_decision.decision",
+          "default": "release_decision.decision",
+          "title": "Gating Signal",
+          "type": "string"
+        },
+        "merge_verdict": {
+          "enum": [
+            "mergeable",
+            "human_review_required",
+            "insufficient_evidence",
+            "blocked",
+            "unknown"
+          ],
+          "title": "Merge Verdict",
+          "type": "string"
+        },
+        "runtime_behavior_verified": {
+          "const": false,
+          "default": false,
+          "title": "Runtime Behavior Verified",
+          "type": "boolean"
+        },
+        "static_analysis_only": {
+          "const": true,
+          "default": true,
+          "title": "Static Analysis Only",
+          "type": "boolean"
+        },
+        "static_verdict_disclaimer": {
+          "default": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
+          "title": "Static Verdict Disclaimer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "merge_verdict",
+        "applicability"
+      ],
+      "title": "AgentHandoffGateV3",
+      "type": "object"
+    },
+    "AgentHandoffRemediationStep": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor"
+        },
+        "check_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Id"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "patch": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Patch"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "safety": {
+          "enum": [
+            "allowed",
+            "forbidden",
+            "patch"
+          ],
+          "title": "Safety",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        }
+      },
+      "required": [
+        "safety",
+        "kind",
+        "reason"
+      ],
+      "title": "AgentHandoffRemediationStep",
+      "type": "object"
+    },
+    "AgentHandoffReproducibility": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_sha256": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Artifact Sha256",
+          "type": "object"
+        },
+        "baseline_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Sha256"
+        },
+        "config_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Sha256"
+        },
+        "policy_packs": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Policy Packs",
+          "type": "array"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        }
+      },
+      "title": "AgentHandoffReproducibility",
+      "type": "object"
+    },
+    "AgentHandoffSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "changed_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Files",
+          "type": "array"
+        },
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "head_ref": {
+          "default": "HEAD",
+          "title": "Head Ref",
+          "type": "string"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "config"
+      ],
+      "title": "AgentHandoffSubject",
+      "type": "object"
+    },
+    "AgentHandoffTool": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "agents-shipgate",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "default": "0.16.0b5",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "AgentHandoffTool",
+      "type": "object"
+    },
+    "CodingAgentAction": {
+      "discriminator": {
+        "mapping": {
+          "configure": "#/$defs/CodingAgentCommandAction",
+          "discover": "#/$defs/CodingAgentCommandAction",
+          "fetch_base": "#/$defs/CodingAgentFetchBaseAction",
+          "initialize": "#/$defs/CodingAgentCommandAction",
+          "install": "#/$defs/CodingAgentCommandAction",
+          "repair": "#/$defs/CodingAgentCommandAction",
+          "rerun": "#/$defs/CodingAgentCommandAction",
+          "verify": "#/$defs/CodingAgentCommandAction"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CodingAgentCommandAction"
+        },
+        {
+          "$ref": "#/$defs/CodingAgentFetchBaseAction"
+        }
+      ]
+    },
+    "CodingAgentCommandAction": {
+      "additionalProperties": false,
+      "description": "An executable, exact next step owned by the coding agent.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "verify",
+            "discover",
+            "configure",
+            "initialize",
+            "repair",
+            "install",
+            "rerun"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentCommandAction",
+      "type": "object"
+    },
+    "CodingAgentFetchBaseAction": {
+      "additionalProperties": false,
+      "description": "A structured input request when an exact fetch command is unavailable.\n\nShipgate never fetches refs itself.  ``expects`` therefore names the exact\nref or artifact a caller must make available before rerunning verification.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "minLength": 1,
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "const": "fetch_base",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentFetchBaseAction",
+      "type": "object"
+    },
+    "CompleteAgentControl": {
+      "additionalProperties": false,
+      "description": "Terminal state: the coding agent may report the task complete.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": true,
+          "default": true,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "default": null,
+          "title": "Next Action",
+          "type": "null"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "complete",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "const": false,
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "CompleteAgentControl",
+      "type": "object"
+    },
+    "HumanControlAction": {
+      "additionalProperties": false,
+      "description": "A human-owned route.  Human actions never expose executable commands.",
+      "properties": {
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "review",
+            "stop"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "HumanControlAction",
+      "type": "object"
+    },
+    "HumanReviewRequiredControl": {
+      "additionalProperties": false,
+      "description": "Stopping state: no further coding-agent action is authorized.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": true,
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanControlAction"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "human_review_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "minLength": 1,
+          "title": "Stop Reason",
+          "type": "string"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "HumanReviewRequiredControl",
+      "type": "object"
+    },
+    "NoHumanReview": {
+      "additionalProperties": false,
+      "description": "Exact negative human-review projection for non-stopping states.",
+      "properties": {
+        "required": {
+          "const": false,
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "default": null,
+          "title": "Why",
+          "type": "null"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "NoHumanReview",
+      "type": "object"
+    },
+    "RequiredHumanReview": {
+      "additionalProperties": false,
+      "description": "Human-review evidence carried by the stopping state.",
+      "properties": {
+        "required": {
+          "const": true,
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "RequiredHumanReview",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v4.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for agents-shipgate-reports/agent-handoff.json. Generated from agents_shipgate.schemas.agent_handoff.AgentHandoffArtifact. It is a compact projection for coding agents and does not gate releases; release_decision.decision remains the only gate.",
+  "else": {
+    "properties": {
+      "control": {
+        "properties": {
+          "state": {
+            "enum": [
+              "agent_action_required",
+              "human_review_required"
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ]
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "gate": {
+        "properties": {
+          "can_merge_without_human": {
+            "const": true
+          }
+        },
+        "required": [
+          "can_merge_without_human"
+        ]
+      }
+    },
+    "required": [
+      "gate"
+    ]
+  },
+  "properties": {
+    "artifacts": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Artifacts",
+      "type": "object"
+    },
+    "blocked_by": {
+      "items": {
+        "$ref": "#/$defs/AgentHandoffBlockedBy"
+      },
+      "title": "Blocked By",
+      "type": "array"
+    },
+    "capability_review": {
+      "additionalProperties": true,
+      "title": "Capability Review",
+      "type": "object"
+    },
+    "contract_version": {
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "control": {
+      "$ref": "#/$defs/AgentControl"
+    },
+    "fix_task": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fix Task"
+    },
+    "forbidden_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Actions",
+      "type": "array"
+    },
+    "forbidden_file_edits": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden File Edits",
+      "type": "array"
+    },
+    "gate": {
+      "$ref": "#/$defs/AgentHandoffGateV3"
+    },
+    "operation": {
+      "enum": [
+        "verify_pr",
+        "verify_local",
+        "verify_preview"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "remediation_plan": {
+      "items": {
+        "$ref": "#/$defs/AgentHandoffRemediationStep"
+      },
+      "title": "Remediation Plan",
+      "type": "array"
+    },
+    "reproducibility": {
+      "$ref": "#/$defs/AgentHandoffReproducibility"
+    },
+    "schema_version": {
+      "const": "shipgate.agent_handoff/v4",
+      "default": "shipgate.agent_handoff/v4",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "subject": {
+      "$ref": "#/$defs/AgentHandoffSubject"
+    },
+    "tool": {
+      "$ref": "#/$defs/AgentHandoffTool"
+    }
+  },
+  "required": [
+    "contract_version",
+    "operation",
+    "subject",
+    "gate",
+    "control"
+  ],
+  "then": {
+    "properties": {
+      "control": {
+        "properties": {
+          "state": {
+            "const": "complete"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "fix_task": {
+        "type": "null"
+      }
+    }
+  },
+  "title": "Agents Shipgate Agent Handoff v4",
+  "type": "object"
+}

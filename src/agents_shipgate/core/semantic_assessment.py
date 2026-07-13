@@ -9,6 +9,7 @@ from agents_shipgate.core.domain import (
     AuthoritySemanticAssessment,
     BindingSemanticAssessment,
     EffectSemanticAssessment,
+    EvidenceBasis,
     Scope,
     SemanticClaim,
     SemanticIssue,
@@ -145,6 +146,7 @@ def _compat_binding_assessment(tool: Tool) -> BindingSemanticAssessment:
         value=f"legacy_direct->{tool.id}",
         confidence="high",
         provenance_kind="static_declaration",
+        basis="reviewed_declaration",
         source="compat_direct_binding",
         source_pointer=tool.source_pointer or tool.source_ref,
     )
@@ -193,6 +195,7 @@ def _compat_identity_assessment(tool: Tool) -> ToolIdentityAssessment:
         value=observation_id,
         confidence="high",
         provenance_kind="static_declaration",
+        basis="reviewed_declaration",
         source="compat_tool_identity",
         source_pointer=tool.source_pointer or tool.source_ref,
         evidence={"source_type": tool.source_type, "source_id": tool.source_id},
@@ -223,6 +226,7 @@ def _assess_effect(
                 declaration.effect,
                 "high",
                 "static_declaration",
+                "reviewed_declaration",
                 "action_surface_declaration",
                 f"action_surface.actions[tool={tool.name!r}].effect",
             )
@@ -238,6 +242,7 @@ def _assess_effect(
                     effect,
                     "high",
                     "static_declaration",
+                    "reviewed_declaration",
                     "action_risk_tag_declaration",
                     f"action_surface.actions[tool={tool.name!r}].risk_tags",
                     {"tag": tag},
@@ -261,6 +266,7 @@ def _assess_effect(
                 method_effect,
                 "high",
                 "static_declaration",
+                "protocol_structure",
                 "openapi_method",
                 pointer,
                 {"method": method},
@@ -285,6 +291,7 @@ def _assess_effect(
                 "read",
                 "high",
                 "static_declaration",
+                "protocol_structure",
                 "mcp_annotation",
                 pointer,
                 {"readOnlyHint": True},
@@ -297,6 +304,7 @@ def _assess_effect(
                 "destructive",
                 "high",
                 "static_declaration",
+                "protocol_structure",
                 "mcp_annotation",
                 pointer,
                 {"destructiveHint": True},
@@ -337,6 +345,7 @@ def _assess_effect(
                 effect,
                 "high",
                 "static_declaration",
+                "protocol_structure",
                 "permission_class",
                 pointer,
                 {"permission_class": value},
@@ -359,6 +368,7 @@ def _assess_effect(
                 scope_effect,
                 "high",
                 "static_declaration",
+                "structural_scope",
                 scope_source,
                 pointer,
                 {"scope": raw_scope},
@@ -370,15 +380,25 @@ def _assess_effect(
         effect = _TAG_EFFECTS.get(hint.tag)
         if effect is None or hint.source in direct_sources:
             continue
-        typed_provider_fact = _is_typed_provider_fact(tool, hint)
-        provenance = "static_declaration" if typed_provider_fact else _hint_provenance(hint.source)
+        hint_basis = _validated_hint_basis(tool, hint)
+        if hint_basis == "unknown":
+            issues.append(
+                _issue(
+                    "invalid_evidence_provenance",
+                    "effect",
+                    f"risk hint {hint.tag!r} has no typed evidence basis",
+                    hint.source,
+                    pointer,
+                )
+            )
         claims.append(
             _claim(
                 "effect",
                 effect,
                 hint.confidence,
-                provenance,
-                "typed_provider_fact" if typed_provider_fact else f"risk_hint:{hint.source}",
+                hint.provenance_kind,
+                hint_basis,
+                f"risk_hint:{hint.source}",
                 pointer,
                 {"tag": hint.tag, "hint_source": hint.source, **hint.evidence},
             )
@@ -387,7 +407,8 @@ def _assess_effect(
     authoritative = [
         claim
         for claim in claims
-        if claim.source
+        if claim.policy_eligible
+        and claim.source
         in {
             "action_surface_declaration",
             "openapi_method",
@@ -395,8 +416,8 @@ def _assess_effect(
             "permission_class",
             "auth_scope",
             "action_scope",
-            "typed_provider_fact",
         }
+        or (claim.policy_eligible and claim.basis == "typed_provider_fact")
     ]
     # A reviewed manual risk tag may refine positive risk once another source has
     # established the action semantics. It must never independently prove a
@@ -420,6 +441,7 @@ def _assess_effect(
                 "write",
                 "low",
                 "static_declaration",
+                "protocol_default",
                 "mcp_protocol_default",
                 pointer,
                 {"reason": "missing effect annotations"},
@@ -438,7 +460,7 @@ def _assess_effect(
         contradictory = [
             claim
             for claim in [*structural, *inferred]
-            if confidence_rank(claim.confidence) >= confidence_rank("high")
+            if claim.policy_eligible
             and _EFFECT_RANK[_as_effect(claim.value)] > _EFFECT_RANK[declared_effect]
         ]
         if has_read and has_non_read:
@@ -468,7 +490,6 @@ def _assess_effect(
         else:
             status = "declared"
             confidence = "high"
-            conservative = declared_effect
     elif structural:
         high_structural = [claim for claim in structural if claim.confidence == "high"]
         has_read = any(claim.value == "read" for claim in high_structural)
@@ -593,6 +614,7 @@ def _assess_authority(
                 alternative_mode,
                 "high" if alternative_mode != "unknown" else "low",
                 "static_declaration",
+                "protocol_structure",
                 "openapi_security_alternative",
                 f"{pointer or ''}/security/{index}",
                 {
@@ -609,6 +631,7 @@ def _assess_authority(
                 source_mode,
                 "high" if source_status == "structural" else "low",
                 "static_declaration",
+                "protocol_structure",
                 f"{tool.auth.source or tool.source_type}_authority",
                 pointer,
                 {
@@ -627,6 +650,7 @@ def _assess_authority(
                 authority.mode,
                 "high",
                 "static_declaration",
+                "reviewed_declaration",
                 "action_surface_declaration",
                 f"action_surface.actions[tool={tool.name!r}].authority",
                 {
@@ -828,6 +852,7 @@ def _claim(
     value: str,
     confidence: Confidence,
     provenance_kind: ProvenanceKind,
+    basis: EvidenceBasis,
     source: str,
     source_pointer: str | None,
     evidence: dict[str, Any] | None = None,
@@ -837,6 +862,7 @@ def _claim(
         value=value,
         confidence=confidence,
         provenance_kind=provenance_kind,
+        basis=basis,
         source=source,
         source_pointer=source_pointer,
         evidence=evidence or {},
@@ -859,30 +885,6 @@ def _issue(
     )
 
 
-def _hint_provenance(source: str) -> ProvenanceKind:
-    lowered = source.lower()
-    if "regex" in lowered:
-        return "regex_heuristic"
-    if "keyword" in lowered or source in {"manual", "mcp_permission_lattice"}:
-        return "keyword_heuristic" if source != "manual" else "static_declaration"
-    return "static_declaration"
-
-
-def _is_typed_provider_fact(tool: Tool, hint: Any) -> bool:
-    if (
-        hint.source == "anthropic_client_tool_type"
-        and tool.annotations.get("anthropicClientTool") is True
-        and hint.confidence == "high"
-    ):
-        return True
-    return (
-        hint.source == "n8n_static"
-        and tool.source_type == "n8n_code_tool"
-        and hint.tag == "code_execution"
-        and hint.confidence == "high"
-    )
-
-
 def _surface_is_complete(tool: Tool) -> bool:
     return not (
         tool.source_type in _AST_ONLY_SOURCE_TYPES
@@ -890,6 +892,37 @@ def _surface_is_complete(tool: Tool) -> bool:
         or tool.annotations.get("mcp_wildcard_tools") is True
         or tool.annotations.get("mcp_unknown_schema") is True
     )
+
+
+def _validated_hint_basis(tool: Tool, hint: Any) -> EvidenceBasis:
+    """Validate producer-owned evidence basis without guessing from labels."""
+
+    if hint.basis in {"inferred_keyword", "inferred_regex", "protocol_default"}:
+        return cast(EvidenceBasis, hint.basis)
+    if hint.basis == "reviewed_declaration" and hint.source == "manual":
+        return "reviewed_declaration"
+    if hint.basis == "typed_provider_fact":
+        if (
+            hint.source == "anthropic_client_tool_type"
+            and tool.annotations.get("anthropicClientTool") is True
+            and hint.confidence == "high"
+        ):
+            return "typed_provider_fact"
+        if (
+            hint.source == "n8n_static"
+            and tool.source_type == "n8n_code_tool"
+            and hint.tag == "code_execution"
+            and hint.confidence == "high"
+        ):
+            return "typed_provider_fact"
+    if (
+        hint.basis == "protocol_structure"
+        and hint.source == "n8n_static"
+        and tool.source_type.startswith("n8n_")
+        and bool(hint.evidence.get("method"))
+    ):
+        return "protocol_structure"
+    return "unknown"
 
 
 def _as_effect(value: str) -> ActionEffect:

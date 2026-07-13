@@ -19,8 +19,19 @@ def effective_fail_on(ci_mode: str, fail_on: list[Severity] | None) -> list[Seve
 
 
 def baseline_filtered_active(report: ReadinessReport, *, new_findings_only: bool) -> list[Finding]:
-    """Active (non-suppressed) findings, filtered by baseline new-only."""
-    active = [finding for finding in report.findings if not finding.suppressed]
+    """Gate-eligible findings, filtered by suppression and baseline mode.
+
+    A rule's requested severity or block bit cannot upgrade predicate evidence.
+    Findings with typed support therefore contribute to process policy only
+    when that support is policy-eligible. Legacy findings without support keep
+    their established behavior for frozen-report compatibility.
+    """
+    active = [
+        finding
+        for finding in report.findings
+        if not finding.suppressed
+        and (finding.support is None or finding.support.policy_eligible)
+    ]
     if new_findings_only:
         active = [finding for finding in active if finding.baseline_status in {None, "new"}]
     return active

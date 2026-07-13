@@ -1,0 +1,155 @@
+{
+  "capability_lock_diff_schema_version": "0.7",
+  "experimental": false,
+  "base": {
+    "path": ".agents-shipgate/capabilities.lock.json",
+    "capability_lock_schema_version": "0.6",
+    "semantic_capability_set_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+    "evidence_set_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+    "source_set_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+    "capability_count": 1
+  },
+  "head": {
+    "path": "agents-shipgate-reports/capabilities.lock.json",
+    "capability_lock_schema_version": "0.6",
+    "semantic_capability_set_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+    "evidence_set_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+    "source_set_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+    "capability_count": 2
+  },
+  "summary": {
+    "added": 1,
+    "removed": 0,
+    "reidentified": 0,
+    "changed": 0,
+    "evidence_changed": 0,
+    "unchanged": 1
+  },
+  "added": [
+    {
+      "id": "cap_999999999999",
+      "identity": {
+        "agent_id": "agent:support",
+        "tool_id": "tool:refunds.create",
+        "tool_name": "refunds.create",
+        "provider": "openapi",
+        "operation": "financial_write",
+        "subject_kind": "action",
+        "resource": [
+          "refund"
+        ],
+        "scope": [
+          "refunds:write"
+        ]
+      },
+      "effect": {
+        "effect": "financial_write",
+        "externally_visible": true,
+        "handles_sensitive_data": true,
+        "financial": true,
+        "code_execution": false,
+        "reversibility": "irreversible",
+        "idempotency_known": false,
+        "high_risk": true
+      },
+      "authority": {
+        "auth_type": "oauth2",
+        "credential_mode": "delegated",
+        "source": "manifest",
+        "scopes": [
+          "refunds:write"
+        ],
+        "broad_scopes": []
+      },
+      "controls": {
+        "approval_required": true,
+        "approval_threshold": "security",
+        "confirmation_required": true,
+        "safeguard_idempotency": true,
+        "safeguard_audit_log": true,
+        "safeguard_rollback": false,
+        "safeguard_dry_run": null,
+        "evidence_owner": "payments-platform",
+        "evidence_runbook": "runbooks/refunds.md",
+        "evidence_approval_ticket": null
+      },
+      "evidence": {
+        "source_type": "openapi",
+        "source_id": "support_api",
+        "source_ref": "tools/support.openapi.yaml",
+        "source_location": null,
+        "source_path": "tools/support.openapi.yaml",
+        "source_start_line": 88,
+        "source_end_line": null,
+        "source_start_column": null,
+        "source_pointer": "/paths/~1refunds/post",
+        "provenance_kind": "static_declaration",
+        "confidence": "high"
+      },
+      "semantic_assessment": {
+        "conservative_effect": "financial_write",
+        "effect": {
+          "status": "declared",
+          "confidence": "high",
+          "claims": [
+            {
+              "dimension": "effect",
+              "value": "financial_write",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "manifest.action_surface",
+              "source_pointer": "/action_surface/actions/0/effect",
+              "evidence": {
+                "effect": "financial_write"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "authority": {
+          "status": "declared",
+          "mode": "scoped",
+          "auth_type": "oauth2",
+          "credential_mode": "delegated",
+          "scopes": [
+            "refunds:write"
+          ],
+          "claims": [
+            {
+              "dimension": "authority",
+              "value": "scoped",
+              "confidence": "high",
+              "provenance_kind": "static_declaration",
+              "source": "manifest.action_surface",
+              "source_pointer": "/action_surface/actions/0/authority",
+              "evidence": {
+                "mode": "scoped"
+              }
+            }
+          ],
+          "issues": []
+        },
+        "pass_eligible": true
+      },
+      "risk_tags": [
+        "financial_action",
+        "high_impact",
+        "write"
+      ],
+      "hashes": {
+        "identity_hash": "9999999999999999999999999999999999999999999999999999999999999999",
+        "binding_hash": "abababababababababababababababababababababababababababababababab",
+        "effect_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+        "authority_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+        "control_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+        "schema_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+        "risk_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+        "evidence_hash": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+  ],
+  "removed": [],
+  "reidentified": [],
+  "changed": [],
+  "evidence_changed": []
+}

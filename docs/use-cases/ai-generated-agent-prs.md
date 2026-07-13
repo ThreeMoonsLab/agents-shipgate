@@ -203,7 +203,7 @@ Read `agents-shipgate-reports/verifier.json` in this order:
 `base_status` to understand whether diff enrichment ran — never as a release
 verdict. The full schema is
 [`docs/verifier-schema.v0.3.json`](../verifier-schema.v0.3.json)
-(`verifier_schema_version: "0.3"`).
+(`verifier_schema_version: "0.4"`).
 
 After `verifier.json`, read `agents-shipgate-reports/report.json` for the full
 finding detail. The human PR surface is `agents-shipgate-reports/pr-comment.md`.

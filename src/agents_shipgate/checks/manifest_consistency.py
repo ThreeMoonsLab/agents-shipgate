@@ -3,7 +3,7 @@ from __future__ import annotations
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.heuristics import is_broad_scope
-from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
+from agents_shipgate.core.risk_hints import is_policy_eligible_high_risk_tool, risk_tags
 from agents_shipgate.schemas.manifest import PolicyToolEntry
 
 
@@ -103,7 +103,7 @@ def _missing_high_risk_owners(context: ScanContext) -> list:
         return []
     findings = []
     for tool in context.tools:
-        if not is_high_risk_tool(tool) or tool.owner:
+        if not is_policy_eligible_high_risk_tool(tool) or tool.owner:
             continue
         findings.append(
             tool_finding(

@@ -9,6 +9,7 @@ from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import (
     BaselineSummary,
     CapabilityRuntimeEvidence,
+    EvidenceGap,
     Finding,
     HeuristicsFilter,
     LoadedPolicyPack,
@@ -66,6 +67,7 @@ def build_report(
     policy_audit: PolicyAudit | None = None,
     privacy_audit: PrivacyAudit | None = None,
     heuristics_filter: HeuristicsFilter | None = None,
+    policy_evidence_gaps: list[EvidenceGap] | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -105,6 +107,7 @@ def build_report(
         tool_inventory=tool_inventory(tools),
         tool_catalog=tool_inventory(tool_catalog if tool_catalog is not None else tools),
         source_warnings=source_warnings or [],
+        policy_evidence_gaps=policy_evidence_gaps or [],
         # v0.17 (M1): policy audit envelope. Always present on emitted
         # scans (empty when no overrides applied) so consumers can read
         # ``report.policy_audit.severity_overrides_applied`` without a

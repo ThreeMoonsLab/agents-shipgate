@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from agents_shipgate.core.capability_policy import match_policy_pack_subject
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.policy_evidence import finding_support, policy_evidence_gap
 from agents_shipgate.inputs.common import load_structured_file, resolve_input_path
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, PolicyPackConfig
@@ -107,9 +108,26 @@ def run_policy_pack_rules(
                     "policy_pack_sha256_status": resolved.pack.sha256_status,
                 },
             )
-            if match is None:
+            if match.status == "not_matched":
                 continue
             rule = resolved.rule
+            support = finding_support(
+                match.support.predicates,
+                requested_confidence=rule.confidence,
+                status=match.status,
+            )
+            if match.status != "matched" or not support.policy_eligible:
+                context.policy_evidence_gaps.append(
+                    policy_evidence_gap(
+                        status=match.status,
+                        subject=f"{subject.tool.name} [{subject.tool.id}]",
+                        policy_id=rule.id,
+                        source_ref=resolved.pack.path,
+                        support=support,
+                        manifest_path=f"{resolved.pack.path}#rules/{rule.id}/match",
+                    )
+                )
+                continue
             title = rule.title or rule.description or f"Policy pack rule {rule.id} matched"
             findings.append(
                 Finding(
@@ -121,14 +139,15 @@ def run_policy_pack_rules(
                     tool_name=subject.tool.name,
                     agent_id=context.agent.id,
                     evidence=match.evidence,
-                    confidence=rule.confidence,
+                    confidence=support.confidence,
                     provenance_kind="policy_pack",
                     source=SourceReference(type="policy_pack", ref=resolved.pack.path),
                     capability_refs=[subject.fact.id],
                     capability_policy_evidence=match.capability_policy_evidence,
                     policy_routing=_policy_routing_metadata(resolved),
+                    support=support,
                     recommendation=rule.recommendation,
-                    blocks_release=rule.block,
+                    blocks_release=rule.block and support.blocking_eligible,
                 )
             )
     return findings

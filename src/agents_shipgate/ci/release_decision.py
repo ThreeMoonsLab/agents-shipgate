@@ -60,6 +60,7 @@ def evidence_below_ie_threshold(evidence: EvidenceCoverageDecision, *, tool_coun
         evidence.binding_coverage.gap_count > 0
         or
         evidence.semantic_coverage.gap_count > 0
+        or evidence.policy_gap_count > 0
         or any(
             gap.kind == "source_warning"
             and gap.next_action.path == "--diff-from"
@@ -108,6 +109,19 @@ def build_release_decision(
     # which branch fired (or, for the silent-drop tail, which baseline
     # acceptance silently consumed it).
     for finding in report.findings:
+        if finding.support is not None and not finding.support.policy_eligible:
+            contribution_rules.append(
+                _rule(
+                    finding,
+                    category="excluded",
+                    rule="unsupported_evidence",
+                    rationale=(
+                        "Finding lacks policy-eligible predicate support; it cannot "
+                        "become a blocker or named review concern."
+                    ),
+                )
+            )
+            continue
         if finding.suppressed:
             if _is_mandatory_current_control(finding):
                 # A suppression explains accepted noise; it cannot satisfy a
@@ -217,10 +231,16 @@ def build_release_decision(
         low_confidence_tool_count=low_confidence_tool_count,
         # Semantic gaps lead because they are zero-tolerance gate inputs;
         # extraction/source gaps retain their existing deterministic order.
-        evidence_gaps=[*binding_gaps, *semantic_gaps, *_evidence_gaps(report, tools)],
+        evidence_gaps=[
+            *binding_gaps,
+            *semantic_gaps,
+            *report.policy_evidence_gaps,
+            *_evidence_gaps(report, tools),
+        ],
         semantic_coverage=semantic_coverage,
         identity_coverage=identity_coverage,
         binding_coverage=binding_coverage,
+        policy_gap_count=len(report.policy_evidence_gaps),
     )
 
     if report.baseline is None:
@@ -237,6 +257,7 @@ def build_release_decision(
     evidence_is_degraded = evidence_below_ie_threshold(evidence, tool_count=len(tools))
     has_semantic_gaps = semantic_coverage.gap_count > 0
     has_binding_gaps = binding_coverage.gap_count > 0
+    has_policy_gaps = bool(report.policy_evidence_gaps)
     has_semantic_review_concerns = semantic_coverage.review_concern_count > 0
 
     decision: ReleaseDecisionStatus
@@ -262,6 +283,8 @@ def build_release_decision(
         # baselines, suppressions, severity overrides, human acknowledgement,
         # and --no-heuristics. One unresolved action is sufficient; healthy
         # actions never dilute it.
+        decision = "insufficient_evidence"
+    elif has_policy_gaps:
         decision = "insufficient_evidence"
     elif evidence_is_degraded:
         decision = "insufficient_evidence"
@@ -292,7 +315,7 @@ def build_release_decision(
         fail_on=fail_on,
         new_findings_only=new_findings_only,
         release_decision=decision,
-        has_semantic_gaps=has_semantic_gaps or has_binding_gaps,
+        has_semantic_gaps=has_semantic_gaps or has_binding_gaps or has_policy_gaps,
     )
     fail_policy = FailPolicy(
         ci_mode=ci_mode,
@@ -648,6 +671,16 @@ def _semantic_gap(
         accepted_values = ["split_binding", "align_schema", "align_authority", "align_annotations"]
         action_why = "Conflicting bound observations cannot share one canonical capability."
         expects = "Split the binding or reconcile its structural evidence, then rerun verification."
+    elif kind == "invalid_evidence_provenance":
+        action_kind = "provide_policy_evidence"
+        accepted_values = [
+            "reviewed_declaration",
+            "protocol_structure",
+            "typed_provider_fact",
+            "structural_scope",
+        ]
+        action_why = "Free-form source labels are not evidence of policy eligibility."
+        expects = "Use a typed first-party evidence producer and rerun verification."
     elif kind in {
         "missing_binding_evidence",
         "partial_binding_evidence",
@@ -1001,6 +1034,7 @@ def _to_item(finding: Finding) -> ReleaseDecisionItem:
         policy_evidence_source=finding.policy_evidence_source,
         capability_refs=list(finding.capability_refs),
         capability_trace_refs=list(finding.capability_trace_refs),
+        support=finding.support,
     )
 
 

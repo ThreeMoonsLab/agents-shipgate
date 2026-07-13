@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.32",
-  "run_id": "agents_shipgate_e38d61d6846ad002",
+  "report_schema_version": "0.33",
+  "run_id": "agents_shipgate_68a230995652f841",
   "manifest_dir": "<REPO>/samples/conductor_agent",
   "project": {
     "name": "conductor-agent"
@@ -82,7 +82,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_a5e7b93822939963",
@@ -104,7 +105,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       }
     ],
     "evidence_coverage": {
@@ -299,7 +301,8 @@
         "reason_counts": {
           "partial_binding_evidence": 1
         }
-      }
+      },
+      "policy_gap_count": 0
     },
     "baseline_delta": {
       "enabled": false,
@@ -472,7 +475,7 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.3",
+    "snapshot_version": "0.4",
     "actions": [
       {
         "action_id": "agent:conductor-agent/durable-order-agent:action_v2_e44ea9ad0aa3c7deea46a01e5cbe1f3cf399916633fb94491e14fc6dd523eddd",
@@ -504,10 +507,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_89427d1ea28437fdb8e5",
                 "dimension": "identity",
                 "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
                 "source": "source_observation",
                 "source_pointer": "/tasks/3",
                 "evidence": {
@@ -530,10 +536,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_863b47d574d9a43e936d",
                 "dimension": "binding",
                 "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
                 "confidence": "high",
                 "provenance_kind": "ast_extraction",
+                "basis": "typed_provider_fact",
+                "policy_eligible": true,
                 "source": "workflows/order-agent.json",
                 "source_pointer": "/tasks/3",
                 "evidence": {
@@ -550,19 +559,25 @@
             "confidence": "high",
             "claims": [
               {
+                "claim_id": "clm_1773da882d243c27d186",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='lookup_order'].effect",
                 "evidence": {}
               },
               {
+                "claim_id": "clm_37844699a22bb6fde3e6",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "medium",
                 "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
                 "source": "risk_hint:keyword",
                 "source_pointer": "/tasks/3",
                 "evidence": {
@@ -589,10 +604,13 @@
             "scopes": [],
             "claims": [
               {
+                "claim_id": "clm_3bceb57bdfa16b5c7be7",
                 "dimension": "authority",
                 "value": "none",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='lookup_order'].authority",
                 "evidence": {
@@ -797,6 +815,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.",
       "blocks_release": false,
@@ -848,6 +867,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review.",
       "blocks_release": false,
@@ -865,8 +885,8 @@
     "Use literal MCP server and method bindings, a static LLM tool advertisement, or an exact local sub-workflow target before release review."
   ],
   "generated_reports": {
-    "markdown": "expected/report.md",
-    "json": "expected/report.json"
+    "markdown": "/private/tmp/shipgate-goldens/conductor/report.md",
+    "json": "/private/tmp/shipgate-goldens/conductor/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -906,10 +926,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_89427d1ea28437fdb8e5",
               "dimension": "identity",
               "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "source_observation",
               "source_pointer": "/tasks/3",
               "evidence": {
@@ -932,10 +955,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_863b47d574d9a43e936d",
               "dimension": "binding",
               "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
               "confidence": "high",
               "provenance_kind": "ast_extraction",
+              "basis": "typed_provider_fact",
+              "policy_eligible": true,
               "source": "workflows/order-agent.json",
               "source_pointer": "/tasks/3",
               "evidence": {
@@ -952,19 +978,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_1773da882d243c27d186",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='lookup_order'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_37844699a22bb6fde3e6",
               "dimension": "effect",
               "value": "read",
               "confidence": "medium",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tasks/3",
               "evidence": {
@@ -991,10 +1023,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_3bceb57bdfa16b5c7be7",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='lookup_order'].authority",
               "evidence": {
@@ -1018,10 +1053,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_863b47d574d9a43e936d",
             "dimension": "binding",
             "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
             "confidence": "high",
             "provenance_kind": "ast_extraction",
+            "basis": "typed_provider_fact",
+            "policy_eligible": true,
             "source": "workflows/order-agent.json",
             "source_pointer": "/tasks/3",
             "evidence": {
@@ -1070,10 +1108,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_89427d1ea28437fdb8e5",
               "dimension": "identity",
               "value": "obs_v1_347654afa59dfbc52ecf63e6e05663a281baac9d357e6cbbcb904fe34add06db",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "source_observation",
               "source_pointer": "/tasks/3",
               "evidence": {
@@ -1096,10 +1137,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_863b47d574d9a43e936d",
               "dimension": "binding",
               "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
               "confidence": "high",
               "provenance_kind": "ast_extraction",
+              "basis": "typed_provider_fact",
+              "policy_eligible": true,
               "source": "workflows/order-agent.json",
               "source_pointer": "/tasks/3",
               "evidence": {
@@ -1116,19 +1160,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_1773da882d243c27d186",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='lookup_order'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_37844699a22bb6fde3e6",
               "dimension": "effect",
               "value": "read",
               "confidence": "medium",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tasks/3",
               "evidence": {
@@ -1155,10 +1205,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_3bceb57bdfa16b5c7be7",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='lookup_order'].authority",
               "evidence": {
@@ -1182,10 +1235,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_863b47d574d9a43e936d",
             "dimension": "binding",
             "value": "agent_v1:7205d836e4b3fee257d90695->tool_v2_d3382b0bdebb027000b5bbda4209994458144a0542a64bcec07f6eeb5a30322e",
             "confidence": "high",
             "provenance_kind": "ast_extraction",
+            "basis": "typed_provider_fact",
+            "policy_eligible": true,
             "source": "workflows/order-agent.json",
             "source_pointer": "/tasks/3",
             "evidence": {
@@ -1205,6 +1261,7 @@
     "Conductor capability 'HTTP' at workflows/order-agent.json#/tasks/5 is recognized but not enumerated by the MCP-core v1 adapter.",
     "Conductor capability 'webSearch' at workflows/order-agent.json#/tasks/1 is recognized but not enumerated by the MCP-core v1 adapter."
   ],
+  "policy_evidence_gaps": [],
   "agent_summary": {
     "verdict": "insufficient_evidence",
     "headline": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release.",
