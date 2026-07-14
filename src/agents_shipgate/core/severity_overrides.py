@@ -25,9 +25,10 @@ Threat model context (see STABILITY.md "Severity-override trust"):
   ``ConfigError`` (exit 2) before the scan completes; there is no
   warning path. This makes "I'll add an expiry and forget" impossible.
 
-The function set here is pure: no I/O, no environment, no time
-indirection beyond the explicit ``today`` parameter (defaulted to
-``date.today()`` for production callers, injectable for tests).
+The function set here is pure except for its production default clock.  The
+explicit ``today`` parameter remains injectable for tests.  Production callers
+use the conservative trust-expiry clock, which is never earlier than the
+verifier's wall clock even when a commit carries a backdated timestamp.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ from typing import TYPE_CHECKING
 
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.evaluation_clock import evaluation_date
+from agents_shipgate.core.evaluation_clock import trust_expiry_date
 from agents_shipgate.schemas.checks import CheckMetadata
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
@@ -169,7 +170,7 @@ def resolve_severity_overrides(
        and audit purposes. Floor enforcement still uses the catalog
        floor (the static gate floor for the check class).
     """
-    today = today or evaluation_date()
+    today = today or trust_expiry_date()
     catalog_by_id = _catalog_index(catalog)
     known_ids = _known_check_ids(catalog)
     ack_by_id = _ack_by_check_id(acknowledgements)

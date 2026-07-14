@@ -117,9 +117,21 @@ cross-executor equivalence qualification that are not present in v1.
 
 ## Time and GitHub Actions
 
-Expiry-sensitive baseline and severity-override evaluation uses the plan's
-`evaluation_date`, derived from the evaluated head commit unless explicitly
-declared during plan preparation. It never depends on a worker's wall clock.
+The plan's `evaluation_date` is content-bound provenance, derived from the
+evaluated head commit unless explicitly declared during plan preparation. It
+is not authority to extend reviewer-owned trust. Baseline exceptions, severity
+overrides, and override acknowledgements use the later of `evaluation_date`
+and the verifier's wall-clock date. A backdated commit therefore cannot keep an
+expired grant active; a future-dated commit can only make the gate more
+restrictive. Explicit test-only `today` injection remains available inside the
+library, but neither `verify` nor portable workers expose it as a bypass.
+
+This means hard trust decay is intentionally monotonic rather than timeless:
+re-evaluating an old request after an exception expires may produce a stricter
+decision. The historical receipt still proves the exact artifacts and decision
+assembled at its evaluation; it does not renew expired human consent. Workers
+do not evaluate these expiries and their local clocks cannot weaken the main
+verifier's result.
 
 The GitHub Action evaluates `${{ github.sha }}` by default and separately
 records `${{ github.event.pull_request.head.sha }}` when present. This prevents

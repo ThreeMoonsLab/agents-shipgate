@@ -27,6 +27,7 @@ from datetime import date, timedelta
 import pytest
 
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.evaluation_clock import use_evaluation_date
 from agents_shipgate.core.findings import apply_severity_overrides
 from agents_shipgate.core.severity_overrides import (
     crosses_tier,
@@ -339,6 +340,29 @@ def test_ack_expiring_tomorrow_is_accepted() -> None:
     assert row.expires == (today + timedelta(days=1)).isoformat()
 
 
+def test_backdated_evaluation_date_cannot_extend_expired_acknowledgement() -> None:
+    """A forged commit date is provenance, not authority over trust decay."""
+
+    wall_clock_today = date.today()
+    with use_evaluation_date(wall_clock_today - timedelta(days=3650)):
+        with pytest.raises(ConfigError, match=r"expired"):
+            resolve_severity_overrides(
+                overrides={
+                    "SHIP-POLICY-APPROVAL-MISSING": SeverityOverrideEntry(
+                        severity="high"
+                    ),
+                },
+                acknowledgements=[
+                    OverrideAcknowledgement(
+                        check_id="SHIP-POLICY-APPROVAL-MISSING",
+                        reason="review period ended",
+                        expires=wall_clock_today,
+                    ),
+                ],
+                catalog=_catalog(),
+            )
+
+
 # --- Rich-form override expiry (parallel to ack expiry, hard contract) -----
 
 
@@ -398,6 +422,25 @@ def test_rich_form_override_expiring_tomorrow_applies_cleanly() -> None:
     assert resolution.override_by_check_id == {
         "SHIP-DOC-MISSING-DESCRIPTION": "low"
     }
+
+
+def test_backdated_evaluation_date_cannot_extend_expired_rich_override() -> None:
+    """The production default clock remains at least the verifier wall clock."""
+
+    wall_clock_today = date.today()
+    with use_evaluation_date(wall_clock_today - timedelta(days=3650)):
+        with pytest.raises(ConfigError, match=r"expired"):
+            resolve_severity_overrides(
+                overrides={
+                    "SHIP-DOC-MISSING-DESCRIPTION": SeverityOverrideEntry(
+                        severity="low",
+                        reason="review period ended",
+                        expires=wall_clock_today,
+                    ),
+                },
+                acknowledgements=[],
+                catalog=_catalog(),
+            )
 
 
 # --- Policy-pack rule IDs (no built-in floor) ------------------------------

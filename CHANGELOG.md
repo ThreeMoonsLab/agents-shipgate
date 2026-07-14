@@ -28,6 +28,10 @@
   and records a pull request's source head separately. It exports receipt,
   request, decision, and artifact-set identities only after validating every
   terminal artifact hash.
+- **Non-forgeable trust decay.** The content-bound commit evaluation date
+  remains reproducibility provenance, but cannot extend reviewer-owned trust.
+  Baseline, acknowledgement, and severity-override expiry use the later of that
+  date and the verifier wall clock, so a forged backdated commit fails closed.
 
 - **Evidence-basis policy gate (P0, `0.16.0b5`).** Semantic claims and risk
   hints now carry a typed evidence basis, stable claim IDs, and derived policy

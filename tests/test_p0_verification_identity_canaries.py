@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from agents_shipgate.core.evaluation_clock import (
+    trust_expiry_date,
+    use_evaluation_date,
+)
 from agents_shipgate.core.verification_identity import (
     build_terminal_receipt,
     build_unit_result,
@@ -150,6 +155,20 @@ def test_64_identity_canaries_fail_closed(case: int, tmp_path: Path) -> None:
 def test_worker_ir_cannot_smuggle_a_release_decision() -> None:
     with pytest.raises(ValidationError, match="never release decisions"):
         build_unit_result(plan=_plan(), normalized_ir={"decision": "passed"})
+
+
+def test_backdated_evaluation_date_cannot_weaken_trust_expiry_clock() -> None:
+    """Commit-controlled time can never move hard expiry behind wall time."""
+
+    wall_clock_today = date.today()
+    with use_evaluation_date(wall_clock_today - timedelta(days=3650)):
+        assert trust_expiry_date() >= wall_clock_today
+
+
+def test_future_evaluation_date_only_makes_trust_expiry_more_conservative() -> None:
+    future = date.today() + timedelta(days=3650)
+    with use_evaluation_date(future):
+        assert trust_expiry_date() == future
 
 
 def test_engine_distribution_digest_is_part_of_engine_identity() -> None:

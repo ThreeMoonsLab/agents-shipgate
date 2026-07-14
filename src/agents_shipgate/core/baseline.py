@@ -21,7 +21,7 @@ from agents_shipgate.core.baseline_audit import (
 )
 from agents_shipgate.core.check_ids import LEGACY_CHECK_ID_ALIASES
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.evaluation_clock import evaluation_date
+from agents_shipgate.core.evaluation_clock import trust_expiry_date
 from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
 from agents_shipgate.schemas.baseline import (
     BaselineFile,
@@ -544,7 +544,7 @@ def verify_baseline(
     issues.extend(audit_issues)
     if not any(issue.kind == "invalid_audit_log" for issue in audit_issues):
         issues.extend(_verify_entry_provenance(baseline, log_path))
-    issues.extend(_verify_entry_expiry(baseline, today or evaluation_date()))
+    issues.extend(_verify_entry_expiry(baseline, today or trust_expiry_date()))
     issues.extend(_verify_deprecated_check_ids(baseline))
     return issues
 
