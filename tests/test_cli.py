@@ -53,6 +53,10 @@ from agents_shipgate.schemas.contract import (
     REGISTRY_SCHEMA_VERSION,
     RELEASE_DECISIONS,
     TRIGGER_CATALOG_SCHEMA_VERSION,
+    VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION,
+    VERIFICATION_PLAN_SCHEMA_VERSION,
+    VERIFICATION_RECEIPT_SCHEMA_VERSION,
+    VERIFICATION_UNIT_RESULT_SCHEMA_VERSION,
     VERIFIER_READ_ORDER,
     VERIFY_RUN_SCHEMA_VERSION,
 )
@@ -259,6 +263,10 @@ def test_cli_contract_json_outputs_runtime_contract():
         "packet_schema_version",
         "verifier_schema_version",
         "verify_run_schema_version",
+        "verification_plan_schema_version",
+        "verification_unit_result_schema_version",
+        "verification_artifact_manifest_schema_version",
+        "verification_receipt_schema_version",
         "agent_handoff_schema_version",
         "agent_handoff_schema_path",
         "agent_handoff_artifact",
@@ -310,6 +318,12 @@ def test_cli_contract_json_outputs_runtime_contract():
             VerifierArtifact.model_fields["verifier_schema_version"].default
         ),
         "verify_run_schema_version": VERIFY_RUN_SCHEMA_VERSION,
+        "verification_plan_schema_version": VERIFICATION_PLAN_SCHEMA_VERSION,
+        "verification_unit_result_schema_version": (VERIFICATION_UNIT_RESULT_SCHEMA_VERSION),
+        "verification_artifact_manifest_schema_version": (
+            VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION
+        ),
+        "verification_receipt_schema_version": VERIFICATION_RECEIPT_SCHEMA_VERSION,
         "agent_handoff_schema_version": AGENT_HANDOFF_SCHEMA_VERSION,
         "agent_handoff_schema_path": AGENT_HANDOFF_SCHEMA_PATH,
         "agent_handoff_artifact": ARTIFACTS["agent_handoff"],
@@ -333,8 +347,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         "trigger_catalog_schema_version": TRIGGER_CATALOG_SCHEMA_VERSION,
         "deprecated_surfaces": {
             "codex-boundary-json": (
-                "Deprecated compatibility projection through 0.16.x; "
-                "use agent-boundary-json."
+                "Deprecated compatibility projection through 0.16.x; use agent-boundary-json."
             )
         },
         "external_integration_surfaces": list(EXTERNAL_INTEGRATION_SURFACES),

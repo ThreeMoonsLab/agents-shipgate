@@ -23,11 +23,13 @@ from agents_shipgate.core.org_governance import (
     host_grant_drift_payload,
     render_org_status_markdown,
 )
+from agents_shipgate.core.verification_identity import validate_receipt_artifacts
 from agents_shipgate.schemas.attestation import ReleaseAttestationV1
 from agents_shipgate.schemas.org_evidence_bundle import (
     OrgEvidenceBundleArtifactRef,
     OrgEvidenceBundleV1,
 )
+from agents_shipgate.schemas.verification_identity import VerificationReceipt
 
 ORG_GOVERNANCE_EXIT_CODE = 20
 
@@ -89,9 +91,7 @@ def org_status(
         baseline_path = baseline if baseline.is_absolute() else root / baseline
     host_baseline_path = None
     if host_baseline is not None:
-        host_baseline_path = (
-            host_baseline if host_baseline.is_absolute() else root / host_baseline
-        )
+        host_baseline_path = host_baseline if host_baseline.is_absolute() else root / host_baseline
 
     payload = build_org_governance_status(
         manifest=manifest,
@@ -220,6 +220,24 @@ def org_bundle(
     )
     report = _load_optional_json_object(report_path)
     verify_run = _load_optional_json_object(verify_run_path)
+    receipt_path = _artifact_path(
+        verifier_path,
+        verifier,
+        "verification_receipt_json",
+        "verification-receipt.json",
+    )
+    receipt = _load_optional_json_object(receipt_path)
+    verified_receipt: VerificationReceipt | None = None
+    if verifier.get("verifier_schema_version") == "0.5":
+        try:
+            if receipt is None:
+                raise ValueError("current verifier evidence is missing verification-receipt.json")
+            verified_receipt = VerificationReceipt.model_validate(receipt)
+            validate_receipt_artifacts(verified_receipt, root=verifier_path.parent)
+            receipt = verified_receipt.model_dump(mode="json")
+        except (ValueError, OSError) as exc:
+            typer.echo(f"Verification receipt error: {exc}", err=True)
+            raise typer.Exit(3) from exc
     attestation_path = _resolve_attestation_path(verifier_path, attestation)
     attestation_payload = _load_optional_json_object(attestation_path)
     if attestation_payload is None:
@@ -230,11 +248,27 @@ def org_bundle(
             report=report,
             verify_run=verify_run,
             verify_run_sha256=_file_sha256(verify_run_path),
+            verification_receipt=receipt,
+            verification_receipt_sha256=_file_sha256(receipt_path),
             org_context=_org_context_from_manifest(manifest),
         )
     attestation_model = ReleaseAttestationV1.model_validate(
         _normalize_attestation_payload(attestation_payload)
     )
+    if verified_receipt is not None:
+        expected_receipt_identity = {
+            "request_id": verified_receipt.request_id,
+            "receipt_id": verified_receipt.receipt_id,
+            "decision_id": verified_receipt.decision_id,
+            "artifact_set_id": verified_receipt.artifact_set_id,
+        }
+        for field, expected in expected_receipt_identity.items():
+            if getattr(attestation_model, field) != expected:
+                typer.echo(
+                    f"Attestation {field} does not match the terminal verification receipt.",
+                    err=True,
+                )
+                raise typer.Exit(3)
     attestation_json = attestation_model.model_dump(mode="json")
     registry_row = _row_from_attestation(
         attestation_json,
@@ -265,6 +299,7 @@ def org_bundle(
             "report": report_path,
             "verify_run": verify_run_path,
             "attestation": attestation_path,
+            "verification_receipt": receipt_path,
         }
     )
     if out is not None:
@@ -297,12 +332,17 @@ def org_bundle(
             if attestation_path is not None and attestation_path.is_file()
             else None
         ),
+        source_verification_receipt=(
+            _display_path(receipt_path, root) if receipt_path.is_file() else None
+        ),
+        request_id=attestation_json.get("request_id"),
+        receipt_id=attestation_json.get("receipt_id"),
+        decision_id=attestation_json.get("decision_id"),
+        artifact_set_id=attestation_json.get("artifact_set_id"),
         attestation=attestation_json,
         registry_row=registry_row.model_dump(mode="json"),
         org_status=org_status_payload.model_dump(mode="json", exclude_none=False),
-        policy_packs=[
-            item.model_dump(mode="json") for item in org_status_payload.policy_packs
-        ],
+        policy_packs=[item.model_dump(mode="json") for item in org_status_payload.policy_packs],
         host_grants=_host_grant_summary(inventory, registry_path=registry),
         host_grant_drift=drift,
         privacy=_obj(report.get("privacy_audit")) if report is not None else {},
@@ -359,11 +399,11 @@ def _load_optional_json_object(path: Path | None) -> dict[str, Any] | None:
 
 def _normalize_attestation_payload(payload: dict[str, Any]) -> dict[str, Any]:
     version = payload.get("attestation_schema_version")
-    if version != "0.3":
+    if version not in {"0.3", "0.4"}:
         return payload
     upgraded = {
         **payload,
-        "attestation_schema_version": "0.4",
+        "attestation_schema_version": "0.5",
     }
     for field in (
         "run_id",
@@ -373,6 +413,11 @@ def _normalize_attestation_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "branch",
         "base_sha",
         "head_sha",
+        "request_id",
+        "receipt_id",
+        "decision_id",
+        "artifact_set_id",
+        "verification_receipt_sha256",
     ):
         upgraded.setdefault(field, None)
     upgraded.setdefault("policy_packs", [])

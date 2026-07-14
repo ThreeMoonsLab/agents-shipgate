@@ -39,12 +39,16 @@ from agents_shipgate.schemas.contract import (
     REGISTRY_SCHEMA_VERSION,
     RELEASE_DECISIONS,
     TRIGGER_CATALOG_SCHEMA_VERSION,
+    VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION,
+    VERIFICATION_PLAN_SCHEMA_VERSION,
+    VERIFICATION_RECEIPT_SCHEMA_VERSION,
+    VERIFICATION_UNIT_RESULT_SCHEMA_VERSION,
     VERIFIER_READ_ORDER,
     VERIFY_RUN_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
-LOCAL_CONTRACT_SCHEMA_VERSION = "5"
+LOCAL_CONTRACT_SCHEMA_VERSION = "6"
 LOCAL_CONTRACT_RELATIVE_PATH = ".shipgate/agent-contract.json"
 
 
@@ -66,6 +70,10 @@ class LocalAgentContract(BaseModel):
     gating_signal: str
     verifier_schema_version: str
     verify_run_schema_version: str
+    verification_plan_schema_version: str
+    verification_unit_result_schema_version: str
+    verification_artifact_manifest_schema_version: str
+    verification_receipt_schema_version: str
     agent_handoff_schema_version: str
     agent_handoff_schema_path: str
     agent_handoff_artifact: str
@@ -111,6 +119,12 @@ def build_local_agent_contract() -> LocalAgentContract:
             VerifierArtifact.model_fields["verifier_schema_version"].default
         ),
         verify_run_schema_version=VERIFY_RUN_SCHEMA_VERSION,
+        verification_plan_schema_version=VERIFICATION_PLAN_SCHEMA_VERSION,
+        verification_unit_result_schema_version=VERIFICATION_UNIT_RESULT_SCHEMA_VERSION,
+        verification_artifact_manifest_schema_version=(
+            VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION
+        ),
+        verification_receipt_schema_version=VERIFICATION_RECEIPT_SCHEMA_VERSION,
         agent_handoff_schema_version=AGENT_HANDOFF_SCHEMA_VERSION,
         agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
         agent_handoff_artifact=ARTIFACTS["agent_handoff"],

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import io
+import os
+import re
 import subprocess
-import tarfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from agents_shipgate.core.errors import ConfigError
 
@@ -63,18 +64,14 @@ def detect_default_base(workspace: Path, head: str = "HEAD") -> str | None:
     return detect_default_base_with_notes(workspace, head).base
 
 
-def detect_default_base_with_notes(
-    workspace: Path, head: str = "HEAD"
-) -> DefaultBaseDetection:
+def detect_default_base_with_notes(workspace: Path, head: str = "HEAD") -> DefaultBaseDetection:
     """Return the implicit base plus warnings for skipped local defaults."""
 
     head_sha = commit_sha(workspace, head)
     if head_sha is None:
         return DefaultBaseDetection(base=None, notes=[])
     candidates: list[str] = []
-    origin_head = _run_git(
-        workspace, ["rev-parse", "--abbrev-ref", "origin/HEAD"], check=False
-    )
+    origin_head = _run_git(workspace, ["rev-parse", "--abbrev-ref", "origin/HEAD"], check=False)
     if origin_head.returncode == 0:
         name = origin_head.stdout.strip()
         if name and name != "origin/HEAD":
@@ -148,6 +145,50 @@ def tree_sha(workspace: Path, ref: str) -> str:
     return result.stdout.strip()
 
 
+def merge_base_sha(workspace: Path, base: str, head: str) -> str | None:
+    result = _run_git(workspace, ["merge-base", base, head], check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def commit_date(workspace: Path, ref: str) -> str:
+    return _run_git(workspace, ["show", "-s", "--format=%cs", ref]).stdout.strip()
+
+
+def repository_identity(workspace: Path) -> str:
+    """Return a credential-free stable repository locator."""
+
+    remote = _run_git(workspace, ["remote", "get-url", "origin"], check=False)
+    value = remote.stdout.strip() if remote.returncode == 0 else ""
+    normalized = _normalize_repository_url(value)
+    return normalized or f"local:{workspace.name}"
+
+
+def _normalize_repository_url(value: str) -> str | None:
+    """Normalize common HTTPS/SSH Git locators without credentials."""
+
+    if not value:
+        return None
+    host = ""
+    path = ""
+    if "://" in value:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path
+    else:
+        scp = re.fullmatch(r"(?:[^@/:]+@)?([^/:]+):(.+)", value)
+        if scp:
+            host = scp.group(1).lower()
+            path = scp.group(2)
+    normalized_path = path.strip("/")
+    if normalized_path.endswith(".git"):
+        normalized_path = normalized_path[:-4]
+    if not host or not normalized_path:
+        return None
+    return f"{host}/{normalized_path}"
+
+
 def git_path(workspace: Path, path: str) -> Path:
     result = _run_git(workspace, ["rev-parse", "--git-path", path])
     resolved = Path(result.stdout.strip())
@@ -197,14 +238,30 @@ def working_tree_context(workspace: Path) -> tuple[list[str], str]:
 
 
 def archive_tree(workspace: Path, ref: str, destination: Path) -> None:
+    """Materialize exact Git blobs without export-ignore or substitutions."""
+
     destination.mkdir(parents=True, exist_ok=True)
-    archive = _run_git(
-        workspace,
-        ["archive", "--format=tar", ref],
-        text=False,
-    )
-    with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as tar:
-        _safe_extract(tar, destination)
+    listing = _run_git(workspace, ["ls-tree", "-r", "-z", ref], text=False).stdout
+    root = destination.resolve()
+    for raw in listing.split(b"\0"):
+        if not raw:
+            continue
+        metadata, raw_path = raw.split(b"\t", 1)
+        mode, object_type, oid = metadata.decode("ascii").split(" ", 2)
+        path_text = raw_path.decode("utf-8", errors="strict")
+        target = (root / path_text).resolve()
+        if target != root and root not in target.parents:
+            raise ConfigError(f"Git tree path escapes destination: {path_text}")
+        if object_type != "blob" or mode in {"120000", "160000"}:
+            raise ConfigError(
+                f"Git tree contains unsupported external binding at {path_text} "
+                f"(mode {mode}, type {object_type})."
+            )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        blob = _run_git(workspace, ["cat-file", "blob", oid], text=False).stdout
+        target.write_bytes(blob)
+        if mode == "100755":
+            os.chmod(target, 0o755)
 
 
 def _run_git(
@@ -238,29 +295,15 @@ def staged_paths_under(workspace: Path, subdir: str) -> list[str]:
     """
 
     prefix = subdir.rstrip("/") + "/"
-    result = _run_git(
-        workspace, ["diff", "--cached", "--name-only", "--relative"], check=False
-    )
+    result = _run_git(workspace, ["diff", "--cached", "--name-only", "--relative"], check=False)
     if result.returncode != 0:
         return []
-    return [
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.strip().startswith(prefix)
-    ]
-
-
-def _safe_extract(tar: tarfile.TarFile, destination: Path) -> None:
-    root = destination.resolve()
-    for member in tar.getmembers():
-        target = (root / member.name).resolve()
-        if target != root and root not in target.parents:
-            raise ConfigError(f"Base archive contains path outside destination: {member.name}")
-    tar.extractall(root, filter="data")
+    return [line.strip() for line in result.stdout.splitlines() if line.strip().startswith(prefix)]
 
 
 __all__ = [
     "archive_tree",
+    "commit_date",
     "commit_sha",
     "DefaultBaseDetection",
     "detect_default_base",
@@ -268,7 +311,9 @@ __all__ = [
     "diff_context",
     "ensure_git_workspace",
     "git_path",
+    "merge_base_sha",
     "read_file_at_ref",
+    "repository_identity",
     "ref_exists",
     "staged_paths_under",
     "tree_sha",

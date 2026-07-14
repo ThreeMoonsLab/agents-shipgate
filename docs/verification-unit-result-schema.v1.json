@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "VerificationExecutor": {
+      "additionalProperties": false,
+      "properties": {
+        "engine_requirement_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Engine Requirement Id",
+          "type": "string"
+        },
+        "executor_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Executor Id",
+          "type": "string"
+        },
+        "runtime_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Runtime Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "executor_id",
+        "engine_requirement_id",
+        "runtime_sha256"
+      ],
+      "title": "VerificationExecutor",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-unit-result-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Decision-free normalized worker output for offline assembly.",
+  "properties": {
+    "executor": {
+      "$ref": "#/$defs/VerificationExecutor"
+    },
+    "issues": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "normalized_ir": {
+      "additionalProperties": true,
+      "title": "Normalized Ir",
+      "type": "object"
+    },
+    "request_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "shipgate.verification_unit_result/v1",
+      "default": "shipgate.verification_unit_result/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "task_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "unit_result_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Unit Result Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "unit_result_id",
+    "request_id",
+    "task_id",
+    "executor",
+    "status"
+  ],
+  "title": "Agents Shipgate Verification Unit Result v1",
+  "type": "object"
+}

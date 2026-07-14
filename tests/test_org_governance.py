@@ -67,9 +67,7 @@ organization:
 
     assert manifest.organization is not None
     assert manifest.organization.id == "acme"
-    assert manifest.organization.teams["agent-platform"].reviewers == [
-        "@acme/agent-platform"
-    ]
+    assert manifest.organization.teams["agent-platform"].reviewers == ["@acme/agent-platform"]
     assert manifest.organization.exception_policy.max_age_days == 180
 
 
@@ -141,9 +139,7 @@ checks:
 
 
 def test_org_status_exit_20_for_unpinned_sourced_policy_pack(tmp_path: Path) -> None:
-    (tmp_path / "org-pack.yaml").write_text(
-        "name: Org Pack\nrules: []\n", encoding="utf-8"
-    )
+    (tmp_path / "org-pack.yaml").write_text("name: Org Pack\nrules: []\n", encoding="utf-8")
     _write_minimal_manifest(
         tmp_path,
         """
@@ -522,18 +518,14 @@ checks:
     )
     verifier_payload = json.loads((reports / "verifier.json").read_text(encoding="utf-8"))
     report_payload = json.loads((reports / "report.json").read_text(encoding="utf-8"))
-    verify_run_payload = json.loads(
-        (reports / "verify-run.json").read_text(encoding="utf-8")
-    )
+    verify_run_payload = json.loads((reports / "verify-run.json").read_text(encoding="utf-8"))
     attestation_payload = build_attestation_payload(
         verifier_payload,
         source=reports / "verifier.json",
         redacted=True,
         report=report_payload,
         verify_run=verify_run_payload,
-        verify_run_sha256=hashlib.sha256(
-            (reports / "verify-run.json").read_bytes()
-        ).hexdigest(),
+        verify_run_sha256=hashlib.sha256((reports / "verify-run.json").read_bytes()).hexdigest(),
         org_context={
             "org_id": "acme",
             "repo": "org/support",
@@ -541,11 +533,14 @@ checks:
             "tier": "production",
         },
     )
-    attestation_rendered = json.dumps(
-        attestation_payload,
-        indent=2,
-        sort_keys=True,
-    ) + "\n"
+    attestation_rendered = (
+        json.dumps(
+            attestation_payload,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
     (reports / "attestation.json").write_text(attestation_rendered, encoding="utf-8")
     attestation_sha256 = hashlib.sha256(attestation_rendered.encode("utf-8")).hexdigest()
     out = reports / "org-evidence-bundle.json"
@@ -570,9 +565,7 @@ checks:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload == json.loads(out.read_text(encoding="utf-8"))
-    assert payload["org_evidence_bundle_schema_version"] == (
-        "shipgate.org_evidence_bundle/v1"
-    )
+    assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
     assert payload["gating_signal"] == "release_decision.decision"
     assert payload["attestation"]["run_id"] == "sha256:" + "a" * 64
     assert payload["registry_row"]["repo"] == "org/support"
@@ -698,7 +691,7 @@ organization:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["attestation"]["attestation_schema_version"] == "0.4"
+    assert payload["attestation"]["attestation_schema_version"] == "0.5"
     assert payload["attestation"]["run_id"] is None
     assert payload["attestation"]["policy_packs"] == []
 

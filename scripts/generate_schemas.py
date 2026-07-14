@@ -18,10 +18,15 @@ Writes / verifies:
                                 (from agents_shipgate.schemas.packet.EvidencePacket)
 - docs/verifier-schema.v0.<minor>.json
                                 (from agents_shipgate.schemas.verifier.VerifierArtifact)
-- docs/verify-run-schema.v2.json
+- docs/verify-run-schema.v3.json
                                 (from agents_shipgate.schemas.verify_run.
                                  VerifyRunArtifact)
-- docs/agent-handoff-schema.v3.json
+- docs/verification-plan-schema.v1.json
+- docs/verification-unit-result-schema.v1.json
+- docs/verification-artifact-manifest-schema.v1.json
+- docs/verification-receipt-schema.v1.json
+                                (from agents_shipgate.schemas.verification_identity)
+- docs/agent-handoff-schema.v5.json
                                 (from agents_shipgate.schemas.agent_handoff.
                                  AgentHandoffArtifact)
 - docs/agent-result-schema.v2.json
@@ -35,10 +40,10 @@ Writes / verifies:
 - docs/org-governance-schema.v0.1.json
                                 (from agents_shipgate.schemas.org_governance.
                                  OrgGovernanceStatusV1)
-- docs/org-evidence-bundle-schema.v1.json
+- docs/org-evidence-bundle-schema.v2.json
                                 (from agents_shipgate.schemas.org_evidence_bundle.
                                  OrgEvidenceBundleArtifactV1)
-- docs/registry-schema.v0.3.json
+- docs/registry-schema.v0.4.json
                                 (from agents_shipgate.schemas.registry.
                                  RegistryQueryResultV1)
 - docs/host-grants-inventory-schema.v0.2.json
@@ -48,10 +53,10 @@ Writes / verifies:
                                 (from HostGrantsBaselineArtifactV2)
 - docs/host-grants-drift-schema.v0.2.json
                                 (from HostGrantsDriftArtifactV2)
-- docs/capability-lock-schema.v0.5.json
+- docs/capability-lock-schema.v0.6.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
-- docs/capability-lock-diff-schema.v0.6.json
+- docs/capability-lock-diff-schema.v0.7.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockDiffArtifactV1)
 - docs/governance-benchmark-catalog-schema.v0.2.json
@@ -1306,17 +1311,74 @@ def build_verify_run_schema() -> tuple[Path, str]:
     schema = VerifyRunArtifact.model_json_schema()
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-        "main/docs/verify-run-schema.v2.json"
+        "main/docs/verify-run-schema.v3.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["title"] = "Agents Shipgate Verify Run v2"
+    schema["title"] = "Agents Shipgate Verify Run v3"
     schema["description"] = (
         "JSON Schema for agents-shipgate-reports/verify-run.json. Generated "
         "from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not "
         "edit by hand."
     )
-    target = DOCS / "verify-run-schema.v2.json"
+    target = DOCS / "verify-run-schema.v3.json"
     return target, _canonical_json(schema)
+
+
+def _verification_identity_schema(
+    *, model, filename: str, title: str, description: str
+) -> tuple[Path, str]:
+    schema = model.model_json_schema()
+    schema["$id"] = (
+        f"https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/{filename}"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = title
+    schema["description"] = description
+    return DOCS / filename, _canonical_json(schema)
+
+
+def build_verification_plan_schema() -> tuple[Path, str]:
+    from agents_shipgate.schemas.verification_identity import VerificationPlan
+
+    return _verification_identity_schema(
+        model=VerificationPlan,
+        filename="verification-plan-schema.v1.json",
+        title="Agents Shipgate Verification Plan v1",
+        description="Content-addressed immutable verification request plan.",
+    )
+
+
+def build_verification_unit_result_schema() -> tuple[Path, str]:
+    from agents_shipgate.schemas.verification_identity import VerificationUnitResult
+
+    return _verification_identity_schema(
+        model=VerificationUnitResult,
+        filename="verification-unit-result-schema.v1.json",
+        title="Agents Shipgate Verification Unit Result v1",
+        description="Decision-free normalized worker output for offline assembly.",
+    )
+
+
+def build_verification_artifact_manifest_schema() -> tuple[Path, str]:
+    from agents_shipgate.schemas.verification_identity import VerificationArtifactManifest
+
+    return _verification_identity_schema(
+        model=VerificationArtifactManifest,
+        filename="verification-artifact-manifest-schema.v1.json",
+        title="Agents Shipgate Verification Artifact Manifest v1",
+        description="Content-addressed manifest of assembled verification artifacts.",
+    )
+
+
+def build_verification_receipt_schema() -> tuple[Path, str]:
+    from agents_shipgate.schemas.verification_identity import VerificationReceipt
+
+    return _verification_identity_schema(
+        model=VerificationReceipt,
+        filename="verification-receipt-schema.v1.json",
+        title="Agents Shipgate Verification Receipt v1",
+        description="Terminal closure record written after every artifact is finalized.",
+    )
 
 
 def build_agent_handoff_schema() -> tuple[Path, str]:
@@ -1662,9 +1724,7 @@ def build_host_grants_drift_schema() -> tuple[Path, str]:
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["title"] = f"Agents Shipgate Host Grants Drift v{minor}"
-    schema["description"] = (
-        "JSON Schema for scope-aware host-grant drift and incomparability."
-    )
+    schema["description"] = "JSON Schema for scope-aware host-grant drift and incomparability."
     target = DOCS / f"host-grants-drift-schema.v{minor}.json"
     return target, _canonical_json(schema)
 
@@ -1679,6 +1739,10 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("packet", build_packet_schema),
     ("verifier", build_verifier_schema),
     ("verify_run", build_verify_run_schema),
+    ("verification_plan", build_verification_plan_schema),
+    ("verification_unit_result", build_verification_unit_result_schema),
+    ("verification_artifact_manifest", build_verification_artifact_manifest_schema),
+    ("verification_receipt", build_verification_receipt_schema),
     ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),
     # codex_boundary_result v2 is a frozen compatibility schema and is not

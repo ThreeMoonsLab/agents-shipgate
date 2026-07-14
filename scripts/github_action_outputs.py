@@ -5,7 +5,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.core.verification_identity import validate_receipt_artifacts
 from agents_shipgate.schemas.agent_control import validate_agent_control
+from agents_shipgate.schemas.verification_identity import VerificationReceipt
 
 TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
 POLICY_WEAKENING_CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
@@ -77,6 +79,7 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     verifier_json = output_dir / "verifier.json"
     verify_run_json = output_dir / "verify-run.json"
     agent_handoff_json = output_dir / "agent-handoff.json"
+    verification_receipt_json = output_dir / "verification-receipt.json"
     pr_comment_markdown = output_dir / "pr-comment.md"
     check_annotations_json = output_dir / "check-annotations.json"
     capability_lock_json = output_dir / "capabilities.lock.json"
@@ -90,6 +93,25 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     payload = _load_json(report_json)
     verifier_payload = _load_json(verifier_json)
     verify_run = _load_json(verify_run_json)
+    receipt: VerificationReceipt | None = None
+    if verifier_json.is_file() and verify_run.get("schema_version") == "shipgate.verify_run/v3":
+        receipt = VerificationReceipt.model_validate(_load_json(verification_receipt_json))
+        validate_receipt_artifacts(receipt, root=output_dir)
+        identities = {
+            "request_id": receipt.request_id,
+            "decision_id": receipt.decision_id,
+        }
+        for name, document in (
+            ("report", payload),
+            ("verifier", verifier_payload),
+            ("verify-run", verify_run),
+        ):
+            for key, expected in identities.items():
+                actual = document.get(key)
+                if actual != expected:
+                    raise ValueError(
+                        f"{name} {key} does not match the terminal verification receipt"
+                    )
     summary = payload.get("summary") or {}
     baseline = payload.get("baseline") or {}
     adk_surface = (payload.get("frameworks") or {}).get("google_adk") or {}
@@ -136,7 +158,12 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "verifier_json": verifier_json,
         "verify_run_json": verify_run_json,
         "agent_handoff_json": agent_handoff_json,
+        "verification_receipt_json": verification_receipt_json,
         "run_id": verify_run.get("run_id", ""),
+        "request_id": receipt.request_id if receipt is not None else "",
+        "receipt_id": receipt.receipt_id if receipt is not None else "",
+        "decision_id": receipt.decision_id if receipt is not None else "",
+        "artifact_set_id": receipt.artifact_set_id if receipt is not None else "",
         "pr_comment_markdown": pr_comment_markdown,
         "check_annotations_json": check_annotations_json,
         "capability_lock_json": capability_lock_json,

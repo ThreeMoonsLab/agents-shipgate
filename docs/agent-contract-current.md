@@ -10,22 +10,26 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v16 retains the v15 host-neutral boundary, v14 unambiguous
-`AgentControl`, and v13 root-reachable binding contracts. It adds typed
-evidence bases and tri-state policy applicability across scan, verify, packet,
-and handoff projections. Agents
+Runtime contract v17 retains the v16 typed policy-evidence, v15 host-neutral
+boundary, v14 unambiguous `AgentControl`, and v13 root-reachable binding
+contracts. It adds a content-addressed verification request, decision-free
+worker result, artifact manifest, and terminal receipt shared by local and
+distributed verification. Agents
 switch on `control.state`; `decision` remains diagnostic and
 `release_decision.decision` remains the release gate. Contract v14 requires
 `completion_allowed == (state == "complete")` and
-`must_stop == (state == "human_review_required")`. Report v0.33 prevents rule
-metadata from upgrading heuristic evidence; packet v0.11, capability standard
-v0.5, capability lock v0.6, and capability-lock diff v0.7 project the same
-typed support.
+`must_stop == (state == "human_review_required")`. Report v0.34, packet v0.12,
+verifier v0.5, verify-run v3, and handoff v5 bind their projections to the
+same request and decision IDs. The terminal receipt hashes the complete
+artifact set; see [Verification Identity and Reproduction](verification-reproducibility.md).
 The runtime contract also exposes the local agent command spec:
 `primary_commands{}`, `commands{}`, `default_paths{}`, `artifacts{}`,
 `agent_read_order[]`, `verifier_read_order[]`, `merge_verdicts[]`,
 `release_decisions[]`, `do_not_auto_assert[]`, `verifier_schema_version`,
-`verify_run_schema_version`, `agent_handoff_schema_version`,
+`verify_run_schema_version`, `verification_plan_schema_version`,
+`verification_unit_result_schema_version`,
+`verification_artifact_manifest_schema_version`,
+`verification_receipt_schema_version`, `agent_handoff_schema_version`,
 `agent_handoff_schema_path`, `agent_handoff_artifact`,
 `agent_boundary_result_schema_version`, the deprecated
 `codex_boundary_result_schema_version`, `attestation_schema_version`,
@@ -51,31 +55,32 @@ Downstream repos generated with
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v0.15.0`
-- In-tree runtime: `0.16.0b5` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `16` (minimum control contract: `14`)
-- Current report schema: `0.33` — [`docs/report-schema.v0.33.json`](report-schema.v0.33.json)
-- Current packet schema: `0.11` — [`docs/packet-schema.v0.11.json`](packet-schema.v0.11.json)
+- In-tree runtime: `0.16.0b6` — see [pyproject.toml](../pyproject.toml)
+- Runtime contract: `17` (minimum control contract: `14`)
+- Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
+- Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v2` — [`docs/agent-result-schema.v2.json`](agent-result-schema.v2.json)
-- Current verifier schema: `0.4` — [`docs/verifier-schema.v0.4.json`](verifier-schema.v0.4.json)
-- Current verify-run schema: `shipgate.verify_run/v2` — [`docs/verify-run-schema.v2.json`](verify-run-schema.v2.json)
-- Current agent handoff schema: `shipgate.agent_handoff/v4` — [`docs/agent-handoff-schema.v4.json`](agent-handoff-schema.v4.json)
+- Current verifier schema: `0.5` — [`docs/verifier-schema.v0.5.json`](verifier-schema.v0.5.json)
+- Current verify-run schema: `shipgate.verify_run/v3` — [`docs/verify-run-schema.v3.json`](verify-run-schema.v3.json)
+- Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
+- Current agent handoff schema: `shipgate.agent_handoff/v5` — [`docs/agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json)
 - Current agent boundary result schema: `shipgate.agent_boundary_result/v1` — [`docs/agent-boundary-result-schema.v1.json`](agent-boundary-result-schema.v1.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
 - Current preflight schema: `0.3` — [`docs/preflight-schema.v0.3.json`](preflight-schema.v0.3.json)
-- Current downstream local agent contract schema: `5`
+- Current downstream local agent contract schema: `6`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.6` — [`docs/capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json)
 - Current capability lock diff schema: `0.7` — [`docs/capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json)
-- Current attestation schema: `0.4` — [`docs/attestation-schema.v0.4.json`](attestation-schema.v0.4.json)
-- Current registry schema: `0.3` — [`docs/registry-schema.v0.3.json`](registry-schema.v0.3.json)
-- Current org evidence bundle schema: `shipgate.org_evidence_bundle/v1` — [`docs/org-evidence-bundle-schema.v1.json`](org-evidence-bundle-schema.v1.json)
+- Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
+- Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
+- Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
 - Current host-grants inventory, baseline, and drift schemas: `0.2` — [`inventory`](host-grants-inventory-schema.v0.2.json), [`baseline`](host-grants-baseline-schema.v0.2.json), [`drift`](host-grants-drift-schema.v0.2.json)
 - Current trigger catalog schema: `0.2` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
-- Frozen-reference report schemas: frozen [`v0.32`](report-schema.v0.32.json), frozen [`v0.31`](report-schema.v0.31.json), frozen [`v0.30`](report-schema.v0.30.json), frozen [`v0.29`](report-schema.v0.29.json), frozen [`v0.28`](report-schema.v0.28.json), frozen [`v0.27`](report-schema.v0.27.json), frozen [`v0.26`](report-schema.v0.26.json), frozen [`v0.25`](report-schema.v0.25.json), frozen [`v0.24`](report-schema.v0.24.json), frozen [`v0.23`](report-schema.v0.23.json), frozen [`v0.22`](report-schema.v0.22.json), frozen [`v0.21`](report-schema.v0.21.json), frozen [`v0.20`](report-schema.v0.20.json), frozen [`v0.19`](report-schema.v0.19.json), frozen [`v0.18`](report-schema.v0.18.json), frozen [`v0.17`](report-schema.v0.17.json), frozen [`v0.16`](report-schema.v0.16.json), frozen [`v0.15`](report-schema.v0.15.json), frozen [`v0.14`](report-schema.v0.14.json), frozen [`v0.13`](report-schema.v0.13.json), frozen [`v0.12`](report-schema.v0.12.json), frozen [`v0.11`](report-schema.v0.11.json), frozen [`v0.10`](report-schema.v0.10.json), frozen [`v0.9`](report-schema.v0.9.json), frozen [`v0.8`](report-schema.v0.8.json), frozen [`v0.7`](report-schema.v0.7.json), frozen [`v0.6`](report-schema.v0.6.json), older
+- Frozen-reference report schemas: frozen [`v0.33`](report-schema.v0.33.json), frozen [`v0.32`](report-schema.v0.32.json), frozen [`v0.31`](report-schema.v0.31.json), frozen [`v0.30`](report-schema.v0.30.json), and older versions listed in [`docs/INDEX.md`](INDEX.md#reference)
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
-- Boundary v1, verifier v0.1/v0.2/v0.3, verify-run v1, handoff v1/v2/v3, and preflight
+- Boundary v1, verifier v0.1–v0.4, verify-run v1/v2, handoff v1–v4, and preflight
   v0.1/v0.2 remain frozen references for legacy readers.
 - Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
@@ -87,11 +92,13 @@ one decision engine.
 
 - **PR / controller flow** — an autonomous coding agent deciding *continue,
   repair, or stop*. Prefer
+  validate `agents-shipgate-reports/verification-receipt.json`, then read
   `agents-shipgate-reports/agent-handoff.json` for the compact
-  `shipgate.agent_handoff/v4` view: lead with `control.state`, then read
+  `shipgate.agent_handoff/v5` view: lead with `control.state`, then read
   `control.next_action`, `gate.merge_verdict`, and `reproducibility.run_id` for the
-  stable verify identity. `verifier.json` remains the authoritative controller
-  substrate and `verify-run.json` remains the reproducibility record; finally
+  content-addressed verify identity. `verifier.json` remains the authoritative
+  controller substrate and `verify-run.json` remains the detailed run
+  projection; finally
   confirm `report.json.release_decision.decision` for the release gate.
   `.well-known/agents-shipgate.json` → `agent_read_order` is the
   machine-readable cross-artifact order. `verifier_read_order` remains the
@@ -281,7 +288,7 @@ separately), local input hashes (`config_sha256`, `baseline_sha256`,
 emitted files. It has no wall-clock timestamp and is not a second gate.
 
 `agents-shipgate-reports/agent-handoff.json` carries
-`schema_version: "shipgate.agent_handoff/v4"` and top-level sections
+`schema_version: "shipgate.agent_handoff/v5"` and top-level sections
 `gate`, `control`, `fix_task`, `blocked_by[]`,
 `remediation_plan[]`, `capability_review`, `reproducibility`, and `artifacts`.
 `gate.decision` mirrors `release_decision.decision`; `gate.merge_verdict`
@@ -298,8 +305,8 @@ from existing artifacts with:
 agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json
 ```
 
-In `agents-shipgate-reports/verifier.json`, read the v0.4 fields below (full
-schema [`docs/verifier-schema.v0.4.json`](verifier-schema.v0.4.json)). **Lead
+In `agents-shipgate-reports/verifier.json`, read the v0.5 fields below (full
+schema [`docs/verifier-schema.v0.5.json`](verifier-schema.v0.5.json)). **Lead
 with `control.state`.** Every field below is a mirror or deterministic projection of
 `report.json`; `release_decision.decision` remains the gate.
 
@@ -331,7 +338,7 @@ with `control.state`.** Every field below is a mirror or deterministic projectio
 - `decision` — mirror of `release_decision.decision` (or `null` when no scan ran).
 - `headline` — single-sentence, PR-comment-friendly summary (or `null`).
 - `control.human_review` and `control.next_action` are the only serialized
-  human-review and next-action authority in verifier v0.4.
+  human-review and next-action authority in verifier v0.5.
 - `AgentController`, `VerifierNextAction`, and `VerifierHumanReview` remain
   importable only as deprecated v0.1/v0.2 reader models. Verifier v0.4 does not
   emit or invoke the retired `build_agent_controller` projector.
@@ -525,8 +532,8 @@ For reviewer-shaped output, also read the **Release Evidence Packet** at
 `[pdf]` extras are installed). The packet is a supporting/provisional reviewer
 projection, not a second gate. Packet outputs are redacted by the same default
 privacy layer as the report. The packet has fixed reviewer sections governed by
-[`docs/packet-schema.v0.11.json`](packet-schema.v0.11.json) — see
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v011).
+[`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json) — see
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v012).
 Packet schema `0.9` carries the report's evidence-backed semantic coverage and
 gap remediation contract. Packet §1 also mirrors
 `static_analysis_only=true`, `runtime_behavior_verified=false`, and
@@ -579,9 +586,9 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.33.json`](report-schema.v0.33.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v0.34.json`](report-schema.v0.34.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
-- [`docs/packet-schema.v0.11.json`](packet-schema.v0.11.json) — machine-validatable JSON Schema for the current packet.
+- [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.
 
 ## See also

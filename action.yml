@@ -190,6 +190,21 @@ outputs:
   agent_handoff_json:
     description: Path to agent-handoff.json.
     value: ${{ steps.report_outputs.outputs.agent_handoff_json }}
+  verification_receipt_json:
+    description: Path to the validated terminal verification receipt.
+    value: ${{ steps.report_outputs.outputs.verification_receipt_json }}
+  request_id:
+    description: Content-addressed verification request identity.
+    value: ${{ steps.report_outputs.outputs.request_id }}
+  receipt_id:
+    description: Content-addressed terminal receipt identity.
+    value: ${{ steps.report_outputs.outputs.receipt_id }}
+  decision_id:
+    description: Content-addressed assembled decision identity.
+    value: ${{ steps.report_outputs.outputs.decision_id }}
+  artifact_set_id:
+    description: Content-addressed artifact-set identity.
+    value: ${{ steps.report_outputs.outputs.artifact_set_id }}
   run_id:
     description: Deterministic verify-run input identity from verify-run.json.
     value: ${{ steps.report_outputs.outputs.run_id }}
@@ -334,6 +349,8 @@ runs:
         INPUT_HEAD_REF: ${{ inputs.head_ref }}
         BASE_REF: ${{ github.base_ref }}
         EVENT_NAME: ${{ github.event_name }}
+        EVALUATED_HEAD_SHA: ${{ github.sha }}
+        SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         POLICY_PACKS: ${{ inputs.policy_packs }}
         NO_PLUGINS: ${{ inputs.no_plugins }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -382,6 +399,8 @@ runs:
           fi
           if [ -n "${INPUT_HEAD_REF}" ]; then
             args+=(--head "${INPUT_HEAD_REF}")
+          elif [ -n "${EVALUATED_HEAD_SHA}" ]; then
+            args+=(--head "${EVALUATED_HEAD_SHA}")
           fi
         fi
         if [ -n "${POLICY_PACKS}" ]; then

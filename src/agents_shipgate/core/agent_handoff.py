@@ -35,7 +35,7 @@ def build_agent_handoff(
     verify_run_payload = _model_payload(verify_run) if verify_run is not None else {}
     verify_run_model = (
         VerifyRunArtifact.model_validate(verify_run_payload)
-        if verify_run_payload.get("schema_version") == "shipgate.verify_run/v2"
+        if verify_run_payload.get("schema_version") == "shipgate.verify_run/v3"
         else None
     )
     if verify_run_model is not None:
@@ -167,9 +167,7 @@ def _blocked_by(release_decision: dict[str, Any]) -> list[AgentHandoffBlockedBy]
                     blocks_release=_bool_or_none(item.get("blocks_release")),
                     capability_refs=_str_list(item.get("capability_refs")),
                     capability_trace_refs=_str_list(item.get("capability_trace_refs")),
-                    support_hash=_str_or_none(
-                        _dict(item.get("support")).get("support_hash")
-                    ),
+                    support_hash=_str_or_none(_dict(item.get("support")).get("support_hash")),
                 )
             )
     return out
@@ -230,12 +228,26 @@ def _patch_target(patch: dict[str, Any]) -> str | None:
 
 
 def _reproducibility(verify_run: dict[str, Any]) -> AgentHandoffReproducibility:
-    inputs = _dict(verify_run.get("inputs"))
+    plan = _dict(verify_run.get("plan"))
+    inputs = _dict(plan.get("inputs")) or _dict(verify_run.get("inputs"))
+    subject = _dict(plan.get("subject"))
+    engine = _dict(plan.get("engine"))
+    executor = _dict(verify_run.get("executor"))
     artifacts = _dict(verify_run.get("artifacts"))
     return AgentHandoffReproducibility(
         run_id=_str_or_none(verify_run.get("run_id")),
-        config_sha256=_str_or_none(inputs.get("config_sha256")),
-        baseline_sha256=_str_or_none(inputs.get("baseline_sha256")),
+        request_id=_str_or_none(verify_run.get("request_id")),
+        subject_id=_str_or_none(subject.get("subject_id")),
+        input_set_id=_str_or_none(inputs.get("input_set_id")),
+        engine_requirement_id=_str_or_none(engine.get("engine_requirement_id")),
+        executor_id=_str_or_none(executor.get("executor_id")),
+        decision_id=_str_or_none(verify_run.get("decision_id")),
+        config_sha256=_str_or_none(
+            _dict(inputs.get("config")).get("sha256") or inputs.get("config_sha256")
+        ),
+        baseline_sha256=_str_or_none(
+            _dict(inputs.get("baseline")).get("sha256") or inputs.get("baseline_sha256")
+        ),
         policy_packs=[
             dict(item) for item in inputs.get("policy_packs") or [] if isinstance(item, dict)
         ],

@@ -10,15 +10,15 @@ from pydantic import ValidationError
 
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
+from agents_shipgate.core.verification_identity import (
+    build_executor,
+    build_unit_result,
+    build_verification_plan,
+)
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.verifier import VerifierArtifact, map_merge_verdict
-from agents_shipgate.schemas.verify_run import (
-    VerifyRunInputs,
-    VerifyRunOutcome,
-    VerifyRunSubject,
-    build_verify_run_artifact,
-)
+from agents_shipgate.schemas.verify_run import VerifyRunOutcome, build_verify_run_artifact
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -65,11 +65,35 @@ def _passed_verifier() -> VerifierArtifact:
     )
 
 
-def test_control_is_byte_identical_across_verifier_run_and_handoff() -> None:
-    verifier = _passed_verifier()
-    run = build_verify_run_artifact(
-        subject=VerifyRunSubject(config="shipgate.yaml"),
-        inputs=VerifyRunInputs(config_sha256="sha256:config"),
+def _passed_run(verifier: VerifierArtifact):
+    plan = build_verification_plan(
+        git_root=ROOT,
+        input_root=ROOT,
+        config_path=ROOT / "shipgate.yaml",
+        config_logical_path="shipgate.yaml",
+        base_ref=None,
+        head_ref="HEAD",
+        archived_head=True,
+        repository_id="local:test",
+        base_commit_sha=None,
+        base_tree_sha=None,
+        head_commit_sha="a" * 40,
+        head_tree_sha="b" * 40,
+        merge_base_sha=None,
+        changed_files=[],
+        diff_text="",
+        baseline_path=None,
+        diff_from_path=None,
+        policy_pack_paths=[],
+        evaluation_date="2026-07-13",
+        options={"plugins_enabled": False},
+        plugins_enabled=False,
+    )
+    unit = build_unit_result(plan=plan, normalized_ir={"test": "control-projection"})
+    return build_verify_run_artifact(
+        plan=plan,
+        executor=build_executor(plan.engine),
+        unit_result_ids=[unit.unit_result_id],
         outcome=VerifyRunOutcome(
             exit_code=0,
             base_status="not_requested",
@@ -82,6 +106,11 @@ def test_control_is_byte_identical_across_verifier_run_and_handoff() -> None:
         ),
         artifacts={},
     )
+
+
+def test_control_is_byte_identical_across_verifier_run_and_handoff() -> None:
+    verifier = _passed_verifier()
+    run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
 
     expected = verifier.control.model_dump_json()
@@ -91,21 +120,7 @@ def test_control_is_byte_identical_across_verifier_run_and_handoff() -> None:
 
 def test_handoff_rejects_tampered_current_verify_run_outcome() -> None:
     verifier = _passed_verifier()
-    run = build_verify_run_artifact(
-        subject=VerifyRunSubject(config="shipgate.yaml"),
-        inputs=VerifyRunInputs(config_sha256="sha256:config"),
-        outcome=VerifyRunOutcome(
-            exit_code=0,
-            base_status="not_requested",
-            execution="succeeded",
-            applicability="verified",
-            decision="passed",
-            merge_verdict="mergeable",
-            can_merge_without_human=True,
-            control=verifier.control,
-        ),
-        artifacts={},
-    ).model_dump(mode="json")
+    run = _passed_run(verifier).model_dump(mode="json")
     run["outcome"]["decision"] = "blocked"
 
     with pytest.raises(ValidationError):
@@ -115,9 +130,9 @@ def test_handoff_rejects_tampered_current_verify_run_outcome() -> None:
 @pytest.mark.parametrize(
     ("schema_path", "control_path"),
     [
-        ("docs/verifier-schema.v0.3.json", ("control",)),
-        ("docs/agent-handoff-schema.v3.json", ("control",)),
-        ("docs/verify-run-schema.v2.json", ("outcome", "control")),
+        ("docs/verifier-schema.v0.5.json", ("control",)),
+        ("docs/agent-handoff-schema.v5.json", ("control",)),
+        ("docs/verify-run-schema.v3.json", ("outcome", "control")),
     ],
 )
 def test_generated_public_schemas_reject_contradictory_control(
@@ -125,26 +140,12 @@ def test_generated_public_schemas_reject_contradictory_control(
     control_path: tuple[str, ...],
 ) -> None:
     verifier = _passed_verifier()
-    run = build_verify_run_artifact(
-        subject=VerifyRunSubject(config="shipgate.yaml"),
-        inputs=VerifyRunInputs(config_sha256="sha256:config"),
-        outcome=VerifyRunOutcome(
-            exit_code=0,
-            base_status="not_requested",
-            execution="succeeded",
-            applicability="verified",
-            decision="passed",
-            merge_verdict="mergeable",
-            can_merge_without_human=True,
-            control=verifier.control,
-        ),
-        artifacts={},
-    )
+    run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
-        "docs/verifier-schema.v0.3.json": verifier.model_dump(mode="json"),
-        "docs/agent-handoff-schema.v3.json": handoff.model_dump(mode="json"),
-        "docs/verify-run-schema.v2.json": run.model_dump(mode="json"),
+        "docs/verifier-schema.v0.5.json": verifier.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v5.json": handoff.model_dump(mode="json"),
+        "docs/verify-run-schema.v3.json": run.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
     control = payload

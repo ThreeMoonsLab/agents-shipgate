@@ -8,6 +8,7 @@ from agents_shipgate.schemas.agent_control import AgentControl, normalize_legacy
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.report import ReleaseDecision
+from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 
 VerifierBaseStatus = Literal[
     "not_requested",
@@ -424,11 +425,17 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.4"] = "0.4"
+    verifier_schema_version: Literal["0.5"] = "0.5"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
     workspace: str
+    request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    input_set_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    engine_requirement_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    executor_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    decision_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     config: str
     base_ref: str | None = None
     head_ref: str = "HEAD"
@@ -471,14 +478,14 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
-        legacy = legacy_version in {"0.1", "0.2", "0.3"}
+        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4"}
         if not legacy:
-            # Current v0.4 artifacts must already carry the authoritative
+            # Current v0.5 artifacts must already carry the authoritative
             # control union.  Silently synthesizing a missing or malformed
             # current control would turn an internal consistency failure into
             # a trusted handoff.  Only the frozen v0.2 reader is normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.4"
+        normalized["verifier_schema_version"] = "0.5"
 
         execution = normalized.get("execution") or normalized.get("head_status")
         execution = execution or "not_run"
@@ -523,9 +530,7 @@ class VerifierArtifact(BaseModel):
             dict(legacy_controller) if isinstance(legacy_controller, dict) else {}
         )
         if "completion_allowed" not in legacy_payload:
-            legacy_payload["completion_allowed"] = bool(
-                normalized.get("can_merge_without_human")
-            )
+            legacy_payload["completion_allowed"] = bool(normalized.get("can_merge_without_human"))
         for key in ("first_next_action", "human_review"):
             if key in normalized:
                 legacy_payload[key] = normalized[key]

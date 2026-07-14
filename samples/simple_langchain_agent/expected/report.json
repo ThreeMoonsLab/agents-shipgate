@@ -1,7 +1,12 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.33",
+  "report_schema_version": "0.34",
   "run_id": "agents_shipgate_ad594d77df1d5943",
+  "request_id": null,
+  "subject_id": null,
+  "input_set_id": null,
+  "engine_requirement_id": null,
+  "decision_id": null,
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
     "name": "simple-langchain-agent"

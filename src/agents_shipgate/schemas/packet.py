@@ -35,6 +35,7 @@ from agents_shipgate.schemas.surfaces import (
     ActionSurfaceDiffSummary,
     ToolSurfaceDiffSummary,
 )
+from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 
 VerdictLabel = Literal[
     "PASSED",
@@ -359,9 +360,14 @@ class EvidencePacket(BaseModel):
     # human_in_the_loop. release_decision.decision remains the only gate.
     # v0.8: release-decision evidence coverage carries the additive
     # evidence-backed semantic coverage and gap remediation contract.
-    packet_schema_version: Literal["0.11"] = "0.11"
+    packet_schema_version: Literal["0.12"] = "0.12"
     generated_at: str | None = None
     run_id: str
+    request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    input_set_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    engine_requirement_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    decision_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     project: dict[str, Any] = Field(default_factory=dict)
     agent: dict[str, Any] = Field(default_factory=dict)
     environment: dict[str, Any] = Field(default_factory=dict)

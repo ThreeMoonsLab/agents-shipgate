@@ -37,19 +37,25 @@ from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
 from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.verification_identity import (
+    VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION,
+    VERIFICATION_PLAN_SCHEMA_VERSION,
+    VERIFICATION_RECEIPT_SCHEMA_VERSION,
+    VERIFICATION_UNIT_RESULT_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["16"] = "16"
+CONTRACT_VERSION: Literal["17"] = "17"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["14"] = "14"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v2"] = "agent_result_v2"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v2.json"] = (
     "docs/agent-result-schema.v2.json"
 )
-AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal[
+AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal["docs/agent-boundary-result-schema.v1.json"] = (
     "docs/agent-boundary-result-schema.v1.json"
-] = "docs/agent-boundary-result-schema.v1.json"
+)
 TRIGGER_CATALOG_SCHEMA_VERSION: Literal["0.2"] = "0.2"
 AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
     "decision",
@@ -83,6 +89,10 @@ EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "registry",
     "org_governance",
     "org_evidence_bundle",
+    "verification_plan",
+    "verification_unit_result",
+    "verification_artifact_manifest",
+    "verification_receipt",
     "host_grants_inventory",
     "host_grants_baseline",
     "host_grants_drift",
@@ -186,6 +196,29 @@ COMMANDS: dict[str, str] = {
         "agents-shipgate verify --workspace . --config shipgate.yaml "
         "--base origin/main --head HEAD --ci-mode advisory --json"
     ),
+    "verification_prepare": (
+        "agents-shipgate verification prepare --workspace . --config shipgate.yaml "
+        "--base origin/main --head HEAD --out "
+        "agents-shipgate-reports/verification-plan.json"
+    ),
+    "verification_worker": (
+        "agents-shipgate verification worker --plan "
+        "agents-shipgate-reports/verification-plan.json --workspace . --out "
+        "agents-shipgate-reports/verification-unit-result.json"
+    ),
+    "verification_assemble": (
+        "agents-shipgate verification assemble --plan "
+        "agents-shipgate-reports/verification-plan.json --unit-result "
+        "agents-shipgate-reports/verification-unit-result.json --verifier "
+        "agents-shipgate-reports/verifier.json --artifacts-root "
+        "agents-shipgate-reports --out "
+        "agents-shipgate-reports/verification-receipt.json"
+    ),
+    "verification_reproduce": (
+        "agents-shipgate verification reproduce --receipt "
+        "agents-shipgate-reports/verification-receipt.json --artifacts-root "
+        "agents-shipgate-reports"
+    ),
     "agent_handoff": (
         "agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json"
     ),
@@ -220,6 +253,10 @@ ARTIFACTS: dict[str, str] = {
     "verifier": "agents-shipgate-reports/verifier.json",
     "verify_run": "agents-shipgate-reports/verify-run.json",
     "agent_handoff": "agents-shipgate-reports/agent-handoff.json",
+    "verification_plan": "agents-shipgate-reports/verification-plan.json",
+    "verification_unit_result": "agents-shipgate-reports/verification-unit-result.json",
+    "verification_artifact_manifest": "agents-shipgate-reports/verification-artifacts.json",
+    "verification_receipt": "agents-shipgate-reports/verification-receipt.json",
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
     "packet": "agents-shipgate-reports/packet.json",
@@ -230,6 +267,9 @@ ARTIFACTS: dict[str, str] = {
     "registry": ".agents-shipgate/registry.jsonl",
 }
 AGENT_READ_ORDER: tuple[str, ...] = (
+    "verification-receipt.json",
+    "verification-receipt.json.request_id",
+    "verification-receipt.json.receipt_id",
     "agent-handoff.json",
     "agent-handoff.json.control.state",
     "verifier.json.control.state",
@@ -246,6 +286,8 @@ VERIFIER_READ_ORDER: tuple[str, ...] = (
     "fix_task",
     "capability_review.top_changes",
     "release_decision.decision",
+    "request_id",
+    "decision_id",
 )
 MERGE_VERDICTS: tuple[str, ...] = (
     "mergeable",
@@ -294,6 +336,10 @@ class ContractPayload(BaseModel):
     packet_schema_version: str
     verifier_schema_version: str
     verify_run_schema_version: str
+    verification_plan_schema_version: str
+    verification_unit_result_schema_version: str
+    verification_artifact_manifest_schema_version: str
+    verification_receipt_schema_version: str
     agent_handoff_schema_version: str
     agent_handoff_schema_path: str
     agent_handoff_artifact: str
@@ -350,6 +396,12 @@ def build_contract_payload() -> ContractPayload:
         packet_schema_version=str(packet_schema_version),
         verifier_schema_version=str(verifier_schema_version),
         verify_run_schema_version=VERIFY_RUN_SCHEMA_VERSION,
+        verification_plan_schema_version=VERIFICATION_PLAN_SCHEMA_VERSION,
+        verification_unit_result_schema_version=VERIFICATION_UNIT_RESULT_SCHEMA_VERSION,
+        verification_artifact_manifest_schema_version=(
+            VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION
+        ),
+        verification_receipt_schema_version=VERIFICATION_RECEIPT_SCHEMA_VERSION,
         agent_handoff_schema_version=AGENT_HANDOFF_SCHEMA_VERSION,
         agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
         agent_handoff_artifact=ARTIFACTS["agent_handoff"],
@@ -371,8 +423,7 @@ def build_contract_payload() -> ContractPayload:
         trigger_catalog_schema_version=TRIGGER_CATALOG_SCHEMA_VERSION,
         deprecated_surfaces={
             "codex-boundary-json": (
-                "Deprecated compatibility projection through 0.16.x; use "
-                "agent-boundary-json."
+                "Deprecated compatibility projection through 0.16.x; use agent-boundary-json."
             )
         },
         external_integration_surfaces=list(EXTERNAL_INTEGRATION_SURFACES),
@@ -434,6 +485,10 @@ __all__ = [
     "SUPPORTED_INPUTS",
     "TRIGGER_CATALOG_SCHEMA_VERSION",
     "VERIFY_RUN_SCHEMA_VERSION",
+    "VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION",
+    "VERIFICATION_PLAN_SCHEMA_VERSION",
+    "VERIFICATION_RECEIPT_SCHEMA_VERSION",
+    "VERIFICATION_UNIT_RESULT_SCHEMA_VERSION",
     "VERIFIER_READ_ORDER",
     "ContractPayload",
     "build_contract_payload",

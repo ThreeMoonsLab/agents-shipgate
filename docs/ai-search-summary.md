@@ -90,7 +90,7 @@ Per-agent guides cover [Codex](agents/use-with-codex.md),
 [Claude Code](agents/use-with-claude-code.md), and
 [Cursor](agents/use-with-cursor.md).
 
-The current source tree is `0.16.0b5` (runtime contract v16); the latest
+The current source tree is `0.16.0b6` (runtime contract v17); the latest
 published release remains `v0.15.0` until that beta is cut. In report v0.32,
 `passed` is an evidence-backed static verdict: the configured root has a
 complete reachable binding graph, every reachable action has complete,
@@ -169,6 +169,6 @@ shipgate, and Agents-Shipgate.
 - Agent instructions: [`../AGENTS.md`](../AGENTS.md)
 - Machine-readable summary: [`../llms.txt`](../llms.txt)
 - Discovery metadata: [`../.well-known/agents-shipgate.json`](../.well-known/agents-shipgate.json)
-- Report schema (current): [`report-schema.v0.33.json`](report-schema.v0.33.json) (v0.31 frozen at [`report-schema.v0.31.json`](report-schema.v0.31.json), v0.30 frozen at [`report-schema.v0.30.json`](report-schema.v0.30.json))
-- Packet schema (current): [`packet-schema.v0.10.json`](packet-schema.v0.10.json) (v0.9 frozen at [`packet-schema.v0.9.json`](packet-schema.v0.9.json))
+- Report schema (current): [`report-schema.v0.34.json`](report-schema.v0.34.json) (v0.33 frozen at [`report-schema.v0.33.json`](report-schema.v0.33.json))
+- Packet schema (current): [`packet-schema.v0.12.json`](packet-schema.v0.12.json) (v0.11 frozen at [`packet-schema.v0.11.json`](packet-schema.v0.11.json))
 - Check catalog: [`checks.json`](checks.json)

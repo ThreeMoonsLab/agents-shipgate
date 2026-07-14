@@ -48,6 +48,7 @@ from agents_shipgate.schemas.safety_qualification import (
     WilsonIntervalV1,
     production_safety_requirements,
 )
+from agents_shipgate.schemas.verification_identity import VerificationReceipt
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VerifyRunArtifact
 
@@ -192,11 +193,11 @@ def _receipt_artifact(
     root: Path,
     entry: SafetyReceiptEntryV1,
     key: str,
-    receipt: VerifyRunArtifact,
+    receipt: VerificationReceipt,
 ) -> tuple[Path, dict[str, Any]]:
-    ref = receipt.artifacts.get(key)
-    if ref is None or not ref.sha256:
-        raise ValueError(f"verify-run receipt is missing content-addressed {key}")
+    ref = receipt.artifact_manifest.artifacts.get(key)
+    if ref is None:
+        raise ValueError(f"terminal receipt is missing content-addressed {key}")
     artifact_path = _confined_path(root, ref.path)
     if not artifact_path.is_file():
         raise ValueError(f"verify-run {key} artifact is missing: {ref.path}")
@@ -222,22 +223,41 @@ def _evaluate_receipt(
         receipt_hash = sha256_file(receipt_path)
         if receipt_hash != entry.receipt_sha256:
             raise ValueError(f"verify-run receipt hash mismatch: {entry.receipt_path}")
-        receipt = VerifyRunArtifact.model_validate(_read_json_object(receipt_path))
-        if receipt.run_id != entry.run_id:
-            raise ValueError("receipt-index run_id does not match verify-run receipt")
-        if receipt.tool.name != "agents-shipgate" or receipt.tool.version != wheel_version:
-            raise ValueError("verify-run tool version is not the exact built wheel version")
-        if receipt.subject.base_ref is None:
+        receipt = VerificationReceipt.model_validate(_read_json_object(receipt_path))
+        identity_bindings = {
+            "request_id": (entry.request_id, receipt.request_id),
+            "receipt_id": (entry.receipt_id, receipt.receipt_id),
+            "decision_id": (entry.decision_id, receipt.decision_id),
+            "artifact_set_id": (entry.artifact_set_id, receipt.artifact_set_id),
+            "run_id": (entry.run_id, receipt.request_id),
+        }
+        for name, (indexed, actual) in identity_bindings.items():
+            if indexed != actual:
+                raise ValueError(f"receipt-index {name} does not match terminal receipt")
+        _verify_run_path, verify_run_payload = _receipt_artifact(
+            root=artifact_root,
+            entry=entry,
+            key="verify_run_json",
+            receipt=receipt,
+        )
+        verify_run = VerifyRunArtifact.model_validate(verify_run_payload)
+        if verify_run.plan.engine.version != wheel_version:
+            raise ValueError("verification plan engine is not the exact built wheel version")
+        if verify_run.request_id != receipt.request_id:
+            raise ValueError("verify-run request does not match terminal receipt")
+        subject = verify_run.plan.subject.git
+        inputs = verify_run.plan.inputs
+        if subject.base_ref is None:
             raise ValueError("qualification receipt must identify a base ref")
-        if not receipt.subject.base_tree_sha or not receipt.subject.head_tree_sha:
+        if not subject.base_tree_sha or not subject.head_tree_sha:
             raise ValueError("qualification receipt must bind base and head tree SHAs")
-        if receipt.subject.base_tree_sha == receipt.subject.head_tree_sha:
+        if subject.base_tree_sha == subject.head_tree_sha:
             raise ValueError("qualification receipt base and head trees must differ")
-        if receipt.outcome.base_status not in {"succeeded", "cache_hit"}:
+        if verify_run.outcome.base_status != "succeeded":
             raise ValueError("qualification receipt base verifier did not succeed")
-        if receipt.outcome.execution != "succeeded":
+        if verify_run.outcome.execution != "succeeded":
             raise ValueError("qualification receipt head verifier did not succeed")
-        if not receipt.inputs.config_sha256:
+        if not inputs.config.sha256:
             raise ValueError("qualification receipt is missing its config digest")
 
         verifier_path, verifier_payload = _receipt_artifact(
@@ -272,39 +292,37 @@ def _evaluate_receipt(
         if report_model.release_decision is None:
             raise ValueError("qualification report release_decision failed typed validation")
         report_decision = report_model.release_decision.decision
-        receipt_decision = receipt.outcome.decision
+        receipt_decision = receipt.decision
         verifier_decision = verifier.decision
         if receipt_decision not in DECISIONS:
             raise ValueError(f"verify-run emitted unknown decision: {receipt_decision!r}")
         if report_decision != receipt_decision or verifier_decision != receipt_decision:
             raise ValueError("verify-run, verifier, and report decisions are not identical")
         expected_merge = EXPECTED_MERGE_VERDICT[receipt_decision]
-        if receipt.outcome.merge_verdict != expected_merge:
+        if receipt.merge_verdict != expected_merge:
             raise ValueError("verify-run decision and merge_verdict are inconsistent")
         expected_can_merge = receipt_decision == "passed"
-        if receipt.outcome.can_merge_without_human != expected_can_merge:
+        if receipt.can_merge_without_human != expected_can_merge:
             raise ValueError("verify-run decision and can_merge_without_human are inconsistent")
-        if verifier.merge_verdict != receipt.outcome.merge_verdict:
+        if verifier.merge_verdict != receipt.merge_verdict:
             raise ValueError("verifier and verify-run merge_verdict values differ")
-        if verifier.can_merge_without_human != receipt.outcome.can_merge_without_human:
+        if verifier.can_merge_without_human != receipt.can_merge_without_human:
             raise ValueError("verifier and verify-run merge permission values differ")
         if verifier.head_status != "succeeded":
             raise ValueError(f"verifier artifact did not succeed: {verifier_path.name}")
-        if verifier.base_status not in {"succeeded", "cache_hit"}:
+        if verifier.base_status != "succeeded":
             raise ValueError("verifier artifact base run did not succeed")
-        if verifier.head_exit_code != receipt.outcome.exit_code:
+        if verifier.head_exit_code != verify_run.outcome.exit_code:
             raise ValueError("verifier and verify-run exit codes differ")
-        if verifier.config != receipt.subject.config:
-            raise ValueError("verifier and verify-run config bindings differ")
-        if verifier.mode != receipt.inputs.ci_mode:
+        if verifier.config != inputs.config.path:
+            raise ValueError("verifier and verification plan config bindings differ")
+        if verifier.mode != inputs.options.get("ci_mode"):
             raise ValueError("verifier and verify-run CI modes differ")
-        if verifier.artifacts.get("report_json") != receipt.artifacts["report_json"].path:
-            raise ValueError("verifier and verify-run report artifact paths differ")
         if (
-            verifier.base_tree_sha != receipt.subject.base_tree_sha
-            or verifier.head_tree_sha != receipt.subject.head_tree_sha
-            or verifier.base_ref != receipt.subject.base_ref
-            or verifier.head_ref != receipt.subject.head_ref
+            verifier.base_tree_sha != subject.base_tree_sha
+            or verifier.head_tree_sha != subject.head_tree_sha
+            or verifier.base_ref != subject.base_ref
+            or verifier.head_ref != subject.head_ref
         ):
             raise ValueError("verifier and verify-run subject bindings differ")
 

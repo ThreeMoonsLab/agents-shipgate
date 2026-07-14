@@ -55,7 +55,7 @@ def test_conductor_static_mcp_call_and_human_checkpoint(tmp_path):
         ci_mode="advisory",
     )
 
-    assert report.report_schema_version == "0.33"
+    assert report.report_schema_version == "0.34"
     surface = report.frameworks["conductor"]
     assert surface["workflow_count"] == 1
     assert surface["mcp_call_task_count"] == 1
@@ -157,12 +157,7 @@ def test_conductor_human_checkpoint_does_not_cross_sibling_branch(tmp_path):
     _write_manifest(project, "workflow.json")
 
     payload = inspect_sources(config_path=project / "shipgate.yaml")
-    assert (
-        payload["frameworks"]["conductor"][
-            "structurally_checkpointed_mcp_call_count"
-        ]
-        == 0
-    )
+    assert payload["frameworks"]["conductor"]["structurally_checkpointed_mcp_call_count"] == 0
 
 
 def test_conductor_flat_arguments_compatibility_and_unsupported_capability(tmp_path):
@@ -210,9 +205,7 @@ def test_conductor_detect_and_init_positive_and_negative_controls(tmp_path):
     )
     detected = detect_workspace(positive)
     assert any(item.type == "conductor" for item in detected.frameworks)
-    assert detected.suggested_sources == [
-        {"type": "conductor", "path": "workflows/agent.json"}
-    ]
+    assert detected.suggested_sources == [{"type": "conductor", "path": "workflows/agent.json"}]
     rendered = render_auto_manifest(positive, detected)
     assert "type: conductor" in rendered
     assert "path: workflows/agent.json" in rendered
@@ -276,7 +269,7 @@ def test_conductor_multiple_sources_optional_failure_and_bulk_array(tmp_path):
     _write_text(project / "bulk.json", json.dumps([first, second]))
     _write_text(
         project / "shipgate.yaml",
-        '''version: "0.1"
+        """version: "0.1"
 project:
   name: conductor-multi
 agent:
@@ -293,7 +286,7 @@ tool_sources:
   - id: bulk
     type: conductor
     path: bulk.json
-''',
+""",
     )
 
     payload = inspect_sources(config_path=project / "shipgate.yaml")
@@ -305,9 +298,7 @@ tool_sources:
 
 
 def test_report_schema_v032_pins_conductor_summary_fields():
-    schema = json.loads(
-        Path("docs/report-schema.v0.32.json").read_text(encoding="utf-8")
-    )
+    schema = json.loads(Path("docs/report-schema.v0.32.json").read_text(encoding="utf-8"))
     conductor = schema["properties"]["frameworks"]["properties"]["conductor"]
     assert set(conductor["required"]) == {
         "workflow_file_count",
@@ -418,7 +409,7 @@ def _write_workflow(path, tasks, *, schema=2):
 def _write_manifest(project, workflow_path):
     _write_text(
         project / "shipgate.yaml",
-        f'''version: "0.1"
+        f"""version: "0.1"
 project:
   name: conductor-test
 agent:
@@ -431,7 +422,7 @@ tool_sources:
   - id: conductor
     type: conductor
     path: {workflow_path}
-''',
+""",
     )
 
 

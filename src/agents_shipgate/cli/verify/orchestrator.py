@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import tempfile
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,14 @@ from agents_shipgate.core.capability_lock import (
     render_capability_lock_json,
 )
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.evaluation_clock import use_evaluation_date
+from agents_shipgate.core.verification_identity import (
+    build_executor,
+    build_terminal_receipt,
+    build_unit_result,
+    build_verification_plan,
+)
+from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
 )
@@ -39,6 +48,7 @@ from agents_shipgate.schemas.agent_control import (
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1, CapabilityLockFileV1
 from agents_shipgate.schemas.report import ReadinessReport, ReleaseDecision
 from agents_shipgate.schemas.verification import VerificationContext
+from agents_shipgate.schemas.verification_identity import VerificationPlan, content_id
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierArtifact,
@@ -50,10 +60,7 @@ from agents_shipgate.schemas.verifier import (
 )
 from agents_shipgate.schemas.verify_run import (
     VerifyRunArtifactRef,
-    VerifyRunInputs,
     VerifyRunOutcome,
-    VerifyRunPolicyPack,
-    VerifyRunSubject,
     build_verify_run_artifact,
 )
 from agents_shipgate.triggers import evaluate
@@ -62,12 +69,16 @@ from .capability_review import build_capability_review
 from .fix_task import FORBIDDEN_SHORTCUTS, build_fix_task
 from .git import (
     archive_tree,
+    commit_date,
+    commit_sha,
     detect_default_base_with_notes,
     diff_context,
     ensure_git_workspace,
     git_path,
+    merge_base_sha,
     read_file_at_ref,
     ref_exists,
+    repository_identity,
     tree_sha,
     working_tree_context,
 )
@@ -235,6 +246,8 @@ def run_verify(
         )
         return verifier, None, 2
 
+    verification_date = commit_date(git_root, head)
+
     if base is None and auto_base:
         detection = detect_default_base_with_notes(git_root, head)
         base_notes.extend(detection.notes)
@@ -393,6 +406,7 @@ def run_verify(
             plugins_enabled=plugins_enabled,
             no_heuristics=no_heuristics,
             verbose=verbose,
+            evaluation_date=verification_date,
         )
         base_notes.extend(cache_notes)
 
@@ -402,6 +416,8 @@ def run_verify(
     scan_error: BaseException | None = None
     head_tmp: tempfile.TemporaryDirectory[str] | None = None
     head_config_path = config_path
+    head_input_root = git_root
+    head_baseline_path = baseline_path
     head_policy_pack_paths = policy_pack_paths
     head_tree: str | None = None
     head_capability_lock: CapabilityLockFileV1 | None = None
@@ -416,6 +432,7 @@ def run_verify(
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
             archive_tree(git_root, head, head_tree_dir)
+            head_input_root = head_tree_dir
             head_tree = tree_sha(git_root, head)
             head_config_path = head_tree_dir / config_relative
             if not head_config_path.is_file():
@@ -427,30 +444,36 @@ def run_verify(
                 tree_dir=head_tree_dir,
                 policy_packs=policy_pack_paths or [],
             )
-        report, head_exit_code = run_scan(
-            config_path=head_config_path,
-            output_dir=out_dir,
-            formats=HEAD_FORMATS,
-            ci_mode=ci_mode,
-            fail_on=fail_on,
-            baseline_path=baseline_path,
-            diff_from_path=base_report,
-            baseline_mode=baseline_mode,
-            policy_pack_paths=head_policy_pack_paths,
-            plugins_enabled=plugins_enabled,
-            verbose=verbose,
-            suggest_patches=suggest_patches,
-            packet_enabled=True,
-            packet_formats=HEAD_PACKET_FORMATS,
-            no_heuristics=no_heuristics,
-            verification_context=VerificationContext(
-                changed_files=changed_files,
-                diff_text=diff_text,
-                diff_text_available=bool(diff_text),
-                trigger_result=trigger,
-            ),
-            capability_lock_callback=capture_capability_lock,
-        )
+            head_baseline_path = _map_optional_tree_path(
+                git_root=git_root,
+                tree_dir=head_tree_dir,
+                path=baseline_path,
+            )
+        with use_evaluation_date(date.fromisoformat(verification_date)):
+            report, head_exit_code = run_scan(
+                config_path=head_config_path,
+                output_dir=out_dir,
+                formats=HEAD_FORMATS,
+                ci_mode=ci_mode,
+                fail_on=fail_on,
+                baseline_path=head_baseline_path,
+                diff_from_path=base_report,
+                baseline_mode=baseline_mode,
+                policy_pack_paths=head_policy_pack_paths,
+                plugins_enabled=plugins_enabled,
+                verbose=verbose,
+                suggest_patches=suggest_patches,
+                packet_enabled=True,
+                packet_formats=HEAD_PACKET_FORMATS,
+                no_heuristics=no_heuristics,
+                verification_context=VerificationContext(
+                    changed_files=changed_files,
+                    diff_text=diff_text,
+                    diff_text_available=bool(diff_text),
+                    trigger_result=trigger,
+                ),
+                capability_lock_callback=capture_capability_lock,
+            )
         head_exit_code = _apply_strict_plugins(
             report, head_exit_code, strict_plugins=strict_plugins
         )
@@ -512,14 +535,26 @@ def run_verify(
                     pr_comment_path,
                     report=report,
                     git_root=git_root,
-                    config_path=config_path,
-                    baseline_path=baseline_path,
-                    policy_pack_paths=policy_pack_paths or [],
+                    config_path=head_config_path,
+                    baseline_path=head_baseline_path,
+                    policy_pack_paths=head_policy_pack_paths or [],
                     plugins_enabled=plugins_enabled,
                     no_heuristics=no_heuristics,
                     fail_on=fail_on,
                     pr_comment_style=pr_comment_style,
                     capability_lock_diff=capability_lock_diff,
+                    input_root=head_input_root,
+                    diff_text=diff_text,
+                    diff_from_path=base_report,
+                    verification_options={
+                        "archive_head": archive_head,
+                        "baseline_mode": baseline_mode,
+                        "strict_plugins": strict_plugins,
+                        "suggest_patches": suggest_patches,
+                        "source_head_commit_sha": os.getenv("SOURCE_HEAD_SHA") or None,
+                        "evaluated_head_commit_sha": os.getenv("GITHUB_SHA") or None,
+                    },
+                    evaluation_date=verification_date,
                 )
             except Exception:
                 if scan_error is None:
@@ -543,6 +578,7 @@ def _prepare_base_report(
     plugins_enabled: bool | None,
     no_heuristics: bool,
     verbose: bool,
+    evaluation_date: str,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -564,16 +600,20 @@ def _prepare_base_report(
         policy_packs=policy_packs,
         plugins_enabled=plugins_enabled,
         no_heuristics=no_heuristics,
+        evaluation_date=evaluation_date,
     )
-    if cache_report.exists():
+    if cache_report.exists() and _cache_report_valid(cache_report):
         base_lock, lock_notes = _load_cached_capability_lock(cache_report)
         return (
-            "cache_hit",
+            "succeeded",
             base_tree,
             cache_report,
             base_lock,
-            [f"Reused cached base report for tree {base_tree}.", *lock_notes],
+            [f"Base report resolved for tree {base_tree}.", *lock_notes],
         )
+    if cache_report.exists():
+        notes.append("Discarded base cache entry whose content hash did not validate.")
+        cache_report.unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-") as tmp:
         tmp_root = Path(tmp)
@@ -607,7 +647,10 @@ def _prepare_base_report(
             base_capability_lock = lock
 
         try:
-            with _without_github_step_summary():
+            with (
+                _without_github_step_summary(),
+                use_evaluation_date(date.fromisoformat(evaluation_date)),
+            ):
                 _base_report, base_exit = run_scan(
                     config_path=base_config,
                     output_dir=base_out,
@@ -665,7 +708,7 @@ def _prepare_base_report(
         else:
             notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
         _prune_base_scan_cache(cache_report.parents[1], keep=BASE_CACHE_KEEP_ENTRIES)
-        notes.append(f"Cached base report for tree {base_tree}.")
+        notes.append(f"Base report resolved for tree {base_tree}.")
     return "succeeded", base_tree, cache_report, base_capability_lock, notes
 
 
@@ -678,18 +721,31 @@ def _cache_report_path(
     policy_packs: list[Path],
     plugins_enabled: bool | None,
     no_heuristics: bool,
+    evaluation_date: str,
 ) -> Path:
     payload = {
         "version": 1,
         "agents_shipgate_version": __version__,
         "base_tree": base_tree,
         "config": config_relative.as_posix(),
-        "baseline": (
-            _display_path(baseline_path.resolve(), git_root) if baseline_path is not None else None
-        ),
-        "policy_packs": [_display_path(path.resolve(), git_root) for path in policy_packs],
+        "baseline": {
+            "path": (
+                _display_path(baseline_path.resolve(), git_root)
+                if baseline_path is not None
+                else None
+            ),
+            "sha256": _sha256_file(baseline_path),
+        },
+        "policy_packs": [
+            {
+                "path": _display_path(path.resolve(), git_root),
+                "sha256": _sha256_file(path),
+            }
+            for path in policy_packs
+        ],
         "plugins_enabled": plugins_enabled,
         "no_heuristics": no_heuristics,
+        "evaluation_date": evaluation_date,
     }
     key = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -709,8 +765,23 @@ def _copy_report_to_cache(source_report: Path, cache_report: Path) -> None:
     try:
         shutil.copy2(source_report, temp_path)
         temp_path.replace(cache_report)
+        cache_report.with_suffix(".sha256").write_text(
+            f"{_sha256_file(cache_report)}\n",
+            encoding="ascii",
+        )
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+def _cache_report_valid(cache_report: Path) -> bool:
+    digest_path = cache_report.with_suffix(".sha256")
+    if not digest_path.is_file():
+        return False
+    try:
+        expected = digest_path.read_text(encoding="ascii").strip()
+    except OSError:
+        return False
+    return bool(expected and expected == _sha256_file(cache_report))
 
 
 def _base_capability_lock_cache_path(cache_report: Path) -> Path:
@@ -1123,6 +1194,12 @@ def _artifact_paths(
         "verifier_json": out_dir / "verifier.json",
         "verify_run_json": out_dir / "verify-run.json",
         "agent_handoff_json": out_dir / "agent-handoff.json",
+        "verification_plan_json": out_dir / "verification-plan.json",
+        "verification_input_diff": out_dir / "verification-input.diff",
+        "verification_base_report_json": out_dir / "verification-base-report.json",
+        "verification_unit_result_json": out_dir / "verification-unit-result.json",
+        "verification_artifact_manifest_json": out_dir / "verification-artifacts.json",
+        "verification_receipt_json": out_dir / "verification-receipt.json",
         "pr_comment": out_dir / "pr-comment.md",
     }
     if include_scan_artifacts:
@@ -1140,7 +1217,18 @@ def _artifact_paths(
     return {
         key: _display_path(path.resolve(), git_root)
         for key, path in candidates.items()
-        if key in {"verifier_json", "verify_run_json", "agent_handoff_json", "pr_comment"}
+        if key
+        in {
+            "verifier_json",
+            "verify_run_json",
+            "agent_handoff_json",
+            "verification_plan_json",
+            "verification_input_diff",
+            "verification_unit_result_json",
+            "verification_artifact_manifest_json",
+            "verification_receipt_json",
+            "pr_comment",
+        }
         or path.exists()
     }
 
@@ -1166,12 +1254,19 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
 
 
 def _clear_trusted_handoff(out_dir: Path) -> None:
-    """Remove any prior handoff before constructing a new trusted projection."""
+    """Remove every prior terminal/projection artifact before a new run."""
 
-    path = out_dir / "agent-handoff.json"
-    if path.is_file() or path.is_symlink():
-        with contextlib.suppress(OSError):
-            path.unlink()
+    for name in (
+        "agent-handoff.json",
+        "verification-plan.json",
+        "verification-unit-result.json",
+        "verification-artifacts.json",
+        "verification-receipt.json",
+    ):
+        path = out_dir / name
+        if path.is_file() or path.is_symlink():
+            with contextlib.suppress(OSError):
+                path.unlink()
 
 
 def _write_artifacts(
@@ -1190,6 +1285,11 @@ def _write_artifacts(
     fail_on: list[str] | None,
     pr_comment_style: str,
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
+    input_root: Path | None = None,
+    diff_text: str = "",
+    diff_from_path: Path | None = None,
+    verification_options: dict[str, Any] | None = None,
+    evaluation_date: str | None = None,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
     verifier_path.write_text(
@@ -1209,17 +1309,152 @@ def _write_artifacts(
     # in-memory report can still produce the canonical public payload.
     if report is not None:
         report_json_payload(report)
-    verify_run = _write_verify_run_artifact(
+    # Always preserve the actionable control handoff, including typed input
+    # failures that cannot produce a reproducible request identity. A complete
+    # run overwrites this projection after the verify-run artifact is built.
+    handoff_path = verifier_path.with_name("agent-handoff.json")
+    initial_handoff = build_agent_handoff(
         verifier=verifier,
         report=report,
+        verify_run=None,
+    )
+    handoff_path.write_text(
+        json.dumps(initial_handoff.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    # A missing or invalid manifest cannot yield a reproducible request
+    # identity.  Error artifacts remain useful diagnostics, but they are not a
+    # trusted receipt and downstream consumers must reject their absence.
+    if not config_path.is_file() or not ref_exists(git_root, verifier.head_ref):
+        return
+    resolved_input_root = (input_root or git_root).resolve()
+    logical_config = (
+        config_path.resolve().relative_to(resolved_input_root).as_posix()
+        if resolved_input_root in config_path.resolve().parents
+        else _display_path(config_path.resolve(), git_root)
+    )
+    resolved_date = evaluation_date or commit_date(git_root, verifier.head_ref)
+    base_commit = commit_sha(git_root, verifier.base_ref) if verifier.base_ref else None
+    head_commit = commit_sha(git_root, verifier.head_ref)
+    portable_diff_from_path: Path | None = None
+    if diff_from_path is not None and diff_from_path.is_file():
+        portable_diff_from_path = verifier_path.with_name("verification-base-report.json")
+        shutil.copyfile(diff_from_path, portable_diff_from_path)
+        verifier.artifacts["verification_base_report_json"] = _display_path(
+            portable_diff_from_path.resolve(), git_root
+        )
+    plan = build_verification_plan(
+        git_root=git_root,
+        input_root=resolved_input_root,
+        config_path=config_path,
+        config_logical_path=logical_config,
+        base_ref=verifier.base_ref,
+        head_ref=verifier.head_ref,
+        archived_head=resolved_input_root != git_root.resolve(),
+        repository_id=repository_identity(git_root),
+        base_commit_sha=base_commit,
+        base_tree_sha=(
+            tree_sha(git_root, verifier.base_ref) if verifier.base_ref and base_commit else None
+        ),
+        head_commit_sha=head_commit,
+        head_tree_sha=(tree_sha(git_root, verifier.head_ref) if head_commit else None),
+        merge_base_sha=(
+            merge_base_sha(git_root, verifier.base_ref, verifier.head_ref)
+            if verifier.base_ref and base_commit
+            else None
+        ),
+        changed_files=verifier.changed_files,
+        diff_text=diff_text,
+        baseline_path=baseline_path,
+        diff_from_path=portable_diff_from_path,
+        policy_pack_paths=policy_pack_paths,
+        evaluation_date=resolved_date,
+        options={
+            "ci_mode": verifier.mode,
+            "fail_on": sorted(fail_on or []),
+            "no_heuristics": no_heuristics,
+            "plugins_enabled": plugins_enabled is not False,
+            **(verification_options or {}),
+        },
+        plugins_enabled=plugins_enabled,
+    )
+    plan_path = verifier_path.with_name("verification-plan.json")
+    diff_input_path = verifier_path.with_name("verification-input.diff")
+    diff_input_path.write_text(diff_text, encoding="utf-8")
+    plan_path.write_text(
+        json.dumps(plan.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    unit_result = build_unit_result(
+        plan=plan,
+        status=("succeeded" if verifier.execution in {"succeeded", "skipped"} else "failed"),
+        normalized_ir={
+            "execution": verifier.execution,
+            "report_run_id": report.run_id if report is not None else None,
+            "report_schema_version": (report.report_schema_version if report is not None else None),
+        },
+    )
+    unit_path = verifier_path.with_name("verification-unit-result.json")
+    unit_path.write_text(
+        json.dumps(unit_result.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    executor = build_executor(plan.engine)
+    decision_id = content_id(
+        {
+            "request_id": plan.request_id,
+            "unit_result_ids": [unit_result.unit_result_id],
+            "decision": verifier.decision,
+            "merge_verdict": verifier.merge_verdict,
+            "can_merge_without_human": verifier.can_merge_without_human,
+        }
+    )
+    verifier.request_id = plan.request_id
+    verifier.subject_id = plan.subject.subject_id
+    verifier.input_set_id = plan.inputs.input_set_id
+    verifier.engine_requirement_id = plan.engine.engine_requirement_id
+    verifier.executor_id = executor.executor_id
+    verifier.decision_id = decision_id
+    if report is not None:
+        report.request_id = plan.request_id
+        report.subject_id = plan.subject.subject_id
+        report.input_set_id = plan.inputs.input_set_id
+        report.engine_requirement_id = plan.engine.engine_requirement_id
+        report.decision_id = decision_id
+        report_path = verifier_path.with_name("report.json")
+        if report_path.is_file():
+            report_path.write_text(
+                json.dumps(report_json_payload(report), indent=2),
+                encoding="utf-8",
+            )
+        packet_path = verifier_path.with_name("packet.json")
+        if packet_path.is_file():
+            packet = load_packet_json(packet_path.read_text(encoding="utf-8"))
+            packet.request_id = plan.request_id
+            packet.subject_id = plan.subject.subject_id
+            packet.input_set_id = plan.inputs.input_set_id
+            packet.engine_requirement_id = plan.engine.engine_requirement_id
+            packet.decision_id = decision_id
+            write_packet_json(packet, packet_path)
+    verifier_path.write_text(
+        json.dumps(verifier.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+    pr_comment_path.write_text(
+        render_pr_comment(
+            verifier,
+            report=report,
+            style=pr_comment_style,
+            capability_lock_diff=capability_lock_diff,
+        ),
+        encoding="utf-8",
+    )
+    verify_run = _write_verify_run_artifact(
+        verifier=verifier,
         path=verify_run_path,
         git_root=git_root,
-        config_path=config_path,
-        baseline_path=baseline_path,
-        policy_pack_paths=policy_pack_paths,
-        plugins_enabled=plugins_enabled,
-        no_heuristics=no_heuristics,
-        fail_on=fail_on,
+        plan=plan,
+        unit_result_id=unit_result.unit_result_id,
     )
     # Fail closed if this projection ever disagrees with the verifier/report
     # substrate. The handoff artifact is additive, but an inconsistent handoff
@@ -1229,8 +1464,56 @@ def _write_artifacts(
         report=report,
         verify_run=verify_run,
     )
-    verifier_path.with_name("agent-handoff.json").write_text(
+    handoff_path.write_text(
         json.dumps(handoff.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    if unit_result.status != "succeeded":
+        # Failed executions retain their plan, failed unit IR, verifier,
+        # verify-run, and actionable handoff, but never receive a terminal
+        # success receipt.
+        return
+    identity_names = {
+        "verification_plan_json",
+        "verification_input_diff",
+        "verification_unit_result_json",
+        "verification_artifact_manifest_json",
+        "verification_receipt_json",
+    }
+    artifact_paths = {
+        name: _resolve_under_workspace(git_root, Path(value))
+        for name, value in verifier.artifacts.items()
+        if name not in identity_names
+    }
+    artifact_paths.update(
+        {
+            "verification_plan_json": plan_path,
+            "verification_input_diff": diff_input_path,
+            "verification_unit_result_json": unit_path,
+            "agent_handoff_json": handoff_path,
+            "verify_run_json": verify_run_path,
+        }
+    )
+    manifest, receipt = build_terminal_receipt(
+        plan=plan,
+        unit_results=[unit_result],
+        decision=verifier.decision,
+        merge_verdict=verifier.merge_verdict,
+        can_merge_without_human=verifier.can_merge_without_human,
+        artifact_paths=artifact_paths,
+        artifact_root=verifier_path.parent,
+        attempt_id=None,
+    )
+    manifest_path = verifier_path.with_name("verification-artifacts.json")
+    manifest_path.write_text(
+        json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    # Terminal receipt is written last. Its presence means every referenced
+    # artifact existed and was hashed after final serialization.
+    receipt_path = verifier_path.with_name("verification-receipt.json")
+    receipt_path.write_text(
+        json.dumps(receipt.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
 
@@ -1238,37 +1521,11 @@ def _write_artifacts(
 def _write_verify_run_artifact(
     *,
     verifier: VerifierArtifact,
-    report: ReadinessReport | None,
     path: Path,
     git_root: Path,
-    config_path: Path,
-    baseline_path: Path | None,
-    policy_pack_paths: list[Path],
-    plugins_enabled: bool | None,
-    no_heuristics: bool,
-    fail_on: list[str] | None,
+    plan: VerificationPlan,
+    unit_result_id: str,
 ) -> Any:
-    subject = VerifyRunSubject(
-        workspace=".",
-        config=_display_path(config_path.resolve(), git_root),
-        base_ref=verifier.base_ref,
-        head_ref=verifier.head_ref,
-        base_tree_sha=verifier.base_tree_sha,
-        head_tree_sha=verifier.head_tree_sha,
-    )
-    inputs = VerifyRunInputs(
-        config_sha256=_sha256_file(config_path),
-        baseline_sha256=_sha256_file(baseline_path) if baseline_path is not None else None,
-        policy_packs=_verify_run_policy_packs(
-            report=report,
-            policy_pack_paths=policy_pack_paths,
-            git_root=git_root,
-        ),
-        plugins_enabled=plugins_enabled,
-        no_heuristics=no_heuristics,
-        ci_mode=verifier.mode,
-        fail_on=list(fail_on or []),
-    )
     outcome = VerifyRunOutcome(
         exit_code=verifier.head_exit_code,
         base_status=verifier.base_status,
@@ -1280,8 +1537,9 @@ def _write_verify_run_artifact(
         control=verifier.control,
     )
     artifact = build_verify_run_artifact(
-        subject=subject,
-        inputs=inputs,
+        plan=plan,
+        executor=build_executor(plan.engine),
+        unit_result_ids=[unit_result_id],
         outcome=outcome,
         artifacts=_verify_run_artifact_refs(verifier, git_root=git_root),
     )
@@ -1292,43 +1550,21 @@ def _write_verify_run_artifact(
     return artifact
 
 
-def _verify_run_policy_packs(
-    *,
-    report: ReadinessReport | None,
-    policy_pack_paths: list[Path],
-    git_root: Path,
-) -> list[VerifyRunPolicyPack]:
-    if report is not None and report.loaded_policy_packs:
-        return [
-            VerifyRunPolicyPack(
-                id=pack.id,
-                name=pack.name,
-                version=pack.version,
-                path=pack.path,
-                sha256=pack.sha256,
-                sha256_status=pack.sha256_status,
-                rule_count=pack.rule_count,
-            )
-            for pack in report.loaded_policy_packs
-        ]
-    return [
-        VerifyRunPolicyPack(
-            path=_display_path(path.resolve(), git_root),
-            sha256=_sha256_file(path),
-            sha256_status="unpinned",
-        )
-        for path in policy_pack_paths
-    ]
-
-
 def _verify_run_artifact_refs(
     verifier: VerifierArtifact,
     *,
     git_root: Path,
 ) -> dict[str, VerifyRunArtifactRef]:
     refs: dict[str, VerifyRunArtifactRef] = {}
+    terminal_identity_artifacts = {
+        "verify_run_json",
+        "verification_plan_json",
+        "verification_unit_result_json",
+        "verification_artifact_manifest_json",
+        "verification_receipt_json",
+    }
     for key, value in sorted(verifier.artifacts.items()):
-        if key == "verify_run_json":
+        if key in terminal_identity_artifacts:
             continue
         artifact_path = _resolve_under_workspace(git_root, Path(value))
         refs[key] = VerifyRunArtifactRef(

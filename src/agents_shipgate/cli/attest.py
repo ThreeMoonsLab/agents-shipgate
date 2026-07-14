@@ -25,10 +25,12 @@ import typer
 from agents_shipgate import __version__
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.verification_identity import validate_receipt_artifacts
 from agents_shipgate.schemas.attestation import (
     ATTESTATION_SCHEMA_VERSION,
     ReleaseAttestationV1,
 )
+from agents_shipgate.schemas.verification_identity import VerificationReceipt
 
 
 def _attest_command(
@@ -127,6 +129,16 @@ def _attest_command(
         if verify_run_path is not None and verify_run_path.is_file()
         else None
     )
+    receipt_path = source.with_name("verification-receipt.json")
+    receipt_payload = _load_optional_json_object(receipt_path)
+    receipt_sha256 = None
+    if verifier.get("verifier_schema_version") == "0.5":
+        if not receipt_payload:
+            raise typer.Exit(3)
+        receipt = VerificationReceipt.model_validate(receipt_payload)
+        validate_receipt_artifacts(receipt, root=source.parent)
+        receipt_payload = receipt.model_dump(mode="json")
+        receipt_sha256 = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
     org_context, run_context = _context_from_inputs(
         config=config,
         explicit={
@@ -155,6 +167,8 @@ def _attest_command(
         report=report,
         verify_run=verify_run_payload,
         verify_run_sha256=verify_run_sha256,
+        verification_receipt=receipt_payload,
+        verification_receipt_sha256=receipt_sha256,
         org_context=org_context,
         run_context=run_context,
     )
@@ -178,6 +192,8 @@ def build_attestation_payload(
     report: dict[str, Any] | None = None,
     verify_run: dict[str, Any] | None = None,
     verify_run_sha256: str | None = None,
+    verification_receipt: dict[str, Any] | None = None,
+    verification_receipt_sha256: str | None = None,
     org_context: dict[str, Any] | None = None,
     run_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -202,6 +218,7 @@ def build_attestation_payload(
         human_review = _obj(verifier.get("human_review"))
     report = report or {}
     verify_run = verify_run or {}
+    verification_receipt = verification_receipt or {}
     human_ack = _obj(report.get("human_ack"))
     effective_policy = report.get("effective_policy")
     org_context = _clean_org_context(org_context or {})
@@ -214,6 +231,11 @@ def build_attestation_payload(
         "source_verifier": source.name if redacted else str(source),
         "redacted": redacted,
         "run_id": _clean_str(verify_run.get("run_id")),
+        "request_id": _clean_str(verification_receipt.get("request_id")),
+        "receipt_id": _clean_str(verification_receipt.get("receipt_id")),
+        "decision_id": _clean_str(verification_receipt.get("decision_id")),
+        "artifact_set_id": _clean_str(verification_receipt.get("artifact_set_id")),
+        "verification_receipt_sha256": _clean_str(verification_receipt_sha256),
         "verify_run_sha256": _clean_str(verify_run_sha256),
         "event_time": run_context.get("event_time"),
         "source_url": run_context.get("source_url"),
@@ -587,7 +609,7 @@ def _canonical_sha256(obj: Any) -> str:
 
 
 def _verify_run_policy_packs(verify_run: dict[str, Any]) -> list[dict[str, str | int | None]]:
-    inputs = _obj(verify_run.get("inputs"))
+    inputs = _obj(_obj(verify_run.get("plan")).get("inputs")) or _obj(verify_run.get("inputs"))
     rows: list[dict[str, str | int | None]] = []
     for item in inputs.get("policy_packs") or []:
         if not isinstance(item, dict):

@@ -26,15 +26,15 @@ from scripts.verify_safety_qualification_release import (
     verify_release_qualification,
 )
 
-VERSION = "0.16.0b5"
+VERSION = "0.16.0b6"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _write_wheel(path: Path) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            "agents_shipgate-0.16.0b5.dist-info/METADATA",
-            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b5\n",
+            "agents_shipgate-0.16.0b6.dist-info/METADATA",
+            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b6\n",
         )
 
 
@@ -177,7 +177,7 @@ def _production_result(wheel: Path) -> SafetyQualificationResultV1:
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path]:
     tmp_path.mkdir(parents=True, exist_ok=True)
-    wheel = tmp_path / "agents_shipgate-0.16.0b5-py3-none-any.whl"
+    wheel = tmp_path / "agents_shipgate-0.16.0b6-py3-none-any.whl"
     _write_wheel(wheel)
     qualification = tmp_path / "safety-qualification.json"
     qualification.write_text(

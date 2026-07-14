@@ -35,6 +35,7 @@ from agents_shipgate.schemas.surfaces import (
     ToolSurfaceDiff,
     ToolSurfaceFacts,
 )
+from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 
 
 class CapabilityPolicyEvidence(BaseModel):
@@ -1008,8 +1009,14 @@ class ReadinessReport(BaseModel):
     # v0.32: required Conductor OSS workflow summary fields.
     # v0.33: typed evidence basis, predicate support, and unsuppressible
     # indeterminate-policy evidence gaps.
-    report_schema_version: str = "0.33"
+    # v0.34: content-addressed verification request and decision bindings.
+    report_schema_version: str = "0.34"
     run_id: str
+    request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    input_set_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    engine_requirement_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    decision_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     # v0.6 (per C13): absolute path to the directory containing
     # shipgate.yaml. apply-patches uses this to enforce a containment
     # check on every patch's target_file. Optional for backwards

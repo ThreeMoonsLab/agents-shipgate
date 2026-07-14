@@ -75,7 +75,8 @@ verifier artifact can do so.
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
+fetches. Validate `agents-shipgate-reports/verification-receipt.json` first,
+then read `agents-shipgate-reports/agent-handoff.json` for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `control`; then read
 `agents-shipgate-reports/verifier.json` for detailed control context,
 `agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
@@ -182,7 +183,8 @@ verifier artifact can do so.
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
+fetches. Validate `agents-shipgate-reports/verification-receipt.json` first,
+then read `agents-shipgate-reports/agent-handoff.json` for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `control`; then read
 `agents-shipgate-reports/verifier.json` for detailed control context,
 `agents-shipgate-reports/verify-run.json` for reproducibility metadata, and
@@ -267,7 +269,8 @@ For local verification, run:
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never
-fetches. Read `agents-shipgate-reports/agent-handoff.json` first for
+fetches. Validate `agents-shipgate-reports/verification-receipt.json` first,
+then read `agents-shipgate-reports/agent-handoff.json` for
 `gate.merge_verdict`, `gate.can_merge_without_human`, and `control`; then read
 `agents-shipgate-reports/verifier.json` for detailed control context,
 `agents-shipgate-reports/verify-run.json` for reproducibility metadata, and

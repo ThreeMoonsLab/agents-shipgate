@@ -104,7 +104,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.33, current). Always parse this for programmatic use.
+  (schema v0.34, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
   `summary.status` field is baseline-blind (kept for v0.7 callers). A
   `passed` decision requires complete, conflict-free static surface, effect,
@@ -120,14 +120,14 @@ schema.
 ## What is the Release Evidence Packet?
 
 A reviewer-shaped synthesis of the scan, emitted alongside the report by
-default. The packet is governed by [`docs/packet-schema.v0.11.json`](packet-schema.v0.11.json)
+default. The packet is governed by [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 and has fixed reviewer sections (release decision, evidence matrix, capability/intent,
 high-risk surface, tool-surface diff, action-surface diff, approval coverage,
 idempotency risk, scope coverage, memory isolation, human-in-the-loop,
 dynamic scenarios, and a
 `not_proven` section that always lists prompt robustness, runtime
 behavior, model correctness, and adversarial resistance verbatim). See
-[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v011).
+[STABILITY.md §Release Evidence Packet](../STABILITY.md#release-evidence-packet-v012).
 Packet schema `0.9` adds semantic coverage and gap remediation, and packet §1
 mirrors the report's `static_analysis_only: true`,
 `runtime_behavior_verified: false`, and canonical
@@ -148,9 +148,9 @@ Skip emission with `--no-packet`; re-render later with
 ## Is it production-ready?
 
 v0.15.0 is the latest published pre-1.0 beta. The in-tree runtime is
-`0.16.0b5`, which prevents heuristic evidence from being upgraded into
-authoritative policy findings on top of the multi-host boundary and
-root-reachable binding contracts for beta qualification. The manifest schema
+`0.16.0b6`, which adds content-addressed verification receipts and reproducible
+distributed-execution boundaries on top of typed policy evidence, the
+multi-host boundary, and root-reachable binding contracts. The manifest schema
 remains stable across the 0.x series; see
 [`STABILITY.md`](../STABILITY.md). Public preview.
 

@@ -202,6 +202,7 @@
     ],
     "status": "covered"
   },
+  "decision_id": null,
   "dynamic_scenarios": {
     "scenarios": [
       {
@@ -286,6 +287,7 @@
     ],
     "status": "partial"
   },
+  "engine_requirement_id": null,
   "environment": {
     "promotion_from": "staging",
     "promotion_to": "production_like",
@@ -1643,6 +1645,7 @@
     ],
     "status": "partial"
   },
+  "input_set_id": null,
   "memory_isolation": {
     "is_declared": false,
     "notes": "Manifest does not declare a memory isolation policy. The current manifest schema (v0.1) has no agent.memory field. See \u00a710 for the residual review item.",
@@ -1677,7 +1680,7 @@
       }
     ]
   },
-  "packet_schema_version": "0.11",
+  "packet_schema_version": "0.12",
   "project": {
     "name": "support-refund-agent",
     "owner": "support-platform",
@@ -2696,6 +2699,7 @@
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "verdict": "BLOCKED"
   },
+  "request_id": null,
   "run_id": "agents_shipgate_e25de5ef59b7d500",
   "scope_coverage": {
     "declared_scopes": [
@@ -2871,6 +2875,7 @@
       "zendesk:tickets:read"
     ]
   },
+  "subject_id": null,
   "tool_surface_diff": {
     "base_kind": "none",
     "enabled": false,

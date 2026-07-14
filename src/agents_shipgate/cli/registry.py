@@ -82,6 +82,11 @@ def _row_from_attestation(
         "attestation_schema_version": attestation.get("attestation_schema_version"),
         "cli_version": attestation.get("cli_version"),
         "run_id": attestation.get("run_id"),
+        "request_id": attestation.get("request_id"),
+        "receipt_id": attestation.get("receipt_id"),
+        "decision_id": attestation.get("decision_id"),
+        "artifact_set_id": attestation.get("artifact_set_id"),
+        "source_verification_receipt_sha256": attestation.get("verification_receipt_sha256"),
         "source_attestation_sha256": source_attestation_sha256,
         "source_verify_run_sha256": attestation.get("verify_run_sha256"),
         "base_ref": attestation.get("base_ref"),
@@ -103,9 +108,7 @@ def _row_from_attestation(
         "human_ack_satisfied": (
             human_ack_satisfied if isinstance(human_ack_satisfied, bool) else None
         ),
-        "human_ack_outstanding": [
-            str(item) for item in human_ack.get("outstanding") or []
-        ],
+        "human_ack_outstanding": [str(item) for item in human_ack.get("outstanding") or []],
         "human_ack": human_ack,
         "policy_snapshot_sha256": attestation.get("policy_snapshot_sha256"),
         "artifact_sha256": attestation.get("artifact_sha256"),
@@ -130,9 +133,12 @@ def _row_from_attestation(
 
 def _row_id(row: dict[str, Any] | RegistryRowV1) -> str:
     payload = _row_identity_payload(row)
-    return "att_" + hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:16]
+    return (
+        "att_"
+        + hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:16]
+    )
 
 
 def _row_identity_payload(row: dict[str, Any] | RegistryRowV1) -> dict[str, Any]:
@@ -211,9 +217,7 @@ def _coerce_row(value: dict[str, Any]) -> RegistryRowV1:
         satisfied = human_ack.get("satisfied")
         value["human_ack_satisfied"] = satisfied if isinstance(satisfied, bool) else None
     if "human_ack_outstanding" not in value and isinstance(human_ack, dict):
-        value["human_ack_outstanding"] = [
-            str(item) for item in human_ack.get("outstanding") or []
-        ]
+        value["human_ack_outstanding"] = [str(item) for item in human_ack.get("outstanding") or []]
     if "row_id" not in value:
         value["row_id"] = _row_id(value)
     row = RegistryRowV1.model_validate(value)
@@ -265,11 +269,7 @@ def registry_ingest(
     existing = _load_rows(registry)
     source_attestation_sha256 = hashlib.sha256(raw).hexdigest()
     prior = next(
-        (
-            item
-            for item in existing
-            if item.source_attestation_sha256 == source_attestation_sha256
-        ),
+        (item for item in existing if item.source_attestation_sha256 == source_attestation_sha256),
         None,
     )
     if prior is not None:
@@ -280,7 +280,9 @@ def registry_ingest(
             data,
             repo=repo,
             source_attestation_sha256=source_attestation_sha256,
-            previous_row=_last_row_for_repo(existing, repo or (data.get("org") or {}).get("repo") or ""),
+            previous_row=_last_row_for_repo(
+                existing, repo or (data.get("org") or {}).get("repo") or ""
+            ),
         )
         status = "ingested"
         registry.parent.mkdir(parents=True, exist_ok=True)
@@ -300,9 +302,7 @@ def registry_query(
     service: str | None = typer.Option(None, "--service", help="Filter by service."),
     tier: str | None = typer.Option(None, "--tier", help="Filter by tier."),
     actor: str | None = typer.Option(None, "--actor", help="Filter by CI/merge actor."),
-    verdict: str | None = typer.Option(
-        None, "--verdict", help="Filter by merge_verdict."
-    ),
+    verdict: str | None = typer.Option(None, "--verdict", help="Filter by merge_verdict."),
     capability_id: str | None = typer.Option(
         None, "--capability-id", help="Filter rows whose change_ids contain this id."
     ),
@@ -524,8 +524,7 @@ def _registry_summary_payload(
             1
             for row in rows
             for pack in row.policy_packs
-            if isinstance(pack, dict)
-            and pack.get("status") not in {None, "verified"}
+            if isinstance(pack, dict) and pack.get("status") not in {None, "verified"}
         ),
     )
 

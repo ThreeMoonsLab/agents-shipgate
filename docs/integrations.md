@@ -92,7 +92,7 @@ Action outputs:
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
 | `verifier_json` | Path to `verifier.json`. |
-| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v2.json`](verify-run-schema.v2.json). |
+| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v3.json`](verify-run-schema.v3.json). |
 | `run_id` | Stable verify-run input identity from `verify-run.json.run_id`. |
 | `pr_comment_markdown` | Path to `pr-comment.md`. |
 | `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |

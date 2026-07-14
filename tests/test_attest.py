@@ -13,9 +13,7 @@ from agents_shipgate.cli.main import app
 
 runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = json.loads(
-    (REPO_ROOT / "docs/attestation-schema.v0.4.json").read_text(encoding="utf-8")
-)
+SCHEMA = json.loads((REPO_ROOT / "docs/attestation-schema.v0.5.json").read_text(encoding="utf-8"))
 
 
 def _verifier_payload() -> dict:
@@ -45,9 +43,7 @@ def _verifier_payload() -> dict:
             "report_json": "agents-shipgate-reports/report.json",
             "pr_comment": "agents-shipgate-reports/pr-comment.md",
             "capability_lock": "agents-shipgate-reports/capabilities.lock.json",
-            "capability_lock_diff_json": (
-                "agents-shipgate-reports/capability-lock-diff.json"
-            ),
+            "capability_lock_diff_json": ("agents-shipgate-reports/capability-lock-diff.json"),
         },
     }
 
@@ -86,7 +82,7 @@ def test_build_attestation_core_fields() -> None:
         redacted=True,
         report=_report_payload(),
     )
-    assert att["attestation_schema_version"] == "0.4"
+    assert att["attestation_schema_version"] == "0.5"
     assert att["run_id"] is None
     assert att["verify_run_sha256"] is None
     assert att["event_time"] is None
@@ -193,9 +189,9 @@ def test_human_ack_and_policy_hash_from_report() -> None:
         ],
     }
     expected = hashlib.sha256(
-        json.dumps(
-            report["effective_policy"], sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
+        json.dumps(report["effective_policy"], sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
     ).hexdigest()
     assert att["policy_snapshot_sha256"] == expected
 
@@ -278,9 +274,7 @@ def test_artifact_hashes_resolve_siblings_of_verifier(tmp_path: Path) -> None:
         "pr_comment": "/somewhere/else/pr-comment.md",
         "missing": "/somewhere/else/nope.json",
     }
-    att = build_attestation_payload(
-        verifier, source=tmp_path / "verifier.json", redacted=True
-    )
+    att = build_attestation_payload(verifier, source=tmp_path / "verifier.json", redacted=True)
     assert att["artifact_sha256"]["pr_comment"] == hashlib.sha256(b"hello").hexdigest()
     assert att["artifact_sha256"]["report_json"] == hashlib.sha256(b"{}").hexdigest()
     assert "missing" not in att["artifact_sha256"]  # absent files are skipped
@@ -333,9 +327,7 @@ def test_capability_artifact_bindings_resolve_siblings(tmp_path: Path) -> None:
         "capability_count": 2,
     }
     assert att["capability_diff"]["path"] == "capability-lock-diff.json"
-    assert att["capability_diff"]["sha256"] == hashlib.sha256(
-        diff_text.encode("utf-8")
-    ).hexdigest()
+    assert att["capability_diff"]["sha256"] == hashlib.sha256(diff_text.encode("utf-8")).hexdigest()
     assert att["capability_diff"]["capability_lock_diff_schema_version"] == "0.4"
     assert att["capability_diff"]["base_semantic_capability_set_hash"] == "sem_base"
     assert att["capability_diff"]["head_semantic_capability_set_hash"] == "sem_head"
@@ -358,12 +350,8 @@ def test_attestation_validates_against_schema(report) -> None:
 
 
 def test_attest_cli_writes_json_and_enriches_from_sibling_report(tmp_path: Path) -> None:
-    (tmp_path / "verifier.json").write_text(
-        json.dumps(_verifier_payload()), encoding="utf-8"
-    )
-    (tmp_path / "report.json").write_text(
-        json.dumps(_report_payload()), encoding="utf-8"
-    )
+    (tmp_path / "verifier.json").write_text(json.dumps(_verifier_payload()), encoding="utf-8")
+    (tmp_path / "report.json").write_text(json.dumps(_report_payload()), encoding="utf-8")
     out = tmp_path / "attestation.json"
 
     result = runner.invoke(
@@ -384,12 +372,8 @@ def test_attest_cli_writes_json_and_enriches_from_sibling_report(tmp_path: Path)
 def test_attest_cli_reads_org_config_and_github_actions_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "verifier.json").write_text(
-        json.dumps(_verifier_payload()), encoding="utf-8"
-    )
-    (tmp_path / "report.json").write_text(
-        json.dumps(_report_payload()), encoding="utf-8"
-    )
+    (tmp_path / "verifier.json").write_text(json.dumps(_verifier_payload()), encoding="utf-8")
+    (tmp_path / "report.json").write_text(json.dumps(_report_payload()), encoding="utf-8")
     (tmp_path / "shipgate.yaml").write_text(
         """
 version: "0.1"
@@ -470,9 +454,7 @@ tool_sources:
 
 
 def test_attest_cli_out_without_json_prints_written_message(tmp_path: Path) -> None:
-    (tmp_path / "verifier.json").write_text(
-        json.dumps(_verifier_payload()), encoding="utf-8"
-    )
+    (tmp_path / "verifier.json").write_text(json.dumps(_verifier_payload()), encoding="utf-8")
     out = tmp_path / "attestation.json"
     result = runner.invoke(
         app, ["attest", "--from", str(tmp_path / "verifier.json"), "--out", str(out)]

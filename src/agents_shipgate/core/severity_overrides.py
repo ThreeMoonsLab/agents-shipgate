@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 
 from agents_shipgate.core.check_ids import expands_to_check_id
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.evaluation_clock import evaluation_date
 from agents_shipgate.schemas.checks import CheckMetadata
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
@@ -168,7 +169,7 @@ def resolve_severity_overrides(
        and audit purposes. Floor enforcement still uses the catalog
        floor (the static gate floor for the check class).
     """
-    today = today or date.today()
+    today = today or evaluation_date()
     catalog_by_id = _catalog_index(catalog)
     known_ids = _known_check_ids(catalog)
     ack_by_id = _ack_by_check_id(acknowledgements)
@@ -223,10 +224,7 @@ def resolve_severity_overrides(
         # ``test_dynamic_default_aggregator_completeness`` catches it
         # pre-merge; ``assert`` is unsafe because it's stripped under
         # ``python -O``.
-        if (
-            target_metadata.dynamic_default
-            and check_id not in extra_defaults
-        ):
+        if target_metadata.dynamic_default and check_id not in extra_defaults:
             raise RuntimeError(
                 f"internal: dynamic-default check {check_id!r} missing "
                 f"from extra_known_check_defaults; the aggregator in "
@@ -244,9 +242,7 @@ def resolve_severity_overrides(
         # call-site that aggregates action-policy declarations.
         catalog_default_severity = target_metadata.default_severity
         dynamic_default = extra_defaults.get(check_id)
-        if dynamic_default is not None and _is_weaker(
-            catalog_default_severity, dynamic_default
-        ):
+        if dynamic_default is not None and _is_weaker(catalog_default_severity, dynamic_default):
             default_severity = dynamic_default
         else:
             default_severity = catalog_default_severity
@@ -334,8 +330,7 @@ def _enforce_ack_expiry(
     if not expired:
         return
     bullets = "\n".join(
-        f"  - {ack.check_id}: expired on {ack.expires.isoformat()}"
-        for ack in expired
+        f"  - {ack.check_id}: expired on {ack.expires.isoformat()}" for ack in expired
     )
     plural = "s" if len(expired) > 1 else ""
     raise ConfigError(

@@ -29,6 +29,10 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "gating_signal",
         "verifier_schema_version",
         "verify_run_schema_version",
+        "verification_plan_schema_version",
+        "verification_unit_result_schema_version",
+        "verification_artifact_manifest_schema_version",
+        "verification_receipt_schema_version",
         "agent_handoff_schema_version",
         "agent_handoff_schema_path",
         "agent_handoff_artifact",
@@ -85,29 +89,35 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["artifacts"]["verify_run"] == "agents-shipgate-reports/verify-run.json"
     assert payload["artifacts"]["agent_handoff"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["agent_read_order"] == [
+        "verification-receipt.json",
+        "verification-receipt.json.request_id",
+        "verification-receipt.json.receipt_id",
         "agent-handoff.json",
         "agent-handoff.json.control.state",
         "verifier.json.control.state",
         "verify-run.json",
         "report.json.release_decision.decision",
     ]
-    assert payload["verifier_read_order"][0] == "control.state"
+    assert payload["verifier_read_order"][:3] == [
+        "control.state",
+        "execution",
+        "merge_verdict",
+    ]
+    assert payload["verifier_read_order"][-2:] == ["request_id", "decision_id"]
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.4"
-    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v2"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v4"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v4.json"
+    assert payload["verifier_schema_version"] == "0.5"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v3"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v5"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v5.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
-    assert payload["agent_boundary_result_schema_version"] == (
-        "shipgate.agent_boundary_result/v1"
-    )
+    assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v1")
     assert payload["agent_boundary_result_schema_path"] == (
         "docs/agent-boundary-result-schema.v1.json"
     )
-    assert payload["attestation_schema_version"] == "0.4"
-    assert payload["registry_schema_version"] == "0.3"
-    assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v1")
+    assert payload["attestation_schema_version"] == "0.5"
+    assert payload["registry_schema_version"] == "0.4"
+    assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
     assert payload["host_grants_inventory_schema_version"] == "0.2"
     assert payload["host_grants_baseline_schema_version"] == "0.2"
     assert payload["host_grants_drift_schema_version"] == "0.2"

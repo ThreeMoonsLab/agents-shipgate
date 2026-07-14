@@ -36,7 +36,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.33.json`](report-schema.v0.33.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.33"`, typed policy-evidence support and non-waivable applicability gaps, the Conductor OSS summary, root-reachable binding facts, and the static-only verdict boundary)
+- [`report-schema.v0.34.json`](report-schema.v0.34.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.34"`, typed policy-evidence support and non-waivable applicability gaps, the Conductor OSS summary, root-reachable binding facts, and the static-only verdict boundary)
+- [`report-schema.v0.33.json`](report-schema.v0.33.json) — frozen v0.33 typed policy-evidence reference; pre-v0.34 reports validate against this
 - [`report-schema.v0.32.json`](report-schema.v0.32.json) — frozen v0.32 Conductor OSS summary reference; pre-v0.33 reports validate against this
 - [`report-schema.v0.31.json`](report-schema.v0.31.json) — frozen v0.31 root-reachable binding reference; pre-v0.32 reports validate against this
 - [`report-schema.v0.30.json`](report-schema.v0.30.json) — frozen v0.30 provider-scoped identity reference; pre-v0.31 reports validate against this
@@ -45,13 +46,20 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.4.json`](verifier-schema.v0.4.json) — JSON Schema for `verifier.json`, including typed policy-evidence gaps and finding support
+- [`verifier-schema.v0.5.json`](verifier-schema.v0.5.json) — JSON Schema for `verifier.json`, including typed policy-evidence gaps and finding support
+- [`verifier-schema.v0.4.json`](verifier-schema.v0.4.json) — frozen v0.4 verifier reference
 - [`verifier-schema.v0.3.json`](verifier-schema.v0.3.json) — frozen v0.3 verifier reference
 - [`verifier-schema.v0.2.json`](verifier-schema.v0.2.json) — frozen v0.2 verifier reference
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — frozen v0.1 verifier reference
-- [`verify-run-schema.v2.json`](verify-run-schema.v2.json) — JSON Schema for `verify-run.json`, the deterministic verify-run reproducibility artifact
+- [`verify-run-schema.v3.json`](verify-run-schema.v3.json) — JSON Schema for `verify-run.json`, the deterministic verify-run reproducibility artifact
+- [`verify-run-schema.v2.json`](verify-run-schema.v2.json) — frozen verify-run v2 reference
 - [`verify-run-schema.v1.json`](verify-run-schema.v1.json) — frozen verify-run v1 reference
-- [`agent-handoff-schema.v4.json`](agent-handoff-schema.v4.json) — current compact verifier handoff schema with support hashes on blocking evidence
+- [`agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json) — current compact verifier handoff schema with support hashes on blocking evidence
+- [`verification-plan-schema.v1.json`](verification-plan-schema.v1.json) — content-addressed verification subject, inputs, engine requirement, and task plan
+- [`verification-unit-result-schema.v1.json`](verification-unit-result-schema.v1.json) — decision-free worker result contract
+- [`verification-artifact-manifest-schema.v1.json`](verification-artifact-manifest-schema.v1.json) — content-addressed terminal artifact set
+- [`verification-receipt-schema.v1.json`](verification-receipt-schema.v1.json) — terminal request, decision, executor, and artifact closure
+- [`agent-handoff-schema.v4.json`](agent-handoff-schema.v4.json) — frozen handoff v4 reference
 - [`agent-handoff-schema.v3.json`](agent-handoff-schema.v3.json) — frozen handoff v3 reference
 - [`agent-handoff-schema.v2.json`](agent-handoff-schema.v2.json) — frozen handoff v2 reference
 - [`agent-result-schema.v2.json`](agent-result-schema.v2.json) — current shared local-check and MCP result schema
@@ -64,10 +72,12 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`policy-pack-schema.v0.3.json`](policy-pack-schema.v0.3.json) — frozen v0.3 policy-pack reference
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — frozen v0.2 policy-pack reference
 - [`policy-pack-schema.v0.1.json`](policy-pack-schema.v0.1.json) — frozen v0.1 reference schema for the flat match syntax
-- [`attestation-schema.v0.4.json`](attestation-schema.v0.4.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`; adds verify-run binding, explicit CI event facts, capability-lock/diff summaries, and policy-pack pin records for cross-repo ledgers
+- [`attestation-schema.v0.5.json`](attestation-schema.v0.5.json) — JSON Schema for `attestation.json` emitted by `agents-shipgate attest`; adds verify-run binding, explicit CI event facts, capability-lock/diff summaries, and policy-pack pin records for cross-repo ledgers
+- [`attestation-schema.v0.4.json`](attestation-schema.v0.4.json) — frozen v0.4 attestation reference
 - [`org-governance-schema.v0.1.json`](org-governance-schema.v0.1.json) — JSON Schema for `agents-shipgate org status --json`; local governance projection, not a release verdict
-- [`org-evidence-bundle-schema.v1.json`](org-evidence-bundle-schema.v1.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
-- [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
+- [`org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
+- [`registry-schema.v0.4.json`](registry-schema.v0.4.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
+- [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — frozen v0.3 registry reference
 - [`host-grants-inventory-schema.v0.2.json`](host-grants-inventory-schema.v0.2.json) — current typed, redacted, scope-aware host inventory
 - [`host-grants-baseline-schema.v0.2.json`](host-grants-baseline-schema.v0.2.json) — current acknowledged host-grant baseline
 - [`host-grants-drift-schema.v0.2.json`](host-grants-drift-schema.v0.2.json) — current comparable/incomparable host-grant drift result
@@ -111,7 +121,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.8.json`](report-schema.v0.8.json) — frozen v0.8 reference schema; pre-v0.9 reports validate against this
 - [`report-schema.v0.7.json`](report-schema.v0.7.json) — frozen v0.7 reference schema; pre-v0.8 reports validate against this
 - [`report-schema.v0.6.json`](report-schema.v0.6.json) — frozen v0.6 reference schema; pre-v0.7 reports validate against this
-- [`packet-schema.v0.11.json`](packet-schema.v0.11.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
+- [`packet-schema.v0.12.json`](packet-schema.v0.12.json) — JSON Schema for the Release Evidence Packet (current; emitted packets project typed policy support, evidence gaps, semantic coverage, and the static-only verdict boundary in §1)
+- [`packet-schema.v0.11.json`](packet-schema.v0.11.json) — frozen v0.11 typed policy-evidence packet reference
 - [`packet-schema.v0.10.json`](packet-schema.v0.10.json) — frozen v0.10 binding-aware packet reference
 - [`packet-schema.v0.9.json`](packet-schema.v0.9.json) — frozen v0.9 reference packet schema; pre-v0.10 packets validate against this
 - [`packet-schema.v0.8.json`](packet-schema.v0.8.json) — frozen v0.8 reference packet schema; pre-v0.9 packets validate against this

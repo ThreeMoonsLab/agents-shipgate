@@ -1,4 +1,4 @@
-# Stability Contract · 0.16.0b5
+# Stability Contract · 0.16.0b6
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -6,10 +6,47 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.33`) is still additive-versioned and
+(`report_schema_version`, currently `0.34`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-0-16-0b6"></a>
+
+## Migration Note: 0.16.0b6
+
+Runtime contract `16 → 17` makes verification identity and artifact closure
+content-addressed. A successful `verify` now emits a verification plan,
+decision-free unit result, artifact manifest, and terminal receipt. The
+receipt is written last and binds the resolved Git subject, hashed inputs,
+engine requirement, executor, assembled decision, and every referenced
+artifact. Git snapshots use exact blobs rather than `git archive`; cache reuse
+cannot change public artifacts; and expiry-sensitive policy evaluation uses a
+declared evaluation date rather than a worker wall clock.
+
+Report advances `0.33 → 0.34`, packet `0.11 → 0.12`, verifier `0.4 → 0.5`,
+verify-run v2 → v3, handoff v4 → v5, attestation `0.4 → 0.5`, registry
+`0.3 → 0.4`, organization evidence bundle v1 → v2, generated downstream
+contract `5 → 6`, and safety qualification envelopes v3 → v4. New
+verification-plan, unit-result, artifact-manifest, and receipt schemas begin
+at v1. Previous schemas remain frozen readers; they are not emitted by
+default.
+
+`verify-run.run_id` remains for one compatibility cycle as an exact alias of
+`request_id`; it is no longer independently derived. GitHub Actions evaluate
+the immutable `${{ github.sha }}` by default and separately record a PR's
+source head. Current Action outputs include the validated receipt path and
+request, receipt, decision, and artifact-set IDs.
+
+The v1 portable protocol has one deterministic evaluate task. Workers validate
+their installed engine and immutable transported inputs and emit normalized IR,
+but cannot emit a release decision. The verifier remains the sole policy
+engine; the assembler re-closes that decision over the supplied unit. This is
+execution validation, not distributed scan/policy evaluation, arbitrary
+sharding, or parallel speedup. See
+[`docs/verification-reproducibility.md`](docs/verification-reproducibility.md).
 
 ---
 
@@ -253,7 +290,8 @@ Breaking changes from the `0.13.0` line:
 
 - `agents-shipgate verify` no longer writes
   `agents-shipgate-reports/agent-result.json`. Agents should read
-  `agent-handoff.json` first, then `verifier.json`, then `verify-run.json`, then
+  `verification-receipt.json` first, then `agent-handoff.json`,
+  `verifier.json`, `verify-run.json`, and finally
   `report.json.release_decision.decision`.
 - `agents-shipgate verify --format agent` was removed. Use
   `--format json` to print the full `VerifierArtifact`.
@@ -876,8 +914,8 @@ tests on every CI run, not by convention:
     only. **Plus** one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled trigger catalog.
   - **`cli/verify/git.py`** — one shared `subprocess.run` helper invokes
-    local `git rev-parse`, `git diff`, `git ls-files`, `git show`, and
-    `git archive` for verify base/head and working-tree orchestration. It
+    local `git rev-parse`, `git diff`, `git ls-files`, `git ls-tree`, and
+    `git cat-file` for exact base/head and working-tree orchestration. It
     never fetches, uses fixed argv, captures output, and never executes user
     code.
   - **`cli/fixture.py`** — one `subprocess.run` helper invokes local
@@ -1090,7 +1128,9 @@ fix the config path or run `agents-shipgate verify --preview --json` before
 initializing.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
-`verifier.json`, `verify-run.json`, `agent-handoff.json`, and `pr-comment.md`.
+`verifier.json`, `verify-run.json`, `agent-handoff.json`, `pr-comment.md`,
+`verification-plan.json`, `verification-unit-result.json`,
+`verification-artifacts.json`, and, last, `verification-receipt.json`.
 `verify` intentionally requests packet
 JSON only, regardless of manifest `output.packet.formats`; `pr-comment.md` is
 the human PR surface. Use `agents-shipgate scan` when you want the manifest's
@@ -1106,8 +1146,8 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.3.json`](docs/verifier-schema.v0.3.json).
-Verifier v0.1 and v0.2 remain frozen references. It remains an orchestration artifact: `release_decision.decision` in
+`verifier.json` is governed by [`docs/verifier-schema.v0.5.json`](docs/verifier-schema.v0.5.json).
+Verifier v0.1 through v0.4 remain frozen references. It remains an orchestration artifact: `release_decision.decision` in
 `report.json` is still the only release gate, and every verifier field is either
 a mirror or a deterministic projection of report data. Stable additive fields a
 consumer may read:
@@ -1221,15 +1261,15 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.11)
+### Release Evidence Packet (v0.12)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
-artifact governed by [`docs/packet-schema.v0.9.json`](docs/packet-schema.v0.9.json).
-v0.9 adds provider-scoped tool identities to capability, approval, idempotency,
-and scope evidence while preserving the report release decision as the only
-gate. v0.8 stays as the frozen reference at
-[`docs/packet-schema.v0.8.json`](docs/packet-schema.v0.8.json); pre-v0.9 packets
-validate against the matching frozen schema. v0.8 added report v0.29 semantic
+artifact governed by [`docs/packet-schema.v0.12.json`](docs/packet-schema.v0.12.json).
+v0.12 adds request, subject, input-set, engine-requirement, and decision IDs
+while preserving the report release decision as the only gate. v0.11 and
+earlier packets validate against their matching frozen schemas. v0.11 added
+typed policy support; v0.9 added provider-scoped tool identities; v0.8 added
+report v0.29 semantic
 coverage and evidence-gap remediation; v0.7 added capability-linked
 local trace evidence under `human_in_the_loop`; v0.6 added the top-level
 `evidence_matrix` section and the
@@ -1254,7 +1294,8 @@ Fixture names listed by `agents-shipgate fixture list` are stable. Names will no
 
 `ai_generated_refund_pr` is the verify-native demo fixture. It creates a
 temporary base/head git history and writes `verifier.json`, `verify-run.json`,
-`agent-handoff.json`, `report.json`, and `pr-comment.md` for a blocked
+`agent-handoff.json`, `verification-receipt.json`, `report.json`, and
+`pr-comment.md` for a blocked
 refund-capability PR.
 
 ### Agent handoff artifact
@@ -1262,8 +1303,8 @@ refund-capability PR.
 `agents-shipgate-reports/agent-handoff.json` is the preferred compact
 machine-readable handoff object for coding agents and CI agents. The current
 schema is
-[`docs/agent-handoff-schema.v3.json`](docs/agent-handoff-schema.v3.json) with
-`schema_version: "shipgate.agent_handoff/v3"`. v1 and v2 remain frozen
+[`docs/agent-handoff-schema.v5.json`](docs/agent-handoff-schema.v5.json) with
+`schema_version: "shipgate.agent_handoff/v5"`. v1 through v4 remain frozen
 references.
 
 The handoff artifact is derived only from `verifier.json`, `verify-run.json`,
@@ -1315,18 +1356,19 @@ artifact does not leak usernames or confidential workspace directory names.
 `agents-shipgate attest` derives a deterministic, local attestation from
 `agents-shipgate-reports/verifier.json` (enriched from the sibling `report.json`
 when present). The current schema is
-[`docs/attestation-schema.v0.4.json`](docs/attestation-schema.v0.4.json). It
+[`docs/attestation-schema.v0.5.json`](docs/attestation-schema.v0.5.json). It
 records the verdict, the report-derived capability delta, optional local
 organization/CI context, detailed declared `human_ack` entries, a
 policy-snapshot hash, content hashes of the verify artifacts, and capability
-lock/diff hash bindings when verify emitted those artifacts. It carries no
+lock/diff hash bindings and the terminal receipt graph when verify emitted
+those artifacts. It carries no
 wall-clock timestamp — it is content-addressed by git SHAs and artifact hashes,
 so re-deriving from the same inputs is byte-identical. It does not gate;
-`release_decision.decision` remains the only gate. Current v0.4 fields:
+`release_decision.decision` remains the only gate. Current v0.5 fields:
 
-`org bundle` accepts a previously generated v0.3 attestation file by
-normalizing the new optional v0.4 fields to `null` / `[]` before validation.
-The emitted bundle still projects the normalized attestation as v0.4.
+`org bundle` accepts previously generated attestation files through the frozen
+reader path. The emitted bundle projects a current v0.5 attestation and binds
+the same request, receipt, decision, and artifact-set IDs.
 
 With `--redact` (the default), `source_verifier`, capability lock/diff paths,
 and artifact paths are reduced to filenames. Redaction does not remove explicit

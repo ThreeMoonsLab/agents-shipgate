@@ -120,9 +120,7 @@ def test_scope_and_broad_scope_facts_reuse_scope_parser() -> None:
     assert fact.identity.scope == ("stripe:*", "stripe:refunds:write")
     assert fact.authority.scopes == ("stripe:*", "stripe:refunds:write")
     assert fact.authority.broad_scopes == tuple(
-        scope
-        for scope in fact.authority.scopes
-        if Scope.parse(scope).is_broad()
+        scope for scope in fact.authority.scopes if Scope.parse(scope).is_broad()
     )
 
 
@@ -389,4 +387,4 @@ def test_building_capability_facts_does_not_change_action_fact_output() -> None:
 
 
 def test_capability_substrate_uses_current_report_schema_version() -> None:
-    assert ReadinessReport.model_fields["report_schema_version"].default == "0.33"
+    assert ReadinessReport.model_fields["report_schema_version"].default == "0.34"

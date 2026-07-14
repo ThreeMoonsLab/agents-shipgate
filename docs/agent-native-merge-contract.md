@@ -136,7 +136,7 @@ protected* — never a new way to decide.
   hash bindings when verify emitted them. It is content-addressed; event time is
   copied only from explicit input or CI payloads, never generated from `now()`,
   and it does not gate. Schema:
-  [`attestation-schema.v0.4.json`](attestation-schema.v0.4.json).
+  [`attestation-schema.v0.5.json`](attestation-schema.v0.5.json).
 - **Agent reads:** the attestation is a durable record for humans and
   registries, not a control signal — the agent still acts on `control.state`
   (contracts 3–5).

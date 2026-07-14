@@ -1,6 +1,7 @@
 # Reading Agents Shipgate Reports
 
-For verify runs, read `agents-shipgate-reports/agent-handoff.json` first. Then
+For verify runs, validate `agents-shipgate-reports/verification-receipt.json`
+first. Then read `agents-shipgate-reports/agent-handoff.json`. After that,
 read `agents-shipgate-reports/verifier.json` for detailed control context
 and `agents-shipgate-reports/report.json` for findings. Do not scrape Markdown.
 

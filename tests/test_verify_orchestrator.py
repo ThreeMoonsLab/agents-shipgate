@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
 
+from agents_shipgate.cli.verification import assemble, worker
 from agents_shipgate.cli.verify.orchestrator import run_verify
+from agents_shipgate.core.verification_identity import validate_receipt_artifacts
+from agents_shipgate.schemas.verification_identity import VerificationReceipt
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -69,6 +73,36 @@ def test_verify_threads_changed_files_into_head_scan(tmp_path):
     assert (out_dir / "capabilities.lock.json").is_file()
     assert (out_dir / "base.capabilities.lock.json").is_file()
     assert (out_dir / "capability-lock-diff.json").is_file()
+    diff_input = out_dir / "verification-input.diff"
+    assert diff_input.is_file()
+    distributed_unit = out_dir / "distributed-unit.json"
+    worker(
+        plan_path=out_dir / "verification-plan.json",
+        workspace=repo,
+        diff_path=diff_input,
+        out=distributed_unit,
+    )
+    assemble(
+        plan_path=out_dir / "verification-plan.json",
+        unit_paths=[distributed_unit],
+        verifier_path=out_dir / "verifier.json",
+        artifacts_root=out_dir,
+        out=out_dir / "verification-receipt.json",
+    )
+    receipt_path = out_dir / "verification-receipt.json"
+    receipt = VerificationReceipt.model_validate(
+        json.loads(receipt_path.read_text(encoding="utf-8"))
+    )
+    validate_receipt_artifacts(receipt, root=out_dir)
+    first_bytes = receipt_path.read_bytes()
+    assemble(
+        plan_path=out_dir / "verification-plan.json",
+        unit_paths=[distributed_unit],
+        verifier_path=out_dir / "verifier.json",
+        artifacts_root=out_dir,
+        out=receipt_path,
+    )
+    assert receipt_path.read_bytes() == first_bytes
 
 
 def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
@@ -85,6 +119,10 @@ def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
     _git(repo, "commit", "-m", "base")
 
     (repo / "AGENTS.md").write_text("uncommitted instructions\n", encoding="utf-8")
+    (repo / ".claude" / "commands").mkdir(parents=True)
+    (repo / ".claude" / "commands" / "review.md").write_text("review command\n", encoding="utf-8")
+    (repo / ".claude-plugin").mkdir()
+    (repo / ".claude-plugin" / "marketplace.json").write_text("{}\n", encoding="utf-8")
 
     _verifier, report, _exit_code = run_verify(
         workspace=repo,
