@@ -349,7 +349,7 @@ class ActionFact(BaseModel):
 class ActionSurfaceFacts(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    snapshot_version: str = "0.3"
+    snapshot_version: str = "0.4"
     actions: list[ActionFact] = Field(default_factory=list)
 
 

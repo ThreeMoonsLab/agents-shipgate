@@ -424,7 +424,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.3"] = "0.3"
+    verifier_schema_version: Literal["0.4"] = "0.4"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -471,14 +471,14 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
-        legacy = legacy_version in {"0.1", "0.2"}
+        legacy = legacy_version in {"0.1", "0.2", "0.3"}
         if not legacy:
-            # Current v0.3 artifacts must already carry the authoritative
+            # Current v0.4 artifacts must already carry the authoritative
             # control union.  Silently synthesizing a missing or malformed
             # current control would turn an internal consistency failure into
             # a trusted handoff.  Only the frozen v0.2 reader is normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.3"
+        normalized["verifier_schema_version"] = "0.4"
 
         execution = normalized.get("execution") or normalized.get("head_status")
         execution = execution or "not_run"

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Evidence-basis policy gate (P0, `0.16.0b5`).** Semantic claims and risk
+  hints now carry a typed evidence basis, stable claim IDs, and derived policy
+  eligibility. Policy-pack and action-policy predicates evaluate to
+  `matched | not_matched | indeterminate | conflicting`; rule severity,
+  confidence, `block: true`, manual tags, and risk overrides cannot upgrade
+  heuristic or incomplete evidence into an authoritative finding.
+- **Non-waivable policy applicability gaps.** Heuristic-only, mixed, unknown,
+  or conflicting applicability is emitted outside Findings and routes to
+  `insufficient_evidence`. Baselines, suppressions, severity overrides,
+  acknowledgements, and `--no-heuristics` cannot hide it. Supported findings
+  expose deterministic predicate support and a `support_hash`; baseline v0.8
+  requires that hash to remain equal. Pre-v0.8 baselines cannot supply that
+  binding, so supported findings re-gate as new until a human reviews the new
+  evidence and re-runs `agents-shipgate baseline save`.
+- **Evidence contract versions.** Runtime contract advances to v16; report to
+  v0.33; packet to v0.11; verifier to v0.4; handoff to v4; policy pack to
+  v0.4; capability standard to v0.5; lock/diff to v0.6/v0.7; action snapshot
+  to v0.4; downstream local contract to v5; and safety qualification formats
+  to v3. Existing finding fingerprints and all prior schema files remain
+  frozen.
+
 - **Complete zero-config multi-host boundary (`0.16.0b4`).** The local
   boundary check now evaluates every recognized changed Codex, Claude Code,
   Cursor, VS Code MCP, shared instruction, and GitHub workflow surface through

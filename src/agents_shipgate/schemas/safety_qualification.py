@@ -9,9 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 
-SAFETY_CORPUS_SCHEMA_VERSION = "shipgate.safety_corpus/v2"
-SAFETY_RECEIPT_INDEX_SCHEMA_VERSION = "shipgate.safety_receipt_index/v2"
-SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v2"
+SAFETY_CORPUS_SCHEMA_VERSION = "shipgate.safety_corpus/v3"
+SAFETY_RECEIPT_INDEX_SCHEMA_VERSION = "shipgate.safety_receipt_index/v3"
+SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v3"
 
 SafetyProfile = Literal[
     "mcp",
@@ -190,7 +190,7 @@ class FrozenSafetyCorpusV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_corpus/v2"] = SAFETY_CORPUS_SCHEMA_VERSION
+    schema_version: Literal["shipgate.safety_corpus/v3"] = SAFETY_CORPUS_SCHEMA_VERSION
     corpus_id: str = Field(min_length=1)
     labels_frozen_before_evaluation: Literal[True]
     outputs_hidden_from_labelers: Literal[True]
@@ -200,7 +200,11 @@ class FrozenSafetyCorpusV1(BaseModel):
     @field_validator("schema_version", mode="before")
     @classmethod
     def _upgrade_v1_schema(cls, value: str) -> str:
-        return SAFETY_CORPUS_SCHEMA_VERSION if value == "shipgate.safety_corpus/v1" else value
+        return (
+            SAFETY_CORPUS_SCHEMA_VERSION
+            if value in {"shipgate.safety_corpus/v1", "shipgate.safety_corpus/v2"}
+            else value
+        )
 
     @field_validator("corpus_id")
     @classmethod
@@ -265,7 +269,7 @@ class SafetyReceiptIndexV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_receipt_index/v2"] = (
+    schema_version: Literal["shipgate.safety_receipt_index/v3"] = (
         SAFETY_RECEIPT_INDEX_SCHEMA_VERSION
     )
     wheel_sha256: str = Field(pattern=SHA256_PATTERN)
@@ -281,7 +285,10 @@ class SafetyReceiptIndexV1(BaseModel):
     def _upgrade_v1_schema(cls, value: str) -> str:
         return (
             SAFETY_RECEIPT_INDEX_SCHEMA_VERSION
-            if value == "shipgate.safety_receipt_index/v1"
+            if value in {
+                "shipgate.safety_receipt_index/v1",
+                "shipgate.safety_receipt_index/v2",
+            }
             else value
         )
 
@@ -398,7 +405,7 @@ def production_safety_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=30,
         minimum_review_exact=19,
         minimum_insufficient_evidence_exact=19,
-        required_report_schema_version="0.32",
+        required_report_schema_version="0.33",
     )
 
 
@@ -510,7 +517,7 @@ class SafetyQualificationResultV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_qualification/v2"] = (
+    schema_version: Literal["shipgate.safety_qualification/v3"] = (
         SAFETY_QUALIFICATION_SCHEMA_VERSION
     )
     qualification_tier: QualificationTier
@@ -533,7 +540,10 @@ class SafetyQualificationResultV1(BaseModel):
     def _upgrade_v1_schema(cls, value: str) -> str:
         return (
             SAFETY_QUALIFICATION_SCHEMA_VERSION
-            if value == "shipgate.safety_qualification/v1"
+            if value in {
+                "shipgate.safety_qualification/v1",
+                "shipgate.safety_qualification/v2",
+            }
             else value
         )
 

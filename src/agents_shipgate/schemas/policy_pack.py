@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
 from agents_shipgate.schemas.common import Confidence, Severity
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-POLICY_PACK_SCHEMA_VERSION = "0.3"
+POLICY_PACK_SCHEMA_VERSION = "0.4"
 
 
 class PolicyPackParameterMatch(BaseModel):

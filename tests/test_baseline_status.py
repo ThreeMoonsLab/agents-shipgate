@@ -15,10 +15,12 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.baseline import (
+    apply_baseline,
     baseline_from_report,
     baseline_status_payload,
     baseline_status_violations,
 )
+from agents_shipgate.core.policy_evidence import finding_support, predicate_evidence
 from agents_shipgate.schemas.baseline import (
     BaselineFile,
     BaselineFinding,
@@ -106,11 +108,55 @@ def test_save_metadata_stamped_on_new_entries() -> None:
         reason="accepted pending Q3 fix",
         expires=date(2026, 9, 30),
     )
-    assert baseline.schema_version == "0.7"
+    assert baseline.schema_version == "0.8"
     provenance = baseline.findings[0].provenance
     assert provenance.owner == "alice"
     assert provenance.reason == "accepted pending Q3 fix"
     assert provenance.expires == date(2026, 9, 30)
+
+
+def test_baseline_support_hash_prevents_evidence_laundering() -> None:
+    report = _stub_report(("ORG-POLICY", "tool_a"))
+    original_support = finding_support(
+        [
+            predicate_evidence(
+                "effect",
+                "matched",
+                observed="write",
+                confidence="high",
+                evidence_bases=["protocol_structure"],
+                policy_eligible=True,
+            )
+        ]
+    )
+    report.findings[0].support = original_support
+    baseline = baseline_from_report(
+        report,
+        scanner_version="9.9.9",
+        now="2026-06-12T00:00:00Z",
+    )
+    assert baseline.findings[0].support_hash == original_support.support_hash
+
+    report.findings[0].support = finding_support(
+        [
+            predicate_evidence(
+                "effect",
+                "matched",
+                observed="destructive",
+                confidence="high",
+                evidence_bases=["protocol_structure"],
+                policy_eligible=True,
+            )
+        ]
+    )
+    summary = apply_baseline(
+        report.findings,
+        baseline,
+        display_path="baseline.json",
+    )
+
+    assert report.findings[0].baseline_status == "new"
+    assert summary.matched_count == 0
 
 
 def test_resave_without_flags_preserves_owner() -> None:

@@ -88,6 +88,7 @@ def _build_final_report(
         policy_audit=sanitized.policy_audit,
         privacy_audit=sanitized.privacy_audit,
         heuristics_filter=sanitized.heuristics_filter,
+        policy_evidence_gaps=sanitized.policy_evidence_gaps,
     )
     apply_capability_diff(report, sanitized.tools)
     # v0.20: reviewer_summary is built HERE — after apply_capability_diff

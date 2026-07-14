@@ -1,4 +1,4 @@
-# Stability Contract · 0.16.0b4
+# Stability Contract · 0.16.0b5
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -6,10 +6,42 @@ This document is the contract. If the runtime ever diverges from what's document
 
 Shipgate is pre-1.0. The CLI surface, exit codes, and `contract_version`
 described here are stable within the `0.x` line, but the `report.json` schema
-(`report_schema_version`, currently `0.32`) is still additive-versioned and
+(`report_schema_version`, currently `0.33`) is still additive-versioned and
 not yet frozen. A `1.0` line will not begin until the report schema reaches
 `1.0` and holds without a breaking change. Pin a version (or the Action tag)
 for reproducible CI.
+
+---
+
+<a id="migration-note-0-16-0b5"></a>
+
+## Migration Note: 0.16.0b5
+
+Runtime contract `15 → 16` and report schema `0.32 → 0.33` make policy
+applicability evidence explicit. Semantic claims now carry a typed evidence
+basis and stable claim ID. Policy predicates carry tri-state status, effective
+confidence, contributing claim IDs, and evidence bases; policy findings carry
+a stable `support_hash`.
+
+Rule severity, `block: true`, manual risk escalation, and rule-declared
+confidence cannot upgrade heuristic, unknown, partial, or conflicting
+evidence. Such applicability creates a non-waivable evidence gap outside the
+Finding model and routes to `insufficient_evidence`. `--no-heuristics`,
+baselines, suppressions, acknowledgements, and severity overrides cannot hide
+these gaps. Strict mode emits exit `20`; advisory mode retains exit `0`.
+
+Packet advances `0.10 → 0.11`, verifier `0.3 → 0.4`, handoff v3 → v4,
+policy pack `0.3 → 0.4`, capability standard `0.4 → 0.5`, capability lock
+`0.5 → 0.6`, lock diff `0.6 → 0.7`, action snapshot `0.3 → 0.4`, baseline
+`0.7 → 0.8`, and the generated downstream local contract to schema `5`.
+The safety corpus, receipt-index, and qualification envelopes advance to v3.
+All preceding schemas remain frozen references.
+
+Finding fingerprints remain stable because typed support is outside legacy
+`Finding.evidence`. Baseline v0.8 additionally binds supported findings to
+their `support_hash`; an older baseline can still be read, but it cannot accept
+a newly supported policy/control finding without being regenerated and
+reviewed.
 
 ---
 
@@ -500,6 +532,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `report_schema_version` — bumps minor on additive changes, major on breaking
 - `release_decision.{decision, reason, blockers, review_items, evidence_coverage, baseline_delta, fail_policy}` (v0.8+)
 - `release_decision.evidence_coverage.semantic_coverage.{total_actions, pass_eligible_actions, gap_count, review_concern_count, reason_counts}` (v0.29+) — zero-tolerance semantic pass coverage. It is derived from normalized action assessments and contributes directly to the release decision; it is not suppressible or baseline-able.
+- `release_decision.evidence_coverage.policy_gap_count` and `policy_evidence_gaps[]` (v0.33+) — zero-tolerance policy-applicability gaps for heuristic-only, mixed, unknown, or conflicting predicates. They remain outside Findings and cannot be suppressed, baselined, acknowledged, severity-overridden, or hidden by `--no-heuristics`.
 - `release_decision.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}` (v0.29+) — explicit machine boundary for every verdict. Current emitted values are `true`, `false`, and the canonical disclaimer that the static scan did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.
 - `release_decision.evidence_coverage.evidence_gaps[]` (v0.26+; semantic gap kinds added v0.29) — deterministic, human-routed remediation rows. v0.29 adds `incomplete_surface`, `missing_effect_evidence`, `inferred_effect_only`, `conflicting_effect_evidence`, `missing_authority_evidence`, `partial_authority_evidence`, `conflicting_authority_evidence`, and `invalid_semantic_annotation`, plus next-action kinds `declare_action_effect`, `declare_action_authority`, `provide_complete_inventory`, and `resolve_semantic_conflict`. Semantic declaration placeholders always carry `suggested_patch_kind="manual"`, `auto_apply=false`, and `requires_human_review=true`; they never enter `apply-patches`.
 - `release_decision.fail_policy.{ci_mode, fail_on, new_findings_only, would_fail_ci, exit_code}`
@@ -521,13 +554,14 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `agent_summary.{verdict, headline, blocker_count, review_item_count, auto_appliable_patches, needs_human_review, first_recommended_action}` (v0.12+) — top-level deterministic projection of `release_decision` + per-finding `agent_action`. Lets a coding agent read one block instead of traversing arrays. `first_recommended_action` is `{kind: "command" | "info", command: string | null, why: string}`; the `command` form carries an actual CLI invocation, the `info` form is a "surface this to the user" hint. Same inputs always produce the same output; this block cannot disagree with the underlying `release_decision` and `findings[].agent_action`.
 - `codex_plugin_surface.{plugins, marketplaces, skills, apps, mcp_server_stubs, hook_stubs, mcp_inventory_files, component_path_issues, warnings}` (v0.13+) — static Codex plugin package and marketplace facts. Only explicit MCP inventory tools enter `tool_inventory[]`; apps, hooks, skills, and MCP server declarations stay in this surface block.
 - `findings[].provenance_kind` (v0.15+) — records *how a finding was produced*; independent of `confidence`, which records how *sure* we are. It is a reviewer triage/filter signal only: it never changes `release_decision`, severity, fingerprints, baselines, or CI exit behavior. Use `agents-shipgate findings --from agents-shipgate-reports/report.json --provenance-kind keyword_heuristic,regex_heuristic,runtime_trace --json` to filter active findings by provenance class. Enum: `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack | runtime_trace`. `static_declaration` covers manifest, MCP, OpenAPI schema facts, and declarative framework inputs like ADK YAML agent configs or LangChain/CrewAI inventory JSON files — high-trust structural data. `ast_extraction` covers findings against Tools parsed from user Python source by a framework extractor (LangChain function/structured tools, CrewAI function/class tools, ADK Python toolsets); these are subject to extraction error and agents that distrust AST quality can filter them as a class. Framework checks that fire against both AST-extracted and declaratively loaded tools (ADK's per-tool checks) pick the label per tool from `tool.source_type`. `keyword_heuristic` covers token-list matches (broad scope, read-only prompts, free-text parameter names); `regex_heuristic` covers regex matches (secrets, prompt injection); `policy_pack` covers findings emitted by externally loaded policy packs; `runtime_trace` covers findings derived from declared local trace artifacts. Built-in checks set the value via the required kwarg on the `tool_finding`/`agent_finding` helpers; third-party plugin checks that construct `Finding(...)` directly and omit the field are coerced to `static_declaration` by `annotate_remediation` so the wire schema stays satisfied. Required + non-nullable on the wire; the field is Python-Optional only so older v0.12/v0.13 reports loaded by `explain-finding` and minimal synthetic test fixtures keep working.
-- `findings[].blocks_release` (v0.16+) — explicit release-policy blocking bit. Built-in and user-defined Action Surface Diff policies, plus declarative policy-pack rules with `block: true`, set it for findings that must block release when active and unbaselined; ordinary severity-based gating still works for existing checks.
+- `findings[].blocks_release` (v0.16+) — explicit release-policy blocking bit. Starting in v0.33, a policy may set it only when `finding.support.blocking_eligible=true`; rule metadata cannot upgrade underlying evidence.
+- `findings[].support` (v0.33+) — typed predicate status, effective confidence, policy/block eligibility, stable claim IDs, evidence bases, predicate rows, and `support_hash`. Finding fingerprints remain unchanged; baseline v0.8 separately requires an equal support hash for supported findings.
 - `findings[].capability_refs` and optional `findings[].capability_policy_evidence` (v0.24+) — capability-native policy evidence for built-in policy checks and policy packs. `capability_refs` is required + always present (empty when no capability-policy subject matched). `capability_policy_evidence` is nullable and carries the matched capability identity, effect, authority, controls, hashes, matched predicates, and source provenance when present. These fields are explanatory only: they are not finding fingerprint inputs, do not affect baselines, and do not introduce a second gate.
 - `findings[].policy_routing` (v0.28+) — optional policy-pack owner, reviewers, and approval-routing metadata. It is non-enforcing reviewer/audit metadata: it is not part of `Finding.evidence`, does not affect fingerprints, suppressions, baselines, `blocks_release`, or `release_decision`. Policy-pack `match` predicates and `block: true` remain the only policy-pack inputs that affect findings and release gating.
 - `findings[].capability_trace_refs` and top-level `capability_runtime_evidence` (v0.25+) — opt-in local trace/provenance evidence linked to `CapabilityFactV1`. Trace refs are required + always present on findings (empty when no local trace row matched). The top-level block carries deterministic summary counts, matched/unmatched trace rows, source provenance, and notes. It is explanatory only: it is not a finding fingerprint input, does not affect baselines or run IDs, does not change capability lock export/diff schemas, and does not introduce a second gate.
 - `action_surface_facts.actions[]` (v0.16+) — deterministic current action snapshot: action id, operation, effect, normalized risk tags, scopes, approval policy, safeguards, evidence, input fields, and stable hashes.
 - `action_surface_diff.{enabled, base, summary, added, removed, modified, notes}` (v0.16+) — reviewer-facing delta for what the agent can do vs. a prior report or v0.4 baseline. Policy findings derived from this diff can set `findings[].blocks_release=true` and affect `release_decision.decision` and strict-mode exit behavior.
-- `release_decision.contribution_rules[].{finding_id, fingerprint, check_id, category, rule, rationale}` (v0.17+) — deterministic per-finding audit of how each finding contributed to the release decision. Required + always present (defaults to `[]` for legacy reports loaded via `explain-finding`). Exactly one row per `report.findings` entry, including suppressed findings, so the audit set is exhaustive over the full findings list. `category` enum: `blocker | review_item | excluded`. `rule` enum: `policy_block_new | severity_block_new | policy_baseline_accepted | severity_baseline_accepted | review_required | sub_threshold | suppressed`. The (rule, category) pairs the gate can produce are exhaustively documented in [Release decision truth table](#release-decision-truth-table) below — reading the contribution rule is sufficient to predict the outcome for that finding without re-deriving the decision logic. The audit cannot disagree with `release_decision.{blockers,review_items}[]`: the same classification powers both. Adding `contribution_rules` does not change any existing behavior — `decision`, `blockers[]`, `review_items[]`, `fail_policy.exit_code`, and strict-mode exit codes are byte-identical to v0.16.
+- `release_decision.contribution_rules[].{finding_id, fingerprint, check_id, category, rule, rationale}` (v0.17+) — deterministic per-finding audit of how each finding contributed to the release decision. Required + always present. Exactly one row per `report.findings` entry, including suppressed findings. v0.33 adds `rule="unsupported_evidence"`, always with `category="excluded"`, for typed support that is not policy-eligible.
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
 - `loaded_policy_packs[].{id, name, version, path, source, sha256, sha256_status, owner, rule_count}` (v0.27+) — deterministic policy-pack distribution and ownership metadata for organization audit. `sha256_status` is `"verified"` when a manifest pin matched and `"unpinned"` otherwise. Hash mismatch still fails closed during pack loading; this metadata never introduces a second release verdict.
@@ -656,7 +690,7 @@ These are **intentionally different signals**, kept apart for backwards compatib
 
 #### Release decision truth table
 
-The classification below is the contract for how every active finding lands in `release_decision.{blockers, review_items}[]` and which `contribution_rules[].rule` (v0.17+) fires for it. Same shape as the v0.8 implementation: this section documents existing behavior, it does not change it. Suppressed findings (`finding.suppressed=true`) are excluded entirely from the active set and audited as `category="excluded", rule="suppressed"`.
+The classification below is the contract for how every active finding lands in `release_decision.{blockers, review_items}[]` and which `contribution_rules[].rule` (v0.17+) fires for it. Starting in v0.33, a finding with typed `support` is considered active for release contribution only when `support.policy_eligible=true`; otherwise it is excluded with `rule="unsupported_evidence"` before severity or `blocks_release` is consulted. Suppressed findings are excluded with `rule="suppressed"` after that evidence-eligibility check. Legacy findings without typed support retain the table's established behavior.
 
 Notation: `fail_on` is `release_decision.fail_policy.fail_on` after `ci_mode` resolution (advisory → empty, strict → `["critical"]`, plus any explicit `--fail-on` override). `blocker_severities` = `{critical} ∪ fail_on`. `review_tier` = `{critical, high, medium}` (or any severity when `requires_human_review=true`).
 
@@ -1187,7 +1221,7 @@ infer runtime routing, or execute tools. Action Surface Diff policy findings
 can affect release gating through `findings[].blocks_release`; Tool Surface
 Diff remains explanatory only.
 
-### Release Evidence Packet (v0.10)
+### Release Evidence Packet (v0.11)
 
 `agents-shipgate-reports/packet.json` is a supporting/provisional reviewer
 artifact governed by [`docs/packet-schema.v0.9.json`](docs/packet-schema.v0.9.json).

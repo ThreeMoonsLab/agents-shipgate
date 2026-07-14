@@ -80,13 +80,31 @@ def _risk_hints(item: _NodeItem, *, method: str | None) -> list[ToolRiskHint]:
     hints: list[ToolRiskHint] = []
     kind = _tool_node_kind(item)
     if kind == "code_tool":
-        _add_hint(hints, "code_execution", "high", {"node_type": item.node_type})
+        _add_hint(
+            hints,
+            "code_execution",
+            "high",
+            {"node_type": item.node_type},
+            basis="typed_provider_fact",
+        )
     if method and method not in {"GET", "HEAD", "OPTIONS"}:
-        _add_hint(hints, "external_write", "medium", {"method": method})
+        _add_hint(
+            hints,
+            "external_write",
+            "medium",
+            {"method": method},
+            basis="protocol_structure",
+        )
     for ref in _credential_refs(item):
         credential_type = str(ref.get("type") or "").lower()
         if any(token in credential_type for token in ("stripe", "paypal", "billing")):
-            _add_hint(hints, "financial_action", "medium", {"credential_type": ref.get("type")})
+            _add_hint(
+                hints,
+                "financial_action",
+                "medium",
+                {"credential_type": ref.get("type")},
+                basis="inferred_keyword",
+            )
         if any(
             token in credential_type
             for token in ("gmail", "mail", "slack", "twilio", "sms", "discord")
@@ -96,6 +114,7 @@ def _risk_hints(item: _NodeItem, *, method: str | None) -> list[ToolRiskHint]:
                 "customer_communication",
                 "medium",
                 {"credential_type": ref.get("type")},
+                basis="inferred_keyword",
             )
         if any(
             token in credential_type for token in ("aws", "azure", "gcp", "kubernetes", "github")
@@ -105,6 +124,7 @@ def _risk_hints(item: _NodeItem, *, method: str | None) -> list[ToolRiskHint]:
                 "infrastructure_change",
                 "medium",
                 {"credential_type": ref.get("type")},
+                basis="inferred_keyword",
             )
         if any(
             token in credential_type
@@ -115,6 +135,7 @@ def _risk_hints(item: _NodeItem, *, method: str | None) -> list[ToolRiskHint]:
                 "sensitive_data_access",
                 "medium",
                 {"credential_type": ref.get("type")},
+                basis="inferred_keyword",
             )
     return hints
 
@@ -124,6 +145,8 @@ def _add_hint(
     tag: str,
     confidence: str,
     evidence: dict[str, Any],
+    *,
+    basis: str,
 ) -> None:
     if any(hint.tag == tag and hint.confidence == confidence for hint in hints):
         return
@@ -132,6 +155,10 @@ def _add_hint(
             tag=tag,
             source="n8n_static",
             confidence=confidence,
+            basis=basis,
+            provenance_kind=(
+                "keyword_heuristic" if basis == "inferred_keyword" else "ast_extraction"
+            ),
             evidence=evidence,
         )
     )

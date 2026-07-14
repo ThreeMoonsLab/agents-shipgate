@@ -4,6 +4,7 @@ from pathlib import Path
 
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.policy_evidence import finding_support, predicate_evidence
 from agents_shipgate.schemas.common import (
     ProvenanceKind,
     SourceReference,
@@ -32,6 +33,7 @@ def tool_finding(
     capability_policy_evidence: CapabilityPolicyEvidence | None = None,
     capability_trace_refs: list[str] | None = None,
 ) -> Finding:
+    support = _heuristic_support(provenance_kind)
     return Finding(
         check_id=check_id,
         title=title,
@@ -59,6 +61,7 @@ def tool_finding(
         capability_refs=capability_refs or [],
         capability_policy_evidence=capability_policy_evidence,
         capability_trace_refs=capability_trace_refs or [],
+        support=support,
         recommendation=recommendation,
         patches=patches,
     )
@@ -89,6 +92,7 @@ def agent_finding(
     # the secondary pointer only when it genuinely differs from the
     # primary (the ``tool_finding`` case, where source is the tool's
     # location and policy_evidence is the manifest).
+    support = _heuristic_support(provenance_kind)
     return Finding(
         check_id=check_id,
         title=title,
@@ -102,8 +106,31 @@ def agent_finding(
         policy_evidence_source=None,
         capability_refs=capability_refs or [],
         capability_trace_refs=capability_trace_refs or [],
+        support=support,
         recommendation=recommendation,
         patches=patches,
+    )
+
+
+def _heuristic_support(provenance_kind: ProvenanceKind):
+    if provenance_kind not in {"keyword_heuristic", "regex_heuristic"}:
+        return None
+    basis = (
+        "inferred_keyword"
+        if provenance_kind == "keyword_heuristic"
+        else "inferred_regex"
+    )
+    return finding_support(
+        [
+            predicate_evidence(
+                "heuristic_check_applicability",
+                "indeterminate",
+                confidence="medium",
+                evidence_bases=[basis],
+                policy_eligible=False,
+                why="Heuristic evidence is advisory and cannot contribute to release gating.",
+            )
+        ]
     )
 
 

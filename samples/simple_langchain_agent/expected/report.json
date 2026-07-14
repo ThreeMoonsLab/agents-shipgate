@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.32",
-  "run_id": "agents_shipgate_5051fb83bfbcadad",
+  "report_schema_version": "0.33",
+  "run_id": "agents_shipgate_ad594d77df1d5943",
   "manifest_dir": "<REPO>/samples/simple_langchain_agent",
   "project": {
     "name": "simple-langchain-agent"
@@ -94,7 +94,8 @@
         "pass_eligible": true,
         "gap_count": 0,
         "reason_counts": {}
-      }
+      },
+      "policy_gap_count": 0
     },
     "baseline_delta": {
       "enabled": false,
@@ -244,7 +245,7 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.3",
+    "snapshot_version": "0.4",
     "actions": [
       {
         "action_id": "agent:simple-langchain-agent/support-case-reader:action_v2_d0dd3e9ff4e2e56868595ef12e50a97b37c9619cad32007dd4155c3a8b5554a2",
@@ -277,10 +278,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_dc05444ca9c48fbbc9e4",
                 "dimension": "identity",
                 "value": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "tool_identity_binding",
                 "source_pointer": "/tools/0",
                 "evidence": {
@@ -290,10 +294,13 @@
                 }
               },
               {
+                "claim_id": "clm_a9ce566a7f8043ad969b",
                 "dimension": "identity",
                 "value": "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "tool_identity_binding",
                 "source_pointer": "agent.py",
                 "evidence": {
@@ -316,10 +323,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_aa77105a77049fc20f76",
                 "dimension": "binding",
                 "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
                 "confidence": "high",
                 "provenance_kind": "ast_extraction",
+                "basis": "typed_provider_fact",
+                "policy_eligible": true,
                 "source": "agent.py",
                 "source_pointer": "agent.py:30",
                 "evidence": {
@@ -336,19 +346,25 @@
             "confidence": "high",
             "claims": [
               {
+                "claim_id": "clm_d06c32d64f8f0493a478",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
                 "evidence": {}
               },
               {
+                "claim_id": "clm_50c4d6abc43dbc7853c5",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
                 "source": "mcp_annotation",
                 "source_pointer": "/tools/0",
                 "evidence": {
@@ -366,10 +382,13 @@
             "scopes": [],
             "claims": [
               {
+                "claim_id": "clm_74d88f35831b62f08e96",
                 "dimension": "authority",
                 "value": "none",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
                 "evidence": {
@@ -379,10 +398,13 @@
                 }
               },
               {
+                "claim_id": "clm_b1bf872bb994c8ec4e1c",
                 "dimension": "authority",
                 "value": "none",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
                 "source": "mcp_authority",
                 "source_pointer": "/tools/0",
                 "evidence": {
@@ -460,10 +482,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_0172107ddeaa0042b429",
                 "dimension": "identity",
                 "value": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "tool_identity_binding",
                 "source_pointer": "/tools/1",
                 "evidence": {
@@ -473,10 +498,13 @@
                 }
               },
               {
+                "claim_id": "clm_49ac9d7fada51ef1ee43",
                 "dimension": "identity",
                 "value": "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "tool_identity_binding",
                 "source_pointer": "agent.py",
                 "evidence": {
@@ -499,10 +527,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_be72ee458b04629530c5",
                 "dimension": "binding",
                 "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
                 "confidence": "high",
                 "provenance_kind": "ast_extraction",
+                "basis": "typed_provider_fact",
+                "policy_eligible": true,
                 "source": "agent.py",
                 "source_pointer": "agent.py:30",
                 "evidence": {
@@ -519,19 +550,25 @@
             "confidence": "high",
             "claims": [
               {
+                "claim_id": "clm_13f60eeda1090905abfa",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='summarize_case'].effect",
                 "evidence": {}
               },
               {
+                "claim_id": "clm_84b18c77354a223b68f9",
                 "dimension": "effect",
                 "value": "read",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
                 "source": "mcp_annotation",
                 "source_pointer": "/tools/1",
                 "evidence": {
@@ -549,10 +586,13 @@
             "scopes": [],
             "claims": [
               {
+                "claim_id": "clm_086cd06d298307836911",
                 "dimension": "authority",
                 "value": "none",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='summarize_case'].authority",
                 "evidence": {
@@ -562,10 +602,13 @@
                 }
               },
               {
+                "claim_id": "clm_31b93c95a5f16d36e1fc",
                 "dimension": "authority",
                 "value": "none",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
                 "source": "mcp_authority",
                 "source_pointer": "/tools/1",
                 "evidence": {
@@ -730,8 +773,8 @@
   "findings": [],
   "recommended_actions": [],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate-golden-simple_langchain_agent/report.md",
-    "json": "/private/tmp/shipgate-golden-simple_langchain_agent/report.json"
+    "markdown": "/private/tmp/shipgate-goldens/langchain/report.md",
+    "json": "/private/tmp/shipgate-goldens/langchain/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -773,10 +816,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_0172107ddeaa0042b429",
               "dimension": "identity",
               "value": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "tool_identity_binding",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -786,10 +832,13 @@
               }
             },
             {
+              "claim_id": "clm_49ac9d7fada51ef1ee43",
               "dimension": "identity",
               "value": "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "tool_identity_binding",
               "source_pointer": "agent.py",
               "evidence": {
@@ -812,10 +861,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_be72ee458b04629530c5",
               "dimension": "binding",
               "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
               "confidence": "high",
               "provenance_kind": "ast_extraction",
+              "basis": "typed_provider_fact",
+              "policy_eligible": true,
               "source": "agent.py",
               "source_pointer": "agent.py:30",
               "evidence": {
@@ -832,19 +884,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_13f60eeda1090905abfa",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='summarize_case'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_84b18c77354a223b68f9",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "mcp_annotation",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -862,10 +920,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_086cd06d298307836911",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='summarize_case'].authority",
               "evidence": {
@@ -875,10 +936,13 @@
               }
             },
             {
+              "claim_id": "clm_31b93c95a5f16d36e1fc",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "mcp_authority",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -902,10 +966,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_be72ee458b04629530c5",
             "dimension": "binding",
             "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
             "confidence": "high",
             "provenance_kind": "ast_extraction",
+            "basis": "typed_provider_fact",
+            "policy_eligible": true,
             "source": "agent.py",
             "source_pointer": "agent.py:30",
             "evidence": {
@@ -954,10 +1021,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_dc05444ca9c48fbbc9e4",
               "dimension": "identity",
               "value": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "tool_identity_binding",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -967,10 +1037,13 @@
               }
             },
             {
+              "claim_id": "clm_a9ce566a7f8043ad969b",
               "dimension": "identity",
               "value": "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "tool_identity_binding",
               "source_pointer": "agent.py",
               "evidence": {
@@ -993,10 +1066,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_aa77105a77049fc20f76",
               "dimension": "binding",
               "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
               "confidence": "high",
               "provenance_kind": "ast_extraction",
+              "basis": "typed_provider_fact",
+              "policy_eligible": true,
               "source": "agent.py",
               "source_pointer": "agent.py:30",
               "evidence": {
@@ -1013,19 +1089,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_d06c32d64f8f0493a478",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_50c4d6abc43dbc7853c5",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "mcp_annotation",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -1043,10 +1125,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_74d88f35831b62f08e96",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
               "evidence": {
@@ -1056,10 +1141,13 @@
               }
             },
             {
+              "claim_id": "clm_b1bf872bb994c8ec4e1c",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "mcp_authority",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -1083,10 +1171,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_aa77105a77049fc20f76",
             "dimension": "binding",
             "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
             "confidence": "high",
             "provenance_kind": "ast_extraction",
+            "basis": "typed_provider_fact",
+            "policy_eligible": true,
             "source": "agent.py",
             "source_pointer": "agent.py:30",
             "evidence": {
@@ -1137,10 +1228,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_0172107ddeaa0042b429",
               "dimension": "identity",
               "value": "obs_v1_cca646e5e6b411bdae0262852ae9b5fc1a9cf8929ada5e68d65a3b8eec7db7c2",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "tool_identity_binding",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -1150,10 +1244,13 @@
               }
             },
             {
+              "claim_id": "clm_49ac9d7fada51ef1ee43",
               "dimension": "identity",
               "value": "obs_v1_d044cf6a9ba34e66fc888092ff8c7f1ff38b73f4b2f0229fc23d290f6f92cf73",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "tool_identity_binding",
               "source_pointer": "agent.py",
               "evidence": {
@@ -1176,10 +1273,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_be72ee458b04629530c5",
               "dimension": "binding",
               "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
               "confidence": "high",
               "provenance_kind": "ast_extraction",
+              "basis": "typed_provider_fact",
+              "policy_eligible": true,
               "source": "agent.py",
               "source_pointer": "agent.py:30",
               "evidence": {
@@ -1196,19 +1296,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_13f60eeda1090905abfa",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='summarize_case'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_84b18c77354a223b68f9",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "mcp_annotation",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -1226,10 +1332,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_086cd06d298307836911",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='summarize_case'].authority",
               "evidence": {
@@ -1239,10 +1348,13 @@
               }
             },
             {
+              "claim_id": "clm_31b93c95a5f16d36e1fc",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "mcp_authority",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -1266,10 +1378,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_be72ee458b04629530c5",
             "dimension": "binding",
             "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_2fdcf1b1fb2da2ef9bf3310f3998aa0942e03c878df2e00f7f99ba6437a2ce53",
             "confidence": "high",
             "provenance_kind": "ast_extraction",
+            "basis": "typed_provider_fact",
+            "policy_eligible": true,
             "source": "agent.py",
             "source_pointer": "agent.py:30",
             "evidence": {
@@ -1318,10 +1433,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_dc05444ca9c48fbbc9e4",
               "dimension": "identity",
               "value": "obs_v1_5a5ea25e06f7f548a030228c69bb7fcc005eefc80b1c949897eb0a45f6633e74",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "tool_identity_binding",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -1331,10 +1449,13 @@
               }
             },
             {
+              "claim_id": "clm_a9ce566a7f8043ad969b",
               "dimension": "identity",
               "value": "obs_v1_6b9558cf467f2b12019c3d7494b38e8c31d8d1e7042b6a14318f01d1f7e76ab7",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "tool_identity_binding",
               "source_pointer": "agent.py",
               "evidence": {
@@ -1357,10 +1478,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_aa77105a77049fc20f76",
               "dimension": "binding",
               "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
               "confidence": "high",
               "provenance_kind": "ast_extraction",
+              "basis": "typed_provider_fact",
+              "policy_eligible": true,
               "source": "agent.py",
               "source_pointer": "agent.py:30",
               "evidence": {
@@ -1377,19 +1501,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_d06c32d64f8f0493a478",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='lookup_case'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_50c4d6abc43dbc7853c5",
               "dimension": "effect",
               "value": "read",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "mcp_annotation",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -1407,10 +1537,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_74d88f35831b62f08e96",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='lookup_case'].authority",
               "evidence": {
@@ -1420,10 +1553,13 @@
               }
             },
             {
+              "claim_id": "clm_b1bf872bb994c8ec4e1c",
               "dimension": "authority",
               "value": "none",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "mcp_authority",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -1447,10 +1583,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_aa77105a77049fc20f76",
             "dimension": "binding",
             "value": "agent_v1:e72499e3feb23dae6e706766->tool_v2_d819fcc45add4884625d6fbdfacbb41d221868c520cb1c660e3f9ec5a6020a3c",
             "confidence": "high",
             "provenance_kind": "ast_extraction",
+            "basis": "typed_provider_fact",
+            "policy_eligible": true,
             "source": "agent.py",
             "source_pointer": "agent.py:30",
             "evidence": {
@@ -1465,6 +1604,7 @@
     }
   ],
   "source_warnings": [],
+  "policy_evidence_gaps": [],
   "agent_summary": {
     "verdict": "passed",
     "headline": "Release ready. All in-scope actions have complete, conflict-free explicit or structural static effect and authority evidence; no active blockers. Runtime behavior was not verified.",

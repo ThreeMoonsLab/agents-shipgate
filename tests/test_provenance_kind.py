@@ -69,13 +69,10 @@ def test_emitted_findings_never_have_none_provenance(tmp_path, sample):
         )
 
 
-def test_bundled_fixture_distribution(tmp_path):
-    """Across the bundled samples, both static_declaration and
-    keyword_heuristic must be represented. Confirms the multi-axis
-    classification is real, not collapsed to one bucket. (The other
-    three values are covered by per-category construction tests below;
-    the bundled samples don't trigger them today.)"""
+def test_bundled_fixture_findings_exclude_heuristic_policy_matches(tmp_path):
+    """Heuristic applicability is represented as evidence gaps, not Findings."""
     kinds: set[str] = set()
+    policy_gap_count = 0
     for sample in SAMPLES:
         out = tmp_path / sample.parent.name
         out.mkdir()
@@ -89,8 +86,11 @@ def test_bundled_fixture_distribution(tmp_path):
         for finding in report.findings:
             if finding.provenance_kind is not None:
                 kinds.add(finding.provenance_kind)
+        policy_gap_count += len(report.policy_evidence_gaps)
     assert "static_declaration" in kinds
-    assert "keyword_heuristic" in kinds
+    assert "keyword_heuristic" not in kinds
+    assert "regex_heuristic" not in kinds
+    assert policy_gap_count > 0
 
 
 def test_each_provenance_value_constructs_cleanly():

@@ -478,6 +478,7 @@ def _assessment(
             value=tool.observation_id or "",
             confidence="high",
             provenance_kind="static_declaration",
+            basis="reviewed_declaration" if binding_id else "protocol_structure",
             source="tool_identity_binding" if binding_id else "source_observation",
             source_pointer=tool.source_pointer or tool.source_ref,
             evidence={

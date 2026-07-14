@@ -567,8 +567,7 @@ def _has_structural_side_effect(tool: Tool) -> bool:
     assessment = tool.semantic_assessment or assess_tool_semantics(tool)
     return any(
         claim.value != "read"
-        and claim.confidence == "high"
-        and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
+        and claim.policy_eligible
         for claim in assessment.effect.claims
     )
 

@@ -42,7 +42,11 @@ def run(context: ScanContext):
                 confidence="high" if retry_known else "medium",
                 recommendation=f"Add an idempotency key, idempotent annotation, or declared idempotency policy for {tool.name}.",
                 context=context,
-                provenance_kind="static_declaration",
+                provenance_kind=(
+                    "static_declaration"
+                    if tool.semantic_assessment is not None
+                    else "keyword_heuristic"
+                ),
                 policy_evidence_pointer="/policies/require_idempotency_for_tools",
             )
         )
@@ -57,10 +61,6 @@ def _needs_idempotency(tool) -> bool:
         return "financial_action" in risk_tags(tool, min_confidence="medium")
     return any(
         claim.value == "financial_write"
-        and claim.confidence == "high"
-        and claim.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}
+        and claim.policy_eligible
         for claim in assessment.effect.claims
-    ) or (
-        assessment.effect.status in {"declared", "structural"}
-        and assessment.conservative_effect == "financial_write"
     )

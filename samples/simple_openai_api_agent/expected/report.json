@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.32",
-  "run_id": "agents_shipgate_3189f29f2db532fe",
+  "report_schema_version": "0.33",
+  "run_id": "agents_shipgate_151b2a90d910c866",
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
@@ -53,8 +53,8 @@
   "summary": {
     "status": "release_blockers_detected",
     "critical_count": 1,
-    "high_count": 15,
-    "medium_count": 5,
+    "high_count": 10,
+    "medium_count": 4,
     "low_count": 0,
     "info_count": 0,
     "suppressed_count": 0,
@@ -85,7 +85,33 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": {
+          "status": "matched",
+          "confidence": "high",
+          "policy_eligible": true,
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "predicates": [
+            {
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "expected": null,
+              "observed": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_9d10be42545cd7457766e72c52ab9ba754eee7aa97c9613ae60ba4bc4048af82",
+              "confidence": "high",
+              "claim_ids": [],
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "why": null
+            }
+          ],
+          "support_hash": "sha256:0b26a3779bfbd1539b1d6c1a4168e605f9bfaafc0af7186a4a7565d49b47d64c"
+        }
       },
       {
         "id": "fp_304deac63e13e3c3",
@@ -107,54 +133,36 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": {
+          "status": "matched",
+          "confidence": "high",
+          "policy_eligible": true,
+          "blocking_eligible": true,
+          "claim_ids": [],
+          "evidence_bases": [
+            "protocol_structure"
+          ],
+          "predicates": [
+            {
+              "predicate": "deterministic_action_rule",
+              "status": "matched",
+              "expected": null,
+              "observed": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_b5ba1b1612ff86ebfe4ad43459c8c26a79e44eb61a5a2f7496ab5d9166b4cfd5",
+              "confidence": "high",
+              "claim_ids": [],
+              "evidence_bases": [
+                "protocol_structure"
+              ],
+              "policy_eligible": true,
+              "why": null
+            }
+          ],
+          "support_hash": "sha256:7045a6360ba4f27a7b90fc4b3b138b391332f05307f836677791b41ffbd8b972"
+        }
       }
     ],
     "review_items": [
-      {
-        "id": "fp_3521aa242911af07",
-        "fingerprint": "fp_3521aa242911af07",
-        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-        "severity": "high",
-        "title": "send_customer_email accepts broad free-form action input",
-        "baseline_status": null,
-        "blocks_release": false,
-        "source": {
-          "type": "openai_api",
-          "ref": "tools/openai-tools.json#1",
-          "location": null,
-          "path": "tools/openai-tools.json",
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/tools/1"
-        },
-        "policy_evidence_source": null,
-        "capability_refs": [],
-        "capability_trace_refs": []
-      },
-      {
-        "id": "fp_5e682e1038239894",
-        "fingerprint": "fp_5e682e1038239894",
-        "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-        "severity": "high",
-        "title": "create_refund.amount has no maximum bound",
-        "baseline_status": null,
-        "blocks_release": false,
-        "source": {
-          "type": "openai_api",
-          "ref": "tools/openai-tools.json#0",
-          "location": null,
-          "path": "tools/openai-tools.json",
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/tools/0"
-        },
-        "policy_evidence_source": null,
-        "capability_refs": [],
-        "capability_trace_refs": []
-      },
       {
         "id": "fp_13b6198e71d217dd",
         "fingerprint": "fp_13b6198e71d217dd",
@@ -175,7 +183,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_368e8c29ea686e2e",
@@ -197,69 +206,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
-      },
-      {
-        "id": "fp_b9007e3ae3ed5f5f",
-        "fingerprint": "fp_b9007e3ae3ed5f5f",
-        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "severity": "high",
-        "title": "send_customer_email appears to overlap with a prohibited action",
-        "baseline_status": null,
-        "blocks_release": false,
-        "source": {
-          "type": "openai_api",
-          "ref": "tools/openai-tools.json#1",
-          "location": null,
-          "path": "tools/openai-tools.json",
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/tools/1"
-        },
-        "policy_evidence_source": {
-          "type": "manifest",
-          "ref": "shipgate.yaml#/agent/prohibited_actions/1",
-          "location": null,
-          "path": "shipgate.yaml",
-          "start_line": 11,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/agent/prohibited_actions/1"
-        },
-        "capability_refs": [],
-        "capability_trace_refs": []
-      },
-      {
-        "id": "fp_4e7eb5aecdf2a82e",
-        "fingerprint": "fp_4e7eb5aecdf2a82e",
-        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "severity": "high",
-        "title": "create_refund appears to overlap with a prohibited action",
-        "baseline_status": null,
-        "blocks_release": false,
-        "source": {
-          "type": "openai_api",
-          "ref": "tools/openai-tools.json#0",
-          "location": null,
-          "path": "tools/openai-tools.json",
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/tools/0"
-        },
-        "policy_evidence_source": {
-          "type": "manifest",
-          "ref": "shipgate.yaml#/agent/prohibited_actions/0",
-          "location": null,
-          "path": "shipgate.yaml",
-          "start_line": 10,
-          "end_line": null,
-          "start_column": null,
-          "pointer": "/agent/prohibited_actions/0"
-        },
-        "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_d98bf7612c5be651",
@@ -290,7 +238,8 @@
           "pointer": "/policies/require_idempotency_for_tools"
         },
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_cfe9353889dee25f",
@@ -312,7 +261,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_fea0fd40167efead",
@@ -334,7 +284,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_36565ae087474960",
@@ -356,51 +307,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
-      },
-      {
-        "id": "fp_116d02961abe80e2_d6a46917",
-        "fingerprint": "fp_116d02961abe80e2",
-        "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-        "severity": "high",
-        "title": "Prompt says read-only or advise-only while write/high-risk tools are enabled",
-        "baseline_status": null,
-        "blocks_release": false,
-        "source": {
-          "type": "manifest",
-          "ref": "shipgate.yaml",
-          "location": null,
-          "path": null,
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": null
-        },
-        "policy_evidence_source": null,
-        "capability_refs": [],
-        "capability_trace_refs": []
-      },
-      {
-        "id": "fp_116d02961abe80e2_6f6fb033",
-        "fingerprint": "fp_116d02961abe80e2",
-        "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-        "severity": "medium",
-        "title": "Prompt lacks approval/confirmation language for high-risk tools",
-        "baseline_status": null,
-        "blocks_release": false,
-        "source": {
-          "type": "manifest",
-          "ref": "shipgate.yaml",
-          "location": null,
-          "path": null,
-          "start_line": null,
-          "end_line": null,
-          "start_column": null,
-          "pointer": null
-        },
-        "policy_evidence_source": null,
-        "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_b15fbb62fef1c41c",
@@ -422,7 +330,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_886b380dba4cbb51",
@@ -444,7 +353,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_25d66c07cb88ccbc",
@@ -466,7 +376,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_21b95af39e98c806",
@@ -488,7 +399,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_7313c45114c31330",
@@ -514,7 +426,8 @@
         ],
         "capability_trace_refs": [
           "ctrace_8669c1b40747c28a"
-        ]
+        ],
+        "support": null
       },
       {
         "id": "fp_0a9a82612142bbfb",
@@ -536,7 +449,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       },
       {
         "id": "fp_88b22e5b095fcc05",
@@ -558,7 +472,8 @@
         },
         "policy_evidence_source": null,
         "capability_refs": [],
-        "capability_trace_refs": []
+        "capability_trace_refs": [],
+        "support": null
       }
     ],
     "evidence_coverage": {
@@ -566,7 +481,152 @@
       "human_review_recommended": true,
       "source_warning_count": 0,
       "low_confidence_tool_count": 0,
-      "evidence_gaps": [],
+      "evidence_gaps": [
+        {
+          "kind": "inferred_policy_applicability",
+          "subject": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+          "source_type": null,
+          "source_ref": "tools/openai-tools.json",
+          "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
+          "next_action": {
+            "kind": "provide_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "/tools/1",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "subject": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+          "source_type": null,
+          "source_ref": "tools/openai-tools.json",
+          "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
+          "next_action": {
+            "kind": "provide_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "/tools/0",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "subject": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+          "source_type": null,
+          "source_ref": "shipgate.yaml",
+          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
+          "next_action": {
+            "kind": "provide_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "/agent/prohibited_actions/1",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "subject": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+          "source_type": null,
+          "source_ref": "shipgate.yaml",
+          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
+          "next_action": {
+            "kind": "provide_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "/agent/prohibited_actions/0",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "subject": "agent:simple-openai-api-agent/api-refund-assistant",
+          "source_type": null,
+          "source_ref": "shipgate.yaml",
+          "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Policy applicability is supported only by heuristic evidence.",
+          "next_action": {
+            "kind": "provide_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "/checks/SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "inferred_policy_applicability",
+          "subject": "agent:simple-openai-api-agent/api-refund-assistant",
+          "source_type": null,
+          "source_ref": "shipgate.yaml",
+          "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Policy applicability is supported only by heuristic evidence.",
+          "next_action": {
+            "kind": "provide_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "/checks/SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        }
+      ],
       "semantic_coverage": {
         "total_actions": 2,
         "pass_eligible_actions": 0,
@@ -593,7 +653,8 @@
         "pass_eligible": true,
         "gap_count": 0,
         "reason_counts": {}
-      }
+      },
+      "policy_gap_count": 6
     },
     "baseline_delta": {
       "enabled": false,
@@ -614,22 +675,6 @@
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "contribution_rules": [
       {
-        "finding_id": "fp_3521aa242911af07",
-        "fingerprint": "fp_3521aa242911af07",
-        "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-        "category": "review_item",
-        "rule": "review_required",
-        "rationale": "requires_human_review=true (severity=high); routed to review_items."
-      },
-      {
-        "finding_id": "fp_5e682e1038239894",
-        "fingerprint": "fp_5e682e1038239894",
-        "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-        "category": "review_item",
-        "rule": "review_required",
-        "rationale": "requires_human_review=true (severity=high); routed to review_items."
-      },
-      {
         "finding_id": "fp_13b6198e71d217dd",
         "fingerprint": "fp_13b6198e71d217dd",
         "check_id": "SHIP-AUTH-MISSING-SCOPE",
@@ -641,22 +686,6 @@
         "finding_id": "fp_368e8c29ea686e2e",
         "fingerprint": "fp_368e8c29ea686e2e",
         "check_id": "SHIP-AUTH-MISSING-SCOPE",
-        "category": "review_item",
-        "rule": "review_required",
-        "rationale": "requires_human_review=true (severity=high); routed to review_items."
-      },
-      {
-        "finding_id": "fp_b9007e3ae3ed5f5f",
-        "fingerprint": "fp_b9007e3ae3ed5f5f",
-        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-        "category": "review_item",
-        "rule": "review_required",
-        "rationale": "requires_human_review=true (severity=high); routed to review_items."
-      },
-      {
-        "finding_id": "fp_4e7eb5aecdf2a82e",
-        "fingerprint": "fp_4e7eb5aecdf2a82e",
-        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
         "category": "review_item",
         "rule": "review_required",
         "rationale": "requires_human_review=true (severity=high); routed to review_items."
@@ -689,22 +718,6 @@
         "finding_id": "fp_36565ae087474960",
         "fingerprint": "fp_36565ae087474960",
         "check_id": "SHIP-API-STRUCTURED-OUTPUT-READINESS",
-        "category": "review_item",
-        "rule": "review_required",
-        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
-      },
-      {
-        "finding_id": "fp_116d02961abe80e2_d6a46917",
-        "fingerprint": "fp_116d02961abe80e2",
-        "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-        "category": "review_item",
-        "rule": "review_required",
-        "rationale": "requires_human_review=true (severity=high); routed to review_items."
-      },
-      {
-        "finding_id": "fp_116d02961abe80e2_6f6fb033",
-        "fingerprint": "fp_116d02961abe80e2",
-        "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
         "category": "review_item",
         "rule": "review_required",
         "rationale": "requires_human_review=true (severity=medium); routed to review_items."
@@ -806,10 +819,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_41a9ca17cde05bd77645",
               "dimension": "identity",
               "value": "obs_v1_650c1e14249a3ef5447890a74dbb1d7b0c71682d4a1c61a888343a6381d6a10e",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "source_observation",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -832,10 +848,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_a1ab0cfe6d16d737fc1b",
               "dimension": "binding",
               "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "agent_binding_declaration",
               "source_pointer": "/agent_bindings/declarations/0/tools/0",
               "evidence": {
@@ -852,19 +871,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_5a97ce2724d487c4af0c",
               "dimension": "effect",
               "value": "financial_write",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='create_refund'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_f7877a49e8f5ad2d9883",
               "dimension": "effect",
               "value": "financial_write",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -874,10 +899,13 @@
               }
             },
             {
+              "claim_id": "clm_6ccec9883e72e188e513",
               "dimension": "effect",
               "value": "write",
               "confidence": "medium",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:openai_api_keyword",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -896,10 +924,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_e2eb14edf5f5dd49f6a3",
               "dimension": "authority",
               "value": "unscoped",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='create_refund'].authority",
               "evidence": {
@@ -922,14 +953,10 @@
       "included_reason": "referenced_by_critical_finding",
       "control_status": "missing",
       "related_findings": [
-        "fp_116d02961abe80e2_6f6fb033",
-        "fp_116d02961abe80e2_d6a46917",
         "fp_21b95af39e98c806",
         "fp_25d66c07cb88ccbc",
         "fp_304deac63e13e3c3",
         "fp_368e8c29ea686e2e",
-        "fp_4e7eb5aecdf2a82e",
-        "fp_5e682e1038239894",
         "fp_7313c45114c31330",
         "fp_88b22e5b095fcc05",
         "fp_b15fbb62fef1c41c",
@@ -959,10 +986,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_41beac269652852478eb",
               "dimension": "identity",
               "value": "obs_v1_6975b831c4f5ddcc793bb748ab778dfb271e6372197d26849a3c6a45ac5aefe8",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "source_observation",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -985,10 +1015,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_dff05deb93bb1d4b42d8",
               "dimension": "binding",
               "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "agent_binding_declaration",
               "source_pointer": "/agent_bindings/declarations/0/tools/1",
               "evidence": {
@@ -1005,19 +1038,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_d7302d32eaefab6d707f",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='send_customer_email'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_f0196c0c4caab8cd8ecd",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -1026,10 +1065,13 @@
               }
             },
             {
+              "claim_id": "clm_b56eed6a901658bae650",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -1038,10 +1080,13 @@
               }
             },
             {
+              "claim_id": "clm_54ec9c771e8cb69be726",
               "dimension": "effect",
               "value": "write",
               "confidence": "medium",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:openai_api_keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -1060,10 +1105,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_96d9a2e0d17836d10435",
               "dimension": "authority",
               "value": "unscoped",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='send_customer_email'].authority",
               "evidence": {
@@ -1088,14 +1136,10 @@
       "control_status": "missing",
       "related_findings": [
         "fp_0a9a82612142bbfb",
-        "fp_116d02961abe80e2_6f6fb033",
-        "fp_116d02961abe80e2_d6a46917",
         "fp_13b6198e71d217dd",
-        "fp_3521aa242911af07",
         "fp_3cbb2883d00d87fd",
         "fp_886b380dba4cbb51",
         "fp_b15fbb62fef1c41c",
-        "fp_b9007e3ae3ed5f5f",
         "fp_cfe9353889dee25f"
       ]
     }
@@ -1170,25 +1214,6 @@
       "release_implication": "The model may send ambiguous or overbroad tool arguments."
     },
     {
-      "id": "mis_6c4f0ff021e3ac53",
-      "kind": "control_missing",
-      "severity": "high",
-      "tool_name": "create_refund",
-      "capability_refs": [
-        "cap_1936b581aee1c411"
-      ],
-      "intention_refs": [
-        "int_07ec701205b21b96",
-        "int_788db5032dd9f920"
-      ],
-      "finding_refs": [
-        "fp_5e682e1038239894"
-      ],
-      "policy_requirement": "Risky numeric parameters must declare a maximum or equivalent limit.",
-      "gap": "create_refund.amount has no maximum bound.",
-      "release_implication": "Release reviewers cannot verify blast-radius limits."
-    },
-    {
       "id": "mis_8b25565f5f7c1166",
       "kind": "control_missing",
       "severity": "high",
@@ -1245,24 +1270,6 @@
       "release_implication": "The model may send ambiguous or overbroad tool arguments."
     },
     {
-      "id": "mis_6b1cc1d993e16942",
-      "kind": "control_missing",
-      "severity": "high",
-      "tool_name": "send_customer_email",
-      "capability_refs": [
-        "cap_e809417ee4da1160"
-      ],
-      "intention_refs": [
-        "int_bf9d4ad9100fcc59"
-      ],
-      "finding_refs": [
-        "fp_3521aa242911af07"
-      ],
-      "policy_requirement": "Action-like tool inputs must constrain high-blast-radius fields.",
-      "gap": "send_customer_email accepts broad free-form action input.",
-      "release_implication": "Release reviewers cannot bound the operation payload safely."
-    },
-    {
       "id": "mis_e6652a7ff2eb280f",
       "kind": "control_missing",
       "severity": "high",
@@ -1279,81 +1286,6 @@
       "policy_requirement": "Manifest metadata must match the active release surface.",
       "gap": "send_customer_email is high-risk but has no owner.",
       "release_implication": "Release review metadata is incomplete or stale."
-    },
-    {
-      "id": "mis_bd44d302d017f84e",
-      "kind": "intent_mismatch",
-      "severity": "high",
-      "tool_name": "create_refund",
-      "capability_refs": [
-        "cap_1936b581aee1c411"
-      ],
-      "intention_refs": [
-        "int_07ec701205b21b96",
-        "int_788db5032dd9f920"
-      ],
-      "finding_refs": [
-        "fp_116d02961abe80e2_d6a46917"
-      ],
-      "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
-      "gap": "Prompt says read-only or advise-only while write/high-risk tools are enabled.",
-      "release_implication": "The agent instructions and actual tool surface disagree."
-    },
-    {
-      "id": "mis_23bc4995db369fe1",
-      "kind": "intent_mismatch",
-      "severity": "high",
-      "tool_name": "send_customer_email",
-      "capability_refs": [
-        "cap_e809417ee4da1160"
-      ],
-      "intention_refs": [
-        "int_788db5032dd9f920",
-        "int_bf9d4ad9100fcc59"
-      ],
-      "finding_refs": [
-        "fp_116d02961abe80e2_d6a46917"
-      ],
-      "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
-      "gap": "Prompt says read-only or advise-only while write/high-risk tools are enabled.",
-      "release_implication": "The agent instructions and actual tool surface disagree."
-    },
-    {
-      "id": "mis_fa1f6b701727dcfe",
-      "kind": "prohibited_action_present",
-      "severity": "high",
-      "tool_name": "create_refund",
-      "capability_refs": [
-        "cap_1936b581aee1c411"
-      ],
-      "intention_refs": [
-        "int_07ec701205b21b96",
-        "int_788db5032dd9f920"
-      ],
-      "finding_refs": [
-        "fp_4e7eb5aecdf2a82e"
-      ],
-      "policy_requirement": "Prohibited actions must not be contradicted by enabled capabilities.",
-      "gap": "create_refund appears to overlap with a prohibited action.",
-      "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
-    },
-    {
-      "id": "mis_eda491e9c3a9426a",
-      "kind": "prohibited_action_present",
-      "severity": "high",
-      "tool_name": "send_customer_email",
-      "capability_refs": [
-        "cap_e809417ee4da1160"
-      ],
-      "intention_refs": [
-        "int_bf9d4ad9100fcc59"
-      ],
-      "finding_refs": [
-        "fp_b9007e3ae3ed5f5f"
-      ],
-      "policy_requirement": "Prohibited actions must not be contradicted by enabled capabilities.",
-      "gap": "send_customer_email appears to overlap with a prohibited action.",
-      "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
     },
     {
       "id": "mis_e212b63830ca8bd8",
@@ -1462,44 +1394,6 @@
       "release_implication": "Downstream release behavior may depend on under-specified output."
     },
     {
-      "id": "mis_567ca836b95cfc68",
-      "kind": "intent_mismatch",
-      "severity": "medium",
-      "tool_name": "create_refund",
-      "capability_refs": [
-        "cap_1936b581aee1c411"
-      ],
-      "intention_refs": [
-        "int_07ec701205b21b96",
-        "int_788db5032dd9f920"
-      ],
-      "finding_refs": [
-        "fp_116d02961abe80e2_6f6fb033"
-      ],
-      "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
-      "gap": "Prompt lacks approval/confirmation language for high-risk tools.",
-      "release_implication": "The agent instructions and actual tool surface disagree."
-    },
-    {
-      "id": "mis_62e630163211b4aa",
-      "kind": "intent_mismatch",
-      "severity": "medium",
-      "tool_name": "send_customer_email",
-      "capability_refs": [
-        "cap_e809417ee4da1160"
-      ],
-      "intention_refs": [
-        "int_788db5032dd9f920",
-        "int_bf9d4ad9100fcc59"
-      ],
-      "finding_refs": [
-        "fp_116d02961abe80e2_6f6fb033"
-      ],
-      "policy_requirement": "Prompt scope must align with enabled high-risk tools.",
-      "gap": "Prompt lacks approval/confirmation language for high-risk tools.",
-      "release_implication": "The agent instructions and actual tool surface disagree."
-    },
-    {
       "id": "mis_7d3973f4e8d6251c",
       "kind": "policy_gap",
       "severity": "medium",
@@ -1579,7 +1473,7 @@
     "decision": "blocked",
     "summary": "2 release-relevant finding(s) map to active release blockers; resolve required controls or remove the capability.",
     "blocker_misalignment_count": 2,
-    "review_misalignment_count": 19,
+    "review_misalignment_count": 13,
     "fail_policy": {
       "ci_mode": "advisory",
       "fail_on": [],
@@ -1590,7 +1484,7 @@
   },
   "suggested_scenarios": [
     {
-      "id": "scn_2ac9a71849417173",
+      "id": "scn_6144e245f4f1c21b",
       "scenario_type": "schema_boundary",
       "title": "Tool schema boundary check",
       "given": "Exercise the release path for create_refund, send_customer_email.",
@@ -1598,14 +1492,10 @@
       "source_misalignments": [
         "mis_3c326236a9b058df",
         "mis_493a3a6e433ad920",
-        "mis_6b1cc1d993e16942",
-        "mis_6c4f0ff021e3ac53",
         "mis_81db85b32933b861"
       ],
       "source_findings": [
-        "fp_3521aa242911af07",
         "fp_36565ae087474960",
-        "fp_5e682e1038239894",
         "fp_cfe9353889dee25f",
         "fp_fea0fd40167efead"
       ]
@@ -1636,38 +1526,6 @@
       ],
       "source_findings": [
         "fp_d98bf7612c5be651"
-      ]
-    },
-    {
-      "id": "scn_b11df1fc7cdbb896",
-      "scenario_type": "prompt_scope_alignment",
-      "title": "Prompt and tool-surface alignment",
-      "given": "Exercise the release path for create_refund, send_customer_email.",
-      "expected_control": "The agent instructions match the enabled write and high-risk capabilities.",
-      "source_misalignments": [
-        "mis_23bc4995db369fe1",
-        "mis_567ca836b95cfc68",
-        "mis_62e630163211b4aa",
-        "mis_bd44d302d017f84e"
-      ],
-      "source_findings": [
-        "fp_116d02961abe80e2_6f6fb033",
-        "fp_116d02961abe80e2_d6a46917"
-      ]
-    },
-    {
-      "id": "scn_236342f5c0b2ee9b",
-      "scenario_type": "prohibited_action",
-      "title": "Prohibited-action guard",
-      "given": "Exercise the release path for create_refund, send_customer_email.",
-      "expected_control": "The prohibited action is blocked, removed, or covered by the stated control.",
-      "source_misalignments": [
-        "mis_eda491e9c3a9426a",
-        "mis_fa1f6b701727dcfe"
-      ],
-      "source_findings": [
-        "fp_4e7eb5aecdf2a82e",
-        "fp_b9007e3ae3ed5f5f"
       ]
     },
     {
@@ -1846,7 +1704,7 @@
     ]
   },
   "action_surface_facts": {
-    "snapshot_version": "0.3",
+    "snapshot_version": "0.4",
     "actions": [
       {
         "action_id": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_9d10be42545cd7457766e72c52ab9ba754eee7aa97c9613ae60ba4bc4048af82",
@@ -1878,10 +1736,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_41beac269652852478eb",
                 "dimension": "identity",
                 "value": "obs_v1_6975b831c4f5ddcc793bb748ab778dfb271e6372197d26849a3c6a45ac5aefe8",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
                 "source": "source_observation",
                 "source_pointer": "/tools/1",
                 "evidence": {
@@ -1904,10 +1765,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_dff05deb93bb1d4b42d8",
                 "dimension": "binding",
                 "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "agent_binding_declaration",
                 "source_pointer": "/agent_bindings/declarations/0/tools/1",
                 "evidence": {
@@ -1924,19 +1788,25 @@
             "confidence": "high",
             "claims": [
               {
+                "claim_id": "clm_d7302d32eaefab6d707f",
                 "dimension": "effect",
                 "value": "external_communication",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='send_customer_email'].effect",
                 "evidence": {}
               },
               {
+                "claim_id": "clm_f0196c0c4caab8cd8ecd",
                 "dimension": "effect",
                 "value": "external_communication",
                 "confidence": "high",
                 "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
                 "source": "risk_hint:keyword",
                 "source_pointer": "/tools/1",
                 "evidence": {
@@ -1945,10 +1815,13 @@
                 }
               },
               {
+                "claim_id": "clm_b56eed6a901658bae650",
                 "dimension": "effect",
                 "value": "external_communication",
                 "confidence": "high",
                 "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
                 "source": "risk_hint:keyword",
                 "source_pointer": "/tools/1",
                 "evidence": {
@@ -1957,10 +1830,13 @@
                 }
               },
               {
+                "claim_id": "clm_54ec9c771e8cb69be726",
                 "dimension": "effect",
                 "value": "write",
                 "confidence": "medium",
                 "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
                 "source": "risk_hint:openai_api_keyword",
                 "source_pointer": "/tools/1",
                 "evidence": {
@@ -1979,10 +1855,13 @@
             "scopes": [],
             "claims": [
               {
+                "claim_id": "clm_96d9a2e0d17836d10435",
                 "dimension": "authority",
                 "value": "unscoped",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='send_customer_email'].authority",
                 "evidence": {
@@ -2062,10 +1941,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_41a9ca17cde05bd77645",
                 "dimension": "identity",
                 "value": "obs_v1_650c1e14249a3ef5447890a74dbb1d7b0c71682d4a1c61a888343a6381d6a10e",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "protocol_structure",
+                "policy_eligible": true,
                 "source": "source_observation",
                 "source_pointer": "/tools/0",
                 "evidence": {
@@ -2088,10 +1970,13 @@
             ],
             "claims": [
               {
+                "claim_id": "clm_a1ab0cfe6d16d737fc1b",
                 "dimension": "binding",
                 "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "agent_binding_declaration",
                 "source_pointer": "/agent_bindings/declarations/0/tools/0",
                 "evidence": {
@@ -2108,19 +1993,25 @@
             "confidence": "high",
             "claims": [
               {
+                "claim_id": "clm_5a97ce2724d487c4af0c",
                 "dimension": "effect",
                 "value": "financial_write",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='create_refund'].effect",
                 "evidence": {}
               },
               {
+                "claim_id": "clm_f7877a49e8f5ad2d9883",
                 "dimension": "effect",
                 "value": "financial_write",
                 "confidence": "high",
                 "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
                 "source": "risk_hint:keyword",
                 "source_pointer": "/tools/0",
                 "evidence": {
@@ -2130,10 +2021,13 @@
                 }
               },
               {
+                "claim_id": "clm_6ccec9883e72e188e513",
                 "dimension": "effect",
                 "value": "write",
                 "confidence": "medium",
                 "provenance_kind": "keyword_heuristic",
+                "basis": "inferred_keyword",
+                "policy_eligible": false,
                 "source": "risk_hint:openai_api_keyword",
                 "source_pointer": "/tools/0",
                 "evidence": {
@@ -2152,10 +2046,13 @@
             "scopes": [],
             "claims": [
               {
+                "claim_id": "clm_e2eb14edf5f5dd49f6a3",
                 "dimension": "authority",
                 "value": "unscoped",
                 "confidence": "high",
                 "provenance_kind": "static_declaration",
+                "basis": "reviewed_declaration",
+                "policy_eligible": true,
                 "source": "action_surface_declaration",
                 "source_pointer": "action_surface.actions[tool='create_refund'].authority",
                 "evidence": {
@@ -2363,84 +2260,6 @@
   "baseline": null,
   "findings": [
     {
-      "id": "fp_3521aa242911af07",
-      "fingerprint": "fp_3521aa242911af07",
-      "check_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-      "title": "send_customer_email accepts broad free-form action input",
-      "severity": "high",
-      "category": "schema",
-      "tool_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
-      "tool_name": "send_customer_email",
-      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
-      "evidence": {
-        "parameter": "message",
-        "type": "string"
-      },
-      "confidence": "medium",
-      "provenance_kind": "keyword_heuristic",
-      "source": {
-        "type": "openai_api",
-        "ref": "tools/openai-tools.json#1",
-        "location": null,
-        "path": "tools/openai-tools.json",
-        "pointer": "/tools/1"
-      },
-      "policy_evidence_source": null,
-      "capability_refs": [],
-      "capability_policy_evidence": null,
-      "policy_routing": null,
-      "capability_trace_refs": [],
-      "recommendation": "Constrain send_customer_email.message with an enum, structured schema, or narrower field-specific parameters.",
-      "blocks_release": false,
-      "suppressed": false,
-      "suppression_reason": null,
-      "baseline_status": null,
-      "autofix_safe": false,
-      "requires_human_review": true,
-      "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-broad-free-text",
-      "agent_action": "escalate_to_human"
-    },
-    {
-      "id": "fp_5e682e1038239894",
-      "fingerprint": "fp_5e682e1038239894",
-      "check_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-      "title": "create_refund.amount has no maximum bound",
-      "severity": "high",
-      "category": "schema",
-      "tool_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
-      "tool_name": "create_refund",
-      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
-      "evidence": {
-        "parameter": "amount",
-        "type": "number"
-      },
-      "confidence": "high",
-      "provenance_kind": "keyword_heuristic",
-      "source": {
-        "type": "openai_api",
-        "ref": "tools/openai-tools.json#0",
-        "location": null,
-        "path": "tools/openai-tools.json",
-        "pointer": "/tools/0"
-      },
-      "policy_evidence_source": null,
-      "capability_refs": [],
-      "capability_policy_evidence": null,
-      "policy_routing": null,
-      "capability_trace_refs": [],
-      "recommendation": "Add a maximum bound to create_refund.amount or document an equivalent limit in the tool policy.",
-      "blocks_release": false,
-      "suppressed": false,
-      "suppression_reason": null,
-      "baseline_status": null,
-      "autofix_safe": false,
-      "requires_human_review": true,
-      "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-missing-bounds",
-      "agent_action": "escalate_to_human"
-    },
-    {
       "id": "fp_13b6198e71d217dd",
       "fingerprint": "fp_13b6198e71d217dd",
       "check_id": "SHIP-AUTH-MISSING-SCOPE",
@@ -2470,6 +2289,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Declare operation-specific auth scopes for send_customer_email, or explicitly declare anonymous authority when the operation requires no credentials.",
       "blocks_release": false,
@@ -2511,6 +2331,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Declare operation-specific auth scopes for create_refund, or explicitly declare anonymous authority when the operation requires no credentials.",
       "blocks_release": false,
@@ -2521,109 +2342,6 @@
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-missing-scope",
-      "agent_action": "escalate_to_human"
-    },
-    {
-      "id": "fp_b9007e3ae3ed5f5f",
-      "fingerprint": "fp_b9007e3ae3ed5f5f",
-      "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-      "title": "send_customer_email appears to overlap with a prohibited action",
-      "severity": "high",
-      "category": "scope",
-      "tool_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
-      "tool_name": "send_customer_email",
-      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
-      "evidence": {
-        "prohibited_action": "send customer email without confirmation",
-        "risk_tags": [
-          "customer_communication",
-          "external_write",
-          "write"
-        ]
-      },
-      "confidence": "medium",
-      "provenance_kind": "keyword_heuristic",
-      "source": {
-        "type": "openai_api",
-        "ref": "tools/openai-tools.json#1",
-        "location": null,
-        "path": "tools/openai-tools.json",
-        "pointer": "/tools/1"
-      },
-      "policy_evidence_source": {
-        "type": "manifest",
-        "ref": "shipgate.yaml#/agent/prohibited_actions/1",
-        "location": null,
-        "path": "shipgate.yaml",
-        "start_line": 11,
-        "end_line": null,
-        "start_column": null,
-        "pointer": "/agent/prohibited_actions/1"
-      },
-      "capability_refs": [],
-      "capability_policy_evidence": null,
-      "policy_routing": null,
-      "capability_trace_refs": [],
-      "recommendation": "Remove send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
-      "blocks_release": false,
-      "suppressed": false,
-      "suppression_reason": null,
-      "baseline_status": null,
-      "autofix_safe": false,
-      "requires_human_review": true,
-      "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present",
-      "agent_action": "escalate_to_human"
-    },
-    {
-      "id": "fp_4e7eb5aecdf2a82e",
-      "fingerprint": "fp_4e7eb5aecdf2a82e",
-      "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-      "title": "create_refund appears to overlap with a prohibited action",
-      "severity": "high",
-      "category": "scope",
-      "tool_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
-      "tool_name": "create_refund",
-      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
-      "evidence": {
-        "prohibited_action": "issue refund without approval",
-        "risk_tags": [
-          "financial_action",
-          "write"
-        ]
-      },
-      "confidence": "medium",
-      "provenance_kind": "keyword_heuristic",
-      "source": {
-        "type": "openai_api",
-        "ref": "tools/openai-tools.json#0",
-        "location": null,
-        "path": "tools/openai-tools.json",
-        "pointer": "/tools/0"
-      },
-      "policy_evidence_source": {
-        "type": "manifest",
-        "ref": "shipgate.yaml#/agent/prohibited_actions/0",
-        "location": null,
-        "path": "shipgate.yaml",
-        "start_line": 10,
-        "end_line": null,
-        "start_column": null,
-        "pointer": "/agent/prohibited_actions/0"
-      },
-      "capability_refs": [],
-      "capability_policy_evidence": null,
-      "policy_routing": null,
-      "capability_trace_refs": [],
-      "recommendation": "Remove create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
-      "blocks_release": false,
-      "suppressed": false,
-      "suppression_reason": null,
-      "baseline_status": null,
-      "autofix_safe": false,
-      "requires_human_review": true,
-      "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present",
       "agent_action": "escalate_to_human"
     },
     {
@@ -2665,6 +2383,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Add an idempotency key, idempotent annotation, or declared idempotency policy for create_refund.",
       "blocks_release": false,
@@ -2710,6 +2429,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Make send_customer_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
       "blocks_release": false,
@@ -2757,6 +2477,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Make create_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
       "blocks_release": false,
@@ -2802,6 +2523,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Tighten the structured output schema with enums, needs_review/refusal/error modeling, and declared critical fields.",
       "blocks_release": false,
@@ -2812,84 +2534,6 @@
       "requires_human_review": true,
       "suggested_patch_kind": "manual",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-structured-output-readiness",
-      "agent_action": "escalate_to_human"
-    },
-    {
-      "id": "fp_116d02961abe80e2_d6a46917",
-      "fingerprint": "fp_116d02961abe80e2",
-      "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-      "title": "Prompt says read-only or advise-only while write/high-risk tools are enabled",
-      "severity": "high",
-      "category": "api",
-      "tool_id": null,
-      "tool_name": null,
-      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
-      "evidence": {
-        "tools": [
-          "send_customer_email",
-          "create_refund"
-        ]
-      },
-      "confidence": "high",
-      "provenance_kind": "keyword_heuristic",
-      "source": {
-        "type": "manifest",
-        "ref": "shipgate.yaml",
-        "location": null
-      },
-      "policy_evidence_source": null,
-      "capability_refs": [],
-      "capability_policy_evidence": null,
-      "policy_routing": null,
-      "capability_trace_refs": [],
-      "recommendation": "Align prompt scope with enabled tools or remove write/high-risk tools.",
-      "blocks_release": false,
-      "suppressed": false,
-      "suppression_reason": null,
-      "baseline_status": null,
-      "autofix_safe": false,
-      "requires_human_review": true,
-      "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-prompt-tool-scope-mismatch",
-      "agent_action": "escalate_to_human"
-    },
-    {
-      "id": "fp_116d02961abe80e2_6f6fb033",
-      "fingerprint": "fp_116d02961abe80e2",
-      "check_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-      "title": "Prompt lacks approval/confirmation language for high-risk tools",
-      "severity": "medium",
-      "category": "api",
-      "tool_id": null,
-      "tool_name": null,
-      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
-      "evidence": {
-        "tools": [
-          "send_customer_email",
-          "create_refund"
-        ]
-      },
-      "confidence": "medium",
-      "provenance_kind": "keyword_heuristic",
-      "source": {
-        "type": "manifest",
-        "ref": "shipgate.yaml",
-        "location": null
-      },
-      "policy_evidence_source": null,
-      "capability_refs": [],
-      "capability_policy_evidence": null,
-      "policy_routing": null,
-      "capability_trace_refs": [],
-      "recommendation": "Add prompt instructions requiring human approval and explicit confirmation before financial, destructive, or external customer actions.",
-      "blocks_release": false,
-      "suppressed": false,
-      "suppression_reason": null,
-      "baseline_status": null,
-      "autofix_safe": false,
-      "requires_human_review": true,
-      "suggested_patch_kind": "manual",
-      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-api-prompt-tool-scope-mismatch",
       "agent_action": "escalate_to_human"
     },
     {
@@ -2919,6 +2563,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Declare tool-call timeout metadata for high-risk OpenAI API flows.",
       "blocks_release": false,
@@ -2964,6 +2609,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Add idempotency evidence for send_customer_email or avoid retrying this side effect.",
       "blocks_release": false,
@@ -3004,6 +2650,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Declare success_fields and failure_fields for create_refund in openai_api policy rules.",
       "blocks_release": false,
@@ -3048,6 +2695,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Add idempotency evidence for create_refund or avoid retrying this side effect.",
       "blocks_release": false,
@@ -3087,6 +2735,7 @@
       ],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [
         "ctrace_8669c1b40747c28a"
       ],
@@ -3132,6 +2781,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "blocks_release": false,
@@ -3174,6 +2824,7 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": null,
       "capability_trace_refs": [],
       "recommendation": "Declare an owner for each high-risk production tool in risk_overrides.tools.",
       "blocks_release": false,
@@ -3216,6 +2867,32 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": {
+        "status": "matched",
+        "confidence": "high",
+        "policy_eligible": true,
+        "blocking_eligible": true,
+        "claim_ids": [],
+        "evidence_bases": [
+          "protocol_structure"
+        ],
+        "predicates": [
+          {
+            "predicate": "deterministic_action_rule",
+            "status": "matched",
+            "expected": null,
+            "observed": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_9d10be42545cd7457766e72c52ab9ba754eee7aa97c9613ae60ba4bc4048af82",
+            "confidence": "high",
+            "claim_ids": [],
+            "evidence_bases": [
+              "protocol_structure"
+            ],
+            "policy_eligible": true,
+            "why": null
+          }
+        ],
+        "support_hash": "sha256:0b26a3779bfbd1539b1d6c1a4168e605f9bfaafc0af7186a4a7565d49b47d64c"
+      },
       "capability_trace_refs": [],
       "recommendation": "Declare confirmation policy and safeguards.audit_log for this external communication action.",
       "blocks_release": true,
@@ -3259,6 +2936,32 @@
       "capability_refs": [],
       "capability_policy_evidence": null,
       "policy_routing": null,
+      "support": {
+        "status": "matched",
+        "confidence": "high",
+        "policy_eligible": true,
+        "blocking_eligible": true,
+        "claim_ids": [],
+        "evidence_bases": [
+          "protocol_structure"
+        ],
+        "predicates": [
+          {
+            "predicate": "deterministic_action_rule",
+            "status": "matched",
+            "expected": null,
+            "observed": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_b5ba1b1612ff86ebfe4ad43459c8c26a79e44eb61a5a2f7496ab5d9166b4cfd5",
+            "confidence": "high",
+            "claim_ids": [],
+            "evidence_bases": [
+              "protocol_structure"
+            ],
+            "policy_eligible": true,
+            "why": null
+          }
+        ],
+        "support_hash": "sha256:7045a6360ba4f27a7b90fc4b3b138b391332f05307f836677791b41ffbd8b972"
+      },
       "capability_trace_refs": [],
       "recommendation": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency for this financial write action.",
       "blocks_release": true,
@@ -3277,14 +2980,14 @@
     "Declare confirmation policy and safeguards.audit_log for this external communication action.",
     "Make send_customer_email a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
     "Make create_refund a strict function schema: object parameters, additionalProperties=false, complete required list, and bounded risky fields.",
-    "Align prompt scope with enabled tools or remove write/high-risk tools.",
     "Add idempotency evidence for send_customer_email or avoid retrying this side effect.",
     "Add idempotency evidence for create_refund or avoid retrying this side effect.",
-    "Declare operation-specific auth scopes for send_customer_email, or explicitly declare anonymous authority when the operation requires no credentials."
+    "Declare operation-specific auth scopes for send_customer_email, or explicitly declare anonymous authority when the operation requires no credentials.",
+    "Declare operation-specific auth scopes for create_refund, or explicitly declare anonymous authority when the operation requires no credentials."
   ],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate-golden-simple_openai_api_agent/report.md",
-    "json": "/private/tmp/shipgate-golden-simple_openai_api_agent/report.json"
+    "markdown": "/private/tmp/shipgate-goldens/openai/report.md",
+    "json": "/private/tmp/shipgate-goldens/openai/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -3328,10 +3031,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_41beac269652852478eb",
               "dimension": "identity",
               "value": "obs_v1_6975b831c4f5ddcc793bb748ab778dfb271e6372197d26849a3c6a45ac5aefe8",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "source_observation",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -3354,10 +3060,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_dff05deb93bb1d4b42d8",
               "dimension": "binding",
               "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "agent_binding_declaration",
               "source_pointer": "/agent_bindings/declarations/0/tools/1",
               "evidence": {
@@ -3374,19 +3083,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_d7302d32eaefab6d707f",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='send_customer_email'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_f0196c0c4caab8cd8ecd",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -3395,10 +3110,13 @@
               }
             },
             {
+              "claim_id": "clm_b56eed6a901658bae650",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -3407,10 +3125,13 @@
               }
             },
             {
+              "claim_id": "clm_54ec9c771e8cb69be726",
               "dimension": "effect",
               "value": "write",
               "confidence": "medium",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:openai_api_keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -3429,10 +3150,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_96d9a2e0d17836d10435",
               "dimension": "authority",
               "value": "unscoped",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='send_customer_email'].authority",
               "evidence": {
@@ -3456,10 +3180,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_dff05deb93bb1d4b42d8",
             "dimension": "binding",
             "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
             "confidence": "high",
             "provenance_kind": "static_declaration",
+            "basis": "reviewed_declaration",
+            "policy_eligible": true,
             "source": "agent_binding_declaration",
             "source_pointer": "/agent_bindings/declarations/0/tools/1",
             "evidence": {
@@ -3508,10 +3235,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_41a9ca17cde05bd77645",
               "dimension": "identity",
               "value": "obs_v1_650c1e14249a3ef5447890a74dbb1d7b0c71682d4a1c61a888343a6381d6a10e",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "source_observation",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -3534,10 +3264,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_a1ab0cfe6d16d737fc1b",
               "dimension": "binding",
               "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "agent_binding_declaration",
               "source_pointer": "/agent_bindings/declarations/0/tools/0",
               "evidence": {
@@ -3554,19 +3287,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_5a97ce2724d487c4af0c",
               "dimension": "effect",
               "value": "financial_write",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='create_refund'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_f7877a49e8f5ad2d9883",
               "dimension": "effect",
               "value": "financial_write",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -3576,10 +3315,13 @@
               }
             },
             {
+              "claim_id": "clm_6ccec9883e72e188e513",
               "dimension": "effect",
               "value": "write",
               "confidence": "medium",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:openai_api_keyword",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -3598,10 +3340,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_e2eb14edf5f5dd49f6a3",
               "dimension": "authority",
               "value": "unscoped",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='create_refund'].authority",
               "evidence": {
@@ -3625,10 +3370,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_a1ab0cfe6d16d737fc1b",
             "dimension": "binding",
             "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
             "confidence": "high",
             "provenance_kind": "static_declaration",
+            "basis": "reviewed_declaration",
+            "policy_eligible": true,
             "source": "agent_binding_declaration",
             "source_pointer": "/agent_bindings/declarations/0/tools/0",
             "evidence": {
@@ -3681,10 +3429,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_41beac269652852478eb",
               "dimension": "identity",
               "value": "obs_v1_6975b831c4f5ddcc793bb748ab778dfb271e6372197d26849a3c6a45ac5aefe8",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "source_observation",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -3707,10 +3458,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_dff05deb93bb1d4b42d8",
               "dimension": "binding",
               "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "agent_binding_declaration",
               "source_pointer": "/agent_bindings/declarations/0/tools/1",
               "evidence": {
@@ -3727,19 +3481,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_d7302d32eaefab6d707f",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='send_customer_email'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_f0196c0c4caab8cd8ecd",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -3748,10 +3508,13 @@
               }
             },
             {
+              "claim_id": "clm_b56eed6a901658bae650",
               "dimension": "effect",
               "value": "external_communication",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -3760,10 +3523,13 @@
               }
             },
             {
+              "claim_id": "clm_54ec9c771e8cb69be726",
               "dimension": "effect",
               "value": "write",
               "confidence": "medium",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:openai_api_keyword",
               "source_pointer": "/tools/1",
               "evidence": {
@@ -3782,10 +3548,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_96d9a2e0d17836d10435",
               "dimension": "authority",
               "value": "unscoped",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='send_customer_email'].authority",
               "evidence": {
@@ -3809,10 +3578,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_dff05deb93bb1d4b42d8",
             "dimension": "binding",
             "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
             "confidence": "high",
             "provenance_kind": "static_declaration",
+            "basis": "reviewed_declaration",
+            "policy_eligible": true,
             "source": "agent_binding_declaration",
             "source_pointer": "/agent_bindings/declarations/0/tools/1",
             "evidence": {
@@ -3861,10 +3633,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_41a9ca17cde05bd77645",
               "dimension": "identity",
               "value": "obs_v1_650c1e14249a3ef5447890a74dbb1d7b0c71682d4a1c61a888343a6381d6a10e",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "protocol_structure",
+              "policy_eligible": true,
               "source": "source_observation",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -3887,10 +3662,13 @@
           ],
           "claims": [
             {
+              "claim_id": "clm_a1ab0cfe6d16d737fc1b",
               "dimension": "binding",
               "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "agent_binding_declaration",
               "source_pointer": "/agent_bindings/declarations/0/tools/0",
               "evidence": {
@@ -3907,19 +3685,25 @@
           "confidence": "high",
           "claims": [
             {
+              "claim_id": "clm_5a97ce2724d487c4af0c",
               "dimension": "effect",
               "value": "financial_write",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='create_refund'].effect",
               "evidence": {}
             },
             {
+              "claim_id": "clm_f7877a49e8f5ad2d9883",
               "dimension": "effect",
               "value": "financial_write",
               "confidence": "high",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:keyword",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -3929,10 +3713,13 @@
               }
             },
             {
+              "claim_id": "clm_6ccec9883e72e188e513",
               "dimension": "effect",
               "value": "write",
               "confidence": "medium",
               "provenance_kind": "keyword_heuristic",
+              "basis": "inferred_keyword",
+              "policy_eligible": false,
               "source": "risk_hint:openai_api_keyword",
               "source_pointer": "/tools/0",
               "evidence": {
@@ -3951,10 +3738,13 @@
           "scopes": [],
           "claims": [
             {
+              "claim_id": "clm_e2eb14edf5f5dd49f6a3",
               "dimension": "authority",
               "value": "unscoped",
               "confidence": "high",
               "provenance_kind": "static_declaration",
+              "basis": "reviewed_declaration",
+              "policy_eligible": true,
               "source": "action_surface_declaration",
               "source_pointer": "action_surface.actions[tool='create_refund'].authority",
               "evidence": {
@@ -3978,10 +3768,13 @@
         ],
         "claims": [
           {
+            "claim_id": "clm_a1ab0cfe6d16d737fc1b",
             "dimension": "binding",
             "value": "agent_v1:3e1354866b28ba54f69c8e73->tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
             "confidence": "high",
             "provenance_kind": "static_declaration",
+            "basis": "reviewed_declaration",
+            "policy_eligible": true,
             "source": "agent_binding_declaration",
             "source_pointer": "/agent_bindings/declarations/0/tools/0",
             "evidence": {
@@ -3996,13 +3789,159 @@
     }
   ],
   "source_warnings": [],
+  "policy_evidence_gaps": [
+    {
+      "kind": "inferred_policy_applicability",
+      "subject": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+      "source_type": null,
+      "source_ref": "tools/openai-tools.json",
+      "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
+      "next_action": {
+        "kind": "provide_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "/tools/1",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    },
+    {
+      "kind": "inferred_policy_applicability",
+      "subject": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+      "source_type": null,
+      "source_ref": "tools/openai-tools.json",
+      "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
+      "next_action": {
+        "kind": "provide_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "/tools/0",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    },
+    {
+      "kind": "inferred_policy_applicability",
+      "subject": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+      "source_type": null,
+      "source_ref": "shipgate.yaml",
+      "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
+      "next_action": {
+        "kind": "provide_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "/agent/prohibited_actions/1",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    },
+    {
+      "kind": "inferred_policy_applicability",
+      "subject": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+      "source_type": null,
+      "source_ref": "shipgate.yaml",
+      "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
+      "next_action": {
+        "kind": "provide_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "/agent/prohibited_actions/0",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    },
+    {
+      "kind": "inferred_policy_applicability",
+      "subject": "agent:simple-openai-api-agent/api-refund-assistant",
+      "source_type": null,
+      "source_ref": "shipgate.yaml",
+      "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Policy applicability is supported only by heuristic evidence.",
+      "next_action": {
+        "kind": "provide_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "/checks/SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    },
+    {
+      "kind": "inferred_policy_applicability",
+      "subject": "agent:simple-openai-api-agent/api-refund-assistant",
+      "source_type": null,
+      "source_ref": "shipgate.yaml",
+      "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Policy applicability is supported only by heuristic evidence.",
+      "next_action": {
+        "kind": "provide_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "/checks/SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    }
+  ],
   "agent_summary": {
     "verdict": "blocked",
-    "headline": "2 active finding(s) block release; 19 review item(s) accepted as debt.",
+    "headline": "2 active finding(s) block release; 13 review item(s) accepted as debt.",
     "blocker_count": 2,
-    "review_item_count": 19,
+    "review_item_count": 13,
     "auto_appliable_patches": 0,
-    "needs_human_review": 21,
+    "needs_human_review": 15,
     "first_recommended_action": {
       "kind": "info",
       "command": null,
@@ -4038,9 +3977,9 @@
   },
   "reviewer_summary": {
     "verdict": "blocked",
-    "headline": "Release blocked: 24 lens changes. Start at release_decision.",
+    "headline": "Release blocked: 16 lens changes. Start at release_decision.",
     "tool_surface_changes": 0,
-    "capability_misalignments": 24,
+    "capability_misalignments": 16,
     "action_surface_changes": 0,
     "evidence_matrix_gaps": 0,
     "severity_overrides_applied": 0,
@@ -4082,14 +4021,13 @@
     "verdict": "blocked",
     "by_severity": {
       "critical": 1,
-      "high": 15,
-      "medium": 5
+      "high": 10,
+      "medium": 4
     },
     "by_reason_code": {
       "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING": 1,
       "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING": 1,
       "SHIP-API-FUNCTION-SCHEMA-STRICTNESS": 2,
-      "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH": 2,
       "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY": 2,
       "SHIP-API-STRUCTURED-OUTPUT-READINESS": 1,
       "SHIP-API-TIMEOUT-MISSING": 1,
@@ -4097,9 +4035,6 @@
       "SHIP-API-TRACE-APPROVAL-MISSING": 1,
       "SHIP-AUTH-MISSING-SCOPE": 2,
       "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING": 2,
-      "SHIP-SCHEMA-BROAD-FREE-TEXT": 1,
-      "SHIP-SCHEMA-MISSING-BOUNDS": 1,
-      "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT": 2,
       "SHIP-SIDEFX-IDEMPOTENCY-MISSING": 1
     },
     "capability_delta_summary": {
@@ -4122,15 +4057,15 @@
         "count": 2
       },
       {
-        "reason_code": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-        "count": 2
-      },
-      {
         "reason_code": "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY",
         "count": 2
       },
       {
         "reason_code": "SHIP-AUTH-MISSING-SCOPE",
+        "count": 2
+      },
+      {
+        "reason_code": "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING",
         "count": 2
       }
     ]

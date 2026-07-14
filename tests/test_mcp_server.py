@@ -138,7 +138,7 @@ def test_mcp_capabilities_handler_does_not_write_reports(tmp_path: Path) -> None
         no_plugins=True,
     )
 
-    assert payload["capability_lock_schema_version"] == "0.5"
+    assert payload["capability_lock_schema_version"] == "0.6"
     assert _snapshot(workspace) == before
 
 
@@ -205,7 +205,7 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
 
     payload = shipgate_handoff(verifier_path=str(output_dir / "verifier.json"))
 
-    assert payload["schema_version"] == "shipgate.agent_handoff/v3"
+    assert payload["schema_version"] == "shipgate.agent_handoff/v4"
     assert payload["gate"]["merge_verdict"] == "mergeable"
     assert payload["control"]["state"] == "complete"
     assert _snapshot(tmp_path) == before

@@ -426,7 +426,7 @@ ci:
     assert action.semantic_assessment.effect.status == "inferred"
     assert action.effect == "destructive"
     assert report.release_decision is not None
-    assert report.release_decision.decision == "review_required"
+    assert report.release_decision.decision == "insufficient_evidence"
     assert any(
         gap.kind == "inferred_effect_only"
         for gap in report.release_decision.evidence_coverage.evidence_gaps
@@ -805,7 +805,7 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
         baseline_path=baseline_path,
     )
 
-    assert baseline.schema_version == "0.7"
+    assert baseline.schema_version == "0.8"
     assert baseline.tool_surface_facts is not None
     assert baseline.action_surface_facts is not None
     assert first_report.run_id == second_report.run_id
@@ -1104,6 +1104,15 @@ def test_sdk_preview_tool_is_not_treated_as_external_write(tmp_path):
         if finding.tool_name == "send_email_preview" and finding.severity in {"critical", "high"}
     ]
     assert high_preview_findings == []
+    assert any(
+        gap.kind == "inferred_policy_applicability"
+        and gap.subject == next(
+            action.tool_id
+            for action in report.action_surface_facts.actions
+            if action.tool_name == "send_email_preview"
+        )
+        for gap in report.policy_evidence_gaps
+    )
 
 
 def test_manual_risk_override_sets_tags_and_owner(tmp_path):
@@ -1284,7 +1293,15 @@ policies:
         formats=["json"],
     )
 
-    assert any(finding.check_id == "SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE" for finding in report.findings)
+    assert not any(
+        finding.check_id == "SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE"
+        for finding in report.findings
+    )
+    assert any(
+        gap.kind == "inferred_policy_applicability"
+        and gap.why.startswith("SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE:")
+        for gap in report.policy_evidence_gaps
+    )
 
 
 def test_run_id_and_source_paths_are_reproducible_without_absolute_source_refs(tmp_path):

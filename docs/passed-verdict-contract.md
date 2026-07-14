@@ -1,7 +1,7 @@
 # Evidence-backed `passed` verdict
 
-Starting with the Agents Shipgate `0.16.0b2` runtime (contract v13, report
-schema v0.32), `release_decision.decision: passed` means the configured root
+Starting with the Agents Shipgate `0.16.0b5` runtime (contract v16, report
+schema v0.33), `release_decision.decision: passed` means the configured root
 agent and its complete reachable tool/handoff graph were statically proven,
 and every reachable capability has complete, conflict-free static identity,
 binding, effect, and authority evidence, all applicable controls were evaluated, and no
@@ -21,7 +21,9 @@ An action is pass-eligible only when all of the following hold:
   source fact such as an OpenAPI method or an explicit MCP annotation;
 - its authority is explicitly `none` or concretely scoped;
 - no semantic claims conflict and all annotation values are valid; and
-- controls required by the normalized effect are present.
+- controls required by the normalized effect are present; and
+- every applicable policy predicate is supported by high-confidence reviewed,
+  protocol-structural, typed-provider, or structural-scope evidence.
 
 Names, descriptions, schema keywords, regular expressions, and protocol
 defaults may raise the conservative risk bound, but they never establish
@@ -29,16 +31,23 @@ safety. A capability with only inferred, defaulted, partial, or missing
 evidence is `insufficient_evidence`, regardless of how many fully described
 capabilities are present alongside it.
 
-Semantic evidence is part of the release decision, not a Finding. It cannot be
+Semantic and policy-applicability evidence are part of the release decision,
+not Findings. They cannot be
 suppressed, baseline-matched, waived through a severity override, or converted
 to known evidence by `--no-heuristics` or `human_ack`.
 
 Machine consumers should inspect
-`release_decision.evidence_coverage.semantic_coverage`, `binding_coverage`, and
-`identity_coverage`, then work `evidence_gaps[]` in order. Packet schema v0.10
-mirrors this contract, while capability standard v0.4 carries the same
-normalized assessment and binding hash in capability lock v0.5 and lock-diff
-v0.6 artifacts.
+`release_decision.evidence_coverage.semantic_coverage`, `binding_coverage`,
+`identity_coverage`, and `policy_gap_count`, then work `evidence_gaps[]` in
+order. Packet schema v0.11 mirrors this contract, while capability standard
+v0.5 carries the same normalized assessment and binding hash in capability
+lock v0.6 and lock-diff v0.7 artifacts.
+
+Policy severity, `block: true`, risk overrides, and rule-declared confidence
+cannot upgrade underlying evidence. Heuristic-only, mixed, unknown, or
+conflicting policy applicability creates a non-waivable evidence gap. The
+conservative effect may still increase, but no hard finding is emitted until
+the predicate is supported by authoritative static evidence.
 
 Catalog membership never implies binding. `tool_catalog[]` contains every
 canonical extracted declaration; `tool_inventory[]`, actions, checks, and

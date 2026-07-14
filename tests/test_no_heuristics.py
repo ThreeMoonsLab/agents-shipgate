@@ -191,7 +191,7 @@ def test_keep_list_is_explicit_and_non_overlapping() -> None:
 
 def test_run_scan_with_no_heuristics_emits_envelope(tmp_path) -> None:
     """End-to-end: ``run_scan(no_heuristics=True)`` produces a report
-    whose ``heuristics_filter`` envelope is enabled+populated."""
+    whose filter cannot hide heuristic policy-evidence gaps."""
     report, _ = run_scan(
         config_path=SUPPORT_REFUND_FIXTURE,
         output_dir=tmp_path,
@@ -199,14 +199,20 @@ def test_run_scan_with_no_heuristics_emits_envelope(tmp_path) -> None:
         ci_mode="advisory",
         no_heuristics=True,
     )
+    control, _ = run_scan(
+        config_path=SUPPORT_REFUND_FIXTURE,
+        output_dir=tmp_path / "control",
+        formats=["json"],
+        ci_mode="advisory",
+        no_heuristics=False,
+    )
     assert report.heuristics_filter is not None
     assert report.heuristics_filter.enabled is True
-    # The support_refund fixture is known to contain keyword_heuristic
-    # findings (description-injection and broad-free-text checks). Exact
-    # count varies as the catalog evolves; assert ≥ 1 so the test
-    # documents the live-fixture invariant without over-pinning.
-    assert report.heuristics_filter.filtered_finding_count >= 1
-    assert "keyword_heuristic" in report.heuristics_filter.filtered_by_kind
+    assert report.heuristics_filter.filtered_finding_count == 0
+    assert report.policy_evidence_gaps
+    assert [gap.model_dump(mode="json") for gap in report.policy_evidence_gaps] == [
+        gap.model_dump(mode="json") for gap in control.policy_evidence_gaps
+    ]
 
 
 def test_run_scan_without_flag_is_unaffected(tmp_path) -> None:
@@ -301,22 +307,14 @@ def test_no_heuristics_via_cli_smoke(tmp_path) -> None:
     )
     report = json.loads((tmp_path / "report.json").read_text())
     assert report["heuristics_filter"]["enabled"] is True
-    assert report["heuristics_filter"]["filtered_finding_count"] >= 1
+    assert report["heuristics_filter"]["filtered_finding_count"] == 0
+    assert report["policy_evidence_gaps"]
 
 
-def test_filter_does_not_overwrite_manifest_suppression_reason_e2e(
+def test_filter_cannot_suppress_policy_evidence_gaps_e2e(
     tmp_path,
 ) -> None:
-    """Integration-level pin of the same rule as
-    ``test_manifest_suppression_reason_preserved_when_also_filterable``:
-    if a manifest already suppressed a heuristic finding, the user's
-    reason wins after the filter runs."""
-    # support_refund_agent ships heuristic findings without manifest
-    # suppression; we'd need a custom fixture to test the overlap path
-    # end-to-end. The unit test above pins the semantic; this test
-    # documents the absence of regression by confirming the canonical
-    # reason appears verbatim on at least one filtered finding when
-    # NO manifest suppression overlaps.
+    """Heuristic policy gaps are outside Finding suppression entirely."""
     report, _ = run_scan(
         config_path=SUPPORT_REFUND_FIXTURE,
         output_dir=tmp_path,
@@ -324,19 +322,10 @@ def test_filter_does_not_overwrite_manifest_suppression_reason_e2e(
         ci_mode="advisory",
         no_heuristics=True,
     )
-    flagged = [
-        f
-        for f in report.findings
-        if f.suppression_reason == NO_HEURISTICS_SUPPRESSION_REASON
-    ]
-    assert flagged, (
-        "expected at least one finding with the canonical "
-        "--no-heuristics suppression reason in the support_refund fixture"
-    )
-    # All flagged findings are heuristic provenance.
+    assert report.policy_evidence_gaps
     assert all(
-        f.provenance_kind in NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS
-        for f in flagged
+        finding.suppression_reason != NO_HEURISTICS_SUPPRESSION_REASON
+        for finding in report.findings
     )
 
 

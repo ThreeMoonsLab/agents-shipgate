@@ -418,13 +418,23 @@ def test_anthropic_scan_runs_existing_framework_agnostic_checks(tmp_path):
     # Existing framework-agnostic + generalized SHIP-API-* checks fire on
     # Anthropic tools without any new check IDs.
     assert "SHIP-API-FUNCTION-SCHEMA-STRICTNESS" in fingerprints
-    assert "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH" in fingerprints
+    assert "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH" not in fingerprints
+    assert any(
+        gap.kind == "inferred_policy_applicability"
+        and gap.why.startswith("SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH:")
+        for gap in report.policy_evidence_gaps
+    )
     assert report.release_decision is not None
     semantic = report.release_decision.evidence_coverage.semantic_coverage
     assert semantic.gap_count == 0
     assert semantic.review_concern_count == 2
     assert semantic.reason_counts == {"unscoped_authority": 2}
-    assert "SHIP-SCHEMA-MISSING-BOUNDS" in fingerprints
+    assert "SHIP-SCHEMA-MISSING-BOUNDS" not in fingerprints
+    assert any(
+        gap.kind == "inferred_policy_applicability"
+        and gap.why.startswith("SHIP-SCHEMA-MISSING-BOUNDS:")
+        for gap in report.policy_evidence_gaps
+    )
     assert "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING" in fingerprints
     # Approval is satisfied by anthropic.policy_rules so the check should NOT fire.
     assert "SHIP-POLICY-APPROVAL-MISSING" not in fingerprints

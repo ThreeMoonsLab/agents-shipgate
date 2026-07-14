@@ -10,9 +10,6 @@ from agents_shipgate.core.findings.identity import (
 from agents_shipgate.schemas.report import Finding
 
 V015_FINGERPRINTS = {
-    ("SHIP-SCHEMA-MISSING-BOUNDS", "stripe.create_refund"): "fp_ab60b01cb53cfcbe",
-    ("SHIP-SCHEMA-BROAD-FREE-TEXT", "zendesk.update_ticket"): "fp_ff2f028953d1c220",
-    ("SHIP-SCHEMA-BROAD-FREE-TEXT", "gmail.send_customer_email"): "fp_acd63b899d49aa1c",
     ("SHIP-AUTH-MANIFEST-BROAD-SCOPE", None): "fp_d27325cbdbbf5483",
     ("SHIP-AUTH-SCOPE-COVERAGE-MISSING", "shopify.cancel_order"): "fp_83852fbd6b440524",
     ("SHIP-AUTH-SCOPE-COVERAGE-MISSING", "support.search_kb"): "fp_d8e6d1865dae97cc",
@@ -36,6 +33,10 @@ def test_v015_unchanged_finding_fingerprints_remain_stable(tmp_path: Path) -> No
         for finding in report.findings
     }
     assert {key: observed.get(key) for key in V015_FINGERPRINTS} == V015_FINGERPRINTS
+    assert {
+        gap.why.split(":", 1)[0]
+        for gap in report.policy_evidence_gaps
+    } >= {"SHIP-SCHEMA-MISSING-BOUNDS", "SHIP-SCHEMA-BROAD-FREE-TEXT"}
     assert any(row["name"] == "wildcard_mcp_tools.*" for row in report.tool_catalog)
     assert all(row["name"] != "wildcard_mcp_tools.*" for row in report.tool_inventory)
 

@@ -87,6 +87,19 @@ tool_sources:
   - id: api
     type: openapi
     path: openapi.yaml
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: create_refund, source_id: api}
+      handoffs: []
+      reason: reviewed policy-pack fixture binding
+risk_overrides:
+  tools:
+    create_refund:
+      tags: [financial_action]
+      reason: reviewed financial policy fixture
 checks:
   policy_packs:
     - path: org-pack.yaml
@@ -362,7 +375,7 @@ checks:
     )
 
 
-def test_policy_pack_legacy_v027_routing_fingerprint_baseline_still_matches(
+def test_policy_pack_legacy_v027_baseline_cannot_accept_new_supported_finding(
     tmp_path,
 ):
     _write_openapi(tmp_path)
@@ -448,10 +461,12 @@ checks:
         if item.check_id == "ORG-LEGACY-ROUTING-FP"
     )
     assert matched.fingerprint == finding.fingerprint
-    assert matched.baseline_status == "matched"
+    assert matched.baseline_status == "new"
+    assert matched.support is not None
+    assert matched.support.support_hash
     assert report_with_baseline.baseline is not None
-    assert report_with_baseline.baseline.matched_count == 1
-    assert report_with_baseline.baseline.resolved_count == 0
+    assert report_with_baseline.baseline.matched_count == 0
+    assert report_with_baseline.baseline.resolved_count == 1
 
 
 def test_cli_policy_pack_override_and_parameter_predicate(tmp_path):
@@ -526,6 +541,67 @@ rules:
     assert finding.blocks_release is True
     assert report.release_decision is not None
     assert any(item.check_id == "ORG-MEDIUM-BLOCKER" for item in report.release_decision.blockers)
+
+
+def test_heuristic_policy_match_routes_to_evidence_gap_not_finding(tmp_path):
+    _write_openapi(tmp_path)
+    (tmp_path / "heuristic-pack.yaml").write_text(
+        """
+name: Heuristic laundering regression
+rules:
+  - id: ORG-HEURISTIC-FINANCIAL-BLOCK
+    title: Financial names must not self-create blockers
+    category: org_policy
+    severity: critical
+    confidence: high
+    block: true
+    recommendation: Provide reviewed financial-effect evidence.
+    match:
+      risk_tags: [financial_action]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack(reviewed_financial=False)
+        + """
+checks:
+  policy_packs:
+    - path: heuristic-pack.yaml
+""",
+        encoding="utf-8",
+    )
+
+    report, exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="strict",
+        no_heuristics=True,
+    )
+
+    assert exit_code == 20
+    assert not any(
+        item.check_id == "ORG-HEURISTIC-FINANCIAL-BLOCK"
+        for item in report.findings
+    )
+    gap = next(
+        item
+        for item in report.policy_evidence_gaps
+        if "ORG-HEURISTIC-FINANCIAL-BLOCK" in item.why
+    )
+    assert gap.kind == "inferred_policy_applicability"
+    assert gap.next_action.kind == "provide_policy_evidence"
+    assert report.release_decision is not None
+    # Other concrete high findings may take the higher-precedence review route,
+    # but the heuristic policy rule itself never becomes blocked or passed.
+    assert report.release_decision.decision in {"review_required", "insufficient_evidence"}
+    assert report.release_decision.evidence_coverage.policy_gap_count == len(
+        report.policy_evidence_gaps
+    )
+    assert sum(
+        "ORG-HEURISTIC-FINANCIAL-BLOCK" in item.why
+        for item in report.policy_evidence_gaps
+    ) == 1
 
 
 def test_policy_pack_capability_selector_matches_semantic_subject(tmp_path):
@@ -893,7 +969,14 @@ paths:
     )
 
 
-def _manifest_without_policy_pack() -> str:
+def _manifest_without_policy_pack(*, reviewed_financial: bool = True) -> str:
+    risk_override = """
+risk_overrides:
+  tools:
+    create_refund:
+      tags: [financial_action]
+      reason: reviewed financial policy fixture
+""" if reviewed_financial else ""
     return """
 version: "0.1"
 project:
@@ -916,7 +999,7 @@ agent_bindings:
         - {tool: create_refund, source_id: api}
       handoffs: []
       reason: reviewed policy-pack fixture binding
-"""
+""" + risk_override
 
 
 # --- v0.2: combinators, numeric predicates, sha256 pin ----------------------
@@ -1101,6 +1184,53 @@ checks:
         for item in report.findings
         if item.check_id == "ORG-NON-FINANCIAL-ONLY"
     ]
+
+
+def test_v2_any_of_attributes_the_authoritative_matching_branch(tmp_path):
+    _write_bounded_openapi(tmp_path, maximum=5000)
+    (tmp_path / "org-pack-v2.yaml").write_text(
+        """
+name: Any-of Evidence Attribution
+rules:
+  - id: ORG-AUTHORITATIVE-ANY-OF
+    title: Attribute the branch that authoritatively established applicability
+    severity: medium
+    recommendation: n/a
+    match:
+      any_of:
+        - risk_tags: [financial_action]
+        - source_types: [openapi]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack(reviewed_financial=False)
+        + """
+checks:
+  policy_packs:
+    - path: org-pack-v2.yaml
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    finding = next(
+        item
+        for item in report.findings
+        if item.check_id == "ORG-AUTHORITATIVE-ANY-OF"
+    )
+    assert finding.evidence["any_of"] == {
+        "index": 1,
+        "matched": {"source_types": ["openapi"]},
+    }
+    assert finding.support is not None
+    assert finding.support.policy_eligible is True
 
 
 def test_v1_flat_pack_still_loads_unchanged(tmp_path):

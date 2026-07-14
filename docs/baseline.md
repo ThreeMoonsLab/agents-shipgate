@@ -70,7 +70,7 @@ fail CI.
 
 Reports keep the v0.1 payload contract and add baseline fields:
 
-- `report_schema_version: "0.32"` in current reports
+- `report_schema_version: "0.33"` in current reports
 - `baseline.path`
 - `baseline.matched_count`
 - `baseline.new_count`
@@ -94,6 +94,21 @@ rendered as `fp_<digest>`. It intentionally excludes severity overrides, report
 paths, warnings, timestamps, `default_severity` audit evidence, and baseline
 status.
 
+Baseline schema `0.8` additionally records `support_hash` for findings whose
+release contribution depends on typed policy evidence. The fingerprint remains
+stable, but both fingerprint and support hash must match. A change from
+heuristic, mixed, or unknown applicability to authoritative evidence is
+therefore reviewed as new evidence rather than silently inheriting old debt.
+Pre-`0.8` entries have no support binding, so supported findings intentionally
+re-gate as `new` after upgrading to `0.16.0b5`. Review the new evidence, then
+re-export accepted debt explicitly with:
+
+```bash
+agents-shipgate baseline save -c shipgate.yaml \
+  --out .agents-shipgate/baseline.json \
+  --owner <human> --reason "<reviewed reason>" --expires <YYYY-MM-DD>
+```
+
 Report schema v0.18 computes public fingerprints after the default privacy
 redaction pass. Findings whose evidence contains a recognized secret-like value
 therefore get a new public fingerprint. To avoid surprise CI failures during
@@ -104,7 +119,9 @@ public fingerprints.
 
 ## Baseline Schema Versions
 
-`agents-shipgate baseline save` now writes baseline schema `0.6`, which adds
+`agents-shipgate baseline save` now writes baseline schema `0.8`, which binds
+supported findings to `support_hash`. Schema `0.7` introduced provider-scoped
+finding identity and remains readable. Schema `0.6` adds
 the optional `provenance.owner` approver field alongside the reviewer-set
 `reason`/`expires` (all settable from `baseline save` flags). Schema `0.5`
 added per-entry provenance (`scanner_version`, `run_id`, `recorded_at`).

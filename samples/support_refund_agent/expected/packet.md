@@ -3,9 +3,9 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_5ad1a92a984aacac
+- Run id: agents\_shipgate\_e25de5ef59b7d500
 - Generated at: 2026-01-01T00:00:00\+00:00
-- Packet schema: 0\.10
+- Packet schema: 0\.11
 
 This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See §10 for what the packet does *not* prove.
 
@@ -14,7 +14,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - Decision: `blocked`
 - Reason: 5 active findings block release.
 - Blockers: 5
-- Review items: 14
+- Review items: 9
 
 ### CI gate behavior (informational)
 
@@ -38,16 +38,11 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ### Review items
 
-- `SHIP-SCHEMA-MISSING-BOUNDS` (high): stripe.create\_refund.amount has no maximum bound — `specs/support-tools.openapi.yaml:97`
-- `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): zendesk.update\_ticket accepts broad free-form action input — `specs/support-tools.openapi.yaml:142`
-- `SHIP-SCHEMA-BROAD-FREE-TEXT` (high): gmail.send\_customer\_email accepts broad free-form action input — `.agents-shipgate/mcp-tools.json\#/tools/1`
 - `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes — `shipgate.yaml:91`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): shopify.cancel\_order requires scopes not declared in the manifest — `specs/support-tools.openapi.yaml:116`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): support.search\_kb requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/0`
 - `SHIP-AUTH-MISSING-SCOPE` (high): refund\_status\_lookup lacks declared auth scopes — `specs/support-tools.openapi.yaml:72`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): gmail.send\_customer\_email requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/1`
-- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (high): stripe.create\_refund appears to overlap with a prohibited action — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:22`
-- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (high): gmail.send\_customer\_email appears to overlap with a prohibited action — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:24`
 - `SHIP-POLICY-CONFIRMATION-MISSING` (high): stripe.create\_refund lacks a declared confirmation policy — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:85`
 - `SHIP-POLICY-CONFIRMATION-MISSING` (high): gmail.send\_customer\_email lacks a declared confirmation policy — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:85`
 - `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` (high): shopify.cancel\_order is high-risk but has no owner — `specs/support-tools.openapi.yaml:116`
@@ -60,20 +55,20 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 | Domain | Evidence present | Evidence source | Confidence | Missing controls | Blocking findings | Review items |
 |---|---|---|---|---|---|---|
 | Inventory | covered | tool\_inventory; tool\_surface; \+1 more | medium | — | — | — |
-| Schema | partial | tool\_surface\_facts.tools\[\].hashes; findings\[\] | mixed | SHIP-SCHEMA-MISSING-BOUNDS on stripe.create\_refund: stripe.create\_refund.amount has no maximum bound; SHIP-SCHEMA-BROAD-FREE-TEXT on zendesk.update\_ticket: zendesk.update\_ticket accepts broad free-form action input; \+1 more | — | SHIP-SCHEMA-MISSING-BOUNDS \(high\); SHIP-SCHEMA-BROAD-FREE-TEXT \(high\); \+1 more |
+| Schema | covered | tool\_surface\_facts.tools\[\].hashes | medium | — | — | — |
 | Auth | partial | tool\_surface\_facts.scopes; tool\_inventory\[\].auth\_scopes; \+1 more | mixed | SHIP-AUTH-MANIFEST-BROAD-SCOPE: Manifest declares broad permission scopes; SHIP-AUTH-SCOPE-COVERAGE-MISSING on shopify.cancel\_order: shopify.cancel\_order requires scopes not declared in the manifest; \+4 more | — | SHIP-AUTH-MANIFEST-BROAD-SCOPE \(high\); SHIP-AUTH-SCOPE-COVERAGE-MISSING \(high\); \+4 more |
 | Approval | partial | tool\_surface\_facts.controls\[kind=approval\_policy\]; findings\[\] | high | SHIP-POLICY-APPROVAL-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared approval policy; SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create\_refund: stripe.create\_refund has financial write capability without required controls | SHIP-POLICY-APPROVAL-MISSING \(critical\); SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING \(critical\) | — |
 | Confirmation | partial | tool\_surface\_facts.controls\[kind=confirmation\_policy\]; findings\[\] | high | SHIP-POLICY-CONFIRMATION-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared confirmation policy; SHIP-POLICY-CONFIRMATION-MISSING on gmail.send\_customer\_email: gmail.send\_customer\_email lacks a declared confirmation policy | — | SHIP-POLICY-CONFIRMATION-MISSING \(high\); SHIP-POLICY-CONFIRMATION-MISSING \(high\) |
 | Idempotency | partial | tool\_surface\_facts.controls\[kind=idempotency\_evidence\]; action\_surface\_facts.actions\[\].safeguards.idempotency; \+1 more | high | SHIP-SIDEFX-IDEMPOTENCY-MISSING on stripe.create\_refund: stripe.create\_refund lacks idempotency evidence; SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create\_refund: stripe.create\_refund has financial write capability without required controls | SHIP-SIDEFX-IDEMPOTENCY-MISSING \(critical\); SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING \(critical\) | — |
-| Side effects | partial | tool\_inventory\[\].risk\_tags; action\_surface\_facts.actions\[\].effect; \+1 more | mixed | SHIP-SCHEMA-BROAD-FREE-TEXT on zendesk.update\_ticket: zendesk.update\_ticket accepts broad free-form action input; SHIP-SCHEMA-BROAD-FREE-TEXT on gmail.send\_customer\_email: gmail.send\_customer\_email accepts broad free-form action input; \+7 more | SHIP-POLICY-APPROVAL-MISSING \(critical\); SHIP-SIDEFX-IDEMPOTENCY-MISSING \(critical\); \+3 more | SHIP-SCHEMA-BROAD-FREE-TEXT \(high\); SHIP-SCHEMA-BROAD-FREE-TEXT \(high\); \+2 more |
+| Side effects | partial | tool\_inventory\[\].risk\_tags; action\_surface\_facts.actions\[\].effect; \+1 more | high | SHIP-POLICY-APPROVAL-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared approval policy; SHIP-POLICY-CONFIRMATION-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared confirmation policy; \+5 more | SHIP-POLICY-APPROVAL-MISSING \(critical\); SHIP-SIDEFX-IDEMPOTENCY-MISSING \(critical\); \+3 more | SHIP-POLICY-CONFIRMATION-MISSING \(high\); SHIP-POLICY-CONFIRMATION-MISSING \(high\) |
 | Memory isolation | not\_declared | — | unknown | — | — | — |
 | Human-in-the-loop evidence | not\_declared | — | unknown | — | — | — |
-| Prompt/scope alignment | partial | declared\_intentions; misalignments; \+2 more | medium | SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create\_refund: stripe.create\_refund appears to overlap with a prohibited action; SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on gmail.send\_customer\_email: gmail.send\_customer\_email appears to overlap with a prohibited action | — | SHIP-SCOPE-PROHIBITED-TOOL-PRESENT \(high\); SHIP-SCOPE-PROHIBITED-TOOL-PRESENT \(high\) |
+| Prompt/scope alignment | covered | declared\_intentions; misalignments; \+1 more | medium | — | — | — |
 | Retry/timeout | not\_declared | — | unknown | — | — | — |
 | Baseline debt | informational | — | unknown | — | — | — |
 | Action-surface policy | partial | action\_surface\_facts.actions; findings\[\].blocks\_release; \+1 more | high | SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on gmail.send\_customer\_email: gmail.send\_customer\_email has external communication capability without required controls; SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on stripe.create\_refund: stripe.create\_refund has external communication capability without required controls; \+1 more | SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(high\); SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(high\); \+1 more | — |
 
-## §2 Capability ↔ Intent diff — missing
+## §2 Capability ↔ Intent diff — covered
 
 ### Declared
 
@@ -94,20 +89,17 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - support.search\_kb
 - zendesk.update\_ticket
 
-### Divergences
-
-- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` on `gmail.send\_customer\_email, stripe.create\_refund`: stripe.create\_refund appears to overlap with a prohibited action — `specs/support-tools.openapi.yaml:97` — `shipgate.yaml:22`
-- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` on `gmail.send\_customer\_email, stripe.create\_refund`: gmail.send\_customer\_email appears to overlap with a prohibited action — `.agents-shipgate/mcp-tools.json\#/tools/1` — `shipgate.yaml:24`
-
 ## §3 High-risk tool surface — partial
 
-- Total tools: 7 · High-risk: 3
+- Total tools: 7 · High-risk: 5
 
 | Tool | Source | Risk tags | Approval | Idempotency |
 |---|---|---|---|---|
 | `gmail.send\_customer\_email` | mcp | customer\_communication, external\_write | no | no |
+| `send\_email\_preview` | mcp | read\_only | no | no |
 | `shopify.cancel\_order` | openapi | destructive, write | yes | yes |
 | `stripe.create\_refund` | openapi | external\_write, financial\_action, write | no | no |
+| `support.search\_kb` | mcp | read\_only | no | no |
 
 ## §3A Tool-surface diff — not declared
 
@@ -218,12 +210,6 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
   - Related finding(s): fp\_973ea0ef2110ca9a
 - **Manual review for SHIP-POLICY-CONFIRMATION-MISSING** — Declare a user confirmation policy for stripe.create\_refund or remove this action from the release.
   - Related finding(s): fp\_c762eebfadaf39d9, fp\_fae2921fd2d0cbd5
-- **Manual review for SHIP-SCHEMA-BROAD-FREE-TEXT** — Constrain zendesk.update\_ticket.updates with an enum, structured schema, or narrower field-specific parameters.
-  - Related finding(s): fp\_d58657d9b1c91a84, fp\_ea4f18e4707f8e1d
-- **Manual review for SHIP-SCHEMA-MISSING-BOUNDS** — Add a maximum bound to stripe.create\_refund.amount or document an equivalent limit in the tool policy.
-  - Related finding(s): fp\_60fdf92126ba8844
-- **Manual review for SHIP-SCOPE-PROHIBITED-TOOL-PRESENT** — Remove stripe.create\_refund, narrow its policy, or revise prohibited\_actions so the manifest and tool surface do not contradict each other.
-  - Related finding(s): fp\_5faaaee860bcec8b, fp\_6f8e1ebab65f3607
 - **Manual review for SHIP-SIDEFX-IDEMPOTENCY-MISSING** — Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create\_refund.
   - Related finding(s): fp\_2cf0d6c77d9c3eee
 - **Re-run scan after resolving source warnings** — Source loaders emitted warnings; some tool surfaces may have been parsed with reduced confidence.
@@ -244,4 +230,3 @@ Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generat
 - Low-confidence tool extractions: none
 - Suppressed findings in effect: none
 - Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available.
-- 5 active finding\(s\) came from heuristic provenance \(keyword\_heuristic=5, regex\_heuristic=0\); review the finding evidence before acting.

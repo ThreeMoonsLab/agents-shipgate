@@ -367,6 +367,8 @@ def _tool_from_anthropic_definition(
                 tag=tag,
                 source="anthropic_client_tool_type",
                 confidence="high",
+                basis="typed_provider_fact",
+                provenance_kind="ast_extraction",
                 evidence={"anthropic_tool_type": typed_client_kind},
             )
         )

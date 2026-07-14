@@ -23,7 +23,10 @@ from agents_shipgate.core.heuristics import (
 from agents_shipgate.core.risk_hints import (
     has_risk_tag,
     is_high_risk_tool,
+    is_policy_eligible_high_risk_tool,
+    is_policy_eligible_write_tool,
     is_write_tool,
+    policy_eligible_effects,
     risk_tags,
 )
 
@@ -59,7 +62,9 @@ def _function_schema_strictness(context: ScanContext):
         issues = _function_schema_issues(tool)
         if not issues:
             continue
-        high_risk = is_write_tool(tool) or is_high_risk_tool(tool)
+        high_risk = is_policy_eligible_write_tool(
+            tool
+        ) or is_policy_eligible_high_risk_tool(tool)
         findings.append(
             tool_finding(
                 tool=tool,
@@ -90,7 +95,9 @@ def _structured_output_readiness(context: ScanContext):
     if artifacts is None:
         return []
     high_risk_tools = [
-        tool.name for tool in _openai_api_tools(context) if is_high_risk_tool(tool)
+        tool.name
+        for tool in _openai_api_tools(context)
+        if is_policy_eligible_high_risk_tool(tool)
     ]
     if not artifacts.response_formats:
         return [
@@ -220,7 +227,9 @@ def _operational_readiness(context: ScanContext):
         return []
     findings = []
     api_tools = _openai_api_tools(context)
-    high_risk_tools = [tool for tool in api_tools if is_high_risk_tool(tool)]
+    high_risk_tools = [
+        tool for tool in api_tools if is_policy_eligible_high_risk_tool(tool)
+    ]
     retry_policy = artifacts.retry_policy()
     timeouts = artifacts.timeouts()
     output_schemas = artifacts.tool_output_schemas()
@@ -424,10 +433,9 @@ def _needs_idempotency(tool: Tool, artifacts) -> bool:
         return False
     if any(parameter.name == "idempotency_key" for parameter in tool.parameters):
         return False
-    return is_write_tool(tool) and has_risk_tag(
-        tool,
-        {"financial_action", "destructive", "external_write"},
-        min_confidence="medium",
+    return bool(
+        policy_eligible_effects(tool)
+        & {"financial_write", "destructive", "external_communication"}
     )
 
 

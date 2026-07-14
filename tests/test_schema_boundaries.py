@@ -256,7 +256,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.32"
+    assert report_payload["report_schema_version"] == "0.33"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
@@ -294,6 +294,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "tool_inventory",
         "tool_catalog",
         "source_warnings",
+        "policy_evidence_gaps",
         "agent_summary",
         "policy_audit",
         "privacy_audit",
@@ -337,7 +338,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         not_proven=NotProvenSection(headline="not proven"),
     )
     packet_payload = serialize_packet_json(packet)
-    assert packet_payload["packet_schema_version"] == "0.10"
+    assert packet_payload["packet_schema_version"] == "0.11"
     assert "generated_at" not in packet_payload
     assert "action_surface_diff" in packet_payload
     assert report_payload["capability_runtime_evidence"]["enabled"] is False
@@ -355,7 +356,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         ],
     )
     assert baseline.model_dump(mode="json") == {
-        "schema_version": "0.7",
+        "schema_version": "0.8",
         "project": {},
         "agent": {},
         "created_at": "2026-01-01T00:00:00Z",
@@ -370,6 +371,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
                 "severity": "high",
                 "title": "Example",
                 "provenance": None,
+                "support_hash": None,
             }
         ],
         "tool_surface_facts": None,
