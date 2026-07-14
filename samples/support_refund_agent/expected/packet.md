@@ -5,7 +5,7 @@
 - Environment: production\_like
 - Run id: agents\_shipgate\_e25de5ef59b7d500
 - Generated at: 2026-01-01T00:00:00\+00:00
-- Packet schema: 0\.11
+- Packet schema: 0\.12
 
 This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See §10 for what the packet does *not* prove.
 

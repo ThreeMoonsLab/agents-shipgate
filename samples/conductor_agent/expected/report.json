@@ -1,7 +1,12 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.33",
+  "report_schema_version": "0.34",
   "run_id": "agents_shipgate_68a230995652f841",
+  "request_id": null,
+  "subject_id": null,
+  "input_set_id": null,
+  "engine_requirement_id": null,
+  "decision_id": null,
   "manifest_dir": "<REPO>/samples/conductor_agent",
   "project": {
     "name": "conductor-agent"

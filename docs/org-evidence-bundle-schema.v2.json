@@ -1,0 +1,281 @@
+{
+  "$defs": {
+    "OrgEvidenceBundleArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "OrgEvidenceBundleArtifactRef",
+      "type": "object"
+    },
+    "OrgEvidenceBundleV1": {
+      "additionalProperties": false,
+      "description": "Compact local artifact for org/fleet aggregation.\n\nThis is a consumer artifact only. It cannot override or recalculate the\nrelease gate; ``release_decision.decision`` remains the only gating signal.",
+      "properties": {
+        "artifact_set_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Set Id"
+        },
+        "artifacts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/OrgEvidenceBundleArtifactRef"
+          },
+          "title": "Artifacts",
+          "type": "object"
+        },
+        "attestation": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attestation"
+        },
+        "bundle_kind": {
+          "const": "org_evidence",
+          "default": "org_evidence",
+          "title": "Bundle Kind",
+          "type": "string"
+        },
+        "cli_version": {
+          "title": "Cli Version",
+          "type": "string"
+        },
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "decision_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Id"
+        },
+        "gating_signal": {
+          "const": "release_decision.decision",
+          "default": "release_decision.decision",
+          "title": "Gating Signal",
+          "type": "string"
+        },
+        "host_grant_drift": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host Grant Drift"
+        },
+        "host_grants": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host Grants"
+        },
+        "org_evidence_bundle_schema_version": {
+          "const": "shipgate.org_evidence_bundle/v2",
+          "default": "shipgate.org_evidence_bundle/v2",
+          "title": "Org Evidence Bundle Schema Version",
+          "type": "string"
+        },
+        "org_status": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Org Status"
+        },
+        "organization": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Organization"
+        },
+        "policy_packs": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Policy Packs",
+          "type": "array"
+        },
+        "privacy": {
+          "additionalProperties": true,
+          "title": "Privacy",
+          "type": "object"
+        },
+        "receipt_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receipt Id"
+        },
+        "registry_row": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Registry Row"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        },
+        "source_attestation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Attestation"
+        },
+        "source_report": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Report"
+        },
+        "source_verification_receipt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Verification Receipt"
+        },
+        "source_verifier": {
+          "title": "Source Verifier",
+          "type": "string"
+        },
+        "source_verify_run": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Verify Run"
+        },
+        "workspace": {
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cli_version",
+        "workspace",
+        "config",
+        "source_verifier"
+      ],
+      "title": "OrgEvidenceBundleV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/org-evidence-bundle-schema.v2.json",
+  "$ref": "#/$defs/OrgEvidenceBundleV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "JSON Schema for agents-shipgate org bundle --json. This bundle aggregates local deterministic artifacts for fleet reporting and does not produce a release verdict.",
+  "title": "Agents Shipgate Organization Evidence Bundle v1"
+}

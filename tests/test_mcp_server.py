@@ -205,7 +205,7 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
 
     payload = shipgate_handoff(verifier_path=str(output_dir / "verifier.json"))
 
-    assert payload["schema_version"] == "shipgate.agent_handoff/v4"
+    assert payload["schema_version"] == "shipgate.agent_handoff/v5"
     assert payload["gate"]["merge_verdict"] == "mergeable"
     assert payload["control"]["state"] == "complete"
     assert _snapshot(tmp_path) == before

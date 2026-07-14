@@ -212,7 +212,7 @@ def test_ingest_writes_v03_rows_and_uses_attestation_org_repo(tmp_path: Path) ->
 
     assert result.exit_code == 0, result.output
     row = json.loads(ledger.read_text(encoding="utf-8"))
-    assert row["registry_schema_version"] == "0.3"
+    assert row["registry_schema_version"] == "0.4"
     assert row["repo"] == "org/from-org"
     assert row["org_id"] == "acme"
     assert row["service"] == "support-agent"
@@ -245,7 +245,7 @@ def test_bypass_report_excludes_mergeable_and_acknowledged_rows(tmp_path: Path) 
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["registry_schema_version"] == "0.3"
+    assert payload["registry_schema_version"] == "0.4"
     assert payload["bypass_count"] == 1
     assert payload["rows"][0]["repo"] == "org/a"
     assert payload["rows"][0]["merge_verdict"] == "blocked"
@@ -267,9 +267,7 @@ def test_query_reports_malformed_registry_rows(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     assert payload["count"] == 1
     assert payload["skipped_count"] == 2
-    invalid_json_reason = (
-        "invalid_json: Expecting property name enclosed in double quotes"
-    )
+    invalid_json_reason = "invalid_json: Expecting property name enclosed in double quotes"
     assert payload["skipped_rows"] == [
         {"line": 2, "reason": invalid_json_reason},
         {"line": 3, "reason": "row must be a JSON object"},
@@ -336,7 +334,7 @@ def test_query_filters_org_fields_and_human_ack(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["registry_schema_version"] == "0.3"
+    assert payload["registry_schema_version"] == "0.4"
     assert payload["count"] == 1
     assert payload["rows"][0]["repo"] == "org/support"
 
@@ -359,7 +357,7 @@ def test_registry_summary_and_verify_hash_chain(tmp_path: Path) -> None:
     )
     assert summary.exit_code == 0, summary.output
     summary_payload = json.loads(summary.output)
-    assert summary_payload["registry_schema_version"] == "0.3"
+    assert summary_payload["registry_schema_version"] == "0.4"
     assert summary_payload["count"] == 2
     assert summary_payload["by_repo"] == {"org/support": 2}
     assert summary_payload["by_merge_verdict"] == {"blocked": 1, "mergeable": 1}
@@ -375,7 +373,7 @@ def test_registry_summary_and_verify_hash_chain(tmp_path: Path) -> None:
     )
     assert verify.exit_code == 0, verify.output
     verify_payload = json.loads(verify.output)
-    assert verify_payload["registry_schema_version"] == "0.3"
+    assert verify_payload["registry_schema_version"] == "0.4"
     assert verify_payload["ok"] is True
     assert verify_payload["issue_count"] == 0
 

@@ -9,9 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 
-SAFETY_CORPUS_SCHEMA_VERSION = "shipgate.safety_corpus/v3"
-SAFETY_RECEIPT_INDEX_SCHEMA_VERSION = "shipgate.safety_receipt_index/v3"
-SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v3"
+SAFETY_CORPUS_SCHEMA_VERSION = "shipgate.safety_corpus/v4"
+SAFETY_RECEIPT_INDEX_SCHEMA_VERSION = "shipgate.safety_receipt_index/v4"
+SAFETY_QUALIFICATION_SCHEMA_VERSION = "shipgate.safety_qualification/v4"
 
 SafetyProfile = Literal[
     "mcp",
@@ -190,7 +190,7 @@ class FrozenSafetyCorpusV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_corpus/v3"] = SAFETY_CORPUS_SCHEMA_VERSION
+    schema_version: Literal["shipgate.safety_corpus/v4"] = SAFETY_CORPUS_SCHEMA_VERSION
     corpus_id: str = Field(min_length=1)
     labels_frozen_before_evaluation: Literal[True]
     outputs_hidden_from_labelers: Literal[True]
@@ -238,7 +238,7 @@ def _validate_relative_path(value: str) -> str:
 
 
 class SafetyReceiptEntryV1(BaseModel):
-    """Index row for one real, content-addressed verify-run receipt."""
+    """Index row for one real, terminal verification receipt."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -247,6 +247,10 @@ class SafetyReceiptEntryV1(BaseModel):
     artifact_root: str
     receipt_sha256: str = Field(pattern=SHA256_PATTERN)
     run_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    request_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    receipt_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    decision_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    artifact_set_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     execution_mode: Literal["verify"] = "verify"
     fallback_used: Literal[False] = False
 
@@ -269,7 +273,7 @@ class SafetyReceiptIndexV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_receipt_index/v3"] = (
+    schema_version: Literal["shipgate.safety_receipt_index/v4"] = (
         SAFETY_RECEIPT_INDEX_SCHEMA_VERSION
     )
     wheel_sha256: str = Field(pattern=SHA256_PATTERN)
@@ -285,7 +289,8 @@ class SafetyReceiptIndexV1(BaseModel):
     def _upgrade_v1_schema(cls, value: str) -> str:
         return (
             SAFETY_RECEIPT_INDEX_SCHEMA_VERSION
-            if value in {
+            if value
+            in {
                 "shipgate.safety_receipt_index/v1",
                 "shipgate.safety_receipt_index/v2",
             }
@@ -405,7 +410,7 @@ def production_safety_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=30,
         minimum_review_exact=19,
         minimum_insufficient_evidence_exact=19,
-        required_report_schema_version="0.33",
+        required_report_schema_version="0.34",
     )
 
 
@@ -517,7 +522,7 @@ class SafetyQualificationResultV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.safety_qualification/v3"] = (
+    schema_version: Literal["shipgate.safety_qualification/v4"] = (
         SAFETY_QUALIFICATION_SCHEMA_VERSION
     )
     qualification_tier: QualificationTier
@@ -540,7 +545,8 @@ class SafetyQualificationResultV1(BaseModel):
     def _upgrade_v1_schema(cls, value: str) -> str:
         return (
             SAFETY_QUALIFICATION_SCHEMA_VERSION
-            if value in {
+            if value
+            in {
                 "shipgate.safety_qualification/v1",
                 "shipgate.safety_qualification/v2",
             }

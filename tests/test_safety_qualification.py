@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import zipfile
 from pathlib import Path
@@ -8,6 +9,11 @@ import pytest
 
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.verification_identity import (
+    build_executor,
+    build_terminal_receipt,
+    build_unit_result,
+)
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.report import ReadinessReport
@@ -23,13 +29,19 @@ from agents_shipgate.schemas.safety_qualification import (
     compute_frozen_labels_sha256,
     production_safety_requirements,
 )
+from agents_shipgate.schemas.verification_identity import (
+    VerificationBlob,
+    VerificationEngineRequirement,
+    VerificationGitSubject,
+    VerificationInputSet,
+    VerificationPlan,
+    VerificationSubject,
+    VerificationTask,
+    content_id,
+)
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import (
-    VerifyRunArtifactRef,
-    VerifyRunInputs,
     VerifyRunOutcome,
-    VerifyRunSubject,
-    VerifyRunTool,
     build_verify_run_artifact,
 )
 from scripts.run_safety_qualification import (
@@ -43,7 +55,85 @@ from scripts.run_safety_qualification import (
 )
 
 DECISIONS = ("passed", "review_required", "insufficient_evidence", "blocked")
-VERSION = "0.16.0b5"
+VERSION = "0.16.0b6"
+
+
+def _verification_plan(case_id: str) -> VerificationPlan:
+    git = VerificationGitSubject(
+        repository_id="https://example.test/qualification.git",
+        base_ref="origin/main",
+        base_commit_sha="a" * 40,
+        base_tree_sha=hashlib.sha256(f"base-{case_id}".encode()).hexdigest(),
+        head_ref="HEAD",
+        head_commit_sha="b" * 40,
+        head_tree_sha=hashlib.sha256(f"head-{case_id}".encode()).hexdigest(),
+        merge_base_sha="a" * 40,
+        snapshot_kind="committed_tree",
+    )
+    subject = VerificationSubject(subject_id=content_id(git), git=git)
+    config = VerificationBlob(
+        path="shipgate.yaml",
+        sha256="sha256:" + "1" * 64,
+        size_bytes=12,
+        source="git_blob",
+    )
+    diff = VerificationBlob(
+        path="verification-input.diff",
+        sha256="sha256:" + "2" * 64,
+        size_bytes=0,
+        source="generated",
+    )
+    input_payload = {
+        "evaluation_date": "2026-07-13",
+        "config": config,
+        "diff": diff,
+        "baseline": None,
+        "diff_from": None,
+        "policy_packs": [],
+        "tool_sources": [],
+        "changed_paths": [],
+        "changed_files": [],
+        "options": {"ci_mode": "advisory"},
+    }
+    inputs = VerificationInputSet(
+        input_set_id=content_id(
+            {
+                key: value.model_dump(mode="json") if hasattr(value, "model_dump") else value
+                for key, value in input_payload.items()
+            }
+        ),
+        **input_payload,
+    )
+    engine_payload = {
+        "version": VERSION,
+        "python_implementation": "CPython",
+        "python_version": "3.12.0",
+        "platform": "test",
+        "engine_distribution_sha256": "sha256:" + "8" * 64,
+        "dependency_set_sha256": "sha256:" + "3" * 64,
+        "adapter_set_sha256": "sha256:" + "4" * 64,
+        "plugin_set_sha256": "sha256:" + "5" * 64,
+        "policy_catalog_sha256": "sha256:" + "6" * 64,
+    }
+    engine = VerificationEngineRequirement(
+        engine_requirement_id=content_id({"package": "agents-shipgate", **engine_payload}),
+        **engine_payload,
+    )
+    task_payload = {"kind": "evaluate", "shard": 0, "shard_count": 1, "input_paths": []}
+    task = VerificationTask(task_id=content_id(task_payload), **task_payload)
+    request_payload = {
+        "subject_id": subject.subject_id,
+        "input_set_id": inputs.input_set_id,
+        "engine_requirement_id": engine.engine_requirement_id,
+        "task_ids": [task.task_id],
+    }
+    return VerificationPlan(
+        request_id=content_id(request_payload),
+        subject=subject,
+        inputs=inputs,
+        engine=engine,
+        tasks=[task],
+    )
 
 
 def _human_label(role: str, reviewer: str, decision: str) -> IndependentHumanLabelV1:
@@ -106,7 +196,7 @@ def _test_requirements() -> SafetyQualificationRequirementsV1:
         minimum_blocked_exact=1,
         minimum_review_exact=1,
         minimum_insufficient_evidence_exact=1,
-        required_report_schema_version="0.33",
+        required_report_schema_version="0.34",
     )
 
 
@@ -118,8 +208,8 @@ def _write_json(path: Path, value: object) -> None:
 def _write_wheel(path: Path) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            "agents_shipgate-0.16.0b5.dist-info/METADATA",
-            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b5\n",
+            "agents_shipgate-0.16.0b6.dist-info/METADATA",
+            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b6\n",
         )
 
 
@@ -163,7 +253,7 @@ def _fixture(
     actual_overrides: dict[str, str] | None = None,
     disagreement_case: str | None = None,
 ) -> tuple[Path, Path, Path, Path]:
-    wheel = tmp_path / "agents_shipgate-0.16.0b5-py3-none-any.whl"
+    wheel = tmp_path / "agents_shipgate-0.16.0b6-py3-none-any.whl"
     _write_wheel(wheel)
     policy = tmp_path / "qualification-policy.json"
     _write_json(policy, {"policy": "beta-exact", "version": 1})
@@ -189,12 +279,29 @@ def _fixture(
     entries: list[SafetyReceiptEntryV1] = []
     for case in cases:
         actual = (actual_overrides or {}).get(case.id, case.expected_decision)
+        plan = _verification_plan(case.id)
+        unit = build_unit_result(plan=plan, normalized_ir={"case_id": case.id})
+        executor = build_executor(plan.engine)
+        decision_id = content_id(
+            {
+                "request_id": plan.request_id,
+                "unit_result_ids": [unit.unit_result_id],
+                "decision": actual,
+                "merge_verdict": EXPECTED_MERGE_VERDICT[actual],
+                "can_merge_without_human": actual == "passed",
+            }
+        )
         artifact_root = tmp_path / "artifacts" / case.id
         reports = artifact_root / "agents-shipgate-reports"
         report_path = reports / "report.json"
         verifier_path = reports / "verifier.json"
         report = ReadinessReport(
             run_id=f"run-{case.id}",
+            request_id=plan.request_id,
+            subject_id=plan.subject.subject_id,
+            input_set_id=plan.inputs.input_set_id,
+            engine_requirement_id=plan.engine.engine_requirement_id,
+            decision_id=decision_id,
             project={"name": "qualification-fixture"},
             agent={"name": "fixture-agent"},
             environment={"name": "test"},
@@ -250,12 +357,18 @@ def _fixture(
         )
         verifier = VerifierArtifact(
             workspace=".",
+            request_id=plan.request_id,
+            subject_id=plan.subject.subject_id,
+            input_set_id=plan.inputs.input_set_id,
+            engine_requirement_id=plan.engine.engine_requirement_id,
+            executor_id=executor.executor_id,
+            decision_id=decision_id,
             config="shipgate.yaml",
             base_ref="origin/main",
             head_ref="HEAD",
             base_status="succeeded",
-            base_tree_sha=f"base-{case.id}",
-            head_tree_sha=f"head-{case.id}",
+            base_tree_sha=hashlib.sha256(f"base-{case.id}".encode()).hexdigest(),
+            head_tree_sha=hashlib.sha256(f"head-{case.id}".encode()).hexdigest(),
             execution="succeeded",
             head_status="succeeded",
             head_exit_code=0,
@@ -272,21 +385,10 @@ def _fixture(
             verifier_path,
             verifier.model_dump(mode="json"),
         )
-        tool = VerifyRunTool(version=VERSION)
-        subject = VerifyRunSubject(
-            config="shipgate.yaml",
-            base_ref="origin/main",
-            head_ref="HEAD",
-            base_tree_sha=f"base-{case.id}",
-            head_tree_sha=f"head-{case.id}",
-        )
-        receipt = build_verify_run_artifact(
-            tool=tool,
-            subject=subject,
-            inputs=VerifyRunInputs(
-                config_sha256="config-" + case.id,
-                ci_mode="advisory",
-            ),
+        verify_run = build_verify_run_artifact(
+            plan=plan,
+            executor=executor,
+            unit_result_ids=[unit.unit_result_id],
             outcome=VerifyRunOutcome(
                 exit_code=0,
                 base_status="succeeded",
@@ -297,15 +399,20 @@ def _fixture(
                 can_merge_without_human=actual == "passed",
                 control=verifier.control,
             ),
-            artifacts={
-                "report_json": VerifyRunArtifactRef(
-                    path="agents-shipgate-reports/report.json",
-                    sha256=sha256_file(report_path),
-                ),
-                "verifier_json": VerifyRunArtifactRef(
-                    path="agents-shipgate-reports/verifier.json",
-                    sha256=sha256_file(verifier_path),
-                ),
+            artifacts={},
+        )
+        verify_run_path = reports / "verify-run.json"
+        _write_json(verify_run_path, verify_run.model_dump(mode="json"))
+        _manifest, receipt = build_terminal_receipt(
+            plan=plan,
+            unit_results=[unit],
+            decision=actual,
+            merge_verdict=EXPECTED_MERGE_VERDICT[actual],
+            can_merge_without_human=actual == "passed",
+            artifact_paths={
+                "report_json": report_path,
+                "verifier_json": verifier_path,
+                "verify_run_json": verify_run_path,
             },
         )
         receipt_path = tmp_path / "receipts" / f"{case.id}.json"
@@ -314,9 +421,13 @@ def _fixture(
             SafetyReceiptEntryV1(
                 case_id=case.id,
                 receipt_path=receipt_path.relative_to(tmp_path).as_posix(),
-                artifact_root=artifact_root.relative_to(tmp_path).as_posix(),
+                artifact_root=reports.relative_to(tmp_path).as_posix(),
                 receipt_sha256=sha256_file(receipt_path),
-                run_id=receipt.run_id,
+                run_id=receipt.request_id,
+                request_id=receipt.request_id,
+                receipt_id=receipt.receipt_id,
+                decision_id=receipt.decision_id,
+                artifact_set_id=receipt.artifact_set_id,
             )
         )
 

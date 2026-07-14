@@ -2,8 +2,8 @@
 
 A single-page summary of the `agents-shipgate` codebase for new
 contributors and AI coding agents extending the project. Current as of
-2026-07-09; auto-checked against `agents-shipgate contract --json`:
-runtime contract `16`, report schema `v0.33`, packet schema `v0.11`.
+2026-07-13; auto-checked against `agents-shipgate contract --json`:
+runtime contract `17`, report schema `v0.34`, packet schema `v0.12`.
 
 For the per-field stability contract, see
 [`../STABILITY.md`](../STABILITY.md). For the agent-facing field index,
@@ -520,7 +520,7 @@ containment); files larger than 10 MB rejected.
 
 `scan` emits a reviewer-shaped artifact alongside `report.{md,json,sarif}`
 whenever `output.packet.enabled` is true (default). The packet has its
-own JSON contract ([`packet-schema.v0.11.json`](packet-schema.v0.11.json))
+own JSON contract ([`packet-schema.v0.12.json`](packet-schema.v0.12.json))
 so the report schema stays minimal.
 
 The packet is derived from the in-memory scan (manifest, tools,
@@ -664,10 +664,10 @@ contract. Headlines:
 
 - **Manifest schema** stable across `0.x` (`version: "0.1"`).
 - **Report JSON shape** is additive across the `0.x` line. Current
-  `report_schema_version: "0.33"`; older schemas frozen as
+  `report_schema_version: "0.34"`; older schemas frozen as
   `docs/report-schema.v0.N.json`.
 - **Packet JSON shape** is additive across the `0.x` line. Current
-  `packet_schema_version: "0.11"`; older schemas frozen.
+  `packet_schema_version: "0.12"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
   `baseline verify` only), `20` strict-mode gate failure.

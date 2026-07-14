@@ -2,7 +2,7 @@
 
 > Status: **proposal** (no behavior change in this document). Target:
 > freeze a v1.0 report schema whose top-level surface stops growing.
-> Written 2026-06; current runtime is `report_schema_version: "0.33"`.
+> Written 2026-06; current runtime is `report_schema_version: "0.34"`.
 
 ## Problem
 

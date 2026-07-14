@@ -37,6 +37,7 @@ from agents_shipgate.cli.scenario import scenario_app
 from agents_shipgate.cli.self_check import self_check
 from agents_shipgate.cli.skill import skill_app
 from agents_shipgate.cli.trigger import trigger as _trigger_command
+from agents_shipgate.cli.verification import verification_app
 from agents_shipgate.cli.verify import verify as _verify_command
 from agents_shipgate.core.logging import configure_logging
 
@@ -110,10 +111,7 @@ app.command(
 app.command(
     "findings",
     hidden=True,
-    help=(
-        "Filter findings from a `report.json` by provenance kind for "
-        "reviewer triage."
-    ),
+    help=("Filter findings from a `report.json` by provenance kind for reviewer triage."),
 )(_findings_command)
 app.command(
     "trigger",
@@ -141,10 +139,7 @@ app.command(
 app.command(
     "install-hooks",
     hidden=True,
-    help=(
-        "Install advisory local coding-agent hooks. Currently supports "
-        "--target claude-code."
-    ),
+    help=("Install advisory local coding-agent hooks. Currently supports --target claude-code."),
 )(_install_hooks_command)
 
 app.command(
@@ -177,6 +172,8 @@ def _mcp_serve_command() -> None:
     except _ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
         raise typer.Exit(2) from exc
+
+
 _register_scan.register(app)
 _register_list_checks.register(app)
 _register_contract.register(app)
@@ -198,6 +195,7 @@ app.add_typer(agent_app, name="agent", hidden=True)
 app.add_typer(mcp_app, name="mcp", hidden=True)
 app.add_typer(org_app, name="org", hidden=True)
 app.add_typer(registry_app, name="registry", hidden=True)
+app.add_typer(verification_app, name="verification", hidden=True)
 logger = logging.getLogger(__name__)
 
 

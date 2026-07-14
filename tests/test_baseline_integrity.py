@@ -46,6 +46,7 @@ from agents_shipgate.core.baseline_audit import (
 )
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Agent
+from agents_shipgate.core.evaluation_clock import use_evaluation_date
 from agents_shipgate.schemas.baseline import (
     BaselineFile,
     BaselineFinding,
@@ -444,7 +445,11 @@ def test_verify_baseline_entry_expired(tmp_path):
             hash_after=compute_baseline_hash_from_file(baseline_path),
         ),
     )
-    issues = verify_baseline(baseline_path, audit_path, today=date.today())
+    # A forged, backdated commit evaluation date cannot make an expired
+    # reviewer exception current again. Omit explicit ``today`` so this uses
+    # the production trust-expiry clock.
+    with use_evaluation_date(date.today() - timedelta(days=3650)):
+        issues = verify_baseline(baseline_path, audit_path)
     kinds = {issue.kind for issue in issues}
     assert "entry_expired" in kinds
 

@@ -143,7 +143,8 @@ def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> No
         "agents-shipgate verify --preview --json"
     )
     assert (out_dir / "verifier.json").is_file()
-    assert (out_dir / "verify-run.json").is_file()
+    assert not (out_dir / "verify-run.json").exists()
+    assert not (out_dir / "verification-receipt.json").exists()
     assert (out_dir / "agent-handoff.json").is_file()
     assert (out_dir / "pr-comment.md").is_file()
     assert not (out_dir / "agent-result.json").exists()
@@ -1004,7 +1005,11 @@ def test_verify_base_scan_cache_hit_skips_second_base_scan(
 
     assert first.exit_code == 0, first.output
     assert second.exit_code == 0, second.output
-    assert json.loads(second.output)["base_status"] == "cache_hit"
+    # Cache provenance is deliberately excluded from public identity and
+    # operational projections; cold and warm executions both serialize the
+    # deterministic state of the base evaluation.
+    assert json.loads(first.output)["base_status"] == "succeeded"
+    assert json.loads(second.output)["base_status"] == "succeeded"
     cache_path = json.loads(second.output)["base_report_json"]
     assert "agents-shipgate-reports/.cache" not in cache_path
     assert not (repo / "agents-shipgate-reports" / ".cache").exists()

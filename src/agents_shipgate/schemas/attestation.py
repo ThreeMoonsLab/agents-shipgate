@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-ATTESTATION_SCHEMA_VERSION = "0.4"
+from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
+
+ATTESTATION_SCHEMA_VERSION = "0.5"
 
 
 class AttestationVerdictV1(BaseModel):
@@ -88,12 +90,17 @@ class ReleaseAttestationV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    attestation_schema_version: Literal["0.4"] = ATTESTATION_SCHEMA_VERSION
+    attestation_schema_version: Literal["0.5"] = ATTESTATION_SCHEMA_VERSION
     cli_version: str
     org: AttestationOrgContextV1 = Field(default_factory=AttestationOrgContextV1)
     source_verifier: str
     redacted: bool = True
     run_id: str | None = None
+    request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    receipt_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    decision_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    artifact_set_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    verification_receipt_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     verify_run_sha256: str | None = None
     event_time: str | None = None
     source_url: str | None = None
@@ -113,6 +120,21 @@ class ReleaseAttestationV1(BaseModel):
     policy_snapshot_sha256: str | None = None
     policy_packs: list[dict[str, str | int | None]] = Field(default_factory=list)
     artifact_sha256: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _receipt_identity_is_all_or_none(self) -> ReleaseAttestationV1:
+        fields = (
+            self.request_id,
+            self.receipt_id,
+            self.decision_id,
+            self.artifact_set_id,
+            self.verification_receipt_sha256,
+        )
+        if any(value is not None for value in fields) and not all(
+            value is not None for value in fields
+        ):
+            raise ValueError("verification receipt identity must be complete when present")
+        return self
 
 
 class ReleaseAttestationArtifactV1(RootModel[ReleaseAttestationV1]):

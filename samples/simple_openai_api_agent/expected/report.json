@@ -1,7 +1,12 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.33",
-  "run_id": "agents_shipgate_151b2a90d910c866",
+  "report_schema_version": "0.34",
+  "run_id": "agents_shipgate_156121deae9690a5",
+  "request_id": null,
+  "subject_id": null,
+  "input_set_id": null,
+  "engine_requirement_id": null,
+  "decision_id": null,
   "manifest_dir": "<REPO>/samples/simple_openai_api_agent",
   "project": {
     "name": "simple-openai-api-agent",
@@ -91,16 +96,41 @@
           "confidence": "high",
           "policy_eligible": true,
           "blocking_eligible": true,
-          "claim_ids": [],
+          "claim_ids": [
+            "clm_d7302d32eaefab6d707f"
+          ],
           "evidence_bases": [
-            "protocol_structure"
+            "protocol_structure",
+            "reviewed_declaration"
           ],
           "predicates": [
             {
-              "predicate": "deterministic_action_rule",
+              "predicate": "builtin_control_effect",
               "status": "matched",
-              "expected": null,
-              "observed": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_9d10be42545cd7457766e72c52ab9ba754eee7aa97c9613ae60ba4bc4048af82",
+              "expected": [
+                "external_communication"
+              ],
+              "observed": [
+                "external_communication"
+              ],
+              "confidence": "high",
+              "claim_ids": [
+                "clm_d7302d32eaefab6d707f"
+              ],
+              "evidence_bases": [
+                "reviewed_declaration"
+              ],
+              "policy_eligible": true,
+              "why": null
+            },
+            {
+              "predicate": "missing_builtin_controls",
+              "status": "matched",
+              "expected": "all required controls present",
+              "observed": [
+                "confirmation.required",
+                "safeguards.audit_log"
+              ],
               "confidence": "high",
               "claim_ids": [],
               "evidence_bases": [
@@ -110,7 +140,7 @@
               "why": null
             }
           ],
-          "support_hash": "sha256:0b26a3779bfbd1539b1d6c1a4168e605f9bfaafc0af7186a4a7565d49b47d64c"
+          "support_hash": "sha256:56f41ff5a1d00010eb3d3cc46c67ae554a73b51a4ac1688bc60f225100f7d002"
         }
       },
       {
@@ -139,16 +169,42 @@
           "confidence": "high",
           "policy_eligible": true,
           "blocking_eligible": true,
-          "claim_ids": [],
+          "claim_ids": [
+            "clm_5a97ce2724d487c4af0c"
+          ],
           "evidence_bases": [
-            "protocol_structure"
+            "protocol_structure",
+            "reviewed_declaration"
           ],
           "predicates": [
             {
-              "predicate": "deterministic_action_rule",
+              "predicate": "builtin_control_effect",
               "status": "matched",
-              "expected": null,
-              "observed": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_b5ba1b1612ff86ebfe4ad43459c8c26a79e44eb61a5a2f7496ab5d9166b4cfd5",
+              "expected": [
+                "financial_write"
+              ],
+              "observed": [
+                "financial_write"
+              ],
+              "confidence": "high",
+              "claim_ids": [
+                "clm_5a97ce2724d487c4af0c"
+              ],
+              "evidence_bases": [
+                "reviewed_declaration"
+              ],
+              "policy_eligible": true,
+              "why": null
+            },
+            {
+              "predicate": "missing_builtin_controls",
+              "status": "matched",
+              "expected": "all required controls present",
+              "observed": [
+                "approval.required",
+                "safeguards.audit_log",
+                "safeguards.idempotency"
+              ],
               "confidence": "high",
               "claim_ids": [],
               "evidence_bases": [
@@ -158,7 +214,7 @@
               "why": null
             }
           ],
-          "support_hash": "sha256:7045a6360ba4f27a7b90fc4b3b138b391332f05307f836677791b41ffbd8b972"
+          "support_hash": "sha256:dbcc11262ca197ff45370bda3751529808664ab2f1b50314ad816bc79138600c"
         }
       }
     ],
@@ -2872,16 +2928,41 @@
         "confidence": "high",
         "policy_eligible": true,
         "blocking_eligible": true,
-        "claim_ids": [],
+        "claim_ids": [
+          "clm_d7302d32eaefab6d707f"
+        ],
         "evidence_bases": [
-          "protocol_structure"
+          "protocol_structure",
+          "reviewed_declaration"
         ],
         "predicates": [
           {
-            "predicate": "deterministic_action_rule",
+            "predicate": "builtin_control_effect",
             "status": "matched",
-            "expected": null,
-            "observed": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_9d10be42545cd7457766e72c52ab9ba754eee7aa97c9613ae60ba4bc4048af82",
+            "expected": [
+              "external_communication"
+            ],
+            "observed": [
+              "external_communication"
+            ],
+            "confidence": "high",
+            "claim_ids": [
+              "clm_d7302d32eaefab6d707f"
+            ],
+            "evidence_bases": [
+              "reviewed_declaration"
+            ],
+            "policy_eligible": true,
+            "why": null
+          },
+          {
+            "predicate": "missing_builtin_controls",
+            "status": "matched",
+            "expected": "all required controls present",
+            "observed": [
+              "confirmation.required",
+              "safeguards.audit_log"
+            ],
             "confidence": "high",
             "claim_ids": [],
             "evidence_bases": [
@@ -2891,7 +2972,7 @@
             "why": null
           }
         ],
-        "support_hash": "sha256:0b26a3779bfbd1539b1d6c1a4168e605f9bfaafc0af7186a4a7565d49b47d64c"
+        "support_hash": "sha256:56f41ff5a1d00010eb3d3cc46c67ae554a73b51a4ac1688bc60f225100f7d002"
       },
       "capability_trace_refs": [],
       "recommendation": "Declare confirmation policy and safeguards.audit_log for this external communication action.",
@@ -2941,16 +3022,42 @@
         "confidence": "high",
         "policy_eligible": true,
         "blocking_eligible": true,
-        "claim_ids": [],
+        "claim_ids": [
+          "clm_5a97ce2724d487c4af0c"
+        ],
         "evidence_bases": [
-          "protocol_structure"
+          "protocol_structure",
+          "reviewed_declaration"
         ],
         "predicates": [
           {
-            "predicate": "deterministic_action_rule",
+            "predicate": "builtin_control_effect",
             "status": "matched",
-            "expected": null,
-            "observed": "agent:simple-openai-api-agent/api-refund-assistant:action_v2_b5ba1b1612ff86ebfe4ad43459c8c26a79e44eb61a5a2f7496ab5d9166b4cfd5",
+            "expected": [
+              "financial_write"
+            ],
+            "observed": [
+              "financial_write"
+            ],
+            "confidence": "high",
+            "claim_ids": [
+              "clm_5a97ce2724d487c4af0c"
+            ],
+            "evidence_bases": [
+              "reviewed_declaration"
+            ],
+            "policy_eligible": true,
+            "why": null
+          },
+          {
+            "predicate": "missing_builtin_controls",
+            "status": "matched",
+            "expected": "all required controls present",
+            "observed": [
+              "approval.required",
+              "safeguards.audit_log",
+              "safeguards.idempotency"
+            ],
             "confidence": "high",
             "claim_ids": [],
             "evidence_bases": [
@@ -2960,7 +3067,7 @@
             "why": null
           }
         ],
-        "support_hash": "sha256:7045a6360ba4f27a7b90fc4b3b138b391332f05307f836677791b41ffbd8b972"
+        "support_hash": "sha256:dbcc11262ca197ff45370bda3751529808664ab2f1b50314ad816bc79138600c"
       },
       "capability_trace_refs": [],
       "recommendation": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency for this financial write action.",

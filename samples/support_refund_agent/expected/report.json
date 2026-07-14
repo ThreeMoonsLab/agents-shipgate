@@ -1,7 +1,12 @@
 {
   "schema_version": "0.1",
-  "report_schema_version": "0.33",
-  "run_id": "agents_shipgate_ff9302d24e1b6891",
+  "report_schema_version": "0.34",
+  "run_id": "agents_shipgate_e25de5ef59b7d500",
+  "request_id": null,
+  "subject_id": null,
+  "input_set_id": null,
+  "engine_requirement_id": null,
+  "decision_id": null,
   "manifest_dir": "<REPO>/samples/support_refund_agent",
   "project": {
     "name": "support-refund-agent",
@@ -180,16 +185,45 @@
           "confidence": "high",
           "policy_eligible": true,
           "blocking_eligible": true,
-          "claim_ids": [],
+          "claim_ids": [
+            "clm_188aecba394542ac226f",
+            "clm_7ec6f046c34a18b719f2",
+            "clm_e6c199e33c2159754789"
+          ],
           "evidence_bases": [
-            "protocol_structure"
+            "protocol_structure",
+            "reviewed_declaration"
           ],
           "predicates": [
             {
-              "predicate": "deterministic_action_rule",
+              "predicate": "builtin_control_effect",
               "status": "matched",
-              "expected": null,
-              "observed": "agent:support-refund-agent/refund-assistant:action_v2_49bfadd2eb7605a1065c24081f890481ee2f37e9718152ae533c8e43ddaab17a",
+              "expected": [
+                "external_communication"
+              ],
+              "observed": [
+                "external_communication"
+              ],
+              "confidence": "high",
+              "claim_ids": [
+                "clm_188aecba394542ac226f",
+                "clm_7ec6f046c34a18b719f2",
+                "clm_e6c199e33c2159754789"
+              ],
+              "evidence_bases": [
+                "reviewed_declaration"
+              ],
+              "policy_eligible": true,
+              "why": null
+            },
+            {
+              "predicate": "missing_builtin_controls",
+              "status": "matched",
+              "expected": "all required controls present",
+              "observed": [
+                "confirmation.required",
+                "safeguards.audit_log"
+              ],
               "confidence": "high",
               "claim_ids": [],
               "evidence_bases": [
@@ -199,7 +233,7 @@
               "why": null
             }
           ],
-          "support_hash": "sha256:2da4af706588e6b22a8dcb7b25419cf3fa22214d1fb76ea543afef8f4936a3f4"
+          "support_hash": "sha256:0ca4ffebad9baaac2e0095108c61fdf4722cfcc4c6e68932eb47dee4583d7df2"
         }
       },
       {
@@ -228,16 +262,41 @@
           "confidence": "high",
           "policy_eligible": true,
           "blocking_eligible": true,
-          "claim_ids": [],
+          "claim_ids": [
+            "clm_1fee9ee6ea224541b56d"
+          ],
           "evidence_bases": [
-            "protocol_structure"
+            "protocol_structure",
+            "reviewed_declaration"
           ],
           "predicates": [
             {
-              "predicate": "deterministic_action_rule",
+              "predicate": "builtin_control_effect",
               "status": "matched",
-              "expected": null,
-              "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+              "expected": [
+                "external_communication"
+              ],
+              "observed": [
+                "external_communication"
+              ],
+              "confidence": "high",
+              "claim_ids": [
+                "clm_1fee9ee6ea224541b56d"
+              ],
+              "evidence_bases": [
+                "reviewed_declaration"
+              ],
+              "policy_eligible": true,
+              "why": null
+            },
+            {
+              "predicate": "missing_builtin_controls",
+              "status": "matched",
+              "expected": "all required controls present",
+              "observed": [
+                "confirmation.required",
+                "safeguards.audit_log"
+              ],
               "confidence": "high",
               "claim_ids": [],
               "evidence_bases": [
@@ -247,7 +306,7 @@
               "why": null
             }
           ],
-          "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
+          "support_hash": "sha256:335b539322d07aad72eebeff04ace89b40c354da4ee45ba40b52ef885296fe4d"
         }
       },
       {
@@ -276,16 +335,44 @@
           "confidence": "high",
           "policy_eligible": true,
           "blocking_eligible": true,
-          "claim_ids": [],
+          "claim_ids": [
+            "clm_019b1bf05a33e2269c31",
+            "clm_c8e45c8de58cf645c026"
+          ],
           "evidence_bases": [
-            "protocol_structure"
+            "protocol_structure",
+            "reviewed_declaration"
           ],
           "predicates": [
             {
-              "predicate": "deterministic_action_rule",
+              "predicate": "builtin_control_effect",
               "status": "matched",
-              "expected": null,
-              "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+              "expected": [
+                "financial_write"
+              ],
+              "observed": [
+                "financial_write"
+              ],
+              "confidence": "high",
+              "claim_ids": [
+                "clm_019b1bf05a33e2269c31",
+                "clm_c8e45c8de58cf645c026"
+              ],
+              "evidence_bases": [
+                "reviewed_declaration"
+              ],
+              "policy_eligible": true,
+              "why": null
+            },
+            {
+              "predicate": "missing_builtin_controls",
+              "status": "matched",
+              "expected": "all required controls present",
+              "observed": [
+                "approval.required",
+                "safeguards.audit_log",
+                "safeguards.idempotency"
+              ],
               "confidence": "high",
               "claim_ids": [],
               "evidence_bases": [
@@ -295,7 +382,7 @@
               "why": null
             }
           ],
-          "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
+          "support_hash": "sha256:624f2e0f92ae88c456cfad5b76f245bf721c166c9f0cc25afe0a0c06b68f7718"
         }
       }
     ],
@@ -729,6 +816,54 @@
           }
         },
         {
+          "kind": "mixed_policy_evidence",
+          "subject": "support.search_kb [tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a]",
+          "source_type": null,
+          "source_ref": ".agents-shipgate/mcp-tools.json",
+          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+          "next_action": {
+            "kind": "review_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].effect",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
+          "kind": "mixed_policy_evidence",
+          "subject": "send_email_preview [tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e]",
+          "source_type": null,
+          "source_ref": "inventories/sdk-tools.json",
+          "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+          "next_action": {
+            "kind": "review_policy_evidence",
+            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+            "path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].effect",
+            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+            "accepted_values": [
+              "reviewed_declaration",
+              "protocol_structure",
+              "typed_provider_fact",
+              "structural_scope"
+            ],
+            "suggested_patch_kind": "manual",
+            "declaration_template": null,
+            "auto_apply": false,
+            "requires_human_review": true
+          }
+        },
+        {
           "kind": "inferred_policy_applicability",
           "subject": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
           "source_type": null,
@@ -946,7 +1081,7 @@
           "conflicting_binding_evidence": 1
         }
       },
-      "policy_gap_count": 7
+      "policy_gap_count": 9
     },
     "baseline_delta": {
       "enabled": false,
@@ -6154,16 +6289,45 @@
         "confidence": "high",
         "policy_eligible": true,
         "blocking_eligible": true,
-        "claim_ids": [],
+        "claim_ids": [
+          "clm_188aecba394542ac226f",
+          "clm_7ec6f046c34a18b719f2",
+          "clm_e6c199e33c2159754789"
+        ],
         "evidence_bases": [
-          "protocol_structure"
+          "protocol_structure",
+          "reviewed_declaration"
         ],
         "predicates": [
           {
-            "predicate": "deterministic_action_rule",
+            "predicate": "builtin_control_effect",
             "status": "matched",
-            "expected": null,
-            "observed": "agent:support-refund-agent/refund-assistant:action_v2_49bfadd2eb7605a1065c24081f890481ee2f37e9718152ae533c8e43ddaab17a",
+            "expected": [
+              "external_communication"
+            ],
+            "observed": [
+              "external_communication"
+            ],
+            "confidence": "high",
+            "claim_ids": [
+              "clm_188aecba394542ac226f",
+              "clm_7ec6f046c34a18b719f2",
+              "clm_e6c199e33c2159754789"
+            ],
+            "evidence_bases": [
+              "reviewed_declaration"
+            ],
+            "policy_eligible": true,
+            "why": null
+          },
+          {
+            "predicate": "missing_builtin_controls",
+            "status": "matched",
+            "expected": "all required controls present",
+            "observed": [
+              "confirmation.required",
+              "safeguards.audit_log"
+            ],
             "confidence": "high",
             "claim_ids": [],
             "evidence_bases": [
@@ -6173,7 +6337,7 @@
             "why": null
           }
         ],
-        "support_hash": "sha256:2da4af706588e6b22a8dcb7b25419cf3fa22214d1fb76ea543afef8f4936a3f4"
+        "support_hash": "sha256:0ca4ffebad9baaac2e0095108c61fdf4722cfcc4c6e68932eb47dee4583d7df2"
       },
       "capability_trace_refs": [],
       "recommendation": "Declare confirmation policy and safeguards.audit_log for this external communication action.",
@@ -6224,16 +6388,41 @@
         "confidence": "high",
         "policy_eligible": true,
         "blocking_eligible": true,
-        "claim_ids": [],
+        "claim_ids": [
+          "clm_1fee9ee6ea224541b56d"
+        ],
         "evidence_bases": [
-          "protocol_structure"
+          "protocol_structure",
+          "reviewed_declaration"
         ],
         "predicates": [
           {
-            "predicate": "deterministic_action_rule",
+            "predicate": "builtin_control_effect",
             "status": "matched",
-            "expected": null,
-            "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+            "expected": [
+              "external_communication"
+            ],
+            "observed": [
+              "external_communication"
+            ],
+            "confidence": "high",
+            "claim_ids": [
+              "clm_1fee9ee6ea224541b56d"
+            ],
+            "evidence_bases": [
+              "reviewed_declaration"
+            ],
+            "policy_eligible": true,
+            "why": null
+          },
+          {
+            "predicate": "missing_builtin_controls",
+            "status": "matched",
+            "expected": "all required controls present",
+            "observed": [
+              "confirmation.required",
+              "safeguards.audit_log"
+            ],
             "confidence": "high",
             "claim_ids": [],
             "evidence_bases": [
@@ -6243,7 +6432,7 @@
             "why": null
           }
         ],
-        "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
+        "support_hash": "sha256:335b539322d07aad72eebeff04ace89b40c354da4ee45ba40b52ef885296fe4d"
       },
       "capability_trace_refs": [],
       "recommendation": "Declare confirmation policy and safeguards.audit_log for this external communication action.",
@@ -6295,16 +6484,44 @@
         "confidence": "high",
         "policy_eligible": true,
         "blocking_eligible": true,
-        "claim_ids": [],
+        "claim_ids": [
+          "clm_019b1bf05a33e2269c31",
+          "clm_c8e45c8de58cf645c026"
+        ],
         "evidence_bases": [
-          "protocol_structure"
+          "protocol_structure",
+          "reviewed_declaration"
         ],
         "predicates": [
           {
-            "predicate": "deterministic_action_rule",
+            "predicate": "builtin_control_effect",
             "status": "matched",
-            "expected": null,
-            "observed": "agent:support-refund-agent/refund-assistant:action_v2_6f2d18a55f2189a165089034897d52ada547bb19afe20036cb7ec3119c2d95ca",
+            "expected": [
+              "financial_write"
+            ],
+            "observed": [
+              "financial_write"
+            ],
+            "confidence": "high",
+            "claim_ids": [
+              "clm_019b1bf05a33e2269c31",
+              "clm_c8e45c8de58cf645c026"
+            ],
+            "evidence_bases": [
+              "reviewed_declaration"
+            ],
+            "policy_eligible": true,
+            "why": null
+          },
+          {
+            "predicate": "missing_builtin_controls",
+            "status": "matched",
+            "expected": "all required controls present",
+            "observed": [
+              "approval.required",
+              "safeguards.audit_log",
+              "safeguards.idempotency"
+            ],
             "confidence": "high",
             "claim_ids": [],
             "evidence_bases": [
@@ -6314,7 +6531,7 @@
             "why": null
           }
         ],
-        "support_hash": "sha256:742ea8da905eef5df5d2f9a3e9bea9a3bbc84eb4710409e8f41c5389f86af494"
+        "support_hash": "sha256:624f2e0f92ae88c456cfad5b76f245bf721c166c9f0cc25afe0a0c06b68f7718"
       },
       "capability_trace_refs": [],
       "recommendation": "Declare approval.required, safeguards.audit_log, and safeguards.idempotency for this financial write action.",
@@ -10244,6 +10461,54 @@
     "MCP source declares wildcard tool exposure"
   ],
   "policy_evidence_gaps": [
+    {
+      "kind": "mixed_policy_evidence",
+      "subject": "support.search_kb [tool_v2_445a251aa6adc1c69f7b318b68f7ad47f01b629d3c24d723331a661735cd353a]",
+      "source_type": null,
+      "source_ref": ".agents-shipgate/mcp-tools.json",
+      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+      "next_action": {
+        "kind": "review_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "shipgate.yaml#action_surface.actions[tool='support.search_kb'].effect",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    },
+    {
+      "kind": "mixed_policy_evidence",
+      "subject": "send_email_preview [tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e]",
+      "source_type": null,
+      "source_ref": "inventories/sdk-tools.json",
+      "why": "builtin-effect-control-applicability: Policy applicability mixes authoritative and heuristic evidence.",
+      "next_action": {
+        "kind": "review_policy_evidence",
+        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
+        "path": "shipgate.yaml#action_surface.actions[tool='send_email_preview'].effect",
+        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
+        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
+        "accepted_values": [
+          "reviewed_declaration",
+          "protocol_structure",
+          "typed_provider_fact",
+          "structural_scope"
+        ],
+        "suggested_patch_kind": "manual",
+        "declaration_template": null,
+        "auto_apply": false,
+        "requires_human_review": true
+      }
+    },
     {
       "kind": "inferred_policy_applicability",
       "subject": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",

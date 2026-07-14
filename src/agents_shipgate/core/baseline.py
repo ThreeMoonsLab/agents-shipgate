@@ -21,6 +21,7 @@ from agents_shipgate.core.baseline_audit import (
 )
 from agents_shipgate.core.check_ids import LEGACY_CHECK_ID_ALIASES
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.evaluation_clock import trust_expiry_date
 from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
 from agents_shipgate.schemas.baseline import (
     BaselineFile,
@@ -88,8 +89,7 @@ def baseline_from_report(
     scanner_version = scanner_version or _SCANNER_VERSION
     recorded_at = now or utc_now_isoformat()
     prior_by_fp: dict[str, BaselineFinding] = {
-        entry.fingerprint: entry
-        for entry in (prior_baseline.findings if prior_baseline else [])
+        entry.fingerprint: entry for entry in (prior_baseline.findings if prior_baseline else [])
     }
     findings: list[BaselineFinding] = []
     for finding in _active_findings(report.findings):
@@ -196,8 +196,7 @@ def write_baseline(
     if audit_log_path is None:
         audit_log_path = path.parent / "baseline-audit.log"
     prior_fps: set[str] = {
-        entry.fingerprint
-        for entry in (prior_baseline.findings if prior_baseline else [])
+        entry.fingerprint for entry in (prior_baseline.findings if prior_baseline else [])
     }
     new_fps: set[str] = {entry.fingerprint for entry in baseline.findings}
     audit_entry = BaselineAuditEntry(
@@ -288,9 +287,7 @@ def baseline_status_payload(
                 "tool_name": finding.tool_name,
                 "owner": owner,
                 "reason": reason,
-                "recorded_at": (
-                    provenance.recorded_at if provenance is not None else None
-                ),
+                "recorded_at": (provenance.recorded_at if provenance is not None else None),
                 "age_days": age_days,
                 "expires": expires.isoformat() if expires is not None else None,
                 "days_until_expiry": days_until_expiry,
@@ -365,9 +362,7 @@ def apply_baseline(
     legacy_fingerprints: Sequence[LegacyFingerprintEntry] | None = None,
 ) -> BaselineSummary:
     baseline_by_fingerprint = {
-        finding.fingerprint: finding
-        for finding in baseline.findings
-        if finding.fingerprint
+        finding.fingerprint: finding for finding in baseline.findings if finding.fingerprint
     }
     baseline_fingerprints = set(baseline_by_fingerprint)
     current_active_fingerprints: set[str] = set()
@@ -387,8 +382,7 @@ def apply_baseline(
             index,
         )
         legacy_identity_unambiguous = (
-            finding.tool_name is None
-            or len(tool_ids_by_name.get(finding.tool_name, set())) <= 1
+            finding.tool_name is None or len(tool_ids_by_name.get(finding.tool_name, set())) <= 1
         )
         if not legacy_identity_unambiguous:
             legacy_candidates.clear()
@@ -399,12 +393,8 @@ def apply_baseline(
             continue
         current_active_fingerprints.add(fingerprint)
         entry = baseline_by_fingerprint.get(fingerprint)
-        current_support_hash = (
-            finding.support.support_hash if finding.support is not None else None
-        )
-        support_matches = (
-            entry is not None and entry.support_hash == current_support_hash
-        )
+        current_support_hash = finding.support.support_hash if finding.support is not None else None
+        support_matches = entry is not None and entry.support_hash == current_support_hash
         if fingerprint in baseline_fingerprints and support_matches:
             finding.baseline_status = "matched"
             matched += 1
@@ -424,9 +414,7 @@ def apply_baseline(
         matched_count=matched,
         new_count=new,
         resolved_count=len(
-            baseline_fingerprints
-            - current_active_fingerprints
-            - matched_legacy_fingerprints
+            baseline_fingerprints - current_active_fingerprints - matched_legacy_fingerprints
         ),
     )
 
@@ -460,9 +448,7 @@ def _preserve_created_at_when_content_matches(
     """
     if prior_baseline is None:
         return baseline
-    if _baseline_content_identity(prior_baseline) != _baseline_content_identity(
-        baseline
-    ):
+    if _baseline_content_identity(prior_baseline) != _baseline_content_identity(baseline):
         return baseline
     return baseline.model_copy(update={"created_at": prior_baseline.created_at})
 
@@ -558,7 +544,7 @@ def verify_baseline(
     issues.extend(audit_issues)
     if not any(issue.kind == "invalid_audit_log" for issue in audit_issues):
         issues.extend(_verify_entry_provenance(baseline, log_path))
-    issues.extend(_verify_entry_expiry(baseline, today or date.today()))
+    issues.extend(_verify_entry_expiry(baseline, today or trust_expiry_date()))
     issues.extend(_verify_deprecated_check_ids(baseline))
     return issues
 
@@ -581,9 +567,7 @@ def baseline_resolved_fingerprints(
     set out of that function to keep its signature backward-compatible
     with the existing public contract.
     """
-    baseline_fingerprints = {
-        entry.fingerprint for entry in baseline.findings if entry.fingerprint
-    }
+    baseline_fingerprints = {entry.fingerprint for entry in baseline.findings if entry.fingerprint}
     active: set[str] = set()
     legacy_matched: set[str] = set()
     tool_ids_by_name: dict[str, set[str]] = {}
@@ -599,8 +583,7 @@ def baseline_resolved_fingerprints(
             index,
         )
         legacy_identity_unambiguous = (
-            finding.tool_name is None
-            or len(tool_ids_by_name.get(finding.tool_name, set())) <= 1
+            finding.tool_name is None or len(tool_ids_by_name.get(finding.tool_name, set())) <= 1
         )
         if not legacy_identity_unambiguous:
             legacy_candidates.clear()
@@ -786,9 +769,7 @@ def _verify_entry_provenance(
     return issues
 
 
-def _verify_entry_expiry(
-    baseline: BaselineFile, today: date
-) -> list[BaselineIntegrityIssue]:
+def _verify_entry_expiry(baseline: BaselineFile, today: date) -> list[BaselineIntegrityIssue]:
     issues: list[BaselineIntegrityIssue] = []
     for entry in baseline.findings:
         if entry.provenance is None or entry.provenance.expires is None:

@@ -164,9 +164,7 @@ def test_unknown_case_id_raises_config_error(tmp_path: Path) -> None:
 
 def test_capability_expectation_failure_exits_one(tmp_path: Path) -> None:
     data = yaml.safe_load(CATALOG_PATH.read_text(encoding="utf-8"))
-    data["cases"] = [
-        case for case in data["cases"] if case["id"] == "mcp-safe-read-tool-added"
-    ]
+    data["cases"] = [case for case in data["cases"] if case["id"] == "mcp-safe-read-tool-added"]
     data["cases"][0]["capability_expectations"][0]["tool_name"] = "support.nope"
     catalog = GovernanceBenchmarkCatalogV1.model_validate(data)
 
@@ -227,7 +225,7 @@ def test_governance_benchmark_schemas_validate_catalog_and_result(tmp_path: Path
 
 
 def test_governance_benchmark_preserves_public_schema_boundaries() -> None:
-    assert ReadinessReport.model_fields["report_schema_version"].default == "0.33"
+    assert ReadinessReport.model_fields["report_schema_version"].default == "0.34"
     assert CAPABILITY_LOCK_SCHEMA_VERSION == "0.6"
     assert CAPABILITY_LOCK_DIFF_SCHEMA_VERSION == "0.7"
     assert GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION == "0.2"

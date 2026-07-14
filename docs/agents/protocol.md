@@ -309,7 +309,7 @@ capability evidence requests, and host/MCP permission review. `shipgate.explain`
 deterministic check/finding explanation JSON. `shipgate.capabilities` returns
 capability lock or capability lock diff JSON. `shipgate.handoff` reads existing
 `verifier.json` / `report.json` / `verify-run.json` artifacts and returns exact
-`shipgate.agent_handoff/v4`. These are projections only; the
+`shipgate.agent_handoff/v5`. These are projections only; the
 release gate remains `report.json.release_decision.decision`.
 
 The MCP server is a static adapter only. It exposes no scan, verify,

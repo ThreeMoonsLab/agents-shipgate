@@ -340,6 +340,10 @@ def test_well_known_metadata_lists_packet_outputs():
         "feedback_json",
         "attestation_json",
         "org_evidence_bundle_json",
+        "verification_plan_json",
+        "verification_unit_result_json",
+        "verification_artifact_manifest_json",
+        "verification_receipt_json",
         "host_grants_json",
         "org_status_json",
     ):
@@ -370,6 +374,21 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("agent_result_control_fields") == contract["agent_result_control_fields"]
     assert data.get("verifier_schema_version") == contract["verifier_schema_version"]
     assert data.get("verify_run_schema_version") == contract["verify_run_schema_version"]
+    assert (
+        data.get("verification_plan_schema_version") == contract["verification_plan_schema_version"]
+    )
+    assert (
+        data.get("verification_unit_result_schema_version")
+        == contract["verification_unit_result_schema_version"]
+    )
+    assert (
+        data.get("verification_artifact_manifest_schema_version")
+        == contract["verification_artifact_manifest_schema_version"]
+    )
+    assert (
+        data.get("verification_receipt_schema_version")
+        == contract["verification_receipt_schema_version"]
+    )
     assert data.get("agent_handoff_schema_version") == contract["agent_handoff_schema_version"]
     assert data.get("agent_handoff_schema_path") == contract["agent_handoff_schema_path"]
     assert data.get("agent_handoff_artifact") == contract["agent_handoff_artifact"]
@@ -403,6 +422,7 @@ def test_well_known_metadata_lists_packet_outputs():
     assert artifacts.get("local_contract") == (".shipgate/agent-contract.json")
     assert artifacts.get("verify_run") == contract["artifacts"]["verify_run"]
     assert artifacts.get("agent_handoff") == contract["artifacts"]["agent_handoff"]
+    assert artifacts.get("verification_receipt") == (contract["artifacts"]["verification_receipt"])
     report_url = schemas.get("report", "")
     assert CURRENT_REPORT_SCHEMA in report_url, (
         f".well-known schemas.report must point to {CURRENT_REPORT_SCHEMA}; got {report_url!r}."
@@ -452,7 +472,7 @@ def test_well_known_metadata_lists_packet_outputs():
         f"registry schema; got {registry_url!r}."
     )
     bundle_url = schemas.get("org_evidence_bundle", "")
-    assert "org-evidence-bundle-schema.v1.json" in bundle_url
+    assert "org-evidence-bundle-schema.v2.json" in bundle_url
     assert data.get("org_evidence_bundle_schema_version") == (ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION)
     host_grants_url = schemas.get("host_grants_inventory", "")
     assert (
@@ -478,8 +498,18 @@ def test_well_known_metadata_lists_packet_outputs():
         ".well-known schemas.governance_benchmark_result must point to the "
         f"current result schema; got {benchmark_result_url!r}."
     )
-    assert "verify_run" in schemas and "verify-run-schema.v2.json" in schemas["verify_run"]
-    assert "agent_handoff" in schemas and "agent-handoff-schema.v4.json" in schemas["agent_handoff"]
+    assert "verify_run" in schemas and "verify-run-schema.v3.json" in schemas["verify_run"]
+    assert "verification_plan" in schemas
+    assert "verification-plan-schema.v1.json" in schemas["verification_plan"]
+    assert "verification_unit_result" in schemas
+    assert "verification-unit-result-schema.v1.json" in schemas["verification_unit_result"]
+    assert "verification_artifact_manifest" in schemas
+    assert (
+        "verification-artifact-manifest-schema.v1.json" in schemas["verification_artifact_manifest"]
+    )
+    assert "verification_receipt" in schemas
+    assert "verification-receipt-schema.v1.json" in schemas["verification_receipt"]
+    assert "agent_handoff" in schemas and "agent-handoff-schema.v5.json" in schemas["agent_handoff"]
     assert (
         "codex_boundary_result" in schemas
         and "codex-boundary-result-schema.v2.json" in schemas["codex_boundary_result"]
@@ -564,9 +594,9 @@ def test_architecture_doc_contract_stamp_matches_runtime():
         "`agents-shipgate contract --json`: runtime contract `N`, "
         "report schema `vX.Y`, packet schema `vX.Y`.'"
     )
-    assert stamp.group("date") == "2026-07-09", (
+    assert stamp.group("date") == "2026-07-13", (
         "docs/architecture.md contract-check date must stay pinned to "
-        "2026-07-09 until a deliberate architecture-doc refresh moves it."
+        "2026-07-13 until a deliberate architecture-doc refresh moves it."
     )
     assert stamp.group("contract") == CONTRACT_VERSION, (
         f"docs/architecture.md says runtime contract "
@@ -1127,12 +1157,10 @@ def test_triggers_evaluator_smoke():
     ):
         host_change = evaluate(paths=[host_path])
         assert host_change["run_shipgate"] is True, (
-            f"Host boundary change {host_path!r} must trigger Shipgate; "
-            f"got {host_change!r}."
+            f"Host boundary change {host_path!r} must trigger Shipgate; got {host_change!r}."
         )
         assert any(
-            match["surface_class"] == "host_boundary"
-            for match in host_change["matched_rules"]
+            match["surface_class"] == "host_boundary" for match in host_change["matched_rules"]
         )
 
     conductor_change = evaluate(
@@ -1141,8 +1169,7 @@ def test_triggers_evaluator_smoke():
     )
     assert conductor_change["run_shipgate"] is True
     assert any(
-        match["surface_class"] == "capability"
-        for match in conductor_change["matched_rules"]
+        match["surface_class"] == "capability" for match in conductor_change["matched_rules"]
     )
     decorator = evaluate(
         paths=["agent.py"],
@@ -2473,7 +2500,7 @@ def test_no_singular_underscore_module_name(relpath):
 # Read-first artifact vs the runtime contract's agent_read_order
 # ---------------------------------------------------------------------------
 
-READ_FIRST_PATTERN = re.compile(r"[Rr]ead\s+`([^`]+)`\s+first")
+READ_FIRST_PATTERN = re.compile(r"(?:[Rr]ead|[Vv]alidate)\s+`([^`]+)`\s+first")
 # Prose surfaces that tell a coding agent which verify artifact to read
 # first. .well-known/agents-shipgate.json carries the machine-readable
 # agent_read_order (validated against the contract elsewhere in this
@@ -2489,16 +2516,16 @@ READ_FIRST_SURFACES = (
 @pytest.mark.parametrize("relpath", READ_FIRST_SURFACES)
 def test_read_first_instructions_match_contract_agent_read_order(relpath):
     """Every 'Read `<artifact>` first' instruction must name the first
-    artifact in the runtime contract's agent_read_order (agent-handoff.json
-    since contract v7), optionally with a reports-dir prefix or a field
-    path suffix. README shipped both 'read verifier.json first' and
-    'read agent-handoff.json first' simultaneously until v0.14.x; this
+    artifact in the runtime contract's agent_read_order
+    (verification-receipt.json since contract v17), optionally with a
+    reports-dir prefix or a field path suffix. README shipped contradictory
+    first-artifact instructions before this invariant; this
     pins the prose surfaces to the contract so the contradiction cannot
     return. verifier.json stays the authoritative controller substrate —
     mentioning it is fine, telling an agent to read it *first* is not."""
     contract = build_contract_payload().model_dump(mode="json")
     first_artifact = contract["agent_read_order"][0]
-    assert first_artifact == "agent-handoff.json", (
+    assert first_artifact == "verification-receipt.json", (
         "contract agent_read_order[0] changed; sweep the read-first "
         "prose on READ_FIRST_SURFACES, then update this pin."
     )

@@ -4,7 +4,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-REGISTRY_SCHEMA_VERSION = "0.3"
+from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
+
+REGISTRY_SCHEMA_VERSION = "0.4"
 
 
 class RegistryRowV1(BaseModel):
@@ -28,6 +30,11 @@ class RegistryRowV1(BaseModel):
     attestation_schema_version: str | None = None
     cli_version: str | None = None
     run_id: str | None = None
+    request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    receipt_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    decision_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    artifact_set_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    source_verification_receipt_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     source_attestation_sha256: str | None = None
     source_verify_run_sha256: str | None = None
     base_ref: str | None = None
@@ -66,7 +73,7 @@ class RegistrySkippedRowV1(BaseModel):
 class RegistryQueryResultV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    registry_schema_version: Literal["0.3"] = REGISTRY_SCHEMA_VERSION
+    registry_schema_version: Literal["0.4"] = REGISTRY_SCHEMA_VERSION
     registry: str
     count: int
     skipped_count: int = 0
@@ -77,7 +84,7 @@ class RegistryQueryResultV1(BaseModel):
 class RegistryBypassReportV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    registry_schema_version: Literal["0.3"] = REGISTRY_SCHEMA_VERSION
+    registry_schema_version: Literal["0.4"] = REGISTRY_SCHEMA_VERSION
     registry: str
     bypass_count: int
     skipped_count: int = 0
@@ -88,7 +95,7 @@ class RegistryBypassReportV1(BaseModel):
 class RegistrySummaryV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    registry_schema_version: Literal["0.3"] = REGISTRY_SCHEMA_VERSION
+    registry_schema_version: Literal["0.4"] = REGISTRY_SCHEMA_VERSION
     registry: str
     count: int
     skipped_count: int = 0
@@ -118,7 +125,7 @@ class RegistryVerificationIssueV1(BaseModel):
 class RegistryVerificationResultV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    registry_schema_version: Literal["0.3"] = REGISTRY_SCHEMA_VERSION
+    registry_schema_version: Literal["0.4"] = REGISTRY_SCHEMA_VERSION
     registry: str
     row_count: int
     skipped_count: int = 0

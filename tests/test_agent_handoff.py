@@ -32,7 +32,7 @@ def _verifier_payload() -> dict:
         human_review_required=True,
     )
     return {
-        "verifier_schema_version": "0.4",
+        "verifier_schema_version": "0.5",
         "workspace": "/tmp/repo",
         "config": "shipgate.yaml",
         "execution": "succeeded",
@@ -138,7 +138,7 @@ def test_agent_handoff_projects_verifier_report_and_verify_run() -> None:
         },
     )
 
-    assert handoff.schema_version == "shipgate.agent_handoff/v4"
+    assert handoff.schema_version == "shipgate.agent_handoff/v5"
     assert handoff.gate.decision == "blocked"
     assert handoff.gate.merge_verdict == "blocked"
     assert handoff.gate.ci_would_fail is True
@@ -154,7 +154,7 @@ def test_agent_handoff_projects_verifier_report_and_verify_run() -> None:
 
 
 def test_agent_handoff_schema_validates_sample_projection() -> None:
-    schema = json.loads((ROOT / "docs" / "agent-handoff-schema.v4.json").read_text())
+    schema = json.loads((ROOT / "docs" / "agent-handoff-schema.v5.json").read_text())
     payload = build_agent_handoff(verifier=_verifier_payload()).model_dump(mode="json")
 
     Draft202012Validator(schema).validate(payload)
@@ -220,7 +220,7 @@ def test_agent_handoff_cli_rerenders_existing_artifacts(tmp_path: Path) -> None:
     emitted = json.loads(result.output)
     written = json.loads(out_path.read_text(encoding="utf-8"))
     assert emitted == written
-    assert emitted["schema_version"] == "shipgate.agent_handoff/v4"
+    assert emitted["schema_version"] == "shipgate.agent_handoff/v5"
     assert emitted["gate"]["decision"] == "blocked"
 
 

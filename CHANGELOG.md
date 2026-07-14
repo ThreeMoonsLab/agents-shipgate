@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Reproducible verification identity (P0, `0.16.0b6`).** Verify now binds
+  the resolved Git subject, exact input blobs, evaluation date, behavior
+  options, installed engine-content and dependency/adapter/plugin/policy set, normalized task,
+  executor, assembled decision, and complete artifact set through
+  content-addressed IDs. Exact Git objects are materialized with `ls-tree` and
+  `cat-file`; base-cache reuse is invisible to public artifacts and guarded by
+  a content hash.
+- **Terminal receipts and portable execution boundary.** Successful verify runs emit
+  `verification-plan.json`, a decision-free `verification-unit-result.json`,
+  `verification-artifacts.json`, and, last, `verification-receipt.json`.
+  Workers validate their installed engine and transported inputs but cannot
+  assert a verdict; the verifier remains the sole policy engine and the
+  assembler re-closes its decision. `verification
+  prepare|worker|assemble|reproduce` exposes the portable v1 protocol without
+  claiming distributed policy evaluation, arbitrary sharding, or parallel
+  speedup.
+- **Identity contract versions.** Runtime contract advances to v17; report to
+  v0.34; packet to v0.12; verifier to v0.5; verify-run to v3; handoff to v5;
+  attestation to v0.5; registry to v0.4; organization evidence bundle to v2;
+  downstream local contract to v6; and safety qualification formats to v4.
+  Verification plan, unit-result, artifact-manifest, and receipt schemas begin
+  at v1. Prior schemas remain frozen readers.
+- **Immutable CI subject.** The GitHub Action evaluates `github.sha` by default
+  and records a pull request's source head separately. It exports receipt,
+  request, decision, and artifact-set identities only after validating every
+  terminal artifact hash.
+- **Non-forgeable trust decay.** The content-bound commit evaluation date
+  remains reproducibility provenance, but cannot extend reviewer-owned trust.
+  Baseline, acknowledgement, and severity-override expiry use the later of that
+  date and the verifier wall clock, so a forged backdated commit fails closed.
+
 - **Evidence-basis policy gate (P0, `0.16.0b5`).** Semantic claims and risk
   hints now carry a typed evidence basis, stable claim IDs, and derived policy
   eligibility. Policy-pack and action-policy predicates evaluate to

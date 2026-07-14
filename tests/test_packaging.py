@@ -3,9 +3,11 @@ from __future__ import annotations
 import subprocess
 import sys
 import zipfile
+from email import message_from_bytes
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,6 +43,21 @@ def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
     assert "agents_shipgate/_adoption_kits/claude-code-skill/SKILL.md" in names
     assert "agents_shipgate/_adoption_kits/codex-skill/.agents-shipgate-kit-metadata.json" in names
     assert "agents_shipgate/_meta/claude-command/shipgate.md" in names
+
+
+def test_wheel_declares_verification_identity_runtime_dependencies(
+    built_wheel: Path,
+) -> None:
+    with zipfile.ZipFile(built_wheel) as archive:
+        metadata_path = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        metadata = message_from_bytes(archive.read(metadata_path))
+    requirements = {
+        Requirement(value).name.lower().replace("_", "-")
+        for value in metadata.get_all("Requires-Dist", [])
+    }
+    assert "packaging" in requirements
 
 
 def test_wheel_includes_org_policy_templates(built_wheel: Path) -> None:

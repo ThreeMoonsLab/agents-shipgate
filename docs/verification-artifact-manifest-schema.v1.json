@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "VerificationArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "media_type"
+      ],
+      "title": "VerificationArtifactRef",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-artifact-manifest-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Content-addressed manifest of assembled verification artifacts.",
+  "properties": {
+    "artifact_set_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Artifact Set Id",
+      "type": "string"
+    },
+    "artifacts": {
+      "additionalProperties": {
+        "$ref": "#/$defs/VerificationArtifactRef"
+      },
+      "minProperties": 1,
+      "title": "Artifacts",
+      "type": "object"
+    },
+    "decision_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "request_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "shipgate.verification_artifact_manifest/v1",
+      "default": "shipgate.verification_artifact_manifest/v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_set_id",
+    "request_id",
+    "decision_id",
+    "artifacts"
+  ],
+  "title": "Agents Shipgate Verification Artifact Manifest v1",
+  "type": "object"
+}

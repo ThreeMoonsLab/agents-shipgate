@@ -256,11 +256,16 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         tool_surface=ToolSurfaceSummary(total_tools=0, high_risk_tools=0),
     )
     report_payload = report_json_payload(report)
-    assert report_payload["report_schema_version"] == "0.33"
+    assert report_payload["report_schema_version"] == "0.34"
     assert list(report_payload) == [
         "schema_version",
         "report_schema_version",
         "run_id",
+        "request_id",
+        "subject_id",
+        "input_set_id",
+        "engine_requirement_id",
+        "decision_id",
         "manifest_dir",
         "project",
         "agent",
@@ -338,7 +343,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         not_proven=NotProvenSection(headline="not proven"),
     )
     packet_payload = serialize_packet_json(packet)
-    assert packet_payload["packet_schema_version"] == "0.11"
+    assert packet_payload["packet_schema_version"] == "0.12"
     assert "generated_at" not in packet_payload
     assert "action_surface_diff" in packet_payload
     assert report_payload["capability_runtime_evidence"]["enabled"] is False
@@ -387,6 +392,12 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         packet_schema_version="0.9",
         verifier_schema_version="0.2",
         verify_run_schema_version="shipgate.verify_run/v1",
+        verification_plan_schema_version="shipgate.verification_plan/v1",
+        verification_unit_result_schema_version="shipgate.verification_unit_result/v1",
+        verification_artifact_manifest_schema_version=(
+            "shipgate.verification_artifact_manifest/v1"
+        ),
+        verification_receipt_schema_version="shipgate.verification_receipt/v1",
         agent_handoff_schema_version="shipgate.agent_handoff/v2",
         agent_handoff_schema_path="docs/agent-handoff-schema.v2.json",
         agent_handoff_artifact="agents-shipgate-reports/agent-handoff.json",
@@ -399,9 +410,9 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         capability_standard_version="0.3",
         governance_benchmark_catalog_schema_version="0.2",
         governance_benchmark_result_schema_version="0.2",
-        attestation_schema_version="0.4",
-        registry_schema_version="0.3",
-        org_evidence_bundle_schema_version="shipgate.org_evidence_bundle/v1",
+        attestation_schema_version="0.5",
+        registry_schema_version="0.4",
+        org_evidence_bundle_schema_version="shipgate.org_evidence_bundle/v2",
         host_grants_inventory_schema_version="0.1",
         host_grants_baseline_schema_version="0.1",
         host_grants_drift_schema_version="0.1",
@@ -445,6 +456,12 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "packet_schema_version": "0.9",
         "verifier_schema_version": "0.2",
         "verify_run_schema_version": "shipgate.verify_run/v1",
+        "verification_plan_schema_version": "shipgate.verification_plan/v1",
+        "verification_unit_result_schema_version": "shipgate.verification_unit_result/v1",
+        "verification_artifact_manifest_schema_version": (
+            "shipgate.verification_artifact_manifest/v1"
+        ),
+        "verification_receipt_schema_version": "shipgate.verification_receipt/v1",
         "agent_handoff_schema_version": "shipgate.agent_handoff/v2",
         "agent_handoff_schema_path": "docs/agent-handoff-schema.v2.json",
         "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
@@ -457,9 +474,9 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "capability_standard_version": "0.3",
         "governance_benchmark_catalog_schema_version": "0.2",
         "governance_benchmark_result_schema_version": "0.2",
-        "attestation_schema_version": "0.4",
-        "registry_schema_version": "0.3",
-        "org_evidence_bundle_schema_version": "shipgate.org_evidence_bundle/v1",
+        "attestation_schema_version": "0.5",
+        "registry_schema_version": "0.4",
+        "org_evidence_bundle_schema_version": "shipgate.org_evidence_bundle/v2",
         "host_grants_inventory_schema_version": "0.1",
         "host_grants_baseline_schema_version": "0.1",
         "host_grants_drift_schema_version": "0.1",

@@ -262,8 +262,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
         surface="attr_call:subprocess.run",
         line=532,
         snippet=(
-            "subprocess.run(['git', 'ls-files', '--others', "
-            "'--exclude-standard'], **run_kwargs)"
+            "subprocess.run(['git', 'ls-files', '--others', '--exclude-standard'], **run_kwargs)"
         ),
         rationale=(
             "git-untracked enumeration: ``git ls-files --others "
@@ -292,7 +291,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="import:subprocess",
-        line=4,
+        line=5,
         snippet="import subprocess",
         rationale=(
             "Verify uses local git commands to resolve refs, collect diffs, "
@@ -303,11 +302,11 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=218,
+        line=275,
         snippet="subprocess.run(cmd, capture_output=True, check=check, text=text, timeout=60)",
         rationale=(
             "_run_git helper for verify: executes fixed git argv assembled "
-            "inside Shipgate (rev-parse, diff, show, archive, and the "
+            "inside Shipgate (rev-parse, diff, ls-tree, cat-file, and the "
             "default-base detection, which only reads local refs). "
             "Capture-only, no shell, no user-code execution, and no fetch."
         ),
@@ -332,8 +331,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
         surface="attr_call:subprocess.run",
         line=374,
         snippet=(
-            "subprocess.run(['git', *args], cwd=cwd, check=True, "
-            "capture_output=True, text=True)"
+            "subprocess.run(['git', *args], cwd=cwd, check=True, capture_output=True, text=True)"
         ),
         rationale=(
             "_git helper for the ai_generated_refund_pr fixture: runs local "
@@ -461,10 +459,9 @@ def _lookup_allowed(
     return None
 
 
-def _violation_allowed(
-    relative_path: str, surface: str, line: int, snippet: str
-) -> bool:
+def _violation_allowed(relative_path: str, surface: str, line: int, snippet: str) -> bool:
     return _lookup_allowed(relative_path, surface, line, snippet) is not None
+
 
 # Bare-name forbidden builtins. Catches direct calls like ``exec("...")``.
 FORBIDDEN_NAME_CALLS: frozenset[str] = frozenset(
@@ -578,9 +575,7 @@ ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset(
 # can be resolved to a canonical ``importlib.resources.<attr>`` chain that
 # the ``importlib.resources.`` prefix in ``FORBIDDEN_ATTR_CALL_PREFIXES``
 # catches.
-TRACKED_NON_FORBIDDEN_MODULES: frozenset[str] = frozenset(
-    {"os", "importlib.resources"}
-)
+TRACKED_NON_FORBIDDEN_MODULES: frozenset[str] = frozenset({"os", "importlib.resources"})
 
 
 def _is_forbidden_chain(chain: str) -> bool:
@@ -595,8 +590,7 @@ def _is_forbidden_module_import(module: str) -> bool:
     if module in ALLOWED_FORBIDDEN_MODULE_IMPORTS:
         return False
     return any(
-        module == forbidden or module.startswith(f"{forbidden}.")
-        for forbidden in FORBIDDEN_MODULES
+        module == forbidden or module.startswith(f"{forbidden}.") for forbidden in FORBIDDEN_MODULES
     )
 
 
@@ -636,8 +630,7 @@ def _resolve_attribute_chain_all(
         # still call out structurally).
         return [".".join(parts)]
     return [
-        ".".join(canonical_root.split(".") + parts[1:])
-        for canonical_root in module_aliases[root]
+        ".".join(canonical_root.split(".") + parts[1:]) for canonical_root in module_aliases[root]
     ]
 
 
@@ -761,8 +754,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                                 line=node.lineno,
                                 surface=f"import:{canonical}",
                                 message=(
-                                    f"{rel}:{node.lineno}: forbidden from-import "
-                                    f"of {canonical!r}"
+                                    f"{rel}:{node.lineno}: forbidden from-import of {canonical!r}"
                                 ),
                                 snippet=ast.unparse(node),
                             )
@@ -782,10 +774,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                     Violation(
                         line=node.lineno,
                         surface=f"name_call:{func.id}",
-                        message=(
-                            f"{rel}:{node.lineno}: forbidden builtin call "
-                            f"{func.id!r}"
-                        ),
+                        message=(f"{rel}:{node.lineno}: forbidden builtin call {func.id!r}"),
                         snippet=ast.unparse(node),
                     )
                 )
@@ -806,10 +795,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                             Violation(
                                 line=node.lineno,
                                 surface=f"attr_call:{canonical}",
-                                message=(
-                                    f"{rel}:{node.lineno}: forbidden call "
-                                    f"{canonical!r}{via}"
-                                ),
+                                message=(f"{rel}:{node.lineno}: forbidden call {canonical!r}{via}"),
                                 snippet=ast.unparse(node),
                             )
                         )
@@ -824,9 +810,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                         Violation(
                             line=node.lineno,
                             surface=f"attr_call:{chain}",
-                            message=(
-                                f"{rel}:{node.lineno}: forbidden call {chain!r}"
-                            ),
+                            message=(f"{rel}:{node.lineno}: forbidden call {chain!r}"),
                             snippet=ast.unparse(node),
                         )
                     )
@@ -838,9 +822,7 @@ def _scanner_sources() -> list[Path]:
     """v0.18 (PR #2): every .py file under src/agents_shipgate/ (not just
     ``inputs/``). Skips ``__pycache__`` debris.
     """
-    return sorted(
-        p for p in SCANNER_DIR.rglob("*.py") if "__pycache__" not in p.parts
-    )
+    return sorted(p for p in SCANNER_DIR.rglob("*.py") if "__pycache__" not in p.parts)
 
 
 @pytest.mark.parametrize(
@@ -867,17 +849,11 @@ def test_scanner_source_contains_no_forbidden_calls_or_imports(
     rel = str(scanner_source.relative_to(SCANNER_DIR))
     source = scanner_source.read_text(encoding="utf-8")
     violations = _scan_source(source, scanner_source)
-    unallowed = [
-        v
-        for v in violations
-        if not _violation_allowed(rel, v.surface, v.line, v.snippet)
-    ]
+    unallowed = [v for v in violations if not _violation_allowed(rel, v.surface, v.line, v.snippet)]
     assert not unallowed, (
         "Trust-model invariant violation under src/agents_shipgate/:\n  "
         + "\n  ".join(
-            f"{v.message}  (surface={v.surface!r}, "
-            f"snippet={v.snippet!r})"
-            for v in unallowed
+            f"{v.message}  (surface={v.surface!r}, snippet={v.snippet!r})" for v in unallowed
         )
         + "\n\n"
         + "The scanner MUST NOT execute or import user code. Parse with "
@@ -1006,13 +982,11 @@ def test_scanner_source_contains_no_forbidden_calls_or_imports(
             "forbidden call 'os.system'",
         ),
         (
-            "import os as runner\nrunner.execve('/bin/sh', ['sh'])\n"
-            "import pathlib as runner\n",
+            "import os as runner\nrunner.execve('/bin/sh', ['sh'])\nimport pathlib as runner\n",
             "forbidden call 'os.execve'",
         ),
         (
-            "from os import system\nsystem('ls')\n"
-            "from pathlib import system\n",
+            "from os import system\nsystem('ls')\nfrom pathlib import system\n",
             "forbidden from-import of 'os.system'",
         ),
         # Even when the FORBIDDEN binding comes *after* the safe one,
@@ -1100,9 +1074,7 @@ def test_scanner_source_contains_no_forbidden_calls_or_imports(
     ],
     ids=lambda x: x if isinstance(x, str) and len(x) < 40 else "case",
 )
-def test_lint_scanner_catches_known_violation_shapes(
-    snippet: str, expected_substring: str
-) -> None:
+def test_lint_scanner_catches_known_violation_shapes(snippet: str, expected_substring: str) -> None:
     """The scanner itself has fingers: each forbidden shape must be detected.
 
     This is the negative-control test for the lint. Without it, a refactor
@@ -1189,9 +1161,7 @@ def test_allowlist_entry_matches_real_surface(exc: AllowedException) -> None:
     quadruple match restricts each entry to a single call site.
     """
     path = SCANNER_DIR / exc.relative_path
-    assert path.exists(), (
-        f"allowlisted file does not exist: {exc.relative_path}"
-    )
+    assert path.exists(), f"allowlisted file does not exist: {exc.relative_path}"
     source = path.read_text(encoding="utf-8")
     violations = _scan_source(source, path)
     same_surface = [v for v in violations if v.surface == exc.surface]
@@ -1258,12 +1228,8 @@ def test_no_unallowlisted_forbidden_surface_in_scanner() -> None:
     for path in _scanner_sources():
         rel = str(path.relative_to(SCANNER_DIR))
         for violation in _scan_source(path.read_text(encoding="utf-8"), path):
-            if not _violation_allowed(
-                rel, violation.surface, violation.line, violation.snippet
-            ):
-                unallowed.append(
-                    (rel, violation.line, violation.surface, violation.snippet)
-                )
+            if not _violation_allowed(rel, violation.surface, violation.line, violation.snippet):
+                unallowed.append((rel, violation.line, violation.surface, violation.snippet))
     assert unallowed == [], (
         "Scanner has forbidden surfaces with no allowlist entry. "
         "Add an ALLOWED_EXCEPTIONS entry with prose rationale, or "
@@ -1295,9 +1261,7 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
     for exc in ALLOWED_EXCEPTIONS:
         by_file_surface.setdefault((exc.relative_path, exc.surface), []).append(exc)
 
-    triggers_subprocess_run = by_file_surface.get(
-        ("triggers.py", "attr_call:subprocess.run"), []
-    )
+    triggers_subprocess_run = by_file_surface.get(("triggers.py", "attr_call:subprocess.run"), [])
     assert len(triggers_subprocess_run) == 3, (
         f"Expected 3 distinct AllowedException entries for "
         f"triggers.py subprocess.run calls (one per call site at "

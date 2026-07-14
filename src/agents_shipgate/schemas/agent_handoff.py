@@ -7,10 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from agents_shipgate import __version__
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 from agents_shipgate.schemas.verifier import Applicability, MergeVerdict, map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v4"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v4.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v5"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v5.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -99,6 +100,12 @@ class AgentHandoffReproducibility(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_id: str | None = None
+    request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    input_set_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    engine_requirement_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    executor_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
+    decision_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     config_sha256: str | None = None
     baseline_sha256: str | None = None
     policy_packs: list[dict[str, Any]] = Field(default_factory=list)
@@ -205,7 +212,7 @@ class AgentHandoffArtifact(BaseModel):
         },
     )
 
-    schema_version: Literal["shipgate.agent_handoff/v4"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v5"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation

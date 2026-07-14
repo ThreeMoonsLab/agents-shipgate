@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate import __version__
 from agents_shipgate.schemas.agent_control import AgentControl
+from agents_shipgate.schemas.verification_identity import (
+    CONTENT_ID_PATTERN,
+    VerificationExecutor,
+    VerificationPlan,
+    content_id,
+)
 
-VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v2"
+VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v3"
 
 
 class VerifyRunTool(BaseModel):
@@ -195,10 +202,12 @@ class VerifyRunOutcome(BaseModel):
         return self
 
 
-class VerifyRunArtifact(BaseModel):
+class VerifyRunArtifactV2(BaseModel):
+    """Frozen reader for the pre-identity verify-run contract."""
+
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.verify_run/v2"] = VERIFY_RUN_SCHEMA_VERSION
+    schema_version: Literal["shipgate.verify_run/v2"] = "shipgate.verify_run/v2"
     run_id: str
     tool: VerifyRunTool
     subject: VerifyRunSubject
@@ -207,12 +216,55 @@ class VerifyRunArtifact(BaseModel):
     artifacts: dict[str, VerifyRunArtifactRef] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _run_id_matches_identity(self) -> VerifyRunArtifact:
+    def _run_id_matches_identity(self) -> VerifyRunArtifactV2:
         expected = compute_verify_run_id(subject=self.subject, inputs=self.inputs, tool=self.tool)
         if self.run_id != expected:
             raise ValueError(
                 "VerifyRunArtifact.run_id must be the stable hash of tool, subject, and inputs."
             )
+        return self
+
+
+class VerifyRunArtifact(BaseModel):
+    """Current run projection bound to a content-addressed request plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["shipgate.verify_run/v3"] = VERIFY_RUN_SCHEMA_VERSION
+    request_id: str = Field(pattern=CONTENT_ID_PATTERN)
+    # Deprecated for one compatibility cycle; it is an exact alias, never a
+    # separately-computed identity.
+    run_id: str = Field(pattern=CONTENT_ID_PATTERN)
+    plan: VerificationPlan
+    executor: VerificationExecutor
+    unit_result_ids: list[str] = Field(min_length=1)
+    decision_id: str = Field(pattern=CONTENT_ID_PATTERN)
+    outcome: VerifyRunOutcome
+    artifacts: dict[str, VerifyRunArtifactRef] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _identity_graph_is_consistent(self) -> VerifyRunArtifact:
+        if self.run_id != self.request_id:
+            raise ValueError("verify-run run_id must be the exact deprecated request_id alias")
+        if self.request_id != self.plan.request_id:
+            raise ValueError("verify-run request_id must match its verification plan")
+        if self.executor.engine_requirement_id != self.plan.engine.engine_requirement_id:
+            raise ValueError("verify-run executor does not satisfy the plan engine")
+        if len(set(self.unit_result_ids)) != len(self.unit_result_ids):
+            raise ValueError("verify-run unit_result_ids must be unique")
+        if any(not re.fullmatch(CONTENT_ID_PATTERN, value) for value in self.unit_result_ids):
+            raise ValueError("verify-run unit_result_ids must be SHA-256 content IDs")
+        expected = content_id(
+            {
+                "request_id": self.request_id,
+                "unit_result_ids": sorted(self.unit_result_ids),
+                "decision": self.outcome.decision,
+                "merge_verdict": self.outcome.merge_verdict,
+                "can_merge_without_human": self.outcome.can_merge_without_human,
+            }
+        )
+        if self.decision_id != expected:
+            raise ValueError("verify-run decision_id must hash its request, units, and outcome")
         return self
 
 
@@ -235,22 +287,28 @@ def compute_verify_run_id(
 
 def build_verify_run_artifact(
     *,
-    subject: VerifyRunSubject,
-    inputs: VerifyRunInputs,
+    plan: VerificationPlan,
+    executor: VerificationExecutor,
+    unit_result_ids: list[str],
     outcome: VerifyRunOutcome,
     artifacts: dict[str, VerifyRunArtifactRef],
-    tool: VerifyRunTool | None = None,
 ) -> VerifyRunArtifact:
-    resolved_tool = tool or VerifyRunTool(version=__version__)
+    decision_id = content_id(
+        {
+            "request_id": plan.request_id,
+            "unit_result_ids": sorted(unit_result_ids),
+            "decision": outcome.decision,
+            "merge_verdict": outcome.merge_verdict,
+            "can_merge_without_human": outcome.can_merge_without_human,
+        }
+    )
     return VerifyRunArtifact(
-        run_id=compute_verify_run_id(
-            subject=subject,
-            inputs=inputs,
-            tool=resolved_tool,
-        ),
-        tool=resolved_tool,
-        subject=subject,
-        inputs=inputs,
+        request_id=plan.request_id,
+        run_id=plan.request_id,
+        plan=plan,
+        executor=executor,
+        unit_result_ids=sorted(unit_result_ids),
+        decision_id=decision_id,
         outcome=outcome,
         artifacts=artifacts,
     )
@@ -260,6 +318,7 @@ __all__ = [
     "VERIFY_RUN_SCHEMA_VERSION",
     "VerifyRunArtifact",
     "VerifyRunArtifactV1",
+    "VerifyRunArtifactV2",
     "VerifyRunArtifactRef",
     "VerifyRunInputs",
     "VerifyRunOutcome",

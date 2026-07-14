@@ -45,10 +45,10 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "02e780f5a1506d948e4c1d77f6ee4c6b4193227a4fd2ced081847d1fb2e5fbd0"
+        "bc5cd31a5c4d4f6a1ebf6a04db3f80480e7cc5f9ab2b7a6f7e3f62e8ddfc3937"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "44648891d77a12f562913e4402c08bca4be6cff4aa8c69b7950ea97e7d5cc17b"
+        "7fcf37dacee5cc64263d21c6be3a5c7e99b4e6fb45d96b3dda7bdd0603aff6cd"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
         "53296f41b7c2bc8538555a4361707de8b990748b7a5d80ae4ce066af83af8fa7"
@@ -80,7 +80,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "ad6ca3c53872f1d7e2d8a42794a766f51f0c50a8b4599bb3b76ddd2e31260af1"
+        "4cbd6a9b978bb142908b8601f52fa1b8fe6a0aa89ecd05eec28f3b00f470ff04"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -92,7 +92,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "97a8eb98fc560405c690581ac5542b2f94783480f2266af36f566ae12600e2cb"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "b652d59a846ccf131df71cf284e10f2e5a72c6c1da6d5454067f1a6a457452d5"
+        "a5dd0eec215e973c403a22bdbbf0eca76a1796e20be5ae9623829c9d11d2a8dc"
     ),
 }
 
@@ -160,31 +160,29 @@ def test_committed_claude_command_matches_renderer() -> None:
 
 def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "5"
+    assert payload["schema_version"] == "6"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "16"
+    assert payload["contract_version"] == "17"
     assert payload["minimum_control_contract_version"] == "14"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.4"
-    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v2"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v4"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v4.json"
+    assert payload["verifier_schema_version"] == "0.5"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v3"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v5"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v5.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
-    assert payload["agent_boundary_result_schema_version"] == (
-        "shipgate.agent_boundary_result/v1"
-    )
+    assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v1")
     assert payload["agent_boundary_result_schema_path"] == (
         "docs/agent-boundary-result-schema.v1.json"
     )
     assert payload["agent_result_schema_version"] == "agent_result_v2"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v2.json"
-    assert payload["attestation_schema_version"] == "0.4"
-    assert payload["registry_schema_version"] == "0.3"
-    assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v1")
+    assert payload["attestation_schema_version"] == "0.5"
+    assert payload["registry_schema_version"] == "0.4"
+    assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
     assert payload["host_grants_inventory_schema_version"] == "0.2"
     assert payload["host_grants_baseline_schema_version"] == "0.2"
     assert payload["host_grants_drift_schema_version"] == "0.2"
@@ -211,6 +209,9 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["artifacts"]["verifier"] == "agents-shipgate-reports/verifier.json"
     assert payload["artifacts"]["verify_run"] == "agents-shipgate-reports/verify-run.json"
     assert payload["agent_read_order"] == [
+        "verification-receipt.json",
+        "verification-receipt.json.request_id",
+        "verification-receipt.json.receipt_id",
         "agent-handoff.json",
         "agent-handoff.json.control.state",
         "verifier.json.control.state",
