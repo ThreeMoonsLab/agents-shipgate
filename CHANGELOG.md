@@ -13,7 +13,9 @@
   `insufficient_evidence`. Baselines, suppressions, severity overrides,
   acknowledgements, and `--no-heuristics` cannot hide it. Supported findings
   expose deterministic predicate support and a `support_hash`; baseline v0.8
-  requires that hash to remain equal.
+  requires that hash to remain equal. Pre-v0.8 baselines cannot supply that
+  binding, so supported findings re-gate as new until a human reviews the new
+  evidence and re-runs `agents-shipgate baseline save`.
 - **Evidence contract versions.** Runtime contract advances to v16; report to
   v0.33; packet to v0.11; verifier to v0.4; handoff to v4; policy pack to
   v0.4; capability standard to v0.5; lock/diff to v0.6/v0.7; action snapshot

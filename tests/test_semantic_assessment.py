@@ -5,6 +5,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from agents_shipgate.core.capability_lattice import mcp_permission_risk_hints
 from agents_shipgate.core.domain import AuthInfo, Tool, ToolRiskHint
 from agents_shipgate.core.semantic_assessment import (
     assess_tool_semantics,
@@ -73,6 +74,33 @@ def test_read_only_hint_cannot_suppress_write_scope() -> None:
     assert assessment.effect.status == "conflicting"
     assert assessment.pass_eligible is False
     assert "conflicting_effect_evidence" in {issue.kind for issue in assessment.effect.issues}
+
+
+def test_structural_scope_risk_hint_preserves_typed_basis() -> None:
+    tool = _tool(
+        auth=AuthInfo(
+            type="oauth2",
+            scopes=["orders:write"],
+            source="mcp",
+            mode="scoped",
+            explicit=True,
+        )
+    )
+    tool.risk_hints.extend(mcp_permission_risk_hints(tool))
+
+    assessment = assess_tool_semantics(tool)
+
+    scope_hints = [
+        claim
+        for claim in assessment.effect.claims
+        if claim.source == "risk_hint:auth_scope"
+    ]
+    assert scope_hints
+    assert {claim.basis for claim in scope_hints} == {"structural_scope"}
+    assert not any(
+        issue.kind == "invalid_evidence_provenance"
+        for issue in assessment.effect.issues
+    )
 
 
 def test_permission_class_aliases_are_unioned_and_conflict_checked() -> None:

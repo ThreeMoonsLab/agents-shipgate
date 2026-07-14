@@ -380,7 +380,7 @@ def _assess_effect(
         effect = _TAG_EFFECTS.get(hint.tag)
         if effect is None or hint.source in direct_sources:
             continue
-        hint_basis = _validated_hint_basis(tool, hint)
+        hint_basis = _validated_hint_basis(tool, hint, declaration)
         if hint_basis == "unknown":
             issues.append(
                 _issue(
@@ -894,13 +894,34 @@ def _surface_is_complete(tool: Tool) -> bool:
     )
 
 
-def _validated_hint_basis(tool: Tool, hint: Any) -> EvidenceBasis:
+def _validated_hint_basis(
+    tool: Tool,
+    hint: Any,
+    declaration: ActionDeclarationConfig | None,
+) -> EvidenceBasis:
     """Validate producer-owned evidence basis without guessing from labels."""
 
     if hint.basis in {"inferred_keyword", "inferred_regex", "protocol_default"}:
         return cast(EvidenceBasis, hint.basis)
     if hint.basis == "reviewed_declaration" and hint.source == "manual":
         return "reviewed_declaration"
+    if hint.basis == "structural_scope" and hint.source in {
+        "auth_scope",
+        "action_scope",
+    }:
+        raw_scopes = hint.evidence.get("scopes")
+        scopes = (
+            [value for value in raw_scopes if isinstance(value, str) and value.strip()]
+            if isinstance(raw_scopes, list)
+            else []
+        )
+        declared_scopes = (
+            set(tool.auth.scopes)
+            if hint.source == "auth_scope"
+            else set(declaration.scopes if declaration is not None else [])
+        )
+        if scopes and set(scopes).issubset(declared_scopes):
+            return "structural_scope"
     if hint.basis == "typed_provider_fact":
         if (
             hint.source == "anthropic_client_tool_type"

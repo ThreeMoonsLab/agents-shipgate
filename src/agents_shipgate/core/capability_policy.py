@@ -274,13 +274,26 @@ def _binary_match_policy_pack_subject(
         matched_predicates["all_of"] = all_branches
     if rule_match.any_of:
         any_hit: dict[str, Any] | None = None
+        fallback_hit: dict[str, Any] | None = None
         for index, sub_match in enumerate(rule_match.any_of):
             sub = _binary_match_policy_pack_subject(
                 subject, sub_match, environment_target=environment_target
             )
-            if sub is not None:
-                any_hit = {"index": index, "matched": sub.matched_predicates}
+            if sub is None:
+                continue
+            candidate = {"index": index, "matched": sub.matched_predicates}
+            fallback_hit = fallback_hit or candidate
+            branch_support = finding_support(
+                _assess_match_support(
+                    subject,
+                    sub_match,
+                    environment_target=environment_target,
+                )
+            )
+            if branch_support.status == "matched" and branch_support.policy_eligible:
+                any_hit = candidate
                 break
+        any_hit = any_hit or fallback_hit
         if any_hit is None:
             return None
         evidence["any_of"] = any_hit
@@ -566,10 +579,9 @@ def _effect_predicate(
     ]
     possible = [claim for claim in claims if claim.value in requested_values]
     if assessment is None:
-        possible_match = subject.fact.effect.effect in requested_values
         return predicate_evidence(
             predicate,
-            "indeterminate" if possible_match else "indeterminate",
+            "indeterminate",
             expected=expected_boolean if expected_boolean is not None else sorted(requested_values),
             observed=subject.fact.effect.effect,
             confidence="low",
@@ -738,7 +750,18 @@ def _contributing_branches(
     status: PolicyMatchStatus,
 ) -> list[FindingSupport]:
     if name == "any_of" and status == "matched":
-        return [next(item for item in supports if item.status == "matched")]
+        authoritative = next(
+            (
+                item
+                for item in supports
+                if item.status == "matched" and _support_is_resolved(item)
+            ),
+            None,
+        )
+        return [
+            authoritative
+            or next(item for item in supports if item.status == "matched")
+        ]
     if name == "all_of" and status == "not_matched":
         return [next(item for item in supports if item.status == "not_matched")]
     if name == "none_of" and status == "not_matched":

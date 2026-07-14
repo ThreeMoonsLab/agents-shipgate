@@ -1186,6 +1186,53 @@ checks:
     ]
 
 
+def test_v2_any_of_attributes_the_authoritative_matching_branch(tmp_path):
+    _write_bounded_openapi(tmp_path, maximum=5000)
+    (tmp_path / "org-pack-v2.yaml").write_text(
+        """
+name: Any-of Evidence Attribution
+rules:
+  - id: ORG-AUTHORITATIVE-ANY-OF
+    title: Attribute the branch that authoritatively established applicability
+    severity: medium
+    recommendation: n/a
+    match:
+      any_of:
+        - risk_tags: [financial_action]
+        - source_types: [openapi]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        _manifest_without_policy_pack(reviewed_financial=False)
+        + """
+checks:
+  policy_packs:
+    - path: org-pack-v2.yaml
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    finding = next(
+        item
+        for item in report.findings
+        if item.check_id == "ORG-AUTHORITATIVE-ANY-OF"
+    )
+    assert finding.evidence["any_of"] == {
+        "index": 1,
+        "matched": {"source_types": ["openapi"]},
+    }
+    assert finding.support is not None
+    assert finding.support.policy_eligible is True
+
+
 def test_v1_flat_pack_still_loads_unchanged(tmp_path):
     """Backward compatibility: a v0.1-shaped pack with only flat fields."""
     _write_openapi(tmp_path)

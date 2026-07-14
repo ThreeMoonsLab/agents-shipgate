@@ -99,6 +99,15 @@ release contribution depends on typed policy evidence. The fingerprint remains
 stable, but both fingerprint and support hash must match. A change from
 heuristic, mixed, or unknown applicability to authoritative evidence is
 therefore reviewed as new evidence rather than silently inheriting old debt.
+Pre-`0.8` entries have no support binding, so supported findings intentionally
+re-gate as `new` after upgrading to `0.16.0b5`. Review the new evidence, then
+re-export accepted debt explicitly with:
+
+```bash
+agents-shipgate baseline save -c shipgate.yaml \
+  --out .agents-shipgate/baseline.json \
+  --owner <human> --reason "<reviewed reason>" --expires <YYYY-MM-DD>
+```
 
 Report schema v0.18 computes public fingerprints after the default privacy
 redaction pass. Findings whose evidence contains a recognized secret-like value

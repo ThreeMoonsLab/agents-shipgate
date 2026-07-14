@@ -205,9 +205,15 @@ adds explicit combinators — each branch is a complete nested `match`
 evaluated against the same subject:
 
 - `all_of: [<match>, ...]` — every branch must match.
-- `any_of: [<match>, ...]` — at least one branch must match; the finding
-  evidence records which branch hit (`{"index": N, "matched": {...}}`).
+- `any_of: [<match>, ...]` — at least one branch must match with
+  policy-eligible evidence; the finding records the first authoritative branch
+  that established applicability (`{"index": N, "matched": {...}}`).
 - `none_of: [<match>, ...]` — no branch may match.
+
+Absence of a risk tag is not authoritative negative evidence. Therefore a
+`none_of` branch based only on `risk_tags` remains indeterminate unless the
+underlying semantic assessment can prove the predicate from typed evidence;
+it produces a non-waivable policy-evidence gap rather than a finding or pass.
 
 Parameter predicates gain declared-bound comparisons:
 `maximum_above: <number>` (declared `maximum` exceeds the threshold) and
@@ -238,8 +244,8 @@ rules:
 ```
 
 Determinism: branches evaluate in declaration order; `any_of` records the
-first matching branch. An empty branch (`{}`) matches every subject —
-always give branches at least one predicate.
+first policy-eligible matching branch. An empty branch (`{}`) has no evidence
+and is indeterminate — always give branches at least one predicate.
 
 ## Distributing Org Packs
 

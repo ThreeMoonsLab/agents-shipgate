@@ -340,6 +340,24 @@ def evaluate_action_surface_policies(
             )
         )
 
+    if policy_evidence_gaps is not None:
+        for action in facts.actions:
+            support = _non_authoritative_effect_escalation_support(action)
+            if support is None:
+                continue
+            policy_evidence_gaps.append(
+                policy_evidence_gap(
+                    status=support.status,
+                    subject=f"{action.tool_name} [{action.tool_id}]",
+                    policy_id="builtin-effect-control-applicability",
+                    source_ref=action.source_ref,
+                    support=support,
+                    manifest_path=(
+                        f"shipgate.yaml#action_surface.actions[tool={action.tool_name!r}].effect"
+                    ),
+                )
+            )
+
     findings.extend(
         _builtin_policy_findings(
             manifest,
@@ -1461,6 +1479,11 @@ def _current_action_policy_findings(
                         "safeguards.idempotency for this financial write action."
                     ),
                     blocks_release=True,
+                    support=_builtin_control_support(
+                        action,
+                        effects={"financial_write"},
+                        missing=missing,
+                    ),
                 )
             )
     if "external_communication" in control_effects:
@@ -1490,6 +1513,11 @@ def _current_action_policy_findings(
                         "this external communication action."
                     ),
                     blocks_release=True,
+                    support=_builtin_control_support(
+                        action,
+                        effects={"external_communication"},
+                        missing=missing,
+                    ),
                 )
             )
     if "destructive" in control_effects:
@@ -1519,6 +1547,11 @@ def _current_action_policy_findings(
                         "safeguards.rollback for this destructive action."
                     ),
                     blocks_release=True,
+                    support=_builtin_control_support(
+                        action,
+                        effects={"destructive"},
+                        missing=missing,
+                    ),
                 )
             )
     high_impact_effects = control_effects.intersection({"production_operation", "code_execution"})
@@ -1555,6 +1588,11 @@ def _current_action_policy_findings(
                         "code-execution actions."
                     ),
                     blocks_release=True,
+                    support=_builtin_control_support(
+                        action,
+                        effects=high_impact_effects,
+                        missing=missing,
+                    ),
                 )
             )
     return findings
@@ -1595,6 +1633,165 @@ def _control_effects(action: ActionFact) -> set[str]:
         if claim.policy_eligible and claim.value in ACTION_EFFECT_RANK:
             effects.add(claim.value)
     return effects
+
+
+def _non_authoritative_effect_escalation_support(
+    action: ActionFact,
+) -> FindingSupport | None:
+    """Return unresolved support when weaker evidence outranks proven semantics.
+
+    Hard controls intentionally consume only policy-eligible claims. Silently
+    discarding a higher-risk non-authoritative claim would turn uncertainty
+    into a clean pass, so this support record routes the action to insufficient
+    evidence without laundering that claim into a blocker.
+    """
+
+    assessment = action.semantic_assessment
+    if assessment is None:
+        return None
+    authoritative = [
+        claim
+        for claim in assessment.effect.claims
+        if claim.policy_eligible and claim.value in ACTION_EFFECT_RANK
+    ]
+    if not authoritative:
+        return None
+    authoritative_rank = max(
+        ACTION_EFFECT_RANK[claim.value] for claim in authoritative
+    )
+    inferred_escalations = [
+        claim
+        for claim in assessment.effect.claims
+        if not claim.policy_eligible
+        and claim.value in ACTION_EFFECT_RANK
+        and ACTION_EFFECT_RANK[claim.value] > authoritative_rank
+    ]
+    if not inferred_escalations:
+        return None
+    strongest_rank = max(
+        ACTION_EFFECT_RANK[claim.value] for claim in inferred_escalations
+    )
+    strongest_authoritative = [
+        claim
+        for claim in authoritative
+        if ACTION_EFFECT_RANK[claim.value] == authoritative_rank
+    ]
+    strongest_inferred = [
+        claim
+        for claim in inferred_escalations
+        if ACTION_EFFECT_RANK[claim.value] == strongest_rank
+    ]
+    return finding_support(
+        [
+            predicate_evidence(
+                "authoritative_effect_bound",
+                "matched",
+                expected="reviewed or structural effect evidence",
+                observed=sorted(
+                    {claim.value for claim in strongest_authoritative}
+                ),
+                confidence=min(
+                    (claim.confidence for claim in strongest_authoritative),
+                    key=confidence_rank,
+                ),
+                claim_ids=[claim.claim_id for claim in strongest_authoritative],
+                evidence_bases=[
+                    claim.basis for claim in strongest_authoritative
+                ],
+                policy_eligible=True,
+            ),
+            predicate_evidence(
+                "higher_effect_control_applicability",
+                "indeterminate",
+                expected="reviewed or structural evidence for the higher effect",
+                observed=sorted({claim.value for claim in strongest_inferred}),
+                confidence=min(
+                    (claim.confidence for claim in strongest_inferred),
+                    key=confidence_rank,
+                ),
+                claim_ids=[claim.claim_id for claim in strongest_inferred],
+                evidence_bases=[claim.basis for claim in strongest_inferred],
+                policy_eligible=False,
+                why=(
+                    "higher-risk effect evidence is heuristic and cannot be "
+                    "silently excluded from control applicability"
+                ),
+            ),
+        ],
+        status="indeterminate",
+    )
+
+
+def _builtin_control_support(
+    action: ActionFact,
+    *,
+    effects: set[str],
+    missing: list[str],
+) -> FindingSupport:
+    assessment = action.semantic_assessment
+    claims = (
+        [
+            claim
+            for claim in assessment.effect.claims
+            if claim.policy_eligible and claim.value in effects
+        ]
+        if assessment is not None
+        else []
+    )
+    rows: list[PolicyPredicateEvidence] = []
+    if claims:
+        rows.append(
+            predicate_evidence(
+                "builtin_control_effect",
+                "matched",
+                expected=sorted(effects),
+                observed=sorted({claim.value for claim in claims}),
+                confidence=min(
+                    (claim.confidence for claim in claims),
+                    key=confidence_rank,
+                ),
+                claim_ids=[claim.claim_id for claim in claims],
+                evidence_bases=[claim.basis for claim in claims],
+                policy_eligible=True,
+            )
+        )
+    elif assessment is None and action.effect in effects:
+        rows.append(
+            predicate_evidence(
+                "builtin_control_effect",
+                "matched",
+                expected=sorted(effects),
+                observed=action.effect,
+                confidence="high",
+                evidence_bases=["protocol_structure"],
+                policy_eligible=True,
+                why="compatibility projection from a normalized action fact",
+            )
+        )
+    else:
+        rows.append(
+            predicate_evidence(
+                "builtin_control_effect",
+                "indeterminate",
+                expected=sorted(effects),
+                observed=action.effect,
+                confidence="low",
+                evidence_bases=["unknown"],
+                why="no authoritative effect claim supports this built-in control",
+            )
+        )
+    rows.append(
+        predicate_evidence(
+            "missing_builtin_controls",
+            "matched",
+            expected="all required controls present",
+            observed=sorted(missing),
+            confidence="high",
+            evidence_bases=["protocol_structure"],
+            policy_eligible=True,
+        )
+    )
+    return finding_support(rows)
 
 
 def _effect_can_drive_hard_controls(

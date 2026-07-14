@@ -7,12 +7,15 @@ predicate support, and release-gate contribution.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 import pytest
 
 from agents_shipgate.ci.release_decision import build_release_decision
+from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.domain import EvidenceBasis, SemanticClaim
 from agents_shipgate.core.policy_evidence import (
     conjunction_status,
@@ -273,3 +276,105 @@ def test_policy_evidence_canary_catalog_has_exact_planned_shape() -> None:
     ]
     assert len(names) == 48
     assert len(names) == len(set(names))
+
+
+def test_weaker_write_declaration_with_inferred_financial_effect_is_ie(
+    tmp_path: Path,
+) -> None:
+    """P0: a discarded heuristic escalation must never become a clean pass."""
+
+    (tmp_path / "tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "create_refund",
+                        "description": "Create a refund for a customer payment",
+                        "auth": {
+                            "type": "oauth2",
+                            "mode": "scoped",
+                            "scopes": ["refunds:write"],
+                        },
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "amount": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 10000,
+                                }
+                            },
+                            "required": ["amount"],
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project: {name: inferred-effect-escalation}
+agent:
+  name: refund-agent
+  declared_purpose: [process reviewed refunds]
+environment: {target: local}
+permissions:
+  scopes: [refunds:write]
+tool_sources:
+  - id: refunds
+    type: mcp
+    path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: create_refund, source_id: refunds}]
+      handoffs: []
+      reason: reviewed test binding
+action_surface:
+  actions:
+    - tool: create_refund
+      source_id: refunds
+      effect: write
+      scopes: [refunds:write]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+""",
+        encoding="utf-8",
+    )
+
+    report, exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="strict",
+        packet_enabled=False,
+    )
+
+    assert exit_code == 20
+    assert report.release_decision is not None
+    assert report.release_decision.decision == "insufficient_evidence"
+    assert report.findings == []
+    action = report.action_surface_facts.actions[0]
+    assert action.semantic_assessment is not None
+    assert action.semantic_assessment.pass_eligible is True
+    gaps = [
+        gap
+        for gap in report.policy_evidence_gaps
+        if "builtin-effect-control-applicability" in gap.why
+    ]
+    assert len(gaps) == 1
+    assert gaps[0].kind == "mixed_policy_evidence"
+    assert gaps[0].next_action.kind == "review_policy_evidence"
+
+
+def test_empty_finding_support_is_fail_closed() -> None:
+    support = finding_support([])
+
+    assert support.status == "indeterminate"
+    assert support.policy_eligible is False
+    assert support.blocking_eligible is False
+    assert support.predicates[0].evidence_bases == ["unknown"]

@@ -65,11 +65,12 @@ def finding_support(
         rows = [
             predicate_evidence(
                 "capability_subject",
-                "matched",
-                observed=True,
-                confidence="high",
-                evidence_bases=["protocol_structure"],
-                policy_eligible=True,
+                "indeterminate",
+                observed=None,
+                confidence="low",
+                evidence_bases=["unknown"],
+                policy_eligible=False,
+                why="no predicate evidence was supplied",
             )
         ]
     resolved_status = status or conjunction_status(row.status for row in rows)

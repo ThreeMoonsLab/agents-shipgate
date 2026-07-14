@@ -206,6 +206,11 @@ def mcp_permission_risk_hints(tool: Tool) -> list[ToolRiskHint]:
         if tag is None:
             continue
         source = _permission_hint_source(tool, permission_class)
+        supporting_scopes = sorted(
+            scope
+            for scope in tool.auth.scopes
+            if permission_class in _classes_from_scopes([scope])
+        )
         hints.append(
             ToolRiskHint(
                 tag=tag,
@@ -218,6 +223,7 @@ def mcp_permission_risk_hints(tool: Tool) -> list[ToolRiskHint]:
                     "permission_class": permission_class,
                     "risk_score": profile.risk_score,
                     "reasons": list(profile.reasons),
+                    **({"scopes": supporting_scopes} if source == "auth_scope" else {}),
                 },
             )
         )

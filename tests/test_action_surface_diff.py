@@ -811,6 +811,12 @@ def test_builtin_financial_controls_apply_without_diff_reference():
         "safeguards.audit_log",
         "safeguards.idempotency",
     ]
+    assert finding.support is not None
+    assert finding.support.policy_eligible is True
+    assert {row.predicate for row in finding.support.predicates} == {
+        "builtin_control_effect",
+        "missing_builtin_controls",
+    }
 
 
 def test_builtin_destructive_controls_apply_to_existing_action():
@@ -840,6 +846,27 @@ def test_builtin_destructive_controls_apply_to_existing_action():
         "safeguards.rollback",
         "confirmation.required",
     ]
+    financial = evaluate_action_surface_policies(
+        manifest,
+        ActionSurfaceFacts(
+            actions=[
+                _action(
+                    "agent:action-test/agent:mcp:tools:process_payment",
+                    effect="financial_write",
+                )
+            ]
+        ),
+        ActionSurfaceDiff(),
+        agent_id="agent:action-test/agent",
+    )
+    financial_support = next(
+        item.support
+        for item in financial
+        if item.check_id == "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING"
+    )
+    assert finding.support is not None
+    assert financial_support is not None
+    assert finding.support.support_hash != financial_support.support_hash
 
 
 def test_action_surface_diff_reports_modification_taxonomy():
