@@ -62,9 +62,7 @@ def evidence_below_ie_threshold(evidence: EvidenceCoverageDecision, *, tool_coun
         evidence.semantic_coverage.gap_count > 0
         or evidence.policy_gap_count > 0
         or any(
-            gap.kind == "source_warning"
-            and gap.next_action.path == "--diff-from"
-            and gap.next_action.command == "agents-shipgate scan -c shipgate.yaml --format json"
+            gap.kind == "source_warning" and gap.next_action.kind == "provide_source"
             for gap in evidence.evidence_gaps
         )
         or evidence.low_confidence_tool_count >= _low_confidence_tool_threshold(tool_count)

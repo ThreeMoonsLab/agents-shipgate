@@ -391,20 +391,29 @@ def _loaded_source_from_servers(
 
 
 def _load_mcp_json(path: Path, base_dir: Path) -> list[LoadedToolSource]:
+    source_ref = _relative(path, base_dir)
     try:
         data, positions = load_structured_file_with_positions(path)
     except InputParseError as exc:
         return [
             LoadedToolSource(
-                source_id=f"mcp_json:{_relative(path, base_dir)}",
+                source_id=f"mcp_json:{source_ref}",
                 source_type="codex_config_mcp",
                 warnings=[str(exc)],
             )
         ]
     raw_servers = data.get("mcpServers") if isinstance(data, dict) else None
     if not isinstance(raw_servers, dict):
-        return []
-    source_ref = _relative(path, base_dir)
+        return [
+            LoadedToolSource(
+                source_id=f"mcp_json:{source_ref}",
+                source_type="codex_config_mcp",
+                warnings=[
+                    f"Invalid MCP config {source_ref}: expected top-level "
+                    "`mcpServers` to be an object."
+                ],
+            )
+        ]
     source_path = manifest_relative_path(str(path.resolve()), base_dir)
     servers = normalize_mcp_json_servers(
         data,

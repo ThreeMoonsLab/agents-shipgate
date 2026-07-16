@@ -272,9 +272,21 @@ def _mcp_client_tools(
             reason="MCP Client Tool exposes All or All Except without a local inventory.",
             warnings=warnings,
         )
+    elif mode == "unknown" and not artifacts.tool_inventory_files:
+        _dynamic(
+            artifacts,
+            kind="mcp_client_selection_mode_unknown",
+            item=item,
+            source_path=source_path,
+            reason=(
+                "MCP Client Tool selection mode is unrecognized; "
+                "static tool exposure cannot be proven."
+            ),
+            warnings=warnings,
+        )
     names = selected or [
         f"{_redact_text(item.name) or item.name}.*"
-        if mode in {"all", "all_except"}
+        if mode in {"all", "all_except", "unknown"}
         else _tool_name(item)
     ]
     tools = [
@@ -290,7 +302,7 @@ def _mcp_client_tools(
         )
         for name in names
     ]
-    if mode in {"all", "all_except"}:
+    if mode in {"all", "all_except", "unknown"}:
         for tool in tools:
             tool.annotations["wildcard_tools"] = True
             tool.annotations["tool_selection_mode"] = mode
@@ -445,7 +457,9 @@ def _selection_mode(parameters: dict[str, Any]) -> str:
     if normalized in {"selected", "selected_tools", "specific"}:
         return "selected"
     selected = _selected_mcp_tools(parameters)
-    return "selected" if selected else "unknown"
+    if selected:
+        return "selected"
+    return "unknown" if value else "unspecified"
 
 
 def _is_unfiltered_mode(parameters: dict[str, Any]) -> bool:

@@ -2065,7 +2065,10 @@ def test_self_dogfood_manifest_scans_codex_plugin_package() -> None:
     workflow = _read(".github/workflows/agents-shipgate-self.yml")
     assert "config: shipgate-self.yaml" in workflow
     assert "verify_mode: verify" in workflow
-    assert "fail_on_merge_verdicts: blocked" in workflow
+    assert (
+        'fail_on_merge_verdicts: "blocked,human_review_required,'
+        'insufficient_evidence,unknown"' in workflow
+    )
 
 
 def test_pre_commit_local_docs_show_same_path_trigger_clauses():
