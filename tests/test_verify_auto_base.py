@@ -11,6 +11,7 @@ must be passed explicitly. ``--no-base`` restores the pure working-tree mode.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -23,6 +24,12 @@ from agents_shipgate.cli.verify.git import (
 )
 
 runner = CliRunner()
+
+_ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_CSI.sub("", text)
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -301,9 +308,12 @@ def test_explicit_local_base_main_remains_supported(tmp_path: Path) -> None:
 
 
 def test_base_help_documents_remote_only_auto_detection() -> None:
-    result = runner.invoke(app, ["verify", "--help"])
+    result = runner.invoke(app, ["verify", "--help"], color=True)
 
     assert result.exit_code == 0, result.output
-    assert "origin/HEAD, origin/main, origin/master" in result.output
-    assert "origin/main, origin/master, main, master" not in result.output
-    assert "Local main/master are used only" in result.output
+    normalized_output = " ".join(
+        _strip_ansi(result.output).replace("│", " ").split()
+    )
+    assert "origin/HEAD, origin/main, origin/master" in normalized_output
+    assert "origin/main, origin/master, main, master" not in normalized_output
+    assert "Local main/master are used only" in normalized_output

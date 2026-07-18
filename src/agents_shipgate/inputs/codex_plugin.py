@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Literal
 
 from agents_shipgate.core.artifact_models import CodexPluginArtifacts
 from agents_shipgate.core.domain import (
+    AgentBindingObservation,
     LoadedToolSource,
     Tool,
 )
@@ -37,6 +38,19 @@ from agents_shipgate.schemas.manifest import (
 
 COMMAND_KEYS = {"command", "cmd", "run", "shell", "script"}
 PLUGIN_MANIFEST = ".codex-plugin/plugin.json"
+_CODEX_PLUGIN_COMPONENT_KEYS = {"apps", "hooks", "mcpServers", "skills"}
+_CODEX_PLUGIN_METADATA_KEYS = {
+    "author",
+    "description",
+    "homepage",
+    "interface",
+    "keywords",
+    "license",
+    "name",
+    "repository",
+    "version",
+}
+_KNOWN_CODEX_PLUGIN_KEYS = _CODEX_PLUGIN_COMPONENT_KEYS | _CODEX_PLUGIN_METADATA_KEYS
 
 
 def load_codex_plugin_artifacts(
@@ -104,6 +118,16 @@ def load_codex_plugin_artifacts(
     artifacts.hook_stub_count = len(artifacts.hook_stubs)
     artifacts.mcp_inventory_file_count = len(artifacts.mcp_inventory_files)
     artifacts.warnings = sorted(dict.fromkeys(artifacts.warnings))
+    if artifacts.warnings or artifacts.component_path_issues or any(
+        marketplace.skipped_entries for marketplace in artifacts.marketplaces
+    ):
+        # A package-root observation is a closed-world statement. If any part
+        # of the configured Codex plugin source was skipped or degraded, keep
+        # the binding graph incomplete instead of treating an observed skill
+        # as proof that the entire callable surface is empty.
+        for loaded_source in loaded_sources:
+            if loaded_source.source_type == "codex_plugin":
+                loaded_source.binding_observations = []
     return loaded_sources, artifacts
 
 
@@ -225,6 +249,12 @@ def _load_plugin_package(
     data, positions = load_structured_file_with_positions(manifest_path)
     if not isinstance(data, dict):
         raise InputParseError(f"Codex plugin manifest must contain an object: {manifest_path}")
+    unknown_keys = sorted(set(data) - _KNOWN_CODEX_PLUGIN_KEYS)
+    if unknown_keys:
+        artifacts.warnings.append(
+            "Codex plugin manifest contains unrecognized top-level keys "
+            f"{unknown_keys!r}; callable-surface completeness cannot be proven."
+        )
 
     name = data.get("name") if isinstance(data.get("name"), str) else root.name
     source_id = f"codex_plugin:{source.id}/{name}"
@@ -263,12 +293,88 @@ def _load_plugin_package(
     seen_roots[root_resolved] = plugin
     artifacts.plugins.append(plugin)
 
+    skill_start = len(artifacts.skills)
+    app_start = len(artifacts.apps)
+    mcp_start = len(artifacts.mcp_server_stubs)
+    hook_start = len(artifacts.hook_stubs)
+    issue_start = len(artifacts.component_path_issues)
+    warning_start = len(artifacts.warnings)
+
     loaded_sources: list[LoadedToolSource] = []
     _load_skills(data, root, base_dir, name, artifacts)
     _load_apps(data, root, base_dir, name, artifacts)
     loaded_sources.extend(_load_mcp_servers(data, root, base_dir, name, artifacts, inventories))
     _load_hooks(data, root, base_dir, name, artifacts)
+    if _is_complete_skill_only_package(
+        data=data,
+        plugin=plugin,
+        skills=artifacts.skills[skill_start:],
+        apps=artifacts.apps[app_start:],
+        mcp_servers=artifacts.mcp_server_stubs[mcp_start:],
+        hooks=artifacts.hook_stubs[hook_start:],
+        component_path_issues=artifacts.component_path_issues[issue_start:],
+        warnings=artifacts.warnings[warning_start:],
+        has_declared_inventory=any(
+            inventory_plugin == name for inventory_plugin, _ in inventories
+        ),
+    ):
+        # Compatibility projection: the current binding schema names every
+        # graph root an "agent". A skill-only plugin is instead a package root
+        # whose fully parsed component graph proves that it exposes no
+        # callable tools or handoffs. No reviewed agent_bindings declaration
+        # is needed for this structural zero-capability fact.
+        loaded_sources.append(
+            LoadedToolSource(
+                source_id=source_id,
+                source_type="codex_plugin",
+                binding_observations=[
+                    AgentBindingObservation(
+                        agent=f"codex-plugin:{name}",
+                        source_id=source_id,
+                        source=plugin.manifest_path,
+                        source_pointer="",
+                        tools_complete=True,
+                        handoffs_complete=True,
+                    )
+                ],
+            )
+        )
     return loaded_sources
+
+
+def _is_complete_skill_only_package(
+    *,
+    data: dict[str, Any],
+    plugin: CodexPluginSummary,
+    skills: list[CodexPluginSkillSummary],
+    apps: list[CodexPluginAppSummary],
+    mcp_servers: list[CodexPluginMcpServerStub],
+    hooks: list[CodexPluginHookStub],
+    component_path_issues: list[CodexPluginComponentPathIssue],
+    warnings: list[str],
+    has_declared_inventory: bool,
+) -> bool:
+    unknown_keys = set(data) - _KNOWN_CODEX_PLUGIN_KEYS
+    non_skill_component_keys = (
+        _CODEX_PLUGIN_COMPONENT_KEYS - {"skills"}
+    ) & set(data)
+    return bool(skills) and not any(
+        (
+            unknown_keys,
+            non_skill_component_keys,
+            plugin.missing_fields,
+            plugin.name_mismatch,
+            plugin.duplicate_root,
+            plugin.duplicate_name,
+            apps,
+            mcp_servers,
+            hooks,
+            component_path_issues,
+            warnings,
+            has_declared_inventory,
+            any(skill.missing_fields or skill.duplicate for skill in skills),
+        )
+    )
 
 
 def _resolve_package_root(

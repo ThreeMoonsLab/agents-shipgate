@@ -55,10 +55,99 @@ def test_codex_plugin_package_scan_keeps_non_tools_out_of_inventory(
     assert report.codex_plugin_surface.mcp_server_stub_count == 1
     assert report.codex_plugin_surface.hook_stub_count == 1
     assert report.tool_inventory == []
+    assert report.binding_surface_facts.pass_eligible is False
+    assert {issue.kind for issue in report.binding_surface_facts.issues} == {
+        "ambiguous_root_agent"
+    }
     check_ids = {finding.check_id for finding in report.findings}
     assert "SHIP-INVENTORY-NOT-ENUMERABLE" not in check_ids
     assert "SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE" in check_ids
     assert "SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE" in check_ids
+
+
+def test_unknown_codex_plugin_component_does_not_prove_empty_surface(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "plugins" / "skillish"
+    _write_skill_only_codex_plugin(
+        root,
+        extra_manifest={"futureRuntime": "./runtime.json"},
+    )
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text(
+        textwrap.dedent(
+            """
+            version: "0.1"
+            project:
+              name: codex-plugin-test
+            agent:
+              name: codex-plugin-review
+              declared_purpose:
+                - review a plugin package
+            environment:
+              target: local
+            tool_sources:
+              - id: skillish
+                type: codex_plugin
+                mode: package
+                path: plugins/skillish
+            output:
+              packet:
+                enabled: false
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(config_path=manifest)
+
+    assert report.release_decision.decision == "insufficient_evidence"
+    assert any("futureRuntime" in warning for warning in report.source_warnings)
+    assert report.binding_surface_facts.pass_eligible is False
+    assert {issue.kind for issue in report.binding_surface_facts.issues} == {
+        "ambiguous_root_agent"
+    }
+
+
+def test_skill_only_codex_plugin_proves_empty_surface_structurally(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "plugins" / "skillish"
+    _write_skill_only_codex_plugin(root)
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text(
+        textwrap.dedent(
+            """
+            version: "0.1"
+            project:
+              name: codex-plugin-test
+            agent:
+              name: codex-plugin-review
+              declared_purpose:
+                - review a plugin package
+            environment:
+              target: local
+            tool_sources:
+              - id: skillish
+                type: codex_plugin
+                mode: package
+                path: plugins/skillish
+            output:
+              packet:
+                enabled: false
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(config_path=manifest)
+
+    assert report.release_decision.decision == "passed"
+    assert report.binding_surface_facts.status == "structural"
+    assert report.binding_surface_facts.pass_eligible is True
+    [root_agent] = report.binding_surface_facts.agents
+    assert root_agent.name == "codex-plugin:skillish"
+    assert report.binding_surface_facts.reachable_tool_ids == []
 
 
 def test_codex_plugin_mcp_inventory_enumerates_tools(tmp_path: Path) -> None:
@@ -178,7 +267,7 @@ def test_codex_plugin_marketplace_missing_policy_is_finding(tmp_path: Path) -> N
 def test_codex_plugin_manifest_file_path_warning_flows_to_report(
     tmp_path: Path,
 ) -> None:
-    _write_codex_plugin(tmp_path / "plugins" / "browserish", include_app=False)
+    _write_skill_only_codex_plugin(tmp_path / "plugins" / "browserish")
     manifest = tmp_path / "shipgate.yaml"
     manifest.write_text(
         textwrap.dedent(
@@ -211,6 +300,11 @@ def test_codex_plugin_manifest_file_path_warning_flows_to_report(
         "prefer the plugin root directory" in warning
         for warning in report.source_warnings
     )
+    assert report.release_decision.decision == "insufficient_evidence"
+    assert report.binding_surface_facts.pass_eligible is False
+    assert {issue.kind for issue in report.binding_surface_facts.issues} == {
+        "ambiguous_root_agent"
+    }
 
 
 def test_detect_and_init_route_codex_plugin_only_workspace(tmp_path: Path) -> None:
@@ -351,5 +445,38 @@ def _write_codex_plugin(root: Path, *, include_app: bool) -> None:
         )
     (root / "hooks.json").write_text(
         json.dumps({"preRun": {"command": "touch should-never-run"}}),
+        encoding="utf-8",
+    )
+
+
+def _write_skill_only_codex_plugin(
+    root: Path,
+    *,
+    extra_manifest: dict[str, object] | None = None,
+) -> None:
+    (root / ".codex-plugin").mkdir(parents=True)
+    (root / "skills" / "review").mkdir(parents=True)
+    plugin: dict[str, object] = {
+        "name": root.name,
+        "version": "1.0.0",
+        "description": "Review a static skill-only Codex plugin.",
+        "skills": "./skills/",
+    }
+    plugin.update(extra_manifest or {})
+    (root / ".codex-plugin" / "plugin.json").write_text(
+        json.dumps(plugin),
+        encoding="utf-8",
+    )
+    (root / "skills" / "review" / "SKILL.md").write_text(
+        textwrap.dedent(
+            """
+            ---
+            name: review
+            description: Review the local plugin without calling tools.
+            ---
+
+            # Review
+            """
+        ).lstrip(),
         encoding="utf-8",
     )
