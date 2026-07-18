@@ -26,7 +26,10 @@ Writes / verifies:
 - docs/verification-artifact-manifest-schema.v1.json
 - docs/verification-receipt-schema.v1.json
                                 (from agents_shipgate.schemas.verification_identity)
-- docs/agent-handoff-schema.v5.json
+- docs/human-authorization-schema.v1.json
+                                (authorization request, signed grant,
+                                 evaluation, and trust policy union)
+- docs/agent-handoff-schema.v6.json
                                 (from agents_shipgate.schemas.agent_handoff.
                                  AgentHandoffArtifact)
 - docs/agent-result-schema.v2.json
@@ -83,7 +86,7 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import get_args
+from typing import Any, get_args
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
@@ -1214,12 +1217,77 @@ def write_packet_schema(*, check_only: bool = False, drift: list[str] | None = N
     return _emit(target, content, check_only=check_only, drift=drift if drift is not None else [])
 
 
+def _postprocess_authorization_evaluation(schema: dict[str, Any]) -> None:
+    """Publish model-validator invariants in every schema embedding authorization."""
+
+    evaluation = schema.get("$defs", {}).get("AuthorizationEvaluationV1")
+    if not isinstance(evaluation, dict):
+        return
+    authority_fields = [
+        "authorization_id",
+        "authorization_request_id",
+        "trust_policy_id",
+        "key_id",
+        "provider",
+        "principal",
+        "operation_id",
+        "command",
+        "issued_at",
+        "expires_at",
+    ]
+    evaluation["allOf"] = [
+        {
+            "if": {"properties": {"status": {"const": "accepted"}}},
+            "then": {
+                "required": authority_fields,
+                "properties": {
+                    **{field: {"not": {"type": "null"}} for field in authority_fields},
+                    "reason_codes": {"maxItems": 0},
+                },
+            },
+        },
+        {
+            "if": {
+                "properties": {
+                    "status": {
+                        "enum": ["rejected", "not_requested", "not_applicable"]
+                    }
+                }
+            },
+            "then": {"properties": {"command": {"type": "null"}}},
+        },
+        {
+            "if": {"properties": {"status": {"const": "rejected"}}},
+            "then": {
+                "required": ["reason_codes"],
+                "properties": {"reason_codes": {"minItems": 1}},
+            },
+        },
+        {
+            "if": {
+                "properties": {
+                    "status": {"enum": ["not_requested", "not_applicable"]}
+                }
+            },
+            "then": {
+                "properties": {
+                    **{field: {"type": "null"} for field in authority_fields},
+                }
+            },
+        },
+    ]
+    properties = evaluation.get("properties", {})
+    if isinstance(properties, dict) and isinstance(properties.get("reason_codes"), dict):
+        properties["reason_codes"]["uniqueItems"] = True
+
+
 def build_verifier_schema() -> tuple[Path, str]:
     """Generate docs/verifier-schema.v0.1.json from VerifierArtifact."""
 
     from agents_shipgate.schemas.verifier import VerifierArtifact
 
     schema = VerifierArtifact.model_json_schema()
+    _postprocess_authorization_evaluation(schema)
     minor = str(VerifierArtifact.model_fields["verifier_schema_version"].default)
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1381,6 +1449,41 @@ def build_verification_receipt_schema() -> tuple[Path, str]:
     )
 
 
+def build_human_authorization_schema() -> tuple[Path, str]:
+    """Generate the signed authorization protocol schema family."""
+
+    from pydantic import TypeAdapter
+
+    from agents_shipgate.schemas.human_authorization import (
+        AuthorizationEvaluationV1,
+        HumanAuthorizationRequestV1,
+        HumanAuthorizationTrustPolicyV1,
+        HumanAuthorizationV1,
+    )
+
+    schema = TypeAdapter(
+        HumanAuthorizationRequestV1
+        | HumanAuthorizationV1
+        | AuthorizationEvaluationV1
+        | HumanAuthorizationTrustPolicyV1
+    ).json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/human-authorization-schema.v1.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Human Authorization Protocol v1"
+    schema["description"] = (
+        "JSON Schema family for the unsigned request, externally signed grant, "
+        "fail-closed evaluation, and external trust policy. Agents Shipgate "
+        "does not provide signing or approval authority. Content-address, "
+        "cross-object identity, canonical ordering, and time-window relations "
+        "also require application-level model validation."
+    )
+    _postprocess_authorization_evaluation(schema)
+    return DOCS / "human-authorization-schema.v1.json", _canonical_json(schema)
+
+
 def build_agent_handoff_schema() -> tuple[Path, str]:
     """Generate the current agent-handoff schema."""
 
@@ -1390,6 +1493,7 @@ def build_agent_handoff_schema() -> tuple[Path, str]:
     )
 
     schema = AgentHandoffArtifact.model_json_schema()
+    _postprocess_authorization_evaluation(schema)
     major = AGENT_HANDOFF_SCHEMA_VERSION.rsplit("/v", 1)[-1]
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -1743,6 +1847,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("verification_unit_result", build_verification_unit_result_schema),
     ("verification_artifact_manifest", build_verification_artifact_manifest_schema),
     ("verification_receipt", build_verification_receipt_schema),
+    ("human_authorization", build_human_authorization_schema),
     ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),
     # codex_boundary_result v2 is a frozen compatibility schema and is not

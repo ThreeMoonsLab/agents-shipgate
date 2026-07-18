@@ -46,7 +46,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.5.json`](verifier-schema.v0.5.json) — JSON Schema for `verifier.json`, including typed policy-evidence gaps and finding support
+- [`verifier-schema.v0.6.json`](verifier-schema.v0.6.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation
+- [`verifier-schema.v0.5.json`](verifier-schema.v0.5.json) — frozen v0.5 verifier reference
 - [`verifier-schema.v0.4.json`](verifier-schema.v0.4.json) — frozen v0.4 verifier reference
 - [`verifier-schema.v0.3.json`](verifier-schema.v0.3.json) — frozen v0.3 verifier reference
 - [`verifier-schema.v0.2.json`](verifier-schema.v0.2.json) — frozen v0.2 verifier reference
@@ -54,7 +55,10 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`verify-run-schema.v3.json`](verify-run-schema.v3.json) — JSON Schema for `verify-run.json`, the deterministic verify-run reproducibility artifact
 - [`verify-run-schema.v2.json`](verify-run-schema.v2.json) — frozen verify-run v2 reference
 - [`verify-run-schema.v1.json`](verify-run-schema.v1.json) — frozen verify-run v1 reference
-- [`agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json) — current compact verifier handoff schema with support hashes on blocking evidence
+- [`human-authorization-schema.v1.json`](human-authorization-schema.v1.json) — current schema family for unsigned requests, externally signed grants, evaluations, and external trust policies
+- [`human-authorization-signature-v1.json`](human-authorization-signature-v1.json) — canonical Ed25519 signature interoperability vector
+- [`agent-handoff-schema.v6.json`](agent-handoff-schema.v6.json) — current compact verifier handoff schema with authorization provenance
+- [`agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json) — frozen handoff v5 reference
 - [`verification-plan-schema.v1.json`](verification-plan-schema.v1.json) — content-addressed verification subject, inputs, engine requirement, and task plan
 - [`verification-unit-result-schema.v1.json`](verification-unit-result-schema.v1.json) — decision-free worker result contract
 - [`verification-artifact-manifest-schema.v1.json`](verification-artifact-manifest-schema.v1.json) — content-addressed terminal artifact set

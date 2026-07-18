@@ -21,7 +21,7 @@ VERIFICATION_UNIT_RESULT_SCHEMA_VERSION = "shipgate.verification_unit_result/v1"
 VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION = "shipgate.verification_artifact_manifest/v1"
 VERIFICATION_RECEIPT_SCHEMA_VERSION = "shipgate.verification_receipt/v1"
 CONTENT_ID_PATTERN = r"^sha256:[0-9a-f]{64}$"
-GIT_OBJECT_PATTERN = r"^[0-9a-f]{40,64}$"
+GIT_OBJECT_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
 
 
 def canonical_json(value: Any) -> bytes:

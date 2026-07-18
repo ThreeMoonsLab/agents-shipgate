@@ -595,7 +595,7 @@
         "base_commit_sha": {
           "anyOf": [
             {
-              "pattern": "^[0-9a-f]{40,64}$",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
               "type": "string"
             },
             {
@@ -620,7 +620,7 @@
         "base_tree_sha": {
           "anyOf": [
             {
-              "pattern": "^[0-9a-f]{40,64}$",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
               "type": "string"
             },
             {
@@ -633,7 +633,7 @@
         "head_commit_sha": {
           "anyOf": [
             {
-              "pattern": "^[0-9a-f]{40,64}$",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
               "type": "string"
             },
             {
@@ -650,7 +650,7 @@
         "head_tree_sha": {
           "anyOf": [
             {
-              "pattern": "^[0-9a-f]{40,64}$",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
               "type": "string"
             },
             {
@@ -663,7 +663,7 @@
         "merge_base_sha": {
           "anyOf": [
             {
-              "pattern": "^[0-9a-f]{40,64}$",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
               "type": "string"
             },
             {
@@ -688,7 +688,7 @@
         "source_head_commit_sha": {
           "anyOf": [
             {
-              "pattern": "^[0-9a-f]{40,64}$",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
               "type": "string"
             },
             {

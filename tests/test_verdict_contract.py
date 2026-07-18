@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.capability_change import VerifierSummary, VerifierVerdict
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
+from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import (
     AgentSummary,
     ReleaseConsequence,
@@ -150,6 +151,7 @@ def _artifact(**overrides) -> VerifierArtifact:
         "workspace": "/tmp/w",
         "config": "shipgate.yaml",
         "head_status": "succeeded",
+        "authorization": AuthorizationEvaluationV1.not_requested(),
     }
     base.update(overrides)
     return VerifierArtifact(**base)
@@ -222,6 +224,7 @@ def test_artifact_rejects_top_level_decision_mismatch() -> None:
             applicability="verified",
             can_merge_without_human=True,
             control=derive_agent_control(reason="Static verification passed."),
+            authorization=AuthorizationEvaluationV1.not_requested(),
         )
 
 

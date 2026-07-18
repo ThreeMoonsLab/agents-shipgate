@@ -33,6 +33,12 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "verification_unit_result_schema_version",
         "verification_artifact_manifest_schema_version",
         "verification_receipt_schema_version",
+        "human_authorization_request_schema_version",
+        "human_authorization_schema_version",
+        "human_authorization_evaluation_schema_version",
+        "human_authorization_trust_policy_schema_version",
+        "human_authorization_trust_policy_default_path",
+        "human_authorization_schema_path",
         "agent_handoff_schema_version",
         "agent_handoff_schema_path",
         "agent_handoff_artifact",
@@ -58,9 +64,9 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "release_decisions",
         "do_not_auto_assert",
     ]
-    assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION
+    assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "7"
     assert payload["agents_shipgate_version"] == __version__
-    assert payload["contract_version"] == CONTRACT_VERSION
+    assert payload["contract_version"] == CONTRACT_VERSION == "18"
     assert payload["minimum_control_contract_version"] == "14"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
@@ -94,21 +100,40 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "verification-receipt.json.receipt_id",
         "agent-handoff.json",
         "agent-handoff.json.control.state",
+        "agent-handoff.json.authorization",
         "verifier.json.control.state",
         "verify-run.json",
         "report.json.release_decision.decision",
     ]
     assert payload["verifier_read_order"][:3] == [
         "control.state",
+        "authorization",
         "execution",
-        "merge_verdict",
     ]
     assert payload["verifier_read_order"][-2:] == ["request_id", "decision_id"]
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.5"
+    assert payload["verifier_schema_version"] == "0.6"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v3"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v5"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v5.json"
+    assert payload["human_authorization_request_schema_version"] == (
+        "shipgate.human_authorization_request/v1"
+    )
+    assert payload["human_authorization_schema_version"] == (
+        "shipgate.human_authorization/v1"
+    )
+    assert payload["human_authorization_evaluation_schema_version"] == (
+        "shipgate.human_authorization_evaluation/v1"
+    )
+    assert payload["human_authorization_trust_policy_schema_version"] == (
+        "shipgate.human_authorization_trust_policy/v1"
+    )
+    assert payload["human_authorization_trust_policy_default_path"] == (
+        "~/.config/agents-shipgate/human-authorization-trust-policy.json"
+    )
+    assert payload["human_authorization_schema_path"] == (
+        "docs/human-authorization-schema.v1.json"
+    )
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v6"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v6.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v1")
@@ -146,6 +171,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert "blocked" in payload["merge_verdicts"]
     assert "passed" in payload["release_decisions"]
     assert "approval" in payload["do_not_auto_assert"]
+    assert "human-authorization" in payload["do_not_auto_assert"]
     assert "action_effect" in payload["do_not_auto_assert"]
     assert "action_authority" in payload["do_not_auto_assert"]
 

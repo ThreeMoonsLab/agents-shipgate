@@ -398,6 +398,20 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             "shipgate.verification_artifact_manifest/v1"
         ),
         verification_receipt_schema_version="shipgate.verification_receipt/v1",
+        human_authorization_request_schema_version=(
+            "shipgate.human_authorization_request/v1"
+        ),
+        human_authorization_schema_version="shipgate.human_authorization/v1",
+        human_authorization_evaluation_schema_version=(
+            "shipgate.human_authorization_evaluation/v1"
+        ),
+        human_authorization_trust_policy_schema_version=(
+            "shipgate.human_authorization_trust_policy/v1"
+        ),
+        human_authorization_trust_policy_default_path=(
+            "~/.config/agents-shipgate/human-authorization-trust-policy.json"
+        ),
+        human_authorization_schema_path="docs/human-authorization-schema.v1.json",
         agent_handoff_schema_version="shipgate.agent_handoff/v2",
         agent_handoff_schema_path="docs/agent-handoff-schema.v2.json",
         agent_handoff_artifact="agents-shipgate-reports/agent-handoff.json",
@@ -462,6 +476,20 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             "shipgate.verification_artifact_manifest/v1"
         ),
         "verification_receipt_schema_version": "shipgate.verification_receipt/v1",
+        "human_authorization_request_schema_version": (
+            "shipgate.human_authorization_request/v1"
+        ),
+        "human_authorization_schema_version": "shipgate.human_authorization/v1",
+        "human_authorization_evaluation_schema_version": (
+            "shipgate.human_authorization_evaluation/v1"
+        ),
+        "human_authorization_trust_policy_schema_version": (
+            "shipgate.human_authorization_trust_policy/v1"
+        ),
+        "human_authorization_trust_policy_default_path": (
+            "~/.config/agents-shipgate/human-authorization-trust-policy.json"
+        ),
+        "human_authorization_schema_path": "docs/human-authorization-schema.v1.json",
         "agent_handoff_schema_version": "shipgate.agent_handoff/v2",
         "agent_handoff_schema_path": "docs/agent-handoff-schema.v2.json",
         "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",

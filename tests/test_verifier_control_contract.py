@@ -15,12 +15,31 @@ from agents_shipgate.core.verification_identity import (
     build_unit_result,
     build_verification_plan,
 )
-from agents_shipgate.schemas.agent_control import HumanControlAction
+from agents_shipgate.schemas.agent_control import CodingAgentCommandAction, HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.verifier import VerifierArtifact, map_merge_verdict
 from agents_shipgate.schemas.verify_run import VerifyRunOutcome, build_verify_run_artifact
 
 ROOT = Path(__file__).resolve().parent.parent
+AUTHORIZED_COMMAND = "git push origin HEAD:refs/heads/codex/human-authorization-state"
+
+
+def _accepted_authorization() -> AuthorizationEvaluationV1:
+    return AuthorizationEvaluationV1(
+        status="accepted",
+        authorization_id=f"sha256:{'1' * 64}",
+        authorization_request_id=f"sha256:{'2' * 64}",
+        trust_policy_id=f"sha256:{'3' * 64}",
+        key_id=f"sha256:{'5' * 64}",
+        provider="github",
+        principal="github:user:reviewer",
+        operation_id=f"sha256:{'4' * 64}",
+        command=AUTHORIZED_COMMAND,
+        issued_at="2026-07-18T12:00:00Z",
+        expires_at="2026-07-18T12:15:00Z",
+        reason_codes=[],
+    )
 
 
 def _release_decision(decision: str) -> dict[str, object]:
@@ -62,6 +81,34 @@ def _passed_verifier() -> VerifierArtifact:
         applicability="verified",
         can_merge_without_human=True,
         control=derive_agent_control(reason="Static verification passed."),
+        authorization=AuthorizationEvaluationV1.not_requested(),
+    )
+
+
+def _authorized_verifier() -> VerifierArtifact:
+    control = derive_agent_control(
+        reason="Run only the externally authorized operation.",
+        next_action=CodingAgentCommandAction(
+            kind="repair",
+            command=AUTHORIZED_COMMAND,
+            why="Run only the externally authorized operation.",
+        ),
+        verify_required=True,
+        allowed_next_commands=[AUTHORIZED_COMMAND],
+    )
+    return VerifierArtifact(
+        workspace="/tmp/repo",
+        config="shipgate.yaml",
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=_release_decision("review_required"),
+        decision="review_required",
+        merge_verdict="human_review_required",
+        applicability="verified",
+        can_merge_without_human=False,
+        control=control,
+        authorization=_accepted_authorization(),
+        fix_task=None,
     )
 
 
@@ -130,8 +177,8 @@ def test_handoff_rejects_tampered_current_verify_run_outcome() -> None:
 @pytest.mark.parametrize(
     ("schema_path", "control_path"),
     [
-        ("docs/verifier-schema.v0.5.json", ("control",)),
-        ("docs/agent-handoff-schema.v5.json", ("control",)),
+        ("docs/verifier-schema.v0.6.json", ("control",)),
+        ("docs/agent-handoff-schema.v6.json", ("control",)),
         ("docs/verify-run-schema.v3.json", ("outcome", "control")),
     ],
 )
@@ -143,8 +190,8 @@ def test_generated_public_schemas_reject_contradictory_control(
     run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
-        "docs/verifier-schema.v0.5.json": verifier.model_dump(mode="json"),
-        "docs/agent-handoff-schema.v5.json": handoff.model_dump(mode="json"),
+        "docs/verifier-schema.v0.6.json": verifier.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v6.json": handoff.model_dump(mode="json"),
         "docs/verify-run-schema.v3.json": run.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
@@ -154,6 +201,49 @@ def test_generated_public_schemas_reject_contradictory_control(
     control["must_stop"] = True
 
     schema = json.loads((ROOT / schema_path).read_text(encoding="utf-8"))
+    assert list(Draft202012Validator(schema).iter_errors(payload))
+
+
+@pytest.mark.parametrize(
+    "schema_path",
+    ["docs/verifier-schema.v0.6.json", "docs/agent-handoff-schema.v6.json"],
+)
+def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
+    schema_path: str,
+) -> None:
+    verifier = _passed_verifier()
+    run = _passed_run(verifier)
+    handoff = build_agent_handoff(verifier=verifier, verify_run=run)
+    payload_by_schema = {
+        "docs/verifier-schema.v0.6.json": verifier.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v6.json": handoff.model_dump(mode="json"),
+    }
+    payload = deepcopy(payload_by_schema[schema_path])
+    payload["authorization"] = _accepted_authorization().model_dump(mode="json")
+
+    schema = json.loads((ROOT / schema_path).read_text(encoding="utf-8"))
+    assert list(Draft202012Validator(schema).iter_errors(payload))
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "execution",
+        "head_status",
+        "release_decision",
+        "decision",
+        "merge_verdict",
+        "applicability",
+        "can_merge_without_human",
+        "control",
+        "fix_task",
+    ],
+)
+def test_verifier_schema_requires_complete_authorized_projection(field: str) -> None:
+    payload = _authorized_verifier().model_dump(mode="json")
+    payload.pop(field)
+
+    schema = json.loads((ROOT / "docs/verifier-schema.v0.6.json").read_text(encoding="utf-8"))
     assert list(Draft202012Validator(schema).iter_errors(payload))
 
 
@@ -180,6 +270,48 @@ def test_nonpassing_release_decision_cannot_claim_merge_authority(decision: str)
             applicability="verified",
             can_merge_without_human=True,
             control=human,
+            authorization=AuthorizationEvaluationV1.not_requested(),
+        )
+
+
+@pytest.mark.parametrize("mismatch", ["human_control", "different_command"])
+def test_accepted_authorization_rejects_control_mismatch(mismatch: str) -> None:
+    why = "A human must review this release decision."
+    if mismatch == "human_control":
+        control = derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(kind="review", why=why),
+            human_review_required=True,
+            human_review_why=why,
+            stop_reason=why,
+        )
+    else:
+        different_command = "git push origin HEAD:refs/heads/a-different-branch"
+        control = derive_agent_control(
+            reason=why,
+            next_action=CodingAgentCommandAction(
+                kind="repair",
+                command=different_command,
+                why="Run only the separately authorized operation.",
+            ),
+            verify_required=True,
+            allowed_next_commands=[different_command],
+        )
+
+    with pytest.raises(ValidationError):
+        VerifierArtifact(
+            workspace="/tmp/repo",
+            config="shipgate.yaml",
+            execution="succeeded",
+            head_status="succeeded",
+            release_decision=_release_decision("review_required"),
+            decision="review_required",
+            merge_verdict="human_review_required",
+            applicability="verified",
+            can_merge_without_human=False,
+            control=control,
+            authorization=_accepted_authorization(),
+            fix_task=None,
         )
 
 
@@ -227,5 +359,5 @@ def test_passed_wrapper_contradictions_fail_pydantic_and_generated_schema(
     mutate(payload)
     with pytest.raises(ValidationError):
         VerifierArtifact.model_validate(payload)
-    schema = json.loads((ROOT / "docs/verifier-schema.v0.3.json").read_text())
+    schema = json.loads((ROOT / "docs/verifier-schema.v0.6.json").read_text())
     assert list(Draft202012Validator(schema).iter_errors(payload))

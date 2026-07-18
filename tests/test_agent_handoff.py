@@ -20,9 +20,36 @@ from agents_shipgate.schemas.agent_handoff import (
     AgentHandoffGate,
     AgentHandoffSubject,
 )
+from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 
 ROOT = Path(__file__).resolve().parent.parent
 runner = CliRunner()
+AUTHORIZED_COMMAND = (
+    "git push --force-with-lease=refs/heads/codex/human-authorization-state:"
+    + "a" * 40
+    + " origin HEAD:refs/heads/codex/human-authorization-state"
+)
+
+
+def _content_id(character: str) -> str:
+    return f"sha256:{character * 64}"
+
+
+def _accepted_authorization() -> AuthorizationEvaluationV1:
+    return AuthorizationEvaluationV1(
+        status="accepted",
+        authorization_id=_content_id("1"),
+        authorization_request_id=_content_id("2"),
+        trust_policy_id=_content_id("3"),
+        key_id=_content_id("5"),
+        provider="github",
+        principal="github:user:reviewer",
+        operation_id=_content_id("4"),
+        command=AUTHORIZED_COMMAND,
+        issued_at="2026-07-18T12:00:00Z",
+        expires_at="2026-07-18T12:15:00Z",
+        reason_codes=[],
+    )
 
 
 def _verifier_payload() -> dict:
@@ -118,6 +145,30 @@ def _verifier_payload() -> dict:
     }
 
 
+def _authorized_verifier_payload() -> dict:
+    payload = _verifier_payload()
+    release = payload["release_decision"]
+    release["decision"] = "review_required"
+    release["reason"] = "A protected workflow change requires human review."
+    release["review_items"] = release.pop("blockers")
+    payload["verifier_schema_version"] = "0.6"
+    payload["decision"] = "review_required"
+    payload["merge_verdict"] = "human_review_required"
+    payload["control"] = derive_agent_control(
+        reason="A human authorized one exact operation.",
+        next_action=CodingAgentCommandAction(
+            kind="repair",
+            command=AUTHORIZED_COMMAND,
+            why="Execute only the exact signed operation.",
+        ),
+        verify_required=True,
+        allowed_next_commands=[AUTHORIZED_COMMAND],
+    ).model_dump(mode="json")
+    payload["authorization"] = _accepted_authorization().model_dump(mode="json")
+    payload["fix_task"] = None
+    return payload
+
+
 def test_agent_handoff_projects_verifier_report_and_verify_run() -> None:
     handoff = build_agent_handoff(
         verifier=_verifier_payload(),
@@ -138,12 +189,13 @@ def test_agent_handoff_projects_verifier_report_and_verify_run() -> None:
         },
     )
 
-    assert handoff.schema_version == "shipgate.agent_handoff/v5"
+    assert handoff.schema_version == "shipgate.agent_handoff/v6"
     assert handoff.gate.decision == "blocked"
     assert handoff.gate.merge_verdict == "blocked"
     assert handoff.gate.ci_would_fail is True
     assert handoff.control.state == "human_review_required"
     assert handoff.control.must_stop is True
+    assert handoff.authorization.status == "not_requested"
     assert handoff.blocked_by[0].id == "F1"
     assert {step.safety for step in handoff.remediation_plan} == {
         "allowed",
@@ -154,7 +206,7 @@ def test_agent_handoff_projects_verifier_report_and_verify_run() -> None:
 
 
 def test_agent_handoff_schema_validates_sample_projection() -> None:
-    schema = json.loads((ROOT / "docs" / "agent-handoff-schema.v5.json").read_text())
+    schema = json.loads((ROOT / "docs" / "agent-handoff-schema.v6.json").read_text())
     payload = build_agent_handoff(verifier=_verifier_payload()).model_dump(mode="json")
 
     Draft202012Validator(schema).validate(payload)
@@ -171,6 +223,7 @@ def test_agent_handoff_has_exact_top_level_sections() -> None:
         "subject",
         "gate",
         "control",
+        "authorization",
         "fix_task",
         "blocked_by",
         "remediation_plan",
@@ -180,6 +233,34 @@ def test_agent_handoff_has_exact_top_level_sections() -> None:
         "reproducibility",
         "artifacts",
     ]
+
+
+def test_agent_handoff_projects_accepted_authorization_without_changing_gate() -> None:
+    handoff = build_agent_handoff(verifier=_authorized_verifier_payload())
+
+    assert handoff.authorization.model_dump(mode="json") == (
+        _accepted_authorization().model_dump(mode="json")
+    )
+    assert handoff.gate.decision == "review_required"
+    assert handoff.gate.merge_verdict == "human_review_required"
+    assert handoff.gate.can_merge_without_human is False
+    assert handoff.control.state == "agent_action_required"
+    assert handoff.control.completion_allowed is False
+    assert handoff.control.must_stop is False
+    assert handoff.control.next_action.kind == "repair"
+    assert handoff.control.next_action.command == AUTHORIZED_COMMAND
+    assert handoff.control.allowed_next_commands == [AUTHORIZED_COMMAND]
+    assert handoff.fix_task is None
+
+
+def test_agent_handoff_rejects_authorization_command_drift() -> None:
+    handoff = build_agent_handoff(verifier=_authorized_verifier_payload())
+    payload = handoff.model_dump(mode="json")
+    payload["control"]["next_action"]["command"] = "git push origin wrong-branch"
+    payload["control"]["allowed_next_commands"] = ["git push origin wrong-branch"]
+
+    with pytest.raises(ValidationError, match="exactly bind the repair command"):
+        AgentHandoffArtifact.model_validate(payload)
 
 
 def test_agent_handoff_cli_rerenders_existing_artifacts(tmp_path: Path) -> None:
@@ -220,7 +301,7 @@ def test_agent_handoff_cli_rerenders_existing_artifacts(tmp_path: Path) -> None:
     emitted = json.loads(result.output)
     written = json.loads(out_path.read_text(encoding="utf-8"))
     assert emitted == written
-    assert emitted["schema_version"] == "shipgate.agent_handoff/v5"
+    assert emitted["schema_version"] == "shipgate.agent_handoff/v6"
     assert emitted["gate"]["decision"] == "blocked"
 
 
@@ -255,6 +336,7 @@ def test_agent_handoff_rejects_mismatched_decision_and_merge_verdict() -> None:
                 next_action=HumanControlAction(kind="review", why="Human review is required."),
                 human_review_required=True,
             ),
+            authorization=AuthorizationEvaluationV1.not_requested(),
         )
 
 
@@ -274,6 +356,7 @@ def test_agent_handoff_rejects_controller_completion_mismatch() -> None:
                 next_action=HumanControlAction(kind="review", why="Human review is required."),
                 human_review_required=True,
             ),
+            authorization=AuthorizationEvaluationV1.not_requested(),
         )
 
 
@@ -301,6 +384,7 @@ def test_preview_handoff_carries_standing_forbidden_lists() -> None:
         "merge_verdict": "unknown",
         "applicability": "not_evaluated",
         "can_merge_without_human": False,
+        "authorization": AuthorizationEvaluationV1.not_requested().model_dump(mode="json"),
         "control": derive_agent_control(
             reason="Configure Agents Shipgate before verification.",
             next_action=CodingAgentCommandAction(

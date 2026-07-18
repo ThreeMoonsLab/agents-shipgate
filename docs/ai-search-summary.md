@@ -90,8 +90,8 @@ Per-agent guides cover [Codex](agents/use-with-codex.md),
 [Claude Code](agents/use-with-claude-code.md), and
 [Cursor](agents/use-with-cursor.md).
 
-The current source tree is `0.16.0b6` (runtime contract v17); the latest
-published release remains `v0.15.0` until that beta is cut. In report v0.32,
+The current source tree is `0.16.0b6` (runtime contract v18); the latest
+published release remains `v0.15.0` until that beta is cut. In report v0.34,
 `passed` is an evidence-backed static verdict: the configured root has a
 complete reachable binding graph, every reachable action has complete,
 conflict-free identity, binding, effect, and authority evidence, all applicable

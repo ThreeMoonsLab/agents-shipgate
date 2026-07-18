@@ -18,7 +18,9 @@ from agents_shipgate.cli.verify.git import (
     merge_base_sha,
     ref_exists,
     repository_identity,
+    resolve_source_head_identity,
     tree_sha,
+    validate_source_head_identity,
     working_tree_context,
 )
 from agents_shipgate.core.agent_handoff import build_agent_handoff
@@ -81,6 +83,7 @@ def prepare(
     policy_paths = [_under(root, path) for path in policy_packs or []]
     baseline_path = _under(root, baseline) if baseline is not None else None
     diff_from_path = _under(root, diff_from) if diff_from is not None else None
+    git_identity = _git_identity(root, base, head_ref)
 
     if head is None:
         plan = build_verification_plan(
@@ -91,7 +94,8 @@ def prepare(
             base_ref=base,
             head_ref=head_ref,
             archived_head=False,
-            **_git_identity(root, base, head_ref),
+            source_head_commit_sha=None,
+            **git_identity,
             changed_files=changed,
             diff_text=diff_text,
             baseline_path=baseline_path,
@@ -106,6 +110,10 @@ def prepare(
             plugins_enabled=False if no_plugins else None,
         )
     else:
+        source_identity = resolve_source_head_identity(
+            root,
+            head_ref=head_ref,
+        )
         with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
             snapshot = Path(tmp) / "snapshot"
             archive_tree(root, head_ref, snapshot)
@@ -117,7 +125,8 @@ def prepare(
                 base_ref=base,
                 head_ref=head_ref,
                 archived_head=True,
-                **_git_identity(root, base, head_ref),
+                source_head_commit_sha=source_identity.source_head_commit_sha,
+                **git_identity,
                 changed_files=changed,
                 diff_text=diff_text,
                 baseline_path=_map(snapshot, root, baseline_path),
@@ -486,7 +495,17 @@ def _validate_git_subject(plan: VerificationPlan, workspace: Path) -> None:
         )
         if actual_merge_base != subject.merge_base_sha:
             raise ValueError("worker merge base does not match the plan")
+    if subject.snapshot_kind == "committed_tree":
+        if subject.head_commit_sha is None:
+            raise ValueError("committed plan lacks its exact evaluated head commit")
+        validate_source_head_identity(
+            root,
+            evaluated_head_commit_sha=subject.head_commit_sha,
+            source_head_commit_sha=subject.source_head_commit_sha,
+        )
     if subject.snapshot_kind == "worktree_overlay":
+        if subject.source_head_commit_sha is not None:
+            raise ValueError("worktree-overlay plan cannot carry source-head authority")
         if commit_sha(root, "HEAD") != subject.head_commit_sha:
             raise ValueError("worker HEAD does not match the worktree-overlay plan")
         rows: list[dict[str, Any]] = []

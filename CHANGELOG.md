@@ -18,16 +18,37 @@
   prepare|worker|assemble|reproduce` exposes the portable v1 protocol without
   claiming distributed policy evaluation, arbitrary sharding, or parallel
   speedup.
-- **Identity contract versions.** Runtime contract advances to v17; report to
-  v0.34; packet to v0.12; verifier to v0.5; verify-run to v3; handoff to v5;
-  attestation to v0.5; registry to v0.4; organization evidence bundle to v2;
-  downstream local contract to v6; and safety qualification formats to v4.
+- **Externally rooted exact-operation authorization (contract v18).** A trusted
+  host can derive an unsigned authorization request from a host-attested
+  `review_required` receipt, authenticate a human, and return a short-lived
+  Ed25519 grant for one exact force-with-lease Git push. Agents Shipgate ships
+  no signing or approval command. A second verification recomputes the complete
+  request, decision, review set, repository, and tree identities before an
+  accepted grant exposes only the guarded `authorization execute` consumer;
+  the release decision, merge verdict, and completion authority remain
+  unchanged. The executor revalidates current evidence and expiry immediately
+  before using an isolated Git object store. Authorization requires an exact
+  plugins-disabled engine, rejects third-party plugin loading in the broker,
+  and parent-streams the Git pack with bounded stdout, stderr, and time.
+  Authorization remains disabled
+  without a host-protected trust policy, launcher, interpreter, entire virtual
+  environment and `site-packages` tree, dependencies, credentials, and
+  separately installed distribution; same-UID modes and editable workspace
+  installs are not a trust boundary.
+- **Identity and authorization contract versions.** Runtime contract advances
+  to v18; report to v0.34; packet to v0.12; verifier to v0.6; verify-run to v3;
+  handoff to v6; attestation to v0.5; registry to v0.4; organization evidence
+  bundle to v2;
+  downstream local contract to v7; and safety qualification formats to v4.
   Verification plan, unit-result, artifact-manifest, and receipt schemas begin
-  at v1. Prior schemas remain frozen readers.
+  at v1. The authorization request, signed grant, verifier evaluation, and
+  external trust-policy schemas also begin at v1. Prior schemas remain frozen
+  readers.
 - **Immutable CI subject.** The GitHub Action evaluates `github.sha` by default
-  and records a pull request's source head separately. It exports receipt,
-  request, decision, and artifact-set identities only after validating every
-  terminal artifact hash.
+  and treats the default pull-request synthetic merge as authorization-
+  ineligible. Push authorization requires a separate verification of the exact
+  PR head commit. The Action exports receipt, request, decision, and
+  artifact-set identities only after validating every terminal artifact hash.
 - **Non-forgeable trust decay.** The content-bound commit evaluation date
   remains reproducibility provenance, but cannot extend reviewer-owned trust.
   Baseline, acknowledgement, and severity-override expiry use the later of that

@@ -10,16 +10,16 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v17 retains the v16 typed policy-evidence, v15 host-neutral
+Runtime contract v18 retains the v17 content-addressed verification identity,
+v16 typed policy-evidence, v15 host-neutral
 boundary, v14 unambiguous `AgentControl`, and v13 root-reachable binding
-contracts. It adds a content-addressed verification request, decision-free
-worker result, artifact manifest, and terminal receipt shared by local and
-distributed verification. Agents
+contracts. It adds a signed, externally rooted human-authorization overlay for
+one exact post-review coding-agent action. Agents
 switch on `control.state`; `decision` remains diagnostic and
 `release_decision.decision` remains the release gate. Contract v14 requires
 `completion_allowed == (state == "complete")` and
 `must_stop == (state == "human_review_required")`. Report v0.34, packet v0.12,
-verifier v0.5, verify-run v3, and handoff v5 bind their projections to the
+verifier v0.6, verify-run v3, and handoff v6 bind their projections to the
 same request and decision IDs. The terminal receipt hashes the complete
 artifact set; see [Verification Identity and Reproduction](verification-reproducibility.md).
 The runtime contract also exposes the local agent command spec:
@@ -29,7 +29,13 @@ The runtime contract also exposes the local agent command spec:
 `verify_run_schema_version`, `verification_plan_schema_version`,
 `verification_unit_result_schema_version`,
 `verification_artifact_manifest_schema_version`,
-`verification_receipt_schema_version`, `agent_handoff_schema_version`,
+`verification_receipt_schema_version`,
+`human_authorization_request_schema_version`,
+`human_authorization_schema_version`,
+`human_authorization_evaluation_schema_version`,
+`human_authorization_trust_policy_schema_version`,
+`human_authorization_trust_policy_default_path`,
+`human_authorization_schema_path`, `agent_handoff_schema_version`,
 `agent_handoff_schema_path`, `agent_handoff_artifact`,
 `agent_boundary_result_schema_version`, the deprecated
 `codex_boundary_result_schema_version`, `attestation_schema_version`,
@@ -56,18 +62,19 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b6` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `17` (minimum control contract: `14`)
+- Runtime contract: `18` (minimum control contract: `14`)
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v2` — [`docs/agent-result-schema.v2.json`](agent-result-schema.v2.json)
-- Current verifier schema: `0.5` — [`docs/verifier-schema.v0.5.json`](verifier-schema.v0.5.json)
+- Current verifier schema: `0.6` — [`docs/verifier-schema.v0.6.json`](verifier-schema.v0.6.json)
 - Current verify-run schema: `shipgate.verify_run/v3` — [`docs/verify-run-schema.v3.json`](verify-run-schema.v3.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
-- Current agent handoff schema: `shipgate.agent_handoff/v5` — [`docs/agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json)
+- Current human-authorization schemas: request, signed grant, verifier evaluation, and external trust policy v1 — [`docs/human-authorization-schema.v1.json`](human-authorization-schema.v1.json)
+- Current agent handoff schema: `shipgate.agent_handoff/v6` — [`docs/agent-handoff-schema.v6.json`](agent-handoff-schema.v6.json)
 - Current agent boundary result schema: `shipgate.agent_boundary_result/v1` — [`docs/agent-boundary-result-schema.v1.json`](agent-boundary-result-schema.v1.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
 - Current preflight schema: `0.3` — [`docs/preflight-schema.v0.3.json`](preflight-schema.v0.3.json)
-- Current downstream local agent contract schema: `6`
+- Current downstream local agent contract schema: `7`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.6` — [`docs/capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json)
 - Current capability lock diff schema: `0.7` — [`docs/capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json)
@@ -80,7 +87,7 @@ Downstream repos generated with
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
 - Frozen-reference report schemas: frozen [`v0.33`](report-schema.v0.33.json), frozen [`v0.32`](report-schema.v0.32.json), frozen [`v0.31`](report-schema.v0.31.json), frozen [`v0.30`](report-schema.v0.30.json), and older versions listed in [`docs/INDEX.md`](INDEX.md#reference)
 - Frozen-reference packet schemas live in [`docs/INDEX.md`](INDEX.md#reference).
-- Boundary v1, verifier v0.1–v0.4, verify-run v1/v2, handoff v1–v4, and preflight
+- Boundary v1, verifier v0.1–v0.5, verify-run v1/v2, handoff v1–v5, and preflight
   v0.1/v0.2 remain frozen references for legacy readers.
 - Frozen experimental capability lock and governance benchmark result schemas live in [`docs/INDEX.md`](INDEX.md#reference).
 
@@ -94,7 +101,7 @@ one decision engine.
   repair, or stop*. Prefer
   validate `agents-shipgate-reports/verification-receipt.json`, then read
   `agents-shipgate-reports/agent-handoff.json` for the compact
-  `shipgate.agent_handoff/v5` view: lead with `control.state`, then read
+  `shipgate.agent_handoff/v6` view: lead with `control.state`, then read
   `control.next_action`, `gate.merge_verdict`, and `reproducibility.run_id` for the
   content-addressed verify identity. `verifier.json` remains the authoritative
   controller substrate and `verify-run.json` remains the detailed run
@@ -280,17 +287,18 @@ first touch before a full scan. To evaluate just the run/skip trigger, run
 
 `agents-shipgate verify` and `verify --preview` also write
 `agents-shipgate-reports/verify-run.json` whenever the output directory can be
-created. It carries `schema_version: "shipgate.verify_run/v2"`, the same
-derived `control` object as the verifier and handoff, and a deterministic
-`run_id` over `{tool, subject, inputs}` (outcome and artifact hashes are carried
-separately), local input hashes (`config_sha256`, `baseline_sha256`,
-`policy_packs[].sha256`), the outcome projection, and artifact hashes for
-emitted files. It has no wall-clock timestamp and is not a second gate.
+created. It carries `schema_version: "shipgate.verify_run/v3"`, the exact
+verification plan, executor, unit-result IDs, decision ID, outcome projection,
+and artifact references. `request_id` is the content-addressed run identity;
+the deprecated `run_id` remains for one compatibility cycle as its exact alias,
+never as a separately derived identity. It has no wall-clock timestamp and is
+not a second gate.
 
 `agents-shipgate-reports/agent-handoff.json` carries
-`schema_version: "shipgate.agent_handoff/v5"` and top-level sections
+`schema_version: "shipgate.agent_handoff/v6"` and top-level sections
 `gate`, `control`, `fix_task`, `blocked_by[]`,
-`remediation_plan[]`, `capability_review`, `reproducibility`, and `artifacts`.
+`remediation_plan[]`, `capability_review`, `authorization`, `reproducibility`,
+and `artifacts`.
 `gate.decision` mirrors `release_decision.decision`; `gate.merge_verdict`
 mirrors `verifier.json.merge_verdict`; and
 `gate.{static_analysis_only,runtime_behavior_verified,static_verdict_disclaimer}`
@@ -298,17 +306,20 @@ mirrors the report/verifier static-only boundary. The values are locked to
 `true`, `false`, and the canonical disclaimer. `control` is byte-identical to
 the verifier/verify-run control object, and `can_merge_without_human` is true
 only for a verified `passed` result or a completed deterministic
-`not_applicable` skip. Re-render it
+`not_applicable` skip. `authorization` is the byte-equivalent verifier
+evaluation; the handoff cannot grant a command independently. Re-render it
 from existing artifacts with:
 
 ```bash
 agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json
 ```
 
-In `agents-shipgate-reports/verifier.json`, read the v0.5 fields below (full
-schema [`docs/verifier-schema.v0.5.json`](verifier-schema.v0.5.json)). **Lead
-with `control.state`.** Every field below is a mirror or deterministic projection of
-`report.json`; `release_decision.decision` remains the gate.
+In `agents-shipgate-reports/verifier.json`, read the v0.6 fields below (full
+schema [`docs/verifier-schema.v0.6.json`](verifier-schema.v0.6.json)). **Lead
+with `control.state`.** Every release and merge field below is a mirror or
+deterministic projection of `report.json`; the authorization evaluation is an
+operational overlay and cannot change those fields.
+`release_decision.decision` remains the gate.
 
 - `control` — the discriminated `complete | agent_action_required |
   human_review_required` operational projection. Its variant fixes
@@ -337,10 +348,17 @@ with `control.state`.** Every field below is a mirror or deterministic projectio
 - `can_merge_without_human` — `bool`.
 - `decision` — mirror of `release_decision.decision` (or `null` when no scan ran).
 - `headline` — single-sentence, PR-comment-friendly summary (or `null`).
-- `control.human_review` and `control.next_action` are the only serialized
-  human-review and next-action authority in verifier v0.5.
+- `authorization` — the
+  `shipgate.human_authorization_evaluation/v1` result. Only `accepted` can
+  expose a command, and that command must exactly match both
+  `control.next_action.command` and the sole entry in
+  `control.allowed_next_commands`. `rejected`, `not_requested`, and
+  `not_applicable` carry no command authority.
+- `control.human_review` and `control.next_action` are the serialized route for
+  the current verifier state; when authorization is accepted, the signed
+  evaluation is the provenance for the exact coding-agent next action.
 - `AgentController`, `VerifierNextAction`, and `VerifierHumanReview` remain
-  importable only as deprecated v0.1/v0.2 reader models. Verifier v0.4 does not
+  importable only as deprecated v0.1/v0.2 reader models. Verifier v0.6 does not
   emit or invoke the retired `build_agent_controller` projector.
 - `fix_task` — `{actor, safe_to_attempt, instructions[], allowed_repairs[],
   forbidden_repairs[], forbidden_shortcuts[], verification_command, patches[]}` or `null`.
@@ -371,6 +389,87 @@ with `control.state`.** Every field below is a mirror or deterministic projectio
   gate (`blocks_release`, `review_required`, `insufficient_evidence`, or
   informational values) and never introduces a finding-independent blocker.
 - `mode` — `"advisory"` / `"strict"` / `"skipped"` / `"preview"`.
+
+### Trusted human authorization for one exact command
+
+Authorization changes operational routing, never the static release verdict.
+The flow is deliberately two-pass:
+
+1. Run `agents-shipgate verify --no-plugins` and validate the resulting
+   terminal receipt. Authorization requires the plan's exact effective plugin
+   mode to be false; the protected executor never loads third-party plugin or
+   adapter entry points.
+   `agents-shipgate authorization request --receipt <receipt>
+   --artifacts-root <root> --destination-ref <full-ref>
+   --expected-lease-oid <oid> --out <request>` constructs the unsigned
+   `shipgate.human_authorization_request/v1` from that receipt's current
+   request, subject, decision, source receipt/artifact-set/engine/executor and
+   tree identities, the complete ordered
+   review set, and one typed Git-push operation. This command creates a
+   challenge, not authority.
+2. The host authenticates the human and signs the canonical request with an
+   Ed25519 key kept outside coding-agent reach. Agents Shipgate supplies no
+   private key and no command that signs or approves a request. The v1 trust
+   policy must be stored outside the evaluated workspace and protected from
+   writes by the agent. On POSIX, Agents Shipgate reads it only from the OS
+   account home's fixed path
+   `~/.config/agents-shipgate/human-authorization-trust-policy.json`; `HOME`
+   and `XDG_CONFIG_HOME` do not redirect that lookup.
+3. Rerun `agents-shipgate verify --no-plugins --authorization
+   <external-grant>`. The
+   verifier recomputes the current identities and validates the signature,
+   principal, repository scope, TTL, request, subject, trees, decision, full
+   review set, and operation before publishing any command authority.
+
+The only v1 operation is an exact force-with-lease Git push. It binds the exact
+evaluated commit, a canonical credential-free HTTPS destination whose
+repository identity equals the verified repository, a full destination
+`refs/heads/...` ref, and the expected remote OID. A synthetic PR merge receipt
+cannot authorize pushing a different parent commit. Authorization is eligible
+only when execution
+succeeded and the release decision is `review_required`. An accepted grant
+changes `control.state` from `human_review_required` to
+`agent_action_required` for that exact command, while all release facts remain
+unchanged: `release_decision.decision="review_required"`,
+`merge_verdict="human_review_required"`, `can_merge_without_human=false`, and
+`completion_allowed=false`. The coding agent may perform only the serialized
+guarded `agents-shipgate authorization execute` command. That consumer
+revalidates the current receipt, trust root, clock, repository, and commit and
+isolates Git configuration and hooks before issuing the internal typed push;
+the raw Git command is never operational authority. The agent must rerun
+verification afterward.
+
+The signer must authenticate the source closure: content addressing is
+integrity, not provenance. It must rerun verification in a trusted worker or
+verify trusted-CI attestation over the bound source receipt/artifact-set IDs.
+The request exposes the evaluated base commit and merge base, and the source
+commit transitively binds its full parent graph. The signer must review that
+complete ancestry and reachable history rather than relying only on the final
+tree diff. Execution enforces a 512 MiB graph-pack ceiling and a 120-second
+process timeout; the host broker should impose tighter deployment quotas. The
+compressed pack ceiling does not bound expanded-object indexing memory or CPU,
+so production brokers need cgroup, container, or equivalent host resource
+limits.
+Execution also requires a host-protected broker with a sanitized environment,
+external trust policy, interpreter, entire virtual environment and
+`site-packages` tree (including startup `.pth` files), dependencies,
+credentials, and separately installed Agents Shipgate distribution. Same-UID
+file permissions alone are insufficient, and an
+editable install rooted in the authorized workspace is ineligible. If the host
+cannot enforce those boundaries, authorization remains disabled. The guarded
+executor is POSIX-only in v1 and authorization remains disabled on Windows. V1 is
+push-only and does not authorize the coding agent to apply reviewed protected
+patches.
+
+Malformed, untrusted, expired, not-yet-valid, incomplete-review-set,
+wrong-tree, wrong-request, wrong-ref, or wrong-lease grants fail closed with
+zero allowed commands. Plain JSON in the repository, a PR comment, or
+conversation-level approval is not equivalent to a signed grant. This release
+defines the protocol and verifier consumer; it does not claim a current Codex,
+Claude Code, or other coding-host UI signing integration. Such a host adapter
+must be implemented separately. A grant replayed after the remote ref advances
+cannot overwrite that ref: Git enforces the signed command's explicit expected
+lease OID.
 
 `verifier.json` also carries `trigger`, `base_status`, `head_status`, `base_ref`,
 `head_ref`, `changed_files`, `base_notes`, the embedded `release_decision`, and an

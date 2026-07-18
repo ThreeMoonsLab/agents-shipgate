@@ -13,8 +13,15 @@ from agents_shipgate.cli.verification import assemble, worker
 from agents_shipgate.cli.verify.git import commit_date
 from agents_shipgate.cli.verify.orchestrator import run_verify
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.verification_identity import validate_receipt_artifacts
-from agents_shipgate.schemas.verification_identity import VerificationReceipt
+from agents_shipgate.core.verification_identity import (
+    build_terminal_receipt,
+    validate_receipt_artifacts,
+)
+from agents_shipgate.schemas.verification_identity import (
+    VerificationPlan,
+    VerificationReceipt,
+    VerificationUnitResult,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -153,6 +160,17 @@ def test_verify_threads_changed_files_into_head_scan(tmp_path):
     assert (out_dir / "capabilities.lock.json").is_file()
     assert (out_dir / "base.capabilities.lock.json").is_file()
     assert (out_dir / "capability-lock-diff.json").is_file()
+    initial_receipt = VerificationReceipt.model_validate(
+        json.loads((out_dir / "verification-receipt.json").read_text(encoding="utf-8"))
+    )
+    initial_verify_run = json.loads(
+        (out_dir / "verify-run.json").read_text(encoding="utf-8")
+    )
+    assert "agent_handoff_json" not in initial_verify_run["artifacts"]
+    for name, nested_ref in initial_verify_run["artifacts"].items():
+        receipt_ref = initial_receipt.artifact_manifest.artifacts[name]
+        assert f"sha256:{nested_ref['sha256']}" == receipt_ref.sha256
+    validate_receipt_artifacts(initial_receipt, root=out_dir)
     diff_input = out_dir / "verification-input.diff"
     assert diff_input.is_file()
     distributed_unit = out_dir / "distributed-unit.json"
@@ -183,6 +201,40 @@ def test_verify_threads_changed_files_into_head_scan(tmp_path):
         out=receipt_path,
     )
     assert receipt_path.read_bytes() == first_bytes
+
+    verify_run_path = out_dir / "verify-run.json"
+    verify_run_payload = json.loads(verify_run_path.read_text(encoding="utf-8"))
+    assert "report_json" in verify_run_payload["artifacts"]
+    verify_run_payload["artifacts"]["report_json"]["sha256"] = "0" * 64
+    verify_run_path.write_text(
+        json.dumps(verify_run_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    plan = VerificationPlan.model_validate(
+        json.loads((out_dir / "verification-plan.json").read_text(encoding="utf-8"))
+    )
+    unit = VerificationUnitResult.model_validate(
+        json.loads(distributed_unit.read_text(encoding="utf-8"))
+    )
+    rebound_paths = {
+        name: out_dir / ref.path
+        for name, ref in receipt.artifact_manifest.artifacts.items()
+    }
+    tampered_manifest, tampered_receipt = build_terminal_receipt(
+        plan=plan,
+        unit_results=[unit],
+        decision=receipt.decision,
+        merge_verdict=receipt.merge_verdict,
+        can_merge_without_human=receipt.can_merge_without_human,
+        artifact_paths=rebound_paths,
+        artifact_root=out_dir,
+    )
+    (out_dir / "verification-artifacts.json").write_text(
+        tampered_manifest.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="verify-run artifact 'report_json' hash disagrees"):
+        validate_receipt_artifacts(tampered_receipt, root=out_dir)
 
 
 def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
