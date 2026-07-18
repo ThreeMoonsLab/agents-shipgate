@@ -77,7 +77,7 @@ pdf = [
   # Optional dependency for `agents-shipgate scan --packet-format ...,pdf`
   # and `agents-shipgate evidence-packet --format pdf`. Skipped with a
   # warning if not installed; the rest of the packet still renders.
-  "weasyprint>=68.1,<70",
+  "weasyprint>=69.0,<70",
 ]
 mcp = [
   # Optional dependency for `agents-shipgate mcp-serve`: a local stdio MCP
