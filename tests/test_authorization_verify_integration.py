@@ -16,6 +16,7 @@ from agents_shipgate.cli import authorization as authorization_cli
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.verify import orchestrator
 from agents_shipgate.cli.verify.orchestrator import run_verify
+from agents_shipgate.core import authorization_execution
 from agents_shipgate.core.authorization_execution import authorization_execute_command
 from agents_shipgate.core.human_authorization import (
     evaluate_human_authorization,
@@ -320,6 +321,23 @@ def _static_gate(verifier) -> tuple[str | None, str, bool]:
     return verifier.decision, verifier.merge_verdict, verifier.can_merge_without_human
 
 
+def _install_protected_test_broker_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Model the externally protected launcher required by the broker contract."""
+
+    launcher = tmp_path / "host-runtime" / "bin" / "python"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    launcher.chmod(0o555)
+    monkeypatch.setattr(
+        authorization_execution,
+        "_authorization_python_launcher",
+        lambda: launcher,
+    )
+
+
 def test_signed_authorization_overlays_one_exact_command_and_binds_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -358,6 +376,7 @@ def test_signed_authorization_overlays_one_exact_command_and_binds_artifact(
         "default_human_authorization_trust_policy_path",
         lambda: trust_path,
     )
+    _install_protected_test_broker_runtime(tmp_path, monkeypatch)
 
     authorized, authorized_report, authorized_exit = _verify(
         repo,
@@ -737,6 +756,7 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
         "default_human_authorization_trust_policy_path",
         lambda: trust_path,
     )
+    _install_protected_test_broker_runtime(tmp_path, monkeypatch)
 
     rejected, rejected_report, rejected_exit = _verify(
         repo,

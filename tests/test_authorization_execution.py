@@ -319,3 +319,39 @@ def test_execute_command_preserves_virtualenv_launcher_symlink(
     argv = shlex.split(command)
     assert argv[2] == str(launcher)
     assert argv[2] != str(launcher.resolve())
+
+
+@pytest.mark.skipif(os.name != "posix", reason="authorization execution v1 is POSIX-only")
+@pytest.mark.parametrize(
+    "mode",
+    [pytest.param(0o775, id="group-writable"), pytest.param(0o757, id="world-writable")],
+)
+def test_authorization_runtime_rejects_group_or_world_writable_interpreter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: int,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    host_runtime = tmp_path / "host-runtime"
+    interpreter = host_runtime / "bin" / "python"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.write_text("#!/bin/sh\n", encoding="utf-8")
+    interpreter.chmod(mode)
+    package_file = host_runtime / "site-packages" / "agents_shipgate" / "__init__.py"
+    package_file.parent.mkdir(parents=True)
+    package_file.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(
+        authorization_execution,
+        "_authorization_python_launcher",
+        lambda: interpreter,
+    )
+    monkeypatch.setattr(
+        authorization_execution.agents_shipgate,
+        "__file__",
+        str(package_file),
+    )
+
+    with pytest.raises(ValueError, match="group/world writable"):
+        authorization_execution.ensure_authorization_runtime_is_external(workspace)
