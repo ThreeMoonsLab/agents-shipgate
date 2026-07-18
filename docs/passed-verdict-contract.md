@@ -56,6 +56,15 @@ capability facts contain only tools proven reachable from the root. Reviewed
 closed-world declarations live under `agent_bindings`; coding agents must not
 invent or auto-apply them.
 
+One non-agent package case is structural rather than declared: a fully parsed,
+warning-free skill-only Codex plugin can prove a complete package root with no
+callable tools or handoffs. The compatibility projection currently represents
+that package root in `binding_surface_facts.agents[]`, but it is not a runtime
+agent and does not require a synthetic reviewed `agent_bindings` declaration.
+Apps, MCP servers, hooks, MCP inventories, unknown manifest keys, skipped
+entries, component path issues, or source warnings invalidate the zero-surface
+proof.
+
 The release decision also carries an explicit machine boundary:
 
 - `static_analysis_only: true`;

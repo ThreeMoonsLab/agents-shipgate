@@ -248,6 +248,13 @@ Only tools loaded from explicit MCP inventories enter `tool_inventory[]` with
 `source_type: codex_plugin_mcp_inventory`. Apps, hooks, skills, and MCP server
 declarations are reported under `codex_plugin_surface`, not as tools.
 
+A fully parsed plugin package that contains one or more valid skills and no
+apps, MCP servers, hooks, MCP inventories, unknown manifest keys, component
+path issues, or source warnings establishes a structural package root with a
+complete zero-callable surface. It does not need a reviewed empty
+`agent_bindings` declaration. Any skipped, unknown, or degraded plugin input
+invalidates that structural proof and remains fail-closed.
+
 ## n8n
 
 n8n support is configured through the top-level `n8n:` block, not through

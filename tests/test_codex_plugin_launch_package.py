@@ -90,13 +90,6 @@ def test_agents_shipgate_codex_plugin_scans_without_plugin_findings(
                 type: codex_plugin
                 mode: marketplace
                 path: .agents/plugins/marketplace.json
-            agent_bindings:
-              declarations:
-                - agent: root
-                  complete: true
-                  tools: []
-                  handoffs: []
-                  reason: reviewed skill-only plugin has no callable tools
             output:
               packet:
                 enabled: false
@@ -117,6 +110,14 @@ def test_agents_shipgate_codex_plugin_scans_without_plugin_findings(
     assert report.codex_plugin_surface.mcp_server_stub_count == 0
     assert report.codex_plugin_surface.hook_stub_count == 0
     assert report.tool_inventory == []
+    assert report.binding_surface_facts.status == "structural"
+    assert report.binding_surface_facts.pass_eligible is True
+    root = next(
+        agent
+        for agent in report.binding_surface_facts.agents
+        if agent.agent_id == report.binding_surface_facts.root_agent_id
+    )
+    assert root.name == "codex-plugin:agents-shipgate"
     assert {
         finding.check_id
         for finding in report.findings
