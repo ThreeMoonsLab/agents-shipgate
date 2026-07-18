@@ -232,6 +232,54 @@ def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
     )
 
 
+def test_verify_fails_closed_when_worktree_diff_cannot_be_collected(monkeypatch, tmp_path):
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base")
+
+    def fail_worktree_context(_repo):
+        raise RuntimeError("simulated worktree diff failure")
+
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator.working_tree_context",
+        fail_worktree_context,
+    )
+
+    verifier, report, exit_code = run_verify(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base="HEAD",
+        head="HEAD",
+        archive_head=False,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert exit_code == 2
+    assert report is None
+    assert verifier.head_status == "failed"
+    assert verifier.merge_verdict == "unknown"
+    assert verifier.can_merge_without_human is False
+    assert any("simulated worktree diff failure" in note for note in verifier.base_notes)
+
+
 def test_verify_pr232_toolkit_bound_removal_blocks(tmp_path):
     """Stripe stripe/ai PR #232: the agent's Stripe tools load via a dynamic
     factory the static extractor cannot enumerate, so the head scan alone reads

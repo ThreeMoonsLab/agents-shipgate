@@ -10,6 +10,7 @@ from agents_shipgate.ci.release_decision import (
     _LOW_CONFIDENCE_TOOL_RATIO,
     _MAX_TOLERATED_SOURCE_WARNINGS,
     build_release_decision,
+    evidence_below_ie_threshold,
 )
 from agents_shipgate.core.domain import (
     AuthInfo,
@@ -374,6 +375,29 @@ def test_one_source_warning_is_review_required():
     assert decision.decision == "review_required"
     assert decision.evidence_coverage.source_warning_count == 1
     assert "source-loader" in decision.reason
+
+
+def test_diff_reference_degradation_uses_typed_action_kind_for_ie():
+    warning = (
+        "Base report predates report schema semantic evidence and is not "
+        "comparable with --diff-from. Regenerate it."
+    )
+    tool = _tool(confidence="high")
+    decision = _build(
+        _report(tools=[tool], source_warnings=[warning]),
+        ci_mode="strict",
+        tools=[tool],
+    )
+
+    assert decision.decision == "insufficient_evidence"
+    [gap] = decision.evidence_coverage.evidence_gaps
+    assert gap.kind == "source_warning"
+    assert gap.next_action.kind == "provide_source"
+
+    # Routing remains typed even if presentation strings change.
+    gap.next_action.command = None
+    gap.next_action.path = None
+    assert evidence_below_ie_threshold(decision.evidence_coverage, tool_count=1) is True
 
 
 def test_zero_source_warnings_clean_scan_passes():

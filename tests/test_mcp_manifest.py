@@ -113,6 +113,29 @@ def test_mcp_json_stub_becomes_wildcard_unknown_tool(tmp_path: Path) -> None:
     assert tool.annotations["mcp_unknown_schema"] is True
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"mcpServers": []},
+        {"mcpServers": "payments"},
+    ],
+)
+def test_mcp_json_wrong_shape_emits_source_warning(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    (tmp_path / ".mcp.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = load_codex_config_mcp_sources(tmp_path, tmp_path)
+
+    assert len(loaded) == 1
+    assert loaded[0].tools == []
+    assert loaded[0].source_id == "mcp_json:.mcp.json"
+    assert loaded[0].warnings == [
+        "Invalid MCP config .mcp.json: expected top-level `mcpServers` to be an object."
+    ]
+
+
 def test_mcp_json_sources_strip_reserved_binding_annotations(tmp_path: Path) -> None:
     (tmp_path / ".mcp.json").write_text(
         json.dumps(

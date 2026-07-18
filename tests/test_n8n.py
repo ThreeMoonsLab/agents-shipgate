@@ -193,6 +193,48 @@ permissions:
     assert {finding.agent_action for finding in n8n_findings} == {"escalate_to_human"}
 
 
+def test_n8n_unknown_mcp_selection_mode_degrades_evidence(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    workflow = _workflow()
+    mcp_client = next(node for node in workflow["nodes"] if node["id"] == "mcp-client")
+    mcp_client["parameters"] = {"toolsToInclude": "Future Typo Mode"}
+    (project / "workflow.json").write_text(json.dumps(workflow), encoding="utf-8")
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: n8n-unknown-mcp-selection
+agent:
+  name: n8n-agent
+environment:
+  target: production_like
+n8n:
+  workflows:
+    - path: workflow.json
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert any("selection mode is unrecognized" in warning for warning in report.source_warnings)
+    dynamic = [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+        and finding.evidence["surface"]["kind"] == "mcp_client_selection_mode_unknown"
+    ]
+    assert len(dynamic) == 1
+    assert any(tool["name"] == "MCP Client.*" for tool in report.tool_inventory)
+    assert report.release_decision.decision != "passed"
+
+
 def test_n8n_mcp_server_trigger_exposed_tools_are_normalized_as_mcp(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

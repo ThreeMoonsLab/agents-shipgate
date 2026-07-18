@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.checks.plugin_validation import strict_failure_messages
 from agents_shipgate.checks.registry import check_catalog, run_checks
 from agents_shipgate.core.capability_policy import build_capability_policy_subjects
 from agents_shipgate.core.capability_traces import build_capability_runtime_evidence
@@ -120,6 +121,10 @@ def _run_checks_and_decide(
         plugins_enabled=plugins_enabled,
         loaded_plugins=loaded_plugins,
         extra_known_check_ids={resolved.rule.id for resolved in inputs.policy_packs.rules},
+    )
+    action_surface_warnings.extend(
+        f"Enabled check plugin failed validation or execution: {message}"
+        for message in strict_failure_messages(loaded_plugins)
     )
     findings.extend(run_policy_pack_rules(context, inputs.policy_packs))
     findings.extend(

@@ -82,6 +82,12 @@ def test_gate_load_failure_is_recorded(monkeypatch, tmp_path):
     assert any("simulated module load failure" in err for err in record["validation_errors"])
     assert record["check_id"] is None
     assert record["runtime_errors"] == []
+    assert any(
+        "Enabled check plugin failed validation or execution" in warning
+        and "simulated module load failure" in warning
+        for warning in report.source_warnings
+    )
+    assert report.release_decision.decision != "passed"
 
 
 # --- Gate 2: signature ------------------------------------------------------
@@ -135,6 +141,10 @@ def test_gate_signature_accepts_optional_extras(monkeypatch, tmp_path):
         ci_mode="advisory",
     )
     assert report.loaded_plugins[0]["validation_status"] == VALID
+    assert not any(
+        warning.startswith("Enabled check plugin failed validation or execution")
+        for warning in report.source_warnings
+    )
 
 
 def test_gate_signature_rejects_required_keyword_only(monkeypatch, tmp_path):
@@ -570,6 +580,12 @@ def test_runtime_plugin_exception_is_captured(monkeypatch, tmp_path):
     assert any("simulated runtime crash" in err for err in record["runtime_errors"])
     # Other findings (built-ins) still ran.
     assert exit_code == 0
+    assert any(
+        "Enabled check plugin failed validation or execution" in warning
+        and "simulated runtime crash" in warning
+        for warning in report.source_warnings
+    )
+    assert report.release_decision.decision != "passed"
 
 
 def test_runtime_plugin_must_return_list(monkeypatch, tmp_path):

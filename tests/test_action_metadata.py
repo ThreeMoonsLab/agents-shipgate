@@ -222,7 +222,10 @@ def test_agents_shipgate_workflow_uses_merge_verdict_policy_input():
     text = (WORKFLOW_DIR / "agents-shipgate.yml").read_text(encoding="utf-8")
 
     assert "fail_on_decisions" not in text
-    assert "fail_on_merge_verdicts: blocked" in text
+    assert (
+        'fail_on_merge_verdicts: "blocked,human_review_required,'
+        'insufficient_evidence,unknown"' in text
+    )
 
 
 def test_action_step_summary_leads_with_verifier_merge_state():

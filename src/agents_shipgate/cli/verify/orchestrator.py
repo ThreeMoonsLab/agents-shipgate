@@ -282,6 +282,7 @@ def run_verify(
             changed_files = _dedupe_paths([*changed_files, *worktree_paths])
             diff_text = _join_diff_text(diff_text, worktree_diff)
         except Exception as exc:  # noqa: BLE001 - local context degrades only.
+            diff_unavailable = True
             base_notes.append(f"Could not collect working-tree diff context: {exc}")
 
     trigger = evaluate(

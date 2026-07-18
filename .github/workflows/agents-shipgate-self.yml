@@ -21,6 +21,6 @@ jobs:
           verify_mode: verify
           ci_mode: advisory
           diff_base: target
-          fail_on_merge_verdicts: blocked
+          fail_on_merge_verdicts: "blocked,human_review_required,insufficient_evidence,unknown"
           upload_artifact: "true"
           pr_comment: "false"
