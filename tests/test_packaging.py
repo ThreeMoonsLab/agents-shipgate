@@ -45,6 +45,17 @@ def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
     assert "agents_shipgate/_meta/claude-command/shipgate.md" in names
 
 
+def test_wheel_excludes_generated_shipgate_reports(built_wheel: Path) -> None:
+    with zipfile.ZipFile(built_wheel) as archive:
+        generated_reports = [
+            name for name in archive.namelist() if "/agents-shipgate-reports/" in name
+        ]
+    assert generated_reports == [], (
+        "generated scan outputs must never be included in the package: "
+        f"{generated_reports}"
+    )
+
+
 def test_wheel_declares_verification_identity_runtime_dependencies(
     built_wheel: Path,
 ) -> None:

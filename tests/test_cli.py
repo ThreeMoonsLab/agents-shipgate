@@ -1,5 +1,6 @@
 import json
 import re
+import shutil
 from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin
@@ -986,6 +987,13 @@ def test_cli_doctor_json_includes_baseline_status():
 
 
 def test_cli_baseline_save_and_scan(tmp_path):
+    sample = tmp_path / "support_refund_agent"
+    shutil.copytree(
+        "samples/support_refund_agent",
+        sample,
+        ignore=shutil.ignore_patterns("agents-shipgate-reports"),
+    )
+    sample_config = sample / "shipgate.yaml"
     baseline_path = tmp_path / "baseline.json"
     save = runner.invoke(
         app,
@@ -993,7 +1001,7 @@ def test_cli_baseline_save_and_scan(tmp_path):
             "baseline",
             "save",
             "--config",
-            "samples/support_refund_agent/shipgate.yaml",
+            str(sample_config),
             "--out",
             str(baseline_path),
         ],
@@ -1008,7 +1016,7 @@ def test_cli_baseline_save_and_scan(tmp_path):
         [
             "scan",
             "--config",
-            "samples/support_refund_agent/shipgate.yaml",
+            str(sample_config),
             "--out",
             str(tmp_path / "reports"),
             "--format",
