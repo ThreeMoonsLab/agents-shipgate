@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import stat
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -14,6 +15,8 @@ from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from agents_shipgate.core.human_authorization import (
+    HumanAuthorizationTrustPolicyError,
+    _validate_trust_path_node,
     default_human_authorization_trust_policy_path,
     evaluate_human_authorization,
     human_authorization_signature_payload,
@@ -385,6 +388,46 @@ def test_symlinked_or_world_writable_trust_policy_is_rejected(
     assert writable_result.reason_codes == ["trust_policy_insecure_permissions"]
 
 
+def test_trusted_sticky_ancestor_preserves_policy_authority(
+    world: AuthorizationWorld,
+) -> None:
+    sticky_parent = world.trust_policy_path.parent.parent / "sticky"
+    sticky_policy = sticky_parent / "broker" / "policy.json"
+    _write_policy(sticky_policy, world.trusted_key)
+    sticky_parent.chmod(0o1777)
+    try:
+        evaluation = _evaluate(world, trust_policy_path=sticky_policy)
+    finally:
+        sticky_parent.chmod(0o700)
+
+    assert evaluation.status == "accepted"
+    assert evaluation.command == world.request.operation.command
+
+
+def test_sticky_ancestor_owned_by_an_untrusted_account_is_rejected() -> None:
+    effective_uid = os.geteuid()
+    untrusted_uid = effective_uid + 1 if effective_uid != 0 else 1
+    metadata = os.stat_result(
+        (
+            stat.S_IFDIR | 0o1777,
+            0,
+            0,
+            1,
+            untrusted_uid,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+    )
+
+    with pytest.raises(HumanAuthorizationTrustPolicyError) as exc_info:
+        _validate_trust_path_node(metadata, label="trust policy ancestor", directory=True)
+
+    assert exc_info.value.code == "trust_policy_owner_mismatch"
+
+
 def test_hard_linked_or_replaceable_trust_policy_path_is_rejected(
     world: AuthorizationWorld,
 ) -> None:
@@ -691,7 +734,21 @@ def test_wire_schema_rejects_impossible_authorization_evaluations(
     world: AuthorizationWorld,
 ) -> None:
     validator = Draft202012Validator(_authorization_wire_schema("AuthorizationEvaluationV1"))
-    accepted = _evaluate(world).model_dump(mode="json")
+    accepted_model = AuthorizationEvaluationV1(
+        status="accepted",
+        authorization_id=world.grant.authorization_id,
+        authorization_request_id=world.request.authorization_request_id,
+        trust_policy_id=world.policy.trust_policy_id,
+        key_id=world.grant.proof.key_id,
+        provider=world.grant.statement.principal.provider,
+        principal=world.grant.statement.principal.subject,
+        operation_id=world.request.operation.operation_id,
+        command=world.request.operation.command,
+        issued_at=world.grant.statement.issued_at,
+        expires_at=world.grant.statement.expires_at,
+    )
+    assert accepted_model.status == "accepted"
+    accepted = accepted_model.model_dump(mode="json")
     assert list(validator.iter_errors(accepted)) == []
 
     missing_command = dict(accepted)

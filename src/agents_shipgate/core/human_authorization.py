@@ -238,7 +238,15 @@ def _validate_trust_path_node(
             "trust_policy_path_type_invalid",
             f"{label} has an invalid filesystem type",
         )
-    if metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+    # A POSIX sticky directory lets untrusted users create siblings but not
+    # unlink or rename a path component owned by root or the broker account.
+    # The ownership check immediately below remains mandatory, and regular
+    # files never receive this exception.
+    trusted_sticky_directory = directory and bool(metadata.st_mode & stat.S_ISVTX)
+    if (
+        metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        and not trusted_sticky_directory
+    ):
         raise HumanAuthorizationTrustPolicyError(
             "trust_policy_insecure_ancestor" if directory else "trust_policy_insecure_permissions",
             f"{label} must not be group/world writable",
