@@ -129,6 +129,7 @@ only-include = [
   "src/agents_shipgate",
   "samples",
 ]
+dev-mode-dirs = ["src"]
 exclude = [
   "/samples/**/agents-shipgate-reports/**",
 ]

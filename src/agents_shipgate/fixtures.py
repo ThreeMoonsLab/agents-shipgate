@@ -1,7 +1,7 @@
 """Bundled fixture access for agents-shipgate.
 
 Fixtures live under ``samples/`` in the source tree and are bundled into the
-wheel as ``agents_shipgate/_fixtures`` via hatch ``force-include``. This module
+wheel as ``agents_shipgate/_fixtures`` via Hatch's wheel source mapping. This module
 locates the right path regardless of install mode (editable or wheel) and
 exposes the public ``fixture_path`` / ``list_fixtures`` helpers.
 """
