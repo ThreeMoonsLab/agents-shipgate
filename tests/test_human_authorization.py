@@ -573,6 +573,15 @@ def test_authorization_request_rejects_destination_repository_drift() -> None:
         )
 
 
+def test_request_schema_marks_source_closure_ids_as_signer_authenticated() -> None:
+    properties = HumanAuthorizationRequestV1.model_json_schema()["properties"]
+
+    for field in ("source_receipt_id", "source_artifact_set_id"):
+        description = properties[field]["description"]
+        assert "Signer-authenticated provenance label" in description
+        assert "do not independently transport or authenticate" in description
+
+
 def test_display_metadata_allows_normal_punctuation_but_not_controls() -> None:
     request = _request()
     statement = HumanAuthorizationStatementV1(

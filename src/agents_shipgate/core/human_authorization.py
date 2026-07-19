@@ -8,6 +8,7 @@ operation covered by the signature.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import stat
@@ -213,7 +214,11 @@ def _read_trust_policy_no_follow(path: Path) -> tuple[bytes, os.stat_result]:
             )
         return raw, before
     except OSError as exc:
-        code = "trust_policy_symlink" if exc.errno in {40, 62} else "trust_policy_unavailable"
+        code = (
+            "trust_policy_symlink"
+            if exc.errno == errno.ELOOP
+            else "trust_policy_unavailable"
+        )
         raise HumanAuthorizationTrustPolicyError(
             code,
             "human authorization trust policy path is unavailable or contains a symlink",

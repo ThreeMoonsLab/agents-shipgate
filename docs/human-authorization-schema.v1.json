@@ -509,6 +509,7 @@
           "type": "string"
         },
         "source_artifact_set_id": {
+          "description": "Signer-authenticated provenance label copied from the prior receipt's artifact set when the unsigned request is created. Later verify and execute passes do not independently transport or authenticate that prior artifact set.",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "title": "Source Artifact Set Id",
           "type": "string"
@@ -529,6 +530,7 @@
           "type": "string"
         },
         "source_receipt_id": {
+          "description": "Signer-authenticated provenance label copied from the prior receipt when the unsigned request is created. Later verify and execute passes do not independently transport or authenticate that prior receipt.",
           "pattern": "^sha256:[0-9a-f]{64}$",
           "title": "Source Receipt Id",
           "type": "string"

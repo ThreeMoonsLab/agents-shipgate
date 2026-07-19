@@ -12,6 +12,7 @@ from agents_shipgate.core.evaluation_clock import (
     use_evaluation_date,
 )
 from agents_shipgate.core.verification_identity import (
+    _add_distribution_tree,
     build_terminal_receipt,
     build_unit_result,
     validate_receipt_artifacts,
@@ -176,6 +177,22 @@ def test_engine_distribution_digest_is_part_of_engine_identity() -> None:
     payload["engine_distribution_sha256"] = "sha256:" + "9" * 64
     with pytest.raises(ValidationError):
         VerificationEngineRequirement.model_validate(payload)
+
+
+def test_engine_distribution_tree_excludes_generated_sample_reports(tmp_path: Path) -> None:
+    samples = tmp_path / "samples"
+    fixture = samples / "support_refund_agent"
+    fixture.mkdir(parents=True)
+    (fixture / "shipgate.yaml").write_text("version: '0.1'\n", encoding="utf-8")
+    reports = fixture / "agents-shipgate-reports"
+    reports.mkdir()
+    (reports / "report.json").write_text('{"stale": true}\n', encoding="utf-8")
+
+    files: dict[str, str] = {}
+    _add_distribution_tree(files, samples, logical_root="_fixtures")
+
+    assert "_fixtures/support_refund_agent/shipgate.yaml" in files
+    assert all("agents-shipgate-reports" not in path for path in files)
 
 
 def test_worker_ir_cannot_nest_a_release_decision() -> None:

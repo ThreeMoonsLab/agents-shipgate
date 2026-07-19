@@ -1403,6 +1403,12 @@ def _evaluate_authorization_overlay(
             raise ValueError("authorization source engine differs from the current engine")
         if signed_source.source_executor_id != verifier.executor_id:
             raise ValueError("authorization source executor differs from the current executor")
+        # These two IDs are signer-authenticated provenance labels. Unlike the
+        # engine, executor, request, subject, decision, tree, review-set, and
+        # operation identities rebuilt here, the prior receipt and artifact
+        # set are not transported into this second verification pass. Copying
+        # them preserves the exact signed request; it is not an independent
+        # provenance check by this verifier.
         expected_request = build_human_authorization_request(
             repository_id=git.repository_id,
             source_receipt_id=signed_source.source_receipt_id,

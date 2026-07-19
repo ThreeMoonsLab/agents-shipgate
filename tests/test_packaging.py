@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -24,9 +25,34 @@ def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
     pytest.importorskip("build", reason="python-build not installed")
     out_dir = tmp_path_factory.mktemp("dist")
+    source_root = tmp_path_factory.mktemp("wheel-source") / "repo"
+    shutil.copytree(
+        REPO_ROOT,
+        source_root,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".coverage",
+            ".pytest_cache",
+            ".ruff_cache",
+            "__pycache__",
+            "agents-shipgate-reports",
+            "build",
+            "dist",
+            "htmlcov",
+        ),
+    )
+    stale_report = (
+        source_root
+        / "samples"
+        / "support_refund_agent"
+        / "agents-shipgate-reports"
+        / "report.json"
+    )
+    stale_report.parent.mkdir(parents=True)
+    stale_report.write_text('{"stale": true}\n', encoding="utf-8")
     subprocess.run(
         [sys.executable, "-m", "build", "--wheel", "--outdir", str(out_dir)],
-        cwd=REPO_ROOT,
+        cwd=source_root,
         check=True,
         capture_output=True,
         text=True,
@@ -45,13 +71,26 @@ def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
     assert "agents_shipgate/_meta/claude-command/shipgate.md" in names
 
 
+def test_wheel_includes_nested_sample_fixtures(built_wheel: Path) -> None:
+    with zipfile.ZipFile(built_wheel) as archive:
+        names = set(archive.namelist())
+    for path in (
+        "agents_shipgate/_fixtures/agent_weakens_gate/.github/workflows/agents-shipgate.yml",
+        "agents_shipgate/_fixtures/google_adk_agent/evals/support.eval.json",
+        "agents_shipgate/_fixtures/support_refund_agent/.agents-shipgate/mcp-tools.json",
+        "agents_shipgate/_fixtures/support_refund_agent/shipgate.yaml",
+    ):
+        assert path in names
+
+
 def test_wheel_excludes_generated_shipgate_reports(built_wheel: Path) -> None:
     with zipfile.ZipFile(built_wheel) as archive:
         generated_reports = [
             name for name in archive.namelist() if "/agents-shipgate-reports/" in name
         ]
     assert generated_reports == [], (
-        "generated scan outputs must never be included in the package: "
+        "generated scan outputs must never be included in the package, even "
+        "when stale reports exist in the source tree: "
         f"{generated_reports}"
     )
 

@@ -160,10 +160,14 @@ comment, environment assertion, or conversation-level acknowledgement cannot
 become a trust anchor merely by matching the schema.
 
 Content addressing proves internal byte closure, not who produced the
-receipt. Before signing, the host must either rerun verification in its own
-trusted worker or verify a trusted-CI attestation over the request's
-`source_receipt_id` and `source_artifact_set_id` (and the bound engine and
-executor). An agent-generated self-consistent receipt is not provenance.
+receipt. `authorization request` copies `source_receipt_id` and
+`source_artifact_set_id` from the validated prior receipt, but the later verify
+and execute passes do not transport that prior closure. Those two fields are
+therefore signer-authenticated provenance labels, not independently verified
+provenance claims by Agents Shipgate. Before signing, the host must either
+rerun verification in its own trusted worker or verify a trusted-CI
+attestation over those IDs (and the bound engine and executor). An
+agent-generated self-consistent receipt is not provenance.
 The request also exposes the evaluated base commit and merge base. The exact
 source commit transitively binds all parents and reachable objects, so the
 signer must review the complete ancestry—not just the final tree diff. The

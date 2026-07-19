@@ -37,6 +37,8 @@ from agents_shipgate.schemas.verification_identity import (
     content_id,
 )
 
+_GENERATED_DISTRIBUTION_DIRECTORY_NAMES = frozenset({"agents-shipgate-reports"})
+
 
 def sha256_bytes(value: bytes) -> str:
     return f"sha256:{hashlib.sha256(value).hexdigest()}"
@@ -964,7 +966,13 @@ def _add_distribution_tree(
 ) -> None:
     candidates = [source] if source.is_file() else sorted(source.rglob("*"))
     for path in candidates:
-        if not path.is_file() or "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+        relative_parts = () if source.is_file() else path.relative_to(source).parts
+        if (
+            not path.is_file()
+            or "__pycache__" in relative_parts
+            or _GENERATED_DISTRIBUTION_DIRECTORY_NAMES.intersection(relative_parts)
+            or path.suffix in {".pyc", ".pyo"}
+        ):
             continue
         relative = "" if source.is_file() else path.relative_to(source).as_posix()
         logical = "/".join(part for part in (logical_root, relative) if part)

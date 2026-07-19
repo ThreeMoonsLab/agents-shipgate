@@ -474,8 +474,22 @@ class HumanAuthorizationRequestV1(BaseModel):
     )
     authorization_request_id: str = Field(pattern=CONTENT_ID_PATTERN)
     repository_id: str = Field(min_length=1)
-    source_receipt_id: str = Field(pattern=CONTENT_ID_PATTERN)
-    source_artifact_set_id: str = Field(pattern=CONTENT_ID_PATTERN)
+    source_receipt_id: str = Field(
+        pattern=CONTENT_ID_PATTERN,
+        description=(
+            "Signer-authenticated provenance label copied from the prior receipt when "
+            "the unsigned request is created. Later verify and execute passes do not "
+            "independently transport or authenticate that prior receipt."
+        ),
+    )
+    source_artifact_set_id: str = Field(
+        pattern=CONTENT_ID_PATTERN,
+        description=(
+            "Signer-authenticated provenance label copied from the prior receipt's "
+            "artifact set when the unsigned request is created. Later verify and execute "
+            "passes do not independently transport or authenticate that prior artifact set."
+        ),
+    )
     source_engine_requirement_id: str = Field(pattern=CONTENT_ID_PATTERN)
     source_executor_id: str = Field(pattern=CONTENT_ID_PATTERN)
     verification_request_id: str = Field(pattern=CONTENT_ID_PATTERN)

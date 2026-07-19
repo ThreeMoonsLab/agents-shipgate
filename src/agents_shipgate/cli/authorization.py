@@ -277,6 +277,11 @@ def execute_authorization(
         if signed_source.source_executor_id != verifier.executor_id:
             raise ValueError("signed source executor differs from the current verified executor")
 
+        # The guarded receipt is the new, authorization-bearing second-pass
+        # closure, not the prior receipt from which the signer received its
+        # challenge. The source receipt/artifact-set IDs therefore remain
+        # signer-authenticated provenance labels. Every operational identity
+        # that can be rebuilt from the current closure is checked separately.
         expected_request = build_human_authorization_request(
             repository_id=git.repository_id,
             source_receipt_id=signed_source.source_receipt_id,

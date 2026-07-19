@@ -125,10 +125,19 @@ crewai = "agents_shipgate.checks.crewai:run"
 codex_plugin = "agents_shipgate.checks.codex_plugin:run"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agents_shipgate"]
+only-include = [
+  "src/agents_shipgate",
+  "samples",
+]
+exclude = [
+  "/samples/**/agents-shipgate-reports/**",
+]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+"samples" = "agents_shipgate/_fixtures"
 
 [tool.hatch.build.targets.wheel.force-include]
-"samples" = "agents_shipgate/_fixtures"
 "AGENTS.md" = "agents_shipgate/_meta/AGENTS.md"
 "STABILITY.md" = "agents_shipgate/_meta/STABILITY.md"
 "docs/triggers.json" = "agents_shipgate/_meta/triggers.json"

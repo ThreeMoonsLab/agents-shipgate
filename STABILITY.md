@@ -38,9 +38,14 @@ evaluated workspace and be protected from writes by the coding agent. On
 POSIX, its only lookup location is the OS account home's fixed path
 `~/.config/agents-shipgate/human-authorization-trust-policy.json`; `HOME` and
 `XDG_CONFIG_HOME` are ignored for this lookup. The
-request also binds the source receipt, artifact set, engine, and executor so a
-host signer can require trusted-CI provenance or rerun verification. A
-content-addressed closure detects mutation but is not an authenticity claim.
+request records the source receipt, artifact set, engine, and executor so a
+host signer can require trusted-CI provenance or rerun verification. The
+request-building command copies the receipt and artifact-set IDs from the
+validated prior receipt, but later verify and execute passes do not transport
+that prior closure and therefore treat those two IDs as signer-authenticated
+provenance labels. They independently cross-check the engine and executor and
+rebuild every operational identity. A content-addressed closure detects
+mutation but is not an authenticity claim.
 It exposes the evaluated base commit and merge base; the signer must review the
 source commit's complete ancestry and reachable history, not only its final
 tree. Guarded execution caps the serialized source graph at 512 MiB and 120
