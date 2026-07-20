@@ -628,9 +628,12 @@ The stable top-level fields in the v0.3 preflight result are:
 - `required_evidence[]` — deterministic evidence requirements for a
   `--capability-request` high-risk action proposal.
 - `changed_files[]` and `protected_surface_touches[]` — optional path review
-  projection from `--changed-files` and/or `--diff`.
-- `requires_human_review` — true when the requested preflight input touches a
-  protected surface or lacks high/critical required evidence.
+  projection from `--changed-files` and/or `--diff`. A touch's existing
+  `requires_human_review` flag may be false only for a resolvable, append-only
+  proposal that adds valid built-in `tool_sources` coverage without changing
+  any other manifest value or existing source row.
+- `requires_human_review` — true when a requested protected touch requires
+  pre-edit human routing or the plan lacks high/critical required evidence.
 - `policy_snapshot_hash`, `trust_root_graph_hash`, and `trust_root_graph` —
   deterministic hashes/projection for policy and trust-root drift review.
 - `policy_drift` and `trust_root_graph_diff` — populated when
@@ -645,6 +648,15 @@ The stable top-level fields in the v0.3 preflight result are:
   signals.
 - `host_grant_drift` — optional host-grant drift payload when a host baseline
   is present or explicitly supplied.
+
+Preflight distinguishes proposal authorship from approval. A coding agent may
+author the exact coverage-increasing manifest proposal described above and is
+then routed to `verify`; path-only plans, custom adapters, `trust`/`optional`
+fields, source edits/removals/reordering, non-contained or symlinked paths, and
+mixed manifest changes remain human-routed. The exception never asserts
+action effect, authority, binding, policy, or approval evidence. The resulting
+`shipgate.yaml` diff is still a protected-surface change, and committed
+verification continues to require human review before merge or execution.
 
 ### JSON report fields (stable)
 

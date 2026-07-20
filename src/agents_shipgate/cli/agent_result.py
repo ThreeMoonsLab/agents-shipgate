@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agents_shipgate.config.loader import load_manifest
@@ -144,7 +144,11 @@ def _undeclared_tool_surfaces_changed(
     catalog = load_triggers()
     undeclared: list[str] = []
     for path in changed_files:
-        if path in declared_set or is_agent_boundary_path(path):
+        if (
+            path in declared_set
+            or is_agent_boundary_path(path)
+            or _is_non_deployed_fixture_path(path)
+        ):
             continue
         # Per-file classification: a glob rule matches on the path, a
         # diff_contains rule (n8n, @function_tool) on this file's added lines.
@@ -165,6 +169,29 @@ def _undeclared_tool_surfaces_changed(
         ):
             undeclared.append(path)
     return sorted(dict.fromkeys(undeclared))
+
+
+def _is_non_deployed_fixture_path(path: str) -> bool:
+    """Exclude conventional test artifacts from undeclared deployment inference.
+
+    This filter is intentionally applied only after declared surfaces have
+    been computed.  A fixture explicitly named by ``shipgate.yaml`` therefore
+    remains a real capability surface and is still routed through verify.
+    """
+
+    parts = PurePosixPath(path.replace("\\", "/")).parts
+    fixture_dirs = {
+        "__snapshots__",
+        "fixture",
+        "fixtures",
+        "golden",
+        "goldens",
+        "test",
+        "tests",
+    }
+    if any(part.lower() in fixture_dirs for part in parts[:-1]):
+        return True
+    return len(parts) >= 3 and parts[0] == "samples" and "expected" in parts[2:-1]
 
 
 def _declared_tool_surfaces_changed(

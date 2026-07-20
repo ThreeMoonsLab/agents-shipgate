@@ -25,6 +25,9 @@ from agents_shipgate.core.host_grants import (
 from agents_shipgate.core.lenses.effective_policy import (
     build_effective_policy_snapshot,
 )
+from agents_shipgate.core.manifest_proposals import (
+    assess_coverage_increasing_tool_source_proposal,
+)
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -231,6 +234,7 @@ def build_preflight_result(
     capability_requests: list[CapabilityRequestV1 | dict[str, Any]] | None = None,
     host_permission_requests: list[HostPermissionRequestV1 | dict[str, Any]] | None = None,
     plan: PreflightPlanV1 | dict[str, Any] | None = None,
+    diff_text: str | None = None,
     base_preflight: (
         PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | dict[str, Any] | None
     ) = None,
@@ -240,11 +244,12 @@ def build_preflight_result(
     config_path = config if config.is_absolute() else root / config
     config_path = config_path.resolve()
     request_plan = _coerce_plan(plan)
+    effective_diff_text = request_plan.diff_text if request_plan is not None else diff_text
     changed_inputs = list(changed_files or [])
     if request_plan is not None:
         changed_inputs.extend(request_plan.changed_files)
-        if request_plan.diff_text:
-            changed_inputs.extend(_changed_files_from_diff_text(request_plan.diff_text))
+    if effective_diff_text:
+        changed_inputs.extend(_changed_files_from_diff_text(effective_diff_text))
     changed = _normalize_changed_files(changed_inputs)
     graph = build_trust_root_graph(root)
     policy_hash, notes = _policy_hash_for_config(config_path)
@@ -261,6 +266,12 @@ def build_preflight_result(
         for node in graph.nodes
     ]
     touches = classify_protected_touches(changed)
+    touches = _classify_proposal_safe_manifest_touch(
+        workspace=root,
+        config_path=config_path,
+        touches=touches,
+        diff_text=effective_diff_text,
+    )
     requests = _coerce_capability_requests(
         capability_request=capability_request,
         capability_requests=capability_requests,
@@ -271,7 +282,7 @@ def build_preflight_result(
         plan=request_plan,
     )
     required_evidence = required_evidence_for_capability_requests(requests)
-    requires_human_review = bool(touches) or any(
+    requires_human_review = any(touch.requires_human_review for touch in touches) or any(
         not item.satisfied and item.severity in {"high", "critical"} for item in required_evidence
     )
     base = _coerce_base_preflight(base_preflight)
@@ -523,16 +534,72 @@ def signals_for_protected_touches(
             id=f"protected_surface:{touch.path}",
             kind="protected_surface_touch",
             severity="critical" if touch.scope_type == "whole_file" else "high",
-            actor="human",
+            actor="human" if touch.requires_human_review else "coding_agent",
             subject=touch.kind,
             path=touch.path,
             reason=(
-                f"{touch.path} matches protected surface {touch.pattern}; "
-                "a coding agent must not self-approve trust-root edits."
+                (
+                    f"{touch.path} matches protected surface {touch.pattern}; "
+                    "a coding agent must not self-approve trust-root edits."
+                )
+                if touch.requires_human_review
+                else (
+                    f"{touch.path} contains only an exact append-only proposal for "
+                    "built-in tool-source coverage; proposal authorship is allowed, "
+                    "but the concrete protected-surface diff is not approved."
+                )
             ),
-            recommendation="Route this protected-surface edit to a human before making or relying on it.",
+            recommendation=(
+                "Route this protected-surface edit to a human before making or relying on it."
+                if touch.requires_human_review
+                else (
+                    "Apply only the exact planned tool-source addition, then run the "
+                    "required verifier and route its concrete review evidence to a human."
+                )
+            ),
             related_command="agents-shipgate preflight --workspace . --plan - --json",
         )
+        for touch in touches
+    ]
+
+
+def _classify_proposal_safe_manifest_touch(
+    *,
+    workspace: Path,
+    config_path: Path,
+    touches: list[PreflightProtectedSurfaceTouch],
+    diff_text: str | None,
+) -> list[PreflightProtectedSurfaceTouch]:
+    """Mark one exact coverage-increasing manifest proposal as authoring-safe.
+
+    Path-only preflight remains fail-closed.  This exception requires both
+    sides of a concrete diff and changes only the existing per-touch routing
+    flag; it does not approve the resulting protected-surface edit.
+    """
+
+    if not diff_text:
+        return touches
+    config_display = _display_path(config_path, workspace)
+    diff_file = next(
+        (
+            item
+            for item in parse_unified_diff(diff_text)
+            if item.path.replace("\\", "/") == config_display
+        ),
+        None,
+    )
+    if diff_file is None:
+        return touches
+    assessment = assess_coverage_increasing_tool_source_proposal(
+        workspace=workspace,
+        diff_file=diff_file,
+    )
+    if not assessment.proposal_safe:
+        return touches
+    return [
+        touch.model_copy(update={"requires_human_review": False})
+        if touch.kind == "manifest" and touch.path == config_display
+        else touch
         for touch in touches
     ]
 

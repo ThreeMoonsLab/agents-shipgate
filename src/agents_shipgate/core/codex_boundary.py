@@ -40,6 +40,9 @@ from agents_shipgate.core.boundary_registry import (
     boundary_adapters_for_path,
     is_agent_boundary_path,
 )
+from agents_shipgate.core.manifest_proposals import (
+    assess_coverage_increasing_tool_source_proposal,
+)
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -478,6 +481,27 @@ def evaluate_codex_boundary_result(
         if not path:
             continue
         normalized = path.replace("\\", "/")
+        if normalized == "shipgate.yaml":
+            resolved = resolve(diff_file)
+            assessment = assess_coverage_increasing_tool_source_proposal(
+                workspace=workspace,
+                diff_file=diff_file,
+                resolved=resolved,
+            )
+            if assessment.proposal_safe:
+                evaluated_files.append(_evaluated_file_record(path, resolved))
+                diagnostics.append(
+                    AgentResultDiagnostic(
+                        level="info",
+                        code="proposal_safe_manifest_addition",
+                        message=(
+                            "Manifest change only appends valid built-in tool-source "
+                            "coverage. The coding agent may author this proposal, but "
+                            "verify and human review still govern the concrete diff."
+                        ),
+                        path=normalized,
+                    )
+                )
         if _is_codex_config_path(normalized):
             resolved = resolve(diff_file)
             evaluated_files.append(_evaluated_file_record(path, resolved))
