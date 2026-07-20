@@ -143,6 +143,39 @@ def test_preflight_allows_exact_append_only_builtin_source_proposal(
     assert "not approved" in signal.reason
 
 
+@pytest.mark.parametrize("safe_block_first", [True, False])
+def test_preflight_rejects_duplicate_manifest_blocks_when_one_is_unsafe(
+    tmp_path: Path,
+    safe_block_first: bool,
+) -> None:
+    root = _workspace(tmp_path)
+    plugin = root / "plugins" / "reviewer"
+    _write(plugin, ".codex-plugin/plugin.json", '{"name": "reviewer"}\n')
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+    safe = old + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+    unsafe = old.replace(
+        "    path: tools.json\n",
+        "    path: tools.json\n    trust: internal\n",
+    )
+    safe_block = _manifest_diff(old, safe)
+    unsafe_block = _manifest_diff(old, unsafe)
+    composite = (
+        safe_block + unsafe_block if safe_block_first else unsafe_block + safe_block
+    )
+
+    result = build_preflight_result(workspace=root, diff_text=composite)
+
+    assert result.requires_human_review is True
+    assert result.protected_surface_touches[0].requires_human_review is True
+    assert result.control.state == "human_review_required"
+    assert result.control.must_stop is True
+
+
 @pytest.mark.parametrize(
     "addition",
     [

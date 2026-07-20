@@ -176,22 +176,27 @@ def _is_non_deployed_fixture_path(path: str) -> bool:
 
     This filter is intentionally applied only after declared surfaces have
     been computed.  A fixture explicitly named by ``shipgate.yaml`` therefore
-    remains a real capability surface and is still routed through verify.
+    remains a real capability surface and is still routed through verify. Test
+    directories may appear below a package root, but fixture/golden names are
+    excluded only at the repository root or beneath an explicit test root so a
+    production path such as ``services/fixtures`` remains in scope.
     """
 
     parts = PurePosixPath(path.replace("\\", "/")).parts
-    fixture_dirs = {
+    lowered = tuple(part.lower() for part in parts)
+    test_roots = {"test", "tests"}
+    fixture_roots = {
         "__snapshots__",
         "fixture",
         "fixtures",
         "golden",
         "goldens",
-        "test",
-        "tests",
     }
-    if any(part.lower() in fixture_dirs for part in parts[:-1]):
+    if any(part in test_roots for part in lowered[:-1]):
         return True
-    return len(parts) >= 3 and parts[0] == "samples" and "expected" in parts[2:-1]
+    if lowered and lowered[0] in fixture_roots:
+        return True
+    return len(lowered) >= 4 and lowered[0] == "samples" and lowered[2] == "expected"
 
 
 def _declared_tool_surfaces_changed(

@@ -26,6 +26,10 @@ from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.manifest.tool_sources import BUILTIN_TOOL_SOURCE_TYPES
 
 _SAFE_SOURCE_KEYS = frozenset({"id", "type", "path", "mode"})
+# MCP/OpenAPI/Conductor declarations name a single protocol artifact. The
+# remaining built-in framework/config adapters legitimately accept a file or a
+# directory; containment/existence is checked here and verify validates the
+# concrete loader shape.
 _FILE_SOURCE_TYPES = frozenset({"mcp", "openapi", "conductor"})
 
 
@@ -187,6 +191,9 @@ def _validate_exact_added_rows(
         return "proposal-safe manifest changes must be insertion-only"
     if not diff_file.added_lines:
         return "proposal-safe manifest change contains no added source lines"
+    # Intentionally over-restrict the authoring safelist: even a quoted ``#``
+    # in an otherwise valid id/path is human-routed so comments or approval
+    # claims cannot be smuggled into the proposal-only exception.
     if any(not line.strip() or "#" in line for line in diff_file.added_lines):
         return "proposal-safe source lines must not contain comments or blank additions"
     added_text = "\n".join(diff_file.added_lines) + "\n"

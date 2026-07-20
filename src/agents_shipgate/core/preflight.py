@@ -580,19 +580,18 @@ def _classify_proposal_safe_manifest_touch(
     if not diff_text:
         return touches
     config_display = _display_path(config_path, workspace)
-    diff_file = next(
-        (
-            item
-            for item in parse_unified_diff(diff_text)
-            if item.path.replace("\\", "/") == config_display
-        ),
-        None,
-    )
-    if diff_file is None:
+    matching_diff_files = [
+        item
+        for item in parse_unified_diff(diff_text)
+        if item.path.replace("\\", "/") == config_display
+    ]
+    # A per-record safe result must never clear the path-wide fail-closed
+    # routing for another record targeting the same protected manifest.
+    if len(matching_diff_files) != 1:
         return touches
     assessment = assess_coverage_increasing_tool_source_proposal(
         workspace=workspace,
-        diff_file=diff_file,
+        diff_file=matching_diff_files[0],
     )
     if not assessment.proposal_safe:
         return touches

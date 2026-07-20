@@ -476,12 +476,22 @@ def evaluate_codex_boundary_result(
                 },
             )
 
+    manifest_diff_files = [
+        item
+        for item in diff_files
+        if item.path and item.path.replace("\\", "/") == "shipgate.yaml"
+    ]
+    proposal_candidate = (
+        manifest_diff_files[0] if len(manifest_diff_files) == 1 else None
+    )
     for diff_file in diff_files:
         path = diff_file.path
         if not path:
             continue
         normalized = path.replace("\\", "/")
-        if normalized == "shipgate.yaml":
+        # A block-level safe signal may clear the path-wide unclassified guard
+        # only when this is the sole record targeting the protected manifest.
+        if diff_file is proposal_candidate:
             resolved = resolve(diff_file)
             assessment = assess_coverage_increasing_tool_source_proposal(
                 workspace=workspace,
