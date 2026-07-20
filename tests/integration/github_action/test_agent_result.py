@@ -18,6 +18,7 @@ from agents_shipgate.schemas.agent_control import (
 from agents_shipgate.schemas.agent_result import AgentResultV2
 from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.common import SourceReference
+from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     ContributionRule,
@@ -473,6 +474,7 @@ def _verifier(
         applicability="verified",
         can_merge_without_human=can_merge,
         control=control,
+        authorization=AuthorizationEvaluationV1.not_requested(),
         fix_task=fix_task,
         capability_review=capability_review or VerifierCapabilityReview(),
         artifacts={

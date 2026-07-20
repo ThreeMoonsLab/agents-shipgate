@@ -228,7 +228,7 @@ def org_bundle(
     )
     receipt = _load_optional_json_object(receipt_path)
     verified_receipt: VerificationReceipt | None = None
-    if verifier.get("verifier_schema_version") == "0.5":
+    if verifier.get("verifier_schema_version") in {"0.5", "0.6"}:
         try:
             if receipt is None:
                 raise ValueError("current verifier evidence is missing verification-receipt.json")

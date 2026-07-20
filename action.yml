@@ -350,7 +350,6 @@ runs:
         BASE_REF: ${{ github.base_ref }}
         EVENT_NAME: ${{ github.event_name }}
         EVALUATED_HEAD_SHA: ${{ github.sha }}
-        SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         POLICY_PACKS: ${{ inputs.policy_packs }}
         NO_PLUGINS: ${{ inputs.no_plugins }}
         OUTPUT_DIR: ${{ inputs.output_dir }}

@@ -291,24 +291,74 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="import:subprocess",
-        line=5,
+        line=6,
         snippet="import subprocess",
         rationale=(
             "Verify uses local git commands to resolve refs, collect diffs, "
-            "resolve git metadata paths, and archive base/head trees. Fixed "
-            "argv, capture-only, no shell, and no network fetch."
+            "resolve git metadata paths, and copy/fsck exact base/head object "
+            "graphs into isolated stores. Fixed argv, no shell, and no "
+            "network fetch."
         ),
     ),
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=275,
-        snippet="subprocess.run(cmd, capture_output=True, check=check, text=text, timeout=60)",
+        line=616,
+        snippet=(
+            "subprocess.run(cmd, capture_output=capture_output, check=check, "
+            "env=env, input=input, stderr=stderr, stdin=stdin, stdout=stdout, "
+            "text=text, timeout=timeout)"
+        ),
         rationale=(
-            "_run_git helper for verify: executes fixed git argv assembled "
-            "inside Shipgate (rev-parse, diff, ls-tree, cat-file, and the "
-            "default-base detection, which only reads local refs). "
-            "Capture-only, no shell, no user-code execution, and no fetch."
+            "Single _run_process boundary for verify: executes Git argv "
+            "assembled inside Shipgate (local ref/diff reads plus "
+            "pack-objects, index-pack, and fsck for immutable snapshots). "
+            "No shell, user-code execution, or fetch."
+        ),
+    ),
+    # core/authorization_execution.py — guarded consumer for an externally
+    # signed, typed Git push. It invokes only a host-protected Git binary and
+    # exact internally assembled argv after revalidation.
+    AllowedException(
+        relative_path="core/authorization_execution.py",
+        surface="import:subprocess",
+        line=16,
+        snippet="import subprocess",
+        rationale=(
+            "The guarded authorization executor snapshots/fscks one signed "
+            "commit graph and invokes its exact force-with-lease Git push. "
+            "The host Git binary and HTTPS helper are protected; no shell or "
+            "user-code execution is used."
+        ),
+    ),
+    AllowedException(
+        relative_path="core/authorization_execution.py",
+        surface="attr_call:subprocess.run",
+        line=518,
+        snippet=(
+            "subprocess.run(cmd, capture_output=capture_output, check=check, "
+            "cwd=cwd, env=env, input=input, stderr=stderr, stdin=stdin, "
+            "stdout=stdout, text=text, timeout=timeout)"
+        ),
+        rationale=(
+            "Single _run_process boundary for guarded authorization: all "
+            "callers use list argv, shell=False by default, a sanitized "
+            "environment, protected Git/transport paths, and bounded timeouts."
+        ),
+    ),
+    AllowedException(
+        relative_path="core/authorization_execution.py",
+        surface="attr_call:subprocess.Popen",
+        line=553,
+        snippet=(
+            "subprocess.Popen(cmd, env=env, stdin=subprocess.PIPE, "
+            "stdout=subprocess.PIPE, stderr=subprocess.PIPE)"
+        ),
+        rationale=(
+            "The isolated graph snapshot parent-streams Git pack-objects "
+            "through fixed pipes so stdout, stderr, and wall-clock use are "
+            "bounded without a thread-unsafe preexec hook. Fixed Git argv, "
+            "sanitized environment, no shell, no user-code execution."
         ),
     ),
     # cli/fixture.py — the ai_generated_refund_pr demo fixture creates a
@@ -834,7 +884,7 @@ def test_scanner_source_contains_no_forbidden_calls_or_imports(
     scanner_source: Path,
 ) -> None:
     """Each scanner source is statically free of code-execution surfaces,
-    EXCEPT for the four legitimate first-party meta-CLI surfaces captured
+    EXCEPT for the audited first-party meta-CLI surfaces captured
     in ``ALLOWED_EXCEPTIONS`` (each with prose rationale).
 
     A regression here means a contributor added a way for the scanner to
@@ -1284,7 +1334,7 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
     )
     assert len(verify_subprocess_run) == 1, (
         f"Expected 1 AllowedException entry for cli/verify/git.py "
-        f"subprocess.run (the shared fixed-argv _run_git helper), got "
+        f"subprocess.run (the shared fixed-argv process boundary), got "
         f"{len(verify_subprocess_run)}."
     )
 

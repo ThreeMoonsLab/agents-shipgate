@@ -1,0 +1,61 @@
+{
+  "canonical_statement_json": "{\"expires_at\":\"2026-07-18T12:10:00Z\",\"issued_at\":\"2026-07-18T12:00:00Z\",\"nonce\":\"AAECAwQFBgcICQoLDA0ODw\",\"not_before\":\"2026-07-18T12:00:00Z\",\"principal\":{\"provider\":\"github\",\"subject\":\"github:user:reviewer\"},\"reason\":\"Reviewed exact operation.\",\"request\":{\"authorization_request_id\":\"sha256:aada615ac1feead3e0196a1ad623eec8f4900f6bdebba4951c6c56e5ab5c22a6\",\"base_commit_sha\":\"9999999999999999999999999999999999999999\",\"base_tree_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"decision\":\"review_required\",\"decision_id\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"head_tree_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"merge_base_sha\":\"8888888888888888888888888888888888888888\",\"operation\":{\"destination_ref\":\"refs/heads/codex/reviewed\",\"destination_repository_id\":\"example.test/acme/agent\",\"expected_lease_oid\":\"dddddddddddddddddddddddddddddddddddddddd\",\"force_with_lease\":true,\"kind\":\"git_push\",\"operation_id\":\"sha256:61deb55770225738ed36777e301dc7adde3dabed9b34d56b9cc6b361ba448e2f\",\"push_url\":\"https://example.test/acme/agent.git\",\"source_commit_sha\":\"cccccccccccccccccccccccccccccccccccccccc\"},\"repository_id\":\"example.test/acme/agent\",\"review_items\":[{\"check_id\":\"SHIP-VERIFY-TRUST-ROOT-TOUCHED\",\"fingerprint\":null,\"paths\":[\"action.yml\"],\"review_item_id\":\"review-1\",\"support_hash\":null}],\"review_set_id\":\"sha256:49806f6f5d712fb4f7712cee6a57cf6946f3607eeb88b629c17ad0c93d27df73\",\"schema_version\":\"shipgate.human_authorization_request/v1\",\"source_artifact_set_id\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"source_engine_requirement_id\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"source_executor_id\":\"sha256:7777777777777777777777777777777777777777777777777777777777777777\",\"source_head_commit_sha\":\"cccccccccccccccccccccccccccccccccccccccc\",\"source_receipt_id\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"subject_id\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"verification_request_id\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"worktree_overlay_sha256\":null}}",
+  "key_id": "sha256:56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
+  "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "schema_version": "shipgate.human_authorization_signature_test_vector/v1",
+  "signature": "fI79H0ignGoV8mI-bJeHGaohQhaL9BnMzcqUP1zOVmQrv0RRCuDdfg_scTPvpGEuBQnhgpML8Do0BZ27dqxzBQ",
+  "signature_domain_hex": "73686970676174652e68756d616e5f617574686f72697a6174696f6e2f763100",
+  "signature_payload_sha256": "sha256:3f8a6089d32ff320f096b6a3cec74ff4c5eb30c47dd3ae457f8982197910e90b",
+  "statement": {
+    "expires_at": "2026-07-18T12:10:00Z",
+    "issued_at": "2026-07-18T12:00:00Z",
+    "nonce": "AAECAwQFBgcICQoLDA0ODw",
+    "not_before": "2026-07-18T12:00:00Z",
+    "principal": {
+      "provider": "github",
+      "subject": "github:user:reviewer"
+    },
+    "reason": "Reviewed exact operation.",
+    "request": {
+      "authorization_request_id": "sha256:aada615ac1feead3e0196a1ad623eec8f4900f6bdebba4951c6c56e5ab5c22a6",
+      "base_commit_sha": "9999999999999999999999999999999999999999",
+      "base_tree_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision": "review_required",
+      "decision_id": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "head_tree_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "merge_base_sha": "8888888888888888888888888888888888888888",
+      "operation": {
+        "destination_ref": "refs/heads/codex/reviewed",
+        "destination_repository_id": "example.test/acme/agent",
+        "expected_lease_oid": "dddddddddddddddddddddddddddddddddddddddd",
+        "force_with_lease": true,
+        "kind": "git_push",
+        "operation_id": "sha256:61deb55770225738ed36777e301dc7adde3dabed9b34d56b9cc6b361ba448e2f",
+        "push_url": "https://example.test/acme/agent.git",
+        "source_commit_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "repository_id": "example.test/acme/agent",
+      "review_items": [
+        {
+          "check_id": "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
+          "fingerprint": null,
+          "paths": [
+            "action.yml"
+          ],
+          "review_item_id": "review-1",
+          "support_hash": null
+        }
+      ],
+      "review_set_id": "sha256:49806f6f5d712fb4f7712cee6a57cf6946f3607eeb88b629c17ad0c93d27df73",
+      "schema_version": "shipgate.human_authorization_request/v1",
+      "source_artifact_set_id": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "source_engine_requirement_id": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "source_executor_id": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "source_head_commit_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "source_receipt_id": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "subject_id": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "verification_request_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "worktree_overlay_sha256": null
+    }
+  }
+}

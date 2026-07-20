@@ -389,6 +389,29 @@ def test_well_known_metadata_lists_packet_outputs():
         data.get("verification_receipt_schema_version")
         == contract["verification_receipt_schema_version"]
     )
+    assert (
+        data.get("human_authorization_request_schema_version")
+        == contract["human_authorization_request_schema_version"]
+    )
+    assert (
+        data.get("human_authorization_schema_version")
+        == contract["human_authorization_schema_version"]
+    )
+    assert (
+        data.get("human_authorization_evaluation_schema_version")
+        == contract["human_authorization_evaluation_schema_version"]
+    )
+    assert (
+        data.get("human_authorization_trust_policy_schema_version")
+        == contract["human_authorization_trust_policy_schema_version"]
+    )
+    assert data.get("human_authorization_trust_policy_default_path") == (
+        contract["human_authorization_trust_policy_default_path"]
+    )
+    assert (
+        data.get("human_authorization_schema_path")
+        == contract["human_authorization_schema_path"]
+    )
     assert data.get("agent_handoff_schema_version") == contract["agent_handoff_schema_version"]
     assert data.get("agent_handoff_schema_path") == contract["agent_handoff_schema_path"]
     assert data.get("agent_handoff_artifact") == contract["agent_handoff_artifact"]
@@ -407,6 +430,7 @@ def test_well_known_metadata_lists_packet_outputs():
     assert data.get("agent_read_order") == contract["agent_read_order"]
     assert data.get("verifier_read_order") == contract["verifier_read_order"]
     assert data.get("do_not_auto_assert") == contract["do_not_auto_assert"]
+    assert "human_authorization" in contract["external_integration_surfaces"]
     assert "action_effect" in contract["do_not_auto_assert"]
     assert "action_authority" in contract["do_not_auto_assert"]
     assert data.get("agent_interface_operations") == contract["agent_interface_operations"]
@@ -509,7 +533,9 @@ def test_well_known_metadata_lists_packet_outputs():
     )
     assert "verification_receipt" in schemas
     assert "verification-receipt-schema.v1.json" in schemas["verification_receipt"]
-    assert "agent_handoff" in schemas and "agent-handoff-schema.v5.json" in schemas["agent_handoff"]
+    assert "human_authorization" in schemas
+    assert "human-authorization-schema.v1.json" in schemas["human_authorization"]
+    assert "agent_handoff" in schemas and "agent-handoff-schema.v6.json" in schemas["agent_handoff"]
     assert (
         "codex_boundary_result" in schemas
         and "codex-boundary-result-schema.v2.json" in schemas["codex_boundary_result"]
@@ -1598,8 +1624,9 @@ def test_well_known_seo_geo_positioning_fields_are_pinned():
     assert data.get("static_scan_fixture_run") == (
         "agents-shipgate fixture run support_refund_agent"
     )
-    assert data.get("verifier_read_order", [])[:9] == [
+    assert data.get("verifier_read_order", [])[:10] == [
         "control.state",
+        "authorization",
         "execution",
         "merge_verdict",
         "applicability",

@@ -16,6 +16,7 @@ from agents_shipgate.core.verification_identity import (
 )
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.safety_qualification import (
     FrozenSafetyCorpusV1,
@@ -378,6 +379,7 @@ def _fixture(
             applicability="verified",
             can_merge_without_human=actual == "passed",
             control=control,
+            authorization=AuthorizationEvaluationV1.not_requested(),
             mode="advisory",
             artifacts={"report_json": "agents-shipgate-reports/report.json"},
         )

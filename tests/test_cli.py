@@ -1,5 +1,6 @@
 import json
 import re
+import shutil
 from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin
@@ -44,6 +45,12 @@ from agents_shipgate.schemas.contract import (
     HOST_GRANTS_BASELINE_SCHEMA_VERSION,
     HOST_GRANTS_DRIFT_SCHEMA_VERSION,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
+    HUMAN_AUTHORIZATION_EVALUATION_SCHEMA_VERSION,
+    HUMAN_AUTHORIZATION_REQUEST_SCHEMA_VERSION,
+    HUMAN_AUTHORIZATION_SCHEMA_PATH,
+    HUMAN_AUTHORIZATION_SCHEMA_VERSION,
+    HUMAN_AUTHORIZATION_TRUST_POLICY_ACCOUNT_PATH,
+    HUMAN_AUTHORIZATION_TRUST_POLICY_SCHEMA_VERSION,
     MANUAL_REVIEW_SIGNALS,
     MCP_TOOLS,
     MERGE_VERDICTS,
@@ -267,6 +274,12 @@ def test_cli_contract_json_outputs_runtime_contract():
         "verification_unit_result_schema_version",
         "verification_artifact_manifest_schema_version",
         "verification_receipt_schema_version",
+        "human_authorization_request_schema_version",
+        "human_authorization_schema_version",
+        "human_authorization_evaluation_schema_version",
+        "human_authorization_trust_policy_schema_version",
+        "human_authorization_trust_policy_default_path",
+        "human_authorization_schema_path",
         "agent_handoff_schema_version",
         "agent_handoff_schema_path",
         "agent_handoff_artifact",
@@ -324,6 +337,20 @@ def test_cli_contract_json_outputs_runtime_contract():
             VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION
         ),
         "verification_receipt_schema_version": VERIFICATION_RECEIPT_SCHEMA_VERSION,
+        "human_authorization_request_schema_version": (
+            HUMAN_AUTHORIZATION_REQUEST_SCHEMA_VERSION
+        ),
+        "human_authorization_schema_version": HUMAN_AUTHORIZATION_SCHEMA_VERSION,
+        "human_authorization_evaluation_schema_version": (
+            HUMAN_AUTHORIZATION_EVALUATION_SCHEMA_VERSION
+        ),
+        "human_authorization_trust_policy_schema_version": (
+            HUMAN_AUTHORIZATION_TRUST_POLICY_SCHEMA_VERSION
+        ),
+        "human_authorization_trust_policy_default_path": (
+            HUMAN_AUTHORIZATION_TRUST_POLICY_ACCOUNT_PATH
+        ),
+        "human_authorization_schema_path": HUMAN_AUTHORIZATION_SCHEMA_PATH,
         "agent_handoff_schema_version": AGENT_HANDOFF_SCHEMA_VERSION,
         "agent_handoff_schema_path": AGENT_HANDOFF_SCHEMA_PATH,
         "agent_handoff_artifact": ARTIFACTS["agent_handoff"],
@@ -960,6 +987,13 @@ def test_cli_doctor_json_includes_baseline_status():
 
 
 def test_cli_baseline_save_and_scan(tmp_path):
+    sample = tmp_path / "support_refund_agent"
+    shutil.copytree(
+        "samples/support_refund_agent",
+        sample,
+        ignore=shutil.ignore_patterns("agents-shipgate-reports"),
+    )
+    sample_config = sample / "shipgate.yaml"
     baseline_path = tmp_path / "baseline.json"
     save = runner.invoke(
         app,
@@ -967,7 +1001,7 @@ def test_cli_baseline_save_and_scan(tmp_path):
             "baseline",
             "save",
             "--config",
-            "samples/support_refund_agent/shipgate.yaml",
+            str(sample_config),
             "--out",
             str(baseline_path),
         ],
@@ -982,7 +1016,7 @@ def test_cli_baseline_save_and_scan(tmp_path):
         [
             "scan",
             "--config",
-            "samples/support_refund_agent/shipgate.yaml",
+            str(sample_config),
             "--out",
             str(tmp_path / "reports"),
             "--format",

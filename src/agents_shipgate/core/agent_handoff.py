@@ -94,6 +94,7 @@ def build_agent_handoff(
         ),
         gate=gate,
         control=verifier_model.control,
+        authorization=verifier_model.authorization,
         fix_task=_dict_or_none(verifier_payload.get("fix_task")),
         blocked_by=_blocked_by(release_decision),
         remediation_plan=_remediation_plan(verifier_payload.get("fix_task")),

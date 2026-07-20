@@ -18,7 +18,7 @@ report = json.loads(open("agents-shipgate-reports/report.json").read())
 gate = report["release_decision"]["decision"]   # blocked | review_required | insufficient_evidence | passed
 ```
 
-The CLI's stable contract names this signal explicitly: run `agents-shipgate contract --json` and inspect `gating_signal` — it is always `release_decision.decision` in the current contract (see [`STABILITY.md`](../STABILITY.md) §"Runtime contract JSON").
+The CLI's stable contract names this signal explicitly: run `agents-shipgate contract --json` and inspect `gating_signal` — it is always `release_decision.decision` in runtime contract v18 (see [`STABILITY.md`](../STABILITY.md) §"Runtime contract JSON").
 
 ---
 
@@ -38,6 +38,12 @@ Precedence (highest first): `blocked` → `review_required` (active high/critica
 | `"passed"` | Every in-scope action has complete, conflict-free static surface, effect, and authority evidence; all applicable controls were evaluated; and no policy condition requires review. This is not runtime proof. | Mechanical patches (if any) may apply; otherwise nothing to do. Preserve the runtime-safety disclaimer when summarizing. |
 
 The decision is **baseline-aware**: a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not in `release_decision.blockers`. Compare with the legacy `summary.status` field, which is *baseline-blind* — see Anti-patterns below.
+
+Runtime contract v18 can attach an externally signed authorization to a new
+verifier artifact and route one exact guarded operation, but it never rewrites
+this report verdict. The report remains `review_required`; autonomous agents
+must read `agent-handoff.json.control.state` to distinguish a human stop from
+that narrowly authorized next action.
 
 Before summarizing any verdict, preserve the machine boundary:
 `release_decision.static_analysis_only` is always `true`,
@@ -90,8 +96,9 @@ removing Shipgate CI; those are the bypass patterns the verifier checks are
 designed to make visible.
 
 `agents-shipgate verify` also writes
-`agents-shipgate-reports/verifier.json`. Lead with `merge_verdict`,
-`can_merge_without_human`, `control.next_action`, `fix_task`, and
+`agents-shipgate-reports/verifier.json`. Lead with `control.state`, then read
+`authorization`, `merge_verdict`, `can_merge_without_human`,
+`control.next_action`, `fix_task`, and
 `capability_review.top_changes`; then confirm
 `report.json.release_decision.decision`, which remains the release gate.
 `merge_verdict` is a deterministic projection for controller flow, not a second
@@ -146,7 +153,7 @@ Alongside `report.json`, scan emits a reviewer-shaped Release Evidence Packet at
 - §1 verdict — derives from `release_decision.decision` only. Never derive a verdict from `summary.status`.
 - §10 ("What this packet did NOT prove") — always lists prompt robustness, runtime behavior, model correctness, adversarial resistance.
 
-The packet schema is `0.10`; full schema at [`docs/packet-schema.v0.10.json`](packet-schema.v0.10.json). It projects current report binding and semantic coverage plus gap remediation; v0.9 is a frozen reference.
+The packet schema is `0.12`; full schema at [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json). It projects current report binding and semantic coverage plus gap remediation; v0.11 and older versions are frozen references.
 
 ---
 
@@ -230,7 +237,7 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 | Report | `0.34` | `0.33`, `0.32`, `0.31`, `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.34.json`](report-schema.v0.34.json) |
 | Packet | `0.12` | `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.12.json`](packet-schema.v0.12.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
-| CLI contract | `17` | — | `agents-shipgate contract --json` |
+| CLI contract | `18` | — | `agents-shipgate contract --json` |
 
 To detect the version programmatically:
 

@@ -478,12 +478,15 @@ rules:
     assert finding.capability_policy_evidence.controls["effective_approval_required"] is True
 
 
-def test_anthropic_function_strictness_does_not_emit_missing_strict_true():
+def test_anthropic_function_strictness_does_not_emit_missing_strict_true(
+    tmp_path: Path,
+) -> None:
     """OpenAI's `strict: true` field is not part of Anthropic's Messages API,
     so the function-schema-strictness check must not list it as an issue
     for Anthropic tools."""
     report, _ = run_scan(
         config_path=SAMPLE,
+        output_dir=tmp_path / "reports",
         formats=["json"],
         ci_mode="advisory",
     )

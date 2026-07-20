@@ -7,11 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from agents_shipgate import __version__
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 from agents_shipgate.schemas.verifier import Applicability, MergeVerdict, map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v5"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v5.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v6"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v6.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -176,49 +177,106 @@ class AgentHandoffArtifact(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         json_schema_extra={
-            "if": {
-                "properties": {
-                    "gate": {
-                        "properties": {"can_merge_without_human": {"const": True}},
-                        "required": ["can_merge_without_human"],
-                    }
-                },
-                "required": ["gate"],
-            },
-            "then": {
-                "properties": {
-                    "control": {
-                        "properties": {"state": {"const": "complete"}},
-                        "required": ["state"],
-                    },
-                    "fix_task": {"type": "null"},
-                }
-            },
-            "else": {
-                "properties": {
-                    "control": {
+            "allOf": [
+                {
+                    "if": {
                         "properties": {
-                            "state": {
-                                "enum": [
-                                    "agent_action_required",
-                                    "human_review_required",
-                                ]
+                            "gate": {
+                                "properties": {
+                                    "can_merge_without_human": {"const": True}
+                                },
+                                "required": ["can_merge_without_human"],
                             }
                         },
-                        "required": ["state"],
-                    }
-                }
-            },
+                        "required": ["gate"],
+                    },
+                    "then": {
+                        "properties": {
+                            "control": {
+                                "properties": {"state": {"const": "complete"}},
+                                "required": ["state"],
+                            },
+                            "fix_task": {"type": "null"},
+                        }
+                    },
+                    "else": {
+                        "properties": {
+                            "control": {
+                                "properties": {
+                                    "state": {
+                                        "enum": [
+                                            "agent_action_required",
+                                            "human_review_required",
+                                        ]
+                                    }
+                                },
+                                "required": ["state"],
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "authorization": {
+                                "properties": {"status": {"const": "accepted"}},
+                                "required": ["status"],
+                            }
+                        },
+                        "required": ["authorization"],
+                    },
+                    "then": {
+                        "properties": {
+                            "gate": {
+                                "properties": {
+                                    "decision": {"const": "review_required"},
+                                    "merge_verdict": {
+                                        "const": "human_review_required"
+                                    },
+                                    "can_merge_without_human": {"const": False},
+                                },
+                                "required": [
+                                    "decision",
+                                    "merge_verdict",
+                                    "can_merge_without_human",
+                                ],
+                            },
+                            "control": {
+                                "properties": {
+                                    "state": {"const": "agent_action_required"},
+                                    "completion_allowed": {"const": False},
+                                    "next_action": {
+                                        "properties": {"kind": {"const": "repair"}},
+                                        "required": ["kind"],
+                                    },
+                                    "allowed_next_commands": {
+                                        "minItems": 1,
+                                        "maxItems": 1,
+                                    },
+                                },
+                                "required": [
+                                    "state",
+                                    "completion_allowed",
+                                    "next_action",
+                                    "allowed_next_commands",
+                                ],
+                            },
+                            "fix_task": {"type": "null"},
+                        }
+                    },
+                },
+            ]
         },
     )
 
-    schema_version: Literal["shipgate.agent_handoff/v5"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v6"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation
     subject: AgentHandoffSubject
     gate: AgentHandoffGateV3
     control: AgentControl
+    authorization: AuthorizationEvaluationV1
     fix_task: dict[str, Any] | None = None
     blocked_by: list[AgentHandoffBlockedBy] = Field(default_factory=list)
     remediation_plan: list[AgentHandoffRemediationStep] = Field(default_factory=list)
@@ -251,6 +309,30 @@ class AgentHandoffArtifact(BaseModel):
             raise ValueError("handoff control must exactly project gate merge authority")
         if self.control.state == "complete" and self.fix_task is not None:
             raise ValueError("complete handoff control cannot carry a pending fix task")
+        if self.authorization.status == "accepted":
+            if self.gate.decision != "review_required":
+                raise ValueError(
+                    "accepted authorization requires a review_required release decision"
+                )
+            if self.control.state != "agent_action_required":
+                raise ValueError(
+                    "accepted authorization requires agent_action_required control"
+                )
+            action = self.control.next_action
+            if action.kind != "repair" or getattr(action, "command", None) != (
+                self.authorization.command
+            ):
+                raise ValueError(
+                    "accepted authorization must exactly bind the repair command"
+                )
+            if self.control.allowed_next_commands != [self.authorization.command]:
+                raise ValueError(
+                    "accepted authorization must expose only its exact allowed command"
+                )
+            if self.fix_task is not None:
+                raise ValueError(
+                    "accepted authorization is an operational overlay, not a fix task"
+                )
         return self
 
 

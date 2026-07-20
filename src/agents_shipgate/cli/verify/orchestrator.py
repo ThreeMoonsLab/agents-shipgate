@@ -17,6 +17,10 @@ from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
+from agents_shipgate.core.authorization_execution import (
+    authorization_execute_command,
+    ensure_authorization_runtime_is_external,
+)
 from agents_shipgate.core.capability_lock import (
     DEFAULT_CAPABILITY_LOCK_PATH,
     diff_capability_locks,
@@ -26,6 +30,10 @@ from agents_shipgate.core.capability_lock import (
 )
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.evaluation_clock import use_evaluation_date
+from agents_shipgate.core.human_authorization import (
+    default_human_authorization_trust_policy_path,
+    evaluate_human_authorization,
+)
 from agents_shipgate.core.verification_identity import (
     build_executor,
     build_terminal_receipt,
@@ -46,6 +54,12 @@ from agents_shipgate.schemas.agent_control import (
     HumanControlAction,
 )
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1, CapabilityLockFileV1
+from agents_shipgate.schemas.human_authorization import (
+    AuthorizationEvaluationV1,
+    HumanAuthorizationV1,
+    authorization_review_items,
+    build_human_authorization_request,
+)
 from agents_shipgate.schemas.report import ReadinessReport, ReleaseDecision
 from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verification_identity import VerificationPlan, content_id
@@ -68,6 +82,7 @@ from agents_shipgate.triggers import evaluate
 from .capability_review import build_capability_review
 from .fix_task import FORBIDDEN_SHORTCUTS, build_fix_task
 from .git import (
+    active_replace_refs,
     archive_tree,
     commit_date,
     commit_sha,
@@ -79,6 +94,7 @@ from .git import (
     read_file_at_ref,
     ref_exists,
     repository_identity,
+    resolve_source_head_identity,
     tree_sha,
     working_tree_context,
 )
@@ -89,6 +105,7 @@ HEAD_FORMATS = ["markdown", "json", "sarif"]
 HEAD_PACKET_FORMATS = ["json"]
 DEFAULT_OUT_DIR = Path("agents-shipgate-reports")
 BASE_CACHE_KEEP_ENTRIES = 16
+MAX_HUMAN_AUTHORIZATION_BYTES = 1024 * 1024
 
 
 def run_verify(
@@ -112,6 +129,7 @@ def run_verify(
     verbose: bool,
     pr_comment_style: str = "capability-review",
     auto_base: bool = False,
+    authorization: Path | None = None,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     git_root = ensure_git_workspace(workspace.resolve())
     config_path = _resolve_under_workspace(git_root, config)
@@ -547,13 +565,17 @@ def run_verify(
                     input_root=head_input_root,
                     diff_text=diff_text,
                     diff_from_path=base_report,
+                    authorization_path=authorization,
                     verification_options={
                         "archive_head": archive_head,
                         "baseline_mode": baseline_mode,
                         "strict_plugins": strict_plugins,
                         "suggest_patches": suggest_patches,
-                        "source_head_commit_sha": os.getenv("SOURCE_HEAD_SHA") or None,
-                        "evaluated_head_commit_sha": os.getenv("GITHUB_SHA") or None,
+                        "evaluated_head_commit_sha": (os.getenv("EVALUATED_HEAD_SHA") or None),
+                        "github_actions": os.getenv("GITHUB_ACTIONS") == "true",
+                        "github_event_name": (
+                            os.getenv("EVENT_NAME") or os.getenv("GITHUB_EVENT_NAME") or None
+                        ),
                     },
                     evaluation_date=verification_date,
                 )
@@ -1177,6 +1199,7 @@ def _build_verifier(
         applicability=applicability,
         can_merge_without_human=can_merge,
         control=control,
+        authorization=AuthorizationEvaluationV1.not_requested(),
         headline=headline,
         fix_task=fix_task,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
@@ -1263,11 +1286,191 @@ def _clear_trusted_handoff(out_dir: Path) -> None:
         "verification-unit-result.json",
         "verification-artifacts.json",
         "verification-receipt.json",
+        "human-authorization.json",
     ):
         path = out_dir / name
         if path.is_file() or path.is_symlink():
             with contextlib.suppress(OSError):
                 path.unlink()
+
+
+def _apply_authorization_overlay(
+    verifier: VerifierArtifact,
+    evaluation: AuthorizationEvaluationV1,
+) -> None:
+    """Project a trusted, exact operation onto control without changing the gate.
+
+    The signed authorization is operational evidence only.  It can replace a
+    human stop with one exact coding-agent command, but it cannot make the PR
+    mergeable, alter the release decision, or authorize completion.  Build and
+    validate the complete replacement state before mutating ``verifier`` so an
+    incompatible evaluation fails atomically.
+    """
+
+    update: dict[str, Any] = {"authorization": evaluation.model_dump(mode="json")}
+    if evaluation.status == "accepted":
+        if (
+            verifier.execution != "succeeded"
+            or verifier.decision != "review_required"
+            or verifier.merge_verdict != "human_review_required"
+            or verifier.can_merge_without_human
+        ):
+            raise ValueError(
+                "accepted human authorization can only overlay a succeeded "
+                "review_required verifier result"
+            )
+        command = evaluation.command
+        if not command:
+            raise ValueError("accepted human authorization must carry an exact command")
+        reason = (
+            "A trusted human authorization permits exactly one bound operation; "
+            "the static release decision and merge authority remain unchanged."
+        )
+        update.update(
+            {
+                "control": derive_agent_control(
+                    reason=reason,
+                    next_action=CodingAgentCommandAction(
+                        kind="repair",
+                        command=command,
+                        why=reason,
+                    ),
+                    verify_required=True,
+                    allowed_next_commands=[command],
+                ).model_dump(mode="json"),
+                "fix_task": None,
+            }
+        )
+
+    payload = verifier.model_dump(mode="json")
+    payload.update(update)
+    validated = VerifierArtifact.model_validate(payload)
+    verifier.authorization = validated.authorization
+    if evaluation.status == "accepted":
+        verifier.control = validated.control
+        verifier.fix_task = validated.fix_task
+
+
+def _evaluate_authorization_overlay(
+    *,
+    authorization_path: Path | None,
+    verifier: VerifierArtifact,
+    report: ReadinessReport | None,
+    plan: VerificationPlan,
+    workspace: Path,
+    authorization_command: str,
+) -> tuple[AuthorizationEvaluationV1, HumanAuthorizationV1 | None]:
+    """Evaluate an external grant against the just-recomputed verifier graph."""
+
+    if authorization_path is None:
+        return AuthorizationEvaluationV1.not_requested(), None
+    if verifier.execution != "succeeded" or verifier.decision != "review_required":
+        return (
+            AuthorizationEvaluationV1.not_applicable("release_decision_not_review_required"),
+            None,
+        )
+    if plan.inputs.options.get("plugins_enabled") is not False:
+        return (
+            AuthorizationEvaluationV1.not_applicable(
+                "authorization_requires_plugins_disabled"
+            ),
+            None,
+        )
+    try:
+        if report is None:
+            raise ValueError("authorization requires a release report")
+        ensure_authorization_runtime_is_external(workspace)
+        if active_replace_refs(workspace):
+            raise ValueError("authorization rejects repositories with Git replace refs")
+        grant = _load_external_human_authorization(
+            authorization_path,
+            workspace=workspace,
+        )
+        review_items = authorization_review_items(report.release_decision.model_dump(mode="json"))
+        git = plan.subject.git
+        if git.snapshot_kind != "committed_tree" or git.worktree_overlay_sha256 is not None:
+            raise ValueError("authorization requires a committed Git subject")
+        if not (
+            git.base_commit_sha
+            and git.merge_base_sha
+            and git.base_tree_sha
+            and git.head_tree_sha
+            and git.source_head_commit_sha
+        ):
+            raise ValueError("authorization requires complete committed PR tree identity")
+        signed_source = grant.statement.request
+        if signed_source.source_engine_requirement_id != plan.engine.engine_requirement_id:
+            raise ValueError("authorization source engine differs from the current engine")
+        if signed_source.source_executor_id != verifier.executor_id:
+            raise ValueError("authorization source executor differs from the current executor")
+        # These two IDs are signer-authenticated provenance labels. Unlike the
+        # engine, executor, request, subject, decision, tree, review-set, and
+        # operation identities rebuilt here, the prior receipt and artifact
+        # set are not transported into this second verification pass. Copying
+        # them preserves the exact signed request; it is not an independent
+        # provenance check by this verifier.
+        expected_request = build_human_authorization_request(
+            repository_id=git.repository_id,
+            source_receipt_id=signed_source.source_receipt_id,
+            source_artifact_set_id=signed_source.source_artifact_set_id,
+            source_engine_requirement_id=signed_source.source_engine_requirement_id,
+            source_executor_id=signed_source.source_executor_id,
+            verification_request_id=plan.request_id,
+            subject_id=plan.subject.subject_id,
+            decision_id=verifier.decision_id or "",
+            base_commit_sha=git.base_commit_sha,
+            merge_base_sha=git.merge_base_sha,
+            base_tree_sha=git.base_tree_sha,
+            head_tree_sha=git.head_tree_sha,
+            source_head_commit_sha=git.source_head_commit_sha,
+            review_items=review_items,
+            operation=grant.statement.request.operation,
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        return AuthorizationEvaluationV1.rejected("authorization_context_invalid"), None
+
+    evaluation = evaluate_human_authorization(
+        grant,
+        trust_policy_path=default_human_authorization_trust_policy_path(),
+        workspace=workspace,
+        expected_request=expected_request,
+        expected_review_items=review_items,
+    )
+    if evaluation.status == "accepted":
+        payload = evaluation.model_dump(mode="json")
+        payload["command"] = authorization_command
+        evaluation = AuthorizationEvaluationV1.model_validate(payload)
+    return evaluation, grant
+
+
+def _load_external_human_authorization(
+    path: Path,
+    *,
+    workspace: Path,
+) -> HumanAuthorizationV1:
+    """Load a signed grant only from outside the evaluated workspace."""
+
+    lexical = Path(os.path.abspath(path))
+    resolved_workspace = workspace.resolve(strict=True)
+    resolved = lexical.resolve(strict=True)
+    if _path_is_within(lexical, Path(os.path.abspath(workspace))) or _path_is_within(
+        resolved, resolved_workspace
+    ):
+        raise ValueError("human authorization grant must be stored outside the workspace")
+    if not resolved.is_file() or resolved.stat().st_size > MAX_HUMAN_AUTHORIZATION_BYTES:
+        raise ValueError("human authorization grant is unavailable or exceeds the size limit")
+    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("human authorization grant must contain one JSON object")
+    return HumanAuthorizationV1.model_validate(payload)
+
+
+def _path_is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
 
 
 def _write_artifacts(
@@ -1289,6 +1492,7 @@ def _write_artifacts(
     input_root: Path | None = None,
     diff_text: str = "",
     diff_from_path: Path | None = None,
+    authorization_path: Path | None = None,
     verification_options: dict[str, Any] | None = None,
     evaluation_date: str | None = None,
 ) -> None:
@@ -1337,6 +1541,35 @@ def _write_artifacts(
     resolved_date = evaluation_date or commit_date(git_root, verifier.head_ref)
     base_commit = commit_sha(git_root, verifier.base_ref) if verifier.base_ref else None
     head_commit = commit_sha(git_root, verifier.head_ref)
+    archived_head = resolved_input_root != git_root.resolve()
+    resolved_options = dict(verification_options or {})
+    evaluated_hint = resolved_options.pop("evaluated_head_commit_sha", None)
+    github_actions = resolved_options.pop("github_actions", False)
+    github_event_name = resolved_options.pop("github_event_name", None)
+    source_head_commit: str | None = None
+    if archived_head:
+        try:
+            source_identity = resolve_source_head_identity(
+                git_root,
+                head_ref=verifier.head_ref,
+                github_actions=github_actions is True,
+                event_name=(github_event_name if isinstance(github_event_name, str) else None),
+                evaluated_head_sha=(evaluated_hint if isinstance(evaluated_hint, str) else None),
+            )
+        except ValueError as exc:
+            raise InputParseError(f"Invalid committed source-head identity: {exc}") from exc
+        if head_commit != source_identity.evaluated_head_commit_sha:
+            raise InputParseError(
+                "Resolved verification head changed while building source-head identity"
+            )
+        source_head_commit = source_identity.source_head_commit_sha
+        resolved_options.update(
+            {
+                "evaluated_head_commit_sha": source_identity.evaluated_head_commit_sha,
+                "source_head_commit_sha": source_identity.source_head_commit_sha,
+                "source_head_relation": source_identity.relation,
+            }
+        )
     portable_diff_from_path: Path | None = None
     if diff_from_path is not None and diff_from_path.is_file():
         portable_diff_from_path = verifier_path.with_name("verification-base-report.json")
@@ -1351,12 +1584,13 @@ def _write_artifacts(
         config_logical_path=logical_config,
         base_ref=verifier.base_ref,
         head_ref=verifier.head_ref,
-        archived_head=resolved_input_root != git_root.resolve(),
+        archived_head=archived_head,
         repository_id=repository_identity(git_root),
         base_commit_sha=base_commit,
         base_tree_sha=(
             tree_sha(git_root, verifier.base_ref) if verifier.base_ref and base_commit else None
         ),
+        source_head_commit_sha=source_head_commit,
         head_commit_sha=head_commit,
         head_tree_sha=(tree_sha(git_root, verifier.head_ref) if head_commit else None),
         merge_base_sha=(
@@ -1375,7 +1609,7 @@ def _write_artifacts(
             "fail_on": sorted(fail_on or []),
             "no_heuristics": no_heuristics,
             "plugins_enabled": plugins_enabled is not False,
-            **(verification_options or {}),
+            **resolved_options,
         },
         plugins_enabled=plugins_enabled,
     )
@@ -1416,6 +1650,39 @@ def _write_artifacts(
     verifier.engine_requirement_id = plan.engine.engine_requirement_id
     verifier.executor_id = executor.executor_id
     verifier.decision_id = decision_id
+    evaluation, accepted_grant = _evaluate_authorization_overlay(
+        authorization_path=authorization_path,
+        verifier=verifier,
+        report=report,
+        plan=plan,
+        workspace=git_root,
+        authorization_command=authorization_execute_command(
+            workspace=git_root,
+            receipt=verifier_path.with_name("verification-receipt.json").resolve(),
+            artifacts_root=verifier_path.parent.resolve(),
+        ),
+    )
+    try:
+        _apply_authorization_overlay(verifier, evaluation)
+    except ValueError:
+        # A contradictory accepted projection is an internal invariant failure,
+        # never a reason to leak command authority or lose verifier artifacts.
+        evaluation = AuthorizationEvaluationV1.rejected("authorization_overlay_invalid")
+        accepted_grant = None
+        _apply_authorization_overlay(verifier, evaluation)
+    if evaluation.status == "accepted" and accepted_grant is not None:
+        authorization_artifact = verifier_path.with_name("human-authorization.json")
+        authorization_artifact.write_text(
+            json.dumps(
+                accepted_grant.model_dump(mode="json"),
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        verifier.artifacts["human_authorization_json"] = _display_path(
+            authorization_artifact.resolve(), git_root
+        )
     if report is not None:
         report.request_id = plan.request_id
         report.subject_id = plan.subject.subject_id
@@ -1558,6 +1825,10 @@ def _verify_run_artifact_refs(
 ) -> dict[str, VerifyRunArtifactRef]:
     refs: dict[str, VerifyRunArtifactRef] = {}
     terminal_identity_artifacts = {
+        # agent-handoff.json embeds verify-run reproducibility, so including its
+        # pre-projection hash here would create a cycle and become stale when
+        # the final handoff is written immediately after verify-run.json.
+        "agent_handoff_json",
         "verify_run_json",
         "verification_plan_json",
         "verification_unit_result_json",
@@ -1876,6 +2147,7 @@ def run_preview(
         applicability="not_evaluated",
         can_merge_without_human=False,
         control=control,
+        authorization=AuthorizationEvaluationV1.not_requested(),
         headline=headline,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),

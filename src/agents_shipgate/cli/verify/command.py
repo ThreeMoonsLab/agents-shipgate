@@ -121,6 +121,14 @@ def verify(
         "--diff-from",
         help="Explicit prior report.json or baseline JSON for head diff.",
     ),
+    authorization: Path | None = typer.Option(
+        None,
+        "--authorization",
+        help=(
+            "Signed shipgate.human_authorization/v1 grant emitted by a trusted "
+            "coding host. The grant must live outside the evaluated workspace."
+        ),
+    ),
     policy_packs: list[Path] | None = typer.Option(
         None,
         "--policy-pack",
@@ -169,6 +177,8 @@ def verify(
             raise ConfigError("--ci-mode must be advisory or strict")
         parsed_fail_on = _parse_fail_on(fail_on)
         parsed_pr_comment_style = _parse_pr_comment_style(pr_comment_style)
+        if preview and authorization is not None:
+            raise ConfigError("--authorization cannot be combined with --preview")
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
         guidance = "Fix the invalid CLI flag value referenced in the error and re-run verify."
@@ -211,6 +221,7 @@ def verify(
                 baseline=baseline,
                 baseline_mode=baseline_mode,
                 diff_from=diff_from,
+                authorization=authorization,
                 policy_packs=policy_packs,
                 plugins_enabled=False if no_plugins else None,
                 strict_plugins=strict_plugins,

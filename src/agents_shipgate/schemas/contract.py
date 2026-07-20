@@ -32,6 +32,14 @@ from agents_shipgate.schemas.host_grants import (
     HOST_GRANTS_DRIFT_SCHEMA_VERSION,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.human_authorization import (
+    HUMAN_AUTHORIZATION_EVALUATION_SCHEMA_VERSION,
+    HUMAN_AUTHORIZATION_REQUEST_SCHEMA_VERSION,
+    HUMAN_AUTHORIZATION_SCHEMA_PATH,
+    HUMAN_AUTHORIZATION_SCHEMA_VERSION,
+    HUMAN_AUTHORIZATION_TRUST_POLICY_ACCOUNT_PATH,
+    HUMAN_AUTHORIZATION_TRUST_POLICY_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHEMA_VERSION
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION
@@ -46,7 +54,7 @@ from agents_shipgate.schemas.verification_identity import (
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["17"] = "17"
+CONTRACT_VERSION: Literal["18"] = "18"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["14"] = "14"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v2"] = "agent_result_v2"
@@ -93,6 +101,7 @@ EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
     "verification_unit_result",
     "verification_artifact_manifest",
     "verification_receipt",
+    "human_authorization",
     "host_grants_inventory",
     "host_grants_baseline",
     "host_grants_drift",
@@ -219,6 +228,18 @@ COMMANDS: dict[str, str] = {
         "agents-shipgate-reports/verification-receipt.json --artifacts-root "
         "agents-shipgate-reports"
     ),
+    "authorization_request": (
+        "agents-shipgate authorization request --receipt "
+        "agents-shipgate-reports/verification-receipt.json --artifacts-root "
+        "agents-shipgate-reports --remote origin --destination-ref "
+        "refs/heads/<branch> --expected-lease-oid <oid> --out "
+        "agents-shipgate-reports/human-authorization-request.json"
+    ),
+    "authorization_execute": (
+        "agents-shipgate authorization execute --workspace . --receipt "
+        "agents-shipgate-reports/verification-receipt.json --artifacts-root "
+        "agents-shipgate-reports"
+    ),
     "agent_handoff": (
         "agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json"
     ),
@@ -257,6 +278,10 @@ ARTIFACTS: dict[str, str] = {
     "verification_unit_result": "agents-shipgate-reports/verification-unit-result.json",
     "verification_artifact_manifest": "agents-shipgate-reports/verification-artifacts.json",
     "verification_receipt": "agents-shipgate-reports/verification-receipt.json",
+    "human_authorization_request": (
+        "agents-shipgate-reports/human-authorization-request.json"
+    ),
+    "human_authorization": "agents-shipgate-reports/human-authorization.json",
     "report": "agents-shipgate-reports/report.json",
     "pr_comment": "agents-shipgate-reports/pr-comment.md",
     "packet": "agents-shipgate-reports/packet.json",
@@ -272,12 +297,14 @@ AGENT_READ_ORDER: tuple[str, ...] = (
     "verification-receipt.json.receipt_id",
     "agent-handoff.json",
     "agent-handoff.json.control.state",
+    "agent-handoff.json.authorization",
     "verifier.json.control.state",
     "verify-run.json",
     "report.json.release_decision.decision",
 )
 VERIFIER_READ_ORDER: tuple[str, ...] = (
     "control.state",
+    "authorization",
     "execution",
     "merge_verdict",
     "applicability",
@@ -316,6 +343,7 @@ DO_NOT_AUTO_ASSERT: tuple[str, ...] = (
     "prohibited-action",
     "runtime-trace",
     "human-ack",
+    "human-authorization",
     "suppression",
     "waiver",
     "baseline",
@@ -340,6 +368,12 @@ class ContractPayload(BaseModel):
     verification_unit_result_schema_version: str
     verification_artifact_manifest_schema_version: str
     verification_receipt_schema_version: str
+    human_authorization_request_schema_version: str
+    human_authorization_schema_version: str
+    human_authorization_evaluation_schema_version: str
+    human_authorization_trust_policy_schema_version: str
+    human_authorization_trust_policy_default_path: str
+    human_authorization_schema_path: str
     agent_handoff_schema_version: str
     agent_handoff_schema_path: str
     agent_handoff_artifact: str
@@ -402,6 +436,20 @@ def build_contract_payload() -> ContractPayload:
             VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION
         ),
         verification_receipt_schema_version=VERIFICATION_RECEIPT_SCHEMA_VERSION,
+        human_authorization_request_schema_version=(
+            HUMAN_AUTHORIZATION_REQUEST_SCHEMA_VERSION
+        ),
+        human_authorization_schema_version=HUMAN_AUTHORIZATION_SCHEMA_VERSION,
+        human_authorization_evaluation_schema_version=(
+            HUMAN_AUTHORIZATION_EVALUATION_SCHEMA_VERSION
+        ),
+        human_authorization_trust_policy_schema_version=(
+            HUMAN_AUTHORIZATION_TRUST_POLICY_SCHEMA_VERSION
+        ),
+        human_authorization_trust_policy_default_path=(
+            HUMAN_AUTHORIZATION_TRUST_POLICY_ACCOUNT_PATH
+        ),
+        human_authorization_schema_path=HUMAN_AUTHORIZATION_SCHEMA_PATH,
         agent_handoff_schema_version=AGENT_HANDOFF_SCHEMA_VERSION,
         agent_handoff_schema_path=AGENT_HANDOFF_SCHEMA_PATH,
         agent_handoff_artifact=ARTIFACTS["agent_handoff"],
@@ -475,6 +523,12 @@ __all__ = [
     "HOST_GRANTS_INVENTORY_SCHEMA_VERSION",
     "HOST_GRANTS_BASELINE_SCHEMA_VERSION",
     "HOST_GRANTS_DRIFT_SCHEMA_VERSION",
+    "HUMAN_AUTHORIZATION_EVALUATION_SCHEMA_VERSION",
+    "HUMAN_AUTHORIZATION_REQUEST_SCHEMA_VERSION",
+    "HUMAN_AUTHORIZATION_SCHEMA_PATH",
+    "HUMAN_AUTHORIZATION_SCHEMA_VERSION",
+    "HUMAN_AUTHORIZATION_TRUST_POLICY_ACCOUNT_PATH",
+    "HUMAN_AUTHORIZATION_TRUST_POLICY_SCHEMA_VERSION",
     "MANUAL_REVIEW_SIGNALS",
     "MERGE_VERDICTS",
     "MCP_TOOLS",

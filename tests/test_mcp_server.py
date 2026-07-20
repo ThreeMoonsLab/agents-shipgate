@@ -177,7 +177,7 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
             "merge_verdict": "mergeable",
             "applicability": "verified",
             "can_merge_without_human": True,
-            "control": {
+                "control": {
                 "state": "complete",
                 "reason": "All required static verification passed.",
                 "completion_allowed": True,
@@ -190,8 +190,23 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
                     "required_reviewers": [],
                 },
                 "stop_reason": None,
-                "allowed_next_commands": [],
-            },
+                    "allowed_next_commands": [],
+                },
+                "authorization": {
+                    "schema_version": "shipgate.human_authorization_evaluation/v1",
+                    "status": "not_requested",
+                    "authorization_id": None,
+                    "authorization_request_id": None,
+                    "trust_policy_id": None,
+                    "key_id": None,
+                    "provider": None,
+                    "principal": None,
+                    "operation_id": None,
+                    "command": None,
+                    "issued_at": None,
+                    "expires_at": None,
+                    "reason_codes": [],
+                },
             "forbidden_file_edits": [],
             "forbidden_actions": [],
             "artifacts": {
@@ -205,7 +220,7 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
 
     payload = shipgate_handoff(verifier_path=str(output_dir / "verifier.json"))
 
-    assert payload["schema_version"] == "shipgate.agent_handoff/v5"
+    assert payload["schema_version"] == "shipgate.agent_handoff/v6"
     assert payload["gate"]["merge_verdict"] == "mergeable"
     assert payload["control"]["state"] == "complete"
     assert _snapshot(tmp_path) == before

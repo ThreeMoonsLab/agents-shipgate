@@ -13,7 +13,7 @@
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
 - Latest public release: v0.15.0
-- Current source-tree runtime: 0.16.0b6 (contract 17; pre-release)
+- Current source-tree runtime: 0.16.0b6 (contract 18; pre-release)
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 
@@ -71,7 +71,7 @@
 - Agent handoff artifact (preferred compact agent projection for verify): `agents-shipgate-reports/agent-handoff.json`.
 - Terminal verification receipt (read and validate first): `agents-shipgate-reports/verification-receipt.json`.
 - Verification receipt schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-receipt-schema.v1.json
-- Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v5.json
+- Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v6.json
 - PR comment (ongoing-PR verify): `agents-shipgate-reports/pr-comment.md`.
 - Proactive preflight routing JSON: `agents-shipgate preflight --workspace . --plan - --json` emits `preflight_schema_version: "0.3"`; switch on `control.state`. It routes protected-surface edits, host permission requests, and high-risk capability evidence gaps but is not a release verdict.
 - Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.3.json
@@ -167,7 +167,7 @@
 - Governance benchmark: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark.md
 - Current agent contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md
 - Verification identity contract: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verification-reproducibility.md
-- Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v5.json
+- Agent handoff schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-handoff-schema.v6.json
 
 ## Category vocabulary
 

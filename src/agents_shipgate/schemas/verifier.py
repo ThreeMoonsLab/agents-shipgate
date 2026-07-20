@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from agents_shipgate.schemas.agent_control import AgentControl, normalize_legacy_agent_control
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.report import ReleaseDecision
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 
@@ -361,6 +362,7 @@ class VerifierArtifact(BaseModel):
                                 }
                             },
                             "release_decision": {
+                                "type": "object",
                                 "properties": {
                                     "decision": {"const": "passed"},
                                     "blockers": {"maxItems": 0},
@@ -421,11 +423,71 @@ class VerifierArtifact(BaseModel):
                         }
                     },
                 },
+                {
+                    "if": {
+                        "properties": {
+                            "authorization": {
+                                "properties": {"status": {"const": "accepted"}},
+                                "required": ["status"],
+                            }
+                        },
+                        "required": ["authorization"],
+                    },
+                    "then": {
+                        "required": [
+                            "execution",
+                            "head_status",
+                            "release_decision",
+                            "decision",
+                            "merge_verdict",
+                            "applicability",
+                            "can_merge_without_human",
+                            "control",
+                            "fix_task",
+                        ],
+                        "properties": {
+                            "execution": {"const": "succeeded"},
+                            "head_status": {"const": "succeeded"},
+                            "decision": {"const": "review_required"},
+                            "merge_verdict": {"const": "human_review_required"},
+                            "applicability": {"const": "verified"},
+                            "can_merge_without_human": {"const": False},
+                            "control": {
+                                "properties": {
+                                    "state": {"const": "agent_action_required"},
+                                    "completion_allowed": {"const": False},
+                                    "next_action": {
+                                        "properties": {"kind": {"const": "repair"}},
+                                        "required": ["kind"],
+                                    },
+                                    "allowed_next_commands": {
+                                        "minItems": 1,
+                                        "maxItems": 1,
+                                    },
+                                },
+                                "required": [
+                                    "state",
+                                    "completion_allowed",
+                                    "next_action",
+                                    "allowed_next_commands",
+                                ],
+                            },
+                            "fix_task": {"type": "null"},
+                            "release_decision": {
+                                "type": "object",
+                                "properties": {
+                                    "decision": {"const": "review_required"}
+                                },
+                                "required": ["decision"],
+                            },
+                        }
+                    },
+                },
             ]
         },
     )
 
-    verifier_schema_version: Literal["0.5"] = "0.5"
+    verifier_schema_version: Literal["0.6"] = "0.6"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -463,6 +525,7 @@ class VerifierArtifact(BaseModel):
     applicability: Applicability = "not_evaluated"
     can_merge_without_human: bool = False
     control: AgentControl
+    authorization: AuthorizationEvaluationV1
     headline: str | None = None
     fix_task: VerifierFixTask | None = None
     forbidden_file_edits: list[str] = Field(default_factory=list)
@@ -478,14 +541,18 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
-        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4"}
+        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4", "0.5"}
         if not legacy:
-            # Current v0.5 artifacts must already carry the authoritative
+            # Current v0.6 artifacts must already carry the authoritative
             # control union.  Silently synthesizing a missing or malformed
             # current control would turn an internal consistency failure into
             # a trusted handoff.  Only the frozen v0.2 reader is normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.5"
+        normalized["verifier_schema_version"] = "0.6"
+        normalized.setdefault(
+            "authorization",
+            AuthorizationEvaluationV1.not_requested().model_dump(mode="json"),
+        )
 
         execution = normalized.get("execution") or normalized.get("head_status")
         execution = execution or "not_run"
@@ -672,14 +739,47 @@ class VerifierArtifact(BaseModel):
             raise ValueError("non-mergeable artifacts cannot authorize completion")
         if self.control.state == "complete" and self.fix_task is not None:
             raise ValueError("complete control cannot carry a pending fix task")
+        authorization_accepted = self.authorization.status == "accepted"
+        if authorization_accepted:
+            if self.execution != "succeeded" or self.decision != "review_required":
+                raise ValueError(
+                    "accepted human authorization requires a succeeded review_required result"
+                )
+            if self.merge_verdict != "human_review_required" or self.can_merge_without_human:
+                raise ValueError(
+                    "human authorization is operational evidence and cannot change merge authority"
+                )
+            if self.control.state != "agent_action_required":
+                raise ValueError(
+                    "accepted human authorization must route one exact coding-agent action"
+                )
+            action = self.control.next_action
+            if action.kind != "repair" or getattr(action, "command", None) != self.authorization.command:
+                raise ValueError(
+                    "authorized control must expose the exact signed operation command"
+                )
+            if self.control.allowed_next_commands != [self.authorization.command]:
+                raise ValueError(
+                    "authorized control may expose only the exact signed operation command"
+                )
+            if self.fix_task is not None:
+                raise ValueError(
+                    "authorized operational control must not relabel a human review task as agent-safe"
+                )
         if self.control.state == "agent_action_required":
             action = self.control.next_action
             if action.kind == "repair":
-                if self.fix_task is None:
+                if self.fix_task is None and not authorization_accepted:
                     raise ValueError("agent repair control requires a verifier fix task")
-                if self.fix_task.actor != "coding_agent" or not self.fix_task.safe_to_attempt:
+                if (
+                    self.fix_task is not None
+                    and (self.fix_task.actor != "coding_agent" or not self.fix_task.safe_to_attempt)
+                ):
                     raise ValueError("agent repair control requires an agent-safe fix task")
-                if getattr(action, "command", None) != self.fix_task.verification_command:
+                if (
+                    self.fix_task is not None
+                    and getattr(action, "command", None) != self.fix_task.verification_command
+                ):
                     raise ValueError(
                         "agent repair control command must equal the exact fix-task rerun command"
                     )

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.metadata
 import json
+import os
 import platform
+import stat
+import tempfile
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +19,7 @@ import yaml
 from packaging.requirements import Requirement
 
 from agents_shipgate import __version__
-from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.checks.registry import _plugins_enabled, check_catalog
 from agents_shipgate.inputs.protocol import REGISTRY
 from agents_shipgate.schemas.verification_identity import (
     VerificationArtifactManifest,
@@ -31,6 +36,8 @@ from agents_shipgate.schemas.verification_identity import (
     VerificationUnitResult,
     content_id,
 )
+
+_GENERATED_DISTRIBUTION_DIRECTORY_NAMES = frozenset({"agents-shipgate-reports"})
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -56,6 +63,7 @@ def build_blob(*, path: Path, logical_path: str, source: str) -> VerificationBlo
 
 
 def build_engine_requirement(*, plugins_enabled: bool | None) -> VerificationEngineRequirement:
+    effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     engine_distribution_sha256 = _engine_distribution_sha256()
     source_project = _source_project_metadata()
     if source_project is None:
@@ -63,7 +71,7 @@ def build_engine_requirement(*, plugins_enabled: bool | None) -> VerificationEng
         declared_requirements = metadata.get_all("Requires-Dist") or []
     else:
         declared_requirements = list(source_project.get("dependencies") or [])
-    if plugins_enabled is not False:
+    if effective_plugins_enabled:
         declared_requirements.extend(_plugin_dependency_requirements())
     requirements = _installed_dependency_closure(declared_requirements)
     adapters = sorted(REGISTRY.clone()._adapters)  # noqa: SLF001 - public contract digest.
@@ -71,13 +79,16 @@ def build_engine_requirement(*, plugins_enabled: bool | None) -> VerificationEng
         source_project=source_project,
         engine_distribution_sha256=engine_distribution_sha256,
     )
-    if plugins_enabled is not False and any(
+    if effective_plugins_enabled and any(
         entry.endswith(":unresolved-distribution") for entry in plugin_entries
     ):
         raise ValueError(
             "an enabled Agents Shipgate plugin has no resolvable distribution identity"
         )
-    checks = [row.model_dump(mode="json") for row in check_catalog(plugins_enabled=plugins_enabled)]
+    checks = [
+        row.model_dump(mode="json")
+        for row in check_catalog(plugins_enabled=effective_plugins_enabled)
+    ]
     payload = {
         "package": "agents-shipgate",
         "version": __version__,
@@ -88,7 +99,7 @@ def build_engine_requirement(*, plugins_enabled: bool | None) -> VerificationEng
         "dependency_set_sha256": content_id(requirements),
         "adapter_set_sha256": content_id(adapters),
         "plugin_set_sha256": content_id(
-            {"enabled": plugins_enabled is not False, "entries": plugin_entries}
+            {"enabled": effective_plugins_enabled, "entries": plugin_entries}
         ),
         "policy_catalog_sha256": content_id(checks),
     }
@@ -142,6 +153,7 @@ def build_verification_plan(
     repository_id: str,
     base_commit_sha: str | None,
     base_tree_sha: str | None,
+    source_head_commit_sha: str | None = None,
     head_commit_sha: str | None,
     head_tree_sha: str | None,
     merge_base_sha: str | None,
@@ -155,19 +167,26 @@ def build_verification_plan(
     plugins_enabled: bool | None,
     diff_logical_path: str = "verification-input.diff",
 ) -> VerificationPlan:
+    effective_plugins_enabled = _plugins_enabled(plugins_enabled)
+    normalized_options = dict(options)
+    normalized_options["plugins_enabled"] = effective_plugins_enabled
     overlay = _worktree_overlay(git_root, changed_files) if not archived_head else []
     overlay_hash = content_id(overlay) if overlay else None
+    if not archived_head and source_head_commit_sha is not None:
+        raise ValueError("worktree-overlay plans cannot declare a source head commit")
+    if (
+        archived_head
+        and source_head_commit_sha is not None
+        and source_head_commit_sha != head_commit_sha
+    ):
+        raise ValueError("authorization source head must equal the evaluated committed head")
     git_subject = VerificationGitSubject(
         repository_id=repository_id,
         base_ref=base_ref,
         base_commit_sha=base_commit_sha,
         base_tree_sha=base_tree_sha,
         head_ref=head_ref,
-        source_head_commit_sha=(
-            str(options.get("source_head_commit_sha"))
-            if options.get("source_head_commit_sha")
-            else None
-        ),
+        source_head_commit_sha=source_head_commit_sha,
         head_commit_sha=head_commit_sha,
         head_tree_sha=head_tree_sha,
         merge_base_sha=merge_base_sha,
@@ -215,7 +234,7 @@ def build_verification_plan(
         "tool_sources": tool_sources,
         "changed_paths": sorted(set(changed_files)),
         "changed_files": changed_blobs,
-        "options": options,
+        "options": normalized_options,
     }
     inputs = VerificationInputSet(
         input_set_id=content_id(
@@ -232,7 +251,7 @@ def build_verification_plan(
         ),
         **inputs_payload,
     )
-    engine = build_engine_requirement(plugins_enabled=plugins_enabled)
+    engine = build_engine_requirement(plugins_enabled=effective_plugins_enabled)
     task_payload = {
         "kind": "evaluate",
         "shard": 0,
@@ -486,7 +505,222 @@ def validate_receipt_artifacts(receipt: VerificationReceipt, *, root: Path) -> N
     ):
         raise ValueError("verify-run outcome disagrees with the receipt")
 
+    _validate_verify_run_artifact_refs(
+        verify_run=verify_run,
+        receipt=receipt,
+        resolved=resolved,
+    )
+
     _validate_projection_ids(receipt, resolved)
+
+
+@contextlib.contextmanager
+def validated_receipt_snapshot(
+    *,
+    receipt_path: Path,
+    root: Path,
+    allowed_artifact_names: frozenset[str] | None = None,
+    max_artifact_count: int = 64,
+    max_artifact_size: int = 64 * 1024 * 1024,
+    max_total_size: int = 256 * 1024 * 1024,
+) -> Iterator[tuple[VerificationReceipt, Path]]:
+    """Yield one immutable, validated snapshot of a terminal artifact closure.
+
+    Every source file is opened beneath ``root`` with no-follow directory/file
+    descriptors, read once, checked against the embedded receipt, and copied
+    into a private temporary directory.  Consumers must parse only the yielded
+    snapshot so validation and use operate on the exact same bytes.
+    """
+
+    source_root = root.resolve(strict=True)
+    expected_receipt = source_root / "verification-receipt.json"
+    if receipt_path.resolve(strict=True) != expected_receipt:
+        raise ValueError("receipt path must name the terminal receipt in artifacts-root")
+    receipt_bytes = _read_regular_file_beneath(
+        source_root,
+        "verification-receipt.json",
+        max_size=4 * 1024 * 1024,
+    )
+    receipt = VerificationReceipt.model_validate(_json_object_bytes(receipt_bytes, "receipt"))
+    artifact_refs = receipt.artifact_manifest.artifacts
+    if len(artifact_refs) > max_artifact_count:
+        raise ValueError("receipt binds too many artifacts")
+    if allowed_artifact_names is not None:
+        unexpected = sorted(set(artifact_refs) - allowed_artifact_names)
+        if unexpected:
+            raise ValueError(
+                "receipt binds artifacts outside the allowed execution closure: "
+                + ", ".join(unexpected)
+            )
+    paths = [ref.path for ref in artifact_refs.values()]
+    if len(paths) != len(set(paths)):
+        raise ValueError("receipt binds more than one artifact name to the same path")
+    declared_total = 0
+    for name, ref in artifact_refs.items():
+        if ref.size_bytes > max_artifact_size:
+            raise ValueError(f"receipt artifact {name!r} exceeds the trusted size limit")
+        declared_total += ref.size_bytes
+        if declared_total > max_total_size:
+            raise ValueError("receipt artifact closure exceeds the trusted total size limit")
+
+    with tempfile.TemporaryDirectory(prefix="agents-shipgate-receipt-snapshot-") as raw:
+        snapshot_root = Path(raw)
+        (snapshot_root / "verification-receipt.json").write_bytes(receipt_bytes)
+        for name, ref in receipt.artifact_manifest.artifacts.items():
+            data = _read_regular_file_beneath(
+                source_root,
+                ref.path,
+                max_size=ref.size_bytes,
+            )
+            if len(data) != ref.size_bytes:
+                raise ValueError(f"receipt artifact {name!r} size does not match")
+            if sha256_bytes(data) != ref.sha256:
+                raise ValueError(f"receipt artifact {name!r} hash does not match")
+            target = snapshot_root / ref.path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+
+        manifest_bytes = _read_regular_file_beneath(
+            source_root,
+            "verification-artifacts.json",
+            max_size=4 * 1024 * 1024,
+        )
+        external_manifest = VerificationArtifactManifest.model_validate(
+            _json_object_bytes(manifest_bytes, "terminal artifact manifest")
+        )
+        if external_manifest != receipt.artifact_manifest:
+            raise ValueError("terminal artifact manifest disagrees with the receipt")
+        (snapshot_root / "verification-artifacts.json").write_bytes(manifest_bytes)
+
+        validate_receipt_artifacts(receipt, root=snapshot_root)
+        yield receipt, snapshot_root
+
+
+def load_validated_receipt_artifacts(
+    *,
+    receipt_path: Path,
+    root: Path,
+    allowed_artifact_names: frozenset[str] | None = None,
+    max_artifact_count: int = 64,
+    max_artifact_size: int = 64 * 1024 * 1024,
+    max_total_size: int = 256 * 1024 * 1024,
+) -> tuple[VerificationReceipt, dict[str, bytes]]:
+    """Load receipt-bound artifact bytes from one validated snapshot."""
+
+    with validated_receipt_snapshot(
+        receipt_path=receipt_path,
+        root=root,
+        allowed_artifact_names=allowed_artifact_names,
+        max_artifact_count=max_artifact_count,
+        max_artifact_size=max_artifact_size,
+        max_total_size=max_total_size,
+    ) as (
+        receipt,
+        snapshot_root,
+    ):
+        artifacts = {
+            name: (snapshot_root / ref.path).read_bytes()
+            for name, ref in receipt.artifact_manifest.artifacts.items()
+        }
+    return receipt, artifacts
+
+
+def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) -> bytes:
+    parts = Path(logical_path).parts
+    if not parts or Path(logical_path).is_absolute() or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"receipt artifact path is not portable: {logical_path!r}")
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptors: list[int] = []
+    try:
+        current = os.open(root, directory_flags)
+        descriptors.append(current)
+        for part in parts[:-1]:
+            current = os.open(part, directory_flags, dir_fd=current)
+            descriptors.append(current)
+        file_descriptor = os.open(parts[-1], file_flags, dir_fd=current)
+        descriptors.append(file_descriptor)
+        before = os.fstat(file_descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError(f"receipt artifact is not a regular file: {logical_path}")
+        if before.st_size > max_size:
+            raise ValueError(f"receipt artifact exceeds its size limit: {logical_path}")
+        chunks: list[bytes] = []
+        remaining = max_size + 1
+        while remaining:
+            chunk = os.read(file_descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        after = os.fstat(file_descriptor)
+        if (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ):
+            raise ValueError(f"receipt artifact changed while it was read: {logical_path}")
+        if len(data) > max_size:
+            raise ValueError(f"receipt artifact exceeds its size limit: {logical_path}")
+        return data
+    except OSError as exc:
+        raise ValueError(f"could not safely read receipt artifact {logical_path!r}: {exc}") from exc
+    finally:
+        for descriptor in reversed(descriptors):
+            with contextlib.suppress(OSError):
+                os.close(descriptor)
+
+
+def _json_object_bytes(data: bytes, label: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label} is not one UTF-8 JSON object") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} must contain one JSON object")
+    return payload
+
+
+def _validate_verify_run_artifact_refs(
+    *,
+    verify_run: Any,
+    receipt: VerificationReceipt,
+    resolved: dict[str, Path],
+) -> None:
+    """Close every non-cyclic verify-run artifact ref over receipt-bound bytes."""
+
+    for name, nested_ref in verify_run.artifacts.items():
+        # Older v3 runs could include the initial handoff even though the final
+        # handoff necessarily embeds verify-run reproducibility. Treat that
+        # edge as non-authoritative for compatibility; current writers omit it.
+        if name == "agent_handoff_json":
+            continue
+        manifest_ref = receipt.artifact_manifest.artifacts.get(name)
+        current_path = resolved.get(name)
+        if manifest_ref is None or current_path is None:
+            raise ValueError(f"verify-run artifact {name!r} is not bound by the terminal receipt")
+        if not nested_ref.sha256:
+            raise ValueError(f"verify-run artifact {name!r} lacks a content hash")
+        nested_sha256 = (
+            nested_ref.sha256
+            if nested_ref.sha256.startswith("sha256:")
+            else f"sha256:{nested_ref.sha256}"
+        )
+        if nested_sha256 != manifest_ref.sha256:
+            raise ValueError(
+                f"verify-run artifact {name!r} hash disagrees with the terminal receipt"
+            )
+        if sha256_file(current_path) != nested_sha256:
+            raise ValueError(
+                f"verify-run artifact {name!r} hash disagrees with current artifact bytes"
+            )
 
 
 def _load_json_object(path: Path) -> dict[str, Any]:
@@ -732,7 +966,13 @@ def _add_distribution_tree(
 ) -> None:
     candidates = [source] if source.is_file() else sorted(source.rglob("*"))
     for path in candidates:
-        if not path.is_file() or "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+        relative_parts = () if source.is_file() else path.relative_to(source).parts
+        if (
+            not path.is_file()
+            or "__pycache__" in relative_parts
+            or _GENERATED_DISTRIBUTION_DIRECTORY_NAMES.intersection(relative_parts)
+            or path.suffix in {".pyc", ".pyo"}
+        ):
             continue
         relative = "" if source.is_file() else path.relative_to(source).as_posix()
         logical = "/".join(part for part in (logical_root, relative) if part)

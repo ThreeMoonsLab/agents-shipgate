@@ -18,6 +18,7 @@ from agents_shipgate.cli import (
 from agents_shipgate.cli.agent_interface import agent_app
 from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_command
 from agents_shipgate.cli.attest import _attest_command
+from agents_shipgate.cli.authorization import authorization_app
 from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
 from agents_shipgate.cli.capability import capability_app
 from agents_shipgate.cli.check import check as _check_command
@@ -196,6 +197,7 @@ app.add_typer(mcp_app, name="mcp", hidden=True)
 app.add_typer(org_app, name="org", hidden=True)
 app.add_typer(registry_app, name="registry", hidden=True)
 app.add_typer(verification_app, name="verification", hidden=True)
+app.add_typer(authorization_app, name="authorization", hidden=True)
 logger = logging.getLogger(__name__)
 
 

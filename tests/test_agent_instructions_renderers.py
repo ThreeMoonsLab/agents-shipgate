@@ -160,18 +160,18 @@ def test_committed_claude_command_matches_renderer() -> None:
 
 def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "6"
+    assert payload["schema_version"] == "7"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "17"
+    assert payload["contract_version"] == "18"
     assert payload["minimum_control_contract_version"] == "14"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.5"
+    assert payload["verifier_schema_version"] == "0.6"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v3"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v5"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v5.json"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v6"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v6.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v1")
@@ -214,11 +214,22 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
         "verification-receipt.json.receipt_id",
         "agent-handoff.json",
         "agent-handoff.json.control.state",
+        "agent-handoff.json.authorization",
         "verifier.json.control.state",
         "verify-run.json",
         "report.json.release_decision.decision",
     ]
     assert payload["gating_signal"] == "release_decision.decision"
+
+
+def test_local_contract_keeps_v6_managed_render_migration_hash() -> None:
+    from agents_shipgate.cli.discovery.agent_instructions.renderers.local_contract import (
+        PRIOR_RENDER_SHA256,
+    )
+
+    assert "85d33d005d35f933b72e32c2d370efc2680e09d2ebe0c9997931c8ab4f352738" in (
+        PRIOR_RENDER_SHA256
+    )
 
 
 def test_target_repo_cursor_snippet_matches_renderer() -> None:

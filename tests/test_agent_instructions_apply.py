@@ -189,13 +189,13 @@ def test_claude_command_current_file_matches_renderer() -> None:
 
 def test_local_contract_renderer_has_required_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "6"
-    assert payload["contract_version"] == "17"
+    assert payload["schema_version"] == "7"
+    assert payload["contract_version"] == "18"
     assert "verify_local" not in payload["primary_commands"]
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v5"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v6"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["attestation_schema_version"] == "0.5"
     assert payload["registry_schema_version"] == "0.4"
@@ -209,6 +209,7 @@ def test_local_contract_renderer_has_required_fields() -> None:
     assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
     assert payload["verifier_read_order"] == [
         "control.state",
+        "authorization",
         "execution",
         "merge_verdict",
         "applicability",
