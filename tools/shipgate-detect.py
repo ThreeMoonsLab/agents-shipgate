@@ -64,7 +64,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "0.2.2"
+SCRIPT_VERSION = "0.2.3"
+MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
 
 # Framework signal vocabulary (mirror of cli/discovery/signals.py).
 LANGCHAIN_IMPORTS = {
@@ -391,6 +392,48 @@ def _confidence(score: float) -> str:
     return "high" if score >= 4.0 else "medium" if score >= 2.5 else "low"
 
 
+def _local_marketplace_roots(workspace: Path, paths: list[Path]) -> set[Path]:
+    """Resolve contained local plugin roots without loading plugin contents."""
+    roots: set[Path] = set()
+    for path in paths:
+        try:
+            path.resolve().relative_to(workspace)
+            if path.stat().st_size > MAX_STRUCTURED_FILE_BYTES:
+                continue
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, RuntimeError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            continue
+        entries = payload.get("plugins") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            source = entry.get("source") if isinstance(entry, dict) else None
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if not isinstance(name, str) or not name.strip():
+                continue
+            if not isinstance(source, dict) or source.get("source") != "local":
+                continue
+            raw_path = source.get("path")
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                continue
+            candidate = Path(raw_path)
+            try:
+                root = (
+                    candidate if candidate.is_absolute() else workspace / candidate
+                ).resolve()
+                root.relative_to(workspace)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            try:
+                plugin_manifest = (root / ".codex-plugin" / "plugin.json").resolve()
+                plugin_manifest.relative_to(workspace)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if plugin_manifest.is_file():
+                roots.add(root)
+    return roots
+
+
 def detect(workspace: Path) -> dict[str, Any]:
     workspace = workspace.resolve()
     files = _walk_files(workspace)
@@ -532,12 +575,29 @@ def detect(workspace: Path) -> dict[str, Any]:
             failures.append({"type": kind, "path": p, "reason": reason})
     excluded = [e for e in failures if e["path"] not in suggested_paths]
 
+    marketplace_paths = [
+        path
+        for path in files
+        if path.name == "marketplace.json"
+        and path.parent.as_posix().endswith(".agents/plugins")
+    ]
+    marketplace_roots = _local_marketplace_roots(workspace, marketplace_paths)
     codex_plugin_candidates: list[dict[str, str]] = []
     seen_codex: set[tuple[str, str]] = set()
     for path in files:
         rel = _rel(path, workspace)
         if path.name == "plugin.json" and path.parent.name == ".codex-plugin":
-            root_rel = _rel(path.parent.parent, workspace)
+            try:
+                path.resolve().relative_to(workspace)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            root = path.parent.parent
+            try:
+                if root.resolve() in marketplace_roots:
+                    continue
+            except (OSError, RuntimeError):
+                pass
+            root_rel = _rel(root, workspace)
             key = ("package", root_rel)
             if key not in seen_codex:
                 seen_codex.add(key)

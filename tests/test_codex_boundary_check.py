@@ -397,6 +397,163 @@ def test_explicitly_declared_test_fixture_still_routes_to_verify(tmp_path: Path)
     assert not any(item.code == "undeclared_capability_surface" for item in result.diagnostics)
 
 
+_PLUGIN_PATH = "plugins/reviewer/.codex-plugin/plugin.json"
+_PLUGIN_DIFF = (
+    f"diff --git a/{_PLUGIN_PATH} b/{_PLUGIN_PATH}\n"
+    f"--- a/{_PLUGIN_PATH}\n"
+    f"+++ b/{_PLUGIN_PATH}\n"
+    "@@ -1 +1 @@\n"
+    '-{"name":"reviewer","version":"1.0.0"}\n'
+    '+{"name":"reviewer","version":"2.0.0"}\n'
+)
+
+
+def _write_marketplace_workspace(
+    root: Path,
+    *,
+    marketplace_text: str | bytes,
+    plugin_text: str = '{"name":"reviewer","version":"2.0.0"}',
+) -> None:
+    _write_manifest(
+        root,
+        "  - id: local-market\n"
+        "    type: codex_plugin\n"
+        "    mode: marketplace\n"
+        "    path: .agents/plugins/marketplace.json\n",
+    )
+    plugin = root / _PLUGIN_PATH
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text(plugin_text, encoding="utf-8")
+    marketplace = root / ".agents/plugins/marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    if isinstance(marketplace_text, bytes):
+        marketplace.write_bytes(marketplace_text)
+    else:
+        marketplace.write_text(marketplace_text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("plugin_text", ['{"name":"reviewer"}', "{not-json"])
+def test_marketplace_local_plugin_change_routes_to_verify(
+    tmp_path: Path,
+    plugin_text: str,
+) -> None:
+    _write_marketplace_workspace(
+        tmp_path,
+        plugin_text=plugin_text,
+        marketplace_text=json.dumps(
+            {
+                "plugins": [
+                    {
+                        "name": "reviewer",
+                        "source": {"source": "local", "path": "plugins/reviewer"},
+                    }
+                ]
+            }
+        ),
+    )
+
+    result = build_codex_agent_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=_PLUGIN_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert any(item.code == "capability_change_requires_verify" for item in result.diagnostics)
+    assert not any(item.code == "undeclared_capability_surface" for item in result.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "marketplace_text",
+    [
+        pytest.param("{not-json", id="malformed"),
+        pytest.param(b"\xff", id="non-utf8"),
+        pytest.param(
+            json.dumps(
+                {
+                    "plugins": [
+                        {
+                            "name": "reviewer",
+                            "source": {"source": "github", "path": "plugins/reviewer"},
+                        }
+                    ]
+                }
+            ),
+            id="remote",
+        ),
+        pytest.param(
+            json.dumps(
+                {
+                    "plugins": [
+                        {
+                            "name": "reviewer",
+                            "source": {"source": "local", "path": "../reviewer"},
+                        }
+                    ]
+                }
+            ),
+            id="outside",
+        ),
+    ],
+)
+def test_unresolved_marketplace_root_remains_undeclared(
+    tmp_path: Path,
+    marketplace_text: str | bytes,
+) -> None:
+    _write_marketplace_workspace(tmp_path, marketplace_text=marketplace_text)
+
+    result = build_codex_agent_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=_PLUGIN_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.next_action.kind == "discover"
+    assert any(item.code == "undeclared_capability_surface" for item in result.diagnostics)
+
+
+def test_marketplace_plugin_manifest_symlink_escape_remains_undeclared(
+    tmp_path: Path,
+) -> None:
+    _write_marketplace_workspace(
+        tmp_path,
+        marketplace_text=json.dumps(
+            {
+                "plugins": [
+                    {
+                        "name": "reviewer",
+                        "source": {"source": "local", "path": "plugins/reviewer"},
+                    }
+                ]
+            }
+        ),
+    )
+    outside_manifest = tmp_path.parent / f"{tmp_path.name}-outside-plugin.json"
+    outside_manifest.write_text('{"name":"reviewer"}', encoding="utf-8")
+    plugin_manifest = tmp_path / _PLUGIN_PATH
+    plugin_manifest.unlink()
+    try:
+        plugin_manifest.symlink_to(outside_manifest)
+    except OSError as exc:  # pragma: no cover - platform permission fallback
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    result = build_codex_agent_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=_PLUGIN_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.next_action.kind == "discover"
+    assert any(item.code == "undeclared_capability_surface" for item in result.diagnostics)
+
+
 def test_check_warns_on_change_under_declared_directory_source(tmp_path: Path) -> None:
     # A directory tool source (loaders scan files inside it) must match a
     # changed file *under* the directory, not only an exact path equal to it.

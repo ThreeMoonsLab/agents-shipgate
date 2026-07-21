@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 
 from agents_shipgate.cli.discovery import detect_workspace
+from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "tools" / "shipgate-detect.py"
@@ -257,6 +258,105 @@ def test_script_and_cli_skip_common_fixture_dirs(script_module, tmp_path):
         assert result["excluded_sources"] == []
         assert result["codex_plugin_candidates"] == []
         assert result["workspace_signals"]["python_file_count"] == 0
+
+
+def test_script_and_cli_dedupe_marketplace_covered_package(script_module, tmp_path):
+    plugin = tmp_path / "plugins/reviewer/.codex-plugin/plugin.json"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text("{not-json", encoding="utf-8")
+    marketplace = tmp_path / ".agents/plugins/marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text(
+        '{"plugins":[{"name":"reviewer","source":'
+        '{"source":"local","path":"plugins/reviewer"}}]}',
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+
+    expected = [("marketplace", ".agents/plugins/marketplace.json")]
+    assert [
+        (item["mode"], item["path"])
+        for item in script_result["codex_plugin_candidates"]
+    ] == expected
+    assert [
+        (item["mode"], item["path"])
+        for item in cli_result["codex_plugin_candidates"]
+    ] == expected
+
+
+def test_script_and_cli_reject_oversized_marketplace_for_dedupe(
+    script_module,
+    tmp_path,
+):
+    plugin = tmp_path / "plugins/reviewer/.codex-plugin/plugin.json"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text('{"name":"reviewer"}', encoding="utf-8")
+    marketplace = tmp_path / ".agents/plugins/marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text(
+        '{"plugins":[{"name":"reviewer","source":'
+        '{"source":"local","path":"plugins/reviewer"}}],"padding":"'
+        + ("x" * (10 * 1024 * 1024))
+        + '"}',
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+
+    expected = {
+        ("marketplace", ".agents/plugins/marketplace.json"),
+        ("package", "plugins/reviewer"),
+    }
+    assert {
+        (item["mode"], item["path"])
+        for item in script_result["codex_plugin_candidates"]
+    } == expected
+    assert {
+        (item["mode"], item["path"])
+        for item in cli_result["codex_plugin_candidates"]
+    } == expected
+
+
+def test_script_and_cli_reject_plugin_manifest_symlink_escape_from_coverage(
+    script_module,
+    tmp_path,
+):
+    plugin = tmp_path / "plugins/reviewer/.codex-plugin/plugin.json"
+    plugin.parent.mkdir(parents=True)
+    outside_manifest = tmp_path.parent / f"{tmp_path.name}-outside-plugin.json"
+    outside_manifest.write_text('{"name":"reviewer"}', encoding="utf-8")
+    try:
+        plugin.symlink_to(outside_manifest)
+    except OSError as exc:  # pragma: no cover - platform permission fallback
+        pytest.skip(f"symlinks unavailable: {exc}")
+    marketplace = tmp_path / ".agents/plugins/marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text(
+        '{"plugins":[{"name":"reviewer","source":'
+        '{"source":"local","path":"plugins/reviewer"}}]}',
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(tmp_path)
+    cli_result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+
+    assert script_module._local_marketplace_roots(tmp_path, [marketplace]) == set()
+    assert resolve_local_codex_marketplace_roots(
+        marketplace_path=marketplace,
+        base_dir=tmp_path,
+    ) == ()
+    expected = {("marketplace", ".agents/plugins/marketplace.json")}
+    assert {
+        (item["mode"], item["path"])
+        for item in script_result["codex_plugin_candidates"]
+    } == expected
+    assert {
+        (item["mode"], item["path"])
+        for item in cli_result["codex_plugin_candidates"]
+    } == expected
 
 
 def test_script_detects_workspace_named_fixture_dir(script_module, tmp_path):

@@ -14,9 +14,12 @@ from agents_shipgate.core.agent_boundary import (
 from agents_shipgate.core.boundary_diff import BoundaryChangeSet, BoundaryInputIssue
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.codex_boundary import parse_unified_diff
+from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
 from agents_shipgate.schemas.agent_result import AgentResultV2
 from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.triggers import (
     SURFACE_CLASS_CAPABILITY,
     _git_diff_context,
@@ -216,11 +219,13 @@ def _declared_tool_surfaces_changed(
     ``openapi``) or a directory the loader scans recursively
     (``openai_agents_sdk``, ``google_adk``, ``langchain``, ``crewai``,
     ``codex_plugin``, ``codex_config``), so a changed file matches when it
-    equals the declared path or sits under it. Two exclusions keep this from
-    becoming noise: a declared path that resolves to the workspace root (e.g.
-    ``codex_config`` with ``path: .``) is dropped — it would otherwise match
-    every file, including docs — and changed files the boundary evaluator
-    already inspects are dropped, since ``check`` did evaluate those.
+    equals the declared path or sits under it. Valid local roots referenced by
+    a declared Codex marketplace are included because ``verify`` scans those
+    packages transitively. Two exclusions keep this from becoming noise: a
+    declared path that resolves to the workspace root (e.g. ``codex_config``
+    with ``path: .``) is dropped — it would otherwise match every file,
+    including docs — and changed files the boundary evaluator already
+    inspects are dropped, since ``check`` did evaluate those.
     """
 
     if not changed_files or not config_path.is_file():
@@ -242,6 +247,13 @@ def _declared_tool_surfaces_changed(
         if rel in {"", "."}:  # whole-workspace root: matching all files is noise.
             continue
         declared.add(rel)
+    declared.update(
+        _declared_codex_marketplace_roots(
+            manifest=manifest,
+            manifest_dir=manifest_dir,
+            workspace=workspace,
+        )
+    )
     if not declared:
         return []
     matched = [
@@ -251,6 +263,39 @@ def _declared_tool_surfaces_changed(
         and any(changed == decl or changed.startswith(f"{decl}/") for decl in declared)
     ]
     return sorted(matched)
+
+
+def _declared_codex_marketplace_roots(
+    *,
+    manifest: AgentsShipgateManifest,
+    manifest_dir: Path,
+    workspace: Path,
+) -> set[str]:
+    """Return contained local plugin roots reached through marketplaces."""
+
+    roots: set[str] = set()
+    for source in manifest.tool_sources:
+        if (
+            source.type != "codex_plugin"
+            or source.mode != "marketplace"
+            or not source.path
+        ):
+            continue
+        try:
+            marketplace_roots = resolve_local_codex_marketplace_roots(
+                marketplace_path=manifest_dir / str(source.path),
+                base_dir=manifest_dir,
+            )
+        except (InputParseError, OSError, RuntimeError, UnicodeError):
+            continue
+        for root in marketplace_roots:
+            try:
+                rel = root.relative_to(workspace).as_posix()
+            except ValueError:
+                continue
+            if rel not in {"", "."}:
+                roots.add(rel)
+    return roots
 
 
 def git_boundary_change_set(

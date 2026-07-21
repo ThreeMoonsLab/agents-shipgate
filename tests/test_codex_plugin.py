@@ -11,7 +11,7 @@ from agents_shipgate.cli.discovery.signals import detect_workspace
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.schemas.diagnostics import DIAG_CODEX_PLUGIN_PACKAGE_DETECTED
 
 
@@ -63,6 +63,42 @@ def test_codex_plugin_package_scan_keeps_non_tools_out_of_inventory(
     assert "SHIP-INVENTORY-NOT-ENUMERABLE" not in check_ids
     assert "SHIP-CODEX-PLUGIN-MCP-SERVER-NOT-ENUMERABLE" in check_ids
     assert "SHIP-CODEX-PLUGIN-APP-SURFACE-NOT-ENUMERABLE" in check_ids
+
+
+def test_codex_plugin_package_rejects_external_manifest_symlink(tmp_path: Path) -> None:
+    plugin_manifest = tmp_path / "plugins/browserish/.codex-plugin/plugin.json"
+    plugin_manifest.parent.mkdir(parents=True)
+    outside_manifest = tmp_path.parent / f"{tmp_path.name}-outside-plugin.json"
+    outside_manifest.write_text('{"name":"browserish"}', encoding="utf-8")
+    try:
+        plugin_manifest.symlink_to(outside_manifest)
+    except OSError as exc:  # pragma: no cover - platform permission fallback
+        pytest.skip(f"symlinks unavailable: {exc}")
+    manifest = _write_manifest(
+        tmp_path,
+        textwrap.dedent(
+            """
+            version: "0.1"
+            project:
+              name: codex-plugin-test
+            agent:
+              name: codex-plugin-review
+            environment:
+              target: local
+            tool_sources:
+              - id: browserish
+                type: codex_plugin
+                mode: package
+                path: plugins/browserish
+            output:
+              packet:
+                enabled: false
+            """
+        ),
+    )
+
+    with pytest.raises(InputParseError, match="resolves outside manifest directory"):
+        run_scan(config_path=manifest)
 
 
 def test_unknown_codex_plugin_component_does_not_prove_empty_surface(
