@@ -90,14 +90,20 @@ def preflight(
             )
         else:
             changed = _read_changed_files(changed_files)
+            diff_text = None
             if diff is not None:
-                changed = sorted(set(changed) | set(_changed_files_from_diff(diff)))
+                diff_text = _read_diff(diff)
+                changed = sorted(
+                    set(changed)
+                    | {item.path for item in parse_unified_diff(diff_text) if item.path}
+                )
             request = _read_capability_request(capability_request)
             base = _read_base_preflight(base_preflight)
             result = build_preflight_result(
                 workspace=workspace,
                 config=config,
                 changed_files=changed,
+                diff_text=diff_text,
                 capability_request=request,
                 base_preflight=base,
                 host_baseline=host_baseline,
@@ -134,9 +140,8 @@ def _read_changed_files(path: Path | None) -> list[str]:
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _changed_files_from_diff(path: Path) -> list[str]:
-    text = sys.stdin.read() if str(path) == "-" else path.read_text(encoding="utf-8")
-    return sorted({item.path for item in parse_unified_diff(text) if item.path})
+def _read_diff(path: Path) -> str:
+    return sys.stdin.read() if str(path) == "-" else path.read_text(encoding="utf-8")
 
 
 def _read_capability_request(path: Path | None) -> CapabilityRequestV1 | None:

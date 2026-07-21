@@ -28,6 +28,15 @@ as diagnostic context only, and do not infer control from prose. Only
 authorizes only the stated coding-agent route, and `human_review_required`
 requires the agent to stop.
 
+When `check` discovers an undeclared deployed tool surface, a coding agent may
+prepare the narrow coverage proposal itself: append a built-in `tool_sources`
+row with a contained existing path, leaving all existing rows and other
+manifest values unchanged. Run preflight with the concrete diff, then follow
+its exact verify command. This is proposal authorship, not approval; custom
+adapters, trust/optional declarations, semantic or authority claims, and any
+broader manifest change remain human-routed, and the concrete protected diff
+still needs human review before merge.
+
 ### PR And Local Verification
 
 For local pre-commit work, omit `--base` and `--head` so uncommitted edits are

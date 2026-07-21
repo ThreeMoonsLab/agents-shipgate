@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import sys
 from pathlib import Path
@@ -70,6 +71,17 @@ def _write(root: Path, path: str, text: str = "x\n") -> None:
     target.write_text(text, encoding="utf-8")
 
 
+def _manifest_diff(old: str, new: str) -> str:
+    return "diff --git a/shipgate.yaml b/shipgate.yaml\n" + "".join(
+        difflib.unified_diff(
+            old.splitlines(keepends=True),
+            new.splitlines(keepends=True),
+            fromfile="a/shipgate.yaml",
+            tofile="b/shipgate.yaml",
+        )
+    )
+
+
 def test_preflight_routes_protected_surface_touches_to_human(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
 
@@ -96,6 +108,196 @@ def test_preflight_routes_protected_surface_touches_to_human(tmp_path: Path) -> 
     assert "**/shipgate.yaml" not in forbidden_file_edits()
     assert any("AGENTS.md" in pattern for pattern in result.forbidden_file_edits)
     assert any(".codex/config.toml" in pattern for pattern in result.forbidden_file_edits)
+
+
+def test_preflight_allows_exact_append_only_builtin_source_proposal(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    plugin = root / "plugins" / "reviewer"
+    _write(plugin, ".codex-plugin/plugin.json", '{"name": "reviewer"}\n')
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+    new = old + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+
+    result = build_preflight_result(
+        workspace=root,
+        diff_text=_manifest_diff(old, new),
+    )
+
+    assert result.changed_files == ["shipgate.yaml"]
+    assert result.requires_human_review is False
+    assert result.protected_surface_touches[0].requires_human_review is False
+    assert result.control.state == "agent_action_required"
+    assert result.control.must_stop is False
+    assert result.control.next_action.kind == "verify"
+    assert result.control.allowed_next_commands == [
+        "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
+    ]
+    signal = next(item for item in result.signals if item.kind == "protected_surface_touch")
+    assert signal.actor == "coding_agent"
+    assert "not approved" in signal.reason
+
+
+@pytest.mark.parametrize("safe_block_first", [True, False])
+def test_preflight_rejects_duplicate_manifest_blocks_when_one_is_unsafe(
+    tmp_path: Path,
+    safe_block_first: bool,
+) -> None:
+    root = _workspace(tmp_path)
+    plugin = root / "plugins" / "reviewer"
+    _write(plugin, ".codex-plugin/plugin.json", '{"name": "reviewer"}\n')
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+    safe = old + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+    unsafe = old.replace(
+        "    path: tools.json\n",
+        "    path: tools.json\n    trust: internal\n",
+    )
+    safe_block = _manifest_diff(old, safe)
+    unsafe_block = _manifest_diff(old, unsafe)
+    composite = (
+        safe_block + unsafe_block if safe_block_first else unsafe_block + safe_block
+    )
+
+    result = build_preflight_result(workspace=root, diff_text=composite)
+
+    assert result.requires_human_review is True
+    assert result.protected_surface_touches[0].requires_human_review is True
+    assert result.control.state == "human_review_required"
+    assert result.control.must_stop is True
+
+
+@pytest.mark.parametrize(
+    "addition",
+    [
+        (
+            "  - id: reviewer-plugin\n"
+            "    type: codex_plugin\n"
+            "    path: plugins/reviewer\n"
+            "    mode: package\n"
+            "    trust: internal\n"
+        ),
+        (
+            "  - id: reviewer-plugin\n"
+            "    type: codex_plugin\n"
+            "    path: plugins/reviewer\n"
+            "    mode: package\n"
+            "    optional: true\n"
+        ),
+        ("  - id: custom-source\n    type: vendor_custom\n    path: plugins/reviewer\n"),
+        (
+            "  - id: reviewer-plugin\n"
+            "    type: codex_plugin\n"
+            "    path: plugins/reviewer\n"
+        ),
+        "  - id: root-config\n    type: codex_config\n    path: .\n",
+        "  - id: missing\n    type: mcp\n    path: missing-tools.json\n",
+        "  - id: directory\n    type: mcp\n    path: plugins/reviewer\n",
+        (
+            "  - id: marketplace\n"
+            "    type: codex_plugin\n"
+            "    path: plugins/reviewer\n"
+            "    mode: marketplace\n"
+        ),
+    ],
+)
+def test_preflight_rejects_unsafe_source_proposal(
+    tmp_path: Path,
+    addition: str,
+) -> None:
+    root = _workspace(tmp_path)
+    plugin = root / "plugins" / "reviewer"
+    _write(plugin, ".codex-plugin/plugin.json", '{"name": "reviewer"}\n')
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+
+    result = build_preflight_result(
+        workspace=root,
+        diff_text=_manifest_diff(old, old + addition),
+    )
+
+    assert result.requires_human_review is True
+    assert result.protected_surface_touches[0].requires_human_review is True
+    assert result.control.state == "human_review_required"
+    assert result.control.must_stop is True
+
+
+def test_preflight_rejects_source_addition_mixed_with_other_manifest_change(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    plugin = root / "plugins" / "reviewer"
+    _write(plugin, ".codex-plugin/plugin.json", '{"name": "reviewer"}\n')
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+    new = old.replace("name: preflight-test", "name: renamed") + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+
+    result = build_preflight_result(
+        workspace=root,
+        diff_text=_manifest_diff(old, new),
+    )
+
+    assert result.requires_human_review is True
+    assert result.control.state == "human_review_required"
+
+
+def test_preflight_rejects_source_addition_mixed_with_comment_claim(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    plugin = root / "plugins" / "reviewer"
+    _write(plugin, ".codex-plugin/plugin.json", '{"name": "reviewer"}\n')
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+    new = old.replace('version: "0.1"', '# human-approved\nversion: "0.1"') + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+
+    result = build_preflight_result(
+        workspace=root,
+        diff_text=_manifest_diff(old, new),
+    )
+
+    assert result.requires_human_review is True
+    assert result.control.state == "human_review_required"
+
+
+def test_preflight_rejects_plugin_source_with_symlinked_manifest(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    plugin_manifest = root / "plugins" / "reviewer" / ".codex-plugin" / "plugin.json"
+    plugin_manifest.parent.mkdir(parents=True)
+    outside = tmp_path / "outside-plugin.json"
+    outside.write_text('{"name": "reviewer"}\n', encoding="utf-8")
+    plugin_manifest.symlink_to(outside)
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+    new = old + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+
+    result = build_preflight_result(
+        workspace=root,
+        diff_text=_manifest_diff(old, new),
+    )
+
+    assert result.requires_human_review is True
+    assert result.control.state == "human_review_required"
 
 
 @pytest.mark.parametrize(
@@ -368,6 +570,49 @@ def test_cli_preflight_json_changed_files_and_diff(tmp_path: Path) -> None:
         "shipgate.yaml",
     }
     assert any(signal["kind"] == "protected_surface_touch" for signal in payload["signals"])
+
+
+def test_cli_preflight_uses_diff_semantics_for_safe_manifest_proposal(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    plugin = root / "plugins" / "reviewer"
+    _write(plugin, ".codex-plugin/plugin.json", '{"name": "reviewer"}\n')
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+    new = old + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+    diff = tmp_path / "manifest.diff"
+    diff.write_text(_manifest_diff(old, new), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(root),
+            "--diff",
+            str(diff),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["must_stop"] is False
+    assert payload["protected_surface_touches"] == [
+        {
+            "path": "shipgate.yaml",
+            "kind": "manifest",
+            "pattern": "**/shipgate.yaml",
+            "scope_type": "key_level",
+            "requires_human_review": False,
+        }
+    ]
 
 
 def test_cli_preflight_capability_request(tmp_path: Path) -> None:

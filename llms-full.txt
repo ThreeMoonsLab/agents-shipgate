@@ -1166,8 +1166,14 @@ proactive routing surface for coding agents before edits. It accepts a single
 surfaces, forbidden shortcut actions, required evidence for proposed high-risk
 capabilities, host-grant drift when a host baseline is present, deterministic
 `signals[]`, `control`, `requires_verify`, `verification_command`,
-`allowed_next_commands[]`, and `plan_summary`. It is not a second gate; it must never be read as passed or
-mergeable. The release gate remains `release_decision.decision`.
+`allowed_next_commands[]`, and `plan_summary`. A concrete, resolvable diff that
+only appends valid built-in `tool_sources` rows may mark that manifest touch
+`requires_human_review=false` and route the coding agent to verification. This
+authorizes proposal authorship only: existing rows and all other manifest
+values must be unchanged, authority-bearing fields and custom adapters are
+excluded, and the resulting trust-root diff still requires human review. It is
+not a second gate; it must never be read as passed or mergeable. The release
+gate remains `release_decision.decision`.
 
 ## Read these first for release gating
 

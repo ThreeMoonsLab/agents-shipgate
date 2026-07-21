@@ -228,8 +228,8 @@ def evaluate_agent_boundary(
             item.path
             for item in diagnostics
             if (
-                item.code == "content_source"
-                and item.path == ".codex/config.toml"
+                (item.code == "content_source" and item.path == ".codex/config.toml")
+                or item.code == "proposal_safe_manifest_addition"
             )
         },
     )

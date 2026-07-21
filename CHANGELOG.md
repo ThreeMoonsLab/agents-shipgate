@@ -53,6 +53,15 @@
   remains reproducibility provenance, but cannot extend reviewer-owned trust.
   Baseline, acknowledgement, and severity-override expiry use the later of that
   date and the verifier wall clock, so a forged backdated commit fails closed.
+- **Agent-authored coverage proposals (contract v18 clarification).** Preflight
+  and local control now distinguish proposal authorship from approval for one
+  narrow manifest shape: an exact append-only addition of valid built-in
+  `tool_sources` rows may be authored by a coding agent and routed to verify.
+  Existing rows, all other manifest values, authority-bearing fields, custom
+  adapters, and unsafe paths remain human-routed; the concrete trust-root diff
+  still requires reviewer approval. Conventional test/golden fixtures are no
+  longer inferred as undeclared deployed surfaces unless the manifest
+  explicitly declares them. No schema or runtime-contract version changes.
 
 - **Evidence-basis policy gate (P0, `0.16.0b5`).** Semantic claims and risk
   hints now carry a typed evidence basis, stable claim IDs, and derived policy

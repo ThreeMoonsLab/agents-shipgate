@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import difflib
 import json
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
@@ -204,6 +206,195 @@ def _write_manifest(tmp_path: Path, tool_sources: str) -> None:
         f"tool_sources:\n{tool_sources}",
         encoding="utf-8",
     )
+
+
+def _manifest_diff(old: str, new: str) -> str:
+    return "diff --git a/shipgate.yaml b/shipgate.yaml\n" + "".join(
+        difflib.unified_diff(
+            old.splitlines(keepends=True),
+            new.splitlines(keepends=True),
+            fromfile="a/shipgate.yaml",
+            tofile="b/shipgate.yaml",
+        )
+    )
+
+
+def test_safe_manifest_source_proposal_routes_to_verify_not_unclassified_review(
+    tmp_path: Path,
+) -> None:
+    _write_manifest(
+        tmp_path,
+        "  - id: existing\n    type: mcp\n    path: mcp-tools.json\n",
+    )
+    (tmp_path / "mcp-tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    plugin_manifest = tmp_path / "plugins" / "reviewer" / ".codex-plugin" / "plugin.json"
+    plugin_manifest.parent.mkdir(parents=True)
+    plugin_manifest.write_text('{"name": "reviewer"}\n', encoding="utf-8")
+    old = (tmp_path / "shipgate.yaml").read_text(encoding="utf-8")
+    new = old + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=_manifest_diff(old, new),
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.state == "agent_action_required"
+    assert result.control.must_stop is False
+    assert result.control.next_action.kind == "verify"
+    assert not any(
+        item.check_id == "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+        for item in result.violated_rules
+    )
+    assert any(item.code == "proposal_safe_manifest_addition" for item in result.diagnostics)
+
+
+@pytest.mark.parametrize("safe_block_first", [True, False])
+def test_duplicate_manifest_blocks_with_unsafe_edit_remain_human_routed(
+    tmp_path: Path,
+    safe_block_first: bool,
+) -> None:
+    _write_manifest(
+        tmp_path,
+        "  - id: existing\n    type: mcp\n    path: mcp-tools.json\n",
+    )
+    (tmp_path / "mcp-tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    plugin_manifest = tmp_path / "plugins" / "reviewer" / ".codex-plugin" / "plugin.json"
+    plugin_manifest.parent.mkdir(parents=True)
+    plugin_manifest.write_text('{"name": "reviewer"}\n', encoding="utf-8")
+    old = (tmp_path / "shipgate.yaml").read_text(encoding="utf-8")
+    safe = old + (
+        "  - id: reviewer-plugin\n"
+        "    type: codex_plugin\n"
+        "    path: plugins/reviewer\n"
+        "    mode: package\n"
+    )
+    unsafe = old.replace(
+        "    path: mcp-tools.json\n",
+        "    path: mcp-tools.json\n    trust: internal\n",
+    )
+    safe_block = _manifest_diff(old, safe)
+    unsafe_block = _manifest_diff(old, unsafe)
+    composite = (
+        safe_block + unsafe_block if safe_block_first else unsafe_block + safe_block
+    )
+
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=composite,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.state == "human_review_required"
+    assert result.control.must_stop is True
+    assert any(
+        item.check_id == "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+        for item in result.violated_rules
+    )
+    assert not any(
+        item.code == "proposal_safe_manifest_addition" for item in result.diagnostics
+    )
+
+
+def test_test_golden_mcp_json_is_not_inferred_as_deployed_surface(tmp_path: Path) -> None:
+    _write_manifest(
+        tmp_path,
+        "  - id: existing\n    type: mcp\n    path: mcp-tools.json\n",
+    )
+    diff = (
+        "diff --git a/tests/golden/codex_boundary_result/mcp_auto_approve_write.json "
+        "b/tests/golden/codex_boundary_result/mcp_auto_approve_write.json\n"
+        "--- a/tests/golden/codex_boundary_result/mcp_auto_approve_write.json\n"
+        "+++ b/tests/golden/codex_boundary_result/mcp_auto_approve_write.json\n"
+        "@@ -1 +1 @@\n"
+        '-{"tools": []}\n'
+        '+{"tools": [{"name": "write"}]}\n'
+    )
+
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert not any(item.code == "undeclared_capability_surface" for item in result.diagnostics)
+
+
+def test_production_path_named_fixtures_is_still_inferred_as_deployed_surface(
+    tmp_path: Path,
+) -> None:
+    _write_manifest(
+        tmp_path,
+        "  - id: existing\n    type: mcp\n    path: mcp-tools.json\n",
+    )
+    path = "services/fixtures/prod-mcp.json"
+    diff = (
+        f"diff --git a/{path} b/{path}\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        f"+++ b/{path}\n"
+        "@@ -0,0 +1 @@\n"
+        '+{"tools": [{"name": "write"}]}\n'
+    )
+
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "discover"
+    assert any(
+        item.code == "undeclared_capability_surface" for item in result.diagnostics
+    )
+
+
+def test_explicitly_declared_test_fixture_still_routes_to_verify(tmp_path: Path) -> None:
+    fixture = "tests/fixtures/deployed-tools.json"
+    _write_manifest(
+        tmp_path,
+        f"  - id: deployed-fixture\n    type: mcp\n    path: {fixture}\n",
+    )
+    target = tmp_path / fixture
+    target.parent.mkdir(parents=True)
+    target.write_text('{"tools": []}\n', encoding="utf-8")
+    diff = (
+        f"diff --git a/{fixture} b/{fixture}\n"
+        f"--- a/{fixture}\n"
+        f"+++ b/{fixture}\n"
+        "@@ -1 +1 @@\n"
+        '-{"tools": []}\n'
+        '+{"tools": [{"name": "write"}]}\n'
+    )
+
+    result = build_codex_agent_result(
+        agent="claude-code",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert any(item.code == "capability_change_requires_verify" for item in result.diagnostics)
+    assert not any(item.code == "undeclared_capability_surface" for item in result.diagnostics)
 
 
 def test_check_warns_on_change_under_declared_directory_source(tmp_path: Path) -> None:
