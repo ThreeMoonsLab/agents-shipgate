@@ -62,6 +62,16 @@
   still requires reviewer approval. Conventional test/golden fixtures are no
   longer inferred as undeclared deployed surfaces unless the manifest
   explicitly declares them. No schema or runtime-contract version changes.
+- **Codex marketplace coverage and plugin-path containment.** Local plugin
+  packages reached through a declared Codex marketplace now count as declared
+  tool surfaces for local-control routing, and detect/init plus the zero-install
+  detector no longer propose redundant direct-package rows for those roots.
+  Direct-package loading now hard-rejects a source whose
+  `.codex-plugin/plugin.json` symlink target escapes the manifest directory;
+  marketplace entries with the same escape are skipped and cannot grant
+  coverage or supply verification bytes. Malformed, non-UTF-8, oversized,
+  remote, or escaping marketplace inputs stay fail-closed. No schema or
+  runtime-contract version changes.
 
 - **Evidence-basis policy gate (P0, `0.16.0b5`).** Semantic claims and risk
   hints now carry a typed evidence basis, stable claim IDs, and derived policy

@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.agent_result import build_codex_agent_result
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result
+from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus" / "codex_boundary"
@@ -464,6 +465,83 @@ def test_marketplace_local_plugin_change_routes_to_verify(
     assert result.control.next_action.kind == "verify"
     assert any(item.code == "capability_change_requires_verify" for item in result.diagnostics)
     assert not any(item.code == "undeclared_capability_surface" for item in result.diagnostics)
+
+
+def test_marketplace_absolute_local_plugin_change_routes_to_verify(
+    tmp_path: Path,
+) -> None:
+    plugin_root = (tmp_path / "plugins/reviewer").resolve()
+    _write_marketplace_workspace(
+        tmp_path,
+        marketplace_text=json.dumps(
+            {
+                "plugins": [
+                    {
+                        "name": "reviewer",
+                        "source": {"source": "local", "path": str(plugin_root)},
+                    }
+                ]
+            }
+        ),
+    )
+
+    result = build_codex_agent_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=_PLUGIN_DIFF,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert any(item.code == "capability_change_requires_verify" for item in result.diagnostics)
+    assert not any(item.code == "undeclared_capability_surface" for item in result.diagnostics)
+
+
+def test_marketplace_workspace_root_does_not_cover_every_changed_file(
+    tmp_path: Path,
+) -> None:
+    _write_marketplace_workspace(
+        tmp_path,
+        marketplace_text=json.dumps(
+            {
+                "plugins": [
+                    {
+                        "name": "root-plugin",
+                        "source": {"source": "local", "path": "."},
+                    }
+                ]
+            }
+        ),
+    )
+    root_manifest = tmp_path / ".codex-plugin/plugin.json"
+    root_manifest.parent.mkdir(parents=True)
+    root_manifest.write_text('{"name":"root-plugin"}', encoding="utf-8")
+    marketplace = tmp_path / ".agents/plugins/marketplace.json"
+    assert resolve_local_codex_marketplace_roots(
+        marketplace_path=marketplace,
+        base_dir=tmp_path,
+    ) == (tmp_path.resolve(),)
+    docs_diff = (
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1 +1,2 @@\n"
+        " hello\n"
+        "+world\n"
+    )
+
+    result = build_codex_agent_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=docs_diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+    )
+
+    assert result.decision == "allow"
+    assert not any(item.code == "capability_change_requires_verify" for item in result.diagnostics)
 
 
 @pytest.mark.parametrize(
