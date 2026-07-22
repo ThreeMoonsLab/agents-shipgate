@@ -13,6 +13,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     PositionIndex,
     json_pointer_escape,
+    load_structured_file,
     load_structured_file_with_positions,
     load_text_file,
     manifest_relative_path,
@@ -225,6 +226,54 @@ def _load_marketplace_source(
     return loaded
 
 
+def resolve_local_codex_marketplace_roots(
+    *,
+    marketplace_path: Path,
+    base_dir: Path,
+) -> tuple[Path, ...]:
+    """Resolve the contained local package roots declared by a marketplace.
+
+    Stop at the package boundary: plugin contents remain the normal loader's
+    responsibility so a malformed declared plugin still routes to ``verify``.
+    """
+
+    resolved_marketplace = resolve_input_path(base_dir, str(marketplace_path))
+    data = load_structured_file(resolved_marketplace)
+    if not isinstance(data, dict):
+        raise InputParseError(
+            f"Codex marketplace file must contain an object: {resolved_marketplace}"
+        )
+    plugins = data.get("plugins")
+    if not isinstance(plugins, list):
+        raise InputParseError(
+            "Codex marketplace file must contain a plugins array: "
+            f"{resolved_marketplace}"
+        )
+
+    summary = CodexPluginMarketplaceSummary(
+        source_id="coverage",
+        name=data.get("name") if isinstance(data.get("name"), str) else None,
+        path=manifest_relative_path(str(resolved_marketplace), base_dir),
+        plugin_count=0,
+    )
+    roots: list[Path] = []
+    for index, entry in enumerate(plugins):
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        root = _resolve_marketplace_plugin_root(
+            entry=entry,
+            base_dir=base_dir,
+            marketplace=summary,
+            pointer=f"/plugins/{index}",
+        )
+        if root is not None:
+            roots.append(root.resolve())
+    return tuple(dict.fromkeys(roots))
+
+
 def _load_plugin_package(
     *,
     source: ToolSourceConfig,
@@ -397,7 +446,8 @@ def _resolve_package_root(
         raise InputParseError(
             f"Codex plugin source must be a plugin root directory or {PLUGIN_MANIFEST}: {path}"
         )
-    if not manifest_path.exists():
+    resolved_manifest = resolve_input_path(base_dir, str(manifest_path))
+    if not resolved_manifest.is_file():
         raise InputParseError(f"Codex plugin manifest not found: {manifest_path}")
     return root, manifest_path
 
@@ -437,7 +487,15 @@ def _resolve_marketplace_plugin_root(
             {"plugin": entry.get("name"), "reason": str(exc)}
         )
         return None
-    if not (root / PLUGIN_MANIFEST).exists():
+    manifest_path = root / PLUGIN_MANIFEST
+    try:
+        resolved_manifest = resolve_input_path(base_dir, str(manifest_path))
+    except InputParseError as exc:
+        marketplace.skipped_entries.append(
+            {"plugin": entry.get("name"), "reason": str(exc)}
+        )
+        return None
+    if not resolved_manifest.is_file():
         marketplace.skipped_entries.append(
             {
                 "plugin": entry.get("name"),

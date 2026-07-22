@@ -9,10 +9,11 @@ not call the framework loaders in ``agents_shipgate.inputs.*`` — those gate
 on a populated manifest and would no-op here. Instead it borrows their
 constants where they map cleanly onto detection signals
 (e.g. :data:`agents_shipgate.inputs.langchain.TOOL_DECORATOR_MODULES`).
-The one deliberate adapter touchpoint is the suggested-source parse probe
-(:func:`agents_shipgate.cli.discovery.artifacts.probe_suggested_source`),
-which keeps ``suggested_sources`` exactly as strict as ``scan``'s input
-parsing so ``init`` never writes a tool source that ``scan`` rejects.
+The deliberate input-layer touchpoints are the suggested-source parse probe
+(:func:`agents_shipgate.cli.discovery.artifacts.probe_suggested_source`) and
+the local Codex marketplace root resolver. They keep ``init`` from writing a
+source that ``scan`` rejects or duplicating a package already reached through
+a marketplace; neither executes user code.
 
 Scoring (per plan §1, post-review v4):
 
@@ -59,6 +60,8 @@ from agents_shipgate.cli.discovery.artifacts import (
     _relative,
     probe_suggested_source,
 )
+from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
 from agents_shipgate.schemas.detect import (
     CodexPluginCandidate,
@@ -651,11 +654,34 @@ def _suggested_sources(
 
 
 def _codex_plugin_candidates(workspace: Path) -> list[CodexPluginCandidate]:
+    files = _candidate_files(workspace)
+    covered_roots: set[Path] = set()
+    for path in files:
+        if not (
+            path.name == "marketplace.json"
+            and path.parent.as_posix().endswith(".agents/plugins")
+        ):
+            continue
+        try:
+            covered_roots.update(
+                resolve_local_codex_marketplace_roots(
+                    marketplace_path=path,
+                    base_dir=workspace,
+                )
+            )
+        except (InputParseError, OSError, RuntimeError, UnicodeError):
+            continue
+
     candidates: list[CodexPluginCandidate] = []
     seen: set[tuple[str, str]] = set()
-    for path in _candidate_files(workspace):
+    for path in files:
         if path.name == "plugin.json" and path.parent.name == ".codex-plugin":
             root = path.parent.parent
+            try:
+                if root.resolve() in covered_roots:
+                    continue
+            except (OSError, RuntimeError):
+                pass
             rel = _relative(root, workspace)
             key = ("package", rel)
             if key in seen:

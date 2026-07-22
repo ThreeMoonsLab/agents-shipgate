@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import textwrap
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.cli.discovery.signals import detect_workspace
+from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.schemas.detect import DetectResult
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
@@ -48,6 +50,82 @@ def _write_skipped_fixture_signals(root: Path) -> None:
     plugin = root / "plugin" / ".codex-plugin"
     plugin.mkdir(parents=True)
     (plugin / "plugin.json").write_text("{}", encoding="utf-8")
+
+
+def _write_plugin_marketplace(
+    root: Path,
+    *,
+    marketplace: object | str | bytes,
+    plugin_text: str = '{"name":"reviewer"}',
+) -> Path:
+    workspace = root / "workspace"
+    plugin = workspace / "plugins/reviewer/.codex-plugin/plugin.json"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text(plugin_text, encoding="utf-8")
+    path = workspace / ".agents/plugins/marketplace.json"
+    path.parent.mkdir(parents=True)
+    if isinstance(marketplace, bytes):
+        path.write_bytes(marketplace)
+    else:
+        path.write_text(
+            marketplace if isinstance(marketplace, str) else json.dumps(marketplace),
+            encoding="utf-8",
+        )
+    return workspace
+
+
+def _local_marketplace(source: str = "local") -> dict[str, object]:
+    return {
+        "plugins": [
+            {
+                "name": "reviewer",
+                "source": {"source": source, "path": "plugins/reviewer"},
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize("plugin_text", ['{"name":"reviewer"}', "{not-json"])
+def test_detect_deduplicates_marketplace_covered_package(
+    tmp_path: Path,
+    plugin_text: str,
+) -> None:
+    workspace = _write_plugin_marketplace(
+        tmp_path,
+        marketplace=_local_marketplace(),
+        plugin_text=plugin_text,
+    )
+
+    result = detect_workspace(workspace)
+
+    assert [(item.mode, item.path) for item in result.codex_plugin_candidates] == [
+        ("marketplace", ".agents/plugins/marketplace.json")
+    ]
+    rendered = render_auto_manifest(workspace, result)
+    assert rendered.count("type: codex_plugin") == 1
+    assert "path: plugins/reviewer" not in rendered
+
+
+@pytest.mark.parametrize(
+    "marketplace",
+    [
+        pytest.param("{not-json", id="malformed"),
+        pytest.param(b"\xff", id="non-utf8"),
+        pytest.param(_local_marketplace("github"), id="remote"),
+    ],
+)
+def test_detect_keeps_package_for_unresolved_marketplace(
+    tmp_path: Path,
+    marketplace: object | str | bytes,
+) -> None:
+    workspace = _write_plugin_marketplace(tmp_path, marketplace=marketplace)
+
+    result = detect_workspace(workspace)
+
+    assert {(item.mode, item.path) for item in result.codex_plugin_candidates} == {
+        ("marketplace", ".agents/plugins/marketplace.json"),
+        ("package", "plugins/reviewer"),
+    }
 
 
 def test_detects_langchain_sample() -> None:
