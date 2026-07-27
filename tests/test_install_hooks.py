@@ -537,6 +537,174 @@ def test_stop_hook_cold_start_advises_instead_of_blocking(tmp_path: Path) -> Non
     assert "verify --preview" in out["systemMessage"]
 
 
+def _pretooluse_out(
+    tmp_path: Path,
+    file_path: str,
+    *,
+    session_id: str = "S1",
+    permission_mode: str = "default",
+) -> str:
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    payload = {
+        "session_id": session_id,
+        "permission_mode": permission_mode,
+        "tool_input": {"file_path": file_path},
+    }
+    return subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "pretooluse"],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    ).stdout
+
+
+def _posttooluse(
+    tmp_path: Path,
+    file_path: str,
+    *,
+    session_id: str = "S1",
+    permission_mode: str = "default",
+) -> None:
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {_fake_shipgate_cli(tmp_path)} {log}"
+    payload = {
+        "session_id": session_id,
+        "permission_mode": permission_mode,
+        "tool_input": {"file_path": file_path},
+    }
+    subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "trigger"],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+
+def _hook_snapshot_diff(tmp_path: Path) -> str:
+    """The diff text the rendered hook computes for the current worktree."""
+
+    import argparse
+
+    script = tmp_path / HOOK_SCRIPT_RELATIVE_PATH
+    # One dict for globals AND locals so the module's functions can resolve
+    # each other by name.
+    namespace: dict = {"__name__": "hook_under_test"}
+    exec(compile(script.read_text(encoding="utf-8"), str(script), "exec"), namespace)
+    args = argparse.Namespace(config="shipgate.yaml", base="origin/main", head="")
+    return str(namespace["_change_snapshot"](tmp_path, args)["diff_text"])
+
+
+def test_pretooluse_stops_re_asking_for_an_already_allowed_file(tmp_path: Path) -> None:
+    """One human decision per file per session, not one per edit."""
+
+    _stop_hook_workspace(tmp_path)
+
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+    _posttooluse(tmp_path, "CLAUDE.md")
+    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+
+    # A different session never inherits the decision.
+    assert "permissionDecision" in _pretooluse_out(
+        tmp_path, "CLAUDE.md", session_id="S2"
+    )
+    # Nor does an unrelated protected file.
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
+
+
+def test_auto_accepting_permission_modes_are_not_recorded_as_approval(
+    tmp_path: Path,
+) -> None:
+    """An edit nobody was asked about is not an approval."""
+
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="bypassPermissions")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+
+
+def test_approval_memory_can_be_disabled(tmp_path: Path) -> None:
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md")
+    env_backup = os.environ.get("AGENTS_SHIPGATE_APPROVAL_MEMORY")
+    os.environ["AGENTS_SHIPGATE_APPROVAL_MEMORY"] = "off"
+    try:
+        assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+    finally:
+        if env_backup is None:
+            os.environ.pop("AGENTS_SHIPGATE_APPROVAL_MEMORY", None)
+        else:
+            os.environ["AGENTS_SHIPGATE_APPROVAL_MEMORY"] = env_backup
+
+
+def test_stop_hook_reuses_a_verify_the_agent_already_ran(tmp_path: Path) -> None:
+    """One verify per turn: identical input must not be re-verified."""
+
+    _stop_hook_workspace(tmp_path)
+    reports = tmp_path / "agents-shipgate-reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    # Record the exact bytes verify would have evaluated by asking the rendered
+    # hook itself, so the test pins the real reuse contract rather than a
+    # re-implementation of the diff.
+    (reports / "verification-input.diff").write_text(
+        _hook_snapshot_diff(tmp_path), encoding="utf-8"
+    )
+    (reports / "verifier.json").write_text(
+        json.dumps(
+            {
+                "config": "shipgate.yaml",
+                "base_ref": None,
+                "head_ref": "HEAD",
+                "release_decision": {
+                    "decision": "review_required",
+                    "blockers": [],
+                    "review_items": [{}],
+                },
+                "control": {
+                    "state": "human_review_required",
+                    "reason": "trust root touched",
+                    "stop_reason": "trust root touched",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    result = _run_stop_hook(tmp_path, verify_payload=None)
+
+    assert result.returncode == 0, result.stderr
+    assert "A human must review" in json.loads(result.stdout)["systemMessage"]
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert [entry for entry in entries if entry[0] == "trigger"]
+    assert not [entry for entry in entries if entry[0] == "verify"]
+
+
+def test_stop_hook_reruns_verify_when_the_tree_moved(tmp_path: Path) -> None:
+    _stop_hook_workspace(tmp_path)
+    reports = tmp_path / "agents-shipgate-reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / "verification-input.diff").write_text("stale diff\n", encoding="utf-8")
+    (reports / "verifier.json").write_text(
+        json.dumps({"config": "shipgate.yaml", "base_ref": None, "head_ref": "HEAD"}),
+        encoding="utf-8",
+    )
+
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    result = _run_stop_hook(tmp_path, verify_payload=None)
+
+    assert result.returncode == 0, result.stderr
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert [entry for entry in entries if entry[0] == "verify"]
+
+
 def _init_repo(path: Path) -> None:
     subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
     subprocess.run(
@@ -553,6 +721,9 @@ def _init_repo(path: Path) -> None:
         "version: '0.1'\nagent:\n  name: test\n  declared_purpose: test\n",
         encoding="utf-8",
     )
+    # `init` always ensures this; without it the generated reports would show up
+    # as untracked changes and perturb the hook's own input snapshot.
+    (path / ".gitignore").write_text("agents-shipgate-reports/\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=path, check=True)
     subprocess.run(
         ["git", "commit", "-m", "init"],

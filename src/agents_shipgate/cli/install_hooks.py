@@ -434,6 +434,11 @@ from typing import Any
 
 VERIFY_TIMEOUT_SECONDS = 170
 UNTRACKED_DIFF_CONTENT_LIMIT_BYTES = 131072
+_MAX_REMEMBERED_SURFACES = 256
+# Host permission modes in which the human is prompted for each protected edit.
+# Only these can be read as "the human allowed this file"; the auto-accepting
+# modes answer the prompt without asking anyone.
+_PROMPTED_PERMISSION_MODES = frozenset({"default", "plan", "ask"})
 
 # Rendered at install time from agents_shipgate.checks.verify
 # TRUST_ROOT_SURFACES — the same classification the PR-time verifier
@@ -476,11 +481,20 @@ def _pretooluse(payload: dict[str, Any], root: Path) -> int:
     ).strip().lower()
     if decision not in {"ask", "deny"}:
         return 0
+    session_id = str(payload.get("session_id") or "")
+    already_approved = _approved_surfaces(root, session_id)
     matched: list[tuple[str, str, str]] = []
     for path in _changed_paths(payload, root):
         hit = _protected_surface_for(path)
-        if hit is not None:
-            matched.append((path, hit[0], hit[1]))
+        if hit is None:
+            continue
+        if path in already_approved:
+            # The human allowed this exact file earlier in this session.
+            # Re-prompting for every subsequent edit trains people to click
+            # through; the gate itself is unchanged and PR-time verify still
+            # reports the trust-root touch.
+            continue
+        matched.append((path, hit[0], hit[1]))
     if not matched:
         return 0
     preview = "; ".join(
@@ -583,6 +597,7 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     paths = _changed_paths(payload, root)
     if not paths:
         return 0
+    _record_in_session_approvals(payload, root, paths)
     diff_text = _git_diff_for_paths(root, paths)
     # For edit-time nudges, evaluate path relevance without the opted-in
     # manifest force-run rule. CI still runs every PR for opted-in repos.
@@ -611,6 +626,26 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
             "expanding baselines/waivers, removing Shipgate CI, or weakening agent instructions."
         ),
     )
+
+
+def _record_in_session_approvals(
+    payload: dict[str, Any],
+    root: Path,
+    paths: list[str],
+) -> None:
+    """Note protected files whose edit the human just allowed.
+
+    PostToolUse only fires once the tool call went through, so in a prompting
+    permission mode an edit that lands is an edit the human allowed. The
+    auto-accepting modes answer without asking anyone, so they record nothing.
+    """
+
+    mode = str(payload.get("permission_mode") or payload.get("permissionMode") or "")
+    if mode.strip().lower() not in _PROMPTED_PERMISSION_MODES:
+        return
+    protected = [path for path in paths if _protected_surface_for(path) is not None]
+    if protected:
+        _remember_approved_surfaces(root, str(payload.get("session_id") or ""), protected)
 
 
 def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> int:
@@ -671,6 +706,20 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         )
         base = ""
 
+    # One verify per turn: if the agent already ran verify over exactly this
+    # tree state and arguments, reuse its artifact instead of paying for an
+    # identical second run at turn end.
+    reused = _reusable_verifier(root, args, snapshot, base=base, head=head)
+    if reused is not None:
+        return _route_verify_result(
+            reused,
+            root=root,
+            args=args,
+            signature=signature,
+            base_note=base_note,
+            stop_hook_active=stop_hook_active,
+        )
+
     command = [
         *_cli(),
         "verify",
@@ -720,6 +769,62 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
             "`agents-shipgate-reports/report.json`.",
         )
 
+    return _route_verify_result(
+        verifier,
+        root=root,
+        args=args,
+        signature=signature,
+        base_note=base_note,
+        stop_hook_active=stop_hook_active,
+    )
+
+
+def _reusable_verifier(
+    root: Path,
+    args: argparse.Namespace,
+    snapshot: dict[str, Any],
+    *,
+    base: str,
+    head: str,
+) -> dict[str, Any] | None:
+    """An existing verifier.json that covers exactly this input, or None.
+
+    The verifier records the exact bytes it evaluated in
+    ``verification-input.diff``. When that matches the diff the hook just
+    computed, and the config and refs match too, a verify the agent already ran
+    this turn is authoritative for this tree state and re-running it would
+    only cost time. Anything unreadable or mismatched falls through to a
+    normal run.
+    """
+
+    reports = root / "agents-shipgate-reports"
+    try:
+        recorded_diff = (reports / "verification-input.diff").read_text(encoding="utf-8")
+        verifier = json.loads((reports / "verifier.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(verifier, dict):
+        return None
+    if recorded_diff != snapshot.get("diff_text"):
+        return None
+    if str(verifier.get("config") or "") != str(args.config):
+        return None
+    if str(verifier.get("base_ref") or "") != base:
+        return None
+    if str(verifier.get("head_ref") or "") != (head or "HEAD"):
+        return None
+    return verifier
+
+
+def _route_verify_result(
+    verifier: dict[str, Any],
+    *,
+    root: Path,
+    args: argparse.Namespace,
+    signature: str,
+    base_note: str,
+    stop_hook_active: bool,
+) -> int:
     decision = ((verifier.get("release_decision") or {}).get("decision") or "unknown")
     blockers = len((verifier.get("release_decision") or {}).get("blockers") or [])
     review_items = len((verifier.get("release_decision") or {}).get("review_items") or [])
@@ -980,30 +1085,75 @@ def _state_path(root: Path) -> Path | None:
     return path if path.is_absolute() else (root / path)
 
 
-def _last_verified_signature(root: Path) -> str | None:
+def _read_state(root: Path) -> dict[str, Any]:
     path = _state_path(root)
     if path is None or not path.is_file():
-        return None
+        return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    signature = data.get("last_verified_signature")
-    return signature if isinstance(signature, str) else None
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
-def _write_verified_signature(root: Path, signature: str) -> None:
+def _write_state(root: Path, data: dict[str, Any]) -> None:
     path = _state_path(root)
     if path is None:
         return
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"last_verified_signature": signature}, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     except OSError:
         return
+
+
+def _last_verified_signature(root: Path) -> str | None:
+    signature = _read_state(root).get("last_verified_signature")
+    return signature if isinstance(signature, str) else None
+
+
+def _write_verified_signature(root: Path, signature: str) -> None:
+    # Merge rather than overwrite: the same file carries the session's
+    # already-approved protected surfaces.
+    state = _read_state(root)
+    state["last_verified_signature"] = signature
+    _write_state(root, state)
+
+
+def _approval_memory_enabled() -> bool:
+    raw = os.environ.get("AGENTS_SHIPGATE_APPROVAL_MEMORY", "on").strip().lower()
+    return raw not in {"0", "off", "false", "no"}
+
+
+def _approved_surfaces(root: Path, session_id: str) -> set[str]:
+    """Protected paths the human already allowed in THIS host session.
+
+    Advisory only: it suppresses a repeated in-session permission prompt for a
+    file the human already allowed. It changes no verdict — `shipgate check`
+    and PR-time verify evaluate the edit exactly as before, and
+    ``SHIP-VERIFY-*`` still reports the trust-root touch.
+    """
+
+    if not session_id or not _approval_memory_enabled():
+        return set()
+    approved = _read_state(root).get("approved_surfaces")
+    if not isinstance(approved, dict):
+        return set()
+    entries = approved.get(session_id)
+    if not isinstance(entries, list):
+        return set()
+    return {item for item in entries if isinstance(item, str)}
+
+
+def _remember_approved_surfaces(root: Path, session_id: str, paths: list[str]) -> None:
+    if not session_id or not paths or not _approval_memory_enabled():
+        return
+    state = _read_state(root)
+    existing = _approved_surfaces(root, session_id)
+    merged = sorted(existing | set(paths))[:_MAX_REMEMBERED_SURFACES]
+    # Only the current session is retained: a new session must ask again.
+    state["approved_surfaces"] = {session_id: merged}
+    _write_state(root, state)
 
 
 def _changed_paths(payload: dict[str, Any], root: Path) -> list[str]:
