@@ -40,6 +40,7 @@ from agents_shipgate.core.codex_boundary import (
     _violation_fingerprint,
     evaluate_codex_boundary_result,
     load_codex_boundary_policy,
+    violations_within_agent_actionable_band,
 )
 from agents_shipgate.core.host_boundary import (
     DEFAULT_POLICY_PATH as LEGACY_HOST_POLICY_PATH,
@@ -723,6 +724,13 @@ def _boundary_summary(decision: str, violations: list[AgentResultViolatedRule]) 
     if decision == "warn":
         return "Boundary evaluation completed with a required agent action."
     if decision == "require_review":
+        # Match the control state the same facts produce: a graded set does not
+        # stop the turn, so the summary must not read as a local stop.
+        if violations_within_agent_actionable_band(violations):
+            return (
+                f"{len(violations)} coding-agent boundary change(s) need PR-time "
+                "review; verify, then report them."
+            )
         return f"{len(violations)} coding-agent boundary change(s) require human review."
     return f"{len(violations)} coding-agent boundary change(s) block local continuation."
 

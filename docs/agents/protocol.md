@@ -62,6 +62,13 @@ The stdout object has:
 - `static_analysis_only: true`
 - `runtime_session_verified: false`
 - `decision: "allow" | "warn" | "block" | "require_review"`
+- `violations[]` and `violated_rules[]` (identical projections of the same
+  evaluated rule set)
+- `pending_review[]` — review obligations the graded local mapping carries
+  forward instead of stopping the turn. Non-empty only alongside
+  `agent_action_required`; each entry has `check_id`, `rule_id`, `path`,
+  `risk_level`, `title`, `reviewers`, and `note`. Report these items when
+  summarizing the change; PR-time verify routes them to a human reviewer.
 - `control.state: "complete" | "agent_action_required" | "human_review_required"`
 - `control.reason`
 - `control.completion_allowed`
@@ -93,12 +100,16 @@ before a boundary-result object exists.
 | `control.state` | Agent action |
 |---|---|
 | `complete` | Completion is allowed. Summarize warnings, if any. No mandatory action remains. |
-| `agent_action_required` | Do not claim completion. Perform only the exact coding-agent route in `control.next_action`, then rerun. |
+| `agent_action_required` | Do not claim completion. Perform only the exact coding-agent route in `control.next_action`, then rerun. If `pending_review[]` is non-empty, also name those items when you summarize the change — the obligation travels with the PR, not with the turn. |
 | `human_review_required` | Stop all coding-agent action and surface `control.reason` plus the human next action. |
 
 `control.must_stop=true` is reserved for a human route. Installation, repair,
-discovery, configuration, fetch-base, and rerun work are
-`agent_action_required`, never stop states. Conversation-level human
+discovery, configuration, fetch-base, rerun, and graded review (a
+`require_review` set that is entirely low/medium risk, routed to verify with
+its obligations in `pending_review[]`) are `agent_action_required`, never stop
+states. Graded review is the one `agent_action_required` shape that carries an
+unresolved *human* obligation: the agent may finish its work, and PR-time
+verify still routes the change to a reviewer. Conversation-level human
 acknowledgement never changes control state; only a newly generated verifier
 artifact can clear it.
 
