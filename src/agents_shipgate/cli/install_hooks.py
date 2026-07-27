@@ -725,10 +725,7 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
     review_items = len((verifier.get("release_decision") or {}).get("review_items") or [])
     control = verifier.get("control") if isinstance(verifier.get("control"), dict) else {}
     state = control.get("state")
-    summary = (
-        f"decision={decision}, blockers={blockers}, review_items={review_items}"
-        f"{base_note}"
-    )
+    summary = f"decision={decision}, blockers={blockers}, review_items={review_items}"
 
     # The hook mirrors the operational control contract: ``control.state`` is
     # authoritative and ``decision`` is diagnostic.  A Claude Code Stop-hook
@@ -751,7 +748,7 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         command = next_action.get("command") or _manual_verify_command(args, root=root)
         why = next_action.get("why") or "One coding-agent action remains."
         return _emit_stop_block(
-            f"Agents Shipgate verify ran before completion: {summary}. "
+            f"Agents Shipgate verify ran before completion: {summary}.{base_note} "
             f"One exact coding-agent action remains before finishing: run `{command}`. "
             f"{why} "
             "Do not bypass the verifier by suppressing findings, lowering severity, "
@@ -762,7 +759,7 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         stop_reason = control.get("stop_reason") or control.get("reason") or ""
         return _emit_context(
             "Stop",
-            f"Agents Shipgate verify ran before completion: {summary}. "
+            f"Agents Shipgate verify ran before completion: {summary}.{base_note} "
             "A human must review this change before it can merge"
             f"{': ' + stop_reason if stop_reason else ''}. "
             "The coding agent's local work can end here; PR review is unchanged. "

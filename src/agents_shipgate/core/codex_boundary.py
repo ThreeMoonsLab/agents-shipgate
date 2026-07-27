@@ -42,10 +42,10 @@ from agents_shipgate.core.boundary_registry import (
     boundary_adapters_for_path,
     is_agent_boundary_path,
 )
-from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
+from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,

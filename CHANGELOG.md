@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- **Graded local boundary stop (UX P0, contract v19, `0.16.0b7`).** The
+  local `shipgate check` previously projected every `require_review`
+  boundary violation onto the same `human_review_required` +
+  `must_stop: true` control state as a `block` — a CLAUDE.md comment, an
+  unknown `.claude/settings.json` key, and a critical grant expansion were
+  operationally identical, which routinely hard-stopped coding agents on
+  user-requested benign edits. Contract v19 routes a `require_review` set
+  that is entirely low/medium risk to
+  `control.state: "agent_action_required"` with the exact verify command;
+  the review obligation is preserved in the new additive `pending_review[]`
+  field on `shipgate.agent_boundary_result/v1` and re-asserted by PR-time
+  verify, whose `release_decision` branching is byte-identical. The band is
+  fail-closed: `block` actions, `critical` risk, incomplete or unparseable
+  input, gate-weakening rules, experimental surfaces, and every
+  gate-governing trust-root class (`manifest`, `policy`, `ci_gate`,
+  `shipgate_state`) keep the human stop, preserving the composite-diff
+  guarantee from the agent-authored proposal work. The deprecated
+  `codex-boundary-json` format grades identically; its frozen v2 schema
+  does not carry the new field.
+- **Stop hook follows `control.state` (`0.16.0b7`).** The installed Claude
+  Code Stop hook blocked the agent's stop on any non-`passed` release
+  decision — but a Stop-hook block forces the agent to KEEP working, which
+  is exactly wrong for `human_review_required` (`must_stop: true` means
+  "end the turn and hand off to a human"). The hook now mirrors the
+  operational contract: `complete` ends the turn silently,
+  `agent_action_required` blocks once and names the one exact remaining
+  command, `human_review_required` prints a hand-off notice and lets the
+  turn end. Unparseable or unrecognized verifier output warns loudly, is
+  never cached by the verified-signature short-circuit, and is never
+  treated as passing; the cold-start no-manifest case advises
+  `verify --preview` instead of forcing continuation. Reinstall hooks to
+  pick up the new behavior.
+- **Version advances (`0.16.0b7`).** Runtime contract `18 → 19`. All other
+  schema versions are unchanged; `pending_review[]` is additive on the
+  regenerated `agent-boundary-result-schema.v1.json`, and
+  `minimum_control_contract_version` stays `14` — the `AgentControl` union,
+  its fixed `must_stop`/`completion_allowed` literals, and the release
+  gating signal are untouched.
 - **Reproducible verification identity (P0, `0.16.0b6`).** Verify now binds
   the resolved Git subject, exact input blobs, evaluation date, behavior
   options, installed engine-content and dependency/adapter/plugin/policy set, normalized task,

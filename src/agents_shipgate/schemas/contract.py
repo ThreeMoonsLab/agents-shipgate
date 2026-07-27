@@ -54,7 +54,7 @@ from agents_shipgate.schemas.verification_identity import (
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["18"] = "18"
+CONTRACT_VERSION: Literal["19"] = "19"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["14"] = "14"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v2"] = "agent_result_v2"

@@ -79,7 +79,7 @@ def _plan() -> VerificationPlan:
         **inputs_payload,
     )
     engine_payload = {
-        "version": "0.16.0b6",
+        "version": "0.16.0b7",
         "python_implementation": "CPython",
         "python_version": "3.12.0",
         "platform": "linux",

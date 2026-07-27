@@ -162,7 +162,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "7"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "18"
+    assert payload["contract_version"] == "19"
     assert payload["minimum_control_contract_version"] == "14"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
