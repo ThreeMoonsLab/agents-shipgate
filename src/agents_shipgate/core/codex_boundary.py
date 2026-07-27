@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,9 +38,11 @@ from agents_shipgate.core.boundary_diff import (  # noqa: F401
     parse_unified_diff,
 )
 from agents_shipgate.core.boundary_registry import (
+    BOUNDARY_ADAPTERS,
     boundary_adapters_for_path,
     is_agent_boundary_path,
 )
+from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
@@ -47,6 +50,7 @@ from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
 )
+from agents_shipgate.schemas.agent_result import AgentResultPendingReviewItem
 from agents_shipgate.schemas.codex_boundary_result import (
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
 )
@@ -98,6 +102,44 @@ _RISK_BY_ACTION: dict[str, AgentResultRiskLevel] = {
 # Editing Codex auto-approval is a protected trust-root change.  It must never
 # be advertised as an agent-safe repair by the local boundary.
 _AGENT_SAFE_REPAIR_RULE_IDS: frozenset[str] = frozenset()
+
+# Rules that keep the human stop even at low/medium risk.
+#
+# ``BOUNDARY-INPUT-INCOMPLETE`` means the evaluator could not see the whole
+# change, so continuing would authorize unevaluated input.
+# ``CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED`` is the self-protection rule:
+# removing the verifier requirement from agent instructions is exactly the
+# gate-weakening move a graded mapping must never soften.
+BAND_EXCLUDED_RULE_IDS: frozenset[str] = frozenset(
+    {
+        "BOUNDARY-INPUT-INCOMPLETE",
+        "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
+    }
+)
+
+# The parse-failure rules cover two very different situations under one id:
+# content that could not be parsed or resolved (incomplete evidence — the
+# evaluator does not know what changed) and content that parsed fine but used
+# a key outside the allow-list (complete evidence, unknown semantics).  Only
+# the latter is band-eligible, so eligibility is an allow-list on the evidence
+# kind: any new evidence kind added to these rules defaults to the human stop.
+_PARSE_FAILURE_RULE_IDS: frozenset[str] = frozenset(
+    {"CODEX-CONFIG-PARSE-FAILED", "HOST-CONFIG-PARSE-FAILED"}
+)
+_PARSEABLE_EVIDENCE_KINDS: frozenset[str] = frozenset({"unknown_host_config_key"})
+
+# Trust-root classes that govern the gate itself: the declared surface and its
+# policy (``manifest``), the boundary policy (``policy``), the CI gate
+# (``ci_gate``), and the recorded baselines/waivers (``shipgate_state``).
+# A change here decides what the verifier is allowed to say, so it stays a
+# human stop regardless of how a catch-all rule scored its risk — the graded
+# band exists for incidental agent-surface edits, never for the gate's own
+# governing inputs.  Keeping these out of the band is what preserves the
+# composite-diff guarantee: a safe manifest append bundled with an unsafe
+# manifest edit still routes to a human.
+BAND_EXCLUDED_TRUST_ROOT_CLASSES: frozenset[str] = frozenset(
+    {"manifest", "policy", "ci_gate", "shipgate_state"}
+)
 
 _SHIPGATE_TERMS = (
     "agents-shipgate",
@@ -611,6 +653,7 @@ def evaluate_codex_boundary_result(
         undeclared_gap=undeclared_gap,
         coverage_gap=coverage_gap,
         trigger_verify_required=trigger_verify_required,
+        violations=violations,
     )
     return AgentResultV2(
         agent=agent,  # type: ignore[arg-type]
@@ -626,7 +669,7 @@ def evaluate_codex_boundary_result(
         policy=_policy_result(policy),
         violated_rules=violations,
         affected_files=_affected_files_for(violations, changed_files),
-        required_reviewers=human_review.required_reviewers,
+        required_reviewers=list(control.human_review.required_reviewers),
         explanation=summary,
         suggested_fixes=suggested_fixes,
         agent_repair_instructions=_agent_repair_instructions(decision, violations),
@@ -637,6 +680,83 @@ def evaluate_codex_boundary_result(
         finding_fingerprints=finding_fingerprints,
         policy_snapshot_sha256=policy.snapshot_sha256,
     )
+
+
+def violations_within_agent_actionable_band(
+    violations: Sequence[AgentResultViolatedRule],
+) -> bool:
+    """Whether every violation permits the coding-agent verify route.
+
+    A ``require_review`` boundary change at low or medium risk is a review
+    obligation, not an emergency: the agent may finish the turn and hand the
+    PR gate the decision.  ``block`` rows, ``critical`` risk, and the rules in
+    :data:`BAND_EXCLUDED_RULE_IDS` keep the human stop.
+
+    An empty set is deliberately out of band.  ``require_review`` with no
+    violation rows comes from a substrate release-decision projection rather
+    than an evaluated boundary rule, and nothing here has grounds to soften
+    that.
+    """
+
+    if not violations:
+        return False
+    for item in violations:
+        if item.action == "block" or item.risk_level == "critical":
+            return False
+        if item.id in BAND_EXCLUDED_RULE_IDS:
+            return False
+        if item.action == "require_review" and item.risk_level not in {"low", "medium"}:
+            return False
+        if (
+            item.id in _PARSE_FAILURE_RULE_IDS
+            and item.evidence.get("kind") not in _PARSEABLE_EVIDENCE_KINDS
+        ):
+            return False
+        if _governs_the_gate(item.path):
+            return False
+        if item.path and _touches_experimental_surface(item.path):
+            # An experimental adapter's classification confidence is low —
+            # the same epistemic state as unparseable content.
+            return False
+    return True
+
+
+def _touches_experimental_surface(path: str) -> bool:
+    return any(
+        adapter.experimental and adapter.matches(path) for adapter in BOUNDARY_ADAPTERS
+    )
+
+
+def _governs_the_gate(path: str | None) -> bool:
+    """Whether a changed path is one of the gate's own governing trust roots."""
+
+    if not path:
+        return False
+    return trust_root_class_for(path) in BAND_EXCLUDED_TRUST_ROOT_CLASSES
+
+
+def _pending_review_for(
+    violations: Sequence[AgentResultViolatedRule],
+    reviewers: Sequence[str],
+) -> list[AgentResultPendingReviewItem]:
+    """Carry the review obligation the downgraded control state cannot hold."""
+
+    return [
+        AgentResultPendingReviewItem(
+            check_id=item.check_id,
+            rule_id=item.id,
+            path=item.path,
+            risk_level=item.risk_level,
+            title=item.title,
+            reviewers=list(reviewers),
+            note=(
+                "Routed to the coding agent locally; PR-time verify still "
+                "routes this change to a human reviewer."
+            ),
+        )
+        for item in violations
+        if item.action == "require_review"
+    ]
 
 
 def _control_for_result(
@@ -650,8 +770,33 @@ def _control_for_result(
     undeclared_gap: bool,
     coverage_gap: bool,
     trigger_verify_required: bool,
+    violations: Sequence[AgentResultViolatedRule] = (),
 ):
     """Translate boundary facts into the one shared operational projector."""
+
+    # Graded review: a low/medium ``require_review`` set routes the agent to the
+    # PR gate instead of ending the turn.  The obligation is preserved in
+    # ``pending_review`` and re-asserted by verify; only the local stop is
+    # relaxed.
+    if (
+        decision == "require_review"
+        and not repair.safe_to_attempt
+        and violations_within_agent_actionable_band(violations)
+    ):
+        return derive_agent_control(
+            reason=summary,
+            next_action=CodingAgentCommandAction(
+                kind="verify",
+                command=_VERIFY_COMMAND,
+                why=(
+                    "This change owes human review but is not an emergency stop: "
+                    "run verify so the PR gate records the decision, and report "
+                    "the pending review items."
+                ),
+            ),
+            verify_required=True,
+            allowed_next_commands=[_VERIFY_COMMAND],
+        )
 
     if decision in {"require_review", "block"} and not repair.safe_to_attempt:
         why = human_review.why or first_next_action.why or summary
@@ -1793,6 +1938,11 @@ def _human_review_for(
     repair: AgentResultRepair,
 ) -> AgentResultHumanReview:
     required = decision in {"require_review", "block"} and not repair.safe_to_attempt
+    # Graded rows keep the obligation in ``pending_review`` instead of a local
+    # stop, so no reviewer set is demanded of this run.  Must agree with
+    # ``_control_for_result``, whose derived control this projects.
+    if required and decision == "require_review":
+        required = not violations_within_agent_actionable_band(violations)
     return AgentResultHumanReview(
         required=required,
         why=(violations[0].title if required and violations else None),

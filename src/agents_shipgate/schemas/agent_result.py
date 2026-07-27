@@ -28,6 +28,28 @@ from agents_shipgate.schemas.agent_result_v1 import (
 AGENT_RESULT_SCHEMA_VERSION = "agent_result_v2"
 
 
+class AgentResultPendingReviewItem(BaseModel):
+    """One finding that still owes human review while the agent may continue.
+
+    Emitted when the local mapping routes a low/medium ``require_review``
+    boundary change onto the coding-agent verify route instead of stopping the
+    turn.  The obligation is not cleared: it is carried here so the agent can
+    report it, and PR-time verify still routes the same change to a human.
+    ``reviewers`` holds the reviewer set that a stop would have demanded —
+    ``control.human_review`` cannot carry it outside a human route.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    check_id: str
+    rule_id: str
+    path: str | None = None
+    risk_level: AgentResultRiskLevel
+    title: str
+    reviewers: list[str] = Field(default_factory=list)
+    note: str | None = None
+
+
 class AgentResultV2(BaseModel):
     """Schema-enforced local operational result.
 
@@ -130,4 +152,9 @@ class AgentResultV2(BaseModel):
 
 AgentResult = AgentResultV2
 
-__all__ = ["AGENT_RESULT_SCHEMA_VERSION", "AgentResult", "AgentResultV2"]
+__all__ = [
+    "AGENT_RESULT_SCHEMA_VERSION",
+    "AgentResult",
+    "AgentResultPendingReviewItem",
+    "AgentResultV2",
+]

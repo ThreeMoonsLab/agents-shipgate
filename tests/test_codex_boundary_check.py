@@ -21,24 +21,49 @@ SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v2.json"
 runner = CliRunner()
 
 
+# case -> (decision, rule ids, expected control state).  The graded local
+# mapping routes low/medium require_review rows to the coding-agent verify
+# route; high/critical rows, gate-weakening rules, and unparseable content
+# keep the human stop.
 CASES = {
-    "network_wildcard": ("require_review", ["CODEX-NETWORK-WILDCARD"]),
-    "mcp_auto_approve_write": ("block", ["CODEX-MCP-AUTO-APPROVE-WRITE"]),
+    "network_wildcard": (
+        "require_review",
+        ["CODEX-NETWORK-WILDCARD"],
+        "human_review_required",  # high risk stays a stop
+    ),
+    "mcp_auto_approve_write": (
+        "block",
+        ["CODEX-MCP-AUTO-APPROVE-WRITE"],
+        "human_review_required",
+    ),
     "agents_requirement_removed": (
         "require_review",
         ["CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED"],
+        "human_review_required",  # gate-weakening rule is band-excluded
     ),
-    "github_action_removed": ("block", ["CODEX-CI-GATE-REMOVED"]),
-    "docs_only": ("allow", []),
-    "python_refactor": ("allow", []),
-    "unknown_permission_key": ("require_review", ["CODEX-UNKNOWN-PERMISSION-KEY"]),
-    "malformed_toml": ("require_review", ["CODEX-CONFIG-PARSE-FAILED"]),
+    "github_action_removed": (
+        "block",
+        ["CODEX-CI-GATE-REMOVED"],
+        "human_review_required",
+    ),
+    "docs_only": ("allow", [], "complete"),
+    "python_refactor": ("allow", [], "complete"),
+    "unknown_permission_key": (
+        "require_review",
+        ["CODEX-UNKNOWN-PERMISSION-KEY"],
+        "agent_action_required",  # medium, parseable -> graded verify route
+    ),
+    "malformed_toml": (
+        "require_review",
+        ["CODEX-CONFIG-PARSE-FAILED"],
+        "human_review_required",  # unparseable content is band-excluded
+    ),
 }
 
 
 def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
     validator = Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
-    for case, (decision, rule_ids) in CASES.items():
+    for case, (decision, rule_ids, expected_state) in CASES.items():
         result = runner.invoke(
             app,
             [
@@ -60,7 +85,6 @@ def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
         assert payload["decision"] == decision
         assert [item["id"] for item in payload["violated_rules"]] == rule_ids
         control = _control(payload)
-        expected_state = "complete" if decision == "allow" else "human_review_required"
         assert control["state"] == expected_state
 
 

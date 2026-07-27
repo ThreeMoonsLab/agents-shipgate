@@ -189,6 +189,74 @@
       "title": "AgentResultDiagnostic",
       "type": "object"
     },
+    "AgentResultPendingReviewItem": {
+      "additionalProperties": false,
+      "description": "One finding that still owes human review while the agent may continue.\n\nEmitted when the local mapping routes a low/medium ``require_review``\nboundary change onto the coding-agent verify route instead of stopping the\nturn.  The obligation is not cleared: it is carried here so the agent can\nreport it, and PR-time verify still routes the same change to a human.\n``reviewers`` holds the reviewer set that a stop would have demanded \u2014\n``control.human_review`` cannot carry it outside a human route.",
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewers",
+          "type": "array"
+        },
+        "risk_level": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "rule_id",
+        "risk_level",
+        "title"
+      ],
+      "title": "AgentResultPendingReviewItem",
+      "type": "object"
+    },
     "AgentResultPolicy": {
       "additionalProperties": false,
       "properties": {
@@ -1109,6 +1177,13 @@
         "type": "string"
       },
       "title": "Issues",
+      "type": "array"
+    },
+    "pending_review": {
+      "items": {
+        "$ref": "#/$defs/AgentResultPendingReviewItem"
+      },
+      "title": "Pending Review",
       "type": "array"
     },
     "policies": {

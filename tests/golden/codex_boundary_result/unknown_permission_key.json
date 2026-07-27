@@ -17,27 +17,27 @@
         ".codex/config.toml"
     ],
     "control": {
-        "state": "human_review_required",
+        "state": "agent_action_required",
         "reason": "1 coding-agent boundary change(s) require human review.",
         "completion_allowed": false,
-        "must_stop": true,
-        "verify_required": false,
+        "must_stop": false,
+        "verify_required": true,
         "next_action": {
-            "actor": "human",
-            "kind": "review",
-            "command": null,
+            "actor": "coding_agent",
+            "kind": "verify",
+            "command": "agents-shipgate verify --json",
             "expects": null,
-            "why": "Unknown Codex permission key"
+            "why": "This change owes human review but is not an emergency stop: run verify so the PR gate records the decision, and report the pending review items."
         },
-        "allowed_next_commands": [],
+        "allowed_next_commands": [
+            "agents-shipgate verify --json"
+        ],
         "human_review": {
-            "required": true,
-            "why": "Unknown Codex permission key",
-            "required_reviewers": [
-                "agent-platform"
-            ]
+            "required": false,
+            "why": null,
+            "required_reviewers": []
         },
-        "stop_reason": "Unknown Codex permission key"
+        "stop_reason": null
     },
     "repair": {
         "actor": "human",
@@ -82,9 +82,7 @@
             "path": ".codex/config.toml"
         }
     ],
-    "required_reviewers": [
-        "agent-platform"
-    ],
+    "required_reviewers": [],
     "explanation": "1 coding-agent boundary change(s) require human review.",
     "suggested_fixes": [
         "Review the unknown permission key before trusting the boundary."
