@@ -193,7 +193,6 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
         "control",
         "repair",
         "policy",
-        "pending_review",
     ]
     assert payload["commands"]["agent_check_codex"].startswith("shipgate check")
     assert payload["commands"]["agent_check_claude_code"].startswith("shipgate check")

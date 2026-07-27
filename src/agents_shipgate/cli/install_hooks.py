@@ -435,10 +435,14 @@ from typing import Any
 VERIFY_TIMEOUT_SECONDS = 170
 UNTRACKED_DIFF_CONTENT_LIMIT_BYTES = 131072
 _MAX_REMEMBERED_SURFACES = 256
-# Host permission modes in which the human is prompted for each protected edit.
-# Only these can be read as "the human allowed this file"; the auto-accepting
-# modes answer the prompt without asking anyone.
-_PROMPTED_PERMISSION_MODES = frozenset({"default", "plan", "ask"})
+_MAX_REMEMBERED_SESSIONS = 8
+# Host permission modes that answer a hook's permission request without asking
+# a human. An edit that lands under one of these is not evidence that anyone
+# saw a prompt, so it must never seed the approval memory. Every other mode
+# (including acceptEdits, where an explicit hook "ask" still prompts) does
+# surface the request. An absent mode is treated as unknown and records
+# nothing.
+_UNPROMPTED_PERMISSION_MODES = frozenset({"bypasspermissions", "dontask"})
 
 # Rendered at install time from agents_shipgate.checks.verify
 # TRUST_ROOT_SURFACES — the same classification the PR-time verifier
@@ -481,18 +485,24 @@ def _pretooluse(payload: dict[str, Any], root: Path) -> int:
     ).strip().lower()
     if decision not in {"ask", "deny"}:
         return 0
+    # ``deny`` is a hard block chosen by the operator, not a prompt. A prior
+    # in-session approval may quiet a repeated *prompt*; it must never quiet a
+    # deny.
     session_id = str(payload.get("session_id") or "")
-    already_approved = _approved_surfaces(root, session_id)
+    already_approved = (
+        _approved_surfaces(root, session_id) if decision == "ask" else frozenset()
+    )
+    contained = _contained_repo_paths(payload, root)
     matched: list[tuple[str, str, str]] = []
     for path in _changed_paths(payload, root):
         hit = _protected_surface_for(path)
         if hit is None:
             continue
-        if path in already_approved:
-            # The human allowed this exact file earlier in this session.
-            # Re-prompting for every subsequent edit trains people to click
-            # through; the gate itself is unchanged and PR-time verify still
-            # reports the trust-root touch.
+        # Only a path proven to be inside this repository can be matched
+        # against the memory: an out-of-workspace absolute path degrades to its
+        # basename, and `/elsewhere/shipgate.yaml` must not authorize the
+        # repository's own manifest.
+        if path in already_approved and path in contained:
             continue
         matched.append((path, hit[0], hit[1]))
     if not matched:
@@ -597,7 +607,7 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     paths = _changed_paths(payload, root)
     if not paths:
         return 0
-    _record_in_session_approvals(payload, root, paths)
+    _record_in_session_approvals(payload, root)
     diff_text = _git_diff_for_paths(root, paths)
     # For edit-time nudges, evaluate path relevance without the opted-in
     # manifest force-run rule. CI still runs every PR for opted-in repos.
@@ -628,24 +638,61 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     )
 
 
-def _record_in_session_approvals(
-    payload: dict[str, Any],
-    root: Path,
-    paths: list[str],
-) -> None:
+def _record_in_session_approvals(payload: dict[str, Any], root: Path) -> None:
     """Note protected files whose edit the human just allowed.
 
-    PostToolUse only fires once the tool call went through, so in a prompting
-    permission mode an edit that lands is an edit the human allowed. The
-    auto-accepting modes answer without asking anyone, so they record nothing.
+    PostToolUse only fires once the tool call went through, so when the host
+    surfaced this hook's permission request, an edit that landed is an edit a
+    human allowed. Three conditions must all hold, and each failure means we
+    have no evidence of a human decision:
+
+    * the boundary was actually prompting — not disabled with ``allow`` (no
+      request was made) and not ``deny`` (nothing was ever approvable);
+    * the host was in a mode that asks rather than auto-answering;
+    * the path is provably inside this repository, so a same-basename file
+      elsewhere cannot authorize a protected repository path.
     """
 
-    mode = str(payload.get("permission_mode") or payload.get("permissionMode") or "")
-    if mode.strip().lower() not in _PROMPTED_PERMISSION_MODES:
+    if (
+        os.environ.get("AGENTS_SHIPGATE_PRETOOLUSE_DECISION", "ask").strip().lower()
+        != "ask"
+    ):
         return
-    protected = [path for path in paths if _protected_surface_for(path) is not None]
+    mode = str(payload.get("permission_mode") or payload.get("permissionMode") or "")
+    mode = mode.strip().lower()
+    if not mode or mode in _UNPROMPTED_PERMISSION_MODES:
+        return
+    protected = [
+        path
+        for path in _contained_repo_paths(payload, root)
+        if _protected_surface_for(path) is not None
+    ]
     if protected:
         _remember_approved_surfaces(root, str(payload.get("session_id") or ""), protected)
+
+
+def _contained_repo_paths(payload: dict[str, Any], root: Path) -> frozenset[str]:
+    """Changed paths proven to resolve inside ``root``.
+
+    ``_repo_path`` deliberately falls back to a bare filename for paths outside
+    the workspace so the boundary still warns about them. That fallback must
+    never feed the approval memory, where a basename collision would carry an
+    approval from one file to a different one.
+    """
+
+    out: set[str] = set()
+    for raw in _raw_changed_paths(payload):
+        candidate = Path(raw)
+        try:
+            resolved = (
+                candidate.resolve()
+                if candidate.is_absolute()
+                else (root / candidate).resolve()
+            )
+            out.add(resolved.relative_to(root).as_posix())
+        except (ValueError, OSError):
+            continue
+    return frozenset(out)
 
 
 def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> int:
@@ -706,20 +753,6 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         )
         base = ""
 
-    # One verify per turn: if the agent already ran verify over exactly this
-    # tree state and arguments, reuse its artifact instead of paying for an
-    # identical second run at turn end.
-    reused = _reusable_verifier(root, args, snapshot, base=base, head=head)
-    if reused is not None:
-        return _route_verify_result(
-            reused,
-            root=root,
-            args=args,
-            signature=signature,
-            base_note=base_note,
-            stop_hook_active=stop_hook_active,
-        )
-
     command = [
         *_cli(),
         "verify",
@@ -777,43 +810,6 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         base_note=base_note,
         stop_hook_active=stop_hook_active,
     )
-
-
-def _reusable_verifier(
-    root: Path,
-    args: argparse.Namespace,
-    snapshot: dict[str, Any],
-    *,
-    base: str,
-    head: str,
-) -> dict[str, Any] | None:
-    """An existing verifier.json that covers exactly this input, or None.
-
-    The verifier records the exact bytes it evaluated in
-    ``verification-input.diff``. When that matches the diff the hook just
-    computed, and the config and refs match too, a verify the agent already ran
-    this turn is authoritative for this tree state and re-running it would
-    only cost time. Anything unreadable or mismatched falls through to a
-    normal run.
-    """
-
-    reports = root / "agents-shipgate-reports"
-    try:
-        recorded_diff = (reports / "verification-input.diff").read_text(encoding="utf-8")
-        verifier = json.loads((reports / "verifier.json").read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(verifier, dict):
-        return None
-    if recorded_diff != snapshot.get("diff_text"):
-        return None
-    if str(verifier.get("config") or "") != str(args.config):
-        return None
-    if str(verifier.get("base_ref") or "") != base:
-        return None
-    if str(verifier.get("head_ref") or "") != (head or "HEAD"):
-        return None
-    return verifier
 
 
 def _route_verify_result(
@@ -1100,9 +1096,14 @@ def _write_state(root: Path, data: dict[str, Any]) -> None:
     path = _state_path(root)
     if path is None:
         return
+    # Atomic replace: parallel PostToolUse hooks can run concurrently, and a
+    # torn advisory cache is worse than a stale one.
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        payload = json.dumps(data, indent=2, sort_keys=True) + "\n"
+        temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temp.write_text(payload, encoding="utf-8")
+        os.replace(temp, path)
     except OSError:
         return
 
@@ -1149,31 +1150,47 @@ def _remember_approved_surfaces(root: Path, session_id: str, paths: list[str]) -
     if not session_id or not paths or not _approval_memory_enabled():
         return
     state = _read_state(root)
-    existing = _approved_surfaces(root, session_id)
-    merged = sorted(existing | set(paths))[:_MAX_REMEMBERED_SURFACES]
-    # Only the current session is retained: a new session must ask again.
-    state["approved_surfaces"] = {session_id: merged}
+    approved = state.get("approved_surfaces")
+    if not isinstance(approved, dict):
+        approved = {}
+    # Preserve concurrent sessions rather than clobbering them; bound both the
+    # per-session list and the number of retained sessions.
+    updated: dict[str, list[str]] = {}
+    for key, value in approved.items():
+        if isinstance(key, str) and isinstance(value, list):
+            updated[key] = [item for item in value if isinstance(item, str)]
+    existing = set(updated.get(session_id, []))
+    updated[session_id] = sorted(existing | set(paths))[:_MAX_REMEMBERED_SURFACES]
+    if len(updated) > _MAX_REMEMBERED_SESSIONS:
+        keep = [session_id] + [key for key in updated if key != session_id]
+        updated = {key: updated[key] for key in keep[:_MAX_REMEMBERED_SESSIONS]}
+    state["approved_surfaces"] = updated
     _write_state(root, state)
 
 
-def _changed_paths(payload: dict[str, Any], root: Path) -> list[str]:
+def _raw_changed_paths(payload: dict[str, Any]) -> list[str]:
+    """Path strings exactly as the host reported them, before normalization."""
+
     out: list[str] = []
-    tool_input = payload.get("tool_input")
-    tool_response = payload.get("tool_response")
-    for node in (tool_input, tool_response):
+    for node in (payload.get("tool_input"), payload.get("tool_response")):
         if isinstance(node, dict):
             for key in ("file_path", "filePath", "path"):
                 value = node.get(key)
                 if isinstance(value, str) and value.strip():
-                    out.append(_repo_path(value, root))
+                    out.append(value)
             edits = node.get("edits")
             if isinstance(edits, list):
                 for edit in edits:
                     if isinstance(edit, dict):
                         value = edit.get("file_path") or edit.get("filePath")
                         if isinstance(value, str) and value.strip():
-                            out.append(_repo_path(value, root))
-    return sorted({path for path in out if path})
+                            out.append(value)
+    return out
+
+
+def _changed_paths(payload: dict[str, Any], root: Path) -> list[str]:
+    paths = [_repo_path(value, root) for value in _raw_changed_paths(payload)]
+    return sorted({path for path in paths if path})
 
 
 def _repo_path(value: str, root: Path) -> str:

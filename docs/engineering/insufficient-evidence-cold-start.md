@@ -56,19 +56,24 @@ path manufactures the very gap verify then abstains on.
 
 Three changes, each independently shippable, ordered by value per unit of risk.
 
-### 1. `init` scaffolds what it already detected
+### 1. `init` scaffolds the *question*, never the answer
 
-When detection identifies a framework and a root agent object with high
-confidence, write `agent_bindings` into the generated manifest with the
-detected root, marked with the same `CHANGE_ME`-style review affordance the
-manifest already uses for unresolved fields. Where detection cannot identify a
-root, write the key with an explicit placeholder plus the accepted values, so
-the first `verify` reports "confirm this declaration" rather than "no root
-agent matched the configured selector".
+Binding declarations are in `do_not_auto_assert` for a reason: a manifest that
+declares a root agent is asserting what the agent can reach, and the tool must
+never write that assertion on a human's behalf. So `init` must **not** emit a
+populated `agent_bindings`.
 
-This does not assert authority the tool cannot see: a detected literal root
-object is a structural fact, and the human still reviews the manifest before
-committing it (the manifest is a trust root; PR-time verify reports the touch).
+What it can do is stop hiding the requirement. When detection identifies a
+framework, `init` writes the `agent_bindings` key with an explicit unresolved
+placeholder — the same `CHANGE_ME` affordance the manifest already uses for
+`agent.name` — plus a comment naming the accepted values and the detected
+candidate as a *suggestion*. The first `verify` then reports "confirm this
+declaration, candidate: `support_agent` in `app/agent.py`" instead of "no root
+agent matched the configured selector", and the human types the answer.
+
+The distinction is load-bearing: writing `CHANGE_ME` asserts nothing and cannot
+satisfy an evidence gap, so nothing downstream can mistake a scaffold for a
+declaration.
 
 ### 2. Scope the verdict to the change
 

@@ -218,23 +218,24 @@ Three hooks are installed:
   `AGENTS_SHIPGATE_PRETOOLUSE_DECISION=deny` for hard blocking, or
   `=allow` to disable the boundary without uninstalling. One decision
   covers the file for the rest of the session: once a human allows an
-  edit to a protected file in a prompting permission mode, later edits to
-  that same file do not re-prompt, because a prompt on every keystroke of
-  an approved change trains people to click through. A new session asks
-  again, the auto-accepting modes record nothing (nobody was asked), and
-  the memory is advisory only — `shipgate check` and PR-time verify still
-  evaluate every edit, and `SHIP-VERIFY-*` still reports the trust-root
-  touch. Set `AGENTS_SHIPGATE_APPROVAL_MEMORY=off` to prompt every time.
+  edit to a protected file, later edits to that same file do not
+  re-prompt, because a prompt on every keystroke of an approved change
+  trains people to click through. The memory is deliberately narrow — it
+  applies only to `ask` (never to `deny`, an operator's hard block, and
+  it is never seeded while the boundary is disabled, since no request was
+  made); only to paths that provably resolve inside the repository, so a
+  same-named file elsewhere cannot carry an approval inward; only to host
+  modes that actually surface the request, never `bypassPermissions` or
+  an unreported mode; and only to the session that answered. It is
+  advisory: `shipgate check` and PR-time verify still evaluate every
+  edit, and `SHIP-VERIFY-*` still reports the trust-root touch. Set
+  `AGENTS_SHIPGATE_APPROVAL_MEMORY=off` to prompt every time.
 - **`PostToolUse` (nudge).** A cheap trigger check after
   `Edit|Write|MultiEdit`, ignoring the manifest-present force-run rule so
   irrelevant docs edits do not nudge every turn.
 - **`Stop` (verify).** Full `agents-shipgate verify` only when the
   working tree or current branch has a relevant change that has not
-  already been checked. If the agent already ran verify over exactly this
-  tree state — the recorded `verification-input.diff` matches the hook's
-  own snapshot and the config and refs agree — the hook reuses that
-  result instead of paying for an identical second run, so a turn costs
-  one verify rather than two. The outcome follows `verifier.control.state`, the
+  already been checked. The outcome follows `verifier.control.state`, the
   authoritative operational signal: `complete` ends the turn silently;
   `agent_action_required` blocks the stop once and names the one exact
   remaining command (a Stop-hook block forces the agent to keep working,

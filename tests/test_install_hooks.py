@@ -589,20 +589,6 @@ def _posttooluse(
     )
 
 
-def _hook_snapshot_diff(tmp_path: Path) -> str:
-    """The diff text the rendered hook computes for the current worktree."""
-
-    import argparse
-
-    script = tmp_path / HOOK_SCRIPT_RELATIVE_PATH
-    # One dict for globals AND locals so the module's functions can resolve
-    # each other by name.
-    namespace: dict = {"__name__": "hook_under_test"}
-    exec(compile(script.read_text(encoding="utf-8"), str(script), "exec"), namespace)
-    args = argparse.Namespace(config="shipgate.yaml", base="origin/main", head="")
-    return str(namespace["_change_snapshot"](tmp_path, args)["diff_text"])
-
-
 def test_pretooluse_stops_re_asking_for_an_already_allowed_file(tmp_path: Path) -> None:
     """One human decision per file per session, not one per edit."""
 
@@ -620,7 +606,7 @@ def test_pretooluse_stops_re_asking_for_an_already_allowed_file(tmp_path: Path) 
     assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
 
 
-def test_auto_accepting_permission_modes_are_not_recorded_as_approval(
+def test_auto_answering_permission_modes_are_not_recorded_as_approval(
     tmp_path: Path,
 ) -> None:
     """An edit nobody was asked about is not an approval."""
@@ -628,6 +614,81 @@ def test_auto_accepting_permission_modes_are_not_recorded_as_approval(
     _stop_hook_workspace(tmp_path)
     _posttooluse(tmp_path, "CLAUDE.md", permission_mode="bypassPermissions")
     assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+
+    # An absent mode is unknown, not permission to remember.
+    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+
+
+def test_accept_edits_mode_still_records_an_answered_prompt(tmp_path: Path) -> None:
+    """acceptEdits auto-accepts ordinary edits, but an explicit hook ask still
+    reaches the human — so a landed protected edit is an answered prompt."""
+
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="acceptEdits")
+    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+
+
+def test_approval_memory_never_overrides_a_configured_deny(tmp_path: Path) -> None:
+    """`deny` is an operator's hard block, not a prompt to be remembered."""
+
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md")
+    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+
+    env_backup = os.environ.get("AGENTS_SHIPGATE_PRETOOLUSE_DECISION")
+    os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = "deny"
+    try:
+        out = _pretooluse_out(tmp_path, "CLAUDE.md")
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+    finally:
+        if env_backup is None:
+            os.environ.pop("AGENTS_SHIPGATE_PRETOOLUSE_DECISION", None)
+        else:
+            os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = env_backup
+
+
+def test_disabled_boundary_does_not_seed_approval_memory(tmp_path: Path) -> None:
+    """With the boundary disabled no request is made, so nothing was allowed."""
+
+    _stop_hook_workspace(tmp_path)
+    env_backup = os.environ.get("AGENTS_SHIPGATE_PRETOOLUSE_DECISION")
+    os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = "allow"
+    try:
+        _posttooluse(tmp_path, "CLAUDE.md")
+    finally:
+        if env_backup is None:
+            os.environ.pop("AGENTS_SHIPGATE_PRETOOLUSE_DECISION", None)
+        else:
+            os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = env_backup
+
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+
+
+def test_outside_workspace_path_cannot_authorize_a_repository_path(
+    tmp_path: Path,
+) -> None:
+    """A same-basename file elsewhere must not carry an approval inward."""
+
+    _stop_hook_workspace(tmp_path)
+    outsider = tmp_path.parent / f"{tmp_path.name}-elsewhere"
+    outsider.mkdir(parents=True, exist_ok=True)
+    stray = outsider / "shipgate.yaml"
+    stray.write_text("version: '0.1'\n", encoding="utf-8")
+
+    _posttooluse(tmp_path, str(stray))
+    assert "permissionDecision" in _pretooluse_out(
+        tmp_path, str(tmp_path / "shipgate.yaml")
+    )
+
+
+def test_approval_memory_preserves_other_sessions(tmp_path: Path) -> None:
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md", session_id="A")
+    _posttooluse(tmp_path, "shipgate.yaml", session_id="B")
+
+    assert _pretooluse_out(tmp_path, "CLAUDE.md", session_id="A") == ""
+    assert _pretooluse_out(tmp_path, "shipgate.yaml", session_id="B") == ""
 
 
 def test_approval_memory_can_be_disabled(tmp_path: Path) -> None:
@@ -642,67 +703,6 @@ def test_approval_memory_can_be_disabled(tmp_path: Path) -> None:
             os.environ.pop("AGENTS_SHIPGATE_APPROVAL_MEMORY", None)
         else:
             os.environ["AGENTS_SHIPGATE_APPROVAL_MEMORY"] = env_backup
-
-
-def test_stop_hook_reuses_a_verify_the_agent_already_ran(tmp_path: Path) -> None:
-    """One verify per turn: identical input must not be re-verified."""
-
-    _stop_hook_workspace(tmp_path)
-    reports = tmp_path / "agents-shipgate-reports"
-    reports.mkdir(parents=True, exist_ok=True)
-    # Record the exact bytes verify would have evaluated by asking the rendered
-    # hook itself, so the test pins the real reuse contract rather than a
-    # re-implementation of the diff.
-    (reports / "verification-input.diff").write_text(
-        _hook_snapshot_diff(tmp_path), encoding="utf-8"
-    )
-    (reports / "verifier.json").write_text(
-        json.dumps(
-            {
-                "config": "shipgate.yaml",
-                "base_ref": None,
-                "head_ref": "HEAD",
-                "release_decision": {
-                    "decision": "review_required",
-                    "blockers": [],
-                    "review_items": [{}],
-                },
-                "control": {
-                    "state": "human_review_required",
-                    "reason": "trust root touched",
-                    "stop_reason": "trust root touched",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
-    result = _run_stop_hook(tmp_path, verify_payload=None)
-
-    assert result.returncode == 0, result.stderr
-    assert "A human must review" in json.loads(result.stdout)["systemMessage"]
-    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-    assert [entry for entry in entries if entry[0] == "trigger"]
-    assert not [entry for entry in entries if entry[0] == "verify"]
-
-
-def test_stop_hook_reruns_verify_when_the_tree_moved(tmp_path: Path) -> None:
-    _stop_hook_workspace(tmp_path)
-    reports = tmp_path / "agents-shipgate-reports"
-    reports.mkdir(parents=True, exist_ok=True)
-    (reports / "verification-input.diff").write_text("stale diff\n", encoding="utf-8")
-    (reports / "verifier.json").write_text(
-        json.dumps({"config": "shipgate.yaml", "base_ref": None, "head_ref": "HEAD"}),
-        encoding="utf-8",
-    )
-
-    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
-    result = _run_stop_hook(tmp_path, verify_payload=None)
-
-    assert result.returncode == 0, result.stderr
-    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-    assert [entry for entry in entries if entry[0] == "verify"]
 
 
 def _init_repo(path: Path) -> None:

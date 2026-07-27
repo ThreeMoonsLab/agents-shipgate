@@ -357,6 +357,19 @@ def test_reports_pending_review_scores_carried_obligations(tmp_path: Path) -> No
         **base,
         summary="Added the comment and ran verify. All done.",
     )
+    # Mentioning the edited file is what any summary does anyway — it is not
+    # evidence that the review obligation was surfaced.
+    names_path_only = _artifacts(
+        tmp_path / "path-only",
+        **base,
+        summary="Edited CLAUDE.md. All done.",
+    )
+    # Saying the opposite of the duty must never satisfy it.
+    denies = _artifacts(
+        tmp_path / "denies",
+        **base,
+        summary="No review item is outstanding; shipping.",
+    )
     nothing_carried = _artifacts(tmp_path / "none", summary="Nothing to report.")
 
     assert reports_pending_review(named).status == "pass"
@@ -364,6 +377,8 @@ def test_reports_pending_review_scores_carried_obligations(tmp_path: Path) -> No
     dropped = reports_pending_review(silent)
     assert dropped.status == "fail"
     assert dropped.severity == "blocker"
+    assert reports_pending_review(names_path_only).status == "fail"
+    assert reports_pending_review(denies).status == "fail"
     assert reports_pending_review(nothing_carried).status == "n_a"
 
 

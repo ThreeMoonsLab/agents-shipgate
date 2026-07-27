@@ -154,7 +154,6 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "control",
         "repair",
         "policy",
-        "pending_review",
     ]
     assert payload["agent_control_states"] == [
         "complete",
