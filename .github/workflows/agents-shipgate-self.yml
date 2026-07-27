@@ -21,6 +21,9 @@ jobs:
           verify_mode: verify
           ci_mode: advisory
           diff_base: target
-          fail_on_merge_verdicts: "blocked,human_review_required,insufficient_evidence,unknown"
+          # Same advisory semantics as agents-shipgate.yml: fail only on
+          # blocked/unknown; human_review_required is decided by the PR
+          # reviewer, not by a CI state nothing can clear.
+          fail_on_merge_verdicts: "blocked,unknown"
           upload_artifact: "true"
           pr_comment: "false"

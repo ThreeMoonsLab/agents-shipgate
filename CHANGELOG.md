@@ -34,6 +34,17 @@
   treated as passing; the cold-start no-manifest case advises
   `verify --preview` instead of forcing continuation. Reinstall hooks to
   pick up the new behavior.
+- **Own-repo CI verify gates on `blocked,unknown` again (`0.16.0b7`).** The
+  0.16.0b3-era expansion of `fail_on_merge_verdicts` to include
+  `human_review_required` and `insufficient_evidence` (#274) made every
+  trust-root-touching PR — including routine release pin sweeps that bump the
+  plugin manifests — permanently red: no verifier mechanism can clear a
+  `human_review_required` merge verdict, and the verdict's own semantics are
+  "release is allowed but the human reviewer should weigh in." Both advisory
+  workflows now fail only on `blocked` and `unknown` (fail-closed against
+  parse/contract breakage); review routing remains visible in the uploaded
+  verifier artifact and the PR reviewer stays the deciding human. The
+  GitHub Action's own defaults are unchanged.
 - **Version advances (`0.16.0b7`).** Runtime contract `18 → 19`. All other
   schema versions are unchanged; `pending_review[]` is additive on the
   regenerated `agent-boundary-result-schema.v1.json`, and
