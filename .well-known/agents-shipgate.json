@@ -156,7 +156,8 @@
     "decision",
     "control",
     "repair",
-    "policy"
+    "policy",
+    "pending_review"
   ],
   "agent_control_fields": [
     "state",

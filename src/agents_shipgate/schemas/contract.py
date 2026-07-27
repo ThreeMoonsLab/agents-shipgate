@@ -70,6 +70,10 @@ AGENT_RESULT_CONTROL_FIELDS: tuple[str, ...] = (
     "control",
     "repair",
     "policy",
+    # v19: review obligations a graded local result carries instead of
+    # stopping the turn.  Result-level, not control-level — see
+    # AGENT_CONTROL_FIELDS for the control block's own field set.
+    "pending_review",
 )
 AGENT_CONTROL_FIELDS: tuple[str, ...] = (
     "state",

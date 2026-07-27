@@ -27,7 +27,7 @@ Do not use it for general linting, runtime monitoring, evals, model-output quali
 ## Fast Paths
 
 - CLI preflight: run `command -v agents-shipgate`, `agents-shipgate --version`, and `agents-shipgate contract --json`. Continue only when the installed CLI reports `minimum_control_contract_version: 14`; if it is missing or stale, ask the user to install or upgrade `agents-shipgate`.
-- Agent-native check: run `shipgate check --agent codex --workspace . --format agent-boundary-json`; read only the JSON result for continue/repair/stop routing.
+- Agent-native check: run `shipgate check --agent codex --workspace . --format agent-boundary-json`; read only the JSON result for routing. Four shapes: continue, repair, verify-and-report (a graded `require_review` set — finish the work, then name every `pending_review[]` item in the summary), and stop.
 - Agent-related PR/CI diff: run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. For local uncommitted work, omit `--base`/`--head` so the working tree is scanned. `verify` never fetches.
 - Existing manifest / ongoing PR: run `agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json`.
 - Unconfigured repo or uncertain relevance: run `agents-shipgate verify --preview --json`.

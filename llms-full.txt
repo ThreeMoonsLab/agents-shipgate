@@ -1561,9 +1561,13 @@ The old `codex-boundary-json` spelling remains a deprecated `0.16.x`
 compatibility projection of the same assessment.
 
 Read `input_coverage`, `host_coverage[]`, `affected_hosts[]`, `policies[]`,
-`issues[]`, and `excluded_scopes[]` before relying on the result. `complete`
+`issues[]`, `pending_review[]`, and `excluded_scopes[]` before relying on the
+result. `complete`
 means complete only within the declared static input scope; it is not proof of
-session grants, runtime enforcement, or tool behavior. The detailed matrix is
+session grants, runtime enforcement, or tool behavior. `pending_review[]` is
+non-empty only alongside `agent_action_required`: those are review obligations
+the graded mapping carried forward instead of stopping the turn, and an agent
+must name them when summarizing the change. The detailed matrix is
 [`host-boundary-support.md`](host-boundary-support.md).
 
 Coding agents switch on `control.state`, then follow `control.next_action` and
@@ -2345,8 +2349,12 @@ command-bearing skill changes before local automation.
 ### SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED
 
 A recognized host, instruction, policy, state, or workflow surface changed
-without a specialized safe classification. Human review is required because
-absence of a risk finding is not evidence of non-broadening behavior.
+without a specialized safe classification. The change routes to human review at
+PR time because absence of a risk finding is not evidence of non-broadening
+behavior. In the local `shipgate check` loop this medium row is graded: unless
+the path is a gate-governing trust root (manifest, policy, CI gate, or
+`.agents-shipgate/` state), the coding agent may finish its turn with the
+obligation carried in `pending_review[]` rather than stopping.
 
 ### SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED
 
