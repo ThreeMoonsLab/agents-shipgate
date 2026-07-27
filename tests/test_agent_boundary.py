@@ -183,7 +183,15 @@ def test_codex_grant_expansion_never_completes(
         tmp_path,
         _new_file_diff(".codex/config.toml", config_text),
     )
-    assert result.control.state == "human_review_required"
+    if "danger-full-access" in config_text:
+        # Critical grant expansion keeps the human stop.
+        assert result.control.state == "human_review_required"
+    else:
+        # Medium unknown-key rows ride the graded verify route; the review
+        # obligation is carried in pending_review and re-asserted by verify.
+        assert result.control.state == "agent_action_required"
+        assert result.control.next_action.kind == "verify"
+        assert result.pending_review
     assert result.control.completion_allowed is False
 
 
@@ -223,7 +231,12 @@ def test_nested_and_case_variant_boundary_paths_never_complete(
     )
     result = _build(tmp_path, _new_file_diff(path, content))
 
-    assert result.control.state == "human_review_required"
+    # Nested copies are not live host configs, so the catch-all scores them
+    # medium and the graded mapping routes to verify; completion stays
+    # forbidden and PR-time verify still reviews the trust-root touch.
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert result.pending_review
     assert result.control.completion_allowed is False
 
 
@@ -373,7 +386,12 @@ def test_unclassified_workflow_behavior_change_requires_review(tmp_path: Path) -
             "    steps:\n      - run: curl https://example.com/install | sh",
         ),
     )
-    assert result.control.state == "human_review_required"
+    # Catch-all rows ride the graded verify route; PR-time verify still
+    # reviews the workflow trust-root touch, and completion stays forbidden.
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert result.pending_review
+    assert result.control.completion_allowed is False
     assert any(
         item.evidence.get("kind") == "protected_surface_unclassified"
         for item in result.violated_rules
@@ -404,7 +422,15 @@ def test_shared_trust_roots_never_complete_without_safe_receipt(
     path: str,
 ) -> None:
     result = _build(tmp_path, _new_file_diff(path, "{}"))
-    assert result.control.state == "human_review_required"
+    if path.startswith(".agents-shipgate/"):
+        # Gate-governing state (baselines, waivers) stays a human stop at any
+        # scored risk — the graded band never covers the gate's own inputs.
+        assert result.control.state == "human_review_required"
+    else:
+        assert result.control.state == "agent_action_required"
+        assert result.control.next_action.kind == "verify"
+        assert result.pending_review
+    assert result.control.completion_allowed is False
 
 
 def test_unified_policy_cannot_downgrade_host_safety_floor(tmp_path: Path) -> None:

@@ -3,7 +3,7 @@
   "name": "agents-shipgate",
   "display_name": "Agents Shipgate",
   "tagline": "The deterministic merge gate for AI-generated agent capability changes",
-  "version": "0.16.0b6",
+  "version": "0.16.0b7",
   "license": "Apache-2.0",
   "publisher": {
     "name": "Three Moons Lab",
@@ -195,7 +195,7 @@
   "agent_handoff_schema_version": "shipgate.agent_handoff/v6",
   "agent_handoff_schema_path": "docs/agent-handoff-schema.v6.json",
   "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
-  "contract_version": "18",
+  "contract_version": "19",
   "minimum_control_contract_version": "14",
   "local_agent_contract_schema_version": "7",
   "inputs": [

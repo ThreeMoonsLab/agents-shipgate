@@ -2092,10 +2092,10 @@ def test_self_dogfood_manifest_scans_codex_plugin_package() -> None:
     workflow = _read(".github/workflows/agents-shipgate-self.yml")
     assert "config: shipgate-self.yaml" in workflow
     assert "verify_mode: verify" in workflow
-    assert (
-        'fail_on_merge_verdicts: "blocked,human_review_required,'
-        'insufficient_evidence,unknown"' in workflow
-    )
+    # Advisory workflows fail only on blocked/unknown: human_review_required
+    # is decided by the PR reviewer and no verifier mechanism can clear it,
+    # so failing CI on it would leave trust-root-touching PRs permanently red.
+    assert 'fail_on_merge_verdicts: "blocked,unknown"' in workflow
 
 
 def test_pre_commit_local_docs_show_same_path_trigger_clauses():

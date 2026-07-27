@@ -401,7 +401,7 @@
           "type": "string"
         },
         "version": {
-          "default": "0.16.0b6",
+          "default": "0.16.0b7",
           "title": "Version",
           "type": "string"
         }

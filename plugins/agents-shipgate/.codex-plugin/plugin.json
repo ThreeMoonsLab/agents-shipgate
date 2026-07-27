@@ -1,6 +1,6 @@
 {
   "name": "agents-shipgate",
-  "version": "0.16.0b6",
+  "version": "0.16.0b7",
   "description": "Run Agents Shipgate Tool-Use Readiness workflows from Codex.",
   "author": {
     "name": "Three Moons Lab",

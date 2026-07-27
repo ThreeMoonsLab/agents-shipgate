@@ -33,7 +33,9 @@ from agents_shipgate.core.codex_boundary import (
     _dedupe_violations,
     _human_review_for,
     _next_action_for,
+    _pending_review_for,
     _repair_for,
+    _required_reviewers_for,
     _risk_for,
     _violation_fingerprint,
     evaluate_codex_boundary_result,
@@ -379,8 +381,18 @@ def evaluate_agent_boundary(
 def build_agent_boundary_result(assessment: AgentBoundaryAssessment) -> AgentBoundaryResultV1:
     legacy = assessment.legacy_result
     aggregate_policy = _aggregate_policy(assessment)
+    pending_review = (
+        _pending_review_for(
+            assessment.violations,
+            _required_reviewers_for(legacy.decision, list(assessment.violations)),
+        )
+        if legacy.control.state == "agent_action_required"
+        and legacy.decision == "require_review"
+        else []
+    )
     return AgentBoundaryResultV1(
         **legacy.model_dump(mode="python", exclude={"schema_version", "policy"}),
+        pending_review=pending_review,
         actor=assessment.actor,  # type: ignore[arg-type]
         input_mode=assessment.input_mode,
         scope=assessment.scope,
@@ -457,6 +469,7 @@ def _project_legacy(
             trigger_verify_required=bool(
                 legacy.trigger and legacy.trigger.get("force_run")
             ),
+            violations=violations,
         )
     else:
         decision = legacy.decision

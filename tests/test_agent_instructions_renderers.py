@@ -48,7 +48,8 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "bc5cd31a5c4d4f6a1ebf6a04db3f80480e7cc5f9ab2b7a6f7e3f62e8ddfc3937"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        "7fcf37dacee5cc64263d21c6be3a5c7e99b4e6fb45d96b3dda7bdd0603aff6cd"
+        # Renders {{ shipgate_version }}; changes on every version bump.
+        "1f6ef3e51a09e824a98d6e5b33f2bf61282c62e2ae859e234da9f56161fa4a87"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
         "53296f41b7c2bc8538555a4361707de8b990748b7a5d80ae4ce066af83af8fa7"
@@ -162,7 +163,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "7"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "18"
+    assert payload["contract_version"] == "19"
     assert payload["minimum_control_contract_version"] == "14"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")

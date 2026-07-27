@@ -1,4 +1,4 @@
-# Stability Contract · 0.16.0b6
+# Stability Contract · 0.16.0b7
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -12,6 +12,52 @@ not yet frozen. A `1.0` line will not begin until the report schema reaches
 for reproducible CI.
 
 ---
+
+<a id="migration-note-0-16-0b7"></a>
+
+## Migration Note: 0.16.0b7
+
+Runtime contract `18 → 19` grades the LOCAL boundary stop. Under contract
+v14–v18 every `require_review` boundary violation projected
+`control.state: "human_review_required"` with `must_stop: true` — a
+CLAUDE.md prose edit and a critical grant expansion were operationally
+identical. As of v19, a `require_review` violation set that is entirely
+low/medium risk projects `control.state: "agent_action_required"` with the
+exact verify command, and the review obligation is carried in the new
+additive `pending_review[]` field on
+`shipgate.agent_boundary_result/v1` (each entry: `check_id`, `rule_id`,
+`path`, `risk_level`, `title`, `reviewers`, `note`). The deprecated
+`codex-boundary-json` format grades identically but its frozen v2 schema
+does not carry the new field.
+
+The graded band is deliberately narrow and fail-closed. These keep the
+`human_review_required` stop at any scored risk: any `block` action or
+`critical` risk in the set; `BOUNDARY-INPUT-INCOMPLETE` and parse-failure
+evidence (unparseable content is not reviewable content — only the
+parseable `unknown_host_config_key` case is band-eligible);
+`CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED` (gate weakening); experimental
+adapter surfaces; and every violation touching a gate-governing trust-root
+class (`manifest`, `policy`, `ci_gate`, `shipgate_state`), which preserves
+the composite-diff guarantee that a safe manifest append bundled with an
+unsafe manifest edit still routes to a human.
+
+The v14 control invariants are unchanged: `must_stop` equals
+`state == "human_review_required"`, `completion_allowed` equals
+`state == "complete"`, and conversation-level acknowledgement cannot clear
+control state. PR-time `release_decision` branching is byte-identical —
+the graded rows still land in `review_items` and route to a human at the
+merge gate; only the local turn-level stop is relaxed.
+
+The installed Claude Code **Stop hook** now follows `verifier.control.state`
+instead of the release label: `complete` ends the turn silently,
+`agent_action_required` blocks the stop once and names the one exact
+remaining command, and `human_review_required` prints a hand-off notice and
+lets the turn end — a Stop-hook block forces continued agent work, which
+`must_stop` semantics forbid. Unparseable or unrecognized verifier output
+warns, is never cached, and is never treated as passing. The cold-start
+no-manifest case advises `verify --preview` instead of forcing
+continuation. Reinstall hooks (`agents-shipgate install-hooks --target
+claude-code --write`) to pick up the new behavior.
 
 <a id="migration-note-0-16-0b6"></a>
 

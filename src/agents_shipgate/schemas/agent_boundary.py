@@ -6,7 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agents_shipgate.schemas.agent_result import AgentResultV2
+from agents_shipgate.schemas.agent_result import (
+    AgentResultPendingReviewItem,
+    AgentResultV2,
+)
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultAgent,
     AgentResultPolicy,
@@ -42,6 +45,11 @@ class AgentBoundaryResultV1(AgentResultV2):
     policy_set_sha256: str
     issues: list[str] = Field(default_factory=list)
     violations: list[AgentResultViolatedRule]
+    # Additive: review obligations the graded local mapping carries forward
+    # instead of stopping the turn.  Lives on this result (not the shared
+    # AgentResultV2 base) so the deprecated codex-boundary v2 format stays
+    # byte-frozen.
+    pending_review: list[AgentResultPendingReviewItem] = Field(default_factory=list)
     static_analysis_only: Literal[True] = True
     runtime_session_verified: Literal[False] = False
     excluded_scopes: list[str] = Field(default_factory=list)
@@ -58,6 +66,11 @@ class AgentBoundaryResultV1(AgentResultV2):
             raise ValueError("partial or experimental host coverage cannot allow completion")
         if self.violations != self.violated_rules:
             raise ValueError("violations must exactly project legacy violated_rules")
+        # An outstanding review obligation contradicts completion: a graded
+        # row still owes a human a look at PR time, so it must keep the agent
+        # on a route rather than reading as finished.
+        if self.pending_review and self.control.state == "complete":
+            raise ValueError("a complete result cannot carry pending review items")
         return self
 
 

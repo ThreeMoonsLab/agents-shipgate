@@ -386,6 +386,157 @@ def test_generated_stop_hook_verifies_worktree_once_without_head(tmp_path: Path)
     assert "--no-manifest-present" in trigger_entries[0]
 
 
+def _run_stop_hook(
+    tmp_path: Path,
+    *,
+    verify_payload: str | None,
+    stop_hook_active: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+    if verify_payload is not None:
+        env["FAKE_VERIFY_PAYLOAD"] = verify_payload
+    payload: dict[str, object] = {"cwd": str(tmp_path)}
+    if stop_hook_active:
+        payload["stop_hook_active"] = True
+    return subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+
+def _stop_hook_workspace(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    _init_repo(tmp_path)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "refund.md").write_text("require approval\n", encoding="utf-8")
+
+
+def test_stop_hook_blocks_only_for_agent_action_required(tmp_path: Path) -> None:
+    _stop_hook_workspace(tmp_path)
+    payload = json.dumps(
+        {
+            "release_decision": {"decision": "review_required", "blockers": [], "review_items": [{}]},
+            "control": {
+                "state": "agent_action_required",
+                "reason": "verify pending",
+                "next_action": {"kind": "verify", "command": "agents-shipgate verify --json"},
+            },
+        }
+    )
+    result = _run_stop_hook(tmp_path, verify_payload=payload)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["decision"] == "block"
+    assert "agents-shipgate verify --json" in out["reason"]
+
+    # The re-entry guard still prevents a forced-continuation loop.
+    rerun = _run_stop_hook(tmp_path, verify_payload=payload, stop_hook_active=True)
+    assert rerun.returncode == 0, rerun.stderr
+    assert rerun.stdout == ""
+
+
+def test_stop_hook_hands_off_instead_of_blocking_on_human_review(tmp_path: Path) -> None:
+    # ``must_stop=true`` means the turn must be allowed to end for a human —
+    # a Stop-hook block would force the agent to keep working, the opposite.
+    _stop_hook_workspace(tmp_path)
+    payload = json.dumps(
+        {
+            "release_decision": {
+                "decision": "blocked",
+                "blockers": [{}],
+                "review_items": [],
+            },
+            "control": {
+                "state": "human_review_required",
+                "reason": "capability change requires approval evidence",
+                "stop_reason": "capability change requires approval evidence",
+            },
+        }
+    )
+    result = _run_stop_hook(tmp_path, verify_payload=payload)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert "decision" not in out
+    assert "A human must review" in out["systemMessage"]
+    assert "decision=blocked" in out["systemMessage"]
+
+    # One handoff notice per tree state: the signature cache silences repeats.
+    rerun = _run_stop_hook(tmp_path, verify_payload=payload)
+    assert rerun.returncode == 0, rerun.stderr
+    assert rerun.stdout == ""
+
+
+def test_stop_hook_warns_and_never_caches_unparseable_verifier_output(
+    tmp_path: Path,
+) -> None:
+    _stop_hook_workspace(tmp_path)
+    result = _run_stop_hook(tmp_path, verify_payload="not-json{")
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert "decision" not in out
+    assert "could not parse" in out["systemMessage"]
+    assert "Do not treat this as a passing verdict" in out["systemMessage"]
+
+    # Unparseable output must not be cached: the warning repeats.
+    rerun = _run_stop_hook(tmp_path, verify_payload="not-json{")
+    assert rerun.returncode == 0, rerun.stderr
+    assert "could not parse" in json.loads(rerun.stdout)["systemMessage"]
+
+
+def test_stop_hook_warns_on_unrecognized_control_state(tmp_path: Path) -> None:
+    _stop_hook_workspace(tmp_path)
+    payload = json.dumps(
+        {
+            "release_decision": {"decision": "passed", "blockers": [], "review_items": []},
+            "control": {"state": "surprise_state", "reason": "future contract"},
+        }
+    )
+    result = _run_stop_hook(tmp_path, verify_payload=payload)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert "decision" not in out
+    assert "unrecognized control state" in out["systemMessage"]
+    assert "requiring human review" in out["systemMessage"]
+
+
+def test_stop_hook_cold_start_advises_instead_of_blocking(tmp_path: Path) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "refund.md").write_text("require approval\n", encoding="utf-8")
+    result = _run_stop_hook(tmp_path, verify_payload=None)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert "decision" not in out
+    assert "no shipgate.yaml exists" in out["systemMessage"]
+    assert "verify --preview" in out["systemMessage"]
+
+
 def _init_repo(path: Path) -> None:
     subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
     subprocess.run(
@@ -430,6 +581,11 @@ if args and args[0] == "trigger":
     print(json.dumps({"should_run": True, "rationale": "test trigger matched"}))
     raise SystemExit(0)
 if args and args[0] == "verify":
+    import os
+    override = os.environ.get("FAKE_VERIFY_PAYLOAD")
+    if override is not None:
+        sys.stdout.write(override)
+        raise SystemExit(0)
     print(json.dumps({
         "release_decision": {
             "decision": "passed",
@@ -437,6 +593,7 @@ if args and args[0] == "verify":
             "review_items": [],
         },
         "base_status": "not_requested",
+        "control": {"state": "complete", "reason": "test pass"},
     }))
     raise SystemExit(0)
 raise SystemExit(2)

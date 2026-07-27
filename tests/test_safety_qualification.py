@@ -56,7 +56,7 @@ from scripts.run_safety_qualification import (
 )
 
 DECISIONS = ("passed", "review_required", "insufficient_evidence", "blocked")
-VERSION = "0.16.0b6"
+VERSION = "0.16.0b7"
 
 
 def _verification_plan(case_id: str) -> VerificationPlan:
@@ -209,8 +209,8 @@ def _write_json(path: Path, value: object) -> None:
 def _write_wheel(path: Path) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            "agents_shipgate-0.16.0b6.dist-info/METADATA",
-            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b6\n",
+            "agents_shipgate-0.16.0b7.dist-info/METADATA",
+            "Metadata-Version: 2.4\nName: agents-shipgate\nVersion: 0.16.0b7\n",
         )
 
 
@@ -254,7 +254,7 @@ def _fixture(
     actual_overrides: dict[str, str] | None = None,
     disagreement_case: str | None = None,
 ) -> tuple[Path, Path, Path, Path]:
-    wheel = tmp_path / "agents_shipgate-0.16.0b6-py3-none-any.whl"
+    wheel = tmp_path / "agents_shipgate-0.16.0b7-py3-none-any.whl"
     _write_wheel(wheel)
     policy = tmp_path / "qualification-policy.json"
     _write_json(policy, {"policy": "beta-exact", "version": 1})

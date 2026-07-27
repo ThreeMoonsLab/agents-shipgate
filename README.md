@@ -23,7 +23,7 @@ Local-first and static by default — no agent execution, tool calls, LLM calls,
 
 > [!IMPORTANT]
 > **Status: pre-1.0 (beta).** The decision engine is deterministic and stable.
-> This source tree is `0.16.0b6`; install and GitHub Action examples remain
+> This source tree is `0.16.0b7`; install and GitHub Action examples remain
 > pinned to the latest published tag, `v0.15.0`, until the beta is released.
 > Real-history accuracy numbers (small n, published in full in
 > [`benchmark/miner/README.md`](benchmark/miner/README.md)): across 361 mined

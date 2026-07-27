@@ -1,6 +1,6 @@
 # Verification Identity and Reproduction
 
-Agents Shipgate `0.16.0b6` makes a verification request, its execution, its
+Agents Shipgate `0.16.0b7` makes a verification request, its execution, its
 decision, and its emitted files independently identifiable. This closes the
 previous ambiguity where a mutable branch name, a local cache hit, or an
 unbound collection of JSON files could be presented as the same verification.
@@ -117,7 +117,7 @@ cross-executor equivalence qualification that are not present in v1.
 
 ## Reviewed authorization overlay
 
-Runtime contract v18 can project one externally authorized coding-agent action
+Runtime contract v19 can project one externally authorized coding-agent action
 without changing the release decision. This is an overlay on a completed
 verification graph, not an input that lets a worker or repository assert human
 approval.

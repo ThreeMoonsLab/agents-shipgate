@@ -626,11 +626,14 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
             diff_text=snapshot["diff_text"],
             manifest_present=False,
         )
-        if trigger and trigger.get("should_run") and not stop_hook_active:
-            return _emit_stop_block(
+        if trigger and trigger.get("should_run"):
+            # Advisory: nothing is configured yet, so nobody has decided this
+            # repo is gated — advise, never force the turn to continue.
+            return _emit_context(
+                "Stop",
                 "Agents Shipgate trigger matched, but no shipgate.yaml exists. "
-                "Before finishing, run `agents-shipgate verify --preview --json`, "
-                "initialize the manifest if relevant, then verify."
+                "Run `agents-shipgate verify --preview --json` and initialize "
+                "the manifest if this workspace contains an agent.",
             )
         return 0
 
@@ -703,27 +706,72 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         )
 
     try:
-        verifier = json.loads(completed.stdout or "{}")
+        verifier = json.loads(completed.stdout or "")
     except json.JSONDecodeError:
-        verifier = {}
+        verifier = None
+    if not isinstance(verifier, dict):
+        # Never cache and never stay silent on unreadable verifier output: a
+        # malfunctioning gate must not read as a passing one.
+        return _emit_context(
+            "Stop",
+            "Agents Shipgate verify produced output the hook could not parse. "
+            "Do not treat this as a passing verdict; run "
+            f"`{_manual_verify_command(args, root=root)}` manually and read "
+            "`agents-shipgate-reports/report.json`.",
+        )
+
     decision = ((verifier.get("release_decision") or {}).get("decision") or "unknown")
     blockers = len((verifier.get("release_decision") or {}).get("blockers") or [])
     review_items = len((verifier.get("release_decision") or {}).get("review_items") or [])
-    base_status = verifier.get("base_status") or "unknown"
-    _write_verified_signature(root, signature)
-    if decision == "passed":
+    control = verifier.get("control") if isinstance(verifier.get("control"), dict) else {}
+    state = control.get("state")
+    summary = f"decision={decision}, blockers={blockers}, review_items={review_items}"
+
+    # The hook mirrors the operational control contract: ``control.state`` is
+    # authoritative and ``decision`` is diagnostic.  A Claude Code Stop-hook
+    # "block" forces the agent to KEEP WORKING, so it is only ever correct
+    # when an exact coding-agent action remains.  ``human_review_required``
+    # (``must_stop=true``) is the opposite situation — the turn must be
+    # allowed to end so a human can take over.
+    if state == "complete":
+        _write_verified_signature(root, signature)
         if base_note:
             return _emit_context("Stop", "Agents Shipgate verify passed." + base_note)
         return 0
-    if stop_hook_active:
-        return 0
-    return _emit_stop_block(
-        "Agents Shipgate verify ran before completion: "
-        f"decision={decision}, blockers={blockers}, review_items={review_items}, "
-        f"base_status={base_status}.{base_note} Before finishing, summarize "
-        "`agents-shipgate-reports/report.json` and the next safe action. "
-        "Do not bypass the verifier by suppressing findings, lowering severity, "
-        "expanding baselines/waivers, removing Shipgate CI, or weakening agent instructions."
+    if state == "agent_action_required":
+        _write_verified_signature(root, signature)
+        if stop_hook_active:
+            return 0
+        next_action = (
+            control.get("next_action") if isinstance(control.get("next_action"), dict) else {}
+        )
+        command = next_action.get("command") or _manual_verify_command(args, root=root)
+        why = next_action.get("why") or "One coding-agent action remains."
+        return _emit_stop_block(
+            f"Agents Shipgate verify ran before completion: {summary}.{base_note} "
+            f"One exact coding-agent action remains before finishing: run `{command}`. "
+            f"{why} "
+            "Do not bypass the verifier by suppressing findings, lowering severity, "
+            "expanding baselines/waivers, removing Shipgate CI, or weakening agent instructions."
+        )
+    if state == "human_review_required":
+        _write_verified_signature(root, signature)
+        stop_reason = control.get("stop_reason") or control.get("reason") or ""
+        return _emit_context(
+            "Stop",
+            f"Agents Shipgate verify ran before completion: {summary}.{base_note} "
+            "A human must review this change before it can merge"
+            f"{': ' + stop_reason if stop_reason else ''}. "
+            "The coding agent's local work can end here; PR review is unchanged. "
+            "Details: `agents-shipgate-reports/report.json`.",
+        )
+    # Unknown control state: warn loudly, never cache, never block.
+    return _emit_context(
+        "Stop",
+        f"Agents Shipgate verify returned an unrecognized control state {state!r} "
+        f"({summary}). Do not treat this as a passing verdict; read "
+        "`agents-shipgate-reports/report.json` and treat unknown states as "
+        "requiring human review.",
     )
 
 
