@@ -88,7 +88,7 @@ mcp = [
   # (readOnlyHint / openWorldHint) via `FastMCP.tool(..., annotations=...)`,
   # which earlier 1.x releases either lack (ToolAnnotations import fails) or
   # do not accept on the tool decorator (registration fails).
-  "mcp>=1.14,<2",
+  "mcp>=1.28.1,<2",
 ]
 dev = [
   "build>=1.5.0,<2",
