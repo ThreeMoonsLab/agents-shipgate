@@ -20,6 +20,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`design-partner-verifier-pilot.md`](design-partner-verifier-pilot.md) — runbook for design partners bringing one AI-generated agent PR through the verifier loop
 - [`architecture.md`](architecture.md) — codebase layout for new contributors
 - [`engineering/ai-coding-workflow-verifier.md`](engineering/ai-coding-workflow-verifier.md) — canonical engineering guide and roadmap for making Agents Shipgate the deterministic verifier inside AI coding workflows
+- [`engineering/insufficient-evidence-cold-start.md`](engineering/insufficient-evidence-cold-start.md) — proposed design for getting first-adoption repos out of a standing `insufficient_evidence` verdict on every turn
+- [`engineering/host-authenticated-approval-receipts.md`](engineering/host-authenticated-approval-receipts.md) — proposed design for in-session approval receipts a host attests, and the record of why the unsigned version was rejected
 - [`agent-native-merge-contract.md`](agent-native-merge-contract.md) — the agent-native protocol map: the eight merge contracts, each mapped to the artifact that implements it
 - [`product-hardening-gap-closure.md`](product-hardening-gap-closure.md) — closure map for the root dogfood gate, governance case catalog, policy-pack tests, trace contract, and runtime-inventory boundary
 - [`agent-workflow-evidence.md`](agent-workflow-evidence.md) — local Agent Workflow Evidence and AgentTraceEvent contract for replayable verifier scenarios
