@@ -222,7 +222,15 @@ Three hooks are installed:
   irrelevant docs edits do not nudge every turn.
 - **`Stop` (verify).** Full `agents-shipgate verify` only when the
   working tree or current branch has a relevant change that has not
-  already been checked.
+  already been checked. The outcome follows `verifier.control.state`, the
+  authoritative operational signal: `complete` ends the turn silently;
+  `agent_action_required` blocks the stop once and names the one exact
+  remaining command (a Stop-hook block forces the agent to keep working,
+  so it is only ever used when a coding-agent action actually remains);
+  `human_review_required` lets the turn end and prints a hand-off notice —
+  `must_stop` means "stop and hand off to a human", which a forced
+  continuation would contradict. Unparseable or unrecognized verifier
+  output warns loudly, is never cached, and is never treated as passing.
 
 Local setup failures such as a missing CLI or unavailable base ref are
 surfaced as context, not as the release gate. CI remains authoritative,
