@@ -445,6 +445,17 @@ def _binding_coverage(
             path = "shipgate.yaml#agent_bindings"
             accepted_values = ["literal_binding", "reviewed_declaration"]
             expects = "Correct the binding annotation or provide an exact reviewed declaration."
+        # Only root SELECTION is scaffoldable. The other binding issues are
+        # repaired under ``agent_bindings.declarations`` or in the source
+        # wiring, so a root-only block would not fit the path they name — and
+        # in a decorator-only repository there is no agent object for a filled
+        # root selector to match, so offering one would send the reader after a
+        # value that cannot exist.
+        root_template = (
+            AGENT_BINDINGS_ROOT_TEMPLATE
+            if issue.kind == "ambiguous_root_agent" and graph.agents
+            else None
+        )
         gaps.append(
             EvidenceGap(
                 kind=issue.kind,
@@ -456,9 +467,9 @@ def _binding_coverage(
                     command=_SEMANTIC_RERUN_COMMAND,
                     path=path,
                     why="A complete root-reachable static binding graph is required for passed.",
-                    expects=_with_scaffold_pointer(expects, {"agent_bindings": True}),
+                    expects=_with_scaffold_pointer(expects, root_template),
                     accepted_values=accepted_values,
-                    declaration_template=deepcopy(AGENT_BINDINGS_ROOT_TEMPLATE),
+                    declaration_template=deepcopy(root_template) if root_template else None,
                 ),
             )
         )
@@ -735,7 +746,7 @@ def _semantic_gap(
             "shipgate.yaml, then rerun verification."
         )
         declaration_template = {
-            "tool": tool.name,
+            **_action_selector(tool),
             "effect": "<REVIEW_REQUIRED>",
         }
     elif kind in {
@@ -760,7 +771,7 @@ def _semantic_gap(
         # them keeps the template fillable for every supported answer, and the
         # scaffold tells the reviewer to delete what their mode does not take.
         declaration_template = {
-            "tool": tool.name,
+            **_action_selector(tool),
             "scopes": [REVIEW_REQUIRED_SENTINEL],
             "authority": {
                 "mode": REVIEW_REQUIRED_SENTINEL,
@@ -802,41 +813,74 @@ def _semantic_gap(
         next_action=EvidenceGapAction(
             kind=action_kind,  # type: ignore[arg-type]
             command=_SEMANTIC_RERUN_COMMAND,
-            path=(
-                "shipgate.yaml#tool_sources"
-                if kind == "incomplete_surface"
-                else (
-                    "shipgate.yaml#tool_identity"
-                    if kind in {
-                        "incomplete_tool_identity",
-                        "conflicting_tool_identity",
-                        "unresolved_tool_selector",
-                        "ambiguous_tool_selector",
-                        "ambiguous_legacy_tool_identity",
-                        "invalid_tool_binding",
-                    }
-                    else (
-                        "shipgate.yaml#agent_bindings"
-                        if kind in {
-                            "missing_binding_evidence",
-                            "partial_binding_evidence",
-                            "conflicting_binding_evidence",
-                            "ambiguous_root_agent",
-                            "unresolved_agent_binding",
-                            "unresolved_bound_tool",
-                            "incomplete_handoff_graph",
-                            "invalid_binding_annotation",
-                        }
-                        else f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
-                    )
-                )
-            ),
+            path=_semantic_gap_path(kind, tool),
             why=action_why,
             expects=_with_scaffold_pointer(expects, declaration_template),
             accepted_values=accepted_values,
             declaration_template=declaration_template,
         ),
     )
+
+
+_TOOL_IDENTITY_KINDS = frozenset(
+    {"incomplete_tool_identity", "conflicting_tool_identity", "invalid_tool_binding"}
+)
+# An ambiguous SELECTOR is qualified on the action row that uses it.
+# ``tool_identity`` takes reviewed bindings asserting that separate
+# observations are one capability — a different claim, and a different repair.
+_SELECTOR_KINDS = frozenset(
+    {
+        "unresolved_tool_selector",
+        "ambiguous_tool_selector",
+        "ambiguous_legacy_tool_identity",
+    }
+)
+_AGENT_BINDING_KINDS = frozenset(
+    {
+        "missing_binding_evidence",
+        "partial_binding_evidence",
+        "conflicting_binding_evidence",
+        "ambiguous_root_agent",
+        "unresolved_agent_binding",
+        "unresolved_bound_tool",
+        "incomplete_handoff_graph",
+        "invalid_binding_annotation",
+    }
+)
+
+
+def _semantic_gap_path(kind: str, tool: Tool) -> str:
+    """The manifest location that repairs this gap kind."""
+
+    action_row = f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
+    if kind == "incomplete_surface":
+        return "shipgate.yaml#tool_sources"
+    if kind in _SELECTOR_KINDS:
+        return action_row
+    if kind in _TOOL_IDENTITY_KINDS:
+        return "shipgate.yaml#tool_identity"
+    if kind in _AGENT_BINDING_KINDS:
+        return "shipgate.yaml#agent_bindings"
+    return action_row
+
+
+def _action_selector(tool: Tool) -> dict[str, object]:
+    """Selector fields that identify exactly one action row.
+
+    ``tool`` alone is the display name, so two canonical tools sharing a name
+    render identical rows: merging both is rejected as duplicate selectors, and
+    merging one resolves neither uniquely. ``tool_id`` disambiguates, and the
+    source qualifiers keep the row readable about which surface it came from.
+    """
+
+    selector: dict[str, object] = {"tool": tool.name}
+    if tool.id:
+        selector["tool_id"] = tool.id
+    if tool.source_id:
+        selector["source_id"] = tool.source_id
+    elif tool.source_type:
+        selector["source_type"] = tool.source_type
+    return selector
 
 
 def _with_scaffold_pointer(

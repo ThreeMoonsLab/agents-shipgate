@@ -248,8 +248,16 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
             for index, value in enumerate(node):
                 assert_no_assertion(value, f"{path}[{index}]")
             return
-        # A tool NAME is the subject the gap is about, not a claim about it.
-        if path.endswith(".tool"):
+        # Selector fields identify WHICH row the declaration is about. They are
+        # read off the observed surface, not judged by a human, so they are not
+        # assertions the scaffold is making on the reviewer's behalf.
+        if path.rsplit(".", 1)[-1] in {
+            "tool",
+            "tool_id",
+            "source_id",
+            "source_type",
+            "provider",
+        }:
             return
         assert node == REVIEW_REQUIRED_SENTINEL, (
             f"{path} = {node!r} asserts a value the human owns"
@@ -288,3 +296,122 @@ def _shipped_templates() -> list[dict]:
             templates.append(template)
     assert templates, "expected at least one shipped template"
     return templates
+
+
+def test_unfilled_sentinel_is_rejected_by_the_manifest() -> None:
+    """The scaffold's promise, enforced rather than merely stated.
+
+    A pasted-but-unfinished block used to LOAD: the manifest only checked that
+    `authority.auth_type` was non-blank, so `<REVIEW_REQUIRED>` satisfied it and
+    the declaration was assessed as reviewed evidence — moving a fixture from
+    `insufficient_evidence` to `review_required` on placeholders alone.
+    """
+
+    import pytest
+
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+
+    base = {
+        "version": "0.1",
+        "project": {"name": "p"},
+        "agent": {"name": "a", "declared_purpose": ["do a thing"]},
+        "environment": {"target": "local"},
+        "tool_sources": [{"id": "s1", "type": "mcp", "path": "tools.json"}],
+    }
+
+    with pytest.raises(ValueError) as caught:
+        AgentsShipgateManifest.model_validate(
+            {
+                **base,
+                "action_surface": {
+                    "actions": [
+                        {
+                            "tool": "lookup",
+                            "effect": "read",
+                            "scopes": ["orders:read"],
+                            "authority": {
+                                "mode": "scoped",
+                                "auth_type": "<REVIEW_REQUIRED>",
+                            },
+                        }
+                    ]
+                },
+            }
+        )
+    message = str(caught.value)
+    assert "unfilled scaffold placeholder" in message
+    assert "action_surface.actions[0].authority.auth_type" in message
+
+    # A sentinel anywhere is rejected, including inside a list.
+    with pytest.raises(ValueError):
+        AgentsShipgateManifest.model_validate(
+            {**base, "agent": {**base["agent"], "declared_purpose": ["<REVIEW_REQUIRED>"]}}
+        )
+
+    # The same manifest with reviewed values loads.
+    AgentsShipgateManifest.model_validate(
+        {
+            **base,
+            "action_surface": {
+                "actions": [
+                    {
+                        "tool": "lookup",
+                        "effect": "read",
+                        "scopes": ["orders:read"],
+                        "authority": {"mode": "scoped", "auth_type": "api_key"},
+                    }
+                ]
+            },
+        }
+    )
+
+
+def test_same_name_tools_render_distinguishable_selectors() -> None:
+    """Two canonical tools sharing a display name must not collapse."""
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+
+    gaps = [
+        rd._semantic_gap(
+            Tool(id=f"tool-{src}", name="lookup", source_type="sdk_function", source_id=src),
+            kind="inferred_effect_only",
+            why="test",
+        )
+        for src in ("alpha", "beta")
+    ]
+    scaffold = build_declaration_scaffold(gaps)
+    assert scaffold is not None
+    docs = [doc for doc in yaml.safe_load_all(scaffold) if doc]
+    assert len(docs) == 2
+    # Same display name, different rows — each resolves exactly one tool.
+    assert {doc["tool"] for doc in docs} == {"lookup"}
+    assert {doc["tool_id"] for doc in docs} == {"tool-alpha", "tool-beta"}
+
+
+def test_binding_scaffold_only_offers_a_root_when_one_could_match() -> None:
+    """A decorator-only repo has no agent object for a root selector to name."""
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+    )
+    from agents_shipgate.schemas.report import ReadinessReport
+
+    def _gaps(agents: list, kind: str):
+        report = ReadinessReport.model_construct(
+            binding_surface_facts=AgentBindingGraphAssessment(
+                root_agent_id=None,
+                status="partial",
+                agents=agents,
+                issues=[AgentBindingIssue(kind=kind, message="test")],
+            )
+        )
+        _coverage, gaps = rd._binding_coverage(report)
+        return gaps
+
+    no_agents = _gaps([], "ambiguous_root_agent")
+    assert no_agents
+    assert no_agents[0].next_action.declaration_template is None
+    assert "suggested-declarations" not in (no_agents[0].next_action.expects or "")

@@ -54,10 +54,14 @@ def build_declaration_scaffold(gaps: Sequence[EvidenceGap]) -> str | None:
         if not isinstance(template, dict) or not template:
             continue
         path = str(getattr(action, "path", "") or "shipgate.yaml")
-        # Key on the gap's own subject, not just the tool name: two sources can
-        # expose the same tool name, and merging those would fold two distinct
-        # declarations into one row.
-        target = (path, str(gap.subject or ""), str(template.get("tool") or ""))
+        # Key on the rendered selector, not the display name: two canonical
+        # tools can share a name, and folding those into one row would produce
+        # a declaration that resolves neither of them.
+        target = (
+            path,
+            str(gap.subject or ""),
+            str(template.get("tool_id") or template.get("tool") or ""),
+        )
         existing = by_target.get(target)
         if existing is None:
             entry: dict[str, Any] = {

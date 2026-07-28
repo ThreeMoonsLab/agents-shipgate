@@ -33,6 +33,31 @@ from agents_shipgate.schemas.manifest.tool_identity import ToolIdentityConfig
 from agents_shipgate.schemas.manifest.tool_sources import ToolSourceConfig
 from agents_shipgate.schemas.manifest.validation import ValidationConfig
 
+# Kept here rather than imported from ci.release_decision: the manifest schema
+# must not depend on the decision engine, and this string is the scaffold's
+# published placeholder.
+REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
+
+
+def _sentinel_paths(node: object, path: str = "") -> list[str]:
+    """Dotted paths of every unfilled scaffold placeholder in a manifest."""
+
+    if isinstance(node, dict):
+        return [
+            found
+            for key, value in node.items()
+            for found in _sentinel_paths(value, f"{path}.{key}" if path else str(key))
+        ]
+    if isinstance(node, (list, tuple)):
+        return [
+            found
+            for index, value in enumerate(node)
+            for found in _sentinel_paths(value, f"{path}[{index}]")
+        ]
+    if isinstance(node, str) and node.strip() == REVIEW_REQUIRED_SENTINEL:
+        return [path or "<root>"]
+    return []
+
 
 class AgentsShipgateManifest(BaseModel):
     model_config = STRICT_MODEL_CONFIG
@@ -66,6 +91,32 @@ class AgentsShipgateManifest(BaseModel):
     # evidence — never inferred — and editing this list in shipgate.yaml is
     # itself a trust-root change (SHIP-VERIFY-TRUST-ROOT-TOUCHED).
     human_ack: list[HumanAckDeclaration] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def reject_unfilled_review_sentinels(self) -> AgentsShipgateManifest:
+        """A scaffold placeholder must never read as reviewed evidence.
+
+        The declaration scaffold ships ``<REVIEW_REQUIRED>`` in every slot a
+        human owns, and tells the reader that a block still containing one
+        closes nothing. Nothing enforced that: the manifest only checks that
+        fields like ``authority.auth_type`` are non-blank, so a sentinel
+        satisfied them and a verbatim paste was assessed as a reviewed
+        declaration. Rejecting the sentinel at load time makes the promise true
+        by construction and fails closed — an unfinished scaffold cannot change
+        a verdict.
+        """
+
+        unfilled = sorted(_sentinel_paths(self.model_dump(mode="python")))
+        if unfilled:
+            listed = ", ".join(unfilled[:5])
+            more = f" (+{len(unfilled) - 5} more)" if len(unfilled) > 5 else ""
+            raise ValueError(
+                f"{REVIEW_REQUIRED_SENTINEL} is an unfilled scaffold placeholder "
+                f"and is not reviewed evidence: {listed}{more}. Replace each one "
+                "with a reviewed value, or delete the field if your answer does "
+                "not take it."
+            )
+        return self
 
     @model_validator(mode="after")
     def require_sources_and_scope_text(self) -> AgentsShipgateManifest:

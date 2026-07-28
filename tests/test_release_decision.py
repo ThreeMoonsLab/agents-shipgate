@@ -259,8 +259,12 @@ def test_semantic_gap_has_human_declaration_remediation():
     # manifest rejects `scoped`/`unscoped`/`ambient` without `auth_type`, and
     # `scoped` without non-empty `scopes`, so a mode-only template is
     # unfillable for the answers people actually give.
+    # The selector carries tool_id/source qualifiers so two canonical tools
+    # sharing a display name cannot render the same action row.
     assert gap.next_action.declaration_template == {
         "tool": "process_order",
+        "tool_id": "tool-process_order",
+        "source_type": "manual",
         "scopes": ["<REVIEW_REQUIRED>"],
         "authority": {
             "mode": "<REVIEW_REQUIRED>",

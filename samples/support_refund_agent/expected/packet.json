@@ -2011,15 +2011,8 @@
             ],
             "auto_apply": false,
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "declaration_template": {
-              "agent_bindings": {
-                "root": {
-                  "object": "<REVIEW_REQUIRED>",
-                  "source_id": "<REVIEW_REQUIRED>"
-                }
-              }
-            },
-            "expects": "Reconcile the declaration with positive structural evidence and rerun verification. A ready-to-review block is written to suggested-declarations.yaml next to report.json.",
+            "declaration_template": null,
+            "expects": "Reconcile the declaration with positive structural evidence and rerun verification.",
             "kind": "resolve_binding_conflict",
             "path": "shipgate.yaml#agent_bindings.declarations",
             "requires_human_review": true,
