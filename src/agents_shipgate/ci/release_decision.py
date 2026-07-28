@@ -359,6 +359,15 @@ _INVENTORY_MANIFEST_KEYS: tuple[tuple[str, str], ...] = (
 # low-confidence tools exist (see cli/scan/writing.py). Referenced here
 # so the gap rows and the artifact never drift apart.
 SUGGESTED_INVENTORY_FILENAME = "suggested-inventory.json"
+# Filename of the advisory declaration scaffold scan writes next to
+# report.json whenever any evidence gap carries a ``declaration_template``
+# (see cli/scan/writing.py). The templates themselves are generated here; the
+# scaffold only assembles them into one reviewable manifest snippet so the
+# one-time human declaration is a paste, not a schema hunt. Every value stays
+# ``<REVIEW_REQUIRED>``: the tool must never guess an effect, an authority, or
+# a binding, and a placeholder can never satisfy a gap.
+SUGGESTED_DECLARATIONS_FILENAME = "suggested-declarations.yaml"
+REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
 _SEMANTIC_RERUN_COMMAND = (
     "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json"
 )
@@ -433,7 +442,7 @@ def _binding_coverage(
                     command=_SEMANTIC_RERUN_COMMAND,
                     path=path,
                     why="A complete root-reachable static binding graph is required for passed.",
-                    expects=expects,
+                    expects=_with_scaffold_pointer(expects, {"agent_bindings": True}),
                     accepted_values=accepted_values,
                     declaration_template={
                         "agent_bindings": {
@@ -738,9 +747,18 @@ def _semantic_gap(
             "Declare reviewed authority under action_surface.actions in "
             "shipgate.yaml, then rerun verification."
         )
+        # Every mode except ``none`` also requires ``auth_type``, and
+        # ``scoped`` requires non-empty ``scopes`` — a template offering
+        # ``mode`` alone is unfillable for the answers people actually give,
+        # so it names the co-required fields and lets the reviewer delete what
+        # ``mode: none`` does not take.
         declaration_template = {
             "tool": tool.name,
-            "authority": {"mode": "<REVIEW_REQUIRED>"},
+            "scopes": [REVIEW_REQUIRED_SENTINEL],
+            "authority": {
+                "mode": REVIEW_REQUIRED_SENTINEL,
+                "auth_type": REVIEW_REQUIRED_SENTINEL,
+            },
         }
     else:
         action_kind = "resolve_semantic_conflict"
@@ -806,10 +824,29 @@ def _semantic_gap(
                 )
             ),
             why=action_why,
-            expects=expects,
+            expects=_with_scaffold_pointer(expects, declaration_template),
             accepted_values=accepted_values,
             declaration_template=declaration_template,
         ),
+    )
+
+
+def _with_scaffold_pointer(
+    expects: str,
+    declaration_template: dict[str, object] | None,
+) -> str:
+    """Name the on-disk scaffold whenever one will carry this template.
+
+    The template alone is only reachable by walking report.json; the scaffold
+    is the file a human can open and complete, so the instruction should say
+    where it is.
+    """
+
+    if not declaration_template:
+        return expects
+    return (
+        f"{expects} A ready-to-review block is written to "
+        f"{SUGGESTED_DECLARATIONS_FILENAME} next to report.json."
     )
 
 

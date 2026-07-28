@@ -255,9 +255,17 @@ def test_semantic_gap_has_human_declaration_remediation():
         "unscoped",
         "ambient",
     ]
+    # The template must name every co-required field, not just `mode`: the
+    # manifest rejects `scoped`/`unscoped`/`ambient` without `auth_type`, and
+    # `scoped` without non-empty `scopes`, so a mode-only template is
+    # unfillable for the answers people actually give.
     assert gap.next_action.declaration_template == {
         "tool": "process_order",
-        "authority": {"mode": "<REVIEW_REQUIRED>"},
+        "scopes": ["<REVIEW_REQUIRED>"],
+        "authority": {
+            "mode": "<REVIEW_REQUIRED>",
+            "auth_type": "<REVIEW_REQUIRED>",
+        },
     }
     assert gap.next_action.auto_apply is False
     assert gap.next_action.requires_human_review is True

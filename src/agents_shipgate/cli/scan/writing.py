@@ -4,13 +4,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.ci.release_decision import SUGGESTED_INVENTORY_FILENAME
+from agents_shipgate.ci.release_decision import (
+    SUGGESTED_DECLARATIONS_FILENAME,
+    SUGGESTED_INVENTORY_FILENAME,
+)
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.packet.builder import build_packet
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import ReadinessReport
 
+from .declarations import scaffold_for_report
 from .models import _OutputPlan, _SanitizedSurfaces
 from .output_helpers import _write_packet, _write_reports
 
@@ -43,6 +47,10 @@ def _write_outputs(
         sanitized_tools=sanitized.tools,
         generated_paths=plan.generated_paths,
     )
+    _write_suggested_declarations(
+        report=public_report,
+        generated_paths=plan.generated_paths,
+    )
     if manifest.output.packet.enabled and plan.packet_format_set:
         assert report.release_decision is not None
         packet = build_packet(
@@ -70,6 +78,30 @@ def _write_outputs(
             plan.generated_paths,
             plan.packet_format_set,
         )
+
+
+def _write_suggested_declarations(
+    *,
+    report: ReadinessReport,
+    generated_paths: dict[str, Path],
+) -> None:
+    """Advisory scaffold for the gaps only a human declaration can close.
+
+    Written next to report.json whenever any evidence gap carries a
+    ``declaration_template``. A pure projection of the decision engine's own
+    output: it asserts nothing, decides nothing, and every human-owned value
+    stays ``<REVIEW_REQUIRED>``. Consumes the sanitized public report so no
+    redacted content reaches the scaffold.
+    """
+
+    anchor = generated_paths.get("json") or next(iter(generated_paths.values()), None)
+    if anchor is None:
+        return
+    scaffold = scaffold_for_report(report)
+    if scaffold is None:
+        return
+    out_path = anchor.parent / SUGGESTED_DECLARATIONS_FILENAME
+    out_path.write_text(scaffold, encoding="utf-8")
 
 
 def _write_suggested_inventory(

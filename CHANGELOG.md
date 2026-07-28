@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **A way out of `insufficient_evidence` (#292).** An abstention was
+  unactionable in practice: the decision engine generated the exact manifest
+  snippet each evidence gap wants, but those snippets were only reachable by
+  walking `report.json`, so a three-line, one-time task looked like schema
+  archaeology and repositories stayed abstained indefinitely.
+  `suggested-declarations.yaml` now assembles them next to the report — merged
+  per target, so two gaps on one tool produce one pasteable row instead of two
+  invalid ones — and every gap that carries a template names the file in its
+  `expects`. Every human-owned value stays `<REVIEW_REQUIRED>`, and the file
+  states that a block still containing a sentinel closes nothing. Verified end
+  to end: filling the scaffold clears `inferred_effect_only` and
+  `missing_authority_evidence` and moves the verdict off abstention.
+- **The authority template was unfillable.** It offered `authority.mode`
+  alone, but the manifest requires `auth_type` for every mode except `none`
+  and non-empty `scopes` for `scoped` — a reviewer following it exactly got a
+  config error. Surfacing the templates is what exposed it. The template now
+  names the co-required fields, and a regression test validates the shipped
+  shape against the manifest schema.
+- **Evidence gaps say whether this diff caused them.** `verify` already scans
+  the base; it now compares the base and head gap sets and reports whether the
+  diff introduced a gap or inherited it, so a docs-only turn stops reading as
+  an accusation about the current change. The verdict is deliberately
+  unchanged: evidence coverage is a property of the whole evaluated surface,
+  and a diff that appears to touch nothing is exactly what an unseeable
+  capability change looks like, so the diff can never argue an abstention away.
+  `docs/engineering/insufficient-evidence-cold-start.md` records why the
+  diff-scoped variant was rejected.
+- **Framework-correct low-confidence remedy.** The advice named
+  `tool_inventories` for every framework, but only four have that key;
+  `openai_agents_sdk` — the quickstart framework — has none, so readers were
+  sent after a key the schema rejects. The remedy now names the real key when
+  one exists and the supported alternative when it does not.
+
 - **Graded local boundary stop (UX P0, contract v19, `0.16.0b7`).** The
   local `shipgate check` previously projected every `require_review`
   boundary violation onto the same `human_review_required` +
