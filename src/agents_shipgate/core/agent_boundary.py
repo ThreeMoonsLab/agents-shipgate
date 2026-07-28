@@ -15,7 +15,11 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from agents_shipgate.core.boundary_diff import BoundaryInputIssue, parse_unified_diff
+from agents_shipgate.core.boundary_diff import (
+    BoundaryInputIssue,
+    DiffFile,
+    parse_unified_diff,
+)
 from agents_shipgate.core.boundary_registry import (
     BOUNDARY_ADAPTERS,
     boundary_hosts_for_path,
@@ -54,6 +58,7 @@ from agents_shipgate.core.host_grants import (
     HostBoundarySnapshot,
     build_host_boundary_snapshot,
 )
+from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.schemas.agent_boundary import (
     AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
     AgentBoundaryResultV1,
@@ -227,6 +232,7 @@ def evaluate_agent_boundary(
     combined = _with_unclassified_protected_changes(
         changed_files=changed_files,
         violations=combined,
+        adoption_paths=_manifest_adoption_paths(diff_files),
         evaluated_paths={
             item.path
             for item in diagnostics
@@ -735,11 +741,42 @@ def _boundary_summary(decision: str, violations: list[AgentResultViolatedRule]) 
     return f"{len(violations)} coding-agent boundary change(s) block local continuation."
 
 
+def _manifest_adoption_paths(diff_files: list[DiffFile]) -> frozenset[str]:
+    """Paths where this diff *introduces* a Shipgate manifest.
+
+    "Adopting the gate" and "changing the gate" deserve different words, and a
+    pure addition is the only shape that is unambiguously the first. The
+    qualification is deliberately narrow: exactly one manifest record in the
+    whole diff, and that record a plain addition. A diff that also modifies,
+    deletes, or renames a manifest is touching an existing gate — PR #282's
+    lesson is that a block-level "this part is safe" signal must never soften a
+    path-wide fail-closed guard, and the composite shapes are exactly where
+    that goes wrong.
+
+    Only the wording moves: the rule id, action, and risk level are unchanged,
+    so the local decision and the control state are identical either way.
+    """
+
+    records = [
+        item
+        for item in diff_files
+        for candidate in (item.new_path, item.old_path)
+        if candidate and trust_root_class_for(candidate.replace("\\", "/")) == "manifest"
+    ]
+    if len(records) != 1:
+        return frozenset()
+    only = records[0]
+    if not only.is_new or only.is_deleted or only.is_rename or only.old_path:
+        return frozenset()
+    return frozenset({only.path.replace("\\", "/")})
+
+
 def _with_unclassified_protected_changes(
     *,
     changed_files: list[str],
     violations: list[AgentResultViolatedRule],
     evaluated_paths: set[str],
+    adoption_paths: frozenset[str] = frozenset(),
 ) -> list[AgentResultViolatedRule]:
     covered = {item.path for item in violations if item.path}
     additions: list[AgentResultViolatedRule] = []
@@ -757,22 +794,35 @@ def _with_unclassified_protected_changes(
             else "PROTECTED-SURFACE-UNCLASSIFIED"
         )
         rule = _GENERIC_RULES[kind]
+        adopting = normalized in adoption_paths
         additions.append(
             AgentResultViolatedRule(
                 id=rule.id,
                 check_id=rule.check_id,
                 action=rule.action,  # type: ignore[arg-type]
                 risk_level=rule.risk_level,  # type: ignore[arg-type]
-                title=rule.title,
+                title=(
+                    "Adopting Agents Shipgate: this change introduces the manifest"
+                    if adopting
+                    else rule.title
+                ),
                 path=path,
                 evidence={
                     "kind": (
-                        "static_requirements_changed"
+                        "manifest_introduced"
+                        if adopting
+                        else "static_requirements_changed"
                         if kind == "STATIC-REQUIREMENTS-CHANGED"
                         else "protected_surface_unclassified"
                     )
                 },
-                recommendation=rule.recommendation,
+                recommendation=(
+                    "Review the generated shipgate.yaml and merge the adoption "
+                    "through a human-reviewed PR; a coding agent cannot adopt a "
+                    "release policy on the repository's behalf."
+                    if adopting
+                    else rule.recommendation
+                ),
             )
         )
     return _dedupe_violations([*violations, *additions])

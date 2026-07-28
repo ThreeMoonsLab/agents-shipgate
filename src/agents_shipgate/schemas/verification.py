@@ -31,3 +31,10 @@ class VerificationContext(BaseModel):
     diff_text: str | None = None
     diff_text_available: bool = False
     trigger_result: dict[str, Any] = Field(default_factory=dict)
+    # True only when the comparison base carries no Shipgate manifest at all —
+    # this diff *introduces* the gate rather than modifying one. Checks that
+    # fail safe on a missing base use it to say so honestly; it never relaxes a
+    # verdict. The orchestrator proves it from git (see
+    # ``cli/verify/orchestrator._manifest_introduced``), so a renamed manifest
+    # cannot pass itself off as a first adoption.
+    manifest_introduced: bool = False

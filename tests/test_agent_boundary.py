@@ -725,3 +725,63 @@ def _init_repo(path: Path) -> None:
     (path / "README.md").write_text("test\n", encoding="utf-8")
     subprocess.run(["git", "add", "README.md"], cwd=path, check=True)
     subprocess.run(["git", "commit", "-qm", "init"], cwd=path, check=True)
+
+
+# --- first adoption: honest wording, identical routing ----------------------
+
+_MANIFEST = (
+    "version: '1'\n"
+    "project:\n  name: demo\n"
+    "agent:\n  name: support\n  declared_purpose: Help customers.\n"
+)
+
+
+def test_new_manifest_reads_as_adoption_not_an_unclassified_surface(
+    tmp_path: Path,
+) -> None:
+    result = _build(tmp_path, _new_file_diff("shipgate.yaml", _MANIFEST))
+
+    # Routing is untouched: adopting a gate is still a human decision.
+    assert result.decision == "require_review"
+    assert result.control.state == "human_review_required"
+    assert result.control.must_stop is True
+
+    rows = [item for item in result.violated_rules if item.path == "shipgate.yaml"]
+    assert rows and rows[0].id == "BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+    assert rows[0].evidence["kind"] == "manifest_introduced"
+    assert "Adopting Agents Shipgate" in rows[0].title
+    assert "human-reviewed PR" in rows[0].recommendation
+
+
+def test_editing_an_existing_manifest_is_not_an_adoption(tmp_path: Path) -> None:
+    target = tmp_path / "shipgate.yaml"
+    target.write_text(_MANIFEST, encoding="utf-8")
+    result = _build(
+        tmp_path,
+        _change_diff("shipgate.yaml", _MANIFEST, _MANIFEST + "ci:\n  mode: advisory\n"),
+    )
+
+    rows = [item for item in result.violated_rules if item.path == "shipgate.yaml"]
+    assert rows
+    assert all(row.evidence.get("kind") != "manifest_introduced" for row in rows)
+
+
+def test_composite_manifest_diff_never_reads_as_an_adoption(tmp_path: Path) -> None:
+    """A new manifest plus an edit to an existing one is not a first adoption.
+
+    Without the "exactly one manifest record" rule, the added file would win
+    the friendlier wording while the diff was in fact changing a live gate.
+    """
+
+    existing = tmp_path / "shipgate.yaml"
+    existing.write_text(_MANIFEST, encoding="utf-8")
+    diff = _new_file_diff("service/shipgate.yaml", _MANIFEST) + _change_diff(
+        "shipgate.yaml", _MANIFEST, _MANIFEST + "ci:\n  mode: advisory\n"
+    )
+    result = _build(tmp_path, diff)
+
+    assert result.control.state == "human_review_required"
+    assert all(
+        row.evidence.get("kind") != "manifest_introduced"
+        for row in result.violated_rules
+    )

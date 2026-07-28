@@ -368,6 +368,24 @@ def read_file_at_ref(workspace: Path, ref: str, path: Path) -> str | None:
     return result.stdout
 
 
+def paths_named_at_ref(workspace: Path, ref: str, names: frozenset[str]) -> list[str]:
+    """Tracked paths at ``ref`` whose file name is one of ``names``.
+
+    Used to prove that a ref carries no Shipgate manifest *anywhere*, not just
+    at the configured path — otherwise moving the manifest to a new path would
+    make a modified gate look like a first adoption.
+    """
+
+    result = _run_git(workspace, ["ls-tree", "-r", "--name-only", ref], check=False)
+    if result.returncode != 0:
+        return []
+    return [
+        line
+        for line in result.stdout.splitlines()
+        if line.strip() and line.rsplit("/", maxsplit=1)[-1] in names
+    ]
+
+
 def working_tree_context(workspace: Path) -> tuple[list[str], str]:
     """Return uncommitted changed paths and tracked-file diff text.
 

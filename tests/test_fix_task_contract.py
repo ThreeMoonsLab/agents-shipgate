@@ -715,3 +715,69 @@ def test_insufficient_evidence_without_inventory_gives_generic_remedy() -> None:
     joined = " ".join(task.instructions)
     assert "explicit local tool inventory" in joined
     assert "re-run verify" in joined
+
+
+# --- first adoption: the same routing, honest wording -----------------------
+
+
+def _trust_root_report():
+    f = _finding("F1", requires_human_review=True, autofix_safe=False)
+    return _report(decision="review_required", findings=[f], review_items=[f])
+
+
+def test_manifest_modification_keeps_the_weakening_wording() -> None:
+    task = build_fix_task(
+        _trust_root_report(),
+        merge_verdict="human_review_required",
+        capability_review=_review(policy_weakened=True, trust_root_touched=True),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=False,
+    )
+
+    assert task is not None and task.actor == "human"
+    joined = " ".join(task.instructions)
+    assert "cannot self-approve" in joined
+    assert "adopts Agents Shipgate" not in joined
+    assert {"review_policy_weakening", "review_trust_root"} <= {
+        r.id for r in task.allowed_repairs
+    }
+
+
+def test_first_adoption_replaces_the_weakening_wording() -> None:
+    """Adoption is not weakening: one honest instruction, not two wrong ones."""
+
+    task = build_fix_task(
+        _trust_root_report(),
+        merge_verdict="human_review_required",
+        capability_review=_review(policy_weakened=True, trust_root_touched=True),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=True,
+    )
+
+    assert task is not None
+    # Routing is untouched: adoption is still an authority escalation.
+    assert task.actor == "human" and task.safe_to_attempt is False
+    joined = " ".join(task.instructions)
+    assert "adopts Agents Shipgate" in joined
+    assert "cannot self-approve" not in joined
+    repair_ids = {r.id for r in task.allowed_repairs}
+    assert "adopt_shipgate_manifest" in repair_ids
+    assert not {"review_policy_weakening", "review_trust_root"} & repair_ids
+
+
+def test_adoption_wording_needs_a_trust_root_signal() -> None:
+    """`manifest_introduced` alone must not invent an adoption instruction."""
+
+    task = build_fix_task(
+        _trust_root_report(),
+        merge_verdict="human_review_required",
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=True,
+    )
+
+    assert task is not None
+    assert "adopts Agents Shipgate" not in " ".join(task.instructions)

@@ -72,11 +72,18 @@ def build_fix_task(
     capability_review: VerifierCapabilityReview | None,
     base_ref: str | None,
     head_ref: str,
+    manifest_introduced: bool = False,
 ) -> VerifierFixTask | None:
     """Project the head scan onto a single repair task.
 
     Returns ``None`` when there is nothing to fix (mergeable, or no head
     release decision to reason about).
+
+    ``manifest_introduced`` changes only the wording of the trust-root
+    instruction and repair: a PR that adds the manifest to a base that had none
+    is adopting a gate, not weakening one, and the human act it needs is
+    "review and merge this", not "approve a downgrade". Routing is untouched —
+    adoption is still an authority escalation, so it still routes to a human.
     """
     if merge_verdict == "mergeable":
         return None
@@ -166,12 +173,14 @@ def build_fix_task(
             gating,
             merge_verdict=merge_verdict,
             evidence_degraded=evidence_degraded,
+            manifest_introduced=manifest_introduced,
         ),
         allowed_repairs=_human_repairs(
             report,
             capability_review,
             gating,
             verification_command=verification_command,
+            manifest_introduced=manifest_introduced,
         ),
         forbidden_repairs=_forbidden_repairs(gating),
         forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
@@ -204,30 +213,64 @@ def _human_instructions(
     *,
     merge_verdict: MergeVerdict = "human_review_required",
     evidence_degraded: bool = False,
+    manifest_introduced: bool = False,
 ) -> list[str]:
     decision = report.release_decision
     assert decision is not None
     out: list[str] = [decision.reason]
+    # The adoption note frames everything under it — a reader who does not know
+    # the manifest is new will misread the evidence remedies as complaints
+    # about their change. It also has to survive ``_MAX_INSTRUCTIONS``: a
+    # cold-start repo generates enough evidence remedies to push a
+    # later-appended instruction off the end.
+    adoption_note = _adoption_instruction(capability_review, manifest_introduced)
+    if adoption_note is not None:
+        out.append(adoption_note)
     # Surface the concrete "make the hidden authority enumerable" remedies
     # whenever evidence is degraded — not only on the bare IE verdict. A
     # high-finding case elevated to review_required carries the same
     # evidence gap and the human needs the same remedy.
     if merge_verdict == "insufficient_evidence" or evidence_degraded:
         out.extend(_insufficient_evidence_remedies(report))
-    if capability_review.policy_weakened:
-        out.append(
-            "A human must approve the release-policy change in this PR; the "
-            "coding agent that made the change cannot self-approve it."
-        )
-    if capability_review.trust_root_touched:
-        out.append(
-            "A human must review the touched release trust root (manifest, CI "
-            "gate, agent instructions, or trigger catalog) before merge."
-        )
+    if adoption_note is None:
+        if capability_review.policy_weakened:
+            out.append(
+                "A human must approve the release-policy change in this PR; the "
+                "coding agent that made the change cannot self-approve it."
+            )
+        if capability_review.trust_root_touched:
+            out.append(
+                "A human must review the touched release trust root (manifest, CI "
+                "gate, agent instructions, or trigger catalog) before merge."
+            )
     # List every gating finding's recommendation — a human-routed task owns the
     # whole decision, including findings whose routing fields were ambiguous.
     out.extend(finding.recommendation for finding in gating if finding.recommendation)
     return _dedupe_cap(out)
+
+
+def _adoption_instruction(
+    capability_review: VerifierCapabilityReview,
+    manifest_introduced: bool,
+) -> str | None:
+    """The one human act a first adoption needs, or ``None``.
+
+    Returns a string in exactly the cases where the generic policy/trust-root
+    instructions would have fired, so it replaces them rather than adding to
+    them; the routing decision that produced them is untouched.
+    """
+
+    if not manifest_introduced:
+        return None
+    if not (capability_review.policy_weakened or capability_review.trust_root_touched):
+        return None
+    return (
+        "This PR adopts Agents Shipgate: the base carries no manifest, so "
+        "nothing existing was weakened. Review the generated shipgate.yaml "
+        "(and the agent-instruction and CI files it adds) and merge them "
+        "through a human-reviewed PR — a coding agent cannot adopt a release "
+        "policy on the repository's behalf."
+    )
 
 
 def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
@@ -353,30 +396,45 @@ def _human_repairs(
     gating: list[Finding],
     *,
     verification_command: str,
+    manifest_introduced: bool = False,
 ) -> list[VerifierRepair]:
     decision = report.release_decision
     assert decision is not None
     repairs: list[VerifierRepair] = []
-    if capability_review.policy_weakened:
+    if _adoption_instruction(capability_review, manifest_introduced) is not None:
         repairs.append(
             VerifierRepair(
-                id="review_policy_weakening",
-                actor="human",
-                kind="review_policy_change",
-                target="shipgate.yaml",
-                reason="A human must approve release-policy weakening before merge.",
-            )
-        )
-    if capability_review.trust_root_touched:
-        repairs.append(
-            VerifierRepair(
-                id="review_trust_root",
+                id="adopt_shipgate_manifest",
                 actor="human",
                 kind="review_trust_root_change",
-                target="manifest, CI gate, agent instructions, or trigger catalog",
-                reason="A human must review the touched release trust root before merge.",
+                target="shipgate.yaml",
+                reason=(
+                    "This PR introduces the Shipgate manifest; a human must "
+                    "review it and merge the adoption."
+                ),
             )
         )
+    else:
+        if capability_review.policy_weakened:
+            repairs.append(
+                VerifierRepair(
+                    id="review_policy_weakening",
+                    actor="human",
+                    kind="review_policy_change",
+                    target="shipgate.yaml",
+                    reason="A human must approve release-policy weakening before merge.",
+                )
+            )
+        if capability_review.trust_root_touched:
+            repairs.append(
+                VerifierRepair(
+                    id="review_trust_root",
+                    actor="human",
+                    kind="review_trust_root_change",
+                    target="manifest, CI gate, agent instructions, or trigger catalog",
+                    reason="A human must review the touched release trust root before merge.",
+                )
+            )
     for gap in decision.evidence_coverage.evidence_gaps:
         if gap.kind in {"low_confidence_tool", "source_warning"}:
             continue

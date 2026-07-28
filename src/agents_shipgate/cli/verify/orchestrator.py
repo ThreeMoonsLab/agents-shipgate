@@ -94,6 +94,7 @@ from .git import (
     ensure_git_workspace,
     git_path,
     merge_base_sha,
+    paths_named_at_ref,
     read_file_at_ref,
     ref_exists,
     repository_identity,
@@ -432,6 +433,14 @@ def run_verify(
         )
         base_notes.extend(cache_notes)
 
+    manifest_introduced = _manifest_introduced(
+        git_root=git_root,
+        config_relative=config_relative,
+        base_status=base_status,
+        base=base,
+        head=head,
+    )
+
     report: ReadinessReport | None = None
     head_status = "failed"
     head_exit_code = 4
@@ -493,6 +502,7 @@ def run_verify(
                     diff_text=diff_text,
                     diff_text_available=bool(diff_text),
                     trigger_result=trigger,
+                    manifest_introduced=manifest_introduced,
                 ),
                 capability_lock_callback=capture_capability_lock,
             )
@@ -547,6 +557,7 @@ def run_verify(
             head_exit_code=head_exit_code,
             out_dir=out_dir,
             ci_mode=ci_mode,
+            manifest_introduced=manifest_introduced,
         )
         try:
             try:
@@ -906,6 +917,51 @@ def _map_optional_tree_path(
     return tree_dir / relative
 
 
+# File names that count as a Shipgate manifest when deciding whether a ref
+# already carries a gate. ``shipgate.yaml`` is the published default; the
+# configured name is added at call time so a repository that renamed its
+# manifest is still recognized as adopted.
+_MANIFEST_FILE_NAMES = frozenset({"shipgate.yaml"})
+
+
+def _manifest_introduced(
+    *,
+    git_root: Path,
+    config_relative: Path,
+    base_status: VerifierBaseStatus,
+    base: str | None,
+    head: str,
+) -> bool:
+    """True when the comparison base carries no Shipgate manifest at all.
+
+    Adoption and modification are different events, and the fail-safe path
+    could not tell them apart: a first adoption compares against a base with no
+    policy, which is not a base whose policy was weakened. This proves the
+    distinction from git rather than inferring it from the diff.
+
+    The proof is deliberately stronger than "the configured path is absent on
+    the base". A PR that *moves* the manifest — say to ``config/shipgate.yaml``
+    while loosening it — also finds nothing at the configured path on the base,
+    and would otherwise get to call itself a first adoption. Requiring that the
+    base carry no manifest under any name closes that.
+
+    Unknown bases (``ref_missing``, ``archive_failed``) are never treated as
+    adoptions: absence of evidence is not evidence of absence.
+    """
+
+    if base_status == "missing_manifest" and base is not None:
+        ref: str = base
+    elif base_status in {"not_requested", "skipped"}:
+        # No base was compared against, so the manifest's own history is the
+        # base: present in the workspace but absent from the head commit means
+        # this working tree is introducing it.
+        ref = head
+    else:
+        return False
+    names = _MANIFEST_FILE_NAMES | {config_relative.name}
+    return not paths_named_at_ref(git_root, ref, frozenset(names))
+
+
 def _can_merge_without_human(
     *,
     merge_verdict: MergeVerdict,
@@ -939,7 +995,11 @@ def _can_merge_without_human(
     return True
 
 
-def _self_approval_note(capability_review: VerifierCapabilityReview | None) -> str | None:
+def _self_approval_note(
+    capability_review: VerifierCapabilityReview | None,
+    *,
+    manifest_introduced: bool = False,
+) -> str | None:
     """The explicit self-approval prohibition when this PR edits the rules that
     evaluate it.
 
@@ -947,9 +1007,27 @@ def _self_approval_note(capability_review: VerifierCapabilityReview | None) -> s
     gate (reward hacking). When the head scan flags a weakened policy or a
     touched trust root, that prohibition is surfaced as the verifier headline
     and the human-review reason — not left implicit in a fix_task instruction.
+
+    A first adoption gets its own wording. The prohibition still holds (a
+    coding agent cannot adopt a release policy on the repository's behalf), but
+    a PR that adds the manifest to a base that had none weakens nothing, and
+    saying it does is both wrong and the first thing every new adopter reads.
+    ``manifest_introduced`` only changes the sentence: this returns a string in
+    exactly the same cases as before, so every caller that reads it as "a trust
+    root is in play" keeps its meaning.
     """
     if capability_review is None:
         return None
+    if manifest_introduced and (
+        capability_review.policy_weakened or capability_review.trust_root_touched
+    ):
+        return (
+            "This PR introduces Agents Shipgate to this repository: the base "
+            "carries no manifest, so there is no prior gate this change could "
+            "weaken. Adopting a release policy is a human decision — review the "
+            "generated shipgate.yaml (and the agent-instruction and CI files it "
+            "adds), then merge it through a human-reviewed PR."
+        )
     if capability_review.policy_weakened:
         return (
             "This PR weakens the release policy that evaluates it; a coding "
@@ -1068,10 +1146,13 @@ def _verifier_headline(
     merge_verdict: MergeVerdict,
     head_status: str,
     capability_review: VerifierCapabilityReview | None = None,
+    manifest_introduced: bool = False,
 ) -> str | None:
     # An agent editing the rules that evaluate its own change must see the
     # self-approval prohibition first, ahead of the generic scan headline.
-    note = _self_approval_note(capability_review)
+    note = _self_approval_note(
+        capability_review, manifest_introduced=manifest_introduced
+    )
     if note is not None:
         return note
     if report is not None and report.agent_summary is not None:
@@ -1110,6 +1191,7 @@ def _derive_verifier_control(
     first_next_action_override: AgentControlAction | None,
     base_status: str,
     base_ref: str | None,
+    manifest_introduced: bool = False,
 ) -> AgentControl:
     """Project verifier facts through the shared operational control engine."""
 
@@ -1167,7 +1249,10 @@ def _derive_verifier_control(
             verify_required=True,
         )
 
-    review_reason = _self_approval_note(capability_review) or reason
+    review_reason = (
+        _self_approval_note(capability_review, manifest_introduced=manifest_introduced)
+        or reason
+    )
     unsafe_block = bool(release_decision is not None and release_decision.decision == "blocked")
     return derive_agent_control(
         reason=reason,
@@ -1205,6 +1290,7 @@ def _build_verifier(
     preview: bool = False,
     headline_override: str | None = None,
     first_next_action_override: AgentControlAction | None = None,
+    manifest_introduced: bool = False,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -1222,10 +1308,15 @@ def _build_verifier(
     applicability = applicability_for(decision=decision, execution=head_status)
     agent_summary_model = report.agent_summary if report is not None else None
     capability_review = build_capability_review(report) if report is not None else None
+    # ``ref_missing``/``archive_failed`` are unknown-base states: the run
+    # already carries its own recovery action, and a repair task derived from a
+    # comparison that never happened would be guesswork. ``missing_manifest``
+    # is not in that class — the base was read successfully and simply has no
+    # gate yet — so a first adoption gets a real fix_task instead of nothing to
+    # act on.
     safe_recovery = first_next_action_override is not None or base_status in {
         "ref_missing",
         "archive_failed",
-        "missing_manifest",
     }
     fix_task = (
         None
@@ -1236,6 +1327,7 @@ def _build_verifier(
             capability_review=capability_review,
             base_ref=base,
             head_ref=head,
+            manifest_introduced=manifest_introduced,
         )
     )
     can_merge = _can_merge_without_human(
@@ -1248,6 +1340,7 @@ def _build_verifier(
         merge_verdict=merge_verdict,
         head_status=head_status,
         capability_review=capability_review,
+        manifest_introduced=manifest_introduced,
     )
     if headline_override is None:
         provenance = _gap_provenance_note(report=report, base_report=base_report)
@@ -1263,6 +1356,7 @@ def _build_verifier(
         first_next_action_override=first_next_action_override,
         base_status=base_status,
         base_ref=base,
+        manifest_introduced=manifest_introduced,
     )
     return VerifierArtifact(
         workspace=str(git_root),

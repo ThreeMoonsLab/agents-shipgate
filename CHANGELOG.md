@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **A first adoption no longer reads as a policy weakening.** Adding the
+  manifest to a repository that had none is the first verdict every new adopter
+  sees, and it said "This PR weakens the release policy that evaluates it",
+  carried a finding titled "Policy change cannot be proven safe (no base
+  snapshot)", and — because a missing-manifest base was classified as a safe
+  recovery — shipped no `fix_task` at all, so nothing named the act that would
+  clear it. `verify` now proves adoption from git (the comparison base carries
+  no manifest under any name, so a *moved* manifest cannot pass itself off as a
+  first adoption) and says so: same check id, same `medium` severity, same
+  `human_review_required` state, new evidence kind `manifest_introduced`, and a
+  `fix_task` whose leading instruction is "review the generated shipgate.yaml
+  and merge the adoption through a human-reviewed PR". `check` gets the same
+  correction locally, keyed on the diff carrying exactly one manifest record
+  and that record being a plain addition. Adoption remains a human decision —
+  only the claim about what happened changed.
+
 - **A way out of `insufficient_evidence` (#292).** An abstention was
   unactionable in practice: the decision engine generated the exact manifest
   snippet each evidence gap wants, but those snippets were only reachable by

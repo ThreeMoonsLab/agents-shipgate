@@ -14,7 +14,10 @@ If the base snapshot is unavailable (no diff reference, or a pre-v0.22
 base) AND the PR touched a policy/manifest trust root, it emits a single
 ``base_snapshot_unavailable`` review-required finding — a reward-hacker
 must not be able to dodge review by breaking the base scan (§5.3: ambiguous
-direction -> review_required, never silent pass).
+direction -> review_required, never silent pass). When the base is proven
+to carry no manifest at all, the same fail-safe emits under evidence kind
+``manifest_introduced`` instead: adoption is still a human decision, but
+nothing existed to weaken and the finding says so.
 
 Weakening is defined as movement toward less review / less blocking. A
 strengthening change (stricter mode, more fail-on severities, raised
@@ -181,6 +184,33 @@ def _fail_safe(context: ScanContext) -> list[Finding]:
     hit = touched(_POLICY_SURFACES, changed_files(context))
     if not hit:
         return []
+    verification = context.verification
+    if verification is not None and verification.manifest_introduced:
+        # A base with no manifest at all cannot have been weakened. This still
+        # emits — at the same check id and severity, so the verdict and every
+        # fail-closed consumer are unchanged — because the human decision
+        # (adopt this policy) is real. Only the claim about what happened
+        # changes. The orchestrator proves the base carries no manifest under
+        # any name, so a moved-and-loosened manifest does not reach here.
+        return [
+            verify_finding(
+                context,
+                check_id=CHECK_ID,
+                title="Initial Shipgate adoption: the base carries no policy",
+                severity="medium",
+                evidence={
+                    "kind": "manifest_introduced",
+                    "changed_policy_files": hit,
+                },
+                recommendation=(
+                    "This PR introduces the Shipgate manifest rather than "
+                    "changing an existing one, so no prior gate was weakened. "
+                    "Adopting a release policy is a human decision: review the "
+                    "generated shipgate.yaml and merge it through a "
+                    "human-reviewed PR."
+                ),
+            )
+        ]
     return [
         verify_finding(
             context,
