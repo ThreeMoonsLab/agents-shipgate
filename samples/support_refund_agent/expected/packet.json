@@ -2028,7 +2028,7 @@
                 }
               }
             },
-            "expects": "Reconcile the declaration with positive structural evidence and rerun verification.",
+            "expects": "Reconcile the declaration with positive structural evidence and rerun verification. A ready-to-review block is written to suggested-declarations.yaml next to report.json.",
             "kind": "resolve_binding_conflict",
             "path": "shipgate.yaml#agent_bindings.declarations",
             "requires_human_review": true,
