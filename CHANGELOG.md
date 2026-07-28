@@ -30,6 +30,19 @@
   mis-invoked them had to parse English. Each error path now emits the line with
   its `exit_code`, and `preflight` no longer lets an unexpected failure escape
   as a bare traceback.
+- **One verify per turn (#295).** A governed turn verified twice: the coding
+  agent ran `verify` because the previous result told it to, and the Stop hook
+  then ran an identical `verify` because it had no way to know. `verify` now
+  records finished worktree runs in the git directory, next to the signature
+  cache the hook already keeps, and the hook reports that run instead of
+  repeating it. Reuse requires every input to match — config, effective CI
+  mode, base ref *and* the commit it resolved to, and a content digest of the
+  working tree covering HEAD's tree plus every changed and untracked file, so
+  an untracked edit that never appears in `git diff` still invalidates it. A
+  commit changes the digest by construction, which is the stale-pass the first
+  attempt at this was reverted for; it is now a regression test. Nothing is
+  read from the workspace, the reused result routes through the same switch a
+  fresh one does, and any mismatch or doubt re-verifies.
 
 - **A way out of `insufficient_evidence` (#292).** An abstention was
   unactionable in practice: the decision engine generated the exact manifest

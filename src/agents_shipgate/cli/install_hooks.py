@@ -434,6 +434,9 @@ from typing import Any
 
 VERIFY_TIMEOUT_SECONDS = 170
 UNTRACKED_DIFF_CONTENT_LIMIT_BYTES = 131072
+# Mirror of agents_shipgate.cli.verify.git._MAX_IDENTITY_PATHS. Past this many
+# changed paths the reuse digest is refused and the hook verifies for itself.
+MAX_IDENTITY_PATHS = 500
 _MAX_REMEMBERED_SURFACES = 256
 _MAX_REMEMBERED_SESSIONS = 8
 # Host permission modes that answer a hook's permission request without asking
@@ -753,6 +756,20 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         )
         base = ""
 
+    reused = _reusable_verify(root, args, base)
+    if reused is not None:
+        return _route_control(
+            decision=str(reused.get("decision") or "unknown"),
+            blockers=int(reused.get("blockers") or 0),
+            review_items=int(reused.get("review_items") or 0),
+            control=reused.get("control") or {},
+            root=root,
+            args=args,
+            signature=signature,
+            base_note=base_note,
+            stop_hook_active=stop_hook_active,
+        )
+
     command = [
         *_cli(),
         "verify",
@@ -821,10 +838,32 @@ def _route_verify_result(
     base_note: str,
     stop_hook_active: bool,
 ) -> int:
-    decision = ((verifier.get("release_decision") or {}).get("decision") or "unknown")
-    blockers = len((verifier.get("release_decision") or {}).get("blockers") or [])
-    review_items = len((verifier.get("release_decision") or {}).get("review_items") or [])
-    control = verifier.get("control") if isinstance(verifier.get("control"), dict) else {}
+    release = verifier.get("release_decision") or {}
+    return _route_control(
+        decision=release.get("decision") or "unknown",
+        blockers=len(release.get("blockers") or []),
+        review_items=len(release.get("review_items") or []),
+        control=verifier.get("control") if isinstance(verifier.get("control"), dict) else {},
+        root=root,
+        args=args,
+        signature=signature,
+        base_note=base_note,
+        stop_hook_active=stop_hook_active,
+    )
+
+
+def _route_control(
+    *,
+    decision: str,
+    blockers: int,
+    review_items: int,
+    control: dict[str, Any],
+    root: Path,
+    args: argparse.Namespace,
+    signature: str,
+    base_note: str,
+    stop_hook_active: bool,
+) -> int:
     state = control.get("state")
     summary = f"decision={decision}, blockers={blockers}, review_items={review_items}"
 
@@ -1068,6 +1107,104 @@ def _diff_context(root: Path, revspec: str) -> tuple[list[str], str] | None:
         return None
     paths = [line.strip() for line in names.stdout.splitlines() if line.strip()]
     return paths, body.stdout
+
+
+def _worktree_identity(root: Path) -> str | None:
+    """A digest of the working-tree state a verify run would read.
+
+    Must stay byte-compatible with
+    ``agents_shipgate.cli.verify.git.worktree_identity`` — the CLI records a
+    finished run under the digest it computed, and this hook only reuses that
+    run when its own digest matches. A test compares the two implementations
+    on a live repository. If they ever drift, the digests stop matching and
+    the hook simply verifies for itself, which is the behavior reuse replaced.
+
+    ``None`` means identity could not be established. It never means
+    "unchanged".
+    """
+
+    head = _run_git(root, ["rev-parse", "HEAD^{tree}"])
+    if head is None or head.returncode != 0:
+        return None
+    changed = _run_git(root, ["diff", "HEAD", "--name-only"])
+    untracked = _run_git(root, ["ls-files", "--others", "--exclude-standard"])
+    if changed is None or untracked is None:
+        return None
+    if changed.returncode != 0 or untracked.returncode != 0:
+        return None
+    paths = sorted(
+        {
+            line.strip()
+            for line in (*changed.stdout.splitlines(), *untracked.stdout.splitlines())
+            if line.strip()
+        }
+    )
+    if len(paths) > MAX_IDENTITY_PATHS:
+        return None
+    present = [path for path in paths if (root / path).is_file()]
+    blobs: dict[str, str] = {}
+    if present:
+        hashed = _run_git(root, ["hash-object", "--", *present])
+        if hashed is None or hashed.returncode != 0:
+            return None
+        lines = hashed.stdout.split()
+        if len(lines) != len(present):
+            return None
+        blobs = dict(zip(present, lines))
+    payload = json.dumps(
+        {
+            "head_tree": head.stdout.strip(),
+            "files": [[path, blobs.get(path, "absent")] for path in paths],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _reusable_verify(root: Path, args: argparse.Namespace, base: str) -> dict | None:
+    """The agent's own verify run, when it provably still describes this state.
+
+    A governed turn asks the coding agent to run verify and then runs an
+    identical verify here, which changes nothing and costs a second of every
+    turn. The CLI records its finished worktree runs next to this hook's own
+    signature cache; this reuses one only when every input matches, including
+    a content digest of the working tree. A commit, an edit, a different
+    config, or a moved base all fail the comparison and re-verify.
+    """
+
+    record = _read_state(root).get("last_verify")
+    if not isinstance(record, dict):
+        return None
+    if record.get("config") != args.config:
+        return None
+    if (record.get("ci_mode") or "") != (args.ci_mode or ""):
+        return None
+    if (record.get("base_ref") or "") != base:
+        return None
+    if (record.get("head_ref") or "") != (args.head or ""):
+        return None
+    recorded_base = record.get("base_commit") or ""
+    if base:
+        # Same spelling as the CLI's commit_sha, so a tag and the commit it
+        # points at cannot compare unequal for spurious reasons.
+        resolved = _run_git(root, ["rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"])
+        current = (
+            resolved.stdout.strip()
+            if resolved is not None and resolved.returncode == 0
+            else ""
+        )
+        if not recorded_base or recorded_base != current:
+            return None
+    elif recorded_base:
+        return None
+    identity = _worktree_identity(root)
+    if identity is None or identity != record.get("identity"):
+        return None
+    control = record.get("control")
+    if not isinstance(control, dict) or not control.get("state"):
+        return None
+    return record
 
 
 def _state_path(root: Path) -> Path | None:

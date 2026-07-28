@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -14,6 +15,8 @@ from agents_shipgate.cli.install_hooks import (
     render_or_install_hooks,
 )
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.verify.git import worktree_identity
+from agents_shipgate.cli.verify.hook_state import record_verify_for_hooks
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 runner = CliRunner()
@@ -882,3 +885,235 @@ def test_rendered_script_glob_matcher_matches_canonical_globbing(
                 pattern,
                 probe,
             )
+
+
+# --- one verify per turn (#295) ---------------------------------------------
+
+
+def _hook_module(tmp_path: Path):
+    """Import the *rendered* hook script, so tests exercise what ships."""
+
+    script = _render_hook_script(tmp_path)
+    spec = importlib.util.spec_from_file_location("rendered_shipgate_hook", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_hook_and_cli_compute_the_same_worktree_identity(tmp_path: Path) -> None:
+    """Reuse is only sound while these two agree; drift must fail loudly.
+
+    They cannot share code — the hook is a standalone rendered script with no
+    Shipgate imports — so the guarantee is this comparison.
+    """
+
+    module = _hook_module(tmp_path)
+    _init_repo(tmp_path)
+
+    def both() -> tuple[str | None, str | None]:
+        return worktree_identity(tmp_path), module._worktree_identity(tmp_path)
+
+    clean_cli, clean_hook = both()
+    assert clean_cli is not None
+    assert clean_cli == clean_hook
+
+    # A tracked edit moves it.
+    (tmp_path / "shipgate.yaml").write_text("version: '0.2'\n", encoding="utf-8")
+    edited_cli, edited_hook = both()
+    assert edited_cli == edited_hook
+    assert edited_cli != clean_cli
+
+    # So does an untracked file — whose content never appears in `git diff`.
+    (tmp_path / "new_tool.py").write_text("x = 1\n", encoding="utf-8")
+    added_cli, added_hook = both()
+    assert added_cli == added_hook
+    assert added_cli != edited_cli
+
+    (tmp_path / "new_tool.py").write_text("x = 2\n", encoding="utf-8")
+    changed_cli, changed_hook = both()
+    assert changed_cli == changed_hook
+    assert changed_cli != added_cli, "untracked content must be part of identity"
+
+    # And so does committing: same worktree, different HEAD tree.
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "commit the work"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    committed_cli, committed_hook = both()
+    assert committed_cli == committed_hook
+    assert committed_cli != changed_cli
+
+
+def _record(tmp_path: Path, **overrides) -> None:
+    payload = {
+        "git_root": tmp_path,
+        "config": "shipgate.yaml",
+        "ci_mode": "advisory",
+        "base_ref": None,
+        "head_ref": None,
+        "decision": "review_required",
+        "blockers": 0,
+        "review_items": 1,
+        "control": {
+            "state": "agent_action_required",
+            "reason": "recorded by the agent's own verify",
+            "next_action": {"kind": "verify", "command": "agents-shipgate verify --json"},
+        },
+    }
+    payload.update(overrides)
+    record_verify_for_hooks(**payload)
+
+
+def _verify_calls(log: Path) -> list[list[str]]:
+    if not log.exists():
+        return []
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    return [entry for entry in entries if entry and entry[0] == "verify"]
+
+
+def _stop_hook_with_record(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], Path]:
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+    result = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+    return result, log
+
+
+def _dirty_opted_in_repo(tmp_path: Path) -> None:
+    _stop_hook_workspace(tmp_path)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "prompts"], cwd=tmp_path, check=True, capture_output=True
+    )
+    (tmp_path / "prompts" / "refund.md").write_text(
+        "require approval and log\n", encoding="utf-8"
+    )
+
+
+def test_stop_hook_reuses_the_verify_the_agent_already_ran(tmp_path: Path) -> None:
+    _dirty_opted_in_repo(tmp_path)
+    _record(tmp_path)
+
+    result, log = _stop_hook_with_record(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert _verify_calls(log) == [], "the recorded run must not be recomputed"
+    out = json.loads(result.stdout)
+    assert out["decision"] == "block"
+    assert "agents-shipgate verify --json" in out["reason"]
+
+
+def test_committing_after_verify_forces_a_fresh_run(tmp_path: Path) -> None:
+    """The stale-pass repro that sank the first attempt at this."""
+
+    _dirty_opted_in_repo(tmp_path)
+    _record(tmp_path)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "commit the work"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "prompts" / "refund.md").write_text("changed again\n", encoding="utf-8")
+
+    result, log = _stop_hook_with_record(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert len(_verify_calls(log)) == 1
+
+
+def test_editing_after_verify_forces_a_fresh_run(tmp_path: Path) -> None:
+    _dirty_opted_in_repo(tmp_path)
+    _record(tmp_path)
+    (tmp_path / "prompts" / "refund.md").write_text("edited again\n", encoding="utf-8")
+
+    result, log = _stop_hook_with_record(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert len(_verify_calls(log)) == 1
+
+
+def test_a_record_from_another_config_is_not_reused(tmp_path: Path) -> None:
+    _dirty_opted_in_repo(tmp_path)
+    _record(tmp_path, config="other.yaml")
+
+    result, log = _stop_hook_with_record(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert len(_verify_calls(log)) == 1
+
+
+def test_a_record_from_a_different_base_is_not_reused(tmp_path: Path) -> None:
+    _dirty_opted_in_repo(tmp_path)
+    # The hook drops an unavailable base, so a record made *with* one is a
+    # different comparison than the one the hook is about to perform.
+    _record(tmp_path, base_ref="HEAD")
+
+    result, log = _stop_hook_with_record(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert len(_verify_calls(log)) == 1
+
+
+def test_recording_preserves_the_sessions_approved_surfaces(tmp_path: Path) -> None:
+    _dirty_opted_in_repo(tmp_path)
+    state_path = tmp_path / ".git" / "agents-shipgate-hooks-state.json"
+    state_path.write_text(
+        json.dumps({"approved_surfaces": {"s1": ["CLAUDE.md"]}}), encoding="utf-8"
+    )
+
+    _record(tmp_path)
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["approved_surfaces"] == {"s1": ["CLAUDE.md"]}
+    assert state["last_verify"]["decision"] == "review_required"
+
+
+def test_a_base_that_moved_since_the_verify_is_not_reused(tmp_path: Path) -> None:
+    """Same base ref, different commit: a different comparison.
+
+    The name matching is not enough — `origin/main` advancing between the
+    agent's verify and the Stop hook changes what the diff means.
+    """
+
+    _dirty_opted_in_repo(tmp_path)
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+    )
+    _record(tmp_path, base_ref="origin/main")
+
+    result, log = _stop_hook_with_record(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert _verify_calls(log) == [], "an unmoved base still reuses"
+
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "advance"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+    )
+    (tmp_path / "prompts" / "refund.md").write_text("more\n", encoding="utf-8")
+
+    result, log = _stop_hook_with_record(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert len(_verify_calls(log)) == 1
