@@ -70,9 +70,26 @@ a correctness audit of the templates themselves, and three were wrong:
   reviewed claim the gap is asking for.
 - The **authority** template is described below.
 
-The general rule this produced: a template must ask and never answer, and it
-must validate when filled for *every* accepted value, not just the convenient
-one.
+A second review then found the deeper version of the same problem: the scaffold
+*said* a block still containing `<REVIEW_REQUIRED>` closes nothing, and nothing
+made that true. The manifest only checked fields like `authority.auth_type` for
+non-blankness, so a pasted-but-unfinished block loaded and was assessed as
+reviewed evidence — moving a fixture from `insufficient_evidence` to
+`review_required` on placeholders alone. The sentinel is now rejected by the
+manifest wherever it appears, naming each unfilled path.
+
+The general rules this produced:
+
+- A template must ask and never answer, and must validate when filled for
+  *every* accepted value, not just the convenient one.
+- A template is offered only where it repairs the gap that carries it — the
+  binding root block is useless for a declarations-level conflict, and
+  meaningless in a repository with no agent object to name.
+- A rendered selector must resolve exactly one row; a display name does not,
+  because two canonical tools can share one.
+- **A promise printed in an artifact must be enforced somewhere, or it is
+  decoration.** Stating that placeholders close nothing was worth nothing until
+  the loader refused them.
 
 **Found by putting the templates in front of a human:** the authority template
 offered `authority.mode` alone, but the manifest requires `auth_type` for every

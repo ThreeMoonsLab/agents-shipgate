@@ -14,6 +14,14 @@
   states that a block still containing a sentinel closes nothing. Verified end
   to end: filling the scaffold clears `inferred_effect_only` and
   `missing_authority_evidence` and moves the verdict off abstention.
+- **Unfilled scaffold placeholders are rejected by the manifest.** The scaffold
+  states that a block still containing `<REVIEW_REQUIRED>` closes nothing, but
+  the manifest only checked fields like `authority.auth_type` for
+  non-blankness — so a pasted-but-unfinished block loaded and was assessed as
+  reviewed evidence, moving a fixture from `insufficient_evidence` to
+  `review_required` on placeholders alone. The loader now rejects the sentinel
+  wherever it appears and names each unfilled path, so an unfinished scaffold
+  cannot change a verdict.
 - **The authority template was unfillable.** It offered `authority.mode`
   alone, but the manifest requires `auth_type` for every mode except `none`
   and non-empty `scopes` for `scoped` — a reviewer following it exactly got a
