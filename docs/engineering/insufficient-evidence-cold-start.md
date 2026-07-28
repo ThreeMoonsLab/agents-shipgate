@@ -6,6 +6,123 @@ graded the local boundary stop.
 
 Tracking issue: https://github.com/ThreeMoonsLab/agents-shipgate/issues/292
 
+## Update after implementation (2026-07-27)
+
+Measuring the two real cold-start shapes disproved two premises below and
+retired one proposal. What shipped, and why, is recorded here; the original
+analysis is kept underneath because the problem statement still holds.
+
+**The two shapes.** A repository with a literal `Agent(...)` resolves its root
+and abstains on *semantic* gaps — an undeclared effect, undeclared authority,
+an unenumerable surface. A pure-decorator repository (tools, no `Agent(...)`)
+abstains on a single *binding* gap, `ambiguous_root_agent`, because nothing
+says which agent reaches those tools. Both are IE; the remedies differ.
+
+**Retired: scoping the verdict to the diff (proposal 2).** IE means the static
+view of the agent surface is unreliable. A rule of the form "the diff touched
+no capability surface, so do not abstain" reasons *from* that same view, which
+is circular — and the failure is concrete, not theoretical: a config-bound or
+dynamically constructed toolkit (the documented design-partner finding)
+presents as a diff touching no recognized capability surface while changing
+what the agent can do. Under a diff-scoped rule, precisely the case IE exists
+for would escape it. The delta variant ("no new gaps versus base") fails
+identically, because an unseeable capability addition yields an identical gap
+set. **The verdict therefore stays exactly as it is.** What shipped instead is
+attribution: verify compares the base and head gap sets and says whether this
+diff introduced a gap or inherited it, so a docs-only turn stops reading as an
+accusation about the current change while the gate is untouched.
+
+**Corrected: `init` does not manufacture the binding gap (proposal 1).** The
+claim below that omitting `agent_bindings` creates the gap is wrong for the
+common case — a repository with one `Agent(...)` resolves its root through the
+single-top-level-agent fallback and reports `binding_coverage.gap_count == 0`
+without any `agent_bindings` key. Worse, the naive scaffold would *cause*
+abstentions: every `CHANGE_ME` line becomes a source warning, and four
+warnings crosses the tolerated-source-warnings threshold and trips IE on its
+own. And the value `init` has — the `name=` literal — is the wrong selector
+anyway: `agent_bindings.root.object` matches the *assignment target* for the
+OpenAI Agents SDK, so a scaffold built from the detected display name would
+silently never match. No `init` scaffold shipped.
+
+**Shipped instead: make the one-time human declaration cheap.** The decision
+engine already generates the exact manifest snippet each gap wants; those
+snippets were reachable only by walking `report.json`, which made a
+three-line task look like schema archaeology. `suggested-declarations.yaml` now
+assembles them next to the report — merged per target, so two gaps on one tool
+produce one pasteable row rather than two invalid ones — and every gap that
+has a template names the file in its `expects`. Every human-owned value stays
+`<REVIEW_REQUIRED>`, and the file says outright that a block still containing
+a sentinel closes nothing.
+
+**What surfacing the templates exposed.** Making them readable turned out to be
+a correctness audit of the templates themselves, and three were wrong:
+
+- The **binding** template carried a `declarations` row pre-filled with
+  `complete: true`, `tools: []`, `handoffs: []` — an assertion that the agent
+  definitively reaches *no* tools, offered in a file whose header promised it
+  asserted nothing. It now scaffolds root selection only, and a guard test
+  enumerates every shipped template and fails on any non-sentinel value in a
+  human-owned field (negative-tested against the original block).
+- The **selector** template offered a flat `{tool, tool_id, provider}` while
+  pointing at `tool_identity`, whose schema accepts only `bindings` entries —
+  unfillable anywhere. It emits no template now; inventing a `bindings` row
+  would assert that separate observations are one capability, which is the
+  reviewed claim the gap is asking for.
+- The **authority** template is described below.
+
+A second review then found the deeper version of the same problem: the scaffold
+*said* a block still containing `<REVIEW_REQUIRED>` closes nothing, and nothing
+made that true. The manifest only checked fields like `authority.auth_type` for
+non-blankness, so a pasted-but-unfinished block loaded and was assessed as
+reviewed evidence — moving a fixture from `insufficient_evidence` to
+`review_required` on placeholders alone. The sentinel is now rejected by the
+manifest wherever it appears, naming each unfilled path.
+
+The general rules this produced:
+
+- A template must ask and never answer, and must validate when filled for
+  *every* accepted value, not just the convenient one.
+- A template is offered only where it repairs the gap that carries it — the
+  binding root block is useless for a declarations-level conflict, and
+  meaningless in a repository with no agent object to name.
+- A rendered selector must resolve exactly one row; a display name does not,
+  because two canonical tools can share one.
+- **A promise printed in an artifact must be enforced somewhere, or it is
+  decoration.** Stating that placeholders close nothing was worth nothing until
+  the loader refused them.
+
+**Found by putting the templates in front of a human:** the authority template
+offered `authority.mode` alone, but the manifest requires `auth_type` for every
+mode except `none`, non-empty `scopes` for `scoped`, and `reason` for
+`unscoped` and `ambient` — so a reviewer who filled it in exactly as written got
+a config error for every mode they might pick. Nobody had hit it because nobody
+could find the template. It now names all the co-required fields, and a
+regression test validates the shipped shape against the manifest schema.
+
+**Not closed by this work.** The issue's acceptance criteria asked for a
+docs-only turn with no human-review notice and an agent-executable remediation.
+Neither shipped, deliberately: the notice follows the verdict, which stays for
+the circularity reason above, and these declarations are human-owned by the
+`do_not_auto_assert` contract, so no agent-executable path to them exists. What
+shipped removes the *dead end* — the remediation is now a concrete, cheap,
+one-time human act instead of schema archaeology — and corrects the attribution
+so the notice stops implicating the current change. The residual gap belongs to
+the host-authenticated approval work, not here.
+
+**Observed end to end.** On a representative cold-start repo the loop now
+closes: the scaffold's effect and authority blocks, filled in and merged, clear
+`inferred_effect_only` and `missing_authority_evidence`, and the verdict moves
+off abstention — in the test repo to `blocked`, because the declared
+`financial_write` tool has no approval policy. That is the intended outcome: a
+substantive verdict the reviewer can act on instead of "the scan cannot tell."
+
+**Also fixed:** the IE remedy told every framework to declare
+`tool_inventories`, but only four frameworks have that key. `openai_agents_sdk`
+— the quickstart framework and the most common cold-start case — has none, so
+the advice sent readers looking for a key the schema rejects. The remedy now
+names the real key when one exists and gives the supported alternative when it
+does not.
+
 ## The problem, stated as a user sees it
 
 A developer adopts Shipgate on a small agent project, asks their coding agent

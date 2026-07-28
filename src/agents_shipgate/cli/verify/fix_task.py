@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import shlex
 
-from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
+from agents_shipgate.ci.release_decision import (
+    _inventory_manifest_key,
+    evidence_below_ie_threshold,
+)
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
@@ -266,10 +269,22 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
         by_source[key] = by_source.get(key, 0) + 1
     for (source_type, source_ref), count in sorted(by_source.items()):
         noun = "tool" if count == 1 else "tools"
+        # Only some frameworks have a tool_inventories manifest key. Naming it
+        # for a framework that has none (openai_agents_sdk, for one) sends the
+        # reader looking for a key the schema will reject.
+        manifest_key = _inventory_manifest_key(source_type)
+        remedy = (
+            f"declare an explicit local tool inventory for that source in "
+            f"shipgate.yaml ({manifest_key})"
+            if manifest_key is not None
+            else (
+                "provide a statically enumerable source for that surface — an "
+                "MCP export or OpenAPI spec declared under tool_sources"
+            )
+        )
         out.append(
             f"{count} {noun} from {source_type} source {source_ref!r} extracted "
-            "with low confidence: declare an explicit local tool inventory for "
-            "that source in shipgate.yaml (tool_inventories), or replace the "
+            f"with low confidence: {remedy}, or replace the "
             "dynamic/config-bound toolkit with statically enumerable tool "
             "definitions, then re-run verify."
         )

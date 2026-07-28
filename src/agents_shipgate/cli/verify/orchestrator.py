@@ -4,15 +4,18 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import tempfile
+from collections import Counter
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
+from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.agent_control import derive_agent_control
@@ -961,6 +964,104 @@ def _self_approval_note(capability_review: VerifierCapabilityReview | None) -> s
     return None
 
 
+def _evidence_gap_identities(payload: object) -> Counter[tuple[str, str]] | None:
+    """How many gaps of each (kind, subject) a report payload carries."""
+
+    if not isinstance(payload, dict):
+        return None
+    decision = payload.get("release_decision")
+    if not isinstance(decision, dict):
+        return None
+    coverage = decision.get("evidence_coverage")
+    if not isinstance(coverage, dict):
+        return None
+    gaps = coverage.get("evidence_gaps")
+    if not isinstance(gaps, list):
+        return None
+    return Counter(
+        (str(gap.get("kind") or ""), _stable_subject(str(gap.get("subject") or "")))
+        for gap in gaps
+        if isinstance(gap, dict)
+    )
+
+
+# The base scan runs from a temporary archive, so a subject that embeds a path
+# differs between base and head for reasons that have nothing to do with the
+# diff. Comparing raw subjects reported an unchanged source warning as new.
+_VOLATILE_PATH_RE = re.compile(r"(/[^\s'\"]*)+")
+
+
+def _stable_subject(subject: str) -> str:
+    """A subject with run-specific absolute paths collapsed."""
+
+    return _VOLATILE_PATH_RE.sub(
+        lambda match: f"/…/{PurePosixPath(match.group(0)).name}", subject
+    )
+
+
+def _gap_provenance_note(
+    *,
+    report: ReadinessReport | None,
+    base_report: Path | None,
+) -> str | None:
+    """Say whether THIS diff introduced the evidence gaps, or inherited them.
+
+    An abstention earned by a repository's pre-existing state reads, on a
+    docs-only turn, as an accusation about the current change. The verdict is
+    unchanged — evidence coverage is a property of the whole evaluated surface,
+    and a diff that appears to touch nothing is exactly what an unseeable
+    capability change looks like, so the diff can never argue the abstention
+    away. What it can do is stop misattributing it.
+    """
+
+    if report is None or report.release_decision is None:
+        return None
+    coverage = report.release_decision.evidence_coverage
+    if coverage is None or not coverage.evidence_gaps:
+        return None
+    head = Counter(
+        (str(gap.kind), _stable_subject(str(gap.subject or "")))
+        for gap in coverage.evidence_gaps
+    )
+    if base_report is None or not base_report.is_file():
+        return None
+    try:
+        base = _evidence_gap_identities(
+            json.loads(base_report.read_text(encoding="utf-8"))
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if base is None:
+        return None
+    # Multiset, not set: two gaps sharing a (kind, subject) are two gaps, and
+    # collapsing them would report a genuinely new one as inherited.
+    introduced = sum((head - base).values())
+    total = sum(head.values())
+    if introduced:
+        return f"{introduced} of {total} evidence gap(s) are new in this diff."
+    # Name the scaffold only when one will exist, and only for the gaps it
+    # actually covers. Low-confidence and source-warning gaps carry no
+    # declaration template, so promising that "a declaration closes them" would
+    # be false for any mixed set.
+    scaffolded = sum(
+        1
+        for gap in coverage.evidence_gaps
+        if getattr(gap.next_action, "declaration_template", None)
+    )
+    if scaffolded:
+        subset = "all of them" if scaffolded == total else f"{scaffolded} of them"
+        remedy = (
+            f" A one-time human declaration closes {subset} "
+            f"({SUGGESTED_DECLARATIONS_FILENAME})."
+        )
+    else:
+        remedy = ""
+    return (
+        f"This diff introduces no new evidence gap; all {total} are "
+        f"pre-existing on the base.{remedy}"
+    )
+
+
 def _verifier_headline(
     *,
     report: ReadinessReport | None,
@@ -1148,6 +1249,10 @@ def _build_verifier(
         head_status=head_status,
         capability_review=capability_review,
     )
+    if headline_override is None:
+        provenance = _gap_provenance_note(report=report, base_report=base_report)
+        if provenance is not None:
+            headline = f"{headline} {provenance}" if headline else provenance
     control = _derive_verifier_control(
         execution=head_status,
         merge_verdict=merge_verdict,
@@ -1270,6 +1375,10 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
         "capability-lock-diff.md",
+        # Remediation instructions must not outlive the report they describe:
+        # an early verifier reset would otherwise clear report.json and leave a
+        # scaffold behind asking for declarations nothing is measuring.
+        SUGGESTED_DECLARATIONS_FILENAME,
     ):
         path = out_dir / name
         if path.is_file() or path.is_symlink():

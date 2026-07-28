@@ -2011,23 +2011,7 @@
             ],
             "auto_apply": false,
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "declaration_template": {
-              "agent_bindings": {
-                "declarations": [
-                  {
-                    "agent": "root",
-                    "complete": true,
-                    "handoffs": [],
-                    "reason": "<REVIEW_REQUIRED>",
-                    "tools": []
-                  }
-                ],
-                "root": {
-                  "object": "<REVIEW_REQUIRED>",
-                  "source_id": "<REVIEW_REQUIRED>"
-                }
-              }
-            },
+            "declaration_template": null,
             "expects": "Reconcile the declaration with positive structural evidence and rerun verification.",
             "kind": "resolve_binding_conflict",
             "path": "shipgate.yaml#agent_bindings.declarations",
