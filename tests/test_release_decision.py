@@ -265,6 +265,7 @@ def test_semantic_gap_has_human_declaration_remediation():
         "authority": {
             "mode": "<REVIEW_REQUIRED>",
             "auth_type": "<REVIEW_REQUIRED>",
+            "reason": "<REVIEW_REQUIRED>",
         },
     }
     assert gap.next_action.auto_apply is False

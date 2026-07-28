@@ -47,15 +47,17 @@ def build_declaration_scaffold(gaps: Sequence[EvidenceGap]) -> str | None:
     # authority) want ONE ``action_surface.actions`` row, so emitting them as
     # two blocks would hand the human something invalid to paste.
     sections: list[dict[str, Any]] = []
-    by_target: dict[tuple[str, str], dict[str, Any]] = {}
+    by_target: dict[tuple[str, str, str], dict[str, Any]] = {}
     for gap in gaps:
         action = gap.next_action
         template = getattr(action, "declaration_template", None)
         if not isinstance(template, dict) or not template:
             continue
         path = str(getattr(action, "path", "") or "shipgate.yaml")
-        subject = str(template.get("tool") or "")
-        target = (path, subject)
+        # Key on the gap's own subject, not just the tool name: two sources can
+        # expose the same tool name, and merging those would fold two distinct
+        # declarations into one row.
+        target = (path, str(gap.subject or ""), str(template.get("tool") or ""))
         existing = by_target.get(target)
         if existing is None:
             entry: dict[str, Any] = {
@@ -91,7 +93,11 @@ def build_declaration_scaffold(gaps: Sequence[EvidenceGap]) -> str | None:
         "# lines your answer does not take.",
     ]
     for entry in sections:
+        # Each block is its own YAML document. Concatenated mappings would
+        # repeat top-level keys (two `tool:` roots), which is not a file a
+        # reader or a parser can make sense of.
         lines.append("")
+        lines.append("---")
         lines.append(f"# closes: {', '.join(entry['kinds'])}")
         lines.append(f"# merge into: {entry['path']}")
         # sort_keys=False keeps the engine's own field order, which reads the

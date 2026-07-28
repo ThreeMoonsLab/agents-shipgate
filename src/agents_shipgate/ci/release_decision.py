@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 
 from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
@@ -368,6 +369,19 @@ SUGGESTED_INVENTORY_FILENAME = "suggested-inventory.json"
 # a binding, and a placeholder can never satisfy a gap.
 SUGGESTED_DECLARATIONS_FILENAME = "suggested-declarations.yaml"
 REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
+
+# Root-selection scaffold for binding gaps. Module level so the guard test can
+# see it: a template must ask, never answer, and this one previously shipped a
+# ``declarations`` row pre-filled with ``complete: true`` / ``tools: []``,
+# which stated that the agent definitively reaches no tools.
+AGENT_BINDINGS_ROOT_TEMPLATE: dict[str, object] = {
+    "agent_bindings": {
+        "root": {
+            "source_id": REVIEW_REQUIRED_SENTINEL,
+            "object": REVIEW_REQUIRED_SENTINEL,
+        },
+    }
+}
 _SEMANTIC_RERUN_COMMAND = (
     "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json"
 )
@@ -444,20 +458,7 @@ def _binding_coverage(
                     why="A complete root-reachable static binding graph is required for passed.",
                     expects=_with_scaffold_pointer(expects, {"agent_bindings": True}),
                     accepted_values=accepted_values,
-                    declaration_template={
-                        "agent_bindings": {
-                            "root": {"source_id": "<REVIEW_REQUIRED>", "object": "<REVIEW_REQUIRED>"},
-                            "declarations": [
-                                {
-                                    "agent": "root",
-                                    "complete": True,
-                                    "tools": [],
-                                    "handoffs": [],
-                                    "reason": "<REVIEW_REQUIRED>",
-                                }
-                            ],
-                        }
-                    },
+                    declaration_template=deepcopy(AGENT_BINDINGS_ROOT_TEMPLATE),
                 ),
             )
         )
@@ -663,11 +664,12 @@ def _semantic_gap(
         accepted_values = ["tool_id", "provider", "source_type", "source_id"]
         action_why = "A one-to-one selector must resolve before policy or evidence can apply."
         expects = "Add tool_id or source/provider qualifiers, then rerun verification."
-        declaration_template = {
-            "tool": tool.name,
-            "tool_id": tool.id,
-            "provider": tool.provider,
-        }
+        # No template: the action points at ``tool_identity``, whose schema
+        # accepts only ``bindings`` entries, so the flat {tool, tool_id,
+        # provider} shape this used to offer could not be pasted anywhere. A
+        # template a reviewer cannot use is worse than none, and inventing a
+        # ``bindings`` row here would assert that separate observations are one
+        # capability — precisely the reviewed claim this gap is asking for.
     elif kind == "invalid_tool_binding":
         action_kind = "provide_tool_binding"
         accepted_values = ["exact_primary", "exact_members", "unique_binding_id"]
@@ -752,12 +754,18 @@ def _semantic_gap(
         # ``mode`` alone is unfillable for the answers people actually give,
         # so it names the co-required fields and lets the reviewer delete what
         # ``mode: none`` does not take.
+        # Co-required fields differ per mode: every mode except ``none`` needs
+        # ``auth_type``; ``scoped`` needs non-empty ``scopes``; ``unscoped``
+        # and ``ambient`` need ``reason`` and empty ``scopes``. Naming all of
+        # them keeps the template fillable for every supported answer, and the
+        # scaffold tells the reviewer to delete what their mode does not take.
         declaration_template = {
             "tool": tool.name,
             "scopes": [REVIEW_REQUIRED_SENTINEL],
             "authority": {
                 "mode": REVIEW_REQUIRED_SENTINEL,
                 "auth_type": REVIEW_REQUIRED_SENTINEL,
+                "reason": REVIEW_REQUIRED_SENTINEL,
             },
         }
     else:

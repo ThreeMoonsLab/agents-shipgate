@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import tempfile
+from collections import Counter
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -962,8 +963,8 @@ def _self_approval_note(capability_review: VerifierCapabilityReview | None) -> s
     return None
 
 
-def _evidence_gap_identities(payload: object) -> set[tuple[str, str]] | None:
-    """The (kind, subject) identity of every evidence gap in a report payload."""
+def _evidence_gap_identities(payload: object) -> Counter[tuple[str, str]] | None:
+    """How many gaps of each (kind, subject) a report payload carries."""
 
     if not isinstance(payload, dict):
         return None
@@ -976,11 +977,11 @@ def _evidence_gap_identities(payload: object) -> set[tuple[str, str]] | None:
     gaps = coverage.get("evidence_gaps")
     if not isinstance(gaps, list):
         return None
-    return {
+    return Counter(
         (str(gap.get("kind") or ""), str(gap.get("subject") or ""))
         for gap in gaps
         if isinstance(gap, dict)
-    }
+    )
 
 
 def _gap_provenance_note(
@@ -1003,9 +1004,9 @@ def _gap_provenance_note(
     coverage = report.release_decision.evidence_coverage
     if coverage is None or not coverage.evidence_gaps:
         return None
-    head = {
+    head = Counter(
         (str(gap.kind), str(gap.subject or "")) for gap in coverage.evidence_gaps
-    }
+    )
     if base_report is None or not base_report.is_file():
         return None
     try:
@@ -1016,16 +1017,27 @@ def _gap_provenance_note(
         return None
     if base is None:
         return None
-    introduced = head - base
+    # Multiset, not set: two gaps sharing a (kind, subject) are two gaps, and
+    # collapsing them would report a genuinely new one as inherited.
+    introduced = sum((head - base).values())
+    total = sum(head.values())
     if introduced:
-        return (
-            f"{len(introduced)} of {len(head)} evidence gap(s) are new in this "
-            "diff."
-        )
+        return f"{introduced} of {total} evidence gap(s) are new in this diff."
+    # Only name the scaffold when one will exist. Low-confidence and
+    # source-warning gaps carry no declaration template, so a repository whose
+    # gaps are all of that kind gets no file and must not be sent to one.
+    scaffolded = any(
+        getattr(gap.next_action, "declaration_template", None)
+        for gap in coverage.evidence_gaps
+    )
+    remedy = (
+        f" A one-time human declaration closes them ({SUGGESTED_DECLARATIONS_FILENAME})."
+        if scaffolded
+        else ""
+    )
     return (
-        f"This diff introduces no new evidence gap; all {len(head)} are "
-        "pre-existing on the base and need a one-time human declaration "
-        f"({SUGGESTED_DECLARATIONS_FILENAME})."
+        f"This diff introduces no new evidence gap; all {total} are "
+        f"pre-existing on the base.{remedy}"
     )
 
 

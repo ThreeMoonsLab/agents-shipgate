@@ -225,3 +225,66 @@ def test_authority_template_is_fillable_against_the_manifest_schema() -> None:
         {"tool": "process_order", "effect": "read", "authority": {"mode": "none"}}
     )
     assert minimal.authority is not None
+
+
+def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
+    """A template must ask, never answer.
+
+    The binding template once shipped `complete: true`, `tools: []` and
+    `handoffs: []` — a claim that the agent definitively reaches no tools —
+    which a reviewer could paste while sentinels were still present. Every
+    scalar a template offers must therefore be a sentinel, and every list must
+    be empty or sentinel-filled, so a verbatim paste cannot state a fact.
+    """
+
+    from agents_shipgate.ci.release_decision import REVIEW_REQUIRED_SENTINEL
+
+    def assert_no_assertion(node, path: str = "") -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                assert_no_assertion(value, f"{path}.{key}")
+            return
+        if isinstance(node, list):
+            for index, value in enumerate(node):
+                assert_no_assertion(value, f"{path}[{index}]")
+            return
+        # A tool NAME is the subject the gap is about, not a claim about it.
+        if path.endswith(".tool"):
+            return
+        assert node == REVIEW_REQUIRED_SENTINEL, (
+            f"{path} = {node!r} asserts a value the human owns"
+        )
+
+    for template in _shipped_templates():
+        assert_no_assertion(template)
+
+
+def _shipped_templates() -> list[dict]:
+    """Every declaration_template the decision engine can emit."""
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+
+    tool = Tool(
+        id="t1",
+        name="process_order",
+        source_type="sdk_function",
+        source_id="openai_sdk_agent",
+    )
+    # The binding root template is emitted from _binding_coverage, not
+    # _semantic_gap, so enumerate it explicitly — a guard that misses the
+    # template which actually carried an assertion is false confidence.
+    templates: list[dict] = [dict(rd.AGENT_BINDINGS_ROOT_TEMPLATE)]
+    for kind in (
+        "inferred_effect_only",
+        "missing_authority_evidence",
+        "partial_authority_evidence",
+        "unresolved_tool_selector",
+        "incomplete_surface",
+    ):
+        gap = rd._semantic_gap(tool, kind=kind, why="test")
+        template = gap.next_action.declaration_template
+        if template:
+            templates.append(template)
+    assert templates, "expected at least one shipped template"
+    return templates

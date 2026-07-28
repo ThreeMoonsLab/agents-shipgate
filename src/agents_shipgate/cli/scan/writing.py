@@ -97,10 +97,17 @@ def _write_suggested_declarations(
     anchor = generated_paths.get("json") or next(iter(generated_paths.values()), None)
     if anchor is None:
         return
+    out_path = anchor.parent / SUGGESTED_DECLARATIONS_FILENAME
     scaffold = scaffold_for_report(report)
     if scaffold is None:
+        # Nothing is owed any more: a leftover scaffold from an earlier run
+        # would keep asking for declarations that are already made.
+        if out_path.is_file():
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
         return
-    out_path = anchor.parent / SUGGESTED_DECLARATIONS_FILENAME
     out_path.write_text(scaffold, encoding="utf-8")
 
 

@@ -54,12 +54,43 @@ has a template names the file in its `expects`. Every human-owned value stays
 `<REVIEW_REQUIRED>`, and the file says outright that a block still containing
 a sentinel closes nothing.
 
+**What surfacing the templates exposed.** Making them readable turned out to be
+a correctness audit of the templates themselves, and three were wrong:
+
+- The **binding** template carried a `declarations` row pre-filled with
+  `complete: true`, `tools: []`, `handoffs: []` — an assertion that the agent
+  definitively reaches *no* tools, offered in a file whose header promised it
+  asserted nothing. It now scaffolds root selection only, and a guard test
+  enumerates every shipped template and fails on any non-sentinel value in a
+  human-owned field (negative-tested against the original block).
+- The **selector** template offered a flat `{tool, tool_id, provider}` while
+  pointing at `tool_identity`, whose schema accepts only `bindings` entries —
+  unfillable anywhere. It emits no template now; inventing a `bindings` row
+  would assert that separate observations are one capability, which is the
+  reviewed claim the gap is asking for.
+- The **authority** template is described below.
+
+The general rule this produced: a template must ask and never answer, and it
+must validate when filled for *every* accepted value, not just the convenient
+one.
+
 **Found by putting the templates in front of a human:** the authority template
 offered `authority.mode` alone, but the manifest requires `auth_type` for every
-mode except `none` and non-empty `scopes` for `scoped` — so a reviewer who
-filled it in exactly as written got a config error. Nobody had hit it because
-nobody could find the template. It now names the co-required fields, and a
+mode except `none`, non-empty `scopes` for `scoped`, and `reason` for
+`unscoped` and `ambient` — so a reviewer who filled it in exactly as written got
+a config error for every mode they might pick. Nobody had hit it because nobody
+could find the template. It now names all the co-required fields, and a
 regression test validates the shipped shape against the manifest schema.
+
+**Not closed by this work.** The issue's acceptance criteria asked for a
+docs-only turn with no human-review notice and an agent-executable remediation.
+Neither shipped, deliberately: the notice follows the verdict, which stays for
+the circularity reason above, and these declarations are human-owned by the
+`do_not_auto_assert` contract, so no agent-executable path to them exists. What
+shipped removes the *dead end* — the remediation is now a concrete, cheap,
+one-time human act instead of schema archaeology — and corrects the attribution
+so the notice stops implicating the current change. The residual gap belongs to
+the host-authenticated approval work, not here.
 
 **Observed end to end.** On a representative cold-start repo the loop now
 closes: the scaffold's effect and authority blocks, filled in and merged, clear
