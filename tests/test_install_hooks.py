@@ -537,6 +537,174 @@ def test_stop_hook_cold_start_advises_instead_of_blocking(tmp_path: Path) -> Non
     assert "verify --preview" in out["systemMessage"]
 
 
+def _pretooluse_out(
+    tmp_path: Path,
+    file_path: str,
+    *,
+    session_id: str = "S1",
+    permission_mode: str = "default",
+) -> str:
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    payload = {
+        "session_id": session_id,
+        "permission_mode": permission_mode,
+        "tool_input": {"file_path": file_path},
+    }
+    return subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "pretooluse"],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    ).stdout
+
+
+def _posttooluse(
+    tmp_path: Path,
+    file_path: str,
+    *,
+    session_id: str = "S1",
+    permission_mode: str = "default",
+) -> None:
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {_fake_shipgate_cli(tmp_path)} {log}"
+    payload = {
+        "session_id": session_id,
+        "permission_mode": permission_mode,
+        "tool_input": {"file_path": file_path},
+    }
+    subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "trigger"],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+
+def test_pretooluse_stops_re_asking_for_an_already_allowed_file(tmp_path: Path) -> None:
+    """One human decision per file per session, not one per edit."""
+
+    _stop_hook_workspace(tmp_path)
+
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+    _posttooluse(tmp_path, "CLAUDE.md")
+    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+
+    # A different session never inherits the decision.
+    assert "permissionDecision" in _pretooluse_out(
+        tmp_path, "CLAUDE.md", session_id="S2"
+    )
+    # Nor does an unrelated protected file.
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
+
+
+def test_auto_answering_permission_modes_are_not_recorded_as_approval(
+    tmp_path: Path,
+) -> None:
+    """An edit nobody was asked about is not an approval."""
+
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="bypassPermissions")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+
+    # An absent mode is unknown, not permission to remember.
+    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="")
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+
+
+def test_accept_edits_mode_still_records_an_answered_prompt(tmp_path: Path) -> None:
+    """acceptEdits auto-accepts ordinary edits, but an explicit hook ask still
+    reaches the human — so a landed protected edit is an answered prompt."""
+
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md", permission_mode="acceptEdits")
+    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+
+
+def test_approval_memory_never_overrides_a_configured_deny(tmp_path: Path) -> None:
+    """`deny` is an operator's hard block, not a prompt to be remembered."""
+
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md")
+    assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
+
+    env_backup = os.environ.get("AGENTS_SHIPGATE_PRETOOLUSE_DECISION")
+    os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = "deny"
+    try:
+        out = _pretooluse_out(tmp_path, "CLAUDE.md")
+        assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+    finally:
+        if env_backup is None:
+            os.environ.pop("AGENTS_SHIPGATE_PRETOOLUSE_DECISION", None)
+        else:
+            os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = env_backup
+
+
+def test_disabled_boundary_does_not_seed_approval_memory(tmp_path: Path) -> None:
+    """With the boundary disabled no request is made, so nothing was allowed."""
+
+    _stop_hook_workspace(tmp_path)
+    env_backup = os.environ.get("AGENTS_SHIPGATE_PRETOOLUSE_DECISION")
+    os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = "allow"
+    try:
+        _posttooluse(tmp_path, "CLAUDE.md")
+    finally:
+        if env_backup is None:
+            os.environ.pop("AGENTS_SHIPGATE_PRETOOLUSE_DECISION", None)
+        else:
+            os.environ["AGENTS_SHIPGATE_PRETOOLUSE_DECISION"] = env_backup
+
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+
+
+def test_outside_workspace_path_cannot_authorize_a_repository_path(
+    tmp_path: Path,
+) -> None:
+    """A same-basename file elsewhere must not carry an approval inward."""
+
+    _stop_hook_workspace(tmp_path)
+    outsider = tmp_path.parent / f"{tmp_path.name}-elsewhere"
+    outsider.mkdir(parents=True, exist_ok=True)
+    stray = outsider / "shipgate.yaml"
+    stray.write_text("version: '0.1'\n", encoding="utf-8")
+
+    _posttooluse(tmp_path, str(stray))
+    assert "permissionDecision" in _pretooluse_out(
+        tmp_path, str(tmp_path / "shipgate.yaml")
+    )
+
+
+def test_approval_memory_preserves_other_sessions(tmp_path: Path) -> None:
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md", session_id="A")
+    _posttooluse(tmp_path, "shipgate.yaml", session_id="B")
+
+    assert _pretooluse_out(tmp_path, "CLAUDE.md", session_id="A") == ""
+    assert _pretooluse_out(tmp_path, "shipgate.yaml", session_id="B") == ""
+
+
+def test_approval_memory_can_be_disabled(tmp_path: Path) -> None:
+    _stop_hook_workspace(tmp_path)
+    _posttooluse(tmp_path, "CLAUDE.md")
+    env_backup = os.environ.get("AGENTS_SHIPGATE_APPROVAL_MEMORY")
+    os.environ["AGENTS_SHIPGATE_APPROVAL_MEMORY"] = "off"
+    try:
+        assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md")
+    finally:
+        if env_backup is None:
+            os.environ.pop("AGENTS_SHIPGATE_APPROVAL_MEMORY", None)
+        else:
+            os.environ["AGENTS_SHIPGATE_APPROVAL_MEMORY"] = env_backup
+
+
 def _init_repo(path: Path) -> None:
     subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
     subprocess.run(
@@ -553,6 +721,9 @@ def _init_repo(path: Path) -> None:
         "version: '0.1'\nagent:\n  name: test\n  declared_purpose: test\n",
         encoding="utf-8",
     )
+    # `init` always ensures this; without it the generated reports would show up
+    # as untracked changes and perturb the hook's own input snapshot.
+    (path / ".gitignore").write_text("agents-shipgate-reports/\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=path, check=True)
     subprocess.run(
         ["git", "commit", "-m", "init"],

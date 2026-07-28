@@ -537,9 +537,13 @@ The old `codex-boundary-json` spelling remains a deprecated `0.16.x`
 compatibility projection of the same assessment.
 
 Read `input_coverage`, `host_coverage[]`, `affected_hosts[]`, `policies[]`,
-`issues[]`, and `excluded_scopes[]` before relying on the result. `complete`
+`issues[]`, `pending_review[]`, and `excluded_scopes[]` before relying on the
+result. `complete`
 means complete only within the declared static input scope; it is not proof of
-session grants, runtime enforcement, or tool behavior. The detailed matrix is
+session grants, runtime enforcement, or tool behavior. `pending_review[]` is
+non-empty only alongside `agent_action_required`: those are review obligations
+the graded mapping carried forward instead of stopping the turn, and an agent
+must name them when summarizing the change. The detailed matrix is
 [`host-boundary-support.md`](host-boundary-support.md).
 
 Coding agents switch on `control.state`, then follow `control.next_action` and

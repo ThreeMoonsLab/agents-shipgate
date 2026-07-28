@@ -604,8 +604,12 @@ command-bearing skill changes before local automation.
 ### SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED
 
 A recognized host, instruction, policy, state, or workflow surface changed
-without a specialized safe classification. Human review is required because
-absence of a risk finding is not evidence of non-broadening behavior.
+without a specialized safe classification. The change routes to human review at
+PR time because absence of a risk finding is not evidence of non-broadening
+behavior. In the local `shipgate check` loop this medium row is graded: unless
+the path is a gate-governing trust root (manifest, policy, CI gate, or
+`.agents-shipgate/` state), the coding agent may finish its turn with the
+obligation carried in `pending_review[]` rather than stopping.
 
 ### SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED
 

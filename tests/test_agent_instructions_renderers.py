@@ -45,7 +45,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "bc5cd31a5c4d4f6a1ebf6a04db3f80480e7cc5f9ab2b7a6f7e3f62e8ddfc3937"
+        "58ea3b6bba89078ec54d6b5493ffebf9250d9619fbacef5090285b009e58cdcd"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         # Renders {{ shipgate_version }}; changes on every version bump.
@@ -81,7 +81,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "4cbd6a9b978bb142908b8601f52fa1b8fe6a0aa89ecd05eec28f3b00f470ff04"
+        "10fcba81a9d07d7f1736fd3177c162dfdc92d5a106469c3def907d233a270dd4"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"

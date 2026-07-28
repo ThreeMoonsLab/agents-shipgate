@@ -1885,6 +1885,13 @@ def _summary_for(decision: str, violations: list[AgentResultViolatedRule]) -> st
     if decision == "warn":
         return "Codex boundary check completed with warnings."
     if decision == "require_review":
+        # Match the control state the same facts produce: a graded set does not
+        # stop the turn, so the summary must not read as a local stop.
+        if violations_within_agent_actionable_band(violations):
+            return (
+                f"{len(violations)} Codex boundary change(s) need PR-time review; "
+                "verify, then report them."
+            )
         return f"{len(violations)} Codex boundary change(s) require human review."
     return f"{len(violations)} Codex boundary change(s) block local continuation."
 

@@ -434,6 +434,15 @@ from typing import Any
 
 VERIFY_TIMEOUT_SECONDS = 170
 UNTRACKED_DIFF_CONTENT_LIMIT_BYTES = 131072
+_MAX_REMEMBERED_SURFACES = 256
+_MAX_REMEMBERED_SESSIONS = 8
+# Host permission modes that answer a hook's permission request without asking
+# a human. An edit that lands under one of these is not evidence that anyone
+# saw a prompt, so it must never seed the approval memory. Every other mode
+# (including acceptEdits, where an explicit hook "ask" still prompts) does
+# surface the request. An absent mode is treated as unknown and records
+# nothing.
+_UNPROMPTED_PERMISSION_MODES = frozenset({"bypasspermissions", "dontask"})
 
 # Rendered at install time from agents_shipgate.checks.verify
 # TRUST_ROOT_SURFACES — the same classification the PR-time verifier
@@ -476,11 +485,26 @@ def _pretooluse(payload: dict[str, Any], root: Path) -> int:
     ).strip().lower()
     if decision not in {"ask", "deny"}:
         return 0
+    # ``deny`` is a hard block chosen by the operator, not a prompt. A prior
+    # in-session approval may quiet a repeated *prompt*; it must never quiet a
+    # deny.
+    session_id = str(payload.get("session_id") or "")
+    already_approved = (
+        _approved_surfaces(root, session_id) if decision == "ask" else frozenset()
+    )
+    contained = _contained_repo_paths(payload, root)
     matched: list[tuple[str, str, str]] = []
     for path in _changed_paths(payload, root):
         hit = _protected_surface_for(path)
-        if hit is not None:
-            matched.append((path, hit[0], hit[1]))
+        if hit is None:
+            continue
+        # Only a path proven to be inside this repository can be matched
+        # against the memory: an out-of-workspace absolute path degrades to its
+        # basename, and `/elsewhere/shipgate.yaml` must not authorize the
+        # repository's own manifest.
+        if path in already_approved and path in contained:
+            continue
+        matched.append((path, hit[0], hit[1]))
     if not matched:
         return 0
     preview = "; ".join(
@@ -583,6 +607,7 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     paths = _changed_paths(payload, root)
     if not paths:
         return 0
+    _record_in_session_approvals(payload, root)
     diff_text = _git_diff_for_paths(root, paths)
     # For edit-time nudges, evaluate path relevance without the opted-in
     # manifest force-run rule. CI still runs every PR for opted-in repos.
@@ -611,6 +636,63 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
             "expanding baselines/waivers, removing Shipgate CI, or weakening agent instructions."
         ),
     )
+
+
+def _record_in_session_approvals(payload: dict[str, Any], root: Path) -> None:
+    """Note protected files whose edit the human just allowed.
+
+    PostToolUse only fires once the tool call went through, so when the host
+    surfaced this hook's permission request, an edit that landed is an edit a
+    human allowed. Three conditions must all hold, and each failure means we
+    have no evidence of a human decision:
+
+    * the boundary was actually prompting — not disabled with ``allow`` (no
+      request was made) and not ``deny`` (nothing was ever approvable);
+    * the host was in a mode that asks rather than auto-answering;
+    * the path is provably inside this repository, so a same-basename file
+      elsewhere cannot authorize a protected repository path.
+    """
+
+    if (
+        os.environ.get("AGENTS_SHIPGATE_PRETOOLUSE_DECISION", "ask").strip().lower()
+        != "ask"
+    ):
+        return
+    mode = str(payload.get("permission_mode") or payload.get("permissionMode") or "")
+    mode = mode.strip().lower()
+    if not mode or mode in _UNPROMPTED_PERMISSION_MODES:
+        return
+    protected = [
+        path
+        for path in _contained_repo_paths(payload, root)
+        if _protected_surface_for(path) is not None
+    ]
+    if protected:
+        _remember_approved_surfaces(root, str(payload.get("session_id") or ""), protected)
+
+
+def _contained_repo_paths(payload: dict[str, Any], root: Path) -> frozenset[str]:
+    """Changed paths proven to resolve inside ``root``.
+
+    ``_repo_path`` deliberately falls back to a bare filename for paths outside
+    the workspace so the boundary still warns about them. That fallback must
+    never feed the approval memory, where a basename collision would carry an
+    approval from one file to a different one.
+    """
+
+    out: set[str] = set()
+    for raw in _raw_changed_paths(payload):
+        candidate = Path(raw)
+        try:
+            resolved = (
+                candidate.resolve()
+                if candidate.is_absolute()
+                else (root / candidate).resolve()
+            )
+            out.add(resolved.relative_to(root).as_posix())
+        except (ValueError, OSError):
+            continue
+    return frozenset(out)
 
 
 def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> int:
@@ -720,6 +802,25 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
             "`agents-shipgate-reports/report.json`.",
         )
 
+    return _route_verify_result(
+        verifier,
+        root=root,
+        args=args,
+        signature=signature,
+        base_note=base_note,
+        stop_hook_active=stop_hook_active,
+    )
+
+
+def _route_verify_result(
+    verifier: dict[str, Any],
+    *,
+    root: Path,
+    args: argparse.Namespace,
+    signature: str,
+    base_note: str,
+    stop_hook_active: bool,
+) -> int:
     decision = ((verifier.get("release_decision") or {}).get("decision") or "unknown")
     blockers = len((verifier.get("release_decision") or {}).get("blockers") or [])
     review_items = len((verifier.get("release_decision") or {}).get("review_items") or [])
@@ -980,50 +1081,116 @@ def _state_path(root: Path) -> Path | None:
     return path if path.is_absolute() else (root / path)
 
 
-def _last_verified_signature(root: Path) -> str | None:
+def _read_state(root: Path) -> dict[str, Any]:
     path = _state_path(root)
     if path is None or not path.is_file():
-        return None
+        return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    signature = data.get("last_verified_signature")
-    return signature if isinstance(signature, str) else None
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
-def _write_verified_signature(root: Path, signature: str) -> None:
+def _write_state(root: Path, data: dict[str, Any]) -> None:
     path = _state_path(root)
     if path is None:
         return
+    # Atomic replace: parallel PostToolUse hooks can run concurrently, and a
+    # torn advisory cache is worse than a stale one.
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"last_verified_signature": signature}, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        payload = json.dumps(data, indent=2, sort_keys=True) + "\n"
+        temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temp.write_text(payload, encoding="utf-8")
+        os.replace(temp, path)
     except OSError:
         return
 
 
-def _changed_paths(payload: dict[str, Any], root: Path) -> list[str]:
+def _last_verified_signature(root: Path) -> str | None:
+    signature = _read_state(root).get("last_verified_signature")
+    return signature if isinstance(signature, str) else None
+
+
+def _write_verified_signature(root: Path, signature: str) -> None:
+    # Merge rather than overwrite: the same file carries the session's
+    # already-approved protected surfaces.
+    state = _read_state(root)
+    state["last_verified_signature"] = signature
+    _write_state(root, state)
+
+
+def _approval_memory_enabled() -> bool:
+    raw = os.environ.get("AGENTS_SHIPGATE_APPROVAL_MEMORY", "on").strip().lower()
+    return raw not in {"0", "off", "false", "no"}
+
+
+def _approved_surfaces(root: Path, session_id: str) -> set[str]:
+    """Protected paths the human already allowed in THIS host session.
+
+    Advisory only: it suppresses a repeated in-session permission prompt for a
+    file the human already allowed. It changes no verdict — `shipgate check`
+    and PR-time verify evaluate the edit exactly as before, and
+    ``SHIP-VERIFY-*`` still reports the trust-root touch.
+    """
+
+    if not session_id or not _approval_memory_enabled():
+        return set()
+    approved = _read_state(root).get("approved_surfaces")
+    if not isinstance(approved, dict):
+        return set()
+    entries = approved.get(session_id)
+    if not isinstance(entries, list):
+        return set()
+    return {item for item in entries if isinstance(item, str)}
+
+
+def _remember_approved_surfaces(root: Path, session_id: str, paths: list[str]) -> None:
+    if not session_id or not paths or not _approval_memory_enabled():
+        return
+    state = _read_state(root)
+    approved = state.get("approved_surfaces")
+    if not isinstance(approved, dict):
+        approved = {}
+    # Preserve concurrent sessions rather than clobbering them; bound both the
+    # per-session list and the number of retained sessions.
+    updated: dict[str, list[str]] = {}
+    for key, value in approved.items():
+        if isinstance(key, str) and isinstance(value, list):
+            updated[key] = [item for item in value if isinstance(item, str)]
+    existing = set(updated.get(session_id, []))
+    updated[session_id] = sorted(existing | set(paths))[:_MAX_REMEMBERED_SURFACES]
+    if len(updated) > _MAX_REMEMBERED_SESSIONS:
+        keep = [session_id] + [key for key in updated if key != session_id]
+        updated = {key: updated[key] for key in keep[:_MAX_REMEMBERED_SESSIONS]}
+    state["approved_surfaces"] = updated
+    _write_state(root, state)
+
+
+def _raw_changed_paths(payload: dict[str, Any]) -> list[str]:
+    """Path strings exactly as the host reported them, before normalization."""
+
     out: list[str] = []
-    tool_input = payload.get("tool_input")
-    tool_response = payload.get("tool_response")
-    for node in (tool_input, tool_response):
+    for node in (payload.get("tool_input"), payload.get("tool_response")):
         if isinstance(node, dict):
             for key in ("file_path", "filePath", "path"):
                 value = node.get(key)
                 if isinstance(value, str) and value.strip():
-                    out.append(_repo_path(value, root))
+                    out.append(value)
             edits = node.get("edits")
             if isinstance(edits, list):
                 for edit in edits:
                     if isinstance(edit, dict):
                         value = edit.get("file_path") or edit.get("filePath")
                         if isinstance(value, str) and value.strip():
-                            out.append(_repo_path(value, root))
-    return sorted({path for path in out if path})
+                            out.append(value)
+    return out
+
+
+def _changed_paths(payload: dict[str, Any], root: Path) -> list[str]:
+    paths = [_repo_path(value, root) for value in _raw_changed_paths(payload)]
+    return sorted({path for path in paths if path})
 
 
 def _repo_path(value: str, root: Path) -> str:

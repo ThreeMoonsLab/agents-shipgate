@@ -159,11 +159,17 @@ gets immediate context when an edit touches an agent-related surface. It
 evaluates the edited paths without the manifest-present force-run rule, so
 irrelevant docs edits do not produce a nudge just because the repo is opted in.
 The Stop hook runs full `agents-shipgate verify` only when the working tree or
-current branch has a relevant change that has not already been checked.
+current branch has a relevant change that has not already been checked, then
+routes on the authoritative `verifier.control.state`: `complete` ends the turn
+silently, `agent_action_required` soft-blocks the Stop once and names the one
+exact remaining command, and `human_review_required` lets the turn end with a
+hand-off notice — a Stop-hook block forces the agent to keep working, which is
+the opposite of what `must_stop` means.
 
-These hooks are advisory local feedback. They may soft-block a Claude Code Stop
-when the verifier itself returns findings, but local setup failures such as a
-missing CLI or unavailable base ref are surfaced as context. They are not a
+These hooks are advisory local feedback. Local setup failures such as a
+missing CLI or unavailable base ref are surfaced as context, and verifier
+output the hook cannot parse is surfaced as an explicit warning rather than
+treated as a pass. They are not a
 trust boundary and not a replacement for CI. CI should continue to run the
 GitHub Action or an equivalent `agents-shipgate verify` command, and CI's
 `report.json.release_decision.decision` remains authoritative.
