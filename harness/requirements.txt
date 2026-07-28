@@ -10,4 +10,4 @@ claude-agent-sdk>=0.2.116,<0.3
 pydantic>=2.13.4,<3
 pyyaml>=6.0,<7
 rich>=15.0.0,<16
-typer>=0.26.3,<1
+typer>=0.27.0,<1
