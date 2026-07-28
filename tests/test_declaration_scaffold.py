@@ -6,6 +6,8 @@ something that closes a gap on its own.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import yaml
 
 from agents_shipgate.cli.scan.declarations import build_declaration_scaffold
