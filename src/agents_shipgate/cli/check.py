@@ -5,6 +5,7 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.cli.agent_mode import detect_actor, emit_agent_mode_error
 from agents_shipgate.cli.agent_result import (
     agent_result_json,
     build_agent_boundary_result,
@@ -18,10 +19,13 @@ from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
 
 def check(
-    agent: str = typer.Option(
-        "codex",
+    agent: str | None = typer.Option(
+        None,
         "--agent",
-        help="Agent runtime to check: codex, claude-code, or cursor.",
+        help=(
+            "Agent runtime to check: codex, claude-code, or cursor. Detected "
+            "from the environment when omitted; codex when undetectable."
+        ),
     ),
     diff: str | None = typer.Option(
         None,
@@ -66,20 +70,41 @@ def check(
 ) -> None:
     """Run the agent-native local boundary check."""
 
+    # The actor lands in the result and in the audit id, so an undetected
+    # harness mislabels every row it writes. An explicit flag always wins.
+    agent = agent or detect_actor()
+
     if agent not in {"codex", "claude-code", "cursor"}:
-        typer.echo("--agent must be one of: codex, claude-code, cursor.", err=True)
+        message = "--agent must be one of: codex, claude-code, cursor."
+        typer.echo(message, err=True)
+        emit_agent_mode_error(
+            "config_error",
+            message=message,
+            exit_code=2,
+            next_action="Re-run shipgate check with --agent codex, claude-code, or cursor.",
+        )
         raise typer.Exit(2)
     if format_ == "agent-json":
-        typer.echo(
+        message = (
             "--format agent-json was removed in the 0.14.0 contract cleanup. "
-            "Use --format agent-boundary-json.",
-            err=True,
+            "Use --format agent-boundary-json."
+        )
+        typer.echo(message, err=True)
+        emit_agent_mode_error(
+            "config_error",
+            message=message,
+            exit_code=2,
+            next_action="Re-run shipgate check with --format agent-boundary-json.",
         )
         raise typer.Exit(2)
     if format_ not in {"agent-boundary-json", "codex-boundary-json"}:
-        typer.echo(
-            "--format must be 'agent-boundary-json' or 'codex-boundary-json'.",
-            err=True,
+        message = "--format must be 'agent-boundary-json' or 'codex-boundary-json'."
+        typer.echo(message, err=True)
+        emit_agent_mode_error(
+            "config_error",
+            message=message,
+            exit_code=2,
+            next_action="Re-run shipgate check with --format agent-boundary-json.",
         )
         raise typer.Exit(2)
     try:

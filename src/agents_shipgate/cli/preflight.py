@@ -8,6 +8,7 @@ from typing import Any
 import typer
 from pydantic import ValidationError
 
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.core.codex_boundary import parse_unified_diff
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
@@ -19,6 +20,24 @@ from agents_shipgate.schemas.preflight import (
     PreflightResultV2,
     PreflightResultV3,
 )
+
+
+def _agent_mode_exit(
+    error_kind: str,
+    exc: BaseException,
+    *,
+    exit_code: int,
+    next_action: str,
+) -> typer.Exit:
+    """Emit the structured agent-mode error line and return the exit to raise."""
+
+    emit_agent_mode_error(
+        error_kind,
+        message=str(exc),
+        exit_code=exit_code,
+        next_action=next_action,
+    )
+    return typer.Exit(exit_code)
 
 
 def preflight(
@@ -110,16 +129,59 @@ def preflight(
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        raise typer.Exit(2) from exc
+        raise _agent_mode_exit(
+            "config_error",
+            exc,
+            exit_code=2,
+            next_action=(
+                "Fix the manifest or flag value named in the error, then re-run "
+                "`agents-shipgate preflight`."
+            ),
+        ) from exc
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
-        raise typer.Exit(3) from exc
+        raise _agent_mode_exit(
+            "input_parse_error",
+            exc,
+            exit_code=3,
+            next_action=(
+                "Correct the diff, changed-files list, or request JSON named in "
+                "the error, then re-run `agents-shipgate preflight`."
+            ),
+        ) from exc
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
-        raise typer.Exit(4) from exc
+        raise _agent_mode_exit(
+            "shipgate_error",
+            exc,
+            exit_code=4,
+            next_action="Resolve the error above, then re-run `agents-shipgate preflight`.",
+        ) from exc
     except OSError as exc:
         typer.echo(f"Input error: {exc}", err=True)
-        raise typer.Exit(3) from exc
+        raise _agent_mode_exit(
+            "input_parse_error",
+            exc,
+            exit_code=3,
+            next_action=(
+                "Make the input file readable at the path given, then re-run "
+                "`agents-shipgate preflight`."
+            ),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - agents must never see a bare traceback.
+        # Every other command reports unexpected failures on the agent channel;
+        # preflight let them escape as a traceback, which an agent cannot route
+        # on. Prose still goes to stderr and the exit code is unchanged.
+        typer.echo(f"Agents Shipgate internal error: {exc}", err=True)
+        raise _agent_mode_exit(
+            "internal_error",
+            exc,
+            exit_code=4,
+            next_action=(
+                "Report this failure with the command line above; preflight "
+                "could not complete."
+            ),
+        ) from exc
 
     payload = result.model_dump(mode="json")
     if json_output:

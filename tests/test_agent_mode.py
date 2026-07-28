@@ -19,7 +19,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
+from agents_shipgate.cli.agent_mode import (
+    AGENT_ENV_HINTS,
+    DEFAULT_ACTOR,
+    detect_actor,
+    emit_agent_mode_error,
+    is_agent_mode,
+)
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.verify.command import _resolve_verify_format
 from agents_shipgate.core.errors import ConfigError
@@ -299,3 +305,130 @@ def test_verify_without_agent_environment_defaults_to_text(
 
     assert result.exit_code == 0, result.output
     assert result.output.startswith("Agents Shipgate verify:")
+
+
+# --- detect_actor -----------------------------------------------------------
+
+
+def test_detect_actor_defaults_to_codex() -> None:
+    assert detect_actor({}) == "codex"
+
+
+def test_detect_actor_recognizes_claude_code() -> None:
+    assert detect_actor({"CLAUDECODE": "1"}) == "claude-code"
+
+
+def test_detect_actor_recognizes_cursor() -> None:
+    assert detect_actor({"CURSOR_TRACE_ID": "abc123"}) == "cursor"
+
+
+def test_detect_actor_ignores_empty_hint_values() -> None:
+    assert detect_actor({"CLAUDECODE": ""}) == "codex"
+
+
+def test_agent_env_hints_stay_in_sync_with_actor_detection() -> None:
+    """One table drives both, so agent mode and the actor cannot disagree."""
+
+    assert AGENT_ENV_HINTS == ("CLAUDECODE", "CURSOR_TRACE_ID")
+    for hint in AGENT_ENV_HINTS:
+        assert is_agent_mode({hint: "x"}) is True
+        assert detect_actor({hint: "x"}) != DEFAULT_ACTOR
+
+
+def test_check_labels_its_result_with_the_detected_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Claude Code run used to record `codex` in the result and audit id."""
+
+    monkeypatch.setenv("CLAUDECODE", "1")
+    result = runner.invoke(app, ["check", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["agent"] == "claude-code"
+
+
+def test_check_explicit_agent_flag_beats_detection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDECODE", "1")
+    result = runner.invoke(
+        app, ["check", "--workspace", str(tmp_path), "--agent", "codex"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["agent"] == "codex"
+
+
+# --- structured errors on the commands that had none ------------------------
+
+
+def _agent_mode_error(result) -> dict:
+    """The last stderr line of an agent-mode run, parsed."""
+
+    lines = [line for line in result.output.splitlines() if line.startswith("{")]
+    assert lines, result.output
+    return json.loads(lines[-1])
+
+
+def test_check_rejects_an_unknown_format_on_the_agent_channel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app, ["check", "--workspace", str(tmp_path), "--format", "nope"]
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    assert payload["error"] == "config_error"
+    assert payload["exit_code"] == 2
+    assert "agent-boundary-json" in payload["next_action"]
+
+
+def test_check_rejects_an_unknown_agent_on_the_agent_channel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app, ["check", "--workspace", str(tmp_path), "--agent", "nope"]
+    )
+
+    assert result.exit_code == 2
+    assert _agent_mode_error(result)["error"] == "config_error"
+
+
+def test_audit_without_host_reports_a_next_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(app, ["audit"])
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    assert payload["error"] == "config_error"
+    assert "--host" in payload["next_action"]
+
+
+def test_preflight_config_error_reports_a_next_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "1"\nproject:\n  name: [broken\n', encoding="utf-8"
+    )
+    result = runner.invoke(app, ["preflight", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    assert payload["error"] == "config_error"
+    assert payload["exit_code"] == 2
+
+
+def test_preflight_silent_without_agent_mode(tmp_path: Path) -> None:
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "1"\nproject:\n  name: [broken\n', encoding="utf-8"
+    )
+    result = runner.invoke(app, ["preflight", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert not [line for line in result.output.splitlines() if line.startswith("{")]

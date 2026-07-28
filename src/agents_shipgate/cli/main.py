@@ -62,7 +62,7 @@ app.command(
 )(_detect_command)
 app.command(
     "check",
-    help="Run the fast local agent loop and emit codex boundary JSON.",
+    help="Run the fast local agent-boundary check and emit its JSON result.",
 )(_check_command)
 app.command(
     "preflight",

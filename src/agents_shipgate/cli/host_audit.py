@@ -7,6 +7,7 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
@@ -24,6 +25,25 @@ from agents_shipgate.core.host_grants import (
     render_host_audit_markdown,
     render_host_drift_markdown,
 )
+
+
+def _config_error(message: str, *, next_action: str) -> typer.Exit:
+    """Report flag misuse on both channels and return the exit to raise.
+
+    Agent-facing docs promise that with ``AGENTS_SHIPGATE_AGENT_MODE=1`` a
+    failing command emits a structured ``next_action`` line on stderr. ``audit``
+    printed prose only, so an agent that mis-invoked it had to parse English or
+    guess.
+    """
+
+    typer.echo(message, err=True)
+    emit_agent_mode_error(
+        "config_error",
+        message=message,
+        exit_code=2,
+        next_action=next_action,
+    )
+    return typer.Exit(2)
 
 
 def audit(
@@ -82,24 +102,26 @@ def audit(
     """Zero-config, read-only audits. Currently supports --host."""
 
     if not host:
-        typer.echo(
+        raise _config_error(
             "Nothing to audit: pass --host for the host-capability inventory.",
-            err=True,
+            next_action="Re-run as `agents-shipgate audit --host`.",
         )
-        raise typer.Exit(2)
     if scope not in {"repository", "local-static"}:
-        typer.echo("--scope must be 'repository' or 'local-static'.", err=True)
-        raise typer.Exit(2)
+        raise _config_error(
+            "--scope must be 'repository' or 'local-static'.",
+            next_action="Re-run audit with --scope repository or --scope local-static.",
+        )
     if save_baseline and drift:
-        typer.echo(
+        raise _config_error(
             "--save-baseline and --drift are mutually exclusive: record the "
             "acknowledged state or compare against it, not both.",
-            err=True,
+            next_action="Re-run audit with either --save-baseline or --drift, not both.",
         )
-        raise typer.Exit(2)
     if fail_on_drift and not drift:
-        typer.echo("--fail-on-drift requires --drift.", err=True)
-        raise typer.Exit(2)
+        raise _config_error(
+            "--fail-on-drift requires --drift.",
+            next_action="Re-run audit with --drift, or drop --fail-on-drift.",
+        )
 
     inventory_scope = "local_static" if scope == "local-static" else "repository"
     inventory = host_audit_inventory(workspace, scope=inventory_scope)
@@ -113,8 +135,13 @@ def audit(
         try:
             payload = build_host_grants_baseline(inventory)
         except ValueError as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(2) from exc
+            raise _config_error(
+                str(exc),
+                next_action=(
+                    "Resolve the incomplete host inventory, then re-run "
+                    "`agents-shipgate audit --host --save-baseline`."
+                ),
+            ) from exc
         text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         if resolved_baseline.is_file() and resolved_baseline.read_text(
             encoding="utf-8"
@@ -145,8 +172,13 @@ def audit(
         try:
             baseline = load_host_grants_baseline(resolved_baseline)
         except ValueError as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(2) from exc
+            raise _config_error(
+                str(exc),
+                next_action=(
+                    "Record a baseline with `agents-shipgate audit --host "
+                    "--save-baseline`, or point --baseline-file at a valid one."
+                ),
+            ) from exc
         payload = build_host_drift_payload(
             baseline=baseline,
             inventory=inventory,

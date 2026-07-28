@@ -17,6 +17,19 @@
   correction locally, keyed on the diff carrying exactly one manifest record
   and that record being a plain addition. Adoption remains a human decision —
   only the claim about what happened changed.
+- **`check` detects which agent is running it.** `--agent` defaulted to `codex`
+  and never consulted the harness variables Shipgate already reads to switch on
+  agent mode, so every Claude Code and Cursor run recorded the wrong actor in
+  its result and audit id. Detection now comes from one table that also defines
+  those hints, so the two cannot drift; an explicit `--agent` still wins, and a
+  plain shell still gets `codex`.
+- **`check`, `audit`, and `preflight` honor the agent-mode error contract.**
+  The skills and slash command tell agents that with
+  `AGENTS_SHIPGATE_AGENT_MODE=1` a failing command emits a structured
+  `next_action` line on stderr; these three printed prose only, so an agent that
+  mis-invoked them had to parse English. Each error path now emits the line with
+  its `exit_code`, and `preflight` no longer lets an unexpected failure escape
+  as a bare traceback.
 
 - **A way out of `insufficient_evidence` (#292).** An abstention was
   unactionable in practice: the decision engine generated the exact manifest
