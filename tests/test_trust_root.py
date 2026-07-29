@@ -19,6 +19,7 @@ from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Agent
 from agents_shipgate.core.findings.mutations import apply_suppressions
+from agents_shipgate.core.trust_roots import is_configured_manifest
 from agents_shipgate.schemas.manifest import SuppressionConfig
 from agents_shipgate.schemas.verification import VerificationContext
 
@@ -121,6 +122,35 @@ def test_generic_workflows_are_shared_host_boundary_trust_roots():
 def test_duplicate_changed_files_are_deduplicated():
     findings = verify_run(_context(changed_files=["shipgate.yaml", "shipgate.yaml"]))
     assert len(findings) == 1
+
+
+def test_configured_manifest_identity_is_canonical_within_workspace():
+    assert is_configured_manifest(
+        "/repo/docs/engineering/../gate.yml",
+        "docs/gate.yml",
+        workspace="/repo",
+    )
+    assert is_configured_manifest(
+        "services/api/gate.yml",
+        "services/api/config/../gate.yml",
+        workspace="/repo",
+    )
+
+
+@pytest.mark.parametrize(
+    ("config", "changed"),
+    [
+        ("../outside/gate.yml", "../outside/gate.yml"),
+        ("/outside/gate.yml", "/outside/gate.yml"),
+        ("/repo-sibling/gate.yml", "/repo-sibling/gate.yml"),
+        ("/repo/services/api/gate.yml", "services/other/gate.yml"),
+    ],
+)
+def test_configured_manifest_identity_rejects_workspace_escapes_and_aliases(
+    config: str,
+    changed: str,
+):
+    assert not is_configured_manifest(config, changed, workspace="/repo")
 
 
 def test_first_match_wins_classification_order():

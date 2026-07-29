@@ -644,3 +644,42 @@ def test_equivalent_config_spellings_resolve_to_the_same_manifest():
     # is not the gate.
     assert not is_configured_manifest("/repo/x/sub/gate.yml", "sub/gate.yml", workspace="/repo")
     assert not is_configured_manifest("/repo/new-gate.yml", "README.md")
+
+
+# --- archived scan identity --------------------------------------------------
+
+
+def test_archived_verify_keeps_the_nested_configured_manifest_identity(tmp_path):
+    """The scan archive path must not hide the configured manifest from boundary checks.
+
+    ``run_verify(..., archive_head=True)`` loads this manifest from a temporary
+    ``<archive>/head/...`` path while the diff remains repository-relative.
+    The stable identity on ``VerificationContext`` keeps both coordinate
+    systems aligned.
+    """
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    custom = Path("samples/support_refund_agent/new-gate.yml")
+    _git(
+        repo,
+        "mv",
+        SAMPLE_CONFIG.as_posix(),
+        custom.as_posix(),
+    )
+    _git(repo, "commit", "-m", "move gate to a custom nested path")
+
+    _run_verify(repo, base="HEAD~1", head="HEAD", config=custom)
+
+    payload = json.loads(
+        (repo / "agents-shipgate-reports" / "report.json").read_text("utf-8")
+    )
+    boundary = [
+        finding
+        for finding in payload["findings"]
+        if finding["check_id"]
+        == "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+        and finding.get("source", {}).get("path") == custom.as_posix()
+    ]
+    assert boundary, payload["findings"]
+    assert boundary[0]["evidence"]["trust_root_class"] == "manifest"
+    assert "agents-shipgate-verify-head-" not in json.dumps(boundary[0])

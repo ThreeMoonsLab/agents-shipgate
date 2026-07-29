@@ -534,6 +534,7 @@ def run_verify(
                     diff_text=diff_text,
                     diff_text_available=bool(diff_text),
                     trigger_result=trigger,
+                    configured_manifest_path=config_relative.as_posix(),
                     manifest_introduced=manifest_introduced,
                 ),
                 capability_lock_callback=capture_capability_lock,

@@ -44,6 +44,10 @@ from agents_shipgate.schemas.host_grants import (
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
 DEFAULT_BASELINE_FILE = Path(".agents-shipgate/host-grants.json")
+INCOMPARABLE_BASELINE_REVIEW = (
+    "Review the existing baseline and move, remove, or repair it before "
+    "explicitly accepting the current host grants."
+)
 
 HostScope = Literal["repository", "local_static"]
 MAX_HOST_CONFIG_BYTES = 1024 * 1024
@@ -1208,7 +1212,6 @@ def _incomparable_payload(
     *, inventory: dict[str, Any], baseline_file: str, reasons: list[str]
 ) -> dict[str, Any]:
     scope = inventory.get("scope", "repository")
-    command = f"shipgate audit --host --scope {scope} --save-baseline"
     payload = {
         "host_grants_schema_version": HOST_GRANTS_DRIFT_SCHEMA_VERSION,
         "baseline_file": baseline_file,
@@ -1223,7 +1226,12 @@ def _incomparable_payload(
         "expansion_signals": [],
         "issues": inventory.get("issues", []),
         "incomparable_reasons": sorted(reasons),
-        "next_action": command,
+        # An incomparable result was built from an existing baseline whose
+        # meaning cannot be trusted. Advertising --save-baseline here would
+        # replace that evidence with the current grants and silently
+        # acknowledge them. Missing baselines are handled before this builder
+        # and may still receive an explicit save command.
+        "next_action": None,
     }
     return HostGrantsDriftV2.model_validate(payload).model_dump(mode="json")
 
@@ -1327,7 +1335,7 @@ def render_host_drift_markdown(payload: dict[str, Any]) -> str:
         lines.append("")
         for reason in payload["incomparable_reasons"]:
             lines.append(f"- `{reason}`")
-        lines.extend(["", f"Next: `{payload['next_action']}`"])
+        lines.extend(["", f"Next: {INCOMPARABLE_BASELINE_REVIEW}"])
         return "\n".join(lines) + "\n"
     if not payload["has_drift"]:
         lines.append("No drift — current host grants match the acknowledged baseline.")
@@ -1348,6 +1356,7 @@ __all__ = [
     "DEFAULT_BASELINE_FILE",
     "HOST_GRANTS_INVENTORY_SCHEMA_VERSION",
     "HOST_GRANTS_SCHEMA_VERSION",
+    "INCOMPARABLE_BASELINE_REVIEW",
     "HostBoundarySnapshot",
     "HostStaticParseCache",
     "build_host_boundary_snapshot",

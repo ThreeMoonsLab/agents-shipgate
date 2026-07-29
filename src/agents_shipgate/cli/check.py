@@ -42,7 +42,6 @@ def _corrected_request(
     base: str | None,
     head: str | None,
     format_: str,
-    allow_ref_fallback: bool = False,
 ) -> str | None:
     """The same check request with only the invalid field corrected.
 
@@ -56,19 +55,23 @@ def _corrected_request(
     semicolon in ``--diff`` would otherwise become a command boundary in it.
 
     A half-specified ref range has two repairs — supply the missing ref, or
-    drop both and check the working tree. ``allow_ref_fallback`` picks the
-    second, which is the documented recovery when the diff input itself could
-    not be resolved. Everywhere else the choice is not ours to make: silently
-    dropping a range the caller asked for answers a different question, so the
-    caller gets ``None`` and a review action.
+    drop both and check the working tree. The choice is not ours to make:
+    silently dropping a range the caller asked for answers a different
+    question, so the caller gets ``None`` and a review action.
 
     ``None`` also when the diff was read from stdin and cannot be replayed.
     """
 
-    if diff == "-":
+    has_diff = diff is not None
+    has_base = base is not None
+    has_head = head is not None
+    if diff in {"", "-"}:
         return None
-    one_sided_range = not diff and bool(base) != bool(head)
-    if one_sided_range and not allow_ref_fallback:
+    if has_diff and (has_base or has_head):
+        return None
+    if has_base != has_head:
+        return None
+    if has_base and (not base or not head):
         return None
     parts = ["agents-shipgate", "check"]
     if agent in {"codex", "claude-code", "cursor"}:
@@ -77,12 +80,12 @@ def _corrected_request(
     parts.extend(["--config", shlex.quote(str(config))])
     if policy is not None:
         parts.extend(["--policy", shlex.quote(str(policy))])
-    if diff:
+    if has_diff:
+        assert diff is not None
         parts.extend(["--diff", shlex.quote(diff)])
-    elif base and head:
+    elif has_base and has_head:
+        assert base is not None and head is not None
         parts.extend(["--base", shlex.quote(base), "--head", shlex.quote(head)])
-    # A one-sided range under the fallback emits neither ref: that is the
-    # "omit both for local uncommitted changes" recovery the instructions name.
     valid_format = format_ if format_ == "codex-boundary-json" else "agent-boundary-json"
     parts.extend(["--format", valid_format])
     return " ".join(parts)
@@ -174,6 +177,26 @@ def check(
             format_=format_,
         )
 
+    if diff is not None and (base is not None or head is not None):
+        raise _flag_error(
+            "--diff cannot be combined with --base or --head.",
+            command=None,
+            expects="Choose one complete diff input: --diff, both refs, or the worktree.",
+        )
+    if diff == "":
+        raise _flag_error(
+            "--diff must name a file or '-' for stdin; it cannot be empty.",
+            command=None,
+            expects="A non-empty diff path, stdin, a complete ref range, or the worktree.",
+        )
+    if (base is None) != (head is None) or (
+        base is not None and (not base or not head)
+    ):
+        raise _flag_error(
+            "--base and --head must be provided together and cannot be empty.",
+            command=None,
+            expects="Both non-empty refs, or neither for local worktree changes.",
+        )
     if agent not in {"codex", "claude-code", "cursor"}:
         raise _flag_error(
             "--agent must be one of: codex, claude-code, cursor.",
@@ -265,7 +288,6 @@ def _diff_input_error_result(
         base=base,
         head=head,
         format_=format_,
-        allow_ref_fallback=True,
     )
     summary = "Agents Shipgate could not resolve the diff input for local agent control."
     return CodexBoundaryResultV2(
@@ -343,22 +365,6 @@ def _diff_input_error_result(
         ],
         source_artifacts={},
     )
-
-
-def _rerun_command(
-    *,
-    agent: str,
-    diff: str | None,
-    base: str | None,
-    head: str | None,
-) -> str:
-    parts = ["shipgate", "check", "--agent", agent, "--workspace", "."]
-    if diff:
-        parts.extend(["--diff", diff])
-    elif base and head:
-        parts.extend(["--base", base, "--head", head])
-    parts.extend(["--format", "agent-boundary-json"])
-    return " ".join(parts)
 
 
 def _neutral_diff_input_error(

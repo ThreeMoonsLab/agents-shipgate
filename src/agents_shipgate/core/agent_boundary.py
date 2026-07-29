@@ -458,17 +458,56 @@ def assessment_for_scan_context(context) -> AgentBoundaryAssessment:
     diff_text = verification.diff_text or "\n".join(
         f"diff --git a/{path} b/{path}" for path in verification.changed_files
     )
+    configured_manifest = (
+        Path(verification.configured_manifest_path)
+        if verification.configured_manifest_path
+        else Path(context.config_path)
+    )
     context.agent_boundary = evaluate_agent_boundary(
-        workspace=Path(context.config_path).resolve().parent,
+        workspace=_scan_workspace(
+            config_path=Path(context.config_path),
+            configured_manifest=configured_manifest,
+        ),
         diff_text=diff_text,
         trigger=verification.trigger_result,
         input_mode="provided_diff",
         # Without this a custom-named manifest produced the protected-surface
         # boundary finding under local `check` but not under full `verify`, so
         # the two public surfaces published different evidence for one diff.
-        config_path=Path(context.config_path),
+        config_path=configured_manifest,
     )
     return context.agent_boundary
+
+
+def _scan_workspace(*, config_path: Path, configured_manifest: Path) -> Path:
+    """Recover the scan's repository root from its stable manifest identity.
+
+    Verify scans a committed head from a temporary archive. ``config_path`` is
+    therefore physical (``<tmp>/head/services/support/new-gate.yml``), while
+    changed paths and ``configured_manifest`` are repository-relative
+    (``services/support/new-gate.yml``). Removing those stable path components
+    recovers the archive root, so boundary content resolution and configured-
+    manifest comparison use the same coordinate system.
+
+    Direct scan callers predating the additive identity field retain the
+    historical manifest-parent fallback.
+    """
+
+    resolved_config = config_path.resolve()
+    if configured_manifest.is_absolute():
+        return resolved_config.parent
+    components = configured_manifest.parts
+    if not components or any(part == ".." for part in components):
+        return resolved_config.parent
+    root = resolved_config
+    for _part in components:
+        root = root.parent
+    try:
+        if (root / configured_manifest).resolve() == resolved_config:
+            return root
+    except OSError:
+        pass
+    return resolved_config.parent
 
 
 def _project_legacy(

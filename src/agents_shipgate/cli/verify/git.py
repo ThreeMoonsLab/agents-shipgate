@@ -441,15 +441,37 @@ def carries_manifest_like_yaml(workspace: Path, ref: str) -> bool | None:
     if len(candidates) > _MAX_MANIFEST_CANDIDATES:
         return None
     for candidate in candidates:
-        blob = _run_git(workspace, ["show", f"{ref}:{candidate}"], check=False)
+        object_name = f"{ref}:{candidate}"
+        size = _run_git(
+            workspace,
+            ["cat-file", "-s", object_name],
+            check=False,
+        )
+        if size.returncode != 0:
+            return None
+        try:
+            byte_count = int(size.stdout.strip())
+        except (TypeError, ValueError):
+            return None
+        if byte_count > _MAX_MANIFEST_BYTES:
+            return None
+        blob = _run_git(
+            workspace,
+            ["show", object_name],
+            check=False,
+            text=False,
+        )
         if blob.returncode != 0:
             return None
-        text = blob.stdout
-        if len(text) > _MAX_MANIFEST_BYTES:
+        if not isinstance(blob.stdout, bytes) or len(blob.stdout) != byte_count:
+            return None
+        try:
+            text = blob.stdout.decode("utf-8")
+        except UnicodeDecodeError:
             return None
         try:
             document = yaml.safe_load(text)
-        except yaml.YAMLError:
+        except (RecursionError, yaml.YAMLError):
             # Unparseable YAML cannot be ruled out as a manifest.
             return None
         if isinstance(document, dict) and _MANIFEST_REQUIRED_KEYS <= {

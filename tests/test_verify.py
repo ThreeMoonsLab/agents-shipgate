@@ -10,9 +10,10 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.verify import git as verify_git
 from agents_shipgate.cli.verify.capability_review import build_capability_review
 from agents_shipgate.cli.verify.fix_task import build_fix_task
-from agents_shipgate.cli.verify.git import read_file_at_ref
+from agents_shipgate.cli.verify.git import carries_manifest_like_yaml, read_file_at_ref
 from agents_shipgate.cli.verify.orchestrator import _prune_base_scan_cache
 from agents_shipgate.cli.verify.pr_comment import render_pr_comment
 from agents_shipgate.core.agent_control import derive_agent_control
@@ -1381,6 +1382,62 @@ def test_read_file_at_ref_reads_single_blob(tmp_path: Path) -> None:
         == '{"ok": true}\n'
     )
     assert read_file_at_ref(repo, "HEAD", Path("missing.json")) is None
+
+
+def test_retained_manifest_probe_parses_quoted_flow_mapping(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "old-gate.yml").write_text(
+        '{"version": "0.1", "project": {"name": "demo"}, '
+        '"agent": {"name": "assistant"}}\n',
+        encoding="utf-8",
+    )
+    _commit_all(repo, "quoted manifest")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is True
+
+
+def test_retained_manifest_probe_fails_closed_on_unparseable_yaml(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "unknown.yml").write_text("project: [\nagent:\n", encoding="utf-8")
+    _commit_all(repo, "unparseable yaml")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+
+
+def test_retained_manifest_probe_rejects_oversized_blob_before_reading_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "oversized.yml").write_bytes(
+        b"project:\n  name: demo\nagent:\n  name: assistant\n"
+        + b"#" * verify_git._MAX_MANIFEST_BYTES
+    )
+    _commit_all(repo, "oversized yaml")
+    calls: list[tuple[str, ...]] = []
+    original = verify_git._run_git
+
+    def recording_run_git(workspace, args, **kwargs):
+        calls.append(tuple(args))
+        return original(workspace, args, **kwargs)
+
+    monkeypatch.setattr(verify_git, "_run_git", recording_run_git)
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+    assert any(args[:2] == ("cat-file", "-s") for args in calls)
+    assert not any(args and args[0] == "show" for args in calls)
+
+
+def test_retained_manifest_probe_fails_closed_on_non_utf8_yaml(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "unknown.yml").write_bytes(b"project:\n  name: \xff\nagent:\n  name: bot\n")
+    _commit_all(repo, "non-utf8 yaml")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
 
 
 def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:

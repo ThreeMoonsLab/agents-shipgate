@@ -48,8 +48,10 @@ def verify_command_for(
     not against ``--workspace``. Echoing the caller's own relative spelling
     therefore silently verified the *root* gate when the request named a
     nested one — the command succeeded and reported on the wrong manifest. The
-    config is emitted relative to the git root when one can be found, and
-    absolute otherwise, so it always names the file that was actually checked.
+    config is emitted relative to the git root only when the workspace and
+    config belong to that same repository. Otherwise it stays absolute so
+    ``verify`` can reject a config outside the requested workspace instead of
+    silently selecting a same-named file there.
 
     The workspace is emitted as given: it is the anchor the caller already
     proved resolvable from where they are standing.
@@ -68,15 +70,17 @@ def verify_command_for(
 
 
 def _config_for_verify(workspace: Path | None, config: Path) -> str:
-    absolute = config if config.is_absolute() else (workspace or Path(".")) / config
+    requested_workspace = workspace or Path(".")
+    absolute = config if config.is_absolute() else requested_workspace / config
     try:
         absolute = absolute.resolve()
     except OSError:
         return config.as_posix()
-    root = git_root_for(absolute.parent)
-    if root is not None:
+    config_root = git_root_for(absolute.parent)
+    workspace_root = git_root_for(requested_workspace)
+    if config_root is not None and config_root == workspace_root:
         try:
-            return absolute.relative_to(root).as_posix()
+            return absolute.relative_to(config_root).as_posix()
         except ValueError:
             pass
     return absolute.as_posix()

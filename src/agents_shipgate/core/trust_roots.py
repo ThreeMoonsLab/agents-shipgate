@@ -119,6 +119,33 @@ def _normalized(value: object) -> str:
     return PurePosixPath(posixpath.normpath(text)).as_posix()
 
 
+def _is_absolute(path: str) -> bool:
+    """Whether a normalized POSIX spelling is absolute, including Windows drives."""
+
+    return posixpath.isabs(path) or (
+        len(path) >= 3 and path[1] == ":" and path[2] == "/"
+    )
+
+
+def _under_workspace(workspace: str, path: str) -> str | None:
+    """Return one canonical spelling only when it remains inside ``workspace``."""
+
+    resolved = path if _is_absolute(path) else _normalized(posixpath.join(workspace, path))
+    if workspace in {"", "."}:
+        if _is_absolute(resolved) or resolved == ".." or resolved.startswith("../"):
+            return None
+        return resolved
+
+    workspace_parts = PurePosixPath(workspace).parts
+    resolved_parts = PurePosixPath(resolved).parts
+    if (
+        len(resolved_parts) < len(workspace_parts)
+        or resolved_parts[: len(workspace_parts)] != workspace_parts
+    ):
+        return None
+    return resolved
+
+
 def is_configured_manifest(
     config_path: object | None,
     path: str,
@@ -138,7 +165,8 @@ def is_configured_manifest(
     slip past by looking textually different from the changed path.
 
     ``workspace`` makes the comparison exact by resolving both sides against
-    it. Without it the fallback matches on whole path components, which can
+    it and rejecting either one when its canonical path escapes that boundary.
+    Without it the fallback matches on whole path components, which can
     over-match a same-named file in another directory; that direction adds a
     trust-root finding rather than dropping one, so the fallback is safe, just
     less precise. Callers that know their workspace should pass it.
@@ -150,22 +178,19 @@ def is_configured_manifest(
     candidate = _normalized(path)
     if not configured or not candidate:
         return False
-    if candidate == configured:
-        return True
     if workspace is not None:
         root = _normalized(workspace)
-        if root:
-            absolute_config = (
-                configured
-                if posixpath.isabs(configured)
-                else _normalized(posixpath.join(root, configured))
-            )
-            absolute_candidate = (
-                candidate
-                if posixpath.isabs(candidate)
-                else _normalized(posixpath.join(root, candidate))
-            )
-            return absolute_config == absolute_candidate
+        if not root:
+            return False
+        absolute_config = _under_workspace(root, configured)
+        absolute_candidate = _under_workspace(root, candidate)
+        return bool(
+            absolute_config
+            and absolute_candidate
+            and absolute_config == absolute_candidate
+        )
+    if candidate == configured:
+        return True
     return configured.endswith(f"/{candidate}") or candidate.endswith(f"/{configured}")
 
 

@@ -13,6 +13,7 @@ variables, so each test sets exactly the environment it asserts on.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -633,6 +634,51 @@ def test_check_offers_no_command_for_a_stdin_diff(
     payload = _agent_mode_error(result)
     _assert_documented_envelope(payload)
     assert payload["next_actions"][0]["kind"] == "review"
+    assert payload["next_actions"][0]["command"] is None
+
+
+def test_check_offers_no_command_for_a_one_sided_range_flag_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Correcting --format must not silently switch a range to the worktree."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app,
+        ["check", "--base", "origin/main", "--format", "nope"],
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    assert payload["next_actions"][0]["kind"] == "review"
+    assert payload["next_actions"][0]["command"] is None
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--diff", "changes.diff", "--base", "origin/main", "--head", "HEAD"],
+        ["--diff", "changes.diff", "--head", "HEAD"],
+        ["--diff", ""],
+        ["--base", "", "--head", "HEAD"],
+        ["--base", "", "--head", ""],
+    ],
+)
+def test_check_rejects_ambiguous_diff_shapes_without_a_command(
+    monkeypatch: pytest.MonkeyPatch,
+    args: list[str],
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+
+    result = runner.invoke(app, ["check", *args])
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    action = payload["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
 
 
 def test_preflight_offers_no_command_for_conflicting_flags(
@@ -662,12 +708,96 @@ def test_preflight_offers_no_command_for_conflicting_flags(
     assert payload["next_actions"][0]["kind"] == "review"
 
 
-def test_audit_missing_baseline_stays_a_config_error(
+def test_audit_missing_baseline_recovery_preserves_scope_and_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """"Record one first" is a request problem, not a filesystem failure."""
+    """A missing baseline is a request problem, not a filesystem failure."""
 
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    baseline = tmp_path / "missing baseline; grants.json"
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--scope",
+            "local-static",
+            "--drift",
+            "--baseline-file",
+            str(baseline),
+        ],
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    assert payload["error"] == "config_error"
+    action = payload["next_actions"][0]
+    assert action["kind"] == "command"
+    argv = shlex.split(action["command"])
+    assert argv == [
+        "agents-shipgate",
+        "audit",
+        "--host",
+        "--workspace",
+        str(tmp_path),
+        "--scope",
+        "local-static",
+        "--save-baseline",
+        "--baseline-file",
+        str(baseline),
+    ]
+    assert "shipgate audit --host --scope repository --save-baseline" not in (
+        result.output
+    )
+    assert payload["message"].endswith(
+        f"No baseline was written to {baseline}."
+    )
+    assert "agents-shipgate audit" not in payload["message"]
+    assert "agents-shipgate audit" not in action["why"]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["malformed_json", "unsupported_schema", "integrity_failure"],
+)
+def test_audit_never_overwrites_an_invalid_existing_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    """An error action must preserve the evidence instead of accepting drift."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    baseline = tmp_path / "important baseline.json"
+    if failure == "malformed_json":
+        baseline.write_text("{not json", encoding="utf-8")
+    elif failure == "unsupported_schema":
+        baseline.write_text(
+            json.dumps({"host_grants_schema_version": "99.0"}),
+            encoding="utf-8",
+        )
+    else:
+        saved = runner.invoke(
+            app,
+            [
+                "audit",
+                "--host",
+                "--workspace",
+                str(tmp_path),
+                "--save-baseline",
+                "--baseline-file",
+                str(baseline),
+                "--json",
+            ],
+        )
+        assert saved.exit_code == 0, saved.output
+        data = json.loads(baseline.read_text(encoding="utf-8"))
+        data["inventory_sha256"] = "0" * 64
+        baseline.write_text(json.dumps(data), encoding="utf-8")
+    before = baseline.read_bytes()
+
     result = runner.invoke(
         app,
         [
@@ -677,14 +807,88 @@ def test_audit_missing_baseline_stays_a_config_error(
             str(tmp_path),
             "--drift",
             "--baseline-file",
-            str(tmp_path / "absent.json"),
+            str(baseline),
+            "--json",
         ],
     )
 
     assert result.exit_code == 2
     payload = _agent_mode_error(result)
-    assert payload["error"] == "config_error"
-    assert "--save-baseline" in payload["next_actions"][0]["command"]
+    action = payload["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert "--save-baseline" not in result.output
+    assert baseline.read_bytes() == before
+
+    save = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--save-baseline",
+            "--baseline-file",
+            str(baseline),
+            "--json",
+        ],
+    )
+    assert save.exit_code == 2
+    save_action = _agent_mode_error(save)["next_actions"][0]
+    assert save_action["kind"] == "review"
+    assert save_action["command"] is None
+    assert "--save-baseline" not in save.output
+    assert baseline.read_bytes() == before
+
+
+def test_audit_does_not_treat_a_broken_baseline_symlink_as_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saving through a broken link could create a target outside the request."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    target = tmp_path / "missing-target.json"
+    baseline = tmp_path / "baseline.json"
+    baseline.symlink_to(target)
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--drift",
+            "--baseline-file",
+            str(baseline),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    action = _agent_mode_error(result)["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert not target.exists()
+
+    save = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--save-baseline",
+            "--baseline-file",
+            str(baseline),
+            "--json",
+        ],
+    )
+    assert save.exit_code == 2
+    save_action = _agent_mode_error(save)["next_actions"][0]
+    assert save_action["kind"] == "review"
+    assert save_action["command"] is None
+    assert not target.exists()
 
 
 def test_audit_unreadable_baseline_is_a_filesystem_error(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -261,6 +262,11 @@ def test_codex_mcp_auto_approval_requires_human_then_clean_diff_completes(
 
 
 def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: Path) -> None:
+    workspace = tmp_path / "work space; target"
+    workspace.mkdir()
+    config = Path("gate file; config.yml")
+    policy = Path("policy file; rules.yml")
+    missing_diff = tmp_path / "missing diff; printf INJECTED"
     result = runner.invoke(
         app,
         [
@@ -268,9 +274,13 @@ def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: P
             "--agent",
             "claude-code",
             "--workspace",
-            str(tmp_path),
+            str(workspace),
+            "--config",
+            str(config),
+            "--policy",
+            str(policy),
             "--diff",
-            str(tmp_path / "missing.diff"),
+            str(missing_diff),
             "--format",
             "codex-boundary-json",
         ],
@@ -291,6 +301,79 @@ def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: P
     assert control["next_action"]["kind"] == "repair"
     assert payload["repair"]["safe_to_attempt"] is True
     assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
+    command = control["next_action"]["command"]
+    assert control["allowed_next_commands"] == [command]
+    assert payload["repair"]["command"] == command
+    assert shlex.split(command) == [
+        "agents-shipgate",
+        "check",
+        "--agent",
+        "claude-code",
+        "--workspace",
+        str(workspace),
+        "--config",
+        str(config),
+        "--policy",
+        str(policy),
+        "--diff",
+        str(missing_diff),
+        "--format",
+        "codex-boundary-json",
+    ]
+
+
+def test_check_diff_input_failure_preserves_a_complete_quoted_range(
+    tmp_path: Path,
+) -> None:
+    """Missing refs may be fetched; their exact range must survive recovery."""
+
+    workspace = tmp_path / "range work space"
+    workspace.mkdir()
+    base = "missing-base; printf INJECTED"
+    head = "missing-head; printf INJECTED"
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--agent",
+            "cursor",
+            "--workspace",
+            str(workspace),
+            "--config",
+            "custom gate.yml",
+            "--policy",
+            "custom policy.yml",
+            "--base",
+            base,
+            "--head",
+            head,
+            "--format",
+            "codex-boundary-json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    control = _control(payload)
+    assert control["state"] == "agent_action_required"
+    assert shlex.split(control["next_action"]["command"]) == [
+        "agents-shipgate",
+        "check",
+        "--agent",
+        "cursor",
+        "--workspace",
+        str(workspace),
+        "--config",
+        "custom gate.yml",
+        "--policy",
+        "custom policy.yml",
+        "--base",
+        base,
+        "--head",
+        head,
+        "--format",
+        "codex-boundary-json",
+    ]
 
 
 def test_missing_install_fixture_is_schema_valid_and_actionable() -> None:

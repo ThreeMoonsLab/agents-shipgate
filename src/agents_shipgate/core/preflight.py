@@ -23,6 +23,7 @@ from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.globbing import glob_match
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
+    INCOMPARABLE_BASELINE_REVIEW,
     build_host_drift_payload,
     host_audit_inventory,
     load_host_grants_baseline,
@@ -813,9 +814,19 @@ def signals_for_host_grant_drift(
     expansion = host_grant_drift.get("expansion_signals") or []
     if expansion:
         reason += " Expansion signals: " + ", ".join(str(item) for item in expansion[:5])
-    rerun = str(
-        host_grant_drift.get("next_action")
-        or "shipgate audit --host --drift --fail-on-drift"
+    rerun = (
+        str(
+            host_grant_drift.get("next_action")
+            or "shipgate audit --host --drift --fail-on-drift"
+        )
+        if comparable
+        else None
+    )
+    recommendation = (
+        "Route the host-grant comparison to a human. After review, "
+        f"run `{rerun}`."
+        if rerun
+        else f"Route the host-grant comparison to a human. {INCOMPARABLE_BASELINE_REVIEW}"
     )
     return [
         PreflightSignalV1(
@@ -826,10 +837,7 @@ def signals_for_host_grant_drift(
             subject="host_grants",
             path=str(host_grant_drift.get("baseline_file") or ""),
             reason=reason,
-            recommendation=(
-                "Route the host-grant comparison to a human. After review, "
-                f"run `{rerun}`."
-            ),
+            recommendation=recommendation,
             related_command=rerun,
         )
     ]

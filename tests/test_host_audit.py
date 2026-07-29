@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 
 import pytest
+import typer
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.host_audit import (
+    _atomic_write_baseline,
     host_audit_inventory,
     host_grants_sha256,
     render_host_audit_markdown,
@@ -537,6 +539,161 @@ def test_v02_baseline_is_typed_portable_redacted_and_idempotent(tmp_path: Path) 
     assert baseline_path.read_bytes() == first
 
 
+def test_valid_baseline_update_uses_atomic_replacement(tmp_path: Path) -> None:
+    _seed_workspace(tmp_path)
+    baseline = _save_baseline(tmp_path)
+    original_inode = baseline.stat().st_ino
+    config = tmp_path / ".mcp.json"
+    payload = json.loads(config.read_text(encoding="utf-8"))
+    payload["mcpServers"]["github"]["args"].append("--new-scope")
+    config.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(tmp_path), "--save-baseline", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["status"] == "updated"
+    assert baseline.stat().st_ino != original_inode
+    assert not list(baseline.parent.glob(f".{baseline.name}.*.tmp"))
+
+
+def test_save_refuses_valid_symlink_and_preserves_external_target(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    external = _save_baseline(source)
+    before = external.read_bytes()
+    requested = tmp_path / "requested"
+    baseline = requested / ".agents-shipgate" / "host-grants.json"
+    baseline.parent.mkdir(parents=True)
+    baseline.symlink_to(external)
+
+    result = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(requested), "--save-baseline"],
+    )
+
+    assert result.exit_code == 2
+    assert baseline.is_symlink()
+    assert external.read_bytes() == before
+
+
+def test_save_refuses_symlinked_parent_and_preserves_external_directory(
+    tmp_path: Path,
+) -> None:
+    external = tmp_path / "external"
+    external.mkdir()
+    requested = tmp_path / "requested"
+    requested.mkdir()
+    (requested / ".agents-shipgate").symlink_to(
+        external,
+        target_is_directory=True,
+    )
+
+    result = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(requested), "--save-baseline"],
+    )
+
+    assert result.exit_code == 2
+    assert not (external / "host-grants.json").exists()
+
+
+def test_save_refuses_hardlink_and_preserves_external_target(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    external = _save_baseline(source)
+    before = external.read_bytes()
+    requested = tmp_path / "requested"
+    baseline = requested / ".agents-shipgate" / "host-grants.json"
+    baseline.parent.mkdir(parents=True)
+    baseline.hardlink_to(external)
+
+    result = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(requested), "--save-baseline"],
+    )
+
+    assert result.exit_code == 2
+    assert external.read_bytes() == before
+    assert baseline.read_bytes() == before
+    assert external.stat().st_nlink == 2
+
+
+def test_save_allows_explicit_absolute_regular_target_but_not_relative_escape(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    absolute = tmp_path / "explicit-baseline.json"
+    created = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(workspace),
+            "--save-baseline",
+            "--baseline-file",
+            str(absolute),
+        ],
+    )
+    assert created.exit_code == 0, created.output
+    assert absolute.is_file()
+
+    escaped = tmp_path / "escaped-baseline.json"
+    refused = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(workspace),
+            "--save-baseline",
+            "--baseline-file",
+            "../escaped-baseline.json",
+        ],
+    )
+    assert refused.exit_code == 2
+    assert not escaped.exists()
+
+
+def test_atomic_save_fails_closed_if_target_appears(tmp_path: Path) -> None:
+    target = tmp_path / "appeared.json"
+    target.write_text("external evidence", encoding="utf-8")
+
+    with pytest.raises(typer.Exit) as raised:
+        _atomic_write_baseline(target, "{}\n", expected=None)
+
+    assert raised.value.exit_code == 2
+    assert target.read_text(encoding="utf-8") == "external evidence"
+
+
+def test_save_reports_symlink_loop_without_a_traceback(tmp_path: Path) -> None:
+    loop = tmp_path / "loop"
+    loop.symlink_to("loop")
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--save-baseline",
+            "--baseline-file",
+            str(loop / "host-grants.json"),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Refusing to write host-grants baseline" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_clean_and_changed_v02_drift(tmp_path: Path) -> None:
     _seed_workspace(tmp_path)
     _save_baseline(tmp_path)
@@ -773,22 +930,42 @@ def test_legacy_v01_baseline_is_incomparable_advisory_and_strict_20(tmp_path: Pa
     _seed_workspace(tmp_path)
     baseline = tmp_path / ".agents-shipgate/host-grants.json"
     baseline.parent.mkdir()
+    legacy = {
+        "host_grants_schema_version": "0.1",
+        "inventory_sha256": "legacy",
+        "inventory": {"mcp_servers": []},
+    }
     baseline.write_text(
-        json.dumps(
-            {
-                "host_grants_schema_version": "0.1",
-                "inventory_sha256": "legacy",
-                "inventory": {"mcp_servers": []},
-            }
-        ),
+        json.dumps(legacy),
         encoding="utf-8",
     )
+    shared = build_host_drift_payload(
+        baseline=legacy,
+        inventory=host_audit_inventory(tmp_path),
+        baseline_file=".agents-shipgate/host-grants.json",
+    )
+    HostGrantsDriftV2.model_validate(shared)
+    assert shared["comparison_status"] == "incomparable"
+    assert shared["next_action"] is None
+    assert "--save-baseline" not in json.dumps(shared)
+
     code, payload = _drift_json(tmp_path)
     assert code == 0
+    HostGrantsDriftV2.model_validate(payload)
     assert payload["comparison_status"] == "incomparable"
     assert payload["has_drift"] is None
     assert "baseline_schema_v0.1" in payload["incomparable_reasons"][0]
-    assert payload["next_action"] == "shipgate audit --host --scope repository --save-baseline"
+    assert payload["next_action"] is None
+    assert baseline.exists()
+
+    before = baseline.read_bytes()
+    replace = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(tmp_path), "--save-baseline"],
+    )
+    assert replace.exit_code == 2
+    assert "--save-baseline" not in replace.output
+    assert baseline.read_bytes() == before
 
     strict = runner.invoke(
         app,
@@ -821,12 +998,39 @@ def test_malformed_nested_v02_baseline_is_incomparable_not_a_crash(tmp_path: Pat
     )
     code, payload = _drift_json(tmp_path)
     assert code == 0
+    HostGrantsDriftV2.model_validate(payload)
     assert payload["comparison_status"] == "incomparable"
     assert payload["has_drift"] is None
     assert payload["incomparable_reasons"] == ["malformed_v0.2_baseline"]
-    assert payload["next_action"] == (
-        "shipgate audit --host --scope repository --save-baseline"
+    assert payload["next_action"] is None
+    assert json.loads(baseline.read_text(encoding="utf-8"))["inventory"]["grants"] == [
+        "malformed-grant"
+    ]
+
+    markdown = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--drift",
+        ],
     )
+    assert markdown.exit_code == 0, markdown.output
+    assert "--save-baseline" not in markdown.output
+    assert "Review the existing baseline" in markdown.output
+    assert "Next: None" not in markdown.output
+
+    before = baseline.read_bytes()
+    replace = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(tmp_path), "--save-baseline"],
+    )
+    assert replace.exit_code == 2
+    assert "--save-baseline" not in replace.output
+    assert baseline.read_bytes() == before
+
     strict = runner.invoke(
         app,
         [
@@ -850,6 +1054,7 @@ def test_scope_mismatch_is_incomparable(tmp_path: Path, monkeypatch: pytest.Monk
     assert code == 0
     assert payload["comparison_status"] == "incomparable"
     assert "scope_mismatch:repository->local_static" in payload["incomparable_reasons"]
+    assert payload["next_action"] is None
 
 
 def test_fail_on_drift_exits_20_and_advisory_stays_zero(tmp_path: Path) -> None:
@@ -883,6 +1088,7 @@ def test_missing_corrupt_unknown_and_tampered_baselines_fail_closed(tmp_path: Pa
         baseline.write_text(content, encoding="utf-8")
         result = runner.invoke(app, ["audit", "--host", "--workspace", str(tmp_path), "--drift"])
         assert result.exit_code == 2
+    baseline.unlink()
     baseline = _save_baseline(tmp_path)
     payload = json.loads(baseline.read_text(encoding="utf-8"))
     payload["inventory_sha256"] = "0" * 64

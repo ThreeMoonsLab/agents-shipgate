@@ -31,6 +31,11 @@ class VerificationContext(BaseModel):
     diff_text: str | None = None
     diff_text_available: bool = False
     trigger_result: dict[str, Any] = Field(default_factory=dict)
+    # Stable repository-relative identity of the manifest the verifier loaded.
+    # A committed-head scan reads the physical file from a temporary archive,
+    # so ``ScanContext.config_path`` alone cannot be compared with repository-
+    # relative changed paths without leaking or depending on that temp path.
+    configured_manifest_path: str | None = None
     # True only when the comparison base carries no Shipgate manifest at all —
     # this diff *introduces* the gate rather than modifying one. Checks that
     # fail safe on a missing base use it to say so honestly; it never relaxes a

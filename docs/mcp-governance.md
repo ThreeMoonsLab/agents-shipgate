@@ -144,7 +144,9 @@ policy change. The stored `inventory_sha256` is verified on every
 `--drift` load — a hand-edited or corrupted baseline fails closed instead of
 silently reporting no drift. A v0.1 baseline, scope mismatch, or incomplete
 comparison is reported as `comparison_status="incomparable"`; advisory mode
-exits 0 and `--fail-on-drift` exits 20 with an exact re-export command.
+exits 0 and `--fail-on-drift` exits 20. An incomparable result exposes no
+runnable recovery command: review the existing baseline and move, remove, or
+repair it before explicitly accepting the current host grants.
 
 MCP server and hook entries carry a `config_sha256` over their full
 configuration. Inside `env`/`headers`, only values under

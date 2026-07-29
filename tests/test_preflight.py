@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -121,6 +122,62 @@ def test_preflight_routes_protected_surface_touches_to_human(tmp_path: Path) -> 
     assert "**/shipgate.yaml" not in forbidden_file_edits()
     assert any("AGENTS.md" in pattern for pattern in result.forbidden_file_edits)
     assert any(".codex/config.toml" in pattern for pattern in result.forbidden_file_edits)
+
+
+def test_preflight_nested_verify_command_targets_the_nested_manifest(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    nested = root / "services" / "api"
+    nested.mkdir(parents=True)
+    (nested / "shipgate.yaml").write_text(
+        (root / "shipgate.yaml")
+        .read_text(encoding="utf-8")
+        .replace("name: preflight-test", "name: nested-preflight-test", 1),
+        encoding="utf-8",
+    )
+    (nested / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+    result = build_preflight_result(
+        workspace=nested,
+        config=Path("shipgate.yaml"),
+        changed_files=["README.md"],
+    )
+
+    command = result.control.allowed_next_commands[0]
+    argv = shlex.split(command)
+    assert Path(argv[argv.index("--workspace") + 1]).resolve() == nested.resolve()
+    assert argv[argv.index("--config") + 1] == "services/api/shipgate.yaml"
+    assert (root / argv[argv.index("--config") + 1]).resolve() == (
+        nested / "shipgate.yaml"
+    ).resolve()
+
+
+def test_preflight_classifies_both_sides_of_a_custom_manifest_rename(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    (root / "shipgate.yaml").rename(root / "shipgate-self.yaml")
+    diff = (
+        "diff --git a/shipgate-self.yaml b/renamed-gate.yml\n"
+        "similarity index 100%\n"
+        "rename from shipgate-self.yaml\n"
+        "rename to renamed-gate.yml\n"
+    )
+
+    result = build_preflight_result(
+        workspace=root,
+        config=Path("shipgate-self.yaml"),
+        diff_text=diff,
+    )
+
+    assert result.changed_files == ["renamed-gate.yml", "shipgate-self.yaml"]
+    assert [
+        (touch.path, touch.kind) for touch in result.protected_surface_touches
+    ] == [("shipgate-self.yaml", "manifest")]
+    assert result.requires_human_review is True
+    assert result.control.state == "human_review_required"
 
 
 def test_preflight_allows_exact_append_only_builtin_source_proposal(
@@ -869,14 +926,15 @@ def test_cli_preflight_routes_incomparable_legacy_host_baseline_to_human(
     payload = json.loads(result.output)
     assert payload["host_grant_drift"]["comparison_status"] == "incomparable"
     assert payload["host_grant_drift"]["has_drift"] is None
+    assert payload["host_grant_drift"]["next_action"] is None
     assert payload["first_next_action"]["actor"] == "human"
     signal = next(
         item for item in payload["signals"] if item["kind"] == "host_grant_drift"
     )
     assert "could not be compared completely" in signal["reason"]
-    assert signal["related_command"] == (
-        "shipgate audit --host --scope repository --save-baseline"
-    )
+    assert signal["related_command"] is None
+    assert "Review the existing baseline" in signal["recommendation"]
+    assert "--save-baseline" not in json.dumps(payload)
 
 
 def test_cli_preflight_default_corrupt_host_baseline_warns_and_continues(

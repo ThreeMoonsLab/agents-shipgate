@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
+import stat
+import tempfile
 from pathlib import Path
 
 import typer
@@ -13,6 +16,7 @@ from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     HOST_GRANTS_SCHEMA_VERSION,
+    INCOMPARABLE_BASELINE_REVIEW,
     build_host_drift_payload,
     build_host_grants_baseline,
     diff_host_grants,
@@ -27,6 +31,8 @@ from agents_shipgate.core.host_grants import (
     render_host_drift_markdown,
 )
 from agents_shipgate.schemas.diagnostics import NextAction
+
+_BaselineFileState = tuple[os.stat_result, str]
 
 
 def _io_error(message: str, *, next_action: str) -> typer.Exit:
@@ -169,6 +175,11 @@ def audit(
     )
 
     if save_baseline:
+        write_target = _baseline_write_target(
+            workspace=workspace,
+            baseline_file=baseline_file,
+        )
+        existing = _refuse_invalid_baseline_overwrite(write_target)
         try:
             payload = build_host_grants_baseline(inventory)
         except ValueError as exc:
@@ -181,14 +192,15 @@ def audit(
             ) from exc
         text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         try:
-            if resolved_baseline.is_file() and resolved_baseline.read_text(
-                encoding="utf-8"
-            ) == text:
+            if existing is not None and existing[1] == text:
                 status = "unchanged"
             else:
-                status = "updated" if resolved_baseline.is_file() else "created"
-                resolved_baseline.parent.mkdir(parents=True, exist_ok=True)
-                resolved_baseline.write_text(text, encoding="utf-8")
+                _atomic_write_baseline(
+                    write_target,
+                    text,
+                    expected=existing,
+                )
+                status = "updated" if existing is not None else "created"
         except OSError as exc:
             # --baseline-file naming a directory raised IsADirectoryError
             # straight through typer: a traceback and exit 1.
@@ -245,12 +257,29 @@ def audit(
             # and destroying the evidence a human needed to look at. Only a
             # genuinely absent baseline can be recorded without losing
             # anything, and that command carries the scope it was asked for.
-            missing = isinstance(exc.__cause__, FileNotFoundError)
+            missing = isinstance(
+                exc.__cause__, FileNotFoundError
+            ) and not resolved_baseline.is_symlink()
+            if missing:
+                _baseline_write_target(
+                    workspace=workspace,
+                    baseline_file=baseline_file,
+                )
             raise _config_error(
-                str(exc),
+                (
+                    _missing_baseline_error_message(
+                        exc,
+                        baseline_file=baseline_file,
+                    )
+                    if missing
+                    else _existing_baseline_error_message(
+                        exc,
+                        baseline_file=baseline_file,
+                    )
+                ),
                 next_action=(
-                    "Record a baseline with `agents-shipgate audit --host "
-                    "--save-baseline`."
+                    "Record the first baseline for this exact workspace, "
+                    "scope, and target."
                     if missing
                     else "Inspect the existing baseline file and repair or "
                     "replace it deliberately; do not overwrite it with the "
@@ -288,6 +317,220 @@ def audit(
         return
     _write_json_out(out, inventory)
     typer.echo(render_host_audit_markdown(inventory), nl=False)
+
+
+def _baseline_write_target(*, workspace: Path, baseline_file: Path) -> Path:
+    workspace_root = workspace.resolve()
+    raw_target = (
+        baseline_file
+        if baseline_file.is_absolute()
+        else workspace_root / baseline_file
+    )
+    target = Path(os.path.abspath(raw_target))
+    if (
+        not baseline_file.is_absolute()
+        and target != workspace_root
+        and workspace_root not in target.parents
+    ):
+        raise _unsafe_baseline_path(
+            target,
+            "a relative --baseline-file must stay inside --workspace",
+        )
+    _reject_baseline_symlinks(target)
+    return target
+
+
+def _reject_baseline_symlinks(target: Path) -> None:
+    try:
+        redirected = target.resolve() != target
+    except (OSError, RuntimeError) as exc:
+        raise _unsafe_baseline_path(target, f"could not resolve the path: {exc}") from exc
+    if redirected:
+        raise _unsafe_baseline_path(target, "the path contains a symbolic link")
+
+
+def _unsafe_baseline_path(path: Path, reason: str) -> typer.Exit:
+    return _config_error(
+        f"Refusing to write host-grants baseline {path}: {reason}.",
+        next_action=(
+            "Choose a regular, non-linked baseline path. Relative baseline "
+            "paths must remain inside the requested workspace."
+        ),
+        command=None,
+    )
+
+
+def _file_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        value.st_dev, value.st_ino, value.st_size,
+        value.st_mtime_ns, value.st_nlink, value.st_mode,
+    )
+
+
+def _refuse_invalid_baseline_overwrite(
+    baseline_file: Path,
+) -> _BaselineFileState | None:
+    try:
+        before = baseline_file.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise _unsafe_baseline_path(
+            baseline_file,
+            f"could not inspect the existing target: {exc}",
+        ) from exc
+    if stat.S_ISDIR(before.st_mode):
+        return None
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise _unsafe_baseline_path(
+            baseline_file,
+            "the existing target is not a single-link regular file",
+        )
+    try:
+        baseline = load_host_grants_baseline(baseline_file)
+    except ValueError as exc:
+        raise _config_error(
+            _existing_baseline_error_message(exc, baseline_file=baseline_file),
+            next_action=INCOMPARABLE_BASELINE_REVIEW,
+            command=None,
+        ) from exc
+    if (
+        baseline.get("host_grants_schema_version") != HOST_GRANTS_SCHEMA_VERSION
+        or baseline.get("_load_error")
+    ):
+        reason = str(baseline.get("_load_error") or "unsupported_baseline_schema")
+        raise _config_error(
+            f"Refusing to overwrite existing host-grants baseline "
+            f"{baseline_file}: {reason}. The file was left unchanged.",
+            next_action=INCOMPARABLE_BASELINE_REVIEW,
+            command=None,
+        )
+    try:
+        text = baseline_file.read_text(encoding="utf-8")
+        after = baseline_file.lstat()
+    except OSError as exc:
+        raise _unsafe_baseline_path(
+            baseline_file,
+            f"the existing target changed or became unreadable: {exc}",
+        ) from exc
+    if _file_identity(before) != _file_identity(after):
+        raise _unsafe_baseline_path(
+            baseline_file,
+            "the existing target changed while it was being validated",
+        )
+    return after, text
+
+
+def _atomic_write_baseline(
+    target: Path,
+    text: str,
+    *,
+    expected: _BaselineFileState | None,
+) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _reject_baseline_symlinks(target)
+    expected_stat = expected[0] if expected is not None else None
+
+    def ensure_unchanged() -> None:
+        try:
+            current = target.lstat()
+        except FileNotFoundError:
+            current = None
+        if expected_stat is None:
+            if current is None:
+                return
+            if stat.S_ISDIR(current.st_mode):
+                raise IsADirectoryError(f"{target} is a directory")
+            raise _unsafe_baseline_path(
+                target,
+                "the target appeared while the baseline was being prepared",
+            )
+        if current is not None and stat.S_ISDIR(current.st_mode):
+            raise IsADirectoryError(f"{target} is a directory")
+        if current is None or _file_identity(current) != _file_identity(expected_stat):
+            raise _unsafe_baseline_path(
+                target,
+                "the target changed while the baseline was being prepared",
+            )
+
+    ensure_unchanged()
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            delete=False,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=target.parent,
+        ) as handle:
+            temp_path = Path(handle.name)
+            temp_path.chmod(
+                stat.S_IMODE(expected_stat.st_mode)
+                if expected_stat is not None
+                else 0o644
+            )
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _reject_baseline_symlinks(target)
+        ensure_unchanged()
+        os.replace(temp_path, target)
+        temp_path = None
+        _fsync_directory(target.parent)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _fsync_directory(directory: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(directory, flags)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def _baseline_error_detail(exc: ValueError) -> str:
+    detail = str(exc)
+    for marker in (
+        " After human review, re-record it:",
+        " Re-record it:",
+        " Record one first:",
+    ):
+        if marker in detail:
+            detail = detail.split(marker, 1)[0]
+            break
+    return detail.rstrip().rstrip(".")
+
+
+def _missing_baseline_error_message(
+    exc: ValueError,
+    *,
+    baseline_file: Path,
+) -> str:
+    """Describe absence without repeating the loader's unscoped command."""
+
+    return (
+        f"{_baseline_error_detail(exc)}. No baseline was written to "
+        f"{baseline_file}."
+    )
+
+
+def _existing_baseline_error_message(exc: ValueError, *, baseline_file: Path) -> str:
+    """Preserve the loader diagnosis without its destructive rerun advice."""
+
+    return (
+        f"Refusing to overwrite existing host-grants baseline "
+        f"{baseline_file}: {_baseline_error_detail(exc)}. "
+        "The file was left unchanged."
+    )
 
 
 def _write_json_out(out: Path | None, payload: dict) -> None:
