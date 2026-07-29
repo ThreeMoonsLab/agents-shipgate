@@ -84,6 +84,7 @@ def _assessment_for_diff(
     input_mode: str,
     input_issues: list[BoundaryInputIssue] | None,
 ):
+    workspace_as_given = workspace
     workspace = workspace.resolve()
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted({item.path for item in diff_files if item.path})
@@ -116,6 +117,7 @@ def _assessment_for_diff(
         input_mode=input_mode,  # type: ignore[arg-type]
         input_issues=input_issues,
         config_path=config_path,
+        requested_workspace=workspace_as_given,
     )
 
 

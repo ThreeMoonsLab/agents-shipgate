@@ -594,3 +594,53 @@ def test_a_base_that_keeps_another_manifest_is_not_an_adoption(tmp_path):
         )
         is False
     )
+
+
+def test_a_quoted_key_manifest_on_the_base_blocks_the_adoption_claim(tmp_path):
+    """A text probe for `^project:` misses a manifest that loads fine.
+
+    Quoted keys, flow style, and indentation all parse to the same document,
+    so the retained-manifest check has to parse rather than grep.
+    """
+
+    import yaml
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    sample = repo / "samples" / "support_refund_agent"
+    document = yaml.safe_load((sample / "shipgate.yaml").read_text("utf-8"))
+    (sample / "shipgate.yaml").unlink()
+    (sample / "old-gate.yml").write_text(
+        yaml.safe_dump(document, default_style='"'), encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "base keeps a quoted-key manifest")
+    (sample / "new-gate.yml").write_text(
+        (sample / "old-gate.yml").read_text("utf-8"), encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "add a second manifest")
+
+    assert (
+        _manifest_introduced(
+            git_root=repo,
+            config_relative=Path("samples/support_refund_agent/new-gate.yml"),
+            base_status="missing_manifest",
+            base="HEAD~1",
+            head="HEAD",
+            changed_files=["samples/support_refund_agent/new-gate.yml"],
+        )
+        is False
+    )
+
+
+def test_equivalent_config_spellings_resolve_to_the_same_manifest():
+    """Raw suffix comparison was bypassable by an equivalent path spelling."""
+
+    from agents_shipgate.core.trust_roots import is_configured_manifest
+
+    assert is_configured_manifest("docs/engineering/../manifest.yaml", "docs/manifest.yaml")
+    assert is_configured_manifest("/repo/sub/gate.yml", "sub/gate.yml", workspace="/repo")
+    # With a workspace the comparison is exact, so a same-named file elsewhere
+    # is not the gate.
+    assert not is_configured_manifest("/repo/x/sub/gate.yml", "sub/gate.yml", workspace="/repo")
+    assert not is_configured_manifest("/repo/new-gate.yml", "README.md")

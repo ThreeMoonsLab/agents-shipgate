@@ -12,6 +12,9 @@ from typing import Any
 import yaml
 
 from agents_shipgate.core.agent_control import derive_agent_control
+from agents_shipgate.core.agent_controls import (
+    verify_command_for as _shared_verify_command_for,
+)
 
 # The shared unified-diff plumbing moved to
 # ``agents_shipgate.core.boundary_diff``. These re-exports preserve the
@@ -440,6 +443,7 @@ def evaluate_codex_boundary_result(
     diff_files_override: list[DiffFile] | None = None,
     resolved_text_cache: dict[str, ResolvedFileText] | None = None,
     static_read_cache: Any | None = None,
+    verify_command: str | None = None,
 ) -> AgentResultV2:
     """Return the local Codex boundary-result projection for a unified diff.
 
@@ -464,6 +468,7 @@ def evaluate_codex_boundary_result(
     # Keep this local diff projector aligned with
     # agents_shipgate.ci.agent_result.build_agent_result; both produce
     # boundary-result routing fields for different substrates.
+    resolved_verify_command = verify_command or _VERIFY_COMMAND
     workspace = workspace.resolve()
     diff_files = (
         diff_files_override
@@ -624,17 +629,17 @@ def evaluate_codex_boundary_result(
             [
                 _DETECT_COMMAND,
                 "Add the surface to shipgate.yaml tool_sources",
-                _VERIFY_COMMAND,
+                resolved_verify_command,
             ]
             if is_adopted_repo
-            else [_VERIFY_PREVIEW_COMMAND, _VERIFY_COMMAND]
+            else [_VERIFY_PREVIEW_COMMAND, resolved_verify_command]
         )
     elif coverage_gap:
         first_next_action = _coverage_next_action()
         summary = _coverage_summary(coverage_surfaces)
         diagnostics = [*diagnostics, _coverage_diagnostic(coverage_surfaces)]
         trace = [*_trace_for(policy, decision, violations), _coverage_trace(coverage_surfaces)]
-        suggested_fixes = [_VERIFY_COMMAND]
+        suggested_fixes = [resolved_verify_command]
     else:
         first_next_action = _next_action_for(decision, violations, repair)
         summary = _summary_for(decision, violations)
@@ -645,6 +650,7 @@ def evaluate_codex_boundary_result(
     )
     verify_required = bool(undeclared_gap or coverage_gap or trigger_verify_required)
     control = _control_for_result(
+        verify_command=resolved_verify_command,
         decision=decision,
         summary=summary,
         first_next_action=first_next_action,
@@ -782,8 +788,13 @@ def _control_for_result(
     coverage_gap: bool,
     trigger_verify_required: bool,
     violations: Sequence[AgentResultViolatedRule] = (),
+    verify_command: str | None = None,
 ):
     """Translate boundary facts into the one shared operational projector."""
+
+    # Resolved here rather than as a default: the constant is defined further
+    # down the module.
+    verify_command = verify_command or _VERIFY_COMMAND
 
     # Graded review: a low/medium ``require_review`` set routes the agent to the
     # PR gate instead of ending the turn.  The obligation is preserved in
@@ -798,7 +809,7 @@ def _control_for_result(
             reason=summary,
             next_action=CodingAgentCommandAction(
                 kind="verify",
-                command=_VERIFY_COMMAND,
+                command=verify_command,
                 why=(
                     "This change owes human review but is not an emergency stop: "
                     "run verify so the PR gate records the decision, and report "
@@ -806,7 +817,7 @@ def _control_for_result(
                 ),
             ),
             verify_required=True,
-            allowed_next_commands=[_VERIFY_COMMAND],
+            allowed_next_commands=[verify_command],
         )
 
     if decision in {"require_review", "block"} and not repair.safe_to_attempt:
@@ -841,14 +852,14 @@ def _control_for_result(
         )
 
     if verify_required:
-        command = first_next_action.command or _VERIFY_COMMAND
+        command = first_next_action.command or verify_command
         if undeclared_gap:
             kind = "discover" if command == _DETECT_COMMAND else "configure"
         elif coverage_gap or trigger_verify_required:
             kind = "verify"
             # Advisory warnings may have a non-verification next action; the
             # outstanding manifest trigger is authoritative here.
-            command = _VERIFY_COMMAND
+            command = verify_command
         else:  # pragma: no cover - defensive exhaustiveness.
             kind = "verify"
         why = (
@@ -1784,6 +1795,20 @@ _VERIFY_PREVIEW_COMMAND = "agents-shipgate verify --preview --json"
 _DETECT_COMMAND = "shipgate detect --workspace . --json"
 
 
+def verify_command_for(workspace: object | None, config: object | None) -> str:
+    """The verify invocation that evaluates *this* check's target.
+
+    The bare default drops both the workspace and the manifest, so a check run
+    against another checkout or a non-default manifest authorized a command
+    that verifies the default gate somewhere else.
+    """
+
+    return _shared_verify_command_for(
+        Path(str(workspace)) if workspace is not None else None,
+        Path(str(config)) if config is not None else None,
+    )
+
+
 def _undeclared_next_action(*, manifest_present: bool) -> AgentResultNextAction:
     if manifest_present:
         return AgentResultNextAction(
@@ -2083,8 +2108,9 @@ def _audit_id(
         # The evaluating agent is part of the audited identity: the result
         # records it, and two runs that differ only by actor are two different
         # audit rows. Hardcoding "codex" made them collide, which is precisely
-        # the attribution problem actor detection exists to fix. A codex run's
-        # id is unchanged.
+        # the attribution problem actor detection exists to fix. This one
+        # always carried the literal "codex", so emitting the real agent leaves
+        # codex ids byte-identical.
         "agent": agent,
         "changed_files": changed_files,
         "diff": [

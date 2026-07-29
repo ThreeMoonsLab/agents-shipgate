@@ -61,6 +61,19 @@ CASES = {
 }
 
 
+def _normalize_workspace(payload: object, workspace: Path) -> object:
+    """Replace this run's workspace path with a stable placeholder.
+
+    Both spellings: macOS resolves ``/var/folders/...`` to ``/private/var/...``,
+    and the emitted command carries the resolved form.
+    """
+
+    raw = json.dumps(payload)
+    for spelling in (str(workspace.resolve()), str(workspace)):
+        raw = raw.replace(spelling, "<workspace>")
+    return json.loads(raw)
+
+
 def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
     validator = Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
     for case, (decision, rule_ids, expected_state) in CASES.items():
@@ -81,7 +94,12 @@ def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
         assert result.stderr == ""
         payload = json.loads(result.output)
         validator.validate(payload)
-        assert payload == json.loads((GOLDEN / f"{case}.json").read_text(encoding="utf-8"))
+        # The authorized verify command names this invocation's own workspace
+        # and manifest, so the golden pins its shape rather than one machine's
+        # temporary directory.
+        assert _normalize_workspace(payload, tmp_path) == json.loads(
+            (GOLDEN / f"{case}.json").read_text(encoding="utf-8")
+        )
         assert payload["decision"] == decision
         assert [item["id"] for item in payload["violated_rules"]] == rule_ids
         control = _control(payload)

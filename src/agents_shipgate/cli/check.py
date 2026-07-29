@@ -18,9 +18,18 @@ from agents_shipgate.cli.agent_result import (
 )
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
-from agents_shipgate.schemas.agent_control import CodingAgentCommandAction
+from agents_shipgate.schemas.agent_control import (
+    CodingAgentCommandAction,
+    HumanControlAction,
+)
 from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 from agents_shipgate.schemas.diagnostics import NextAction
+
+_AMBIGUOUS_DIFF_INPUT_WHY = (
+    "The failing check request cannot be replayed as-is — its diff came from "
+    "stdin, or only one of --base/--head was given. Decide the intended input "
+    "and re-run the check yourself."
+)
 
 
 def _corrected_request(
@@ -33,17 +42,33 @@ def _corrected_request(
     base: str | None,
     head: str | None,
     format_: str,
+    allow_ref_fallback: bool = False,
 ) -> str | None:
     """The same check request with only the invalid field corrected.
 
     A fixed ``agents-shipgate check --format agent-boundary-json`` discards
     every other argument, so following the rank-1 action switched actor,
     workspace, config, policy, and diff/range context — answering a different
-    boundary question than the one that failed. ``None`` when the request read
-    its diff from stdin and therefore cannot be replayed.
+    boundary question than the one that failed.
+
+    Every interpolated value is shell-quoted. These are user-controlled paths
+    and refs, and this string is published as an *authorized* command: a
+    semicolon in ``--diff`` would otherwise become a command boundary in it.
+
+    A half-specified ref range has two repairs — supply the missing ref, or
+    drop both and check the working tree. ``allow_ref_fallback`` picks the
+    second, which is the documented recovery when the diff input itself could
+    not be resolved. Everywhere else the choice is not ours to make: silently
+    dropping a range the caller asked for answers a different question, so the
+    caller gets ``None`` and a review action.
+
+    ``None`` also when the diff was read from stdin and cannot be replayed.
     """
 
     if diff == "-":
+        return None
+    one_sided_range = not diff and bool(base) != bool(head)
+    if one_sided_range and not allow_ref_fallback:
         return None
     parts = ["agents-shipgate", "check"]
     if agent in {"codex", "claude-code", "cursor"}:
@@ -56,6 +81,8 @@ def _corrected_request(
         parts.extend(["--diff", shlex.quote(diff)])
     elif base and head:
         parts.extend(["--base", shlex.quote(base), "--head", shlex.quote(head)])
+    # A one-sided range under the fallback emits neither ref: that is the
+    # "omit both for local uncommitted changes" recovery the instructions name.
     valid_format = format_ if format_ == "codex-boundary-json" else "agent-boundary-json"
     parts.extend(["--format", valid_format])
     return " ".join(parts)
@@ -185,6 +212,9 @@ def check(
         result = _diff_input_error_result(
             agent=agent,
             workspace=workspace,
+            config=config,
+            policy=policy,
+            format_=format_,
             diff=diff,
             base=base,
             head=head,
@@ -218,12 +248,25 @@ def _diff_input_error_result(
     *,
     agent: str,
     workspace: Path,
+    config: Path,
+    policy: Path | None,
+    format_: str,
     diff: str | None,
     base: str | None,
     head: str | None,
     error: str,
 ) -> CodexBoundaryResultV2:
-    command = _rerun_command(agent=agent, diff=diff, base=base, head=head)
+    command = _corrected_request(
+        agent=agent,
+        workspace=workspace,
+        config=config,
+        policy=policy,
+        diff=diff,
+        base=base,
+        head=head,
+        format_=format_,
+        allow_ref_fallback=True,
+    )
     summary = "Agents Shipgate could not resolve the diff input for local agent control."
     return CodexBoundaryResultV2(
         agent=agent,
@@ -240,27 +283,40 @@ def _diff_input_error_result(
         policy_version="unresolved",
         summary=summary,
         changed_files=[],
-        control=derive_agent_control(
-            reason=summary,
-            next_action=CodingAgentCommandAction(
-                kind="repair",
-                command=command,
-                why=(
-                    "Fix the diff input, make the requested git refs available, or omit "
-                    "--base/--head for local uncommitted changes; then rerun shipgate check."
+        control=(
+            derive_agent_control(
+                reason=summary,
+                next_action=CodingAgentCommandAction(
+                    kind="repair",
+                    command=command,
+                    why=(
+                        "Fix the diff input, make the requested git refs available, or omit "
+                        "--base/--head for local uncommitted changes; then rerun shipgate check."
+                    ),
                 ),
-            ),
-            allowed_next_commands=[command],
+                allowed_next_commands=[command],
+            )
+            if command
+            else derive_agent_control(
+                reason=summary,
+                next_action=HumanControlAction(
+                    kind="review",
+                    why=_AMBIGUOUS_DIFF_INPUT_WHY,
+                ),
+                human_review_required=True,
+                human_review_why=_AMBIGUOUS_DIFF_INPUT_WHY,
+                stop_reason=_AMBIGUOUS_DIFF_INPUT_WHY,
+            )
         ),
         repair={
-            "actor": "coding_agent",
-            "safe_to_attempt": True,
+            "actor": "coding_agent" if command else "human",
+            "safe_to_attempt": bool(command),
             "instructions": [
                 f"Resolve diff input error: {error}",
                 "Provide both --base and --head for committed refs, or omit both for local work.",
                 "If --diff names a file, make sure the file exists and contains a unified diff.",
             ],
-            "command": command,
+            **({"command": command} if command else {}),
             "forbidden_shortcuts": [
                 "Do not claim completion without a successful shipgate check rerun.",
                 "Do not infer a Shipgate decision from prose or a failed command.",

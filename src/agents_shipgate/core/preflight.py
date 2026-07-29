@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,7 +12,12 @@ from pydantic import ValidationError
 from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.agent_control import derive_agent_control
-from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
+from agents_shipgate.core.agent_controls import (
+    FORBIDDEN_SHORTCUTS,
+)
+from agents_shipgate.core.agent_controls import (
+    verify_command_for as _shared_verify_command_for,
+)
 from agents_shipgate.core.boundary_diff import parse_unified_diff
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.globbing import glob_match
@@ -132,33 +136,6 @@ _VERIFY_COMMAND = (
 )
 
 
-def _verify_command(workspace: Path | None, config: Path | None) -> str:
-    """The verify invocation for *this* preflight's target.
-
-    The constant above names the default workspace and manifest, so a preflight
-    run against a non-default manifest handed the reader a command pointing at
-    a different gate — or at no gate at all.
-
-    Both values are echoed exactly as the caller spelled them, not resolved: a
-    resolved absolute path would be correct and useless, embedding one
-    machine's checkout location in an artifact meant to be read anywhere.
-    """
-
-    if workspace is None or config is None:
-        return _VERIFY_COMMAND
-    return " ".join(
-        [
-            "agents-shipgate",
-            "verify",
-            "--workspace",
-            shlex.quote(workspace.as_posix()),
-            "--config",
-            shlex.quote(config.as_posix()),
-            "--ci-mode",
-            "advisory",
-            "--json",
-        ]
-    )
 _SIGNAL_KIND_RANK = {
     "protected_surface_touch": 0,
     "host_grant_drift": 1,
@@ -189,6 +166,14 @@ _HOST_WRITE_TOKENS = frozenset(
         "write-all",
     }
 )
+
+
+def _verify_command(workspace: Path | None, config: Path | None) -> str:
+    """The verify invocation for *this* preflight's target."""
+
+    if workspace is None or config is None:
+        return _VERIFY_COMMAND
+    return _shared_verify_command_for(workspace, config, extra=("--ci-mode", "advisory"))
 
 
 @dataclass(frozen=True)
@@ -297,7 +282,7 @@ def build_preflight_result(
         for node in graph.nodes
     ]
     verify_command = _verify_command(workspace, config)
-    touches = classify_protected_touches(changed, config_path)
+    touches = classify_protected_touches(changed, config_path, root)
     touches = _classify_proposal_safe_manifest_touch(
         workspace=root,
         config_path=config_path,
@@ -423,6 +408,7 @@ def build_trust_root_graph(workspace: Path) -> TrustRootGraphV1:
 def classify_protected_touches(
     changed_files: list[str],
     config_path: Path | None = None,
+    workspace: Path | None = None,
 ) -> list[PreflightProtectedSurfaceTouch]:
     """Classify changed paths against the protected-surface catalog.
 
@@ -439,7 +425,9 @@ def classify_protected_touches(
         if not path or path in seen:
             continue
         seen.add(path)
-        spec = _classify(path) or _configured_manifest_spec(config_path, path)
+        spec = _classify(path) or _configured_manifest_spec(
+            config_path, path, workspace
+        )
         if spec is None:
             continue
         touches.append(
@@ -885,7 +873,7 @@ def _classify(path: str) -> ProtectedSurfaceSpec | None:
 
 
 def _configured_manifest_spec(
-    config_path: Path | None, path: str
+    config_path: Path | None, path: str, workspace: Path | None = None
 ) -> ProtectedSurfaceSpec | None:
     """The manifest this run loaded, classified as one whatever it is called.
 
@@ -894,7 +882,7 @@ def _configured_manifest_spec(
     checkout location.
     """
 
-    if not is_configured_manifest(config_path, path):
+    if not is_configured_manifest(config_path, path, workspace=workspace):
         return None
     return ProtectedSurfaceSpec(
         kind="manifest",
@@ -991,7 +979,23 @@ def _coerce_plan(
 
 
 def _changed_files_from_diff_text(diff_text: str) -> list[str]:
-    return sorted({item.path for item in parse_unified_diff(diff_text) if item.path})
+    """Every path the diff touches, including the source side of a rename.
+
+    Keeping only the destination hid the case that matters most: renaming the
+    configured manifest to an unrecognized name left the protected path in
+    ``old_path`` only, so preflight reported no protected touch,
+    ``requires_human_review=false``, and an agent-action route for a diff that
+    moved the gate out from under itself.
+    """
+
+    return sorted(
+        {
+            path
+            for item in parse_unified_diff(diff_text)
+            for path in (item.new_path, item.old_path)
+            if path
+        }
+    )
 
 
 def _coerce_capability_requests(

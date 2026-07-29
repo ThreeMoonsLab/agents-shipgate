@@ -11,6 +11,9 @@ exported.
 
 from __future__ import annotations
 
+import posixpath
+from pathlib import PurePosixPath
+
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.globbing import glob_match
 
@@ -107,35 +110,68 @@ def trust_root_class_for(path: str) -> str | None:
     return None
 
 
-def is_configured_manifest(config_path: object | None, path: str) -> bool:
+def _normalized(value: object) -> str:
+    """A path with separators unified and ``.``/``..`` segments collapsed."""
+
+    text = str(value).replace("\\", "/").strip()
+    if not text:
+        return ""
+    return PurePosixPath(posixpath.normpath(text)).as_posix()
+
+
+def is_configured_manifest(
+    config_path: object | None,
+    path: str,
+    *,
+    workspace: object | None = None,
+) -> bool:
     """Whether a changed-file path is the manifest *this run* loaded as its gate.
 
-    The table above only knows ``**/shipgate.yaml``. A repository pointed at
-    ``--config new-gate.yml`` therefore had no manifest trust root at all: the
-    file defining its gate could be added or rewritten without a finding, and
-    the release substrate carried nothing for the merge projection to fail
+    The trust-root table only knows ``**/shipgate.yaml``. A repository pointed
+    at ``--config new-gate.yml`` therefore had no manifest trust root at all:
+    the file defining its gate could be added or rewritten without a finding,
+    and the release substrate carried nothing for the merge projection to fail
     closed on. Whatever a run loaded as the gate *is* the gate.
 
-    The comparison tolerates the two spellings that reach it — the absolute
-    resolved config path a scan carries, and the workspace-relative changed
-    path — while refusing a same-basename file in another directory.
+    Both sides are normalized before comparison, so an equivalent spelling —
+    ``docs/engineering/../manifest.yaml`` for ``docs/manifest.yaml`` — cannot
+    slip past by looking textually different from the changed path.
+
+    ``workspace`` makes the comparison exact by resolving both sides against
+    it. Without it the fallback matches on whole path components, which can
+    over-match a same-named file in another directory; that direction adds a
+    trust-root finding rather than dropping one, so the fallback is safe, just
+    less precise. Callers that know their workspace should pass it.
     """
 
     if config_path is None:
         return False
-    configured = str(config_path).replace("\\", "/").strip()
-    candidate = path.replace("\\", "/").strip()
+    configured = _normalized(config_path)
+    candidate = _normalized(path)
     if not configured or not candidate:
         return False
-    return (
-        candidate == configured
-        or configured.endswith(f"/{candidate}")
-        or candidate.endswith(f"/{configured}")
-    )
+    if candidate == configured:
+        return True
+    if workspace is not None:
+        root = _normalized(workspace)
+        if root:
+            absolute_config = (
+                configured
+                if posixpath.isabs(configured)
+                else _normalized(posixpath.join(root, configured))
+            )
+            absolute_candidate = (
+                candidate
+                if posixpath.isabs(candidate)
+                else _normalized(posixpath.join(root, candidate))
+            )
+            return absolute_config == absolute_candidate
+    return configured.endswith(f"/{candidate}") or candidate.endswith(f"/{configured}")
 
 
 __all__ = [
     "PROTECTED_FILE_EDITS",
+    "is_configured_manifest",
     "TRUST_ROOT_SURFACES",
     "trust_root_class_for",
 ]

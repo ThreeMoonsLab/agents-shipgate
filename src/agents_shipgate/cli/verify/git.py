@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+import yaml
+
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.human_authorization import canonical_https_git_endpoint
 
@@ -395,43 +397,66 @@ def paths_named_at_ref(
 _MANIFEST_SUFFIXES = (".yaml", ".yml")
 
 
+# Bounds on the retained-manifest probe. A tree with more candidate YAML files
+# than this, or a candidate larger than this, is not worth reading to decide a
+# wording question — the probe reports "cannot prove" and the plainer copy wins.
+_MAX_MANIFEST_CANDIDATES = 400
+_MAX_MANIFEST_BYTES = 512 * 1024
+
+# The keys every Shipgate manifest must carry. Matching on parsed structure
+# rather than on raw text is what makes quoted keys, differing indentation, and
+# flow mappings all read the same.
+_MANIFEST_REQUIRED_KEYS = frozenset({"project", "agent"})
+
+
 def carries_manifest_like_yaml(workspace: Path, ref: str) -> bool | None:
-    """Whether ``ref`` contains any YAML that looks like a Shipgate manifest.
+    """Whether ``ref`` contains any YAML that parses as a Shipgate manifest.
 
     A basename check cannot prove a base carries no gate: a manifest may be
     called anything, so a base that keeps an operational ``old-gate.yml`` while
-    the head adds ``new-gate.yml`` passes every name test. This asks a content
-    question instead — any tracked YAML carrying the manifest's required
-    top-level keys. It over-matches by design: an unrelated YAML with
-    ``project:`` and ``agent:`` merely costs the adoption wording, which is the
-    safe direction.
+    the head adds ``new-gate.yml`` passes every name test.
 
-    ``None`` means the search could not run; callers must treat that as "cannot
-    prove", never as absence.
+    The candidates are *parsed*, not grepped. A text probe for ``^project:``
+    misses a valid manifest whose keys are quoted, indented, or written in flow
+    style — and a manifest that loads fine while the probe says "absent" is the
+    fail-open this exists to prevent. Over-matching is deliberate: an unrelated
+    YAML carrying both keys merely costs the adoption wording.
+
+    ``None`` means the answer could not be established — an unreadable tree, an
+    unparseable candidate, or more candidates than the bounds above allow.
+    Callers must treat it as "cannot prove", never as absence.
     """
 
-    result = _run_git(
-        workspace,
-        [
-            "grep",
-            "--all-match",
-            "-l",
-            "-e",
-            "^project:",
-            "-e",
-            "^agent:",
-            ref,
-            "--",
-            "*.yaml",
-            "*.yml",
-        ],
-        check=False,
-    )
-    if result.returncode == 1:  # documented: nothing matched
-        return False
-    if result.returncode != 0:
+    listing = _run_git(workspace, ["ls-tree", "-r", "--name-only", ref], check=False)
+    if listing.returncode != 0:
         return None
-    return bool(result.stdout.strip())
+    # Filtered here rather than with a pathspec: `git ls-tree -- '*.yml'` does
+    # not glob the way it reads — it matches nothing, which would make this
+    # probe silently answer "no manifest" for every tree.
+    candidates = [
+        line.strip()
+        for line in listing.stdout.splitlines()
+        if line.strip().lower().endswith(_MANIFEST_SUFFIXES)
+    ]
+    if len(candidates) > _MAX_MANIFEST_CANDIDATES:
+        return None
+    for candidate in candidates:
+        blob = _run_git(workspace, ["show", f"{ref}:{candidate}"], check=False)
+        if blob.returncode != 0:
+            return None
+        text = blob.stdout
+        if len(text) > _MAX_MANIFEST_BYTES:
+            return None
+        try:
+            document = yaml.safe_load(text)
+        except yaml.YAMLError:
+            # Unparseable YAML cannot be ruled out as a manifest.
+            return None
+        if isinstance(document, dict) and _MANIFEST_REQUIRED_KEYS <= {
+            str(key) for key in document
+        }:
+            return True
+    return False
 
 
 def removes_a_yaml_file(workspace: Path, base: str | None, head: str) -> bool | None:

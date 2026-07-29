@@ -10,7 +10,7 @@
   },
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "agent_boundary_ce82234cfd7e3f18108d7bcc",
+  "audit_id": "agent_boundary_7908865cfe6b4fa73441f451",
   "policy_version": "1",
   "summary": "1 coding-agent boundary change(s) need PR-time review; verify, then report them.",
   "changed_files": [
@@ -25,12 +25,12 @@
     "next_action": {
       "actor": "coding_agent",
       "kind": "verify",
-      "command": "agents-shipgate verify --json",
+      "command": "agents-shipgate verify --workspace <workspace> --config <workspace>/shipgate.yaml --json",
       "expects": null,
       "why": "This change owes human review but is not an emergency stop: run verify so the PR gate records the decision, and report the pending review items."
     },
     "allowed_next_commands": [
-      "agents-shipgate verify --json"
+      "agents-shipgate verify --workspace <workspace> --config <workspace>/shipgate.yaml --json"
     ],
     "human_review": {
       "required": false,

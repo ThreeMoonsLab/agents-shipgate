@@ -52,7 +52,7 @@ def _config_error(
     message: str,
     *,
     next_action: str,
-    command: str = "agents-shipgate audit --host",
+    command: str | None = "agents-shipgate audit --host",
 ) -> typer.Exit:
     """Report flag misuse on both channels and return the exit to raise.
 
@@ -64,16 +64,21 @@ def _config_error(
     """
 
     typer.echo(message, err=True)
-    emit_agent_mode_error_action(
-        "config_error",
-        message=message,
-        exit_code=2,
-        action=NextAction(
+    action = (
+        NextAction(
             kind="command",
             command=command,
             why=next_action,
             expects="A host-capability audit that completes.",
-        ),
+        )
+        if command
+        else NextAction(kind="review", why=next_action)
+    )
+    emit_agent_mode_error_action(
+        "config_error",
+        message=message,
+        exit_code=2,
+        action=action,
     )
     return typer.Exit(2)
 
@@ -233,16 +238,31 @@ def audit(
                         "then re-run the audit."
                     ),
                 ) from exc
+            # A baseline that exists but does not load — malformed, unknown
+            # schema, integrity-failed — must never be recovered by writing
+            # over it. Recommending --save-baseline there replaced the failed
+            # artifact with the *current* grants, silently acknowledging them
+            # and destroying the evidence a human needed to look at. Only a
+            # genuinely absent baseline can be recorded without losing
+            # anything, and that command carries the scope it was asked for.
+            missing = isinstance(exc.__cause__, FileNotFoundError)
             raise _config_error(
                 str(exc),
                 next_action=(
                     "Record a baseline with `agents-shipgate audit --host "
-                    "--save-baseline`, or point --baseline-file at a valid one."
+                    "--save-baseline`."
+                    if missing
+                    else "Inspect the existing baseline file and repair or "
+                    "replace it deliberately; do not overwrite it with the "
+                    "current grants, which would acknowledge them unreviewed."
                 ),
                 command=(
                     "agents-shipgate audit --host --workspace "
-                    f"{shlex.quote(str(workspace))} --save-baseline "
-                    f"--baseline-file {shlex.quote(str(baseline_file))}"
+                    f"{shlex.quote(str(workspace))} --scope {shlex.quote(scope)} "
+                    f"--save-baseline --baseline-file "
+                    f"{shlex.quote(str(baseline_file))}"
+                    if missing
+                    else None
                 ),
             ) from exc
         payload = build_host_drift_payload(

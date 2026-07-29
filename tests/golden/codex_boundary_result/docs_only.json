@@ -10,7 +10,7 @@
   },
   "decision": "allow",
   "risk_level": "none",
-  "audit_id": "agent_boundary_6992d494be4b9b5ad459b3e3",
+  "audit_id": "agent_boundary_bcae9dc247f5dae731a41e8c",
   "policy_version": "1",
   "summary": "No recognized coding-agent boundary change requires action.",
   "changed_files": [

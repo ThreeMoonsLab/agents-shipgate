@@ -9,9 +9,9 @@
   snapshot)", and — because a missing-manifest base was classified as a safe
   recovery — shipped no `fix_task` at all, so nothing named the act that would
   clear it. `verify` now proves adoption from git (the comparison base carries
-  no manifest under any name and no YAML that reads like one, so neither a
-  *moved* manifest nor a base that quietly keeps one can pass itself off as a
-  first adoption) and says so: same check id, same `medium` severity, same
+  no manifest under any name and no YAML that *parses* as one — a text probe
+  missed a valid manifest with quoted keys — so neither a *moved* manifest nor
+  a base that quietly keeps one can pass itself off as a first adoption) and says so: same check id, same `medium` severity, same
   `human_review_required` state, new evidence kind `manifest_introduced`, and a
   `fix_task` whose leading instruction is "review the generated shipgate.yaml
   and merge the adoption through a human-reviewed PR". `check` gets the same
@@ -27,8 +27,13 @@
   Whatever a run loads as its gate is now classified as one, in both the
   trust-root check and the policy fail-safe — and in `check` and `preflight`,
   which classified it no better: a diff for a custom-named manifest returned
-  `allow` with no violations locally and no protected touch in preflight, and
-  both then recommended a verify command for the default `shipgate.yaml`. The
+  `allow` with no violations locally and no protected touch in preflight — the
+  local check dropped it from the diff entirely before any evaluator saw it —
+  and both then recommended a verify command for the default `shipgate.yaml`.
+  Identity is compared on normalized, containment-checked paths, so an
+  equivalent spelling (`docs/x/../manifest.yaml`) cannot slip past, and
+  preflight classifies the *source* side of a rename, which is where the gate
+  sits when a diff moves it out from under itself. The
   classification is recorded on the boundary row so a gate-governing surface
   stays out of the graded agent route regardless of its name, and the evidence
   carries the changed path rather than the resolved config path, which for a
@@ -72,7 +77,20 @@
   `control.state=complete`. The recovery action now reproduces the actual
   invocation, and offers no command at all when the request came from stdin or
   mixed `--plan` with the per-flag inputs — replaying a request-shape conflict
-  can never satisfy its own `expects`.
+  can never satisfy its own `expects`. `check`'s recovery is one quoted
+  serializer for every path, including diff-input failures, which previously
+  joined user-controlled paths and refs unquoted into a published *authorized*
+  command; commands the CLI emits for its own targets now name the workspace
+  and the manifest, with the config rendered the way `verify` resolves it —
+  relative to the repository root — so a nested manifest is no longer verified
+  against the root gate.
+- **A failed baseline is never recovered by overwriting it.** A malformed,
+  unknown-schema, or integrity-failed host-grants baseline recommended
+  `--save-baseline` against the same path, which replaced the failed artifact
+  with the *current* grants — acknowledging them unreviewed and destroying the
+  evidence a human needed. Those now route to review; only a genuinely absent
+  baseline gets a record command, and it carries the `--scope` it was asked
+  for.
 - **Host-audit filesystem failures follow the catalog.** A `--baseline-file`
   naming a directory raised `IsADirectoryError` through typer as a traceback
   and exit 1. Filesystem failures on both `--baseline-file` and `--out` are now
@@ -87,7 +105,8 @@
   actor and the legacy one hardcoded `codex` — so identical evaluations by
   Claude Code, Cursor, and Codex shared an `audit_id`, which is exactly the
   attribution problem actor detection exists to solve. A codex run's id is
-  unchanged; the committed boundary goldens are regenerated for the other two.
+  unchanged — the actor is folded in only for a non-default one, so every id
+  issued before detection existed (all of them codex runs) keeps its value.
 - **Adoption wording stands down when something was genuinely weakened.**
   Introducing the manifest while editing an existing policy file produced a
   `base_snapshot_unavailable` finding under a headline saying there was no

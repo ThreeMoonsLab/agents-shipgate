@@ -33,6 +33,18 @@ from agents_shipgate.schemas.preflight import (
 runner = CliRunner()
 
 
+def _assert_verify_command(command: str, workspace: Path, config: str) -> None:
+    """The emitted verify command must target the preflight's own request."""
+
+    assert command.startswith("agents-shipgate verify ")
+    assert f"--workspace {shlex.quote(str(workspace))}" in command
+    assert command.endswith("--ci-mode advisory --json")
+    rendered = command.split("--config ", 1)[1].split(" ", 1)[0]
+    assert Path(rendered).name == Path(config).name
+    if not Path(rendered).is_absolute():
+        assert rendered == config
+
+
 def _workspace(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     root.mkdir()
@@ -136,13 +148,12 @@ def test_preflight_allows_exact_append_only_builtin_source_proposal(
     assert result.control.state == "agent_action_required"
     assert result.control.must_stop is False
     assert result.control.next_action.kind == "verify"
-    # The command echoes the request as it was made, so a run against another
+    # The command names the request's own target, so a run against another
     # checkout or a non-default manifest does not hand the reader a command
-    # pointing at a different gate.
-    assert result.control.allowed_next_commands == [
-        f"agents-shipgate verify --workspace {shlex.quote(str(root))} "
-        "--config shipgate.yaml --ci-mode advisory --json"
-    ]
+    # pointing at a different gate. The config is rendered the way `verify`
+    # resolves it — relative to the repository root, absolute when there is no
+    # repository — so its exact spelling depends on the fixture.
+    _assert_verify_command(result.control.allowed_next_commands[0], root, "shipgate.yaml")
     signal = next(item for item in result.signals if item.kind == "protected_surface_touch")
     assert signal.actor == "coding_agent"
     assert "not approved" in signal.reason
@@ -682,10 +693,7 @@ def test_cli_preflight_plan_stdin_routes_clean_docs_to_verify(tmp_path: Path) ->
     assert payload["preflight_schema_version"] == "0.3"
     assert payload["requires_human_review"] is False
     assert payload["first_next_action"]["kind"] == "verify"
-    assert payload["allowed_next_commands"] == [
-        f"agents-shipgate verify --workspace {shlex.quote(str(root))} "
-        "--config shipgate.yaml --ci-mode advisory --json"
-    ]
+    _assert_verify_command(payload["allowed_next_commands"][0], root, "shipgate.yaml")
     assert payload["control"]["state"] == "agent_action_required"
     assert payload["control"]["completion_allowed"] is False
     assert payload["control"]["must_stop"] is False

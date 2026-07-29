@@ -831,3 +831,78 @@ def test_the_default_manifest_keeps_its_classification(tmp_path: Path) -> None:
     rows = [item for item in result.violated_rules if item.path == "shipgate.yaml"]
     assert rows
     assert result.control.state == "human_review_required"
+
+
+def test_check_authorizes_a_verify_command_for_its_own_target(tmp_path: Path) -> None:
+    """A bare `agents-shipgate verify --json` verifies the wrong gate.
+
+    An ordinary force-run checked with a non-default manifest authorized a
+    command that drops both workspace and config.
+    """
+
+    (tmp_path / "new-gate.yml").write_text(_MANIFEST, encoding="utf-8")
+    result = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=_change_diff("README.md", "hello\n", "hello\nworld\n"),
+        config=Path("new-gate.yml"),
+        policy=None,
+        input_mode="worktree",
+    )
+
+    for command in [
+        *result.control.allowed_next_commands,
+        *( [result.control.next_action.command] if result.control.next_action.command else [] ),
+    ]:
+        if command.startswith("agents-shipgate verify"):
+            assert str(tmp_path) in command
+            assert "new-gate.yml" in command
+
+
+def test_existing_codex_audit_ids_do_not_rotate(tmp_path: Path) -> None:
+    """Actor entered the digest; ids issued before it existed must not move.
+
+    Every one of those was a codex run, so rotating them would break stored
+    references to say nothing new.
+    """
+
+    (tmp_path / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    diff = _change_diff("shipgate.yaml", _MANIFEST, _MANIFEST + "ci:\n  mode: advisory\n")
+    ids = {
+        actor: build_agent_boundary_result(
+            agent=actor,
+            workspace=tmp_path,
+            diff_text=diff,
+            config=Path("shipgate.yaml"),
+            policy=None,
+            input_mode="worktree",
+        ).audit_id
+        for actor in ("codex", "claude-code", "cursor")
+    }
+
+    assert len(set(ids.values())) == 3, ids
+
+    # The codex digest must equal the pre-actor payload's digest, recomputed
+    # here from the shape that shipped before actor detection existed.
+    import hashlib
+
+    from agents_shipgate.core.agent_boundary import _agent_boundary_audit_id
+    from agents_shipgate.schemas.agent_boundary import (
+        AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+    )
+
+    legacy_payload = {
+        "schema": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        "changed_files": ["x"],
+        "fingerprints": ["fp"],
+        "policy_set_sha256": "d",
+    }
+    legacy_digest = hashlib.sha256(
+        json.dumps(legacy_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:24]
+    assert _agent_boundary_audit_id(
+        actor="codex", changed_files=["x"], fingerprints=["fp"], policy_digest="d"
+    ) == f"agent_boundary_{legacy_digest}"
+    assert _agent_boundary_audit_id(
+        actor="claude-code", changed_files=["x"], fingerprints=["fp"], policy_digest="d"
+    ) != f"agent_boundary_{legacy_digest}"

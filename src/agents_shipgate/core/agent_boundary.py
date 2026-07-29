@@ -44,6 +44,7 @@ from agents_shipgate.core.codex_boundary import (
     _violation_fingerprint,
     evaluate_codex_boundary_result,
     load_codex_boundary_policy,
+    verify_command_for,
     violations_within_agent_actionable_band,
 )
 from agents_shipgate.core.host_boundary import (
@@ -75,6 +76,9 @@ from agents_shipgate.schemas.agent_result_v1 import (
 )
 from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
+# The actor every pre-detection audit id implicitly described.
+_LEGACY_AUDIT_ACTOR = "codex"
+
 UNIFIED_POLICY_PATH = Path("policies/agent-boundary.shipgate.yaml")
 LEGACY_CODEX_POLICY_PATH = Path("policies/codex-boundary.shipgate.yaml")
 
@@ -82,6 +86,7 @@ LEGACY_CODEX_POLICY_PATH = Path("policies/codex-boundary.shipgate.yaml")
 @dataclass(frozen=True)
 class AgentBoundaryAssessment:
     actor: str
+    verify_command: str
     input_mode: Literal["worktree", "git_range", "provided_diff"]
     scope: Literal["repository"]
     input_coverage: Literal["complete", "partial", "unknown"]
@@ -168,7 +173,11 @@ def evaluate_agent_boundary(
     input_issues: list[BoundaryInputIssue] | None = None,
     host_snapshot: HostBoundarySnapshot | None = None,
     config_path: Path | None = None,
+    requested_workspace: Path | None = None,
 ) -> AgentBoundaryAssessment:
+    # The command this assessment authorizes must evaluate the target that was
+    # actually checked, not the default manifest in the current directory.
+    verify_command = verify_command_for(requested_workspace, config_path)
     workspace = workspace.resolve()
     host_snapshot = host_snapshot or build_host_boundary_snapshot(
         workspace,
@@ -184,7 +193,7 @@ def evaluate_agent_boundary(
             and (
                 path == item.path
                 or is_agent_boundary_path(path)
-                or is_configured_manifest(config_path, path)
+                or is_configured_manifest(config_path, path, workspace=workspace)
             )
         }
     )
@@ -213,6 +222,7 @@ def evaluate_agent_boundary(
         diff_files_override=diff_files,
         resolved_text_cache=resolved_text_cache,
         static_read_cache=host_snapshot.cache,
+        verify_command=verify_command,
     )
     host_violations, host_diagnostics = evaluate_host_boundary(
         workspace=workspace,
@@ -241,8 +251,9 @@ def evaluate_agent_boundary(
     combined = _with_unclassified_protected_changes(
         changed_files=changed_files,
         violations=combined,
-        adoption_paths=_manifest_adoption_paths(diff_files, config_path),
+        adoption_paths=_manifest_adoption_paths(diff_files, config_path, workspace),
         config_path=config_path,
+        workspace=workspace,
         evaluated_paths={
             item.path
             for item in diagnostics
@@ -352,6 +363,7 @@ def evaluate_agent_boundary(
     diagnostics = _sanitize_diagnostics(diagnostics)
 
     projected = _project_legacy(
+        verify_command=verify_command,
         legacy=legacy,
         violations=combined,
         diagnostics=diagnostics,
@@ -379,6 +391,7 @@ def evaluate_agent_boundary(
     )
     return AgentBoundaryAssessment(
         actor=actor,
+        verify_command=verify_command,
         input_mode=input_mode,
         scope="repository",
         input_coverage=input_coverage,
@@ -450,6 +463,10 @@ def assessment_for_scan_context(context) -> AgentBoundaryAssessment:
         diff_text=diff_text,
         trigger=verification.trigger_result,
         input_mode="provided_diff",
+        # Without this a custom-named manifest produced the protected-surface
+        # boundary finding under local `check` but not under full `verify`, so
+        # the two public surfaces published different evidence for one diff.
+        config_path=Path(context.config_path),
     )
     return context.agent_boundary
 
@@ -461,6 +478,7 @@ def _project_legacy(
     diagnostics: list[AgentResultDiagnostic],
     policy_set: _PolicySet,
     release_decision: dict[str, Any] | None,
+    verify_command: str | None = None,
 ) -> CodexBoundaryResultV2:
     needs_reprojection = violations != legacy.violated_rules or bool(policy_set.issues)
     if needs_reprojection:
@@ -471,6 +489,7 @@ def _project_legacy(
         summary = _boundary_summary(decision, violations)
         first_action = _next_action_for(decision, violations, repair)
         control = _control_for_result(
+            verify_command=verify_command,
             decision=decision,
             summary=summary,
             first_next_action=first_action,
@@ -560,15 +579,23 @@ def _agent_boundary_audit_id(
 ) -> str:
     """Identity of one audited evaluation.
 
-    The actor belongs in it. The result records which agent was evaluated, so
-    two runs differing only by actor are two audit rows, not one — and without
-    it, detecting the actor changed the label while leaving every Claude Code
-    and Cursor run indistinguishable from a codex run in the audit trail.
+    The actor belongs in it: the result records which agent was evaluated, so
+    two runs differing only by actor are two audit rows, not one — without it,
+    detecting the actor changed the label while leaving every Claude Code and
+    Cursor run indistinguishable from a codex run in the audit trail.
+
+    It is folded in only for a non-default actor. Every id issued before actor
+    detection existed was a codex run, and rotating those would break stored
+    references for a change that tells them nothing new.
     """
 
     payload = {
         "schema": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
-        "actor": actor,
+        # Added only for a non-default actor, so every id issued before actor
+        # detection existed keeps its value. Rotating established codex ids
+        # would break anyone who stored one, and the identity contract is not
+        # versioned separately from the schema.
+        **({"actor": actor} if actor != _LEGACY_AUDIT_ACTOR else {}),
         "changed_files": sorted(changed_files),
         "fingerprints": sorted(fingerprints),
         "policy_set_sha256": policy_digest,
@@ -763,7 +790,9 @@ def _boundary_summary(decision: str, violations: list[AgentResultViolatedRule]) 
 
 
 def _manifest_adoption_paths(
-    diff_files: list[DiffFile], config_path: Path | None = None
+    diff_files: list[DiffFile],
+    config_path: Path | None = None,
+    workspace: Path | None = None,
 ) -> frozenset[str]:
     """Paths where this diff *introduces* a Shipgate manifest.
 
@@ -787,7 +816,7 @@ def _manifest_adoption_paths(
         if candidate
         and (
             trust_root_class_for(candidate.replace("\\", "/")) == "manifest"
-            or is_configured_manifest(config_path, candidate)
+            or is_configured_manifest(config_path, candidate, workspace=workspace)
         )
     ]
     if len(records) != 1:
@@ -805,6 +834,7 @@ def _with_unclassified_protected_changes(
     evaluated_paths: set[str],
     adoption_paths: frozenset[str] = frozenset(),
     config_path: Path | None = None,
+    workspace: Path | None = None,
 ) -> list[AgentResultViolatedRule]:
     covered = {item.path for item in violations if item.path}
     additions: list[AgentResultViolatedRule] = []
@@ -819,7 +849,9 @@ def _with_unclassified_protected_changes(
                 # whatever it is called: a repository run with
                 # ``--config new-gate.yml`` otherwise got ``allow`` and no
                 # violations for a diff that rewrote its own gate.
-                or is_configured_manifest(config_path, normalized)
+                or is_configured_manifest(
+                    config_path, normalized, workspace=workspace
+                )
             )
         ):
             continue
@@ -835,7 +867,9 @@ def _with_unclassified_protected_changes(
         # gate-governing surface out of the graded route.
         configured_manifest = trust_root_class_for(
             normalized
-        ) is None and is_configured_manifest(config_path, normalized)
+        ) is None and is_configured_manifest(
+            config_path, normalized, workspace=workspace
+        )
         additions.append(
             AgentResultViolatedRule(
                 id=rule.id,
