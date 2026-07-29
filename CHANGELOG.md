@@ -9,7 +9,8 @@
   snapshot)", and — because a missing-manifest base was classified as a safe
   recovery — shipped no `fix_task` at all, so nothing named the act that would
   clear it. `verify` now proves adoption from git (the comparison base carries
-  no manifest under any name, so a *moved* manifest cannot pass itself off as a
+  no manifest under any name and no YAML that reads like one, so neither a
+  *moved* manifest nor a base that quietly keeps one can pass itself off as a
   first adoption) and says so: same check id, same `medium` severity, same
   `human_review_required` state, new evidence kind `manifest_introduced`, and a
   `fix_task` whose leading instruction is "review the generated shipgate.yaml
@@ -24,7 +25,15 @@
   substrate empty. With a clean scan that produced `passed` / `mergeable` /
   `complete` — beneath an adoption headline that said a human was required.
   Whatever a run loads as its gate is now classified as one, in both the
-  trust-root check and the policy fail-safe.
+  trust-root check and the policy fail-safe — and in `check` and `preflight`,
+  which classified it no better: a diff for a custom-named manifest returned
+  `allow` with no violations locally and no protected touch in preflight, and
+  both then recommended a verify command for the default `shipgate.yaml`. The
+  classification is recorded on the boundary row so a gate-governing surface
+  stays out of the graded agent route regardless of its name, and the evidence
+  carries the changed path rather than the resolved config path, which for a
+  committed-head run is a temporary archive location that would make two
+  identical runs produce different fingerprints.
 - **`check` detects which agent is running it.** `--agent` defaulted to `codex`
   and never consulted the harness variables Shipgate already reads to switch on
   agent mode, so every Claude Code and Cursor run recorded the wrong actor in
@@ -49,20 +58,44 @@
   an explicit `--no-base`), because a rerun that drops them evaluates a
   different question than the one whose findings it is meant to reproduce. The
   structured adoption repair now names the resolved config path instead of a
-  hardcoded `shipgate.yaml`.
+  hardcoded `shipgate.yaml`, and the command carries the resolved `--workspace`
+  and a non-default `--out`, so a rerun from another directory evaluates the
+  same checkout and writes to the same place. `check`'s recovery command is
+  rebuilt from the failing request with only the invalid field corrected —
+  a fixed command discarded actor, workspace, config, policy, and diff context
+  — and a request whose diff came from stdin gets a review action instead of a
+  command that cannot be replayed.
 - **Preflight recovery keeps the request it failed on.** Every preflight error
   recommended a bare `agents-shipgate preflight --json`, discarding workspace,
   config, plan, diff, and capability request: following it after a failed
   targeted run evaluated the current repository with an empty plan and returned
   `control.state=complete`. The recovery action now reproduces the actual
-  invocation, and offers no command at all when the request came from stdin and
-  cannot be reproduced.
+  invocation, and offers no command at all when the request came from stdin or
+  mixed `--plan` with the per-flag inputs — replaying a request-shape conflict
+  can never satisfy its own `expects`.
 - **Host-audit filesystem failures follow the catalog.** A `--baseline-file`
   naming a directory raised `IsADirectoryError` through typer as a traceback
   and exit 1. Filesystem failures on both `--baseline-file` and `--out` are now
   `other_error` with exit 4, as `docs/errors.json` specifies — they were
   briefly reported as `config_error`/2, which sends an agent back to re-read
-  flags that were fine.
+  flags that were fine. The baseline *reader* needed the same treatment through
+  its `__cause__`, since the loader converts every read `OSError` into
+  `ValueError`; a genuinely missing baseline keeps its documented
+  `config_error`/2 "record one first" contract.
+- **The audit id distinguishes the actor.** Detecting the calling agent changed
+  the label in the result but not the digest — the central one omitted the
+  actor and the legacy one hardcoded `codex` — so identical evaluations by
+  Claude Code, Cursor, and Codex shared an `audit_id`, which is exactly the
+  attribution problem actor detection exists to solve. A codex run's id is
+  unchanged; the committed boundary goldens are regenerated for the other two.
+- **Adoption wording stands down when something was genuinely weakened.**
+  Introducing the manifest while editing an existing policy file produced a
+  `base_snapshot_unavailable` finding under a headline saying there was no
+  prior gate to weaken, and dropped the `review_policy_weakening` repair. The
+  pure-adoption wording now requires that nothing else needing review changed.
+  The adoption proof itself also stopped resting on two basenames: a base that
+  simply keeps an operational manifest under another name deletes nothing and
+  matches no name check, so absence is now established by content.
 
 - **A way out of `insufficient_evidence` (#292).** An abstention was
   unactionable in practice: the decision engine generated the exact manifest

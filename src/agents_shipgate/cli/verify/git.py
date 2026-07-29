@@ -395,6 +395,45 @@ def paths_named_at_ref(
 _MANIFEST_SUFFIXES = (".yaml", ".yml")
 
 
+def carries_manifest_like_yaml(workspace: Path, ref: str) -> bool | None:
+    """Whether ``ref`` contains any YAML that looks like a Shipgate manifest.
+
+    A basename check cannot prove a base carries no gate: a manifest may be
+    called anything, so a base that keeps an operational ``old-gate.yml`` while
+    the head adds ``new-gate.yml`` passes every name test. This asks a content
+    question instead — any tracked YAML carrying the manifest's required
+    top-level keys. It over-matches by design: an unrelated YAML with
+    ``project:`` and ``agent:`` merely costs the adoption wording, which is the
+    safe direction.
+
+    ``None`` means the search could not run; callers must treat that as "cannot
+    prove", never as absence.
+    """
+
+    result = _run_git(
+        workspace,
+        [
+            "grep",
+            "--all-match",
+            "-l",
+            "-e",
+            "^project:",
+            "-e",
+            "^agent:",
+            ref,
+            "--",
+            "*.yaml",
+            "*.yml",
+        ],
+        check=False,
+    )
+    if result.returncode == 1:  # documented: nothing matched
+        return False
+    if result.returncode != 0:
+        return None
+    return bool(result.stdout.strip())
+
+
 def removes_a_yaml_file(workspace: Path, base: str | None, head: str) -> bool | None:
     """Whether the evaluated diff deletes or renames away any YAML file.
 

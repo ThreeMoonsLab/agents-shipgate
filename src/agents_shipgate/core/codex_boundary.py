@@ -605,6 +605,7 @@ def evaluate_codex_boundary_result(
     human_review = _human_review_for(decision, violations, repair)
     finding_fingerprints = [_violation_fingerprint(item) for item in violations]
     audit_id = _audit_id(
+        agent=agent,
         changed_files=changed_files,
         diff_files=diff_files,
         policy=policy,
@@ -712,7 +713,7 @@ def violations_within_agent_actionable_band(
             and item.evidence.get("kind") not in _PARSEABLE_EVIDENCE_KINDS
         ):
             return False
-        if _governs_the_gate(item.path):
+        if _governs_the_gate(item):
             return False
         if item.path and _touches_experimental_surface(item.path):
             # An experimental adapter's classification confidence is low —
@@ -727,12 +728,22 @@ def _touches_experimental_surface(path: str) -> bool:
     )
 
 
-def _governs_the_gate(path: str | None) -> bool:
-    """Whether a changed path is one of the gate's own governing trust roots."""
+def _governs_the_gate(item: AgentResultViolatedRule) -> bool:
+    """Whether a violation is about one of the gate's own governing trust roots.
 
-    if not path:
+    Reads the classification recorded on the row before falling back to the
+    path table. A manifest under a non-default name is a gate-governing surface
+    that no glob recognizes, and the classifier that *did* recognize it — the
+    one holding the resolved ``--config`` — records the class here rather than
+    threading the config path through every band call site.
+    """
+
+    recorded = (item.evidence or {}).get("trust_root_class")
+    if isinstance(recorded, str) and recorded in BAND_EXCLUDED_TRUST_ROOT_CLASSES:
+        return True
+    if not item.path:
         return False
-    return trust_root_class_for(path) in BAND_EXCLUDED_TRUST_ROOT_CLASSES
+    return trust_root_class_for(item.path) in BAND_EXCLUDED_TRUST_ROOT_CLASSES
 
 
 def _pending_review_for(
@@ -2060,6 +2071,7 @@ def _trace_for(
 
 def _audit_id(
     *,
+    agent: str,
     changed_files: list[str],
     diff_files: list[DiffFile],
     policy: CodexBoundaryPolicy,
@@ -2068,7 +2080,12 @@ def _audit_id(
 ) -> str:
     payload = {
         "schema_version": CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
-        "agent": "codex",
+        # The evaluating agent is part of the audited identity: the result
+        # records it, and two runs that differ only by actor are two different
+        # audit rows. Hardcoding "codex" made them collide, which is precisely
+        # the attribution problem actor detection exists to fix. A codex run's
+        # id is unchanged.
+        "agent": agent,
         "changed_files": changed_files,
         "diff": [
             {

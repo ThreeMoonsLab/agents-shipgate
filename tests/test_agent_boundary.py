@@ -785,3 +785,49 @@ def test_composite_manifest_diff_never_reads_as_an_adoption(tmp_path: Path) -> N
         row.evidence.get("kind") != "manifest_introduced"
         for row in result.violated_rules
     )
+
+
+def test_a_custom_named_manifest_is_protected_by_check(tmp_path: Path) -> None:
+    """`check` classified only `**/shipgate.yaml`.
+
+    A repository run with `--config new-gate.yml` got `allow` with no
+    violations for a diff that rewrote its own gate.
+    """
+
+    target = tmp_path / "new-gate.yml"
+    target.write_text(_MANIFEST, encoding="utf-8")
+    result = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=_change_diff("new-gate.yml", _MANIFEST, _MANIFEST + "ci:\n  mode: advisory\n"),
+        config=Path("new-gate.yml"),
+        policy=None,
+        input_mode="worktree",
+    )
+
+    rows = [item for item in result.violated_rules if item.path == "new-gate.yml"]
+    assert rows, result.violated_rules
+    assert rows[0].evidence.get("trust_root_class") == "manifest"
+    # A gate-governing surface must not ride the graded agent route.
+    assert result.decision == "require_review"
+    assert result.control.state == "human_review_required"
+    assert result.control.must_stop is True
+
+
+def test_the_default_manifest_keeps_its_classification(tmp_path: Path) -> None:
+    """The configured-manifest path must not shadow the table's own class."""
+
+    target = tmp_path / "shipgate.yaml"
+    target.write_text(_MANIFEST, encoding="utf-8")
+    result = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=_change_diff("shipgate.yaml", _MANIFEST, _MANIFEST + "ci:\n  mode: advisory\n"),
+        config=Path("shipgate.yaml"),
+        policy=None,
+        input_mode="worktree",
+    )
+
+    rows = [item for item in result.violated_rules if item.path == "shipgate.yaml"]
+    assert rows
+    assert result.control.state == "human_review_required"

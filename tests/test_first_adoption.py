@@ -212,9 +212,11 @@ def _review(*, policy_weakened=False, trust_root_touched=False):
 
 
 def test_adoption_headline_replaces_the_weakening_claim():
-    review = _review(policy_weakened=True, trust_root_touched=True)
+    review = _review(trust_root_touched=True)
     adopting = _self_approval_note(review, manifest_introduced=True)
-    modifying = _self_approval_note(review, manifest_introduced=False)
+    modifying = _self_approval_note(
+        _review(policy_weakened=True), manifest_introduced=False
+    )
 
     assert adopting is not None and modifying is not None
     assert "introduces Agents Shipgate" in adopting
@@ -239,6 +241,22 @@ def test_adoption_raises_the_prohibition_on_its_own():
         _review(policy_weakened=True, trust_root_touched=True),
     ):
         assert _self_approval_note(review, manifest_introduced=True) is not None
+
+
+def test_a_weakened_policy_beats_the_adoption_wording():
+    """Introducing the manifest while weakening an existing policy file.
+
+    "There is no prior gate this change could weaken" would describe away the
+    very finding that needs review.
+    """
+
+    mixed = _self_approval_note(
+        _review(policy_weakened=True, trust_root_touched=True),
+        manifest_introduced=True,
+    )
+    assert mixed is not None
+    assert "weakens the release policy" in mixed
+    assert "introduces Agents Shipgate" not in mixed
 
 
 def test_non_adoption_wording_is_unchanged():
@@ -278,10 +296,10 @@ def test_adoption_reports_no_policy_weakening_to_machine_consumers(tmp_path):
 # --- end to end --------------------------------------------------------------
 
 
-def _run_verify(repo: Path, *, base: str | None, head: str):
+def _run_verify(repo: Path, *, base: str | None, head: str, config: Path | None = None):
     verifier, _report, _exit = run_verify(
         workspace=repo,
-        config=SAMPLE_CONFIG,
+        config=config or SAMPLE_CONFIG,
         base=base,
         head=head,
         archive_head=True,
@@ -505,3 +523,74 @@ def test_the_rerun_command_repeats_the_whole_request(tmp_path):
     assert "--no-heuristics" in command
     assert "--no-plugins" in command
     assert f"--config {SAMPLE_CONFIG.as_posix()}" in command
+
+
+def test_custom_manifest_evidence_is_deterministic(tmp_path):
+    """Evidence is hashed into the fingerprint, so it cannot carry a temp path.
+
+    A committed-head run loads its manifest from a freshly named
+    `agents-shipgate-verify-head-*` archive; returning that resolved path made
+    two identical runs produce different fingerprints and report run ids.
+    """
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    _git(
+        repo,
+        "mv",
+        "samples/support_refund_agent/shipgate.yaml",
+        "samples/support_refund_agent/new-gate.yml",
+    )
+    _git(repo, "commit", "-m", "custom manifest name")
+
+    config = Path("samples/support_refund_agent/new-gate.yml")
+    first = _run_verify(repo, base="HEAD~1", head="HEAD", config=config)
+    second = _run_verify(repo, base="HEAD~1", head="HEAD", config=config)
+
+    payloads = [
+        json.loads((repo / "agents-shipgate-reports" / "report.json").read_text("utf-8"))
+    ]
+    assert first.request_id == second.request_id
+    evidence = [
+        finding["evidence"]
+        for finding in payloads[0]["findings"]
+        if finding["check_id"] == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
+    ]
+    assert evidence, payloads[0]["findings"]
+    for item in evidence:
+        assert "agents-shipgate-verify-head-" not in json.dumps(item)
+
+
+def test_a_base_that_keeps_another_manifest_is_not_an_adoption(tmp_path):
+    """Absence has to be established, not inferred from two basenames.
+
+    A base that retains an operational `old-gate.yml` deletes nothing and
+    matches no name check, so only a content probe separates it from a genuine
+    first adoption.
+    """
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    sample = repo / "samples" / "support_refund_agent"
+    _git(
+        repo,
+        "mv",
+        "samples/support_refund_agent/shipgate.yaml",
+        "samples/support_refund_agent/old-gate.yml",
+    )
+    _git(repo, "commit", "-m", "base keeps a custom manifest")
+    (sample / "new-gate.yml").write_text(
+        (sample / "old-gate.yml").read_text("utf-8"), encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "add a second manifest without removing the first")
+
+    assert (
+        _manifest_introduced(
+            git_root=repo,
+            config_relative=Path("samples/support_refund_agent/new-gate.yml"),
+            base_status="missing_manifest",
+            base="HEAD~1",
+            head="HEAD",
+            changed_files=["samples/support_refund_agent/new-gate.yml"],
+        )
+        is False
+    )

@@ -81,7 +81,12 @@ def _configured_manifest(context: ScanContext, path: str) -> tuple[str, str] | N
     config = getattr(context, "config_path", None)
     if not is_configured_manifest(config, path):
         return None
-    return "manifest", str(config).replace("\\", "/")
+    # Deliberately the changed path, not ``config_path``: a committed-head run
+    # loads its manifest from a freshly named ``agents-shipgate-verify-head-*``
+    # archive, and this value lands in finding evidence, which is hashed into
+    # the fingerprint. Returning the resolved config path made two identical
+    # runs produce different fingerprints and report run ids.
+    return "manifest", path
 
 
 def _finding(

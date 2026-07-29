@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from agents_shipgate.core.lenses.effective_policy import (
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
+from agents_shipgate.core.trust_roots import is_configured_manifest
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -128,6 +130,35 @@ _TRUST_ROOT_WALK_SKIP_DIRS = frozenset(
 _VERIFY_COMMAND = (
     "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
 )
+
+
+def _verify_command(workspace: Path | None, config: Path | None) -> str:
+    """The verify invocation for *this* preflight's target.
+
+    The constant above names the default workspace and manifest, so a preflight
+    run against a non-default manifest handed the reader a command pointing at
+    a different gate — or at no gate at all.
+
+    Both values are echoed exactly as the caller spelled them, not resolved: a
+    resolved absolute path would be correct and useless, embedding one
+    machine's checkout location in an artifact meant to be read anywhere.
+    """
+
+    if workspace is None or config is None:
+        return _VERIFY_COMMAND
+    return " ".join(
+        [
+            "agents-shipgate",
+            "verify",
+            "--workspace",
+            shlex.quote(workspace.as_posix()),
+            "--config",
+            shlex.quote(config.as_posix()),
+            "--ci-mode",
+            "advisory",
+            "--json",
+        ]
+    )
 _SIGNAL_KIND_RANK = {
     "protected_surface_touch": 0,
     "host_grant_drift": 1,
@@ -265,7 +296,8 @@ def build_preflight_result(
         )
         for node in graph.nodes
     ]
-    touches = classify_protected_touches(changed)
+    verify_command = _verify_command(workspace, config)
+    touches = classify_protected_touches(changed, config_path)
     touches = _classify_proposal_safe_manifest_touch(
         workspace=root,
         config_path=config_path,
@@ -304,10 +336,12 @@ def build_preflight_result(
         [
             *signals_for_protected_touches(touches),
             *signals_for_host_grant_drift(host_grant_drift),
-            *signals_for_capability_requests(requests),
+            *signals_for_capability_requests(requests, verify_command),
             *least_privilege_signals(requests),
             *signals_for_host_permission_requests(host_requests),
-            *signals_for_policy_drift(policy_drift, trust_root_graph_diff),
+            *signals_for_policy_drift(
+                policy_drift, trust_root_graph_diff, verify_command
+            ),
         ]
     )
     requires_human_review = requires_human_review or any(
@@ -315,11 +349,11 @@ def build_preflight_result(
     )
     requires_verify = bool(changed or requests or host_requests)
     if requires_verify and not any(signal.kind == "verify_required" for signal in signals):
-        signals = _sorted_signals([*signals, _verify_required_signal()])
+        signals = _sorted_signals([*signals, _verify_required_signal(verify_command)])
 
-    first_next_action = _first_next_action(signals=signals)
+    first_next_action = _first_next_action(signals=signals, verify_command=verify_command)
     allowed_next_commands = (
-        [_VERIFY_COMMAND]
+        [verify_command]
         if first_next_action.actor == "coding_agent" and first_next_action.kind == "verify"
         else []
     )
@@ -349,7 +383,7 @@ def build_preflight_result(
         notes=notes,
         signals=signals,
         requires_verify=requires_verify,
-        verification_command=_VERIFY_COMMAND if requires_verify else None,
+        verification_command=verify_command if requires_verify else None,
         allowed_next_commands=allowed_next_commands,
         plan_summary=_plan_summary(
             changed=changed,
@@ -388,7 +422,16 @@ def build_trust_root_graph(workspace: Path) -> TrustRootGraphV1:
 
 def classify_protected_touches(
     changed_files: list[str],
+    config_path: Path | None = None,
 ) -> list[PreflightProtectedSurfaceTouch]:
+    """Classify changed paths against the protected-surface catalog.
+
+    ``config_path`` covers the manifest this run was pointed at. The catalog
+    only patterns ``**/shipgate.yaml``, so a repository run with
+    ``--config new-gate.yml`` reported no protected touch and
+    ``requires_human_review=false`` for a diff that rewrote its own gate.
+    """
+
     touches: list[PreflightProtectedSurfaceTouch] = []
     seen: set[str] = set()
     for raw in changed_files:
@@ -396,7 +439,7 @@ def classify_protected_touches(
         if not path or path in seen:
             continue
         seen.add(path)
-        spec = _classify(path)
+        spec = _classify(path) or _configured_manifest_spec(config_path, path)
         if spec is None:
             continue
         touches.append(
@@ -605,6 +648,7 @@ def _classify_proposal_safe_manifest_touch(
 
 def signals_for_capability_requests(
     requests: list[CapabilityRequestV1],
+    verify_command: str = _VERIFY_COMMAND,
 ) -> list[PreflightSignalV1]:
     signals: list[PreflightSignalV1] = []
     for request in requests:
@@ -628,7 +672,7 @@ def signals_for_capability_requests(
                         "A coding agent must not invent approval, ownership, "
                         "idempotency, audit, confirmation, runbook, or rollback evidence."
                     ),
-                    related_command="agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json",
+                    related_command=verify_command,
                 )
             )
     return signals
@@ -727,6 +771,7 @@ def signals_for_host_permission_requests(
 def signals_for_policy_drift(
     policy_drift: PreflightDriftSummary | None,
     trust_root_graph_diff: PreflightDriftSummary | None,
+    verify_command: str = _VERIFY_COMMAND,
 ) -> list[PreflightSignalV1]:
     signals: list[PreflightSignalV1] = []
     if policy_drift is not None and policy_drift.changed:
@@ -740,7 +785,7 @@ def signals_for_policy_drift(
                 path="shipgate.yaml",
                 reason="Effective release policy hash differs from the supplied base preflight.",
                 recommendation="Have a human review the policy change; preflight cannot prove it is a safe strengthening.",
-                related_command="agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json",
+                related_command=verify_command,
             )
         )
     if trust_root_graph_diff is not None and trust_root_graph_diff.changed:
@@ -754,7 +799,7 @@ def signals_for_policy_drift(
                 path=None,
                 reason="Trust-root graph differs from the supplied base preflight.",
                 recommendation="Have a human review added, removed, or modified trust roots before relying on this change.",
-                related_command="agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json",
+                related_command=verify_command,
             )
         )
     return signals
@@ -837,6 +882,25 @@ def _classify(path: str) -> ProtectedSurfaceSpec | None:
         if glob_match(spec.pattern, path):
             return spec
     return None
+
+
+def _configured_manifest_spec(
+    config_path: Path | None, path: str
+) -> ProtectedSurfaceSpec | None:
+    """The manifest this run loaded, classified as one whatever it is called.
+
+    ``pattern`` is the changed path rather than the resolved config path: it
+    lands in the preflight artifact, and an absolute path would vary by
+    checkout location.
+    """
+
+    if not is_configured_manifest(config_path, path):
+        return None
+    return ProtectedSurfaceSpec(
+        kind="manifest",
+        pattern=path,
+        scope_type=_scope_type_for_kind("manifest"),
+    )
 
 
 def _normalize_changed_files(paths: list[str]) -> list[str]:
@@ -1106,7 +1170,7 @@ def _sorted_signals(signals: list[PreflightSignalV1]) -> list[PreflightSignalV1]
     )
 
 
-def _verify_required_signal() -> PreflightSignalV1:
+def _verify_required_signal(verify_command: str = _VERIFY_COMMAND) -> PreflightSignalV1:
     return PreflightSignalV1(
         id="verify_required:diff",
         kind="verify_required",
@@ -1116,7 +1180,7 @@ def _verify_required_signal() -> PreflightSignalV1:
         path=None,
         reason="The plan includes files, capability requests, or host permission requests that require deterministic verification before completion.",
         recommendation="Run the verifier and read verifier.json plus report.json.release_decision.decision before reporting the work complete.",
-        related_command=_VERIFY_COMMAND,
+        related_command=verify_command,
     )
 
 
@@ -1209,6 +1273,7 @@ def _graph_drift(
 def _first_next_action(
     *,
     signals: list[PreflightSignalV1],
+    verify_command: str = _VERIFY_COMMAND,
 ) -> PreflightNextAction:
     human_signals = [signal for signal in signals if signal.actor == "human"]
     if human_signals:
@@ -1228,7 +1293,7 @@ def _first_next_action(
         return PreflightNextAction(
             actor="coding_agent",
             kind="verify",
-            command=_VERIFY_COMMAND,
+            command=verify_command,
             why=verify_signal.reason,
         )
     return PreflightNextAction(

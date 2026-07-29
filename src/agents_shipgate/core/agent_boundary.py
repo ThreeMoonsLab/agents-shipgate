@@ -58,7 +58,10 @@ from agents_shipgate.core.host_grants import (
     HostBoundarySnapshot,
     build_host_boundary_snapshot,
 )
-from agents_shipgate.core.trust_roots import trust_root_class_for
+from agents_shipgate.core.trust_roots import (
+    is_configured_manifest,
+    trust_root_class_for,
+)
 from agents_shipgate.schemas.agent_boundary import (
     AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
     AgentBoundaryResultV1,
@@ -164,6 +167,7 @@ def evaluate_agent_boundary(
     input_mode: Literal["worktree", "git_range", "provided_diff"] = "provided_diff",
     input_issues: list[BoundaryInputIssue] | None = None,
     host_snapshot: HostBoundarySnapshot | None = None,
+    config_path: Path | None = None,
 ) -> AgentBoundaryAssessment:
     workspace = workspace.resolve()
     host_snapshot = host_snapshot or build_host_boundary_snapshot(
@@ -176,7 +180,12 @@ def evaluate_agent_boundary(
             path
             for item in diff_files
             for path in (item.path, item.old_path)
-            if path and (path == item.path or is_agent_boundary_path(path))
+            if path
+            and (
+                path == item.path
+                or is_agent_boundary_path(path)
+                or is_configured_manifest(config_path, path)
+            )
         }
     )
     input_issues = [
@@ -232,7 +241,8 @@ def evaluate_agent_boundary(
     combined = _with_unclassified_protected_changes(
         changed_files=changed_files,
         violations=combined,
-        adoption_paths=_manifest_adoption_paths(diff_files),
+        adoption_paths=_manifest_adoption_paths(diff_files, config_path),
+        config_path=config_path,
         evaluated_paths={
             item.path
             for item in diagnostics
@@ -499,6 +509,7 @@ def _project_legacy(
         ),
     )
     audit_id = _agent_boundary_audit_id(
+        actor=legacy.agent,
         changed_files=legacy.changed_files,
         fingerprints=fingerprints,
         policy_digest=policy_set.digest,
@@ -542,12 +553,22 @@ def _project_legacy(
 
 def _agent_boundary_audit_id(
     *,
+    actor: str,
     changed_files: list[str],
     fingerprints: list[str],
     policy_digest: str,
 ) -> str:
+    """Identity of one audited evaluation.
+
+    The actor belongs in it. The result records which agent was evaluated, so
+    two runs differing only by actor are two audit rows, not one — and without
+    it, detecting the actor changed the label while leaving every Claude Code
+    and Cursor run indistinguishable from a codex run in the audit trail.
+    """
+
     payload = {
         "schema": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        "actor": actor,
         "changed_files": sorted(changed_files),
         "fingerprints": sorted(fingerprints),
         "policy_set_sha256": policy_digest,
@@ -741,7 +762,9 @@ def _boundary_summary(decision: str, violations: list[AgentResultViolatedRule]) 
     return f"{len(violations)} coding-agent boundary change(s) block local continuation."
 
 
-def _manifest_adoption_paths(diff_files: list[DiffFile]) -> frozenset[str]:
+def _manifest_adoption_paths(
+    diff_files: list[DiffFile], config_path: Path | None = None
+) -> frozenset[str]:
     """Paths where this diff *introduces* a Shipgate manifest.
 
     "Adopting the gate" and "changing the gate" deserve different words, and a
@@ -761,7 +784,11 @@ def _manifest_adoption_paths(diff_files: list[DiffFile]) -> frozenset[str]:
         item
         for item in diff_files
         for candidate in (item.new_path, item.old_path)
-        if candidate and trust_root_class_for(candidate.replace("\\", "/")) == "manifest"
+        if candidate
+        and (
+            trust_root_class_for(candidate.replace("\\", "/")) == "manifest"
+            or is_configured_manifest(config_path, candidate)
+        )
     ]
     if len(records) != 1:
         return frozenset()
@@ -777,6 +804,7 @@ def _with_unclassified_protected_changes(
     violations: list[AgentResultViolatedRule],
     evaluated_paths: set[str],
     adoption_paths: frozenset[str] = frozenset(),
+    config_path: Path | None = None,
 ) -> list[AgentResultViolatedRule]:
     covered = {item.path for item in violations if item.path}
     additions: list[AgentResultViolatedRule] = []
@@ -785,7 +813,14 @@ def _with_unclassified_protected_changes(
         if (
             normalized in covered
             or normalized in evaluated_paths
-            or not is_agent_boundary_path(normalized)
+            or not (
+                is_agent_boundary_path(normalized)
+                # The manifest this invocation loaded is a protected surface
+                # whatever it is called: a repository run with
+                # ``--config new-gate.yml`` otherwise got ``allow`` and no
+                # violations for a diff that rewrote its own gate.
+                or is_configured_manifest(config_path, normalized)
+            )
         ):
             continue
         kind = (
@@ -795,6 +830,12 @@ def _with_unclassified_protected_changes(
         )
         rule = _GENERIC_RULES[kind]
         adopting = normalized in adoption_paths
+        # Recorded only for a manifest the path table cannot see, so existing
+        # rows keep their fingerprints. The band predicate reads it to keep a
+        # gate-governing surface out of the graded route.
+        configured_manifest = trust_root_class_for(
+            normalized
+        ) is None and is_configured_manifest(config_path, normalized)
         additions.append(
             AgentResultViolatedRule(
                 id=rule.id,
@@ -814,7 +855,8 @@ def _with_unclassified_protected_changes(
                         else "static_requirements_changed"
                         if kind == "STATIC-REQUIREMENTS-CHANGED"
                         else "protected_surface_unclassified"
-                    )
+                    ),
+                    **({"trust_root_class": "manifest"} if configured_manifest else {}),
                 },
                 recommendation=(
                     "Review the generated shipgate.yaml and merge the adoption "

@@ -137,7 +137,14 @@ def preflight(
 ) -> None:
     """Run the proactive static preflight contract for coding agents."""
 
-    rerun = _rerun_command(
+    # A plan combined with the per-flag inputs is a request-shape conflict:
+    # replaying it verbatim can never satisfy its own ``expects``. Offer a
+    # review action instead of a command that reproduces the mistake.
+    conflicting_request = plan is not None and any(
+        value is not None
+        for value in (changed_files, diff, capability_request, base_preflight)
+    )
+    rerun = None if conflicting_request else _rerun_command(
         workspace=workspace,
         config=config,
         changed_files=changed_files,

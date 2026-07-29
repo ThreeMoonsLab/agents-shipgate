@@ -87,6 +87,7 @@ from .fix_task import FORBIDDEN_SHORTCUTS, build_fix_task
 from .git import (
     active_replace_refs,
     archive_tree,
+    carries_manifest_like_yaml,
     commit_date,
     commit_sha,
     detect_default_base_with_notes,
@@ -154,6 +155,8 @@ def run_verify(
 
     rerun_options = _rerun_options(
         git_root=git_root,
+        out_dir=out_dir,
+        pr_comment_style=pr_comment_style,
         base=base,
         auto_base=auto_base,
         ci_mode=ci_mode,
@@ -958,6 +961,8 @@ _MANIFEST_FILE_NAMES = frozenset({"shipgate.yaml"})
 def _rerun_options(
     *,
     git_root: Path,
+    out_dir: Path,
+    pr_comment_style: str,
     base: str | None,
     auto_base: bool,
     ci_mode: str | None,
@@ -983,6 +988,15 @@ def _rerun_options(
     """
 
     options: list[str] = []
+    # The workspace is unconditional: run from anywhere else and a bare command
+    # either fails or evaluates a different checkout.
+    options.extend(["--workspace", shlex.quote(str(git_root))])
+    if out_dir.resolve() != (git_root / DEFAULT_OUT_DIR).resolve():
+        # A non-default artifact directory has to be repeated, or the rerun
+        # writes elsewhere and leaves the requested one stale.
+        options.extend(["--out", shlex.quote(_display_path(out_dir, git_root))])
+    if pr_comment_style and pr_comment_style != "capability-review":
+        options.extend(["--pr-comment-style", shlex.quote(pr_comment_style)])
     if base is None and not auto_base:
         options.append("--no-base")
     if ci_mode:
@@ -1033,12 +1047,14 @@ def _manifest_introduced(
     while loosening it — also finds nothing at the configured path on the base,
     and would otherwise get to call itself a first adoption.
 
-    Two independent checks close that, because a name check alone cannot: a
-    repository may call its manifest anything, so ``old-gate.yml`` renamed to
-    ``new-gate.yml`` passes any name test. The base must carry no manifest
-    under the configured or default name, *and* the evaluated diff must not
-    delete or rename away any YAML file. Both are fail-closed: a git command
-    that cannot answer means "not an adoption", never "proven absent".
+    Three independent checks close that, because a name check alone cannot: a
+    repository may call its manifest anything, so both ``old-gate.yml`` renamed
+    to ``new-gate.yml`` and a base that simply *keeps* ``old-gate.yml`` pass
+    every name test. The base must carry no manifest under the configured or
+    default name, no tracked YAML that reads like a manifest at all, *and* the
+    evaluated diff must not delete or rename away any YAML file. All three are
+    fail-closed: a git command that cannot answer means "not an adoption",
+    never "proven absent".
 
     Unknown bases (``ref_missing``, ``archive_failed``) are never treated as
     adoptions: absence of evidence is not evidence of absence.
@@ -1066,6 +1082,11 @@ def _manifest_introduced(
     names = _MANIFEST_FILE_NAMES | {config_relative.name}
     existing = paths_named_at_ref(git_root, ref, frozenset(names))
     if existing is None or existing:
+        return False
+    # A name check cannot see a manifest called something else, so ask what the
+    # base actually contains. Both probes fail closed on an unreadable answer.
+    manifest_like = carries_manifest_like_yaml(git_root, ref)
+    if manifest_like is not False:
         return False
     removed = removes_a_yaml_file(
         git_root, base if base_status == "missing_manifest" else None, head
@@ -1133,14 +1154,17 @@ def _self_approval_note(
     coding agent cannot adopt a release policy on the repository's behalf), but
     a PR that adds the manifest to a base that had none weakens nothing, and
     saying it does is both wrong and the first thing every new adopter reads.
-    An adoption is its own case and must not depend on ``policy_weakened``:
-    that flag is now false during an adoption, because it answers "was the gate
-    weakened" for the registry, attestations, and the gate-bypass alarm. Firing
-    on ``manifest_introduced`` alone is what keeps every caller that reads this
-    as "a trust root is in play" — ``_can_merge_without_human`` above all —
-    fail-closed regardless of the other two flags.
+    An adoption fires on ``manifest_introduced`` rather than on
+    ``policy_weakened``, which is honestly false during an adoption — that
+    keeps every caller reading this as "a trust root is in play" fail-closed.
+    But a diff that introduces the manifest *and* weakens an existing policy
+    file is not a pure adoption: ``policy_weakened`` is then true, and saying
+    "there is no prior gate this change could weaken" would describe away the
+    very finding that needs review. The weakening wording wins.
     """
-    if manifest_introduced:
+    if manifest_introduced and not (
+        capability_review is not None and capability_review.policy_weakened
+    ):
         return (
             "This PR introduces Agents Shipgate to this repository: the base "
             "carries no manifest, so there is no prior gate this change could "

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import shlex
 import sys
 from pathlib import Path
 
@@ -135,8 +136,12 @@ def test_preflight_allows_exact_append_only_builtin_source_proposal(
     assert result.control.state == "agent_action_required"
     assert result.control.must_stop is False
     assert result.control.next_action.kind == "verify"
+    # The command echoes the request as it was made, so a run against another
+    # checkout or a non-default manifest does not hand the reader a command
+    # pointing at a different gate.
     assert result.control.allowed_next_commands == [
-        "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
+        f"agents-shipgate verify --workspace {shlex.quote(str(root))} "
+        "--config shipgate.yaml --ci-mode advisory --json"
     ]
     signal = next(item for item in result.signals if item.kind == "protected_surface_touch")
     assert signal.actor == "coding_agent"
@@ -678,7 +683,8 @@ def test_cli_preflight_plan_stdin_routes_clean_docs_to_verify(tmp_path: Path) ->
     assert payload["requires_human_review"] is False
     assert payload["first_next_action"]["kind"] == "verify"
     assert payload["allowed_next_commands"] == [
-        "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
+        f"agents-shipgate verify --workspace {shlex.quote(str(root))} "
+        "--config shipgate.yaml --ci-mode advisory --json"
     ]
     assert payload["control"]["state"] == "agent_action_required"
     assert payload["control"]["completion_allowed"] is False

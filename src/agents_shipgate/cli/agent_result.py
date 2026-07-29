@@ -15,6 +15,7 @@ from agents_shipgate.core.boundary_diff import BoundaryChangeSet, BoundaryInputI
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.codex_boundary import parse_unified_diff
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.trust_roots import is_configured_manifest
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
 from agents_shipgate.schemas.agent_result import AgentResultV2
@@ -114,6 +115,7 @@ def _assessment_for_diff(
         ),
         input_mode=input_mode,  # type: ignore[arg-type]
         input_issues=input_issues,
+        config_path=config_path,
     )
 
 
@@ -303,7 +305,16 @@ def git_boundary_change_set(
     workspace: Path,
     base: str | None,
     head: str | None,
+    config_path: Path | None = None,
 ) -> BoundaryChangeSet:
+    """Collect the diff ``check`` evaluates.
+
+    ``config_path`` is threaded so an untracked manifest under a non-default
+    name reaches the evaluator at all: the untracked-content filter below only
+    admits recognized boundary or capability paths, so a repository run with
+    ``--config new-gate.yml`` produced an empty change set and ``allow``.
+    """
+
     workspace = workspace.resolve()
     if bool(base) != bool(head):
         raise RuntimeError(
@@ -324,6 +335,7 @@ def git_boundary_change_set(
             workspace=workspace,
             changed_paths=changed_paths,
             diff_text=diff_text,
+            config_path=config_path,
         )
     return BoundaryChangeSet(
         mode="git_range" if revspec else "worktree",
@@ -354,13 +366,14 @@ def _append_untracked_diffs(
     workspace: Path,
     changed_paths: list[str],
     diff_text: str,
+    config_path: Path | None = None,
 ) -> tuple[str, list[BoundaryInputIssue]]:
     represented = {item.path for item in parse_unified_diff(diff_text) if item.path}
     appended: list[str] = []
     issues: list[BoundaryInputIssue] = []
     consumed = 0
     for path in sorted(set(changed_paths) - represented):
-        if not _potential_boundary_or_capability_path(path):
+        if not _potential_boundary_or_capability_path(path, config_path):
             continue
         candidate = workspace / path
         text: str | None = None
@@ -397,7 +410,7 @@ def _append_untracked_diffs(
             appended.append(_new_file_diff(path, ""))
             continue
         assert text is not None
-        if not _is_relevant_untracked(path, text):
+        if not _is_relevant_untracked(path, text, config_path):
             continue
         appended.append(_new_file_diff(path, text))
     if not appended:
@@ -438,8 +451,10 @@ def _new_file_diff(path: str, text: str) -> str:
     )
 
 
-def _potential_boundary_or_capability_path(path: str) -> bool:
-    if is_agent_boundary_path(path):
+def _potential_boundary_or_capability_path(
+    path: str, config_path: Path | None = None
+) -> bool:
+    if is_agent_boundary_path(path) or is_configured_manifest(config_path, path):
         return True
     result = evaluate_trigger(
         paths=[path],
@@ -450,8 +465,10 @@ def _potential_boundary_or_capability_path(path: str) -> bool:
     return result_has_surface_class(result, SURFACE_CLASS_CAPABILITY) or path.endswith(".py")
 
 
-def _is_relevant_untracked(path: str, text: str) -> bool:
-    if is_agent_boundary_path(path):
+def _is_relevant_untracked(
+    path: str, text: str, config_path: Path | None = None
+) -> bool:
+    if is_agent_boundary_path(path) or is_configured_manifest(config_path, path):
         return True
     result = evaluate_trigger(
         paths=[path],

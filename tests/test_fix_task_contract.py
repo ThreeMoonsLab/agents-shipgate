@@ -750,7 +750,7 @@ def test_first_adoption_replaces_the_weakening_wording() -> None:
     task = build_fix_task(
         _trust_root_report(),
         merge_verdict="human_review_required",
-        capability_review=_review(policy_weakened=True, trust_root_touched=True),
+        capability_review=_review(trust_root_touched=True),
         base_ref="origin/main",
         head_ref="HEAD",
         manifest_introduced=True,
@@ -765,6 +765,25 @@ def test_first_adoption_replaces_the_weakening_wording() -> None:
     repair_ids = {r.id for r in task.allowed_repairs}
     assert "adopt_shipgate_manifest" in repair_ids
     assert not {"review_policy_weakening", "review_trust_root"} & repair_ids
+
+
+def test_an_adoption_that_also_weakens_policy_keeps_the_weakening_repair() -> None:
+    """`review_policy_weakening` must not vanish behind adoption wording."""
+
+    task = build_fix_task(
+        _trust_root_report(),
+        merge_verdict="human_review_required",
+        capability_review=_review(policy_weakened=True, trust_root_touched=True),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=True,
+    )
+
+    assert task is not None
+    joined = " ".join(task.instructions)
+    assert "cannot self-approve" in joined
+    assert "nothing existing was weakened" not in joined
+    assert "review_policy_weakening" in {r.id for r in task.allowed_repairs}
 
 
 def test_adoption_escalates_without_borrowing_another_flag() -> None:

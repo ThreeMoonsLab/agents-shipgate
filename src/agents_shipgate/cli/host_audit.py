@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 
 import typer
@@ -213,20 +214,35 @@ def audit(
     if drift:
         try:
             baseline = load_host_grants_baseline(resolved_baseline)
-        except OSError as exc:
-            raise _io_error(
-                f"Could not read the host-grants baseline {baseline_file}: {exc}",
-                next_action=(
-                    "Point --baseline-file at a readable baseline file, then "
-                    "re-run the audit."
-                ),
-            ) from exc
         except ValueError as exc:
+            # The loader converts every read OSError into ValueError, so the
+            # I/O cause has to be recovered from __cause__ — otherwise a
+            # directory passed as --baseline-file is reported as flag misuse
+            # and the recovery drops the drift request entirely.
+            # A *missing* baseline is the documented "record one first" case
+            # and keeps its config_error/2 contract; only a path that exists
+            # and cannot be read is a filesystem failure.
+            if isinstance(exc.__cause__, OSError) and not isinstance(
+                exc.__cause__, FileNotFoundError
+            ):
+                raise _io_error(
+                    f"Could not read the host-grants baseline {baseline_file}: "
+                    f"{exc.__cause__}",
+                    next_action=(
+                        "Point --baseline-file at a readable baseline file, "
+                        "then re-run the audit."
+                    ),
+                ) from exc
             raise _config_error(
                 str(exc),
                 next_action=(
                     "Record a baseline with `agents-shipgate audit --host "
                     "--save-baseline`, or point --baseline-file at a valid one."
+                ),
+                command=(
+                    "agents-shipgate audit --host --workspace "
+                    f"{shlex.quote(str(workspace))} --save-baseline "
+                    f"--baseline-file {shlex.quote(str(baseline_file))}"
                 ),
             ) from exc
         payload = build_host_drift_payload(

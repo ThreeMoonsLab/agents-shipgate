@@ -1,155 +1,155 @@
 {
-    "schema_version": "shipgate.codex_boundary_result/v2",
-    "agent": "codex",
-    "tool": {
-        "name": "agents-shipgate",
-        "version": "0.16.0b7"
+  "schema_version": "shipgate.codex_boundary_result/v2",
+  "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.16.0b7"
+  },
+  "subject": {
+    "agent": "codex"
+  },
+  "decision": "block",
+  "risk_level": "critical",
+  "audit_id": "agent_boundary_8ab0716dccde23cdcf3bbc69",
+  "policy_version": "1",
+  "summary": "1 coding-agent boundary change(s) block local continuation.",
+  "changed_files": [
+    ".codex/config.toml"
+  ],
+  "control": {
+    "state": "human_review_required",
+    "reason": "1 coding-agent boundary change(s) block local continuation.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": false,
+    "next_action": {
+      "actor": "human",
+      "kind": "stop",
+      "command": null,
+      "expects": null,
+      "why": "Codex MCP write tool is auto-approved"
     },
-    "subject": {
-        "agent": "codex"
-    },
-    "decision": "block",
-    "risk_level": "critical",
-    "audit_id": "agent_boundary_78c4542efc6c9ede23d89129",
-    "policy_version": "1",
-    "summary": "1 coding-agent boundary change(s) block local continuation.",
-    "changed_files": [
-        ".codex/config.toml"
-    ],
-    "control": {
-        "state": "human_review_required",
-        "reason": "1 coding-agent boundary change(s) block local continuation.",
-        "completion_allowed": false,
-        "must_stop": true,
-        "verify_required": false,
-        "next_action": {
-            "actor": "human",
-            "kind": "stop",
-            "command": null,
-            "expects": null,
-            "why": "Codex MCP write tool is auto-approved"
-        },
-        "allowed_next_commands": [],
-        "human_review": {
-            "required": true,
-            "why": "Codex MCP write tool is auto-approved",
-            "required_reviewers": [
-                "agent-platform",
-                "security"
-            ]
-        },
-        "stop_reason": "Codex MCP write tool is auto-approved"
-    },
-    "repair": {
-        "actor": "human",
-        "safe_to_attempt": false,
-        "instructions": [
-            "Do not auto-approve write/destructive MCP tools."
-        ],
-        "forbidden_shortcuts": [
-            "Do not suppress the finding (checks.ignore in shipgate.yaml).",
-            "Do not lower severity or add a waiver just to pass the gate.",
-            "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
-            "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
-        ]
-    },
-    "policy": {
-        "id": "agent-boundary",
-        "version": "1",
-        "source": "packaged_default",
-        "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
-        "discovery": [
-            "packaged_default:agent-boundary"
-        ]
-    },
-    "violated_rules": [
-        {
-            "id": "CODEX-MCP-AUTO-APPROVE-WRITE",
-            "check_id": "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE",
-            "action": "block",
-            "risk_level": "critical",
-            "title": "Codex MCP write tool is auto-approved",
-            "path": ".codex/config.toml",
-            "evidence": {
-                "kind": "mcp_default_auto_approve",
-                "server": "mcp_servers.filesystem",
-                "risky_tools": [
-                    "write_file"
-                ],
-                "tool_names": [
-                    "write_file"
-                ]
-            },
-            "recommendation": "Do not auto-approve write/destructive MCP tools."
-        }
-    ],
-    "affected_files": [
-        {
-            "path": ".codex/config.toml"
-        }
-    ],
-    "required_reviewers": [
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "Codex MCP write tool is auto-approved",
+      "required_reviewers": [
         "agent-platform",
         "security"
-    ],
-    "explanation": "1 coding-agent boundary change(s) block local continuation.",
-    "suggested_fixes": [
-        "Do not auto-approve write/destructive MCP tools."
-    ],
-    "agent_repair_instructions": [
-        "Do not auto-approve write/destructive MCP tools."
-    ],
-    "diagnostics": [
-        {
-            "level": "info",
-            "code": "content_source",
-            "message": "Evaluated coding-agent boundary file from diff_new_file.",
-            "path": ".codex/config.toml"
-        }
-    ],
-    "trace": [
-        {
-            "step": "policy_discovery",
-            "summary": "Loaded 2 coding-agent boundary policy families."
-        },
-        {
-            "step": "decision",
-            "summary": "Projected 1 violation(s) to block."
-        }
-    ],
-    "source_artifacts": {},
-    "trigger": {
-        "schema_version": "0.2",
-        "should_run": true,
-        "run_shipgate": true,
-        "skip": false,
-        "force_run": false,
-        "dry_run_recommended": false,
-        "skip_reason": null,
-        "stop_conditions_fired": false,
-        "stop_conditions_evaluated": false,
-        "rationale": "1 run_shipgate rule(s) matched.",
-        "matched_rules": [
-            {
-                "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
-                "action": "run_shipgate",
-                "surface_class": "host_boundary",
-                "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-                "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
-            }
-        ],
-        "changed_files": [
-            ".codex/config.toml"
-        ],
-        "diff_tokens": [],
-        "next_action": {
-            "kind": "command",
-            "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
-            "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
-        }
+      ]
     },
-    "finding_fingerprints": [
-        "fp_71c94cd92ba68747"
+    "stop_reason": "Codex MCP write tool is auto-approved"
+  },
+  "repair": {
+    "actor": "human",
+    "safe_to_attempt": false,
+    "instructions": [
+      "Do not auto-approve write/destructive MCP tools."
     ],
-    "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "agent-boundary",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+    "discovery": [
+      "packaged_default:agent-boundary"
+    ]
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-MCP-AUTO-APPROVE-WRITE",
+      "check_id": "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE",
+      "action": "block",
+      "risk_level": "critical",
+      "title": "Codex MCP write tool is auto-approved",
+      "path": ".codex/config.toml",
+      "evidence": {
+        "kind": "mcp_default_auto_approve",
+        "server": "mcp_servers.filesystem",
+        "risky_tools": [
+          "write_file"
+        ],
+        "tool_names": [
+          "write_file"
+        ]
+      },
+      "recommendation": "Do not auto-approve write/destructive MCP tools."
+    }
+  ],
+  "affected_files": [
+    {
+      "path": ".codex/config.toml"
+    }
+  ],
+  "required_reviewers": [
+    "agent-platform",
+    "security"
+  ],
+  "explanation": "1 coding-agent boundary change(s) block local continuation.",
+  "suggested_fixes": [
+    "Do not auto-approve write/destructive MCP tools."
+  ],
+  "agent_repair_instructions": [
+    "Do not auto-approve write/destructive MCP tools."
+  ],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated coding-agent boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded 2 coding-agent boundary policy families."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 1 violation(s) to block."
+    }
+  ],
+  "source_artifacts": {},
+  "trigger": {
+    "schema_version": "0.2",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        "action": "run_shipgate",
+        "surface_class": "host_boundary",
+        "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
+        "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
+      }
+    ],
+    "changed_files": [
+      ".codex/config.toml"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
+      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_71c94cd92ba68747"
+  ],
+  "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
 }

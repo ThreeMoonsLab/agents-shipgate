@@ -586,3 +586,128 @@ def test_audit_baseline_directory_is_an_other_error(
     assert payload["error"] == "other_error"
     assert payload["exit_code"] == 4
     _assert_documented_envelope(payload)
+
+
+def test_check_recovery_keeps_the_rest_of_the_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fixed command discards every valid argument around the bad one.
+
+    Following it switched actor, workspace, config, and policy — answering a
+    different boundary question than the one that failed.
+    """
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--agent",
+            "cursor",
+            "--workspace",
+            str(tmp_path),
+            "--config",
+            "new-gate.yml",
+            "--format",
+            "nope",
+        ],
+    )
+
+    assert result.exit_code == 2
+    command = _agent_mode_error(result)["next_actions"][0]["command"]
+    assert "--agent cursor" in command
+    assert str(tmp_path) in command
+    assert "--config new-gate.yml" in command
+    assert "--format agent-boundary-json" in command
+
+
+def test_check_offers_no_command_for_a_stdin_diff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app, ["check", "--diff", "-", "--format", "nope"], input=""
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    assert payload["next_actions"][0]["kind"] == "review"
+
+
+def test_preflight_offers_no_command_for_conflicting_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A replay of a request-shape conflict can never satisfy its own expects."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "plan.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "changed.txt").write_text("README.md\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(tmp_path),
+            "--plan",
+            str(tmp_path / "plan.json"),
+            "--changed-files",
+            str(tmp_path / "changed.txt"),
+        ],
+    )
+
+    assert result.exit_code != 0
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    assert payload["next_actions"][0]["kind"] == "review"
+
+
+def test_audit_missing_baseline_stays_a_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """"Record one first" is a request problem, not a filesystem failure."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--drift",
+            "--baseline-file",
+            str(tmp_path / "absent.json"),
+        ],
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    assert payload["error"] == "config_error"
+    assert "--save-baseline" in payload["next_actions"][0]["command"]
+
+
+def test_audit_unreadable_baseline_is_a_filesystem_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The loader turns every read OSError into ValueError; the cause matters."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "as-a-dir").mkdir()
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--drift",
+            "--baseline-file",
+            str(tmp_path / "as-a-dir"),
+        ],
+    )
+
+    assert result.exit_code == 4
+    payload = _agent_mode_error(result)
+    assert payload["error"] == "other_error"
+    _assert_documented_envelope(payload)

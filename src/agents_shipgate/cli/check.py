@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import sys
 from pathlib import Path
 
@@ -22,15 +23,58 @@ from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 from agents_shipgate.schemas.diagnostics import NextAction
 
 
-def _flag_error(message: str, *, command: str, expects: str) -> typer.Exit:
+def _corrected_request(
+    *,
+    agent: str | None,
+    workspace: Path,
+    config: Path,
+    policy: Path | None,
+    diff: str | None,
+    base: str | None,
+    head: str | None,
+    format_: str,
+) -> str | None:
+    """The same check request with only the invalid field corrected.
+
+    A fixed ``agents-shipgate check --format agent-boundary-json`` discards
+    every other argument, so following the rank-1 action switched actor,
+    workspace, config, policy, and diff/range context — answering a different
+    boundary question than the one that failed. ``None`` when the request read
+    its diff from stdin and therefore cannot be replayed.
+    """
+
+    if diff == "-":
+        return None
+    parts = ["agents-shipgate", "check"]
+    if agent in {"codex", "claude-code", "cursor"}:
+        parts.extend(["--agent", agent])
+    parts.extend(["--workspace", shlex.quote(str(workspace))])
+    parts.extend(["--config", shlex.quote(str(config))])
+    if policy is not None:
+        parts.extend(["--policy", shlex.quote(str(policy))])
+    if diff:
+        parts.extend(["--diff", shlex.quote(diff)])
+    elif base and head:
+        parts.extend(["--base", shlex.quote(base), "--head", shlex.quote(head)])
+    valid_format = format_ if format_ == "codex-boundary-json" else "agent-boundary-json"
+    parts.extend(["--format", valid_format])
+    return " ".join(parts)
+
+
+def _flag_error(message: str, *, command: str | None, expects: str) -> typer.Exit:
     """Report flag misuse on both channels and return the exit to raise."""
 
     typer.echo(message, err=True)
+    action = (
+        NextAction(kind="command", command=command, why=message, expects=expects)
+        if command
+        else NextAction(kind="review", why=message, expects=expects)
+    )
     emit_agent_mode_error_action(
         "config_error",
         message=message,
         exit_code=2,
-        action=NextAction(kind="command", command=command, why=message, expects=expects),
+        action=action,
     )
     return typer.Exit(2)
 
@@ -91,23 +135,35 @@ def check(
     # harness mislabels every row it writes. An explicit flag always wins.
     agent = agent or detect_actor()
 
+    def corrected(*, valid_agent: str | None) -> str | None:
+        return _corrected_request(
+            agent=valid_agent,
+            workspace=workspace,
+            config=config,
+            policy=policy,
+            diff=diff,
+            base=base,
+            head=head,
+            format_=format_,
+        )
+
     if agent not in {"codex", "claude-code", "cursor"}:
         raise _flag_error(
             "--agent must be one of: codex, claude-code, cursor.",
-            command="agents-shipgate check --agent codex",
+            command=corrected(valid_agent=detect_actor()),
             expects="An --agent value the boundary evaluator recognizes.",
         )
     if format_ == "agent-json":
         raise _flag_error(
             "--format agent-json was removed in the 0.14.0 contract cleanup. "
             "Use --format agent-boundary-json.",
-            command="agents-shipgate check --format agent-boundary-json",
+            command=corrected(valid_agent=agent),
             expects="The current agent-boundary result contract.",
         )
     if format_ not in {"agent-boundary-json", "codex-boundary-json"}:
         raise _flag_error(
             "--format must be 'agent-boundary-json' or 'codex-boundary-json'.",
-            command="agents-shipgate check --format agent-boundary-json",
+            command=corrected(valid_agent=agent),
             expects="The current agent-boundary result contract.",
         )
     try:
@@ -121,6 +177,7 @@ def check(
                 workspace=workspace,
                 base=base,
                 head=head,
+                config_path=config,
             )
             diff_text = change_set.diff_text
             input_issues = list(change_set.issues)

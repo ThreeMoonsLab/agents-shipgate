@@ -266,15 +266,15 @@ def _adoption_instruction(
 ) -> str | None:
     """The one human act a first adoption needs, or ``None``.
 
-    Keyed on the adoption itself, not on ``policy_weakened``/
-    ``trust_root_touched``: the first now reports the honest ``false`` for an
-    adoption, and borrowing the second would make the instruction disappear in
-    the one case it exists for. It replaces the generic instructions rather
-    than adding to them; the routing that produced them is untouched.
+    Keyed on the adoption itself rather than on ``trust_root_touched``, which
+    would make the instruction disappear in the one case it exists for. It
+    stands down when ``policy_weakened`` is set: that means an existing policy
+    file was also changed, so "nothing existing was weakened" is false and the
+    generic instructions — including the ``review_policy_weakening`` repair —
+    are the ones the reviewer needs.
     """
 
-    del capability_review  # Kept for call-site symmetry with the generic path.
-    if not manifest_introduced:
+    if not manifest_introduced or capability_review.policy_weakened:
         return None
     return (
         "This PR adopts Agents Shipgate: the base carries no manifest, so "
