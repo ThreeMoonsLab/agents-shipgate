@@ -17,6 +17,14 @@
   correction locally, keyed on the diff carrying exactly one manifest record
   and that record being a plain addition. Adoption remains a human decision —
   only the claim about what happened changed.
+- **The manifest a run actually loaded is a trust root.** The trust-root table
+  only knew `**/shipgate.yaml`, so a repository run with `--config new-gate.yml`
+  had no manifest trust root at all: the file defining its gate could be
+  introduced or rewritten without a single finding, leaving the release
+  substrate empty. With a clean scan that produced `passed` / `mergeable` /
+  `complete` — beneath an adoption headline that said a human was required.
+  Whatever a run loads as its gate is now classified as one, in both the
+  trust-root check and the policy fail-safe.
 - **`check` detects which agent is running it.** `--agent` defaulted to `codex`
   and never consulted the harness variables Shipgate already reads to switch on
   agent mode, so every Claude Code and Cursor run recorded the wrong actor in
@@ -30,32 +38,31 @@
   mis-invoked them had to parse English. Each error path now emits the line with
   its `exit_code`, and `preflight` no longer lets an unexpected failure escape
   as a bare traceback.
-- **One verify per turn (#295).** A governed turn verified twice: the coding
-  agent ran `verify` because the previous result told it to, and the Stop hook
-  then ran an identical `verify` because it had no way to know. `verify` now
-  records finished worktree runs in the git directory, next to the signature
-  cache the hook already keeps, and the hook reports that run instead of
-  repeating it. Reuse requires every input to match — config, effective CI
-  mode, base ref *and* the commit it resolved to, and a content digest of the
-  working tree covering HEAD's tree plus every changed and untracked file, so
-  an untracked edit that never appears in `git diff` still invalidates it. A
-  commit changes the digest by construction, which is the stale-pass the first
-  attempt at this was reverted for; it is now a regression test. Nothing is
-  read from the workspace, the reused result routes through the same switch a
-  fresh one does, and any mismatch or doubt re-verifies. A run is offered to the
-  hook only when it answered the hook's own question: default-shaped (no
-  baseline, diff reference, policy pack, authorization, fail-on set, or
-  non-default plugin/heuristic mode), with no git-ignored scan input — an
-  ignored tool source is read by the scan and invisible to the digest — and
-  with the working tree unmoved across the scan itself. Any other run clears
-  the record rather than leaving a stale one behind.
 - **A rerun command that actually reruns.** The `fix_task` verification command
   omitted `--config`, substituted `origin/main` for a base the run never used,
   and always appended `--head HEAD`. In a repository with a nested manifest it
   re-ran against a different gate, and for an uncommitted first adoption it
   switched to the committed tree — where the new manifest does not exist — and
   exited 2. It now emits the config always, the base only when one was used,
-  and no `--head` for a working-tree run.
+  and no `--head` for a working-tree run — plus the rest of the evaluated
+  request (policy packs, baseline, `--ci-mode`, plugin and heuristic modes, and
+  an explicit `--no-base`), because a rerun that drops them evaluates a
+  different question than the one whose findings it is meant to reproduce. The
+  structured adoption repair now names the resolved config path instead of a
+  hardcoded `shipgate.yaml`.
+- **Preflight recovery keeps the request it failed on.** Every preflight error
+  recommended a bare `agents-shipgate preflight --json`, discarding workspace,
+  config, plan, diff, and capability request: following it after a failed
+  targeted run evaluated the current repository with an empty plan and returned
+  `control.state=complete`. The recovery action now reproduces the actual
+  invocation, and offers no command at all when the request came from stdin and
+  cannot be reproduced.
+- **Host-audit filesystem failures follow the catalog.** A `--baseline-file`
+  naming a directory raised `IsADirectoryError` through typer as a traceback
+  and exit 1. Filesystem failures on both `--baseline-file` and `--out` are now
+  `other_error` with exit 4, as `docs/errors.json` specifies — they were
+  briefly reported as `config_error`/2, which sends an agent back to re-read
+  flags that were fine.
 
 - **A way out of `insufficient_evidence` (#292).** An abstention was
   unactionable in practice: the decision engine generated the exact manifest

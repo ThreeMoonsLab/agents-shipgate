@@ -13,6 +13,7 @@ cannot invent its way past it.
 from __future__ import annotations
 
 import shlex
+from collections.abc import Sequence
 
 from agents_shipgate.ci.release_decision import (
     _inventory_manifest_key,
@@ -75,6 +76,7 @@ def build_fix_task(
     manifest_introduced: bool = False,
     config: str | None = None,
     worktree: bool = False,
+    rerun_options: Sequence[str] | None = None,
 ) -> VerifierFixTask | None:
     """Project the head scan onto a single repair task.
 
@@ -91,7 +93,7 @@ def build_fix_task(
         return None
 
     verification_command = _verification_command(
-        base_ref, head_ref, config=config, worktree=worktree
+        base_ref, head_ref, config=config, worktree=worktree, options=rerun_options
     )
 
     # No completed head decision (scan skipped/failed → ``unknown``) but the PR
@@ -189,6 +191,7 @@ def build_fix_task(
             gating,
             verification_command=verification_command,
             manifest_introduced=manifest_introduced,
+            config=config,
         ),
         forbidden_repairs=_forbidden_repairs(gating),
         forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
@@ -406,6 +409,7 @@ def _human_repairs(
     *,
     verification_command: str,
     manifest_introduced: bool = False,
+    config: str | None = None,
 ) -> list[VerifierRepair]:
     decision = report.release_decision
     assert decision is not None
@@ -416,7 +420,7 @@ def _human_repairs(
                 id="adopt_shipgate_manifest",
                 actor="human",
                 kind="review_trust_root_change",
-                target="shipgate.yaml",
+                target=config or "shipgate.yaml",
                 reason=(
                     "This PR introduces the Shipgate manifest; a human must "
                     "review it and merge the adoption."
@@ -430,7 +434,7 @@ def _human_repairs(
                     id="review_policy_weakening",
                     actor="human",
                     kind="review_policy_change",
-                    target="shipgate.yaml",
+                    target=config or "shipgate.yaml",
                     reason="A human must approve release-policy weakening before merge.",
                 )
             )
@@ -569,6 +573,7 @@ def _verification_command(
     *,
     config: str | None = None,
     worktree: bool = False,
+    options: Sequence[str] | None = None,
 ) -> str:
     """The exact command that re-runs *this* verification.
 
@@ -584,6 +589,10 @@ def _verification_command(
     - ``--head`` is omitted for a working-tree run. Passing ``HEAD`` switches
       verify to the committed tree, which for an uncommitted first adoption is
       a tree with no manifest in it — the command exits 2.
+    - ``options`` carries the rest of the evaluated request — policy packs, a
+      baseline, an explicit ``--no-base``, plugin and heuristic modes. Omitting
+      them produced a command that ran a *different* evaluation than the one
+      whose findings it was supposed to reproduce.
 
     Refs and paths come from CLI / GitHub inputs and a valid git ref may
     contain shell metacharacters, so every interpolated value is quoted.
@@ -596,6 +605,7 @@ def _verification_command(
         parts.extend(["--base", shlex.quote(base_ref)])
     if not worktree:
         parts.extend(["--head", shlex.quote(head_ref or "HEAD")])
+    parts.extend(options or ())
     parts.append("--json")
     return " ".join(parts)
 

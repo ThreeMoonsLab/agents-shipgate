@@ -31,6 +31,7 @@ from agents_shipgate.core.trust_roots import (  # noqa: F401
     _LEGACY_TRUST_ROOT_SURFACES,
     PROTECTED_FILE_EDITS,
     TRUST_ROOT_SURFACES,
+    is_configured_manifest,
 )
 from agents_shipgate.schemas.common import (
     SourceReference,
@@ -53,7 +54,7 @@ def run(context: ScanContext) -> list[Finding]:
         if not path or path in seen:
             continue
         seen.add(path)
-        classification = _classify(path)
+        classification = _classify(path) or _configured_manifest(context, path)
         if classification is None:
             continue
         trust_root_class, matched_glob = classification
@@ -68,6 +69,19 @@ def _classify(path: str) -> tuple[str, str] | None:
         if glob_match(pattern, path):
             return trust_root_class, pattern
     return None
+
+
+def _configured_manifest(context: ScanContext, path: str) -> tuple[str, str] | None:
+    """Classify the manifest this run was actually pointed at.
+
+    Whatever a run loaded as its gate is a manifest trust root, even when it is
+    not called ``shipgate.yaml``.
+    """
+
+    config = getattr(context, "config_path", None)
+    if not is_configured_manifest(config, path):
+        return None
+    return "manifest", str(config).replace("\\", "/")
 
 
 def _finding(

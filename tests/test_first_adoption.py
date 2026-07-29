@@ -413,3 +413,95 @@ def test_an_adoption_that_also_edits_a_policy_pack_keeps_the_strict_wording():
     findings = verify_policy.run(context)
     assert len(findings) == 1
     assert findings[0].evidence["kind"] == "base_snapshot_unavailable"
+
+
+def test_a_custom_named_manifest_is_still_a_trust_root(tmp_path):
+    """The gate is whatever file the run loaded as the gate.
+
+    The trust-root table only knows `**/shipgate.yaml`, so a repository run
+    with `--config new-gate.yml` had no manifest trust root at all: its gate
+    could be introduced or rewritten with an empty release substrate behind an
+    adoption headline that claimed a human was required.
+    """
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    sample = repo / "samples" / "support_refund_agent"
+    _git(
+        repo,
+        "mv",
+        "samples/support_refund_agent/shipgate.yaml",
+        "samples/support_refund_agent/new-gate.yml",
+    )
+    _git(repo, "commit", "-m", "custom manifest name")
+    # Roll the manifest back out of the base so this reads as an adoption.
+    _git(repo, "reset", "--soft", "HEAD~2")
+    _git(repo, "reset")
+    (sample / "shipgate.yaml").unlink(missing_ok=True)
+
+    verifier = _run_verify_worktree(repo, "samples/support_refund_agent/new-gate.yml")
+
+    assert verifier.capability_review.trust_root_touched is True
+    assert verifier.can_merge_without_human is False
+    assert verifier.control.state != "complete"
+
+
+def _run_verify_worktree(repo: Path, config: str):
+    verifier, _report, _exit = run_verify(
+        workspace=repo,
+        config=Path(config),
+        base=None,
+        head="HEAD",
+        archive_head=False,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+    return verifier
+
+
+def test_the_rerun_command_repeats_the_whole_request(tmp_path):
+    """A rerun that drops options evaluates a different question."""
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    pack = repo / "extra-policy.yaml"
+    pack.write_text("version: 1\nrules: []\n", encoding="utf-8")
+
+    verifier, _report, _exit = run_verify(
+        workspace=repo,
+        config=SAMPLE_CONFIG,
+        base=None,
+        head="HEAD",
+        archive_head=False,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="strict",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=True,
+        verbose=False,
+        auto_base=False,
+    )
+
+    command = (verifier.fix_task or {}) and verifier.fix_task.verification_command
+    assert command is not None
+    # --no-base matters most: without it the rerun auto-detects a base the
+    # evaluated run never compared against.
+    assert "--no-base" in command
+    assert "--ci-mode strict" in command
+    assert "--no-heuristics" in command
+    assert "--no-plugins" in command
+    assert f"--config {SAMPLE_CONFIG.as_posix()}" in command

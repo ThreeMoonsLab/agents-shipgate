@@ -245,16 +245,6 @@ Three hooks are installed:
   continuation would contradict. Unparseable or unrecognized verifier
   output warns loudly, is never cached, and is never treated as passing.
 
-  When the agent already ran `verify` itself — which is what the previous
-  turn's `next_action` asked for — the hook reports that run instead of
-  repeating it. Reuse requires every input to match, including a content
-  digest of the working tree (HEAD's tree plus the exact content of every
-  changed and untracked file), so a commit, an edit, a different `--config`,
-  or a base ref that moved all re-verify. The record lives in the git
-  directory next to the hook's own signature cache — never in the workspace,
-  which the agent under evaluation can write — and it carries no verdict a
-  fresh run would not have produced.
-
 Local setup failures such as a missing CLI or unavailable base ref are
 surfaced as context, not as the release gate. CI remains authoritative,
 and changing the hook files or other Shipgate trust roots is itself

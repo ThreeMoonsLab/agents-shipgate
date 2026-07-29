@@ -102,9 +102,7 @@ from .git import (
     resolve_source_head_identity,
     tree_sha,
     working_tree_context,
-    worktree_identity,
 )
-from .hook_state import discard_hook_verify_record, record_verify_for_hooks
 
 HEAD_FORMATS = ["markdown", "json", "sarif"]
 # Verify owns the PR artifact contract and writes packet.json only; the
@@ -154,6 +152,23 @@ def run_verify(
     verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
 
+    rerun_options = _rerun_options(
+        git_root=git_root,
+        base=base,
+        auto_base=auto_base,
+        ci_mode=ci_mode,
+        fail_on=fail_on,
+        baseline_path=baseline_path,
+        baseline_mode=baseline_mode,
+        diff_from=diff_from,
+        policy_pack_paths=policy_pack_paths,
+        plugins_enabled=plugins_enabled,
+        strict_plugins=strict_plugins,
+        suggest_patches=suggest_patches,
+        no_heuristics=no_heuristics,
+        authorization=authorization,
+    )
+
     if not config_path.is_file():
         trigger = evaluate(
             paths=[],
@@ -193,6 +208,7 @@ def run_verify(
                 ),
             ),
             worktree=not archive_head,
+            rerun_options=rerun_options,
         )
         _remove_scan_artifacts(out_dir)
         _write_artifacts(
@@ -254,6 +270,7 @@ def run_verify(
                 why="Make the requested head ref available locally, then rerun verify.",
             ),
             worktree=not archive_head,
+            rerun_options=rerun_options,
         )
         _remove_scan_artifacts(out_dir)
         _write_artifacts(
@@ -339,6 +356,7 @@ def run_verify(
         out_dir=out_dir,
         ci_mode=ci_mode,
         worktree=not archive_head,
+        rerun_options=rerun_options,
     )
 
     if diff_unavailable:
@@ -360,6 +378,7 @@ def run_verify(
             out_dir=out_dir,
             ci_mode=ci_mode,
             worktree=not archive_head,
+            rerun_options=rerun_options,
         )
         _write_artifacts(
             verifier,
@@ -399,6 +418,7 @@ def run_verify(
                 out_dir=out_dir,
                 ci_mode=ci_mode,
                 worktree=not archive_head,
+                rerun_options=rerun_options,
             )
         _write_artifacts(
             verifier,
@@ -440,28 +460,6 @@ def run_verify(
             evaluation_date=verification_date,
         )
         base_notes.extend(cache_notes)
-
-    # Captured before the scan starts, so a worktree edit or a base ref that
-    # advances *while* the scan runs is detectable afterwards. Without this the
-    # verdict for the pre-edit tree would be filed under the post-edit state.
-    identity_before = worktree_identity(git_root) if not archive_head else None
-    base_commit_before = commit_sha(git_root, base) if base else None
-    # The Stop hook invokes verify with workspace/config/base/head/ci-mode and
-    # nothing else. A run carrying any other gate-affecting input answered a
-    # different question and must never stand in for the hook's own.
-    default_shaped = (
-        baseline is None
-        and diff_from is None
-        and not policy_pack_paths
-        and authorization is None
-        and plugins_enabled is None
-        and not strict_plugins
-        and not no_heuristics
-        and not suggest_patches
-        and not fail_on
-        and baseline_mode == "new-findings"
-    )
-    scan_input_paths: list[str] = []
 
     manifest_introduced = _manifest_introduced(
         git_root=git_root,
@@ -590,6 +588,7 @@ def run_verify(
             ci_mode=ci_mode,
             manifest_introduced=manifest_introduced,
             worktree=not archive_head,
+            rerun_options=rerun_options,
         )
         try:
             try:
@@ -624,7 +623,6 @@ def run_verify(
                         ),
                     },
                     evaluation_date=verification_date,
-                    scan_input_paths=scan_input_paths,
                 )
             except Exception:
                 if scan_error is None:
@@ -635,71 +633,7 @@ def run_verify(
         finally:
             if head_tmp is not None:
                 head_tmp.cleanup()
-    _record_or_discard_hook_verify(
-        git_root=git_root,
-        verifier=verifier,
-        head_status=head_status,
-        archive_head=archive_head,
-        config_relative=config_relative,
-        identity_before=identity_before,
-        base_commit_before=base_commit_before,
-        default_shaped=default_shaped,
-        scan_input_paths=scan_input_paths,
-    )
     return verifier, report, head_exit_code
-
-
-def _record_or_discard_hook_verify(
-    *,
-    git_root: Path,
-    verifier: VerifierArtifact,
-    head_status: str,
-    archive_head: bool,
-    config_relative: Path,
-    identity_before: str | None,
-    base_commit_before: str | None,
-    default_shaped: bool,
-    scan_input_paths: list[str],
-) -> None:
-    """Offer this run to the Stop hook, or make sure nothing stale is offered.
-
-    Discarding matters as much as recording: a failed or differently-shaped run
-    must not leave an earlier record in place for the hook to find, because the
-    repository has usually moved since that record was written and "no record"
-    is the safe state.
-    """
-
-    reusable = (
-        head_status == "succeeded"
-        and not archive_head
-        and default_shaped
-        and verifier.control.state is not None
-    )
-    if not reusable:
-        discard_hook_verify_record(git_root)
-        return
-    release = verifier.release_decision
-    record_verify_for_hooks(
-        git_root=git_root,
-        config=config_relative.as_posix(),
-        # The *effective* mode, not the flag: a forced --ci-mode rewrites the
-        # manifest's mode for the run, and the policy-weakening check compares
-        # that value against the base, so two runs under different effective
-        # modes can reach different findings.
-        ci_mode=verifier.mode,
-        base_ref=verifier.base_ref,
-        base_commit_before=base_commit_before,
-        head_ref=None,
-        identity_before=identity_before,
-        input_paths=scan_input_paths,
-        input_set_id=verifier.input_set_id,
-        decision=release.decision if release is not None else "unknown",
-        blockers=len(release.blockers) if release is not None else 0,
-        review_items=len(release.review_items) if release is not None else 0,
-        control=verifier.control.model_dump(mode="json"),
-    )
-
-
 
 
 def _prepare_base_report(
@@ -1019,6 +953,63 @@ def _map_optional_tree_path(
 # configured name is added at call time so a repository that renamed its
 # manifest is still recognized as adopted.
 _MANIFEST_FILE_NAMES = frozenset({"shipgate.yaml"})
+
+
+def _rerun_options(
+    *,
+    git_root: Path,
+    base: str | None,
+    auto_base: bool,
+    ci_mode: str | None,
+    fail_on: list[str] | None,
+    baseline_path: Path | None,
+    baseline_mode: str,
+    diff_from: Path | None,
+    policy_pack_paths: list[Path] | None,
+    plugins_enabled: bool | None,
+    strict_plugins: bool,
+    suggest_patches: bool,
+    no_heuristics: bool,
+    authorization: Path | None,
+) -> list[str]:
+    """The rest of this run's request, as flags a rerun must repeat.
+
+    A rerun command that drops the policy packs, baseline, or heuristic mode
+    evaluates something other than the run whose findings it is meant to
+    reproduce — it can come back clean on inputs the real run never used. The
+    base is the subtle one: with no ``--base`` and auto-detection disabled,
+    omitting ``--no-base`` lets the rerun auto-detect a branch the evaluated
+    run never compared against.
+    """
+
+    options: list[str] = []
+    if base is None and not auto_base:
+        options.append("--no-base")
+    if ci_mode:
+        options.extend(["--ci-mode", shlex.quote(ci_mode)])
+    if fail_on:
+        options.extend(["--fail-on", shlex.quote(",".join(fail_on))])
+    if baseline_path is not None:
+        options.extend(["--baseline", shlex.quote(_display_path(baseline_path, git_root))])
+    if baseline_mode and baseline_mode != "new-findings":
+        options.extend(["--baseline-mode", shlex.quote(baseline_mode)])
+    if diff_from is not None:
+        options.extend(["--diff-from", shlex.quote(_display_path(diff_from, git_root))])
+    for pack in policy_pack_paths or []:
+        options.extend(["--policy-pack", shlex.quote(_display_path(pack, git_root))])
+    if plugins_enabled is False:
+        options.append("--no-plugins")
+    if strict_plugins:
+        options.append("--strict-plugins")
+    if suggest_patches:
+        options.append("--suggest-patches")
+    if no_heuristics:
+        options.append("--no-heuristics")
+    if authorization is not None:
+        options.extend(
+            ["--authorization", shlex.quote(_display_path(authorization, git_root))]
+        )
+    return options
 
 
 def _manifest_introduced(
@@ -1423,6 +1414,7 @@ def _build_verifier(
     first_next_action_override: AgentControlAction | None = None,
     manifest_introduced: bool = False,
     worktree: bool = False,
+    rerun_options: list[str] | None = None,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -1462,6 +1454,7 @@ def _build_verifier(
             manifest_introduced=manifest_introduced,
             config=_display_path(config_path, git_root),
             worktree=worktree,
+            rerun_options=rerun_options,
         )
     )
     can_merge = _can_merge_without_human(
@@ -1832,17 +1825,7 @@ def _write_artifacts(
     authorization_path: Path | None = None,
     verification_options: dict[str, Any] | None = None,
     evaluation_date: str | None = None,
-    scan_input_paths: list[str] | None = None,
 ) -> None:
-    """Write the run's artifacts.
-
-    ``scan_input_paths`` is an out-parameter: when a list is passed, the
-    workspace-relative path of every file the verification plan counted as an
-    input is appended to it. The Stop-hook reuse record needs that list to ask
-    git whether any input is ignored, and the plan is the only place that knows
-    it.
-    """
-
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
     verifier_path.write_text(
         json.dumps(verifier.model_dump(mode="json"), indent=2),
@@ -1991,12 +1974,6 @@ def _write_artifacts(
             "can_merge_without_human": verifier.can_merge_without_human,
         }
     )
-    if scan_input_paths is not None:
-        scan_input_paths.extend(
-            blob.path
-            for blob in (plan.inputs.config, *plan.inputs.tool_sources)
-            if getattr(blob, "path", None)
-        )
     verifier.request_id = plan.request_id
     verifier.subject_id = plan.subject.subject_id
     verifier.input_set_id = plan.inputs.input_set_id

@@ -39,7 +39,7 @@ from agents_shipgate.checks._verify_common import (
     verify_finding,
 )
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.trust_roots import trust_root_class_for
+from agents_shipgate.core.trust_roots import is_configured_manifest, trust_root_class_for
 from agents_shipgate.schemas.report import Finding
 
 CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
@@ -180,18 +180,38 @@ def _effective_severity(
     return overrides.get(check_id) or defaults.get(check_id)
 
 
+def _touched_policy_surfaces(context: ScanContext) -> list[str]:
+    """Changed policy trust roots, including a non-default manifest name.
+
+    ``_POLICY_SURFACES`` only knows ``**/shipgate.yaml``. A repository whose
+    gate is ``new-gate.yml`` was therefore invisible to this fail-safe: its
+    manifest could be introduced or rewritten with no base snapshot and this
+    check emitted nothing at all.
+    """
+
+    files = changed_files(context)
+    config = getattr(context, "config_path", None)
+    hits = set(touched(_POLICY_SURFACES, files))
+    hits.update(path for path in files if is_configured_manifest(config, path))
+    return sorted(hits)
+
+
 def _fail_safe(context: ScanContext) -> list[Finding]:
     """No base snapshot: emit review-required iff a policy root was touched."""
-    hit = touched(_POLICY_SURFACES, changed_files(context))
+    hit = _touched_policy_surfaces(context)
     if not hit:
         return []
     verification = context.verification
     introducing = verification is not None and verification.manifest_introduced
+    config = getattr(context, "config_path", None)
     # An adoption that *also* edits an existing policy pack or baseline is not
     # covered by "nothing existed to weaken": those files were already there.
     # The friendlier wording is only correct when every touched policy surface
     # is the manifest being introduced.
-    if introducing and all(trust_root_class_for(path) == "manifest" for path in hit):
+    if introducing and all(
+        trust_root_class_for(path) == "manifest" or is_configured_manifest(config, path)
+        for path in hit
+    ):
         # A base with no manifest at all cannot have been weakened. This still
         # emits — at the same check id and severity, so the verdict and every
         # fail-closed consumer are unchanged — because the human decision

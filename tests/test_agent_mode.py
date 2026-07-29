@@ -467,10 +467,14 @@ def test_preflight_silent_without_agent_mode(tmp_path: Path) -> None:
     assert not [line for line in result.output.splitlines() if line.startswith("{")]
 
 
-def test_audit_reports_an_unwritable_out_path_as_config_error(
+def test_audit_reports_an_unwritable_out_path_as_other_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An unwritable --out was a Rich traceback and exit 1, not a contract."""
+    """An unwritable --out was a Rich traceback and exit 1, not a contract.
+
+    The catalog gives filesystem failures `other_error`/4; reporting them as
+    `config_error`/2 sends an agent back to re-read flags that were fine.
+    """
 
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
     blocker = tmp_path / "blocker"
@@ -489,9 +493,10 @@ def test_audit_reports_an_unwritable_out_path_as_config_error(
         ],
     )
 
-    assert result.exit_code == 2
+    assert result.exit_code == 4
     payload = _agent_mode_error(result)
-    assert payload["error"] == "config_error"
+    assert payload["error"] == "other_error"
+    assert payload["exit_code"] == 4
     _assert_documented_envelope(payload)
 
 
@@ -508,3 +513,76 @@ def test_preflight_reports_only_documented_error_kinds(
 
     assert result.exit_code != 0
     _assert_documented_envelope(_agent_mode_error(result))
+
+
+def test_preflight_recovery_reruns_the_same_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare `preflight --json` answers a question nobody asked.
+
+    It discards workspace, config, plan, diff and capability request, so
+    following it after a failed targeted run evaluates the current repository
+    with an empty plan and reports `control.state=complete`.
+    """
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "1"\nproject:\n  name: [broken\n', encoding="utf-8"
+    )
+    result = runner.invoke(
+        app, ["preflight", "--workspace", str(tmp_path), "--config", "shipgate.yaml"]
+    )
+
+    assert result.exit_code == 2
+    action = _agent_mode_error(result)["next_actions"][0]
+    assert action["kind"] == "command"
+    assert str(tmp_path) in action["command"]
+    assert "--config shipgate.yaml" in action["command"]
+
+
+def test_preflight_offers_no_command_it_cannot_reproduce(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request read from stdin cannot be rerun; a review action is honest."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "1"\nproject:\n  name: [broken\n', encoding="utf-8"
+    )
+    result = runner.invoke(
+        app,
+        ["preflight", "--workspace", str(tmp_path), "--plan", "-"],
+        input="{}\n",
+    )
+
+    assert result.exit_code != 0
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    assert payload["next_actions"][0]["kind"] == "review"
+
+
+def test_audit_baseline_directory_is_an_other_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """IsADirectoryError reached the user as a traceback and exit 1."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "as-a-dir").mkdir()
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--save-baseline",
+            "--baseline-file",
+            str(tmp_path / "as-a-dir"),
+        ],
+    )
+
+    assert result.exit_code == 4, result.output
+    payload = _agent_mode_error(result)
+    assert payload["error"] == "other_error"
+    assert payload["exit_code"] == 4
+    _assert_documented_envelope(payload)

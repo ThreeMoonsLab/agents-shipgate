@@ -28,6 +28,25 @@ from agents_shipgate.core.host_grants import (
 from agents_shipgate.schemas.diagnostics import NextAction
 
 
+def _io_error(message: str, *, next_action: str) -> typer.Exit:
+    """Report a filesystem failure on both channels.
+
+    ``docs/errors.json`` gives filesystem and unexpected failures
+    ``other_error`` and exit 4; reporting them as ``config_error``/2 tells an
+    agent to go re-read its flags when the flags were fine and the path was
+    not writable.
+    """
+
+    typer.echo(message, err=True)
+    emit_agent_mode_error_action(
+        "other_error",
+        message=message,
+        exit_code=4,
+        action=NextAction(kind="review", why=next_action),
+    )
+    return typer.Exit(4)
+
+
 def _config_error(
     message: str,
     *,
@@ -155,14 +174,25 @@ def audit(
                 ),
             ) from exc
         text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-        if resolved_baseline.is_file() and resolved_baseline.read_text(
-            encoding="utf-8"
-        ) == text:
-            status = "unchanged"
-        else:
-            status = "updated" if resolved_baseline.is_file() else "created"
-            resolved_baseline.parent.mkdir(parents=True, exist_ok=True)
-            resolved_baseline.write_text(text, encoding="utf-8")
+        try:
+            if resolved_baseline.is_file() and resolved_baseline.read_text(
+                encoding="utf-8"
+            ) == text:
+                status = "unchanged"
+            else:
+                status = "updated" if resolved_baseline.is_file() else "created"
+                resolved_baseline.parent.mkdir(parents=True, exist_ok=True)
+                resolved_baseline.write_text(text, encoding="utf-8")
+        except OSError as exc:
+            # --baseline-file naming a directory raised IsADirectoryError
+            # straight through typer: a traceback and exit 1.
+            raise _io_error(
+                f"Could not write the host-grants baseline {baseline_file}: {exc}",
+                next_action=(
+                    "Point --baseline-file at a writable file path, then re-run "
+                    "the audit."
+                ),
+            ) from exc
         outcome = {
             "baseline_file": str(baseline_file),
             "inventory_sha256": payload["inventory_sha256"],
@@ -183,6 +213,14 @@ def audit(
     if drift:
         try:
             baseline = load_host_grants_baseline(resolved_baseline)
+        except OSError as exc:
+            raise _io_error(
+                f"Could not read the host-grants baseline {baseline_file}: {exc}",
+                next_action=(
+                    "Point --baseline-file at a readable baseline file, then "
+                    "re-run the audit."
+                ),
+            ) from exc
         except ValueError as exc:
             raise _config_error(
                 str(exc),
@@ -225,15 +263,14 @@ def _write_json_out(out: Path | None, payload: dict) -> None:
             json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
     except OSError as exc:
-        # An unwritable --out is ordinary misuse (bad path, read-only mount),
-        # not a Shipgate defect: it was reaching the user as a Rich traceback
-        # and exit 1, which is neither the documented exit code nor something
-        # an agent can route on.
-        message = f"Could not write --out {out}: {exc}"
-        raise _config_error(
-            message,
-            next_action=message,
-            command="agents-shipgate audit --host --out ./host-audit.json",
+        # An unwritable --out reached the user as a Rich traceback and exit 1,
+        # which is neither the documented exit code nor something an agent can
+        # route on.
+        raise _io_error(
+            f"Could not write --out {out}: {exc}",
+            next_action=(
+                "Point --out at a writable file path, then re-run the audit."
+            ),
         ) from exc
 
 

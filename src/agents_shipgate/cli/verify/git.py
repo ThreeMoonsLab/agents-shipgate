@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import subprocess
@@ -367,101 +366,6 @@ def read_file_at_ref(workspace: Path, ref: str, path: Path) -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout
-
-
-# Cap on how many changed paths a worktree identity will cover. Past this the
-# `git hash-object` argv gets unwieldy, and a change set that large is not the
-# one-second rerun this identity exists to skip. Refusing identity is always
-# safe: the caller just re-verifies.
-_MAX_IDENTITY_PATHS = 500
-
-
-def worktree_identity(workspace: Path) -> str | None:
-    """A digest of the working-tree state a verify run would read.
-
-    HEAD's tree, plus the exact content of every tracked-and-changed and
-    untracked file. Equal digests mean two runs looked at the same repository
-    state, which is what lets an already-computed verdict be reported for a
-    later moment instead of recomputed.
-
-    Deliberately built from content hashes rather than diff text: the diff a
-    consumer produces depends on how it was asked for it (path filters,
-    untracked handling, size limits), and an untracked file's *content* does
-    not appear in `git diff HEAD` at all — so a digest over diff text would
-    call two different worktrees identical.
-
-    Returns ``None`` when identity cannot be established (no commit yet, a git
-    failure, or too many changed paths). Callers must re-verify on ``None``;
-    they must never treat it as "unchanged".
-    """
-
-    head = _run_git(workspace, ["rev-parse", "HEAD", "HEAD^{tree}"], check=False)
-    if head.returncode != 0:
-        return None
-    changed = _run_git(workspace, ["diff", "HEAD", "--name-only"], check=False)
-    untracked = _run_git(
-        workspace, ["ls-files", "--others", "--exclude-standard"], check=False
-    )
-    if changed.returncode != 0 or untracked.returncode != 0:
-        return None
-    paths = sorted(
-        {
-            line.strip()
-            for line in (*changed.stdout.splitlines(), *untracked.stdout.splitlines())
-            if line.strip()
-        }
-    )
-    if len(paths) > _MAX_IDENTITY_PATHS:
-        return None
-    present = [path for path in paths if (workspace / path).is_file()]
-    blobs: dict[str, str] = {}
-    if present:
-        hashed = _run_git(workspace, ["hash-object", "--", *present], check=False)
-        if hashed.returncode != 0:
-            return None
-        lines = hashed.stdout.split()
-        if len(lines) != len(present):
-            return None
-        blobs = dict(zip(present, lines, strict=True))
-    payload = json.dumps(
-        {
-            # The commit, not only its tree. An empty commit leaves the tree
-            # byte-identical while moving HEAD — and verify reads the commit:
-            # its date is the evaluation clock that expires overrides and
-            # acknowledgements, and its ancestry decides the base.
-            "head": head.stdout.split(),
-            # "absent" covers a deleted tracked file, which has no blob but is
-            # every bit a change.
-            "files": [[path, blobs.get(path, "absent")] for path in paths],
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def ignored_paths(workspace: Path, paths: list[str]) -> list[str] | None:
-    """Which of ``paths`` git ignores, or ``None`` when that cannot be decided.
-
-    A worktree identity is built from HEAD's tree plus every changed and
-    untracked file, which covers everything git tracks or reports — but not an
-    ignored file. A declared tool source (an OpenAPI spec, an MCP export) can
-    be ignored and still be read by the scan, and it would then change without
-    moving the identity at all. Callers use this to refuse a reuse record
-    rather than to paper over it.
-    """
-
-    if not paths:
-        return []
-    if len(paths) > _MAX_IDENTITY_PATHS:
-        return None
-    result = _run_git(workspace, ["check-ignore", "--", *paths], check=False)
-    if result.returncode == 1:  # documented: nothing matched
-        return []
-    if result.returncode != 0:
-        return None
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
-
 
 def paths_named_at_ref(
     workspace: Path, ref: str, names: frozenset[str]

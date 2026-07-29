@@ -107,6 +107,33 @@ def trust_root_class_for(path: str) -> str | None:
     return None
 
 
+def is_configured_manifest(config_path: object | None, path: str) -> bool:
+    """Whether a changed-file path is the manifest *this run* loaded as its gate.
+
+    The table above only knows ``**/shipgate.yaml``. A repository pointed at
+    ``--config new-gate.yml`` therefore had no manifest trust root at all: the
+    file defining its gate could be added or rewritten without a finding, and
+    the release substrate carried nothing for the merge projection to fail
+    closed on. Whatever a run loaded as the gate *is* the gate.
+
+    The comparison tolerates the two spellings that reach it — the absolute
+    resolved config path a scan carries, and the workspace-relative changed
+    path — while refusing a same-basename file in another directory.
+    """
+
+    if config_path is None:
+        return False
+    configured = str(config_path).replace("\\", "/").strip()
+    candidate = path.replace("\\", "/").strip()
+    if not configured or not candidate:
+        return False
+    return (
+        candidate == configured
+        or configured.endswith(f"/{candidate}")
+        or candidate.endswith(f"/{configured}")
+    )
+
+
 __all__ = [
     "PROTECTED_FILE_EDITS",
     "TRUST_ROOT_SURFACES",

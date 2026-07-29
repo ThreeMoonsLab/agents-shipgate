@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,13 +27,39 @@ from agents_shipgate.schemas.preflight import (
 logger = logging.getLogger(__name__)
 
 
+def _rerun_command(**flags: object) -> str | None:
+    """The failed invocation, spelled out so rerunning it means the same thing.
+
+    Every error used to recommend a bare ``agents-shipgate preflight --json``,
+    which discards the workspace, config, plan, diff and capability request. An
+    agent that followed it evaluated the *current* repository with an empty
+    plan and got ``control.state=complete`` — a clean answer to a question
+    nobody asked. When the request cannot be reproduced from stdin ("-"), no
+    command is offered at all: a review action is honest, a wrong command is
+    not.
+    """
+
+    parts = ["agents-shipgate", "preflight"]
+    for name, value in flags.items():
+        if value is None or value is False:
+            continue
+        if value is True:
+            parts.append(f"--{name.replace('_', '-')}")
+            continue
+        text = str(value)
+        if text == "-":
+            return None
+        parts.extend([f"--{name.replace('_', '-')}", shlex.quote(text)])
+    return " ".join(parts)
+
+
 def _agent_mode_exit(
     error_kind: str,
     exc: BaseException,
     *,
     exit_code: int,
     next_action: str,
-    command: str = "agents-shipgate preflight --json",
+    command: str | None,
 ) -> typer.Exit:
     """Emit the structured agent-mode error line and return the exit to raise.
 
@@ -40,16 +67,21 @@ def _agent_mode_exit(
     an id an agent cannot look up is no better than prose.
     """
 
+    action = (
+        NextAction(
+            kind="command",
+            command=command,
+            why=next_action,
+            expects="A preflight run of the same request that completes.",
+        )
+        if command
+        else NextAction(kind="review", why=next_action)
+    )
     emit_agent_mode_error_action(
         error_kind,
         message=str(exc),
         exit_code=exit_code,
-        action=NextAction(
-            kind="command",
-            command=command,
-            why=next_action,
-            expects="A preflight run that completes and returns its plan.",
-        ),
+        action=action,
     )
     return typer.Exit(exit_code)
 
@@ -105,6 +137,18 @@ def preflight(
 ) -> None:
     """Run the proactive static preflight contract for coding agents."""
 
+    rerun = _rerun_command(
+        workspace=workspace,
+        config=config,
+        changed_files=changed_files,
+        diff=diff,
+        capability_request=capability_request,
+        plan=plan,
+        base_preflight=base_preflight,
+        host_baseline=host_baseline,
+        json=json_output,
+    )
+
     try:
         configure_logging(verbose=verbose)
         if plan is not None:
@@ -149,8 +193,9 @@ def preflight(
             exit_code=2,
             next_action=(
                 "Fix the manifest or flag value named in the error, then re-run "
-                "`agents-shipgate preflight`."
+                "the same preflight request."
             ),
+            command=rerun,
         ) from exc
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
@@ -160,8 +205,9 @@ def preflight(
             exit_code=3,
             next_action=(
                 "Correct the diff, changed-files list, or request JSON named in "
-                "the error, then re-run `agents-shipgate preflight`."
+                "the error, then re-run the same preflight request."
             ),
+            command=rerun,
         ) from exc
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
@@ -169,7 +215,8 @@ def preflight(
             "other_error",
             exc,
             exit_code=4,
-            next_action="Resolve the error above, then re-run `agents-shipgate preflight`.",
+            next_action="Resolve the error above, then re-run the same preflight request.",
+            command=rerun,
         ) from exc
     except OSError as exc:
         typer.echo(f"Input error: {exc}", err=True)
@@ -179,8 +226,9 @@ def preflight(
             exit_code=3,
             next_action=(
                 "Make the input file readable at the path given, then re-run "
-                "`agents-shipgate preflight`."
+                "the same preflight request."
             ),
+            command=rerun,
         ) from exc
     except Exception as exc:  # noqa: BLE001 - agents must never see a bare traceback.
         # Every other command reports unexpected failures on the agent channel;
@@ -199,6 +247,7 @@ def preflight(
                 "Report this failure with the command line above; preflight "
                 "could not complete."
             ),
+            command=None,
         ) from exc
 
     payload = result.model_dump(mode="json")
