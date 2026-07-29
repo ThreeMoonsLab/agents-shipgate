@@ -7,11 +7,11 @@ costs the user a second or more of every turn.
 
 This records the finished run where the hook already keeps its own state — the
 git directory, alongside ``last_verified_signature`` — so the hook can *report*
-that result instead of recomputing it, but only when it can prove the repository
-has not moved since (see :func:`agents_shipgate.cli.verify.git.worktree_identity`
-and the identity fields below).
+that result instead of recomputing it, but only when it can prove the
+repository has not moved and that the run it is reporting is the run it would
+otherwise have performed.
 
-Two rules this module exists to keep:
+Three rules this module exists to keep:
 
 - **Never the workspace.** An earlier attempt read ``verifier.json`` out of the
   reports directory, which anything in the workspace can write — including the
@@ -23,6 +23,12 @@ Two rules this module exists to keep:
 - **Never more trusted than fresh.** The record carries no verdict the hook
   would not have gotten from a fresh run, and the hook routes it through the
   same switch. On any mismatch — or any doubt — the hook re-verifies.
+- **Only a run the hook could have produced.** The hook invokes verify with
+  workspace, config, base, head and ci-mode and nothing else. A run that used a
+  baseline, a diff reference, policy packs, an authorization file, a fail-on
+  set, or non-default plugin/heuristic modes answered a *different* question,
+  so it is never recorded. Same for a run whose inputs the hook's identity
+  cannot see (an ignored tool source) or whose worktree moved mid-scan.
 """
 
 from __future__ import annotations
@@ -32,7 +38,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.cli.verify.git import commit_sha, git_path, worktree_identity
+from agents_shipgate.cli.verify.git import (
+    commit_sha,
+    git_path,
+    ignored_paths,
+    worktree_identity,
+)
 
 STATE_FILENAME = "agents-shipgate-hooks-state.json"
 RECORD_KEY = "last_verify"
@@ -44,30 +55,53 @@ def record_verify_for_hooks(
     config: str,
     ci_mode: str,
     base_ref: str | None,
+    base_commit_before: str | None,
     head_ref: str | None,
+    identity_before: str | None,
+    input_paths: list[str],
+    input_set_id: str | None,
     decision: str,
     blockers: int,
     review_items: int,
     control: dict[str, Any],
 ) -> None:
-    """Record a completed worktree verify for the installed Stop hook.
+    """Record a completed default-shaped worktree verify for the Stop hook.
+
+    ``identity_before`` is the worktree identity captured *before* the scan
+    started. Recomputing it here and requiring the two to match closes the
+    window where an edit lands while the scan is running: without it, the
+    verdict for the pre-edit tree would be filed under the post-edit state, and
+    the hook would report a result for work it never saw. ``base_commit_before``
+    does the same for a base ref that advances mid-scan.
 
     Fail-soft by construction: any problem skips the record and the hook simply
     runs its own verify, which is the behavior this replaces.
     """
 
     try:
-        identity = worktree_identity(git_root)
-        if identity is None:
+        if identity_before is None:
+            return
+        if worktree_identity(git_root) != identity_before:
+            return
+        if base_ref:
+            current_base = commit_sha(git_root, base_ref)
+            if not current_base or current_base != base_commit_before:
+                return
+        elif base_commit_before:
+            return
+        # An ignored input is read by the scan and invisible to the identity,
+        # so a repository that has one can never reuse. Refusing the record is
+        # the whole mitigation: the hook needs no knowledge of the manifest.
+        ignored = ignored_paths(git_root, input_paths)
+        if ignored is None or ignored:
             return
         record = {
-            "identity": identity,
+            "identity": identity_before,
+            "input_set_id": input_set_id,
             "config": config,
             "ci_mode": ci_mode,
             "base_ref": base_ref or "",
-            # The base is a moving ref; pin what it pointed at. A base that
-            # advanced between the two runs is a different comparison.
-            "base_commit": (commit_sha(git_root, base_ref) or "") if base_ref else "",
+            "base_commit": base_commit_before or "",
             "head_ref": head_ref or "",
             "decision": decision,
             "blockers": blockers,
@@ -78,6 +112,17 @@ def record_verify_for_hooks(
         state[RECORD_KEY] = record
         _write_state(git_root, state)
     except Exception:  # noqa: BLE001 - an advisory optimization never fails a run.
+        return
+
+
+def discard_hook_verify_record(git_root: Path) -> None:
+    """Drop any recorded run — used when this run must not be reusable."""
+
+    try:
+        state = _read_state(git_root)
+        if state.pop(RECORD_KEY, None) is not None:
+            _write_state(git_root, state)
+    except Exception:  # noqa: BLE001 - advisory only.
         return
 
 
@@ -108,4 +153,9 @@ def _write_state(git_root: Path, data: dict[str, Any]) -> None:
     os.replace(temp, path)
 
 
-__all__ = ["RECORD_KEY", "STATE_FILENAME", "record_verify_for_hooks"]
+__all__ = [
+    "RECORD_KEY",
+    "STATE_FILENAME",
+    "discard_hook_verify_record",
+    "record_verify_for_hooks",
+]

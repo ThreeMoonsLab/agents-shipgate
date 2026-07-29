@@ -362,6 +362,36 @@ def test_check_explicit_agent_flag_beats_detection(
 # --- structured errors on the commands that had none ------------------------
 
 
+_DOCUMENTED_ERROR_IDS = {
+    entry["id"]
+    for entry in json.loads(
+        (Path(__file__).resolve().parent.parent / "docs" / "errors.json").read_text(
+            encoding="utf-8"
+        )
+    )["errors"]
+}
+
+
+def _assert_documented_envelope(payload: dict) -> None:
+    """`docs/errors.json` is the contract, not a description of what we emit.
+
+    It states that an agent-mode error line always carries `next_action` *and*
+    the ranked `next_actions` array, and that the kind is one of the published
+    ids. An agent that routes on the documented array got nothing from an
+    emitter that shipped only the legacy string.
+    """
+
+    assert payload["error"] in _DOCUMENTED_ERROR_IDS, payload["error"]
+    assert isinstance(payload.get("next_actions"), list)
+    assert payload["next_actions"], payload
+    for action in payload["next_actions"]:
+        assert action["kind"] in {"command", "edit", "review", "stop"}
+        assert action["why"]
+        if action["kind"] == "command":
+            assert action["command"]
+    assert payload["next_action"]
+
+
 def _agent_mode_error(result) -> dict:
     """The last stderr line of an agent-mode run, parsed."""
 
@@ -383,6 +413,7 @@ def test_check_rejects_an_unknown_format_on_the_agent_channel(
     assert payload["error"] == "config_error"
     assert payload["exit_code"] == 2
     assert "agent-boundary-json" in payload["next_action"]
+    _assert_documented_envelope(payload)
 
 
 def test_check_rejects_an_unknown_agent_on_the_agent_channel(
@@ -394,7 +425,7 @@ def test_check_rejects_an_unknown_agent_on_the_agent_channel(
     )
 
     assert result.exit_code == 2
-    assert _agent_mode_error(result)["error"] == "config_error"
+    _assert_documented_envelope(_agent_mode_error(result))
 
 
 def test_audit_without_host_reports_a_next_action(
@@ -407,6 +438,7 @@ def test_audit_without_host_reports_a_next_action(
     payload = _agent_mode_error(result)
     assert payload["error"] == "config_error"
     assert "--host" in payload["next_action"]
+    _assert_documented_envelope(payload)
 
 
 def test_preflight_config_error_reports_a_next_action(
@@ -422,6 +454,7 @@ def test_preflight_config_error_reports_a_next_action(
     payload = _agent_mode_error(result)
     assert payload["error"] == "config_error"
     assert payload["exit_code"] == 2
+    _assert_documented_envelope(payload)
 
 
 def test_preflight_silent_without_agent_mode(tmp_path: Path) -> None:
@@ -432,3 +465,46 @@ def test_preflight_silent_without_agent_mode(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert not [line for line in result.output.splitlines() if line.startswith("{")]
+
+
+def test_audit_reports_an_unwritable_out_path_as_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unwritable --out was a Rich traceback and exit 1, not a contract."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--json",
+            "--out",
+            str(blocker / "nested" / "audit.json"),
+        ],
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    assert payload["error"] == "config_error"
+    _assert_documented_envelope(payload)
+
+
+def test_preflight_reports_only_documented_error_kinds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`shipgate_error` was not an id an agent could look up."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "1"\nproject:\n  name: demo\n', encoding="utf-8"
+    )
+    result = runner.invoke(app, ["preflight", "--workspace", str(tmp_path)])
+
+    assert result.exit_code != 0
+    _assert_documented_envelope(_agent_mode_error(result))

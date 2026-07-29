@@ -97,11 +97,14 @@ from .git import (
     paths_named_at_ref,
     read_file_at_ref,
     ref_exists,
+    removes_a_yaml_file,
     repository_identity,
     resolve_source_head_identity,
     tree_sha,
     working_tree_context,
+    worktree_identity,
 )
+from .hook_state import discard_hook_verify_record, record_verify_for_hooks
 
 HEAD_FORMATS = ["markdown", "json", "sarif"]
 # Verify owns the PR artifact contract and writes packet.json only; the
@@ -189,6 +192,7 @@ def run_verify(
                     "preview, then correct --config or initialize shipgate.yaml."
                 ),
             ),
+            worktree=not archive_head,
         )
         _remove_scan_artifacts(out_dir)
         _write_artifacts(
@@ -249,6 +253,7 @@ def run_verify(
                 expects=head,
                 why="Make the requested head ref available locally, then rerun verify.",
             ),
+            worktree=not archive_head,
         )
         _remove_scan_artifacts(out_dir)
         _write_artifacts(
@@ -333,6 +338,7 @@ def run_verify(
         head_exit_code=0,
         out_dir=out_dir,
         ci_mode=ci_mode,
+        worktree=not archive_head,
     )
 
     if diff_unavailable:
@@ -353,6 +359,7 @@ def run_verify(
             head_exit_code=2,
             out_dir=out_dir,
             ci_mode=ci_mode,
+            worktree=not archive_head,
         )
         _write_artifacts(
             verifier,
@@ -391,6 +398,7 @@ def run_verify(
                 head_exit_code=0,
                 out_dir=out_dir,
                 ci_mode=ci_mode,
+                worktree=not archive_head,
             )
         _write_artifacts(
             verifier,
@@ -433,12 +441,35 @@ def run_verify(
         )
         base_notes.extend(cache_notes)
 
+    # Captured before the scan starts, so a worktree edit or a base ref that
+    # advances *while* the scan runs is detectable afterwards. Without this the
+    # verdict for the pre-edit tree would be filed under the post-edit state.
+    identity_before = worktree_identity(git_root) if not archive_head else None
+    base_commit_before = commit_sha(git_root, base) if base else None
+    # The Stop hook invokes verify with workspace/config/base/head/ci-mode and
+    # nothing else. A run carrying any other gate-affecting input answered a
+    # different question and must never stand in for the hook's own.
+    default_shaped = (
+        baseline is None
+        and diff_from is None
+        and not policy_pack_paths
+        and authorization is None
+        and plugins_enabled is None
+        and not strict_plugins
+        and not no_heuristics
+        and not suggest_patches
+        and not fail_on
+        and baseline_mode == "new-findings"
+    )
+    scan_input_paths: list[str] = []
+
     manifest_introduced = _manifest_introduced(
         git_root=git_root,
         config_relative=config_relative,
         base_status=base_status,
         base=base,
         head=head,
+        changed_files=changed_files,
     )
 
     report: ReadinessReport | None = None
@@ -558,6 +589,7 @@ def run_verify(
             out_dir=out_dir,
             ci_mode=ci_mode,
             manifest_introduced=manifest_introduced,
+            worktree=not archive_head,
         )
         try:
             try:
@@ -592,6 +624,7 @@ def run_verify(
                         ),
                     },
                     evaluation_date=verification_date,
+                    scan_input_paths=scan_input_paths,
                 )
             except Exception:
                 if scan_error is None:
@@ -602,7 +635,71 @@ def run_verify(
         finally:
             if head_tmp is not None:
                 head_tmp.cleanup()
+    _record_or_discard_hook_verify(
+        git_root=git_root,
+        verifier=verifier,
+        head_status=head_status,
+        archive_head=archive_head,
+        config_relative=config_relative,
+        identity_before=identity_before,
+        base_commit_before=base_commit_before,
+        default_shaped=default_shaped,
+        scan_input_paths=scan_input_paths,
+    )
     return verifier, report, head_exit_code
+
+
+def _record_or_discard_hook_verify(
+    *,
+    git_root: Path,
+    verifier: VerifierArtifact,
+    head_status: str,
+    archive_head: bool,
+    config_relative: Path,
+    identity_before: str | None,
+    base_commit_before: str | None,
+    default_shaped: bool,
+    scan_input_paths: list[str],
+) -> None:
+    """Offer this run to the Stop hook, or make sure nothing stale is offered.
+
+    Discarding matters as much as recording: a failed or differently-shaped run
+    must not leave an earlier record in place for the hook to find, because the
+    repository has usually moved since that record was written and "no record"
+    is the safe state.
+    """
+
+    reusable = (
+        head_status == "succeeded"
+        and not archive_head
+        and default_shaped
+        and verifier.control.state is not None
+    )
+    if not reusable:
+        discard_hook_verify_record(git_root)
+        return
+    release = verifier.release_decision
+    record_verify_for_hooks(
+        git_root=git_root,
+        config=config_relative.as_posix(),
+        # The *effective* mode, not the flag: a forced --ci-mode rewrites the
+        # manifest's mode for the run, and the policy-weakening check compares
+        # that value against the base, so two runs under different effective
+        # modes can reach different findings.
+        ci_mode=verifier.mode,
+        base_ref=verifier.base_ref,
+        base_commit_before=base_commit_before,
+        head_ref=None,
+        identity_before=identity_before,
+        input_paths=scan_input_paths,
+        input_set_id=verifier.input_set_id,
+        decision=release.decision if release is not None else "unknown",
+        blockers=len(release.blockers) if release is not None else 0,
+        review_items=len(release.review_items) if release is not None else 0,
+        control=verifier.control.model_dump(mode="json"),
+    )
+
+
 
 
 def _prepare_base_report(
@@ -931,6 +1028,7 @@ def _manifest_introduced(
     base_status: VerifierBaseStatus,
     base: str | None,
     head: str,
+    changed_files: list[str],
 ) -> bool:
     """True when the comparison base carries no Shipgate manifest at all.
 
@@ -942,13 +1040,29 @@ def _manifest_introduced(
     The proof is deliberately stronger than "the configured path is absent on
     the base". A PR that *moves* the manifest — say to ``config/shipgate.yaml``
     while loosening it — also finds nothing at the configured path on the base,
-    and would otherwise get to call itself a first adoption. Requiring that the
-    base carry no manifest under any name closes that.
+    and would otherwise get to call itself a first adoption.
+
+    Two independent checks close that, because a name check alone cannot: a
+    repository may call its manifest anything, so ``old-gate.yml`` renamed to
+    ``new-gate.yml`` passes any name test. The base must carry no manifest
+    under the configured or default name, *and* the evaluated diff must not
+    delete or rename away any YAML file. Both are fail-closed: a git command
+    that cannot answer means "not an adoption", never "proven absent".
 
     Unknown bases (``ref_missing``, ``archive_failed``) are never treated as
     adoptions: absence of evidence is not evidence of absence.
+
+    The evaluated diff must also actually contain the manifest. That is the
+    literal claim being made ("this PR introduces it"), and it is what makes
+    ``trust_root_touched`` structurally true for every adoption — which matters
+    because ``policy_weakened`` is honestly ``false`` here, so the trust-root
+    signal is the one machine consumers are left with.
     """
 
+    if config_relative.as_posix() not in {
+        str(path).replace("\\", "/").strip() for path in changed_files
+    }:
+        return False
     if base_status == "missing_manifest" and base is not None:
         ref: str = base
     elif base_status in {"not_requested", "skipped"}:
@@ -959,7 +1073,13 @@ def _manifest_introduced(
     else:
         return False
     names = _MANIFEST_FILE_NAMES | {config_relative.name}
-    return not paths_named_at_ref(git_root, ref, frozenset(names))
+    existing = paths_named_at_ref(git_root, ref, frozenset(names))
+    if existing is None or existing:
+        return False
+    removed = removes_a_yaml_file(
+        git_root, base if base_status == "missing_manifest" else None, head
+    )
+    return removed is False
 
 
 def _can_merge_without_human(
@@ -968,10 +1088,20 @@ def _can_merge_without_human(
     release_decision: ReleaseDecision | None,
     capability_review: VerifierCapabilityReview | None = None,
 ) -> bool:
-    """Pure merge projection; contradictory passed substrate fails closed."""
+    """Pure merge projection; contradictory passed substrate fails closed.
 
+    ``manifest_introduced`` is deliberately *not* consulted. ``VerifierArtifact``
+    validates this as a pure projection of ``decision``/``execution``, so a
+    third input could only produce an artifact the schema rejects. The adoption
+    stays fail-closed through the substrate instead: it always touches the
+    manifest — ``_manifest_introduced`` requires the diff to contain it — so
+    ``trust_root_touched`` is set, the note below is non-``None``, and a
+    ``passed`` decision alongside it is caught as the contradiction it is.
+    """
+
+    note = _self_approval_note(capability_review)
     if release_decision is None:
-        if merge_verdict == "mergeable" and _self_approval_note(capability_review):
+        if merge_verdict == "mergeable" and note:
             raise ValueError("mergeable not-applicable projection contradicts a touched trust root")
         return merge_verdict == "mergeable"
     if release_decision.decision != "passed":
@@ -979,7 +1109,7 @@ def _can_merge_without_human(
     contradictions: list[str] = []
     if merge_verdict != "mergeable":
         contradictions.append("merge verdict is not mergeable")
-    if _self_approval_note(capability_review) is not None:
+    if note is not None:
         contradictions.append("release trust root or policy was changed")
     if release_decision.evidence_coverage.human_review_recommended:
         contradictions.append("evidence coverage recommends human review")
@@ -1012,15 +1142,14 @@ def _self_approval_note(
     coding agent cannot adopt a release policy on the repository's behalf), but
     a PR that adds the manifest to a base that had none weakens nothing, and
     saying it does is both wrong and the first thing every new adopter reads.
-    ``manifest_introduced`` only changes the sentence: this returns a string in
-    exactly the same cases as before, so every caller that reads it as "a trust
-    root is in play" keeps its meaning.
+    An adoption is its own case and must not depend on ``policy_weakened``:
+    that flag is now false during an adoption, because it answers "was the gate
+    weakened" for the registry, attestations, and the gate-bypass alarm. Firing
+    on ``manifest_introduced`` alone is what keeps every caller that reads this
+    as "a trust root is in play" — ``_can_merge_without_human`` above all —
+    fail-closed regardless of the other two flags.
     """
-    if capability_review is None:
-        return None
-    if manifest_introduced and (
-        capability_review.policy_weakened or capability_review.trust_root_touched
-    ):
+    if manifest_introduced:
         return (
             "This PR introduces Agents Shipgate to this repository: the base "
             "carries no manifest, so there is no prior gate this change could "
@@ -1028,6 +1157,8 @@ def _self_approval_note(
             "generated shipgate.yaml (and the agent-instruction and CI files it "
             "adds), then merge it through a human-reviewed PR."
         )
+    if capability_review is None:
+        return None
     if capability_review.policy_weakened:
         return (
             "This PR weakens the release policy that evaluates it; a coding "
@@ -1291,6 +1422,7 @@ def _build_verifier(
     headline_override: str | None = None,
     first_next_action_override: AgentControlAction | None = None,
     manifest_introduced: bool = False,
+    worktree: bool = False,
 ) -> VerifierArtifact:
     release_decision_model = report.release_decision if report is not None else None
     release_decision = (
@@ -1328,6 +1460,8 @@ def _build_verifier(
             base_ref=base,
             head_ref=head,
             manifest_introduced=manifest_introduced,
+            config=_display_path(config_path, git_root),
+            worktree=worktree,
         )
     )
     can_merge = _can_merge_without_human(
@@ -1698,7 +1832,17 @@ def _write_artifacts(
     authorization_path: Path | None = None,
     verification_options: dict[str, Any] | None = None,
     evaluation_date: str | None = None,
+    scan_input_paths: list[str] | None = None,
 ) -> None:
+    """Write the run's artifacts.
+
+    ``scan_input_paths`` is an out-parameter: when a list is passed, the
+    workspace-relative path of every file the verification plan counted as an
+    input is appended to it. The Stop-hook reuse record needs that list to ask
+    git whether any input is ignored, and the plan is the only place that knows
+    it.
+    """
+
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
     verifier_path.write_text(
         json.dumps(verifier.model_dump(mode="json"), indent=2),
@@ -1847,6 +1991,12 @@ def _write_artifacts(
             "can_merge_without_human": verifier.can_merge_without_human,
         }
     )
+    if scan_input_paths is not None:
+        scan_input_paths.extend(
+            blob.path
+            for blob in (plan.inputs.config, *plan.inputs.tool_sources)
+            if getattr(blob, "path", None)
+        )
     verifier.request_id = plan.request_id
     verifier.subject_id = plan.subject.subject_id
     verifier.input_set_id = plan.inputs.input_set_id

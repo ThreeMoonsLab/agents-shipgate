@@ -5,6 +5,7 @@ import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 AGENT_MODE_ENV_VAR = "AGENTS_SHIPGATE_AGENT_MODE"
 
@@ -60,6 +61,33 @@ def detect_actor(env: Mapping[str, str] | None = None) -> str:
         if source.get(hint):
             return actor
     return DEFAULT_ACTOR
+
+
+def emit_agent_mode_error_action(
+    error_kind: str,
+    *,
+    message: object,
+    exit_code: int,
+    action: Any,
+    **fields: object,
+) -> None:
+    """Emit a structured error whose recovery is one ranked ``NextAction``.
+
+    ``docs/errors.json`` states that an agent-mode error line *always* carries
+    both ``next_action`` (the single-string back-compat form) and
+    ``next_actions`` (the ranked array). Emitting only the legacy string leaves
+    every agent that consumes the documented array with nothing to route on, so
+    this derives both from one object and they cannot disagree.
+    """
+
+    emit_agent_mode_error(
+        error_kind,
+        message=message,
+        exit_code=exit_code,
+        next_action=action.to_legacy_string(),
+        next_actions=[action.model_dump(mode="json")],
+        **fields,
+    )
 
 
 def emit_agent_mode_error(

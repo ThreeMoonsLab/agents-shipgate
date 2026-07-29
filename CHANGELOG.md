@@ -42,7 +42,20 @@
   commit changes the digest by construction, which is the stale-pass the first
   attempt at this was reverted for; it is now a regression test. Nothing is
   read from the workspace, the reused result routes through the same switch a
-  fresh one does, and any mismatch or doubt re-verifies.
+  fresh one does, and any mismatch or doubt re-verifies. A run is offered to the
+  hook only when it answered the hook's own question: default-shaped (no
+  baseline, diff reference, policy pack, authorization, fail-on set, or
+  non-default plugin/heuristic mode), with no git-ignored scan input — an
+  ignored tool source is read by the scan and invisible to the digest — and
+  with the working tree unmoved across the scan itself. Any other run clears
+  the record rather than leaving a stale one behind.
+- **A rerun command that actually reruns.** The `fix_task` verification command
+  omitted `--config`, substituted `origin/main` for a base the run never used,
+  and always appended `--head HEAD`. In a repository with a nested manifest it
+  re-ran against a different gate, and for an uncommitted first adoption it
+  switched to the committed tree — where the new manifest does not exist — and
+  exited 2. It now emits the config always, the base only when one was used,
+  and no `--head` for a working-tree run.
 
 - **A way out of `insufficient_evidence` (#292).** An abstention was
   unactionable in practice: the decision engine generated the exact manifest

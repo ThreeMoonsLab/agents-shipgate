@@ -949,12 +949,20 @@ def test_hook_and_cli_compute_the_same_worktree_identity(tmp_path: Path) -> None
 
 
 def _record(tmp_path: Path, **overrides) -> None:
+    base_ref = overrides.pop("base_ref", None)
     payload = {
         "git_root": tmp_path,
         "config": "shipgate.yaml",
         "ci_mode": "advisory",
-        "base_ref": None,
+        "base_ref": base_ref,
+        "base_commit_before": _commit_sha(tmp_path, base_ref) if base_ref else None,
         "head_ref": None,
+        # As the CLI does it: captured before the scan, re-checked at write
+        # time so an edit during the scan cannot bind an old verdict to a new
+        # state.
+        "identity_before": worktree_identity(tmp_path),
+        "input_paths": ["shipgate.yaml"],
+        "input_set_id": "sha256:test",
         "decision": "review_required",
         "blockers": 0,
         "review_items": 1,
@@ -966,6 +974,21 @@ def _record(tmp_path: Path, **overrides) -> None:
     }
     payload.update(overrides)
     record_verify_for_hooks(**payload)
+
+
+def _commit_sha(repo: Path, ref: str) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def _hook_state(repo: Path) -> dict:
+    path = repo / ".git" / "agents-shipgate-hooks-state.json"
+    return json.loads(path.read_text("utf-8")) if path.is_file() else {}
 
 
 def _verify_calls(log: Path) -> list[list[str]]:
@@ -1117,3 +1140,83 @@ def test_a_base_that_moved_since_the_verify_is_not_reused(tmp_path: Path) -> Non
     result, log = _stop_hook_with_record(tmp_path)
     assert result.returncode == 0, result.stderr
     assert len(_verify_calls(log)) == 1
+
+
+def test_an_empty_commit_invalidates_the_record(tmp_path: Path) -> None:
+    """Same tree, different commit — and verify reads the commit.
+
+    Its date is the evaluation clock that expires overrides and
+    acknowledgements, so a digest over `HEAD^{tree}` alone would report a
+    verdict computed under a different clock.
+    """
+
+    _dirty_opted_in_repo(tmp_path)
+    before = worktree_identity(tmp_path)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "empty"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    assert worktree_identity(tmp_path) != before
+
+
+def test_an_ignored_scan_input_is_never_recorded(tmp_path: Path) -> None:
+    """An ignored tool source is read by the scan and invisible to identity.
+
+    It can change without moving the digest by a single byte, so a repository
+    that has one must not get a reuse record at all.
+    """
+
+    _dirty_opted_in_repo(tmp_path)
+    (tmp_path / ".gitignore").write_text("generated/\n", encoding="utf-8")
+    (tmp_path / "generated").mkdir()
+    (tmp_path / "generated" / "openapi.json").write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=tmp_path, check=True)
+
+    _record(tmp_path, input_paths=["shipgate.yaml", "generated/openapi.json"])
+
+    assert "last_verify" not in _hook_state(tmp_path)
+
+
+def test_a_worktree_edit_during_the_scan_is_not_recorded(tmp_path: Path) -> None:
+    """The verdict for the pre-edit tree must not be filed under the new state."""
+
+    _dirty_opted_in_repo(tmp_path)
+    stale_identity = worktree_identity(tmp_path)
+    (tmp_path / "prompts" / "refund.md").write_text(
+        "edited while the scan ran\n", encoding="utf-8"
+    )
+
+    _record(tmp_path, identity_before=stale_identity)
+
+    assert "last_verify" not in _hook_state(tmp_path)
+
+
+def test_the_hook_compares_the_effective_ci_mode_not_the_installed_flag(
+    tmp_path: Path,
+) -> None:
+    """`AGENTS_SHIPGATE_VERIFY_CI_MODE` changes the question being asked."""
+
+    _dirty_opted_in_repo(tmp_path)
+    _record(tmp_path)
+
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+    env["AGENTS_SHIPGATE_VERIFY_CI_MODE"] = "strict"
+
+    result = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(_verify_calls(log)) == 1, "an advisory record cannot answer a strict run"

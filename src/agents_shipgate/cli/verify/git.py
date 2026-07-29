@@ -395,7 +395,7 @@ def worktree_identity(workspace: Path) -> str | None:
     they must never treat it as "unchanged".
     """
 
-    head = _run_git(workspace, ["rev-parse", "HEAD^{tree}"], check=False)
+    head = _run_git(workspace, ["rev-parse", "HEAD", "HEAD^{tree}"], check=False)
     if head.returncode != 0:
         return None
     changed = _run_git(workspace, ["diff", "HEAD", "--name-only"], check=False)
@@ -425,7 +425,11 @@ def worktree_identity(workspace: Path) -> str | None:
         blobs = dict(zip(present, lines, strict=True))
     payload = json.dumps(
         {
-            "head_tree": head.stdout.strip(),
+            # The commit, not only its tree. An empty commit leaves the tree
+            # byte-identical while moving HEAD — and verify reads the commit:
+            # its date is the evaluation clock that expires overrides and
+            # acknowledgements, and its ancestry decides the base.
+            "head": head.stdout.split(),
             # "absent" covers a deleted tracked file, which has no blob but is
             # every bit a change.
             "files": [[path, blobs.get(path, "absent")] for path in paths],
@@ -436,22 +440,83 @@ def worktree_identity(workspace: Path) -> str | None:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def paths_named_at_ref(workspace: Path, ref: str, names: frozenset[str]) -> list[str]:
+def ignored_paths(workspace: Path, paths: list[str]) -> list[str] | None:
+    """Which of ``paths`` git ignores, or ``None`` when that cannot be decided.
+
+    A worktree identity is built from HEAD's tree plus every changed and
+    untracked file, which covers everything git tracks or reports — but not an
+    ignored file. A declared tool source (an OpenAPI spec, an MCP export) can
+    be ignored and still be read by the scan, and it would then change without
+    moving the identity at all. Callers use this to refuse a reuse record
+    rather than to paper over it.
+    """
+
+    if not paths:
+        return []
+    if len(paths) > _MAX_IDENTITY_PATHS:
+        return None
+    result = _run_git(workspace, ["check-ignore", "--", *paths], check=False)
+    if result.returncode == 1:  # documented: nothing matched
+        return []
+    if result.returncode != 0:
+        return None
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def paths_named_at_ref(
+    workspace: Path, ref: str, names: frozenset[str]
+) -> list[str] | None:
     """Tracked paths at ``ref`` whose file name is one of ``names``.
 
     Used to prove that a ref carries no Shipgate manifest *anywhere*, not just
     at the configured path — otherwise moving the manifest to a new path would
     make a modified gate look like a first adoption.
+
+    ``None`` means the listing failed, which is not the same as an empty
+    result: callers must treat it as "cannot prove", never as proven absence.
     """
 
     result = _run_git(workspace, ["ls-tree", "-r", "--name-only", ref], check=False)
     if result.returncode != 0:
-        return []
+        return None
     return [
         line
         for line in result.stdout.splitlines()
         if line.strip() and line.rsplit("/", maxsplit=1)[-1] in names
     ]
+
+
+# Suffixes a Shipgate manifest can plausibly carry. A rename away from one of
+# these is the shape the adoption claim must not survive.
+_MANIFEST_SUFFIXES = (".yaml", ".yml")
+
+
+def removes_a_yaml_file(workspace: Path, base: str | None, head: str) -> bool | None:
+    """Whether the evaluated diff deletes or renames away any YAML file.
+
+    A repository is free to name its manifest anything, so "the base has no
+    file called shipgate.yaml" cannot by itself prove the base had no gate: a
+    PR that renames ``old-gate.yml`` to ``new-gate.yml`` while loosening it
+    passes that test. Git's own rename/delete detection answers the question
+    the name check cannot, without having to guess names.
+
+    ``None`` means the diff could not be read — cannot prove, so callers must
+    not claim an adoption.
+    """
+
+    args = ["diff", "--name-status", "--find-renames", "--diff-filter=DR"]
+    args.extend([f"{base}...{head}"] if base else ["HEAD"])
+    result = _run_git(workspace, args, check=False)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        fields = [field for field in line.split("\t") if field.strip()]
+        if len(fields) < 2:
+            continue
+        source = fields[1].replace("\\", "/")
+        if source.lower().endswith(_MANIFEST_SUFFIXES):
+            return True
+    return False
 
 
 def working_tree_context(workspace: Path) -> tuple[list[str], str]:

@@ -164,7 +164,13 @@ def _trust_root_touched(report: ReadinessReport) -> bool:
 def _policy_weakened(report: ReadinessReport) -> bool:
     if report.verifier_summary is not None:
         return report.verifier_summary.policy_weakened
-    return any(f.check_id == POLICY_WEAKENING_CHECK_ID for f in _active_findings(report))
+    # Same exclusion as ``verifier_blocks``: a first adoption fires this check
+    # without weakening anything, and this flag is read as a fact downstream.
+    return any(
+        f.check_id == POLICY_WEAKENING_CHECK_ID
+        and (f.evidence or {}).get("kind") != "manifest_introduced"
+        for f in _active_findings(report)
+    )
 
 
 def _active_findings(report: ReadinessReport) -> list[Finding]:

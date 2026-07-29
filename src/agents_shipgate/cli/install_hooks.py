@@ -756,7 +756,7 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         )
         base = ""
 
-    reused = _reusable_verify(root, args, base)
+    reused = _reusable_verify(root, args, base=base, head=head, ci_mode=ci_mode)
     if reused is not None:
         return _route_control(
             decision=str(reused.get("decision") or "unknown"),
@@ -1123,7 +1123,7 @@ def _worktree_identity(root: Path) -> str | None:
     "unchanged".
     """
 
-    head = _run_git(root, ["rev-parse", "HEAD^{tree}"])
+    head = _run_git(root, ["rev-parse", "HEAD", "HEAD^{tree}"])
     if head is None or head.returncode != 0:
         return None
     changed = _run_git(root, ["diff", "HEAD", "--name-only"])
@@ -1153,7 +1153,10 @@ def _worktree_identity(root: Path) -> str | None:
         blobs = dict(zip(present, lines))
     payload = json.dumps(
         {
-            "head_tree": head.stdout.strip(),
+            # The commit, not only its tree: an empty commit leaves the tree
+            # identical while moving HEAD, and verify reads the commit date as
+            # its evaluation clock.
+            "head": head.stdout.split(),
             "files": [[path, blobs.get(path, "absent")] for path in paths],
         },
         sort_keys=True,
@@ -1162,7 +1165,14 @@ def _worktree_identity(root: Path) -> str | None:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _reusable_verify(root: Path, args: argparse.Namespace, base: str) -> dict | None:
+def _reusable_verify(
+    root: Path,
+    args: argparse.Namespace,
+    *,
+    base: str,
+    head: str,
+    ci_mode: str,
+) -> dict | None:
     """The agent's own verify run, when it provably still describes this state.
 
     A governed turn asks the coding agent to run verify and then runs an
@@ -1171,6 +1181,12 @@ def _reusable_verify(root: Path, args: argparse.Namespace, base: str) -> dict | 
     signature cache; this reuses one only when every input matches, including
     a content digest of the working tree. A commit, an edit, a different
     config, or a moved base all fail the comparison and re-verify.
+
+    The comparison is against the *effective* base, head and ci-mode — the
+    values this hook is about to invoke verify with after applying the
+    AGENTS_SHIPGATE_VERIFY_* overrides and dropping an unavailable base — not
+    the raw installed arguments. Comparing the raw arguments would accept a
+    record produced under a different question than the one being asked.
     """
 
     record = _read_state(root).get("last_verify")
@@ -1178,11 +1194,11 @@ def _reusable_verify(root: Path, args: argparse.Namespace, base: str) -> dict | 
         return None
     if record.get("config") != args.config:
         return None
-    if (record.get("ci_mode") or "") != (args.ci_mode or ""):
+    if (record.get("ci_mode") or "") != (ci_mode or ""):
         return None
     if (record.get("base_ref") or "") != base:
         return None
-    if (record.get("head_ref") or "") != (args.head or ""):
+    if (record.get("head_ref") or "") != (head or ""):
         return None
     recorded_base = record.get("base_commit") or ""
     if base:

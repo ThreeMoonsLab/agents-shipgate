@@ -20,7 +20,6 @@ from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.schemas.diagnostics import NextAction
 
 from .git import ensure_git_workspace, staged_paths_under
-from .hook_state import record_verify_for_hooks
 from .orchestrator import run_preview, run_verify
 
 logger = logging.getLogger(__name__)
@@ -302,37 +301,6 @@ def verify(
         raise typer.Exit(4) from exc
 
     _warn_if_reports_staged(workspace, out)
-
-    if not preview and head is None and verifier.execution == "succeeded":
-        # Worktree runs only. A ``--head`` run evaluates a commit, which is not
-        # the state the Stop hook is looking at.
-        record_verify_for_hooks(
-            git_root=Path(verifier.workspace),
-            config=str(config),
-            # The *effective* mode, not the flag: a forced --ci-mode rewrites
-            # the manifest's mode for the run, and the policy-weakening check
-            # compares that value against the base, so two runs under different
-            # effective modes can reach different findings.
-            ci_mode=verifier.mode,
-            base_ref=verifier.base_ref,
-            head_ref=head,
-            decision=(
-                verifier.release_decision.decision
-                if verifier.release_decision is not None
-                else "unknown"
-            ),
-            blockers=(
-                len(verifier.release_decision.blockers)
-                if verifier.release_decision is not None
-                else 0
-            ),
-            review_items=(
-                len(verifier.release_decision.review_items)
-                if verifier.release_decision is not None
-                else 0
-            ),
-            control=verifier.control.model_dump(mode="json"),
-        )
 
     if stdout_format == "json":
         typer.echo(json.dumps(verifier.model_dump(mode="json"), indent=2))

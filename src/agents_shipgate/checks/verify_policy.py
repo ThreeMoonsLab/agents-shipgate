@@ -39,6 +39,7 @@ from agents_shipgate.checks._verify_common import (
     verify_finding,
 )
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.schemas.report import Finding
 
 CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
@@ -185,7 +186,12 @@ def _fail_safe(context: ScanContext) -> list[Finding]:
     if not hit:
         return []
     verification = context.verification
-    if verification is not None and verification.manifest_introduced:
+    introducing = verification is not None and verification.manifest_introduced
+    # An adoption that *also* edits an existing policy pack or baseline is not
+    # covered by "nothing existed to weaken": those files were already there.
+    # The friendlier wording is only correct when every touched policy surface
+    # is the manifest being introduced.
+    if introducing and all(trust_root_class_for(path) == "manifest" for path in hit):
         # A base with no manifest at all cannot have been weakened. This still
         # emits — at the same check id and severity, so the verdict and every
         # fail-closed consumer are unchanged — because the human decision

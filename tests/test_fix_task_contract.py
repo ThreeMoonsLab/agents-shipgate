@@ -767,11 +767,20 @@ def test_first_adoption_replaces_the_weakening_wording() -> None:
     assert not {"review_policy_weakening", "review_trust_root"} & repair_ids
 
 
-def test_adoption_wording_needs_a_trust_root_signal() -> None:
-    """`manifest_introduced` alone must not invent an adoption instruction."""
+def test_adoption_escalates_without_borrowing_another_flag() -> None:
+    """An adoption is an authority decision in its own right.
+
+    `policy_weakened` is honestly `false` during an adoption, so routing must
+    not depend on it: with no capability flags set at all, a mechanically
+    fixable finding must still route to a human rather than opening the
+    coding-agent auto-fix path.
+    """
+
+    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    report = _report(decision="review_required", findings=[f], review_items=[f])
 
     task = build_fix_task(
-        _trust_root_report(),
+        report,
         merge_verdict="human_review_required",
         capability_review=_review(),
         base_ref="origin/main",
@@ -780,4 +789,5 @@ def test_adoption_wording_needs_a_trust_root_signal() -> None:
     )
 
     assert task is not None
-    assert "adopts Agents Shipgate" not in " ".join(task.instructions)
+    assert task.actor == "human" and task.safe_to_attempt is False
+    assert "adopts Agents Shipgate" in " ".join(task.instructions)

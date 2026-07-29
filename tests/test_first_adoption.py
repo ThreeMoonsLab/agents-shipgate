@@ -75,6 +75,7 @@ def test_missing_manifest_base_with_no_manifest_anywhere_is_an_adoption(tmp_path
             base_status="missing_manifest",
             base="HEAD~1",
             head="HEAD",
+            changed_files=[SAMPLE_CONFIG.as_posix()],
         )
         is True
     )
@@ -105,6 +106,7 @@ def test_moved_manifest_cannot_pass_itself_off_as_an_adoption(tmp_path):
             base_status="missing_manifest",
             base="HEAD~1",
             head="HEAD",
+            changed_files=["samples/support_refund_agent/config/shipgate.yaml"],
         )
         is False
     )
@@ -123,6 +125,7 @@ def test_uncommitted_new_manifest_is_an_adoption(tmp_path):
             base_status="not_requested",
             base=None,
             head="HEAD",
+            changed_files=[SAMPLE_CONFIG.as_posix()],
         )
         is True
     )
@@ -137,6 +140,7 @@ def test_adopted_repo_is_never_an_adoption(tmp_path):
             base_status="not_requested",
             base=None,
             head="HEAD",
+            changed_files=[SAMPLE_CONFIG.as_posix()],
         )
         is False
     )
@@ -154,6 +158,7 @@ def test_unknown_base_is_never_an_adoption(tmp_path):
                 base_status=status,  # type: ignore[arg-type]
                 base="HEAD~1",
                 head="HEAD",
+                changed_files=[SAMPLE_CONFIG.as_posix()],
             )
             is False
         ), status
@@ -217,12 +222,13 @@ def test_adoption_headline_replaces_the_weakening_claim():
     assert "weakens the release policy" in modifying
 
 
-def test_adoption_note_fires_in_exactly_the_same_cases_as_before():
-    """``_self_approval_note`` doubles as the "a trust root is in play" probe.
+def test_adoption_raises_the_prohibition_on_its_own():
+    """``_self_approval_note`` is the "a trust root is in play" probe.
 
-    ``_can_merge_without_human`` raises on a passed decision that carries one,
-    so the introduction wording must not change *whether* a note exists — only
-    what it says.
+    ``_can_merge_without_human`` raises on a passed decision that carries one.
+    Since `policy_weakened` is now honestly `false` during an adoption, the
+    adoption has to raise the prohibition by itself — including when no other
+    flag is set and when there is no capability review at all.
     """
 
     for review in (
@@ -232,9 +238,41 @@ def test_adoption_note_fires_in_exactly_the_same_cases_as_before():
         _review(trust_root_touched=True),
         _review(policy_weakened=True, trust_root_touched=True),
     ):
-        introduced = _self_approval_note(review, manifest_introduced=True)
-        plain = _self_approval_note(review, manifest_introduced=False)
-        assert (introduced is None) == (plain is None)
+        assert _self_approval_note(review, manifest_introduced=True) is not None
+
+
+def test_non_adoption_wording_is_unchanged():
+    assert _self_approval_note(None, manifest_introduced=False) is None
+    assert _self_approval_note(_review(), manifest_introduced=False) is None
+    assert (
+        _self_approval_note(_review(trust_root_touched=True), manifest_introduced=False)
+        is not None
+    )
+
+
+def test_adoption_reports_no_policy_weakening_to_machine_consumers(tmp_path):
+    """The flag is read as a fact by the registry, attestations, and feedback.
+
+    A run whose headline says "introduces Agents Shipgate" while
+    `capability_review.policy_weakened` is true feeds that contradiction to
+    every downstream consumer — including feedback's gate-bypass alarm.
+    """
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    verifier = _run_verify(repo, base="HEAD~1", head="HEAD")
+
+    assert verifier.headline is not None
+    assert "introduces Agents Shipgate" in verifier.headline
+    assert verifier.capability_review.policy_weakened is False
+    # The adoption is still visible as a trust-root touch, which is what keeps
+    # reviewer routing and the gate-bypass alarm intact.
+    assert verifier.capability_review.trust_root_touched is True
+    assert verifier.can_merge_without_human is False
+
+    payload = json.loads(
+        (repo / "agents-shipgate-reports" / "report.json").read_text("utf-8")
+    )
+    assert payload["verifier_summary"]["policy_weakened"] is False
 
 
 # --- end to end --------------------------------------------------------------
@@ -309,3 +347,69 @@ def test_adopted_repo_gets_the_ordinary_wording_back(tmp_path):
     assert verifier.base_status == "succeeded"
     assert verifier.headline is not None
     assert "introduces Agents Shipgate" not in verifier.headline
+
+
+def test_a_renamed_manifest_under_any_name_is_not_an_adoption(tmp_path):
+    """The name check alone cannot see this.
+
+    A repository may call its manifest anything. `old-gate.yml` renamed to
+    `new-gate.yml` — while loosening it — leaves no file called
+    `shipgate.yaml` or `new-gate.yml` on the base, so only git's own
+    rename/delete detection separates it from a genuine first adoption.
+    """
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    sample = repo / "samples" / "support_refund_agent"
+    _git(repo, "mv", "samples/support_refund_agent/shipgate.yaml", "samples/support_refund_agent/old-gate.yml")
+    _git(repo, "commit", "-m", "rename to a custom manifest name")
+    _git(repo, "mv", "samples/support_refund_agent/old-gate.yml", "samples/support_refund_agent/new-gate.yml")
+    (sample / "new-gate.yml").write_text(
+        (sample / "new-gate.yml").read_text("utf-8") + "\n", encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "rename and loosen")
+
+    assert (
+        _manifest_introduced(
+            git_root=repo,
+            config_relative=Path("samples/support_refund_agent/new-gate.yml"),
+            base_status="missing_manifest",
+            base="HEAD~1",
+            head="HEAD",
+            changed_files=["samples/support_refund_agent/new-gate.yml"],
+        )
+        is False
+    )
+
+
+def test_a_manifest_absent_from_the_diff_is_not_an_adoption(tmp_path):
+    """"This PR introduces it" has to be literally true.
+
+    It is also what makes `trust_root_touched` structural for every adoption,
+    which matters now that `policy_weakened` is honestly false there.
+    """
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    assert (
+        _manifest_introduced(
+            git_root=repo,
+            config_relative=SAMPLE_CONFIG,
+            base_status="missing_manifest",
+            base="HEAD~1",
+            head="HEAD",
+            changed_files=["README.md"],
+        )
+        is False
+    )
+
+
+def test_an_adoption_that_also_edits_a_policy_pack_keeps_the_strict_wording():
+    """"Nothing existed to weaken" is false for a policy file that did exist."""
+
+    context = _scan_context(
+        manifest_introduced=True,
+        changed=("shipgate.yaml", "policies/refunds.yaml"),
+    )
+    findings = verify_policy.run(context)
+    assert len(findings) == 1
+    assert findings[0].evidence["kind"] == "base_snapshot_unavailable"

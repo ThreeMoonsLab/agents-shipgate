@@ -5,7 +5,10 @@ from pathlib import Path
 
 import typer
 
-from agents_shipgate.cli.agent_mode import detect_actor, emit_agent_mode_error
+from agents_shipgate.cli.agent_mode import (
+    detect_actor,
+    emit_agent_mode_error_action,
+)
 from agents_shipgate.cli.agent_result import (
     agent_result_json,
     build_agent_boundary_result,
@@ -16,6 +19,20 @@ from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
 from agents_shipgate.schemas.agent_control import CodingAgentCommandAction
 from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
+from agents_shipgate.schemas.diagnostics import NextAction
+
+
+def _flag_error(message: str, *, command: str, expects: str) -> typer.Exit:
+    """Report flag misuse on both channels and return the exit to raise."""
+
+    typer.echo(message, err=True)
+    emit_agent_mode_error_action(
+        "config_error",
+        message=message,
+        exit_code=2,
+        action=NextAction(kind="command", command=command, why=message, expects=expects),
+    )
+    return typer.Exit(2)
 
 
 def check(
@@ -75,38 +92,24 @@ def check(
     agent = agent or detect_actor()
 
     if agent not in {"codex", "claude-code", "cursor"}:
-        message = "--agent must be one of: codex, claude-code, cursor."
-        typer.echo(message, err=True)
-        emit_agent_mode_error(
-            "config_error",
-            message=message,
-            exit_code=2,
-            next_action="Re-run shipgate check with --agent codex, claude-code, or cursor.",
+        raise _flag_error(
+            "--agent must be one of: codex, claude-code, cursor.",
+            command="agents-shipgate check --agent codex",
+            expects="An --agent value the boundary evaluator recognizes.",
         )
-        raise typer.Exit(2)
     if format_ == "agent-json":
-        message = (
+        raise _flag_error(
             "--format agent-json was removed in the 0.14.0 contract cleanup. "
-            "Use --format agent-boundary-json."
+            "Use --format agent-boundary-json.",
+            command="agents-shipgate check --format agent-boundary-json",
+            expects="The current agent-boundary result contract.",
         )
-        typer.echo(message, err=True)
-        emit_agent_mode_error(
-            "config_error",
-            message=message,
-            exit_code=2,
-            next_action="Re-run shipgate check with --format agent-boundary-json.",
-        )
-        raise typer.Exit(2)
     if format_ not in {"agent-boundary-json", "codex-boundary-json"}:
-        message = "--format must be 'agent-boundary-json' or 'codex-boundary-json'."
-        typer.echo(message, err=True)
-        emit_agent_mode_error(
-            "config_error",
-            message=message,
-            exit_code=2,
-            next_action="Re-run shipgate check with --format agent-boundary-json.",
+        raise _flag_error(
+            "--format must be 'agent-boundary-json' or 'codex-boundary-json'.",
+            command="agents-shipgate check --format agent-boundary-json",
+            expects="The current agent-boundary result contract.",
         )
-        raise typer.Exit(2)
     try:
         input_issues = []
         if diff == "-":

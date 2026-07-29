@@ -73,6 +73,8 @@ def build_fix_task(
     base_ref: str | None,
     head_ref: str,
     manifest_introduced: bool = False,
+    config: str | None = None,
+    worktree: bool = False,
 ) -> VerifierFixTask | None:
     """Project the head scan onto a single repair task.
 
@@ -88,7 +90,9 @@ def build_fix_task(
     if merge_verdict == "mergeable":
         return None
 
-    verification_command = _verification_command(base_ref, head_ref)
+    verification_command = _verification_command(
+        base_ref, head_ref, config=config, worktree=worktree
+    )
 
     # No completed head decision (scan skipped/failed → ``unknown``) but the PR
     # is not mergeable: there are no findings to route on, so fail closed to a
@@ -146,6 +150,10 @@ def build_fix_task(
     authority_escalation = (
         capability_review.policy_weakened
         or capability_review.trust_root_touched
+        # Listed in its own right, not via ``policy_weakened``: that flag now
+        # reports the honest ``false`` for an adoption, and adopting a release
+        # policy is an authority decision no coding agent may make.
+        or manifest_introduced
         or merge_verdict in {"insufficient_evidence", "unknown"}
         or evidence_degraded
     )
@@ -255,14 +263,15 @@ def _adoption_instruction(
 ) -> str | None:
     """The one human act a first adoption needs, or ``None``.
 
-    Returns a string in exactly the cases where the generic policy/trust-root
-    instructions would have fired, so it replaces them rather than adding to
-    them; the routing decision that produced them is untouched.
+    Keyed on the adoption itself, not on ``policy_weakened``/
+    ``trust_root_touched``: the first now reports the honest ``false`` for an
+    adoption, and borrowing the second would make the instruction disappear in
+    the one case it exists for. It replaces the generic instructions rather
+    than adding to them; the routing that produced them is untouched.
     """
 
+    del capability_review  # Kept for call-site symmetry with the generic path.
     if not manifest_introduced:
-        return None
-    if not (capability_review.policy_weakened or capability_review.trust_root_touched):
         return None
     return (
         "This PR adopts Agents Shipgate: the base carries no manifest, so "
@@ -554,13 +563,41 @@ def _dedupe_cap(items: list[str]) -> list[str]:
     return out[:_MAX_INSTRUCTIONS]
 
 
-def _verification_command(base_ref: str | None, head_ref: str) -> str:
-    # Refs come from CLI / GitHub branch inputs and a valid git ref may contain
-    # shell metacharacters (e.g. ``;``); quote them so the emitted command is
-    # safe to run when an agent or human copies it verbatim.
-    base = shlex.quote(base_ref or "origin/main")
-    head = shlex.quote(head_ref or "HEAD")
-    return f"agents-shipgate verify --base {base} --head {head} --json"
+def _verification_command(
+    base_ref: str | None,
+    head_ref: str,
+    *,
+    config: str | None = None,
+    worktree: bool = False,
+) -> str:
+    """The exact command that re-runs *this* verification.
+
+    Every part of it is the run that actually happened, because an agent runs
+    it verbatim:
+
+    - ``--config`` is always emitted. A repository with a nested manifest
+      (``services/api/shipgate.yaml``) re-ran against the default path, which
+      is a different gate or no gate at all.
+    - The base is emitted only when one was used. Substituting ``origin/main``
+      invented a comparison the run never made, and fails outright in a
+      repository without that remote.
+    - ``--head`` is omitted for a working-tree run. Passing ``HEAD`` switches
+      verify to the committed tree, which for an uncommitted first adoption is
+      a tree with no manifest in it — the command exits 2.
+
+    Refs and paths come from CLI / GitHub inputs and a valid git ref may
+    contain shell metacharacters, so every interpolated value is quoted.
+    """
+
+    parts = ["agents-shipgate", "verify"]
+    if config:
+        parts.extend(["--config", shlex.quote(config)])
+    if base_ref:
+        parts.extend(["--base", shlex.quote(base_ref)])
+    if not worktree:
+        parts.extend(["--head", shlex.quote(head_ref or "HEAD")])
+    parts.append("--json")
+    return " ".join(parts)
 
 
 __all__ = ["FORBIDDEN_SHORTCUTS", "build_fix_task"]

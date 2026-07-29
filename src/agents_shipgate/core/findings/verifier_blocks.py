@@ -836,8 +836,15 @@ def build_verifier_summary(report: ReadinessReport) -> VerifierSummary:
     human_ack_required = bool(human_ack.required) if human_ack else False
     human_ack_satisfied = bool(human_ack.satisfied) if human_ack else True
 
+    # A first adoption emits under this check id (there is still a human
+    # decision to make) but weakens nothing — the base carried no policy. The
+    # flag is consumed as a fact by the registry, attestations, feedback's
+    # gate-bypass alarm, and reviewer routing, so it must answer "was the gate
+    # weakened", not "did this check fire".
     policy_weakened = any(
-        f.check_id == "SHIP-VERIFY-POLICY-WEAKENED" for f in active
+        f.check_id == "SHIP-VERIFY-POLICY-WEAKENED"
+        and (f.evidence or {}).get("kind") != "manifest_introduced"
+        for f in active
     )
 
     return VerifierSummary(

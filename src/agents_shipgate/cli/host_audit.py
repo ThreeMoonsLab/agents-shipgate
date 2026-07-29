@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
@@ -25,23 +25,35 @@ from agents_shipgate.core.host_grants import (
     render_host_audit_markdown,
     render_host_drift_markdown,
 )
+from agents_shipgate.schemas.diagnostics import NextAction
 
 
-def _config_error(message: str, *, next_action: str) -> typer.Exit:
+def _config_error(
+    message: str,
+    *,
+    next_action: str,
+    command: str = "agents-shipgate audit --host",
+) -> typer.Exit:
     """Report flag misuse on both channels and return the exit to raise.
 
     Agent-facing docs promise that with ``AGENTS_SHIPGATE_AGENT_MODE=1`` a
-    failing command emits a structured ``next_action`` line on stderr. ``audit``
-    printed prose only, so an agent that mis-invoked it had to parse English or
-    guess.
+    failing command emits a structured error line on stderr, carrying both the
+    legacy ``next_action`` string and the ranked ``next_actions`` array.
+    ``audit`` printed prose only, so an agent that mis-invoked it had to parse
+    English or guess.
     """
 
     typer.echo(message, err=True)
-    emit_agent_mode_error(
+    emit_agent_mode_error_action(
         "config_error",
         message=message,
         exit_code=2,
-        next_action=next_action,
+        action=NextAction(
+            kind="command",
+            command=command,
+            why=next_action,
+            expects="A host-capability audit that completes.",
+        ),
     )
     return typer.Exit(2)
 
@@ -207,8 +219,22 @@ def audit(
 def _write_json_out(out: Path | None, payload: dict) -> None:
     if out is None:
         return
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        # An unwritable --out is ordinary misuse (bad path, read-only mount),
+        # not a Shipgate defect: it was reaching the user as a Rich traceback
+        # and exit 1, which is neither the documented exit code nor something
+        # an agent can route on.
+        message = f"Could not write --out {out}: {exc}"
+        raise _config_error(
+            message,
+            next_action=message,
+            command="agents-shipgate audit --host --out ./host-audit.json",
+        ) from exc
 
 
 __all__ = [

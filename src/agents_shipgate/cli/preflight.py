@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -8,11 +9,12 @@ from typing import Any
 import typer
 from pydantic import ValidationError
 
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.core.codex_boundary import parse_unified_diff
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.core.preflight import build_preflight_result
+from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.preflight import (
     CapabilityRequestV1,
     PreflightPlanV1,
@@ -21,6 +23,8 @@ from agents_shipgate.schemas.preflight import (
     PreflightResultV3,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _agent_mode_exit(
     error_kind: str,
@@ -28,14 +32,24 @@ def _agent_mode_exit(
     *,
     exit_code: int,
     next_action: str,
+    command: str = "agents-shipgate preflight --json",
 ) -> typer.Exit:
-    """Emit the structured agent-mode error line and return the exit to raise."""
+    """Emit the structured agent-mode error line and return the exit to raise.
 
-    emit_agent_mode_error(
+    ``error_kind`` must be one of the ids published in ``docs/errors.json``;
+    an id an agent cannot look up is no better than prose.
+    """
+
+    emit_agent_mode_error_action(
         error_kind,
         message=str(exc),
         exit_code=exit_code,
-        next_action=next_action,
+        action=NextAction(
+            kind="command",
+            command=command,
+            why=next_action,
+            expects="A preflight run that completes and returns its plan.",
+        ),
     )
     return typer.Exit(exit_code)
 
@@ -152,7 +166,7 @@ def preflight(
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
         raise _agent_mode_exit(
-            "shipgate_error",
+            "other_error",
             exc,
             exit_code=4,
             next_action="Resolve the error above, then re-run `agents-shipgate preflight`.",
@@ -171,7 +185,11 @@ def preflight(
     except Exception as exc:  # noqa: BLE001 - agents must never see a bare traceback.
         # Every other command reports unexpected failures on the agent channel;
         # preflight let them escape as a traceback, which an agent cannot route
-        # on. Prose still goes to stderr and the exit code is unchanged.
+        # on. Prose still goes to stderr and the exit code is unchanged — and
+        # --verbose still gets the traceback, since swallowing it is exactly
+        # what that flag exists to prevent.
+        if verbose:
+            logger.exception("unhandled exception")
         typer.echo(f"Agents Shipgate internal error: {exc}", err=True)
         raise _agent_mode_exit(
             "internal_error",
