@@ -16,12 +16,14 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import (
     diagnose_detect,
     top_next_actions,
 )
 from agents_shipgate.cli.discovery import detect_workspace
-from agents_shipgate.schemas.diagnostics import Diagnostic
+from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.schemas.diagnostics import Diagnostic, NextAction
 
 
 def detect(
@@ -44,7 +46,29 @@ def detect(
 ) -> None:
     """Classify a workspace: which agent framework(s), if any."""
     workspace_resolved = workspace.resolve()
-    result = detect_workspace(workspace_resolved, max_python_files=max_python_files)
+    try:
+        result = detect_workspace(
+            workspace_resolved,
+            max_python_files=max_python_files,
+        )
+    except DiscoveryError as exc:
+        message = f"Workspace discovery could not establish bounded coverage: {exc}"
+        action = NextAction(
+            kind="review",
+            why=message,
+            expects=(
+                "Reduce the repository inventory or inspect the Git failure, "
+                "then rerun detect."
+            ),
+        )
+        typer.echo(message, err=True)
+        emit_agent_mode_error(
+            "other_error",
+            message=message,
+            next_action=action.to_legacy_string(),
+            next_actions=[action.model_dump(mode="json")],
+        )
+        raise typer.Exit(4) from exc
     has_manifest = (workspace_resolved / "shipgate.yaml").is_file()
     diagnostics: list[Diagnostic] = diagnose_detect(
         result, has_manifest=has_manifest, workspace=workspace_resolved

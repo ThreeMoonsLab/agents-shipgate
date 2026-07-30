@@ -296,7 +296,7 @@ def test_verify_fails_closed_when_worktree_diff_cannot_be_collected(monkeypatch,
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "base")
 
-    def fail_worktree_context(_repo):
+    def fail_worktree_context(_repo, **_kwargs):
         raise RuntimeError("simulated worktree diff failure")
 
     monkeypatch.setattr(

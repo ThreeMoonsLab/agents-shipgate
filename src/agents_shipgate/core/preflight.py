@@ -3,14 +3,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
+import shlex
+import stat
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import ValidationError
 
 from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
-from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.config.loader import load_manifest_text
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_controls import (
     FORBIDDEN_SHORTCUTS,
@@ -34,7 +37,15 @@ from agents_shipgate.core.lenses.effective_policy import (
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
-from agents_shipgate.core.trust_roots import is_configured_manifest
+from agents_shipgate.core.trust_roots import (
+    IdentityBoundReadSession,
+    IdentityReadBudget,
+    IdentityReadBudgetExceeded,
+    inspect_lexical_path_identity,
+    is_configured_manifest,
+    is_portable_repo_path,
+    read_identity_bound_text,
+)
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -76,6 +87,7 @@ _HIGH_RISK_EFFECTS: frozenset[ActionEffect] = frozenset(
         "financial_write",
         "production_operation",
         "destructive",
+        "external_communication",
         "code_execution",
         "identity_access",
         "privileged_data_access",
@@ -123,15 +135,16 @@ _TRUST_ROOT_WALK_SKIP_DIRS = frozenset(
         ".venv",
         "__pycache__",
         "agents-shipgate-reports",
-        "build",
-        "dist",
-        "env",
         "node_modules",
         "site-packages",
-        "target",
         "venv",
     }
 )
+_MAX_TRUST_ROOT_INVENTORY_ENTRIES = 100_000
+_MAX_TRUST_ROOT_GRAPH_ENTRIES = 200_000
+_MAX_TRUST_ROOT_GRAPH_BYTES = 64 * 1024 * 1024
+_MAX_TRUST_ROOT_FILE_BYTES = 16 * 1024 * 1024
+_MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 _VERIFY_COMMAND = (
     "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --json"
 )
@@ -258,18 +271,33 @@ def build_preflight_result(
     host_baseline: Path | None = None,
 ) -> PreflightResultV3:
     root = workspace.resolve()
-    config_path = config if config.is_absolute() else root / config
-    config_path = config_path.resolve()
+    config_path = _lexical_config_path(
+        root,
+        config,
+        requested_workspace=workspace,
+    )
     request_plan = _coerce_plan(plan)
+    _reject_mixed_plan_inputs(
+        plan=request_plan,
+        changed_files=changed_files,
+        capability_request=capability_request,
+        capability_requests=capability_requests,
+        host_permission_requests=host_permission_requests,
+        diff_text=diff_text,
+        base_preflight=base_preflight,
+    )
     effective_diff_text = request_plan.diff_text if request_plan is not None else diff_text
     changed_inputs = list(changed_files or [])
     if request_plan is not None:
         changed_inputs.extend(request_plan.changed_files)
     if effective_diff_text:
         changed_inputs.extend(_changed_files_from_diff_text(effective_diff_text))
-    changed = _normalize_changed_files(changed_inputs)
-    graph = build_trust_root_graph(root)
-    policy_hash, notes = _policy_hash_for_config(config_path)
+    changed, path_identity_touches = _normalize_planned_paths(root, changed_inputs)
+    graph, graph_identity_touches = _build_trust_root_graph(
+        root,
+        config_path=config_path,
+    )
+    policy_hash, notes = _policy_hash_for_config(config_path, root=root)
 
     surfaces = [
         PreflightProtectedSurface(
@@ -278,12 +306,34 @@ def build_preflight_result(
             scope_type=node.scope_type,
             present=bool(node.present_paths),
             present_paths=node.present_paths,
-            description=_spec_by_key()[(node.kind, node.pattern)].description,
+            description=(
+                _spec_by_key().get((node.kind, node.pattern)).description
+                if (node.kind, node.pattern) in _spec_by_key()
+                else "The exact configured Agents Shipgate manifest."
+            ),
         )
         for node in graph.nodes
     ]
     verify_command = _verify_command(workspace, config)
-    touches = classify_protected_touches(changed, config_path, root)
+    identity_paths = {touch.path for touch in path_identity_touches}
+    classified_touches = classify_protected_touches(changed, config_path, root)
+    touches = [
+        *path_identity_touches,
+        *(
+            touch
+            for touch in graph_identity_touches
+            if touch.path not in identity_paths
+        ),
+        *(
+            touch
+            for touch in classified_touches
+            if touch.path
+            not in {
+                *identity_paths,
+                *(item.path for item in graph_identity_touches),
+            }
+        ),
+    ]
     touches = _classify_proposal_safe_manifest_touch(
         workspace=root,
         config_path=config_path,
@@ -321,12 +371,19 @@ def build_preflight_result(
     signals = _sorted_signals(
         [
             *signals_for_protected_touches(touches),
-            *signals_for_host_grant_drift(host_grant_drift),
+            *signals_for_host_grant_drift(
+                host_grant_drift,
+                workspace=root,
+                baseline=host_baseline,
+            ),
             *signals_for_capability_requests(requests, verify_command),
             *least_privilege_signals(requests),
             *signals_for_host_permission_requests(host_requests),
             *signals_for_policy_drift(
-                policy_drift, trust_root_graph_diff, verify_command
+                policy_drift,
+                trust_root_graph_diff,
+                verify_command,
+                manifest_path=_display_path(config_path, root),
             ),
         ]
     )
@@ -382,12 +439,170 @@ def build_preflight_result(
     )
 
 
+def _lexical_config_path(
+    root: Path,
+    config: Path,
+    *,
+    requested_workspace: Path | None = None,
+) -> Path:
+    """Return the configured manifest identity without following aliases."""
+
+    candidate = config if config.is_absolute() else root / config
+    if config.is_absolute() and requested_workspace is not None:
+        lexical_workspace = Path(
+            os.path.abspath(os.path.normpath(os.fspath(requested_workspace)))
+        )
+        lexical_config = Path(os.path.normpath(os.fspath(config)))
+        try:
+            requested_tail = lexical_config.relative_to(lexical_workspace)
+        except ValueError:
+            pass
+        else:
+            # Preserve an external workspace alias while keeping every
+            # repository-relative component lexical for symlink inspection.
+            candidate = root / requested_tail
+    lexical = Path(os.path.normpath(os.fspath(candidate)))
+    try:
+        relative = lexical.relative_to(root)
+    except ValueError as exc:
+        raise ConfigError(f"--config must be inside --workspace: {config}") from exc
+
+    issue = inspect_lexical_path_identity(root, relative)
+    if issue is None:
+        try:
+            metadata = lexical.lstat()
+        except FileNotFoundError:
+            return lexical
+        except OSError as exc:
+            raise ConfigError(
+                f"--config could not be inspected safely: {config}"
+            ) from exc
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise ConfigError(
+                "--config must identify one singly-linked regular file; "
+                f"non-regular or hardlinked manifest refused: {config}"
+            )
+        return lexical
+    requested = _display_path(issue.requested, root)
+    if issue.kind == "symlink":
+        raise ConfigError(
+            f"--config must not contain symlink components: {requested}"
+        )
+    if issue.kind == "alias":
+        actual = (
+            _display_path(issue.actual, root)
+            if issue.actual is not None
+            else "a differently spelled filesystem entry"
+        )
+        raise ConfigError(
+            "--config must use the exact filesystem spelling: "
+            f"{requested} resolves to {actual}"
+        )
+    raise ConfigError(
+        f"--config could not be inspected safely: {requested}: {issue.detail}"
+    )
+
+
+def _reject_mixed_plan_inputs(
+    *,
+    plan: PreflightPlanV1 | None,
+    changed_files: list[str] | None,
+    capability_request: CapabilityRequestV1 | dict[str, Any] | None,
+    capability_requests: list[CapabilityRequestV1 | dict[str, Any]] | None,
+    host_permission_requests: list[HostPermissionRequestV1 | dict[str, Any]] | None,
+    diff_text: str | None,
+    base_preflight: (
+        PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | dict[str, Any] | None
+    ),
+) -> None:
+    """Keep plan and direct-input request shapes mutually exclusive."""
+
+    if plan is None:
+        return
+    mixed = [
+        name
+        for name, value in (
+            ("changed_files", changed_files),
+            ("diff_text", diff_text),
+            ("capability_request", capability_request),
+            ("capability_requests", capability_requests),
+            ("host_permission_requests", host_permission_requests),
+            ("base_preflight", base_preflight),
+        )
+        if value is not None
+    ]
+    if mixed:
+        raise ConfigError(
+            "plan cannot be combined with "
+            + ", ".join(mixed)
+            + "; put those inputs in the plan object or omit plan."
+        )
+
+
 def build_trust_root_graph(workspace: Path) -> TrustRootGraphV1:
     root = workspace.resolve()
-    candidate_paths = _walk_trust_root_files(root)
+    graph, _unsafe = _build_trust_root_graph(root)
+    return graph
+
+
+def _build_trust_root_graph(
+    root: Path,
+    *,
+    config_path: Path | None = None,
+) -> tuple[TrustRootGraphV1, list[PreflightProtectedSurfaceTouch]]:
+    budget = IdentityReadBudget(
+        max_entries=_MAX_TRUST_ROOT_GRAPH_ENTRIES,
+        max_total_bytes=_MAX_TRUST_ROOT_GRAPH_BYTES,
+    )
+    reader = IdentityBoundReadSession(root, budget=budget)
+    candidate_paths, _inventory_entries = _walk_trust_root_files(
+        root,
+        reader=reader,
+        max_entries=_MAX_TRUST_ROOT_INVENTORY_ENTRIES,
+    )
     nodes: list[TrustRootNodeV1] = []
-    for spec in sorted(protected_surface_specs(), key=lambda item: (item.kind, item.pattern)):
-        present_paths = _present_paths(candidate_paths, spec.pattern)
+    unsafe: dict[str, PreflightProtectedSurfaceTouch] = {}
+    hash_cache: dict[str, str] = {}
+
+    def file_hashes_for(paths: list[str]) -> dict[str, str]:
+        file_hashes: dict[str, str] = {}
+        for path in paths:
+            if path not in hash_cache:
+                try:
+                    hash_cache[path] = _file_sha256(reader, Path(path))
+                except IdentityReadBudgetExceeded as exc:
+                    raise ConfigError(
+                        "Trust-root graph exceeded its aggregate static "
+                        "resource bound."
+                    ) from exc
+                except (OSError, ValueError, NotImplementedError):
+                    hash_cache[path] = "unavailable:path_identity"
+                    unsafe[path] = PreflightProtectedSurfaceTouch(
+                        path=path,
+                        kind="path_identity",
+                        pattern="exact-non-symlink-single-link-workspace-path",
+                        scope_type="whole_file",
+                    )
+            file_hashes[path] = hash_cache[path]
+        return file_hashes
+
+    specs = list(protected_surface_specs())
+    configured_relative = ""
+    if config_path is not None:
+        try:
+            configured_relative = config_path.relative_to(root).as_posix()
+        except ValueError:
+            configured_relative = ""
+    configured_is_catalogued = bool(configured_relative) and any(
+        spec.kind == "manifest"
+        and (
+            glob_match(spec.pattern, configured_relative)
+            or glob_match(spec.pattern.casefold(), configured_relative.casefold())
+        )
+        for spec in specs
+    )
+    for spec in sorted(specs, key=lambda item: (item.kind, item.pattern)):
+        present_paths = _present_paths(root, candidate_paths, spec.pattern)
         nodes.append(
             TrustRootNodeV1(
                 id=_node_id(spec.kind, spec.pattern),
@@ -395,15 +610,42 @@ def build_trust_root_graph(workspace: Path) -> TrustRootGraphV1:
                 pattern=spec.pattern,
                 scope_type=spec.scope_type,
                 present_paths=present_paths,
-                file_hashes={
-                    path: _file_sha256(root / path)
-                    for path in present_paths
-                    if (root / path).is_file()
-                },
+                file_hashes=file_hashes_for(present_paths),
             )
         )
+    if configured_relative and not configured_is_catalogued:
+        # The configured manifest is an exact identity, not a glob. Legal Git
+        # filenames may themselves contain ``*``, ``?``, ``[]``, or ``\``.
+        present_paths = (
+            [configured_relative] if configured_relative in candidate_paths else []
+        )
+        nodes.append(
+            TrustRootNodeV1(
+                id=_node_id("manifest", configured_relative),
+                kind="manifest",
+                pattern=configured_relative,
+                scope_type=_scope_type_for_kind("manifest"),
+                present_paths=present_paths,
+                file_hashes=file_hashes_for(present_paths),
+            )
+        )
+        nodes.sort(key=lambda item: (item.kind, item.pattern))
+    try:
+        reader.finish()
+    except IdentityReadBudgetExceeded as exc:
+        raise ConfigError(
+            "Trust-root graph exceeded its aggregate static resource bound."
+        ) from exc
+    except (OSError, ValueError, NotImplementedError) as exc:
+        raise ConfigError(
+            "Trust-root graph changed identity while its bounded snapshot "
+            "was captured."
+        ) from exc
     graph_hash = _stable_hash([node.model_dump(mode="json") for node in nodes])
-    return TrustRootGraphV1(nodes=nodes, graph_hash=graph_hash)
+    return (
+        TrustRootGraphV1(nodes=nodes, graph_hash=graph_hash),
+        sorted(unsafe.values(), key=lambda item: item.path),
+    )
 
 
 def classify_protected_touches(
@@ -422,7 +664,7 @@ def classify_protected_touches(
     touches: list[PreflightProtectedSurfaceTouch] = []
     seen: set[str] = set()
     for raw in changed_files:
-        path = raw.replace("\\", "/").strip()
+        path = raw.replace("\\", "/")
         if not path or path in seen:
             continue
         seen.add(path)
@@ -589,7 +831,7 @@ def signals_for_protected_touches(
                     "required verifier and route its concrete review evidence to a human."
                 )
             ),
-            related_command="agents-shipgate preflight --workspace . --plan - --json",
+            related_command=None,
         )
         for touch in touches
     ]
@@ -624,6 +866,7 @@ def _classify_proposal_safe_manifest_touch(
     assessment = assess_coverage_increasing_tool_source_proposal(
         workspace=workspace,
         diff_file=matching_diff_files[0],
+        manifest_dir=config_path.parent,
     )
     if not assessment.proposal_safe:
         return touches
@@ -691,7 +934,7 @@ def least_privilege_signals(
                     "Replace broad scopes with operation-specific scopes or route "
                     "the expansion to a human reviewer."
                 ),
-                related_command="agents-shipgate preflight --workspace . --plan - --json",
+                related_command=None,
             )
         )
     return signals
@@ -708,7 +951,7 @@ def signals_for_host_permission_requests(
             "actor": "human",
             "subject": subject,
             "path": request.path,
-            "related_command": "agents-shipgate preflight --workspace . --plan - --json",
+            "related_command": None,
         }
         if _host_request_has_wildcard_allow(text):
             signals.append(
@@ -761,6 +1004,8 @@ def signals_for_policy_drift(
     policy_drift: PreflightDriftSummary | None,
     trust_root_graph_diff: PreflightDriftSummary | None,
     verify_command: str = _VERIFY_COMMAND,
+    *,
+    manifest_path: str = "shipgate.yaml",
 ) -> list[PreflightSignalV1]:
     signals: list[PreflightSignalV1] = []
     if policy_drift is not None and policy_drift.changed:
@@ -771,7 +1016,7 @@ def signals_for_policy_drift(
                 severity="high",
                 actor="human",
                 subject="effective_policy",
-                path="shipgate.yaml",
+                path=manifest_path,
                 reason="Effective release policy hash differs from the supplied base preflight.",
                 recommendation="Have a human review the policy change; preflight cannot prove it is a safe strengthening.",
                 related_command=verify_command,
@@ -796,6 +1041,9 @@ def signals_for_policy_drift(
 
 def signals_for_host_grant_drift(
     host_grant_drift: dict[str, Any] | None,
+    *,
+    workspace: Path | None = None,
+    baseline: Path | None = None,
 ) -> list[PreflightSignalV1]:
     if not _host_grant_drift_requires_review(host_grant_drift):
         return []
@@ -814,14 +1062,29 @@ def signals_for_host_grant_drift(
     expansion = host_grant_drift.get("expansion_signals") or []
     if expansion:
         reason += " Expansion signals: " + ", ".join(str(item) for item in expansion[:5])
-    rerun = (
-        str(
-            host_grant_drift.get("next_action")
-            or "shipgate audit --host --drift --fail-on-drift"
+    rerun = None
+    if comparable and workspace is not None:
+        baseline_path = baseline or DEFAULT_BASELINE_FILE
+        exact_baseline = (
+            baseline_path
+            if baseline_path.is_absolute()
+            else workspace / baseline_path
         )
-        if comparable
-        else None
-    )
+        rerun = shlex.join(
+            [
+                "shipgate",
+                "audit",
+                "--host",
+                "--workspace",
+                str(workspace),
+                "--scope",
+                "repository",
+                "--drift",
+                "--baseline-file",
+                str(exact_baseline),
+                "--fail-on-drift",
+            ]
+        )
     recommendation = (
         "Route the host-grant comparison to a human. After review, "
         f"run `{rerun}`."
@@ -875,7 +1138,10 @@ def _spec_by_key() -> dict[tuple[str, str], ProtectedSurfaceSpec]:
 
 def _classify(path: str) -> ProtectedSurfaceSpec | None:
     for spec in protected_surface_specs():
-        if glob_match(spec.pattern, path):
+        if glob_match(spec.pattern, path) or glob_match(
+            spec.pattern.casefold(),
+            path.casefold(),
+        ):
             return spec
     return None
 
@@ -899,47 +1165,189 @@ def _configured_manifest_spec(
     )
 
 
-def _normalize_changed_files(paths: list[str]) -> list[str]:
-    return sorted({path.replace("\\", "/").strip() for path in paths if path.strip()})
+def _normalize_planned_paths(
+    root: Path,
+    paths: list[str],
+) -> tuple[list[str], list[PreflightProtectedSurfaceTouch]]:
+    """Map planned paths to exact entries or route ambiguous writes to humans."""
+
+    normalized: set[str] = set()
+    unsafe: dict[str, PreflightProtectedSurfaceTouch] = {}
+
+    def mark_unsafe(path: str) -> None:
+        normalized.add(path)
+        unsafe[path] = PreflightProtectedSurfaceTouch(
+            path=path,
+            kind="path_identity",
+            pattern="exact-non-symlink-single-link-workspace-path",
+            scope_type="whole_file",
+        )
+
+    for raw in paths:
+        path = raw
+        if not path:
+            continue
+        pure = PurePosixPath(path)
+        if (
+            not is_portable_repo_path(path)
+            or pure.is_absolute()
+            or ".." in pure.parts
+        ):
+            mark_unsafe(path)
+            continue
+        relative = Path(PurePosixPath(posixpath.normpath(path)).as_posix())
+        converged = False
+        for _attempt in range(len(relative.parts) + 1):
+            issue = inspect_lexical_path_identity(root, relative)
+            if issue is None:
+                converged = True
+                break
+            if issue.kind != "alias" or issue.actual is None:
+                mark_unsafe(path)
+                break
+            requested = root / relative
+            try:
+                suffix = requested.relative_to(issue.requested)
+                relative = (issue.actual / suffix).relative_to(root)
+            except ValueError:
+                mark_unsafe(path)
+                break
+        if not converged:
+            if path not in unsafe:
+                mark_unsafe(path)
+            continue
+
+        candidate = root / relative
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            normalized.add(relative.as_posix())
+            continue
+        except OSError:
+            mark_unsafe(path)
+            continue
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+        ):
+            mark_unsafe(path)
+            continue
+        normalized.add(relative.as_posix())
+
+    return (
+        sorted(normalized),
+        sorted(unsafe.values(), key=lambda item: item.path),
+    )
 
 
-def _walk_trust_root_files(root: Path) -> tuple[str, ...]:
+def _walk_trust_root_files(
+    root: Path,
+    *,
+    reader: IdentityBoundReadSession,
+    max_entries: int,
+) -> tuple[tuple[str, ...], int]:
     """Return workspace files considered for trust-root graph presence.
 
     The trust-root graph must use the same glob semantics as touch
     classification. ``Path.glob("**")`` has Python-version-dependent trailing
     globstar behavior, so walk files once and classify with ``glob_match``.
+    ``os.walk`` materializes a complete directory before yielding, which cannot
+    enforce a bound on one hostile, very large directory; the explicit scandir
+    stack stops as soon as the aggregate graph inventory budget is exhausted.
     """
 
+    if max_entries < 0:
+        raise ConfigError(
+            "Trust-root graph inventory exceeded its aggregate filesystem "
+            "entry bound."
+        )
     out: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [dirname for dirname in dirnames if dirname not in _TRUST_ROOT_WALK_SKIP_DIRS]
-        dirnames.sort()
-        root_path = Path(dirpath)
-        for filename in sorted(filenames):
-            path = root_path / filename
+    visited = 0
+    pending = [Path()]
+    while pending:
+        relative_directory = pending.pop()
+        directory = root / relative_directory
+        try:
+            names = reader.directory_entries(
+                relative_directory,
+                max_entries=max_entries - visited,
+            )
+        except IdentityReadBudgetExceeded as exc:
+            raise ConfigError(
+                "Trust-root graph inventory exceeded its aggregate filesystem "
+                "entry bound."
+            ) from exc
+        except (OSError, NotImplementedError, ValueError) as exc:
+            raise ConfigError(
+                "Trust-root graph inventory could not inspect the workspace "
+                "safely."
+            ) from exc
+        visited += len(names)
+        child_directories: list[Path] = []
+        for name in names:
+            path = directory / name
             try:
-                if not path.is_file():
+                relative = path.relative_to(root).as_posix()
+                metadata = path.lstat()
+                if stat.S_ISLNK(metadata.st_mode):
+                    if name not in _TRUST_ROOT_WALK_SKIP_DIRS:
+                        out.append(relative)
                     continue
-                rel = path.relative_to(root).as_posix()
-            except OSError:
-                continue
-            except ValueError:
-                continue
-            out.append(rel)
-    return tuple(out)
+                if stat.S_ISDIR(metadata.st_mode):
+                    if name not in _TRUST_ROOT_WALK_SKIP_DIRS:
+                        child_directories.append(Path(relative))
+                    continue
+            except (OSError, ValueError) as exc:
+                raise ConfigError(
+                    "Trust-root graph inventory could not inspect a workspace "
+                    "entry safely."
+                ) from exc
+            out.append(relative)
+        pending.extend(reversed(child_directories))
+    return tuple(sorted(set(out))), visited
 
 
-def _present_paths(candidate_paths: tuple[str, ...], pattern: str) -> list[str]:
-    return [path for path in candidate_paths if glob_match(pattern, path)]
+def _present_paths(
+    root: Path,
+    candidate_paths: tuple[str, ...],
+    pattern: str,
+) -> list[str]:
+    folded_pattern = pattern.casefold()
+    return [
+        path
+        for path in candidate_paths
+        if glob_match(pattern, path)
+        or glob_match(folded_pattern, path.casefold())
+        or (
+            (root / path).is_symlink()
+            and _symlink_may_hide_pattern(path, pattern)
+        )
+    ]
 
 
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return f"sha256:{digest.hexdigest()}"
+def _symlink_may_hide_pattern(relative: str, pattern: str) -> bool:
+    """Whether a traversable symlink directory can hide a matching descendant."""
+
+    path = relative.casefold().strip("/")
+    candidate_pattern = pattern.casefold().strip("/")
+    if candidate_pattern.startswith("**/"):
+        return bool(path)
+    fixed_prefix = candidate_pattern.split("*", 1)[0].rstrip("/")
+    return bool(fixed_prefix) and (
+        path == fixed_prefix
+        or path.startswith(f"{fixed_prefix}/")
+        or fixed_prefix.startswith(f"{path}/")
+    )
+
+
+def _file_sha256(reader: IdentityBoundReadSession, relative: Path) -> str:
+    """Hash one exact workspace file through a no-symlink descriptor chain."""
+
+    raw = reader.read_bytes(
+        relative,
+        max_bytes=_MAX_TRUST_ROOT_FILE_BYTES,
+    )
+    return f"sha256:{hashlib.sha256(raw).hexdigest()}"
 
 
 def _stable_hash(payload: Any) -> str:
@@ -947,11 +1355,33 @@ def _stable_hash(payload: Any) -> str:
     return f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
 
 
-def _policy_hash_for_config(config_path: Path) -> tuple[str | None, list[str]]:
-    if not config_path.is_file():
-        return None, [f"No manifest found at {config_path}; policy snapshot unavailable."]
+def _policy_hash_for_config(
+    config_path: Path,
+    *,
+    root: Path | None = None,
+) -> tuple[str | None, list[str]]:
+    identity_root = root or config_path.parent.resolve()
     try:
-        manifest = load_manifest(config_path)
+        relative = config_path.relative_to(identity_root)
+    except ValueError as exc:
+        raise ConfigError(
+            f"Configured manifest is outside the policy snapshot root: {config_path}"
+        ) from exc
+    try:
+        raw_text = read_identity_bound_text(
+            identity_root,
+            relative,
+            max_bytes=_MAX_MANIFEST_BYTES,
+        )
+    except FileNotFoundError:
+        return None, [f"No manifest found at {config_path}; policy snapshot unavailable."]
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise ConfigError(
+            f"Could not read manifest for preflight through an identity-bound "
+            f"snapshot: {exc}"
+        ) from exc
+    try:
+        manifest = load_manifest_text(raw_text, source=config_path)
     except (ConfigError, InputParseError):
         raise
     except Exception as exc:  # noqa: BLE001 - normalize loader boundary.
@@ -996,10 +1426,16 @@ def _changed_files_from_diff_text(diff_text: str) -> list[str]:
     moved the gate out from under itself.
     """
 
+    parsed = parse_unified_diff(diff_text)
+    if diff_text.strip() and not parsed:
+        raise ConfigError(
+            "Preflight diff_text is non-empty but is not a complete unified "
+            "diff with diff --git file records."
+        )
     return sorted(
         {
             path
-            for item in parse_unified_diff(diff_text)
+            for item in parsed
             for path in (item.new_path, item.old_path)
             if path
         }
@@ -1071,7 +1507,11 @@ def _host_grant_drift_payload(
     if baseline is None:
         baseline_path = workspace / DEFAULT_BASELINE_FILE
         baseline_display = DEFAULT_BASELINE_FILE.as_posix()
-        if not baseline_path.is_file():
+        # ``Path.is_file`` follows symlinks and treats a broken link as
+        # absence. A lexically present default is acknowledged trust evidence;
+        # if its identity or bytes are unsafe, preflight must fail closed
+        # rather than silently behaving as though no baseline were configured.
+        if not os.path.lexists(baseline_path):
             return None, None
     else:
         baseline_path = baseline if baseline.is_absolute() else workspace / baseline
@@ -1081,9 +1521,16 @@ def _host_grant_drift_payload(
     except ValueError as exc:
         if not explicit_baseline:
             return (
-                None,
+                build_host_drift_payload(
+                    baseline={
+                        "host_grants_schema_version": "unreadable",
+                        "_load_error": "baseline_unreadable_or_invalid",
+                    },
+                    inventory=host_audit_inventory(workspace),
+                    baseline_file=baseline_display,
+                ),
                 f"Host-grants baseline {baseline_display} could not be loaded; "
-                f"host-grant drift skipped: {exc}",
+                f"host-grant drift is incomparable and requires review: {exc}",
             )
         raise ConfigError(str(exc)) from exc
     return (

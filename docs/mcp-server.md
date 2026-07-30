@@ -41,6 +41,17 @@ requests to a human, or gather evidence for a proposed high-risk capability,
 but it is not a second release verdict. The release gate remains
 `report.json.release_decision.decision`.
 
+For `shipgate.preflight`, `plan` is mutually exclusive with the direct
+`changed_files`, `diff_text`, `capability_request`, and `base_preflight`
+inputs. Send one complete plan object or the applicable direct fields, never
+both; a mixed request is rejected rather than silently preferring one source.
+
+The `diff_text` accepted by `shipgate.check` is detached diagnostic input. It
+is not bound to a checkout state that `verify` can reconstruct, so a result
+that owes verification stops for human routing and authorizes no verify
+command. Re-run `shipgate check` locally against the intended worktree or a
+complete `base`/`head` ref range before following a verification route.
+
 `shipgate.handoff` is a read-only projection over existing verifier artifacts.
 It never runs `verify`, shells out to git, or writes `agent-handoff.json`; it
 returns the same `shipgate.agent_handoff/v6` shape that `verify` writes for

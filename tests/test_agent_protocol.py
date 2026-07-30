@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 from pathlib import Path
 from typing import Any
 
@@ -294,32 +293,18 @@ def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: P
     assert payload["schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["decision"] == "block"
     control = _control(payload)
-    assert control["state"] == "agent_action_required"
+    assert control["state"] == "human_review_required"
     assert control["completion_allowed"] is False
-    assert control["must_stop"] is False
-    assert control["next_action"]["actor"] == "coding_agent"
-    assert control["next_action"]["kind"] == "repair"
-    assert payload["repair"]["safe_to_attempt"] is True
+    assert control["must_stop"] is True
+    assert control["next_action"]["actor"] == "human"
+    assert control["next_action"]["kind"] == "review"
+    assert control["next_action"]["command"] is None
+    assert control["allowed_next_commands"] == []
+    assert payload["repair"]["actor"] == "human"
+    assert payload["repair"]["safe_to_attempt"] is False
+    assert "command" not in payload["repair"]
     assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
-    command = control["next_action"]["command"]
-    assert control["allowed_next_commands"] == [command]
-    assert payload["repair"]["command"] == command
-    assert shlex.split(command) == [
-        "agents-shipgate",
-        "check",
-        "--agent",
-        "claude-code",
-        "--workspace",
-        str(workspace),
-        "--config",
-        str(config),
-        "--policy",
-        str(policy),
-        "--diff",
-        str(missing_diff),
-        "--format",
-        "codex-boundary-json",
-    ]
+    assert str(missing_diff) in control["next_action"]["why"]
 
 
 def test_check_diff_input_failure_preserves_a_complete_quoted_range(
@@ -356,24 +341,15 @@ def test_check_diff_input_failure_preserves_a_complete_quoted_range(
     payload = json.loads(result.output)
     control = _control(payload)
     assert control["state"] == "agent_action_required"
-    assert shlex.split(control["next_action"]["command"]) == [
-        "agents-shipgate",
-        "check",
-        "--agent",
-        "cursor",
-        "--workspace",
-        str(workspace),
-        "--config",
-        "custom gate.yml",
-        "--policy",
-        "custom policy.yml",
-        "--base",
-        base,
-        "--head",
-        head,
-        "--format",
-        "codex-boundary-json",
-    ]
+    assert control["next_action"]["actor"] == "coding_agent"
+    assert control["next_action"]["kind"] == "fetch_base"
+    assert control["next_action"]["command"] is None
+    assert control["next_action"]["expects"] == f"{base} and {head}"
+    assert control["allowed_next_commands"] == []
+    assert payload["repair"]["actor"] == "coding_agent"
+    assert payload["repair"]["safe_to_attempt"] is False
+    assert "command" not in payload["repair"]
+    assert str(workspace) in control["next_action"]["why"]
 
 
 def test_missing_install_fixture_is_schema_valid_and_actionable() -> None:

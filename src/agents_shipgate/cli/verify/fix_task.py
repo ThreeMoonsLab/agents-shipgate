@@ -31,6 +31,12 @@ from agents_shipgate.schemas.verifier import (
 
 _MAX_INSTRUCTIONS = 5
 _MAX_REPAIRS = 10
+_ADOPTION_CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
+_ADOPTION_EVIDENCE_KIND = "manifest_introduced"
+_ADOPTION_TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
+_ADOPTION_BOUNDARY_CHECK_ID = (
+    "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+)
 
 _FORBIDDEN_REPAIR_SPECS: tuple[tuple[str, str, str, str], ...] = (
     (
@@ -77,6 +83,8 @@ def build_fix_task(
     config: str | None = None,
     worktree: bool = False,
     rerun_options: Sequence[str] | None = None,
+    report_path: str = "agents-shipgate-reports/report.json",
+    repair_subject_available: bool = True,
 ) -> VerifierFixTask | None:
     """Project the head scan onto a single repair task.
 
@@ -85,9 +93,10 @@ def build_fix_task(
 
     ``manifest_introduced`` changes only the wording of the trust-root
     instruction and repair: a PR that adds the manifest to a base that had none
-    is adopting a gate, not weakening one, and the human act it needs is
-    "review and merge this", not "approve a downgrade". Routing is untouched —
-    adoption is still an authority escalation, so it still routes to a human.
+    is adopting a gate, not weakening one. "Review and merge this" appears only
+    when adoption is the sole gating concern; otherwise the real blocker leads
+    and adoption is named as a separate review. Routing is untouched —
+    adoption remains an authority escalation and always routes to a human.
     """
     if merge_verdict == "mergeable":
         return None
@@ -125,6 +134,11 @@ def build_fix_task(
         )
 
     gating = _gating_findings(report)
+    pure_adoption_review = _is_pure_adoption_review(
+        report,
+        gating,
+        manifest_introduced=manifest_introduced,
+    )
 
     # Degraded static evidence (below the IE threshold) is an authority gap
     # regardless of which verdict it produced. An active high/critical finding
@@ -148,7 +162,7 @@ def build_fix_task(
     mechanical = bool(gating) and all(
         finding.autofix_safe is True and finding.requires_human_review is False
         for finding in gating
-    )
+    ) and _all_gating_findings_have_applicable_patches(gating)
     authority_escalation = (
         capability_review.policy_weakened
         or capability_review.trust_root_touched
@@ -158,6 +172,7 @@ def build_fix_task(
         or manifest_introduced
         or merge_verdict in {"insufficient_evidence", "unknown"}
         or evidence_degraded
+        or not repair_subject_available
     )
     if mechanical and not authority_escalation:
         return VerifierFixTask(
@@ -167,6 +182,7 @@ def build_fix_task(
             allowed_repairs=_mechanical_repairs(
                 gating,
                 verification_command=verification_command,
+                report_path=report_path,
             ),
             forbidden_repairs=_forbidden_repairs(gating),
             forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
@@ -184,6 +200,8 @@ def build_fix_task(
             merge_verdict=merge_verdict,
             evidence_degraded=evidence_degraded,
             manifest_introduced=manifest_introduced,
+            pure_adoption_review=pure_adoption_review,
+            config=config,
         ),
         allowed_repairs=_human_repairs(
             report,
@@ -191,6 +209,7 @@ def build_fix_task(
             gating,
             verification_command=verification_command,
             manifest_introduced=manifest_introduced,
+            pure_adoption_review=pure_adoption_review,
             config=config,
         ),
         forbidden_repairs=_forbidden_repairs(gating),
@@ -217,6 +236,103 @@ def _gating_findings(report: ReadinessReport) -> list[Finding]:
     return out
 
 
+def is_pure_adoption_review(
+    report: ReadinessReport | None,
+    *,
+    manifest_introduced: bool,
+) -> bool:
+    """Whether adoption is the release decision's only gating concern.
+
+    Friendly "review, then merge" copy is only truthful for this narrow
+    substrate. A blocked or insufficient-evidence report, any blocker, or any
+    second review item must lead with its real stop condition instead.
+    """
+
+    if report is None or report.release_decision is None:
+        return False
+    return _is_pure_adoption_review(
+        report,
+        _gating_findings(report),
+        manifest_introduced=manifest_introduced,
+    )
+
+
+def _is_pure_adoption_review(
+    report: ReadinessReport,
+    gating: list[Finding],
+    *,
+    manifest_introduced: bool,
+) -> bool:
+    decision = report.release_decision
+    assert decision is not None
+    coverage = decision.evidence_coverage
+    adoption_findings = [
+        finding
+        for finding in gating
+        if finding.check_id == _ADOPTION_CHECK_ID
+        and finding.evidence.get("kind") == _ADOPTION_EVIDENCE_KIND
+    ]
+    manifest_paths = {
+        str(path)
+        for finding in adoption_findings
+        for path in (finding.evidence.get("changed_policy_files") or [])
+        if path
+    }
+    adoption_path = next(iter(manifest_paths)) if len(manifest_paths) == 1 else None
+    return bool(
+        manifest_introduced
+        and decision.decision == "review_required"
+        and not decision.blockers
+        and len(adoption_findings) == 1
+        and adoption_path is not None
+        # Every decision item must resolve to a finding; otherwise an unknown
+        # second concern could disappear behind the friendly adoption copy.
+        and len(gating) == len(decision.review_items)
+        # A real adoption produces multiple layers of evidence for the same
+        # human decision: the policy fail-safe, the generic trust-root touch,
+        # and (for custom names) the agent-boundary manifest row. Treat those
+        # as one concern only when all point to the exact introduced manifest.
+        and all(
+            _is_same_manifest_adoption_finding(finding, adoption_path)
+            for finding in gating
+        )
+        and not coverage.human_review_recommended
+        and not coverage.evidence_gaps
+        and not evidence_below_ie_threshold(
+            coverage,
+            tool_count=len(report.tool_inventory),
+        )
+    )
+
+
+def _is_same_manifest_adoption_finding(
+    finding: Finding,
+    manifest_path: str,
+) -> bool:
+    if (
+        finding.check_id == _ADOPTION_CHECK_ID
+        and finding.evidence.get("kind") == _ADOPTION_EVIDENCE_KIND
+    ):
+        return finding.evidence.get("changed_policy_files") == [manifest_path]
+    if finding.check_id == _ADOPTION_TRUST_ROOT_CHECK_ID:
+        return bool(
+            finding.evidence.get("changed_file") == manifest_path
+            and finding.evidence.get("trust_root_class") == "manifest"
+        )
+    if finding.check_id == _ADOPTION_BOUNDARY_CHECK_ID:
+        source_path = finding.source.path if finding.source is not None else None
+        return bool(
+            source_path == manifest_path
+            and finding.evidence.get("kind")
+            in {"manifest_introduced", "protected_surface_unclassified"}
+            and (
+                finding.evidence.get("kind") == "manifest_introduced"
+                or finding.evidence.get("trust_root_class") == "manifest"
+            )
+        )
+    return False
+
+
 def _human_instructions(
     report: ReadinessReport,
     capability_review: VerifierCapabilityReview,
@@ -225,6 +341,8 @@ def _human_instructions(
     merge_verdict: MergeVerdict = "human_review_required",
     evidence_degraded: bool = False,
     manifest_introduced: bool = False,
+    pure_adoption_review: bool = False,
+    config: str | None = None,
 ) -> list[str]:
     decision = report.release_decision
     assert decision is not None
@@ -234,9 +352,24 @@ def _human_instructions(
     # about their change. It also has to survive ``_MAX_INSTRUCTIONS``: a
     # cold-start repo generates enough evidence remedies to push a
     # later-appended instruction off the end.
-    adoption_note = _adoption_instruction(capability_review, manifest_introduced)
+    adoption_note = _adoption_instruction(
+        capability_review,
+        pure_adoption_review,
+        config=config,
+    )
     if adoption_note is not None:
         out.append(adoption_note)
+    elif manifest_introduced:
+        manifest = (
+            f"the configured manifest {config!r}"
+            if config
+            else "the configured Shipgate manifest"
+        )
+        out.append(
+            f"This PR also introduces {manifest}. A human must review that "
+            "adoption as a separate release-policy decision; it does not clear "
+            "the other gating concerns."
+        )
     # Surface the concrete "make the hidden authority enumerable" remedies
     # whenever evidence is degraded — not only on the bare IE verdict. A
     # high-finding case elevated to review_required carries the same
@@ -252,7 +385,12 @@ def _human_instructions(
         if capability_review.trust_root_touched:
             out.append(
                 "A human must review the touched release trust root (manifest, CI "
-                "gate, agent instructions, or trigger catalog) before merge."
+                "gate, agent instructions, or trigger catalog)"
+                + (
+                    " as part of the release decision."
+                    if manifest_introduced
+                    else " before merge."
+                )
             )
     # List every gating finding's recommendation — a human-routed task owns the
     # whole decision, including findings whose routing fields were ambiguous.
@@ -262,26 +400,30 @@ def _human_instructions(
 
 def _adoption_instruction(
     capability_review: VerifierCapabilityReview,
-    manifest_introduced: bool,
+    pure_adoption_review: bool,
+    *,
+    config: str | None = None,
 ) -> str | None:
     """The one human act a first adoption needs, or ``None``.
 
     Keyed on the adoption itself rather than on ``trust_root_touched``, which
     would make the instruction disappear in the one case it exists for. It
-    stands down when ``policy_weakened`` is set: that means an existing policy
-    file was also changed, so "nothing existing was weakened" is false and the
-    generic instructions — including the ``review_policy_weakening`` repair —
-    are the ones the reviewer needs.
+    stands down when ``policy_weakened`` is set so the generic instructions —
+    including the ``review_policy_weakening`` repair — remain authoritative.
     """
 
-    if not manifest_introduced or capability_review.policy_weakened:
+    if not pure_adoption_review or capability_review.policy_weakened:
         return None
+    manifest = (
+        f"the configured manifest {config!r}"
+        if config
+        else "the configured Shipgate manifest"
+    )
     return (
-        "This PR adopts Agents Shipgate: the base carries no manifest, so "
-        "nothing existing was weakened. Review the generated shipgate.yaml "
-        "(and the agent-instruction and CI files it adds) and merge them "
-        "through a human-reviewed PR — a coding agent cannot adopt a release "
-        "policy on the repository's behalf."
+        "This PR adopts Agents Shipgate. "
+        f"Review {manifest} and merge it through a human-reviewed PR — a "
+        "coding agent cannot adopt a release policy on the repository's "
+        "behalf."
     )
 
 
@@ -362,8 +504,26 @@ def _mechanical_repairs(
     gating: list[Finding],
     *,
     verification_command: str,
+    report_path: str,
 ) -> list[VerifierRepair]:
     repairs: list[VerifierRepair] = []
+    finding_ids = sorted(
+        {
+            finding.id
+            for finding in gating
+            if finding.id is not None
+        }
+    )
+    apply_parts = [
+        "agents-shipgate",
+        "apply-patches",
+        "--from",
+        report_path,
+    ]
+    for finding_id in finding_ids:
+        apply_parts.extend(["--finding-id", finding_id])
+    apply_parts.extend(["--confidence", "high", "--apply"])
+    apply_command = " ".join(shlex.quote(part) for part in apply_parts)
     for finding in gating:
         for index, patch in enumerate(finding.patches or [], start=1):
             if getattr(patch, "kind", None) == "manual":
@@ -379,11 +539,7 @@ def _mechanical_repairs(
                     target=target,
                     finding_id=finding.id,
                     check_id=finding.check_id,
-                    command=(
-                        "agents-shipgate apply-patches --from "
-                        "agents-shipgate-reports/report.json "
-                        "--confidence high --apply"
-                    ),
+                    command=apply_command,
                     reason=getattr(patch, "rationale", None)
                     or finding.recommendation,
                 )
@@ -402,6 +558,22 @@ def _mechanical_repairs(
     return []
 
 
+def _all_gating_findings_have_applicable_patches(
+    gating: list[Finding],
+) -> bool:
+    """Agent routing requires one exact selectable high-confidence repair."""
+
+    return all(
+        finding.id is not None
+        and any(
+            getattr(patch, "kind", None) != "manual"
+            and getattr(patch, "confidence", None) == "high"
+            for patch in finding.patches or []
+        )
+        for finding in gating
+    )
+
+
 def _human_repairs(
     report: ReadinessReport,
     capability_review: VerifierCapabilityReview,
@@ -409,12 +581,20 @@ def _human_repairs(
     *,
     verification_command: str,
     manifest_introduced: bool = False,
+    pure_adoption_review: bool = False,
     config: str | None = None,
 ) -> list[VerifierRepair]:
     decision = report.release_decision
     assert decision is not None
     repairs: list[VerifierRepair] = []
-    if _adoption_instruction(capability_review, manifest_introduced) is not None:
+    if (
+        _adoption_instruction(
+            capability_review,
+            pure_adoption_review,
+            config=config,
+        )
+        is not None
+    ):
         repairs.append(
             VerifierRepair(
                 id="adopt_shipgate_manifest",
@@ -428,6 +608,19 @@ def _human_repairs(
             )
         )
     else:
+        if manifest_introduced:
+            repairs.append(
+                VerifierRepair(
+                    id="review_shipgate_adoption",
+                    actor="human",
+                    kind="review_trust_root_change",
+                    target=config or "shipgate.yaml",
+                    reason=(
+                        "Review the proposed Shipgate adoption separately from "
+                        "the other gating concerns."
+                    ),
+                )
+            )
         if capability_review.policy_weakened:
             repairs.append(
                 VerifierRepair(
@@ -435,7 +628,14 @@ def _human_repairs(
                     actor="human",
                     kind="review_policy_change",
                     target=config or "shipgate.yaml",
-                    reason="A human must approve release-policy weakening before merge.",
+                    reason=(
+                        "A human must approve release-policy weakening"
+                        + (
+                            " as part of the release decision."
+                            if manifest_introduced
+                            else " before merge."
+                        )
+                    ),
                 )
             )
         if capability_review.trust_root_touched:
@@ -445,7 +645,14 @@ def _human_repairs(
                     actor="human",
                     kind="review_trust_root_change",
                     target="manifest, CI gate, agent instructions, or trigger catalog",
-                    reason="A human must review the touched release trust root before merge.",
+                    reason=(
+                        "A human must review the touched release trust root"
+                        + (
+                            " as part of the release decision."
+                            if manifest_introduced
+                            else " before merge."
+                        )
+                    ),
                 )
             )
     for gap in decision.evidence_coverage.evidence_gaps:
@@ -543,7 +750,10 @@ def _machine_patches(gating: list[Finding]) -> list[VerifierFixTaskPatch]:
     out: list[VerifierFixTaskPatch] = []
     for finding in gating:
         for patch in finding.patches or []:
-            if getattr(patch, "kind", "manual") == "manual":
+            if (
+                getattr(patch, "kind", "manual") == "manual"
+                or getattr(patch, "confidence", None) != "high"
+            ):
                 continue
             out.append(
                 VerifierFixTaskPatch(

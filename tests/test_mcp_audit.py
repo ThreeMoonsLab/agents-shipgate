@@ -107,6 +107,236 @@ def test_mcp_audit_reads_mcp_json_diff(tmp_path: Path) -> None:
     assert [item["id"] for item in payload["violated_rules"]] == ["MCP-UNKNOWN-TOOL-SCHEMA"]
 
 
+def test_mcp_audit_retains_the_source_side_of_a_rename(tmp_path: Path) -> None:
+    diff = tmp_path / "rename.diff"
+    content = (
+        json.dumps(
+            {
+                "mcpServers": {
+                    "docs": {
+                        "command": "docs-mcp",
+                        "tools": {
+                            "read": {
+                                "inputSchema": {"type": "object"},
+                            }
+                        },
+                    }
+                }
+            }
+        )
+        + "\n"
+    )
+    (tmp_path / "retired.txt").write_text(content, encoding="utf-8")
+    diff.write_text(
+        (
+            "diff --git a/.mcp.json b/retired.txt\n"
+            "similarity index 100%\n"
+            "rename from .mcp.json\n"
+            "rename to retired.txt\n"
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "audit",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            str(diff),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["changed_files"] == [".mcp.json", "retired.txt"]
+    assert payload["capability_delta"]["removed"]
+    assert not payload["capability_delta"]["added"]
+
+
+def test_mcp_audit_processes_both_adapters_in_a_cross_type_rename(
+    tmp_path: Path,
+) -> None:
+    content = (
+        json.dumps(
+            {
+                "mcpServers": {
+                    "docs": {
+                        "command": "docs-mcp",
+                        "tools": {
+                            "read": {
+                                "inputSchema": {"type": "object"},
+                            }
+                        },
+                    }
+                }
+            }
+        )
+        + "\n"
+    )
+    (tmp_path / ".mcp.json").write_text(content, encoding="utf-8")
+    diff = tmp_path / "cross-type-rename.diff"
+    diff.write_text(
+        (
+            "diff --git a/.codex/config.toml b/.mcp.json\n"
+            "similarity index 100%\n"
+            "rename from .codex/config.toml\n"
+            "rename to .mcp.json\n"
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "audit",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            str(diff),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["changed_files"] == [".codex/config.toml", ".mcp.json"]
+    assert payload["capability_delta"]["added"]
+
+
+def test_mcp_audit_same_adapter_pure_rename_is_not_a_capability_addition(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "config" / ".mcp.json"
+    destination.parent.mkdir()
+    destination.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "docs": {
+                        "command": "docs-mcp",
+                        "tools": {
+                            "read": {
+                                "inputSchema": {"type": "object"},
+                            }
+                        },
+                    }
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    diff = tmp_path / "same-adapter-rename.diff"
+    diff.write_text(
+        (
+            "diff --git a/.mcp.json b/config/.mcp.json\n"
+            "similarity index 100%\n"
+            "rename from .mcp.json\n"
+            "rename to config/.mcp.json\n"
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "audit",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            str(diff),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["changed_files"] == [".mcp.json", "config/.mcp.json"]
+    assert payload["capability_delta"]["added"] == []
+    assert payload["capability_delta"]["removed"] == []
+    assert payload["capability_delta"]["changed"] == []
+
+
+def test_mcp_audit_edited_rename_out_of_adapter_retains_source_removals(
+    tmp_path: Path,
+) -> None:
+    old_text = json.dumps(
+        {
+            "mcpServers": {
+                "docs": {
+                    "command": "docs-mcp",
+                    "tools": {
+                        "read": {
+                            "inputSchema": {"type": "object"},
+                        }
+                    },
+                }
+            }
+        },
+        sort_keys=True,
+    )
+    new_text = json.dumps(
+        {
+            "mcpServers": {
+                "docs": {
+                    "command": "replacement-docs-mcp",
+                    "tools": {
+                        "read": {
+                            "inputSchema": {"type": "object"},
+                        }
+                    },
+                }
+            }
+        },
+        sort_keys=True,
+    )
+    (tmp_path / "retired.txt").write_text(new_text + "\n", encoding="utf-8")
+    diff = tmp_path / "edited-rename.diff"
+    diff.write_text(
+        (
+            "diff --git a/.mcp.json b/retired.txt\n"
+            "similarity index 83%\n"
+            "rename from .mcp.json\n"
+            "rename to retired.txt\n"
+            "--- a/.mcp.json\n"
+            "+++ b/retired.txt\n"
+            "@@ -1 +1 @@\n"
+            f"-{old_text}\n"
+            f"+{new_text}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "audit",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            str(diff),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["changed_files"] == [".mcp.json", "retired.txt"]
+    assert payload["capability_delta"]["removed"]
+    assert payload["capability_delta"]["added"] == []
+
+
 def test_mcp_audit_policy_override_changes_decision(tmp_path: Path) -> None:
     policy = tmp_path / "mcp-policy.yaml"
     policy.write_text(

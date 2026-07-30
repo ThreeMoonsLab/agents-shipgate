@@ -8,10 +8,12 @@ uses the network. ``repository`` scope is portable and deterministic;
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -33,6 +35,12 @@ from agents_shipgate.core.host_boundary import (
     _trigger_names,
 )
 from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS
+from agents_shipgate.core.trust_roots import (
+    IdentityBoundReadSession,
+    IdentityReadBudget,
+    IdentityReadBudgetExceeded,
+    inspect_lexical_path_identity,
+)
 from agents_shipgate.schemas.host_grants import (
     HOST_GRANTS_BASELINE_SCHEMA_VERSION,
     HOST_GRANTS_DRIFT_SCHEMA_VERSION,
@@ -51,6 +59,10 @@ INCOMPARABLE_BASELINE_REVIEW = (
 
 HostScope = Literal["repository", "local_static"]
 MAX_HOST_CONFIG_BYTES = 1024 * 1024
+MAX_HOST_BASELINE_BYTES = 16 * 1024 * 1024
+MAX_HOST_REPOSITORY_ENTRIES = 100_000
+MAX_HOST_STATIC_ENTRIES = 300_000
+MAX_HOST_STATIC_TOTAL_BYTES = 64 * 1024 * 1024
 
 _SECRET_KEY_MARKERS = frozenset(SENSITIVE_VALUE_KEYS) | {
     "authorization",
@@ -83,6 +95,8 @@ _URL_RE = re.compile(r"(?:https?|wss?)://[^\s'\"<>]+")
 class HostStaticParseCache:
     """Invocation-local cache proving each static source is read/parsed once."""
 
+    max_entries: int = MAX_HOST_STATIC_ENTRIES
+    max_total_bytes: int = MAX_HOST_STATIC_TOTAL_BYTES
     _reads: dict[tuple[str, str], tuple[str | None, str | None]] = field(
         default_factory=dict
     )
@@ -91,6 +105,20 @@ class HostStaticParseCache:
     ] = field(default_factory=dict)
     read_counts: dict[str, int] = field(default_factory=dict)
     parse_counts: dict[str, int] = field(default_factory=dict)
+    _budget: IdentityReadBudget = field(init=False, repr=False)
+    _sessions: dict[str, IdentityBoundReadSession] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _resource_bound_error: str | None = field(default=None, init=False, repr=False)
+    _finished: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._budget = IdentityReadBudget(
+            max_entries=self.max_entries,
+            max_total_bytes=self.max_total_bytes,
+        )
 
     @staticmethod
     def _key(path: Path, containment_root: Path) -> tuple[str, str]:
@@ -103,8 +131,63 @@ class HostStaticParseCache:
         if key not in self._reads:
             display = str(path.absolute())
             self.read_counts[display] = self.read_counts.get(display, 0) + 1
-            self._reads[key] = _safe_read(path, containment_root=containment_root)
+            if self._resource_bound_error is not None:
+                self._reads[key] = (None, self._resource_bound_error)
+            else:
+                try:
+                    self._reads[key] = _safe_read(
+                        path,
+                        containment_root=containment_root,
+                        reader=self.reader_for(containment_root),
+                    )
+                except IdentityReadBudgetExceeded as exc:
+                    self._resource_bound_error = (
+                        "static host-boundary inventory exceeded its aggregate "
+                        f"resource bound ({exc})"
+                    )
+                    self._reads[key] = (None, self._resource_bound_error)
+                except (OSError, NotImplementedError, ValueError):
+                    self._reads[key] = (
+                        None,
+                        "symbolic links or filesystem aliases in configuration "
+                        "paths are not followed",
+                    )
         return self._reads[key]
+
+    @property
+    def resource_bound_error(self) -> str | None:
+        return self._resource_bound_error
+
+    def finish(self) -> None:
+        """Perform one final exact-name/identity pass for every read root."""
+
+        if self._finished:
+            return
+        if self._resource_bound_error is not None:
+            raise IdentityReadBudgetExceeded(self._resource_bound_error)
+        for key in sorted(self._sessions):
+            try:
+                self._sessions[key].finish()
+            except IdentityReadBudgetExceeded as exc:
+                self._resource_bound_error = (
+                    "static host-boundary inventory exceeded its aggregate "
+                    f"resource bound ({exc})"
+                )
+                raise
+        self._finished = True
+
+    def reader_for(self, containment_root: Path) -> IdentityBoundReadSession:
+        """Return the shared-budget reader for one lexical containment root."""
+
+        key = str(containment_root.absolute())
+        session = self._sessions.get(key)
+        if session is None:
+            session = IdentityBoundReadSession(
+                containment_root,
+                budget=self._budget,
+            )
+            self._sessions[key] = session
+        return session
 
     def parse(
         self, path: Path, *, containment_root: Path
@@ -300,30 +383,51 @@ def _grant_base(
     }
 
 
-def _safe_read(path: Path, *, containment_root: Path) -> tuple[str | None, str | None]:
-    lexical_root = containment_root.absolute()
-    lexical_path = path.absolute()
+def _safe_read(
+    path: Path,
+    *,
+    containment_root: Path,
+    reader: IdentityBoundReadSession | None = None,
+) -> tuple[str | None, str | None]:
+    lexical_root = Path(os.path.abspath(os.path.normpath(os.fspath(containment_root))))
+    lexical_path = Path(os.path.abspath(os.path.normpath(os.fspath(path))))
     try:
         relative = lexical_path.relative_to(lexical_root)
     except ValueError:
         return None, "path is outside the allowlisted static configuration root"
-    current = lexical_root
-    if current.is_symlink():
-        return None, "symbolic-link configuration roots are not followed"
-    for part in relative.parts:
-        current /= part
-        if current.is_symlink():
-            return None, "symbolic links in configuration paths are not followed"
+    owns_reader = reader is None
+    if reader is None:
+        reader = IdentityBoundReadSession(
+            lexical_root,
+            max_entries=MAX_HOST_STATIC_ENTRIES,
+            max_total_bytes=MAX_HOST_CONFIG_BYTES,
+        )
     try:
-        path.resolve().relative_to(containment_root.resolve())
-    except (OSError, ValueError):
-        return None, "resolved path is outside the allowlisted static configuration root"
-    try:
-        if path.stat().st_size > MAX_HOST_CONFIG_BYTES:
+        raw = reader.read_bytes(relative, max_bytes=MAX_HOST_CONFIG_BYTES)
+        if owns_reader:
+            reader.finish()
+    except IdentityReadBudgetExceeded:
+        if not owns_reader:
+            raise
+        return None, "static host-boundary read exceeded its aggregate resource bound"
+    except (OSError, NotImplementedError, ValueError) as exc:
+        message = str(exc)
+        if "singly-linked regular file" in message:
+            return None, "configuration path is not one singly-linked regular file"
+        if "file exceeds" in message:
             return None, f"file exceeds the {MAX_HOST_CONFIG_BYTES}-byte static audit limit"
-        return path.read_text(encoding="utf-8"), None
-    except (OSError, UnicodeError) as exc:
-        return None, f"file could not be read as UTF-8 ({exc.__class__.__name__})"
+        if "changed" in message:
+            return None, "configuration path changed identity while it was read"
+        if isinstance(exc, (OSError, NotImplementedError)):
+            return None, f"file could not be read as UTF-8 ({exc.__class__.__name__})"
+        return None, (
+            "symbolic links or filesystem aliases in configuration paths are "
+            "not followed"
+        )
+    try:
+        return raw.decode("utf-8", errors="strict"), None
+    except UnicodeDecodeError:
+        return None, "file could not be read as UTF-8 (UnicodeDecodeError)"
 
 
 def _load_structured(
@@ -475,11 +579,15 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
                 risk="critical" if risky else "medium",
             ))
     for path in sorted(_string_entries(permissions.get("additionalDirectories")) + _string_entries(data.get("additionalDirectories"))):
+        projected_path = _privacy_projected_path(path)
         grant = _grant_base(
             host="claude-code", scope=scope, source=source, kind="additional_path",
-            identity=path, config={"path": path}, access="write", risk="high",
+            identity=projected_path,
+            config={"path": projected_path},
+            access="write",
+            risk="high",
         )
-        grants.append({**grant, "path": path})
+        grants.append({**grant, "path": projected_path})
     sandbox = data.get("sandbox")
     if isinstance(sandbox, dict):
         for setting, value in sorted(sandbox.items()):
@@ -501,6 +609,22 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
             })
     grants.extend(_hooks_grants(data, host="claude-code", scope=scope, source=source))
     return grants
+
+
+def _privacy_projected_path(value: str) -> str:
+    """Keep grant identity useful without publishing machine-local paths."""
+
+    expanded = Path(value).expanduser()
+    if not expanded.is_absolute():
+        return Path(os.path.normpath(value)).as_posix()
+    try:
+        relative = expanded.relative_to(Path.home())
+    except ValueError:
+        digest = hashlib.sha256(
+            os.path.normcase(os.path.normpath(value)).encode("utf-8")
+        ).hexdigest()[:16]
+        return f"<external-path:{digest}>"
+    return f"~/{relative.as_posix()}"
 
 
 def _codex_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str, Any]]:
@@ -759,48 +883,110 @@ def _collect_file(
 
 
 def _source_kind(path: str) -> str:
-    if path.startswith(".github/workflows/"):
+    folded = path.casefold()
+    if folded.startswith(".github/workflows/"):
         return "workflow"
-    if path.endswith((".mcp.json", "/mcp.json")):
+    if folded.endswith((".mcp.json", "/mcp.json")):
         return "mcp"
-    if path.endswith("hooks.json"):
+    if folded.endswith("hooks.json"):
         return "hooks"
-    if path.endswith("requirements.toml"):
+    if folded.endswith("requirements.toml"):
         return "requirements"
     if (
-        path.endswith((".md", ".mdc", "/SKILL.md"))
-        or path.startswith(".cursor/rules/")
-        or path.startswith(".agents/skills/")
-        or path.startswith("policies/")
-        or path == "shipgate.yaml"
+        folded.endswith((".md", ".mdc", "/skill.md"))
+        or folded.startswith(".cursor/rules/")
+        or folded.startswith(".agents/skills/")
+        or folded.startswith("policies/")
+        or folded == "shipgate.yaml"
     ):
         return "instructions"
     return "config"
 
 
 def _audit_hosts(adapter_id: str, path: str, hosts: tuple[str, ...]) -> tuple[str, ...]:
-    if path.startswith(".github/workflows/"):
+    if path.casefold().startswith(".github/workflows/"):
         return ("github",)
     if adapter_id == "vscode_mcp":
         return ("vscode",)
     return hosts
 
 
-def _repository_paths(root: Path) -> list[tuple[Path, str, str, str]]:
+def _repository_paths(
+    root: Path,
+    *,
+    reader: IdentityBoundReadSession,
+) -> tuple[list[tuple[Path, str, str, str]], int]:
     """Enumerate repository sources exclusively from the boundary registry."""
 
     indexed: dict[tuple[str, str], tuple[Path, str, str, str]] = {}
+    skipped = {".git", ".hg", ".svn", "node_modules", "site-packages", ".venv", "venv"}
+    candidates: list[tuple[Path, str]] = []
+    symlink_directories: list[str] = []
+    visited = 0
+    pending = [Path()]
+    while pending:
+        relative_directory = pending.pop()
+        directory = root / relative_directory
+        try:
+            names = reader.directory_entries(
+                relative_directory,
+                max_entries=MAX_HOST_REPOSITORY_ENTRIES - visited,
+            )
+        except IdentityReadBudgetExceeded as exc:
+            raise RuntimeError(
+                "repository host-boundary inventory exceeded its static "
+                "filesystem-entry bound"
+            ) from exc
+        except (OSError, NotImplementedError, ValueError) as exc:
+            raise RuntimeError(
+                "repository host-boundary inventory could not inspect the "
+                "workspace safely"
+            ) from exc
+        visited += len(names)
+        child_directories: list[Path] = []
+        for name in names:
+            candidate = directory / name
+            relative = candidate.relative_to(root).as_posix()
+            try:
+                metadata = candidate.lstat()
+                if stat.S_ISLNK(metadata.st_mode):
+                    if name not in skipped:
+                        candidates.append((candidate, relative))
+                        symlink_directories.append(relative)
+                    continue
+                if stat.S_ISDIR(metadata.st_mode):
+                    if name not in skipped:
+                        child_directories.append(Path(relative))
+                    continue
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(
+                    "repository host-boundary inventory could not inspect a "
+                    "workspace entry safely"
+                ) from exc
+            candidates.append((candidate, relative))
+        pending.extend(reversed(child_directories))
+
     for adapter in BOUNDARY_ADAPTERS:
-        candidates: list[tuple[Path, str]] = []
-        for relative in adapter.exact_paths:
-            path = root / relative
-            if path.exists() or path.is_symlink():
-                candidates.append((path, relative))
-        for pattern in adapter.globs:
-            for path in sorted(root.glob(pattern)):
-                if path.is_file() or path.is_symlink():
-                    candidates.append((path, path.relative_to(root).as_posix()))
-        for path, relative in candidates:
+        for expected in adapter.exact_paths:
+            if any(
+                expected.casefold().startswith(f"{prefix.casefold()}/")
+                for prefix in symlink_directories
+            ):
+                candidates.append((root / expected, expected))
+
+    for path, relative in candidates:
+        for adapter in BOUNDARY_ADAPTERS:
+            if not (
+                adapter.matches(relative)
+                or (
+                    relative in symlink_directories
+                    and any(
+                        _symlink_may_hide_boundary_glob(relative, pattern)
+                        for pattern in adapter.globs
+                    )
+                )
+            ):
+                continue
             for host in _audit_hosts(adapter.id, relative, adapter.hosts):
                 indexed[(host, relative)] = (
                     path,
@@ -808,7 +994,22 @@ def _repository_paths(root: Path) -> list[tuple[Path, str, str, str]]:
                     host,
                     _source_kind(relative),
                 )
-    return [indexed[key] for key in sorted(indexed)]
+    return [indexed[key] for key in sorted(indexed)], visited
+
+
+def _symlink_may_hide_boundary_glob(relative: str, pattern: str) -> bool:
+    """Whether a symlink directory can conceal descendants of ``pattern``."""
+
+    path = relative.casefold().strip("/")
+    candidate_pattern = pattern.casefold().strip("/")
+    if candidate_pattern.startswith("**/"):
+        return bool(path)
+    fixed_prefix = candidate_pattern.split("*", 1)[0].rstrip("/")
+    return bool(fixed_prefix) and (
+        path == fixed_prefix
+        or path.startswith(f"{fixed_prefix}/")
+        or fixed_prefix.startswith(f"{path}/")
+    )
 
 
 def _repository_sources_expected(host: str) -> list[str]:
@@ -982,7 +1183,17 @@ def build_host_boundary_snapshot(
     grants: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
 
-    for path, source, host, kind in _repository_paths(root):
+    resource_bound_error: str | None = None
+    identity_snapshot_error: str | None = None
+    try:
+        repository_paths, _inventory_entries = _repository_paths(
+            root,
+            reader=cache.reader_for(root),
+        )
+    except (RuntimeError, IdentityReadBudgetExceeded) as exc:
+        repository_paths = []
+        resource_bound_error = str(exc)
+    for path, source, host, kind in repository_paths:
         _collect_file(
             path=path, source=source, host=host, scope="repository", kind=kind,
             containment_root=root, cache=cache,
@@ -1014,6 +1225,48 @@ def build_host_boundary_snapshot(
 
     if scope == "local_static":
         issues.extend(_local_precedence_issues(artifacts))
+
+    try:
+        cache.finish()
+    except IdentityReadBudgetExceeded as exc:
+        resource_bound_error = cache.resource_bound_error or str(exc)
+    except (OSError, NotImplementedError, ValueError) as exc:
+        identity_snapshot_error = (
+            "static host-boundary inventory changed identity while its bounded "
+            f"snapshot was captured ({exc})"
+        )
+    if cache.resource_bound_error is not None:
+        resource_bound_error = cache.resource_bound_error
+    if resource_bound_error is not None:
+        # Aggregate exhaustion can prevent the final identity pass. Do not
+        # retain a partially validated projection as diagnostic grant data.
+        artifacts.clear()
+        grants.clear()
+        for host in ("codex", "claude-code", "cursor", "vscode", "github"):
+            issues.append(
+                _inventory_issue(
+                    kind="unreadable",
+                    host=host,
+                    source="<repository>",
+                    message=resource_bound_error,
+                    blocking=True,
+                )
+            )
+    if identity_snapshot_error is not None:
+        # No parsed projection is trustworthy when the final exact-name pass
+        # cannot bind it to the entries that were opened.
+        artifacts.clear()
+        grants.clear()
+        for host in ("codex", "claude-code", "cursor", "vscode", "github"):
+            issues.append(
+                _inventory_issue(
+                    kind="unreadable",
+                    host=host,
+                    source="<repository>",
+                    message=identity_snapshot_error,
+                    blocking=True,
+                )
+            )
 
     artifacts.sort(key=lambda item: (item["host"], item["scope"], item["path"], item["kind"]))
     grants.sort(key=lambda item: item["grant_id"])
@@ -1100,41 +1353,208 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
-    rerun = "shipgate audit --host --scope repository --save-baseline"
+    baseline, _text = load_host_grants_baseline_with_text(path)
+    return baseline
+
+
+def load_host_grants_baseline_with_text(
+    path: Path,
+) -> tuple[dict[str, Any], str]:
+    """Return validated baseline data and the exact descriptor-bound text."""
+
+    display_path = path
+    path = _exact_baseline_read_path(path)
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        text = _read_exact_baseline_text(path, display_path=display_path)
+        data = json.loads(text)
     except OSError as exc:
-        raise ValueError(f"No host-grants baseline at {path} ({exc}). Record one first: {rerun}") from exc
+        raise ValueError(
+            f"No readable host-grants baseline at {path} ({exc}). A human must "
+            "review the current grants before creating or replacing a baseline."
+        ) from exc
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Host-grants baseline {path} is not valid JSON ({exc}). Re-record it: {rerun}") from exc
+        raise ValueError(
+            f"Host-grants baseline {path} is not valid JSON ({exc}). Inspect and "
+            "repair or replace it deliberately; do not overwrite it with the "
+            "current grants."
+        ) from exc
     if not isinstance(data, dict):
-        raise ValueError(f"Host-grants baseline {path} must be a JSON object. Re-record it: {rerun}")
+        raise ValueError(
+            f"Host-grants baseline {path} must be a JSON object. Inspect and "
+            "repair or replace it deliberately."
+        )
     version = data.get("host_grants_schema_version")
     if version == "0.1":
         # A valid-looking v0.1 artifact is intentionally not projected into v0.2:
         # it lacks scope and typed grant identities, so any diff would be lossy.
         if not isinstance(data.get("inventory"), dict):
-            raise ValueError(f"Host-grants baseline {path} is missing its inventory. Re-record it: {rerun}")
-        return data
+            raise ValueError(
+                f"Host-grants baseline {path} is missing its inventory. Inspect "
+                "and repair or replace it deliberately."
+            )
+        return data, text
     if version != HOST_GRANTS_BASELINE_SCHEMA_VERSION:
         raise ValueError(
-            f"Host-grants baseline {path} has unsupported schema version {version!r}. Re-record it: {rerun}"
+            f"Host-grants baseline {path} has unsupported schema version "
+            f"{version!r}. A human must review migration or replacement."
         )
     try:
         parsed = HostGrantsBaselineV2.model_validate(data).model_dump(mode="json")
     except ValidationError:
-        return {
-            "host_grants_schema_version": "0.2-invalid",
-            "_load_error": "malformed_v0.2_baseline",
-        }
+        return (
+            {
+                "host_grants_schema_version": "0.2-invalid",
+                "_load_error": "malformed_v0.2_baseline",
+            },
+            text,
+        )
     stored = parsed["inventory_sha256"]
     recomputed = host_grants_sha256(parsed["inventory"])
     if stored != recomputed:
         raise ValueError(
             f"Host-grants baseline {path} failed its integrity check: stored "
-            f"inventory_sha256 {stored!r} does not match {recomputed}. After human review, re-record it: {rerun}"
+            f"inventory_sha256 {stored!r} does not match {recomputed}. Inspect "
+            "the existing evidence and repair or replace it deliberately."
         )
-    return parsed
+    return parsed, text
+
+
+def _read_exact_baseline_text(path: Path, *, display_path: Path) -> str:
+    """Read the validated baseline through one identity-bound descriptor."""
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError(
+            f"No readable host-grants baseline at {display_path} ({exc})."
+        ) from exc
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+            raise ValueError(
+                f"Host-grants baseline {display_path} must be one exact, "
+                "singly-linked regular file."
+            )
+        if opened.st_size > MAX_HOST_BASELINE_BYTES:
+            raise ValueError(
+                f"Host-grants baseline {display_path} exceeds the "
+                f"{MAX_HOST_BASELINE_BYTES}-byte static read limit."
+            )
+        raw = bytearray()
+        while chunk := os.read(
+            descriptor,
+            min(1024 * 1024, MAX_HOST_BASELINE_BYTES + 1 - len(raw)),
+        ):
+            raw.extend(chunk)
+            if len(raw) > MAX_HOST_BASELINE_BYTES:
+                raise ValueError(
+                    f"Host-grants baseline {display_path} exceeds the "
+                    f"{MAX_HOST_BASELINE_BYTES}-byte static read limit."
+                )
+        after_read = os.fstat(descriptor)
+        text = bytes(raw).decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"Host-grants baseline {display_path} is not valid UTF-8 ({exc})."
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+    # Recheck the lexical components and final directory entry after the read.
+    # Together with O_NOFOLLOW and the descriptor metadata, this detects a
+    # symlink/rename swap between validation and use instead of accepting bytes
+    # from a different trust-evidence artifact.
+    anchor = Path(path.anchor)
+    relative = path.relative_to(anchor)
+    issue = inspect_lexical_path_identity(anchor, relative)
+    try:
+        current = path.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"Host-grants baseline {display_path} changed while it was read."
+        ) from exc
+    if (
+        issue is not None
+        or _stable_file_metadata(opened) != _stable_file_metadata(after_read)
+        or _stable_file_metadata(opened) != _stable_file_metadata(current)
+        or not stat.S_ISREG(current.st_mode)
+        or current.st_nlink != 1
+    ):
+        raise ValueError(
+            f"Host-grants baseline {display_path} changed identity while it "
+            "was read; retry only after a human verifies the artifact."
+        )
+    return text
+
+
+def _stable_file_metadata(metadata: os.stat_result) -> tuple[int, ...]:
+    """Return the identity and mutation fields that must remain read-stable."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _exact_baseline_read_path(path: Path) -> Path:
+    """Return one exact regular, singly-linked baseline path.
+
+    Baseline bytes are acknowledged trust evidence. Reading through a symlink
+    can silently substitute an external artifact, while a hardlink can mutate
+    the committed baseline through another name. Normalize lexical ``..``
+    components and then inspect the exact path that will be read.
+    """
+
+    lexical = Path(os.path.abspath(os.path.normpath(os.fspath(path))))
+    anchor = Path(lexical.anchor)
+    try:
+        relative = lexical.relative_to(anchor)
+    except ValueError as exc:
+        raise ValueError(
+            f"Host-grants baseline {path} has an unsupported path identity; "
+            "select one exact regular file."
+        ) from exc
+    issue = inspect_lexical_path_identity(anchor, relative)
+    if issue is not None:
+        detail = f": {issue.detail}" if issue.detail else ""
+        raise ValueError(
+            f"Host-grants baseline {path} must use one exact non-symlink "
+            f"filesystem identity ({issue.kind} at {issue.requested}{detail})."
+        )
+    try:
+        metadata = lexical.lstat()
+    except FileNotFoundError:
+        return lexical
+    except OSError as exc:
+        raise ValueError(
+            f"Could not inspect host-grants baseline {path}: {exc}"
+        ) from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        cause = IsADirectoryError(
+            errno.EISDIR,
+            "baseline path is not a regular file",
+            str(lexical),
+        )
+        raise ValueError(
+            f"Host-grants baseline {path} must be a regular file."
+        ) from cause
+    if metadata.st_nlink != 1:
+        raise ValueError(
+            f"Host-grants baseline {path} must not be hardlinked; select one "
+            "independently stored reviewed artifact."
+        )
+    return lexical
 
 
 def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1230,7 +1650,7 @@ def _incomparable_payload(
         # meaning cannot be trusted. Advertising --save-baseline here would
         # replace that evidence with the current grants and silently
         # acknowledge them. Missing baselines are handled before this builder
-        # and may still receive an explicit save command.
+        # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
     return HostGrantsDriftV2.model_validate(payload).model_dump(mode="json")
@@ -1368,6 +1788,7 @@ __all__ = [
     "host_grants_sha256",
     "inventory_is_complete",
     "load_host_grants_baseline",
+    "load_host_grants_baseline_with_text",
     "normalized_host_grants",
     "redacted_config_sha256",
     "render_host_audit_markdown",

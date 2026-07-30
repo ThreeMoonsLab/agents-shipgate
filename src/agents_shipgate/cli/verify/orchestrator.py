@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import tempfile
 from collections import Counter
 from datetime import date
@@ -36,6 +37,18 @@ from agents_shipgate.core.evaluation_clock import use_evaluation_date
 from agents_shipgate.core.human_authorization import (
     default_human_authorization_trust_policy_path,
     evaluate_human_authorization,
+)
+from agents_shipgate.core.static_inputs import (
+    StaticInputSnapshot,
+    activate_static_input_snapshot,
+    active_static_input_snapshot,
+    read_static_input_bytes,
+    reset_static_input_snapshot,
+)
+from agents_shipgate.core.trust_roots import (
+    inspect_lexical_path_identity,
+    is_configured_manifest,
+    read_identity_bound_text,
 )
 from agents_shipgate.core.verification_identity import (
     build_executor,
@@ -83,7 +96,7 @@ from agents_shipgate.schemas.verify_run import (
 from agents_shipgate.triggers import evaluate
 
 from .capability_review import build_capability_review
-from .fix_task import FORBIDDEN_SHORTCUTS, build_fix_task
+from .fix_task import FORBIDDEN_SHORTCUTS, build_fix_task, is_pure_adoption_review
 from .git import (
     active_replace_refs,
     archive_tree,
@@ -95,12 +108,12 @@ from .git import (
     ensure_git_workspace,
     git_path,
     merge_base_sha,
-    paths_named_at_ref,
     read_file_at_ref,
     ref_exists,
     removes_a_yaml_file,
     repository_identity,
     resolve_source_head_identity,
+    resolve_tree_path_identity,
     tree_sha,
     working_tree_context,
 )
@@ -112,6 +125,8 @@ HEAD_PACKET_FORMATS = ["json"]
 DEFAULT_OUT_DIR = Path("agents-shipgate-reports")
 BASE_CACHE_KEEP_ENTRIES = 16
 MAX_HUMAN_AUTHORIZATION_BYTES = 1024 * 1024
+MAX_WORKTREE_MANIFEST_BYTES = 4 * 1024 * 1024
+MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
 
 
 def run_verify(
@@ -138,14 +153,55 @@ def run_verify(
     authorization: Path | None = None,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     git_root = ensure_git_workspace(workspace.resolve())
-    config_path = _resolve_under_workspace(git_root, config)
-    config_relative = _relative_to_workspace(git_root, config_path, "--config")
+    config_path, config_relative = _resolve_config_under_workspace(
+        git_root,
+        config,
+        requested_workspace=workspace,
+    )
     out_dir = _resolve_under_workspace(git_root, out or DEFAULT_OUT_DIR)
-    baseline_path = _resolve_under_workspace(git_root, baseline) if baseline else None
+    baseline_path = (
+        _resolve_static_input_path(
+            git_root,
+            baseline,
+            label="--baseline",
+        )
+        if baseline
+        else None
+    )
     policy_pack_paths = (
-        [_resolve_under_workspace(git_root, path) for path in policy_packs]
+        [
+            _resolve_static_input_path(
+                git_root,
+                path,
+                label="--policy-pack",
+            )
+            for path in policy_packs
+        ]
         if policy_packs
         else None
+    )
+    static_diff_from_path = (
+        _resolve_static_input_path(
+            git_root,
+            diff_from,
+            label="--diff-from",
+        )
+        if diff_from is not None
+        else None
+    )
+    _reject_output_input_overlap(
+        git_root=git_root,
+        out_dir=out_dir,
+        inputs=[
+            ("config", config_path),
+            *([("baseline", baseline_path)] if baseline_path is not None else []),
+            *[("policy pack", path) for path in (policy_pack_paths or [])],
+            *(
+                [("diff-from", static_diff_from_path)]
+                if static_diff_from_path is not None
+                else []
+            ),
+        ],
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     _clear_trusted_handoff(out_dir)
@@ -173,6 +229,15 @@ def run_verify(
     )
 
     if not config_path.is_file():
+        preview_command = _preview_verify_command(
+            workspace=git_root,
+            config=config_relative,
+            base=base,
+            head=head if archive_head else None,
+            out=out,
+            pr_comment_style=pr_comment_style,
+            preview=True,
+        )
         trigger = evaluate(
             paths=[],
             diff_text="",
@@ -204,10 +269,11 @@ def run_verify(
             headline_override=message,
             first_next_action_override=CodingAgentCommandAction(
                 kind="configure",
-                command="agents-shipgate verify --preview --json",
+                command=preview_command,
                 why=(
                     "Shipgate could not find the configured manifest; run verify "
-                    "preview, then correct --config or initialize shipgate.yaml."
+                    "preview, then correct --config or initialize the intended "
+                    "manifest."
                 ),
             ),
             worktree=not archive_head,
@@ -222,6 +288,7 @@ def run_verify(
             report=None,
             git_root=git_root,
             config_path=config_path,
+            config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
             policy_pack_paths=policy_pack_paths or [],
             plugins_enabled=plugins_enabled,
@@ -239,6 +306,7 @@ def run_verify(
     base_capability_lock: CapabilityLockFileV1 | None = None
     base_notes: list[str] = []
     diff_unavailable = False
+    diff_failure_action: HumanControlAction | None = None
 
     head_exists = ref_exists(git_root, head)
     if not head_exists:
@@ -284,6 +352,7 @@ def run_verify(
             report=None,
             git_root=git_root,
             config_path=config_path,
+            config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
             policy_pack_paths=policy_pack_paths or [],
             plugins_enabled=plugins_enabled,
@@ -292,6 +361,28 @@ def run_verify(
             pr_comment_style=pr_comment_style,
         )
         return verifier, None, 2
+
+    tree_config_relative = resolve_tree_path_identity(
+        git_root,
+        head,
+        config_relative,
+    )
+    if tree_config_relative is not None:
+        config_relative = tree_config_relative
+
+    worktree_manifest_text: str | None = None
+    if not archive_head:
+        try:
+            worktree_manifest_text = read_identity_bound_text(
+                git_root,
+                config_relative,
+                max_bytes=MAX_WORKTREE_MANIFEST_BYTES,
+            )
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            raise ConfigError(
+                f"Configured manifest {config_relative.as_posix()} could not be "
+                f"captured as one identity-bound worktree input: {exc}"
+            ) from exc
 
     verification_date = commit_date(git_root, head)
 
@@ -314,7 +405,16 @@ def run_verify(
             except Exception as exc:  # noqa: BLE001 - diff context degrades only.
                 diff_unavailable = True
                 base_status = "archive_failed"
-                base_notes.append(f"Could not collect diff for {base}...{head}: {exc}")
+                detail = f"Could not collect diff for {base}...{head}: {exc}"
+                base_notes.append(detail)
+                diff_failure_action = HumanControlAction(
+                    kind="review",
+                    why=(
+                        f"{detail}. The refs are present; fetching cannot repair "
+                        "this deterministic input failure. Inspect the reported "
+                        "Git configuration/resource issue before rerunning."
+                    ),
+                )
         else:
             diff_unavailable = True
             base_status = "ref_missing"
@@ -325,12 +425,31 @@ def run_verify(
 
     if not archive_head:
         try:
-            worktree_paths, worktree_diff = working_tree_context(git_root)
+            worktree_paths, worktree_diff = working_tree_context(
+                git_root,
+                exclude=out_dir,
+                reject_index_hidden=True,
+            )
             changed_files = _dedupe_paths([*changed_files, *worktree_paths])
             diff_text = _join_diff_text(diff_text, worktree_diff)
+            changed_files = _bind_worktree_config_to_head(
+                git_root=git_root,
+                head=head,
+                config_relative=config_relative,
+                worktree_text=worktree_manifest_text,
+                changed_files=changed_files,
+            )
         except Exception as exc:  # noqa: BLE001 - local context degrades only.
             diff_unavailable = True
-            base_notes.append(f"Could not collect working-tree diff context: {exc}")
+            detail = f"Could not collect working-tree diff context: {exc}"
+            base_notes.append(detail)
+            diff_failure_action = HumanControlAction(
+                kind="review",
+                why=(
+                    f"{detail}. Inspect the deterministic worktree-input "
+                    "failure before rerunning; fetching refs cannot repair it."
+                ),
+            )
 
     trigger = evaluate(
         paths=changed_files,
@@ -380,6 +499,7 @@ def run_verify(
             head_exit_code=2,
             out_dir=out_dir,
             ci_mode=ci_mode,
+            first_next_action_override=diff_failure_action,
             worktree=not archive_head,
             rerun_options=rerun_options,
         )
@@ -391,6 +511,7 @@ def run_verify(
             report=None,
             git_root=git_root,
             config_path=config_path,
+            config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
             policy_pack_paths=policy_pack_paths or [],
             plugins_enabled=plugins_enabled,
@@ -431,6 +552,7 @@ def run_verify(
             report=None,
             git_root=git_root,
             config_path=config_path,
+            config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
             policy_pack_paths=policy_pack_paths or [],
             plugins_enabled=plugins_enabled,
@@ -442,7 +564,8 @@ def run_verify(
 
     if diff_from is not None:
         base_status = "diff_from_provided"
-        base_report = _resolve_under_workspace(git_root, diff_from)
+        assert static_diff_from_path is not None
+        base_report = static_diff_from_path
         base_notes.append(f"Using explicit diff reference: {_display_path(base_report, git_root)}")
     elif base and base_exists:
         (
@@ -490,6 +613,55 @@ def run_verify(
         nonlocal head_capability_lock
         head_capability_lock = lock
 
+    static_snapshot: StaticInputSnapshot | None = None
+    static_snapshot_token = None
+    if not archive_head:
+        assert worktree_manifest_text is not None
+        external_snapshot_paths = [
+            path
+            for path in [
+                baseline_path,
+                *list(policy_pack_paths or []),
+                static_diff_from_path,
+            ]
+            if path is not None
+        ]
+        static_snapshot = StaticInputSnapshot(
+            git_root,
+            external_paths=external_snapshot_paths,
+        )
+        static_snapshot.preload(
+            config_path,
+            worktree_manifest_text.encode("utf-8"),
+        )
+        for relative in changed_files:
+            candidate = Path(
+                os.path.abspath(
+                    os.path.normpath(os.fspath(git_root / relative))
+                )
+            )
+            try:
+                metadata = candidate.lstat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise ConfigError(
+                    f"Changed worktree input {relative!r} could not be inspected: {exc}"
+                ) from exc
+            if not stat.S_ISREG(metadata.st_mode):
+                continue
+            try:
+                static_snapshot.read_bytes(
+                    candidate,
+                    max_bytes=MAX_WORKTREE_CHANGED_FILE_BYTES,
+                )
+            except (OSError, ValueError) as exc:
+                raise ConfigError(
+                    f"Changed worktree input {relative!r} could not be captured "
+                    f"for verification: {exc}"
+                ) from exc
+        static_snapshot_token = activate_static_input_snapshot(static_snapshot)
+
     try:
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
@@ -498,6 +670,12 @@ def run_verify(
             head_input_root = head_tree_dir
             head_tree = tree_sha(git_root, head)
             head_config_path = head_tree_dir / config_relative
+            _reject_symlink_components(
+                head_tree_dir,
+                config_relative,
+                label=f"Head manifest {config_relative.as_posix()}",
+                allow_filesystem_alias=True,
+            )
             if not head_config_path.is_file():
                 raise ConfigError(
                     f"Head tree {head!r} does not contain {config_relative.as_posix()}."
@@ -538,10 +716,17 @@ def run_verify(
                     manifest_introduced=manifest_introduced,
                 ),
                 capability_lock_callback=capture_capability_lock,
+                manifest_text=worktree_manifest_text if not archive_head else None,
             )
         head_exit_code = _apply_strict_plugins(
             report, head_exit_code, strict_plugins=strict_plugins
         )
+        if archive_head:
+            _project_archived_report_paths(
+                report,
+                archived_config=head_config_path,
+                checkout_config=config_path,
+            )
         head_status = "succeeded"
         if head_capability_lock is not None:
             try:
@@ -572,6 +757,9 @@ def run_verify(
         head_exit_code = 4
         raise
     finally:
+        artifact_report = report if head_status == "succeeded" else None
+        if artifact_report is None:
+            _remove_scan_artifacts(out_dir)
         verifier = _build_verifier(
             git_root=git_root,
             config_path=config_path,
@@ -585,7 +773,7 @@ def run_verify(
             head_tree=head_tree,
             base_report=base_report,
             base_notes=base_notes,
-            report=report,
+            report=artifact_report,
             head_status=head_status,
             head_exit_code=head_exit_code,
             out_dir=out_dir,
@@ -601,9 +789,10 @@ def run_verify(
                     verifier_path,
                     verify_run_path,
                     pr_comment_path,
-                    report=report,
+                    report=artifact_report,
                     git_root=git_root,
                     config_path=head_config_path,
+                    config_logical_path=config_relative.as_posix(),
                     baseline_path=head_baseline_path,
                     policy_pack_paths=head_policy_pack_paths or [],
                     plugins_enabled=plugins_enabled,
@@ -637,6 +826,8 @@ def run_verify(
         finally:
             if head_tmp is not None:
                 head_tmp.cleanup()
+            if static_snapshot_token is not None:
+                reset_static_input_snapshot(static_snapshot_token)
     return verifier, report, head_exit_code
 
 
@@ -699,10 +890,28 @@ def _prepare_base_report(
                 base_tree,
                 None,
                 None,
-                [f"Could not materialize base tree {base!r}: {exc}"],
+                [
+                    f"Could not materialize base tree {base!r}: "
+                    f"{_stable_archive_error(exc, archive_root=tmp_root, label='base tree')}"
+                ],
             )
 
         base_config = base_tree_dir / config_relative
+        try:
+            _reject_symlink_components(
+                base_tree_dir,
+                config_relative,
+                label=f"Base manifest {config_relative.as_posix()}",
+                allow_filesystem_alias=True,
+            )
+        except ConfigError as exc:
+            return (
+                "scan_failed",
+                base_tree,
+                None,
+                None,
+                [str(exc)],
+            )
         if not base_config.is_file():
             return (
                 "missing_manifest",
@@ -723,7 +932,7 @@ def _prepare_base_report(
                 _without_github_step_summary(),
                 use_evaluation_date(date.fromisoformat(evaluation_date)),
             ):
-                _base_report, base_exit = run_scan(
+                base_report_model, base_exit = run_scan(
                     config_path=base_config,
                     output_dir=base_out,
                     formats=["json"],
@@ -755,7 +964,10 @@ def _prepare_base_report(
                 base_tree,
                 None,
                 None,
-                [f"Base scan failed without changing the head gate: {exc}"],
+                [
+                    "Base scan failed without changing the head gate: "
+                    f"{_stable_archive_error(exc, archive_root=tmp_root, label='base tree')}"
+                ],
             )
         if base_exit not in {0, 20}:
             return (
@@ -774,6 +986,15 @@ def _prepare_base_report(
                 None,
                 ["Base scan did not produce report.json; diff enrichment disabled."],
             )
+        # Base diff evidence is never patch-applicable. Strip checkout/output
+        # coordinates so identical commits produce identical cached inputs
+        # across worktrees and clones.
+        base_report_model.manifest_dir = None
+        base_report_model.generated_reports = {}
+        source_report.write_text(
+            json.dumps(report_json_payload(base_report_model), indent=2),
+            encoding="utf-8",
+        )
         _copy_report_to_cache(source_report, cache_report)
         if base_capability_lock is not None:
             _write_capability_lock_to_cache(base_capability_lock, cache_report)
@@ -796,7 +1017,7 @@ def _cache_report_path(
     evaluation_date: str,
 ) -> Path:
     payload = {
-        "version": 1,
+        "version": 2,
         "agents_shipgate_version": __version__,
         "base_tree": base_tree,
         "config": config_relative.as_posix(),
@@ -926,7 +1147,7 @@ def _map_policy_packs(
         return None
     mapped: list[Path] = []
     for path in policy_packs:
-        candidate = _resolve_under_workspace(git_root, path)
+        candidate = path
         try:
             relative = candidate.relative_to(git_root)
         except ValueError:
@@ -944,7 +1165,7 @@ def _map_optional_tree_path(
 ) -> Path | None:
     if path is None:
         return None
-    candidate = _resolve_under_workspace(git_root, path)
+    candidate = path
     try:
         relative = candidate.relative_to(git_root)
     except ValueError:
@@ -1021,8 +1242,14 @@ def _rerun_options(
     if no_heuristics:
         options.append("--no-heuristics")
     if authorization is not None:
+        # Authorization grants are intentionally external to the repository.
+        # A path relative to the invocation directory cannot be replayed from
+        # the workspace embedded above, so serialize its absolute *lexical*
+        # identity now. ``abspath`` normalizes ``..`` without following a
+        # symlink and silently changing the operator-supplied grant path.
+        authorization_path = Path(os.path.abspath(os.fspath(authorization)))
         options.extend(
-            ["--authorization", shlex.quote(_display_path(authorization, git_root))]
+            ["--authorization", shlex.quote(str(authorization_path))]
         )
     return options
 
@@ -1052,10 +1279,10 @@ def _manifest_introduced(
     repository may call its manifest anything, so both ``old-gate.yml`` renamed
     to ``new-gate.yml`` and a base that simply *keeps* ``old-gate.yml`` pass
     every name test. The base must carry no manifest under the configured or
-    default name, no tracked YAML that reads like a manifest at all, *and* the
-    evaluated diff must not delete or rename away any YAML file. All three are
-    fail-closed: a git command that cannot answer means "not an adoption",
-    never "proven absent".
+    default name, no tracked file under any name that reads like a manifest at
+    all, *and* the evaluated diff must not delete or rename away any YAML file.
+    All three are fail-closed: a git command that cannot answer means "not an
+    adoption", never "proven absent".
 
     Unknown bases (``ref_missing``, ``archive_failed``) are never treated as
     adoptions: absence of evidence is not evidence of absence.
@@ -1067,9 +1294,14 @@ def _manifest_introduced(
     signal is the one machine consumers are left with.
     """
 
-    if config_relative.as_posix() not in {
-        str(path).replace("\\", "/").strip() for path in changed_files
-    }:
+    if not any(
+        is_configured_manifest(
+            config_relative,
+            str(path).replace("\\", "/"),
+            workspace=git_root,
+        )
+        for path in changed_files
+    ):
         return False
     if base_status == "missing_manifest" and base is not None:
         ref: str = base
@@ -1080,13 +1312,19 @@ def _manifest_introduced(
         ref = head
     else:
         return False
-    names = _MANIFEST_FILE_NAMES | {config_relative.name}
-    existing = paths_named_at_ref(git_root, ref, frozenset(names))
-    if existing is None or existing:
-        return False
-    # A name check cannot see a manifest called something else, so ask what the
-    # base actually contains. Both probes fail closed on an unreadable answer.
-    manifest_like = carries_manifest_like_yaml(git_root, ref)
+    # Only canonical default names are meaningful as a name-based safety
+    # signal. Treating an arbitrary configured basename as manifest identity
+    # would let an unrelated base file such as ``docs/release.gate`` suppress
+    # a genuine adoption of ``config/release.gate``. Custom manifests are
+    # detected by the suffix-agnostic structural content probe below.
+    # One bounded listing performs both the canonical-name guard and the
+    # suffix-agnostic structural probe. A separate ``ls-tree --name-only``
+    # previously buffered an unbounded tree before this bounded probe ran.
+    manifest_like = carries_manifest_like_yaml(
+        git_root,
+        ref,
+        protected_names=_MANIFEST_FILE_NAMES,
+    )
     if manifest_like is not False:
         return False
     removed = removes_a_yaml_file(
@@ -1142,6 +1380,8 @@ def _self_approval_note(
     capability_review: VerifierCapabilityReview | None,
     *,
     manifest_introduced: bool = False,
+    pure_adoption_review: bool = False,
+    configured_manifest: str | None = None,
 ) -> str | None:
     """The explicit self-approval prohibition when this PR edits the rules that
     evaluate it.
@@ -1153,28 +1393,36 @@ def _self_approval_note(
 
     A first adoption gets its own wording. The prohibition still holds (a
     coding agent cannot adopt a release policy on the repository's behalf), but
-    a PR that adds the manifest to a base that had none weakens nothing, and
-    saying it does is both wrong and the first thing every new adopter reads.
-    An adoption fires on ``manifest_introduced`` rather than on
-    ``policy_weakened``, which is honestly false during an adoption — that
-    keeps every caller reading this as "a trust root is in play" fail-closed.
+    a PR that adds the manifest to a base that had none does not weaken an
+    existing Shipgate manifest. An adoption fires on ``manifest_introduced``
+    rather than on ``policy_weakened``, which is honestly false during a pure
+    adoption — that keeps every caller reading this as "a trust root is in
+    play" fail-closed.
     But a diff that introduces the manifest *and* weakens an existing policy
     file is not a pure adoption: ``policy_weakened`` is then true, and saying
     "there is no prior gate this change could weaken" would describe away the
     very finding that needs review. The weakening wording wins.
     """
-    if manifest_introduced and not (
-        capability_review is not None and capability_review.policy_weakened
-    ):
-        return (
-            "This PR introduces Agents Shipgate to this repository: the base "
-            "carries no manifest, so there is no prior gate this change could "
-            "weaken. Adopting a release policy is a human decision — review the "
-            "generated shipgate.yaml (and the agent-instruction and CI files it "
-            "adds), then merge it through a human-reviewed PR."
-        )
     if capability_review is None:
+        # Without a completed head scan there is no capability review whose
+        # trust-root facts can support adoption guidance. Scan-failure routing
+        # must remain the authoritative headline and next action.
         return None
+    if (
+        manifest_introduced
+        and pure_adoption_review
+        and not capability_review.policy_weakened
+    ):
+        manifest = (
+            f"the configured manifest {configured_manifest!r}"
+            if configured_manifest
+            else "the configured Shipgate manifest"
+        )
+        return (
+            "This PR introduces Agents Shipgate to this repository. Adopting a "
+            f"release policy is a human decision — review {manifest}, then "
+            "merge it through a human-reviewed PR."
+        )
     if capability_review.policy_weakened:
         return (
             "This PR weakens the release policy that evaluates it; a coding "
@@ -1294,11 +1542,42 @@ def _verifier_headline(
     head_status: str,
     capability_review: VerifierCapabilityReview | None = None,
     manifest_introduced: bool = False,
+    pure_adoption_review: bool = False,
+    configured_manifest: str | None = None,
 ) -> str | None:
+    # A failed scan has no adoption evidence to act on. Lead with the failure,
+    # even if the pre-scan git proof found a newly added manifest.
+    if head_status == "failed" or merge_verdict == "unknown":
+        return "Shipgate could not complete the scan; human review required."
+    # An adoption with another gating concern must lead with that real stop
+    # condition. "Review, then merge" is only truthful when the adoption
+    # finding is the sole review item.
+    if manifest_introduced and not pure_adoption_review and report is not None:
+        primary = (
+            report.agent_summary.headline
+            if report.agent_summary is not None
+            else (
+                report.release_decision.reason
+                if report.release_decision is not None
+                else "Shipgate requires human review."
+            )
+        )
+        manifest = (
+            f"the configured manifest {configured_manifest!r}"
+            if configured_manifest
+            else "the configured Shipgate manifest"
+        )
+        return (
+            f"{primary} This PR also introduces {manifest}; adopting a release "
+            "policy is a separate human-review decision."
+        )
     # An agent editing the rules that evaluate its own change must see the
     # self-approval prohibition first, ahead of the generic scan headline.
     note = _self_approval_note(
-        capability_review, manifest_introduced=manifest_introduced
+        capability_review,
+        manifest_introduced=manifest_introduced,
+        pure_adoption_review=pure_adoption_review,
+        configured_manifest=configured_manifest,
     )
     if note is not None:
         return note
@@ -1306,8 +1585,6 @@ def _verifier_headline(
         return report.agent_summary.headline
     if head_status == "skipped":
         return "No agent-capability changes detected; Shipgate did not need to run."
-    if merge_verdict == "unknown":
-        return "Shipgate could not complete the scan; human review required."
     return None
 
 
@@ -1339,6 +1616,8 @@ def _derive_verifier_control(
     base_status: str,
     base_ref: str | None,
     manifest_introduced: bool = False,
+    pure_adoption_review: bool = False,
+    configured_manifest: str | None = None,
 ) -> AgentControl:
     """Project verifier facts through the shared operational control engine."""
 
@@ -1370,9 +1649,20 @@ def _derive_verifier_control(
         )
 
     if fix_task is not None and fix_task.actor == "coding_agent" and fix_task.safe_to_attempt:
-        command = fix_task.verification_command
-        if not command:
-            raise ValueError("agent-safe verifier repair requires an exact rerun command")
+        repair_commands = [
+            repair.command
+            for repair in fix_task.allowed_repairs
+            if repair.command
+        ]
+        commands = list(dict.fromkeys(repair_commands))
+        if (
+            fix_task.verification_command
+            and fix_task.verification_command not in commands
+        ):
+            commands.append(fix_task.verification_command)
+        if not commands:
+            raise ValueError("agent-safe verifier repair requires an exact repair command")
+        command = commands[0]
         return derive_agent_control(
             reason=reason,
             next_action=CodingAgentCommandAction(
@@ -1381,7 +1671,7 @@ def _derive_verifier_control(
                 why=fix_task.instructions[0] if fix_task.instructions else reason,
             ),
             verify_required=True,
-            allowed_next_commands=[command],
+            allowed_next_commands=commands,
         )
 
     if execution == "failed" and base_status in {"ref_missing", "archive_failed"}:
@@ -1396,10 +1686,20 @@ def _derive_verifier_control(
             verify_required=True,
         )
 
-    review_reason = (
-        _self_approval_note(capability_review, manifest_introduced=manifest_introduced)
-        or reason
-    )
+    # For a mixed adoption, ``reason`` already leads with the actual blocker
+    # and appends the adoption review. Do not replace it with generic
+    # trust-root copy and hide the condition that stopped the release.
+    review_reason = reason
+    if not manifest_introduced or pure_adoption_review:
+        review_reason = (
+            _self_approval_note(
+                capability_review,
+                manifest_introduced=manifest_introduced,
+                pure_adoption_review=pure_adoption_review,
+                configured_manifest=configured_manifest,
+            )
+            or reason
+        )
     unsafe_block = bool(release_decision is not None and release_decision.decision == "blocked")
     return derive_agent_control(
         reason=reason,
@@ -1407,7 +1707,7 @@ def _derive_verifier_control(
             kind="stop" if unsafe_block or execution == "failed" else "review",
             why=review_reason,
         ),
-        verify_required=release_decision is not None,
+        verify_required=release_decision is not None or execution == "failed",
         human_review_required=True,
         unsafe_block=unsafe_block,
         human_review_why=review_reason,
@@ -1457,6 +1757,10 @@ def _build_verifier(
     applicability = applicability_for(decision=decision, execution=head_status)
     agent_summary_model = report.agent_summary if report is not None else None
     capability_review = build_capability_review(report) if report is not None else None
+    pure_adoption_review = is_pure_adoption_review(
+        report,
+        manifest_introduced=manifest_introduced,
+    )
     # ``ref_missing``/``archive_failed`` are unknown-base states: the run
     # already carries its own recovery action, and a repair task derived from a
     # comparison that never happened would be guesswork. ``missing_manifest``
@@ -1480,6 +1784,13 @@ def _build_verifier(
             config=_display_path(config_path, git_root),
             worktree=worktree,
             rerun_options=rerun_options,
+            report_path=str((out_dir / "report.json").resolve()),
+            repair_subject_available=_repair_subject_available(
+                report,
+                git_root=git_root,
+                head=head,
+                worktree=worktree,
+            ),
         )
     )
     can_merge = _can_merge_without_human(
@@ -1493,6 +1804,8 @@ def _build_verifier(
         head_status=head_status,
         capability_review=capability_review,
         manifest_introduced=manifest_introduced,
+        pure_adoption_review=pure_adoption_review,
+        configured_manifest=_display_path(config_path, git_root),
     )
     if headline_override is None:
         provenance = _gap_provenance_note(report=report, base_report=base_report)
@@ -1509,6 +1822,8 @@ def _build_verifier(
         base_status=base_status,
         base_ref=base,
         manifest_introduced=manifest_introduced,
+        pure_adoption_review=pure_adoption_review,
+        configured_manifest=_display_path(config_path, git_root),
     )
     return VerifierArtifact(
         workspace=str(git_root),
@@ -1522,7 +1837,9 @@ def _build_verifier(
         base_tree_sha=base_tree,
         head_tree_sha=head_tree,
         base_report_json=(
-            _display_path(base_report, git_root) if base_report is not None else None
+            artifacts.get("verification_base_report_json")
+            if base_report is not None
+            else None
         ),
         base_notes=base_notes,
         execution=head_status,  # type: ignore[arg-type]
@@ -1837,6 +2154,7 @@ def _write_artifacts(
     report: ReadinessReport | None,
     git_root: Path,
     config_path: Path,
+    config_logical_path: str | None = None,
     baseline_path: Path | None,
     policy_pack_paths: list[Path],
     plugins_enabled: bool | None,
@@ -1852,6 +2170,23 @@ def _write_artifacts(
     evaluation_date: str | None = None,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
+    portable_diff_from_path: Path | None = None
+    if diff_from_path is not None and diff_from_path.is_file():
+        portable_diff_from_path = verifier_path.with_name(
+            "verification-base-report.json"
+        )
+        source_bytes = read_static_input_bytes(
+            diff_from_path,
+            max_bytes=64 * 1024 * 1024,
+        )
+        if portable_diff_from_path != diff_from_path:
+            portable_diff_from_path.write_bytes(source_bytes)
+        logical_base_report = _display_path(
+            portable_diff_from_path.resolve(),
+            git_root,
+        )
+        verifier.artifacts["verification_base_report_json"] = logical_base_report
+        verifier.base_report_json = logical_base_report
     verifier_path.write_text(
         json.dumps(verifier.model_dump(mode="json"), indent=2),
         encoding="utf-8",
@@ -1888,7 +2223,61 @@ def _write_artifacts(
     if not config_path.is_file() or not ref_exists(git_root, verifier.head_ref):
         return
     resolved_input_root = (input_root or git_root).resolve()
-    logical_config = (
+    active_snapshot = active_static_input_snapshot()
+    original_paths = [
+        *policy_pack_paths,
+        *([baseline_path] if baseline_path is not None else []),
+        *([diff_from_path] if diff_from_path is not None else []),
+    ]
+    if active_snapshot is not None:
+        try:
+            # Base-report enrichment can be generated after the snapshot was
+            # activated. Capture it now, before finalizing directory identity,
+            # so plan construction and the receipt consume exactly these bytes.
+            for path in original_paths:
+                if (
+                    path.is_file()
+                    and active_snapshot.contains(path)
+                    and not active_snapshot.has(path)
+                ):
+                    active_snapshot.read_bytes(path, max_bytes=64 * 1024 * 1024)
+            active_snapshot.finish()
+        except (OSError, ValueError) as exc:
+            raise InputParseError(
+                f"Verification inputs changed while they were being evaluated: {exc}"
+            ) from exc
+    original_static_inputs = {
+        Path(os.path.abspath(os.path.normpath(os.fspath(path))))
+        for path in original_paths
+    }
+    captured_input_paths = (
+        [
+            path
+            for path in active_snapshot.paths()
+            if path not in original_static_inputs
+        ]
+        if active_snapshot is not None
+        else None
+    )
+    external_input_root = verifier_path.parent
+    portable_policy_pack_paths = [
+        _write_portable_static_input(
+            path,
+            root=external_input_root,
+            category="policy-packs",
+        )
+        for path in policy_pack_paths
+    ]
+    portable_baseline_path = (
+        _write_portable_static_input(
+            baseline_path,
+            root=external_input_root,
+            category="baseline",
+        )
+        if baseline_path is not None and baseline_path.is_file()
+        else None
+    )
+    logical_config = config_logical_path or (
         config_path.resolve().relative_to(resolved_input_root).as_posix()
         if resolved_input_root in config_path.resolve().parents
         else _display_path(config_path.resolve(), git_root)
@@ -1925,13 +2314,6 @@ def _write_artifacts(
                 "source_head_relation": source_identity.relation,
             }
         )
-    portable_diff_from_path: Path | None = None
-    if diff_from_path is not None and diff_from_path.is_file():
-        portable_diff_from_path = verifier_path.with_name("verification-base-report.json")
-        shutil.copyfile(diff_from_path, portable_diff_from_path)
-        verifier.artifacts["verification_base_report_json"] = _display_path(
-            portable_diff_from_path.resolve(), git_root
-        )
     plan = build_verification_plan(
         git_root=git_root,
         input_root=resolved_input_root,
@@ -1955,9 +2337,9 @@ def _write_artifacts(
         ),
         changed_files=verifier.changed_files,
         diff_text=diff_text,
-        baseline_path=baseline_path,
+        baseline_path=portable_baseline_path,
         diff_from_path=portable_diff_from_path,
-        policy_pack_paths=policy_pack_paths,
+        policy_pack_paths=portable_policy_pack_paths,
         evaluation_date=resolved_date,
         options={
             "ci_mode": verifier.mode,
@@ -1967,6 +2349,8 @@ def _write_artifacts(
             **resolved_options,
         },
         plugins_enabled=plugins_enabled,
+        external_input_root=external_input_root,
+        captured_input_paths=captured_input_paths,
     )
     plan_path = verifier_path.with_name("verification-plan.json")
     diff_input_path = verifier_path.with_name("verification-input.diff")
@@ -2289,21 +2673,261 @@ def _resolve_under_workspace(workspace: Path, path: Path) -> Path:
     return (workspace / path).resolve()
 
 
-def _relative_to_workspace(workspace: Path, path: Path, label: str) -> Path:
+def _resolve_static_input_path(
+    workspace: Path,
+    path: Path,
+    *,
+    label: str,
+) -> Path:
+    """Bind a baseline/policy CLI spelling without following worktree aliases."""
+
+    candidate = path if path.is_absolute() else workspace / path
+    lexical = Path(os.path.abspath(os.path.normpath(os.fspath(candidate))))
     try:
-        return path.resolve().relative_to(workspace)
+        relative = lexical.relative_to(workspace)
+    except ValueError:
+        anchor = Path(lexical.anchor)
+        relative = lexical.relative_to(anchor)
+    else:
+        anchor = workspace
+    _reject_symlink_components(anchor, relative, label=label)
+    try:
+        metadata = lexical.lstat()
+    except FileNotFoundError:
+        return lexical
+    except OSError as exc:
+        raise ConfigError(f"{label} could not be inspected safely: {path}") from exc
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise ConfigError(
+            f"{label} must identify one singly-linked regular file: {path}"
+        )
+    return lexical
+
+
+def _resolve_config_under_workspace(
+    workspace: Path,
+    path: Path,
+    *,
+    requested_workspace: Path | None = None,
+) -> tuple[Path, Path]:
+    """Resolve config spelling without following repository symlinks.
+
+    The repository-relative path is part of verification identity. Calling
+    ``Path.resolve`` first lets a tracked symlink replace that identity with
+    whichever target happens to exist in the current worktree, so the diff can
+    name the link while the scan evaluates an unmentioned target.
+    """
+
+    requested_anchor = (
+        requested_workspace.resolve()
+        if requested_workspace is not None
+        else workspace
+    )
+    candidate = path if path.is_absolute() else requested_anchor / path
+    if path.is_absolute() and requested_workspace is not None:
+        lexical_requested = Path(
+            os.path.abspath(os.path.normpath(os.fspath(requested_workspace)))
+        )
+        canonical_requested = requested_workspace.resolve()
+        lexical_path = Path(os.path.normpath(os.fspath(path)))
+        try:
+            requested_tail = lexical_path.relative_to(lexical_requested)
+        except ValueError:
+            requested_tail = None
+        if requested_tail is not None:
+            # The absolute config was spelled under the caller's workspace
+            # anchor. Map only that relative tail onto the anchor's canonical
+            # target; this supports a symlink that jumps directly to a nested
+            # repository directory without fabricating a lexical repo root.
+            candidate = canonical_requested / requested_tail
+        else:
+            try:
+                workspace_tail = canonical_requested.relative_to(workspace)
+            except ValueError:
+                workspace_tail = None
+            if workspace_tail is not None:
+                lexical_root = lexical_requested
+                for _part in workspace_tail.parts:
+                    lexical_root = lexical_root.parent
+                try:
+                    proven_root = lexical_root.resolve()
+                except OSError:
+                    proven_root = None
+                if proven_root == workspace:
+                    try:
+                        config_tail = lexical_path.relative_to(lexical_root)
+                    except ValueError:
+                        pass
+                    else:
+                        candidate = workspace / config_tail
+    lexical = Path(os.path.normpath(os.fspath(candidate)))
+    try:
+        relative = lexical.relative_to(workspace)
     except ValueError as exc:
-        raise ConfigError(f"{label} must resolve inside --workspace: {path}") from exc
+        raise ConfigError(f"--config must be inside --workspace: {path}") from exc
+    _reject_symlink_components(workspace, relative, label="--config")
+    try:
+        metadata = lexical.lstat()
+    except FileNotFoundError:
+        return lexical, relative
+    except OSError as exc:
+        raise ConfigError(f"--config could not be inspected safely: {path}") from exc
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise ConfigError(
+            "--config must identify one singly-linked regular file; "
+            f"non-regular or hardlinked manifest refused: {path}"
+        )
+    return lexical, relative
+
+
+def _reject_symlink_components(
+    root: Path,
+    relative: Path,
+    *,
+    label: str,
+    allow_filesystem_alias: bool = False,
+) -> None:
+    """Reject a manifest reached through a symlink or filesystem alias."""
+
+    issue = inspect_lexical_path_identity(root, relative)
+    if issue is None:
+        return
+    requested = _display_path(issue.requested, root)
+    if issue.kind == "symlink":
+        raise ConfigError(f"{label} must not contain symlink components: {requested}")
+    if issue.kind == "alias":
+        if allow_filesystem_alias and issue.actual is not None:
+            # Git can materialize the same tracked path with a precomposed
+            # Unicode or index-canonical case spelling. The worktree-side
+            # config identity was already validated before archiving, and
+            # checks compare the two spellings by same-entry identity. An
+            # unresolved alias (``actual is None``) did not prove that
+            # same-entry relationship and therefore remains fail-closed.
+            return
+        actual = (
+            _display_path(issue.actual, root)
+            if issue.actual is not None
+            else "a differently spelled filesystem entry"
+        )
+        raise ConfigError(
+            f"{label} must use the exact filesystem spelling: "
+            f"{requested} resolves to {actual}"
+        )
+    raise ConfigError(
+        f"{label} could not be inspected safely: {requested}: {issue.detail}"
+    )
 
 
 def _dedupe_paths(paths: list[str]) -> list[str]:
     return sorted({path for path in paths if path})
 
 
+def _bind_worktree_config_to_head(
+    *,
+    git_root: Path,
+    head: str,
+    config_relative: Path,
+    worktree_text: str,
+    changed_files: list[str],
+) -> list[str]:
+    """Force the manifest into context when its loaded bytes differ from HEAD.
+
+    Git's ordinary worktree diff intentionally honors ignore rules and index
+    flags such as ``assume-unchanged``/``skip-worktree``. Those are useful for
+    local development but cannot hide the release policy that verify actually
+    loads. Compare the manifest independently and add its exact logical path
+    whenever the bytes differ or the file is absent from HEAD.
+    """
+
+    try:
+        head_text = read_file_at_ref(git_root, head, config_relative)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(
+            f"Configured manifest {config_relative.as_posix()} could not be "
+            f"read from {head!r}: {exc}"
+        ) from exc
+    if head_text == worktree_text:
+        return changed_files
+    return _dedupe_paths([*changed_files, config_relative.as_posix()])
+
+
 def _join_diff_text(left: str, right: str) -> str:
     if left and right:
         return f"{left}\n{right}"
     return left or right
+
+
+def _project_archived_report_paths(
+    report: ReadinessReport,
+    *,
+    archived_config: Path,
+    checkout_config: Path,
+) -> None:
+    """Project temporary archive paths onto stable checkout coordinates.
+
+    Current machine patches are manifest-only. Any future patch against a
+    different archived file must add an explicit portable mapping here rather
+    than leaking a temporary path into receipt-bound evidence.
+    """
+
+    archived_target = archived_config.resolve()
+    checkout_target = checkout_config.resolve()
+    report.manifest_dir = str(checkout_target.parent)
+    for finding in report.findings:
+        for patch in finding.patches or []:
+            target_file = getattr(patch, "target_file", None)
+            if target_file is None:
+                continue
+            try:
+                patch_target = Path(target_file).resolve()
+            except OSError as exc:
+                raise ConfigError(
+                    "Archived suggested-patch target could not be mapped safely"
+                ) from exc
+            if patch_target != archived_target:
+                raise ConfigError(
+                    "Archived suggested patch targets an unsupported file: "
+                    f"{target_file}"
+                )
+            patch.target_file = str(checkout_target)
+
+
+def _repair_subject_available(
+    report: ReadinessReport | None,
+    *,
+    git_root: Path,
+    head: str,
+    worktree: bool,
+) -> bool:
+    """Whether an agent-safe repair can be reverified without changing refs.
+
+    A ref-bound run evaluates committed objects. ``apply-patches`` mutates the
+    checkout only, so its exact ref-bound rerun would continue to scan the old
+    commit and could never validate the repair. Until the control contract can
+    model an intentional commit as a separate reviewed transition, only a
+    working-tree run may advertise the autonomous mechanical route.
+    """
+
+    return worktree
+
+
+def _stable_archive_error(
+    exc: BaseException,
+    *,
+    archive_root: Path,
+    label: str,
+) -> str:
+    """Remove random temporary-root spellings from public verifier evidence."""
+
+    detail = str(exc) or type(exc).__name__
+    spellings = {str(archive_root), str(archive_root.absolute())}
+    try:
+        spellings.add(str(archive_root.resolve()))
+    except OSError:
+        pass
+    for spelling in sorted(spellings, key=len, reverse=True):
+        detail = detail.replace(spelling, f"<{label}>")
+    return detail
 
 
 def _display_path(path: Path, root: Path) -> str:
@@ -2313,17 +2937,61 @@ def _display_path(path: Path, root: Path) -> str:
         return str(path)
 
 
+def _write_portable_static_input(
+    path: Path,
+    *,
+    root: Path,
+    category: str,
+) -> Path:
+    """Copy one captured external input into the reproducible artifact graph."""
+
+    data = read_static_input_bytes(path, max_bytes=64 * 1024 * 1024)
+    digest = hashlib.sha256(data).hexdigest()
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", path.name).strip("._")
+    if not safe_name:
+        safe_name = "input"
+    target = root / "verification-inputs" / category / f"{digest[:16]}-{safe_name}"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return target
+
+
+def _reject_output_input_overlap(
+    *,
+    git_root: Path,
+    out_dir: Path,
+    inputs: list[tuple[str, Path]],
+) -> None:
+    """Keep generated artifacts from replacing verifier inputs."""
+
+    root = git_root.resolve()
+    output = out_dir.resolve()
+    if output == root:
+        raise ConfigError("Verifier --out cannot be the workspace root.")
+    for label, candidate in inputs:
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(output)
+        except ValueError:
+            continue
+        raise ConfigError(
+            f"Verifier --out overlaps the {label} input at "
+            f"{_display_path(candidate, git_root)}."
+        )
+
+
 def _shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in parts)
 
 
 def _preview_init_command(workspace: Path) -> str:
+    command_workspace = workspace if workspace.is_absolute() else Path.cwd() / workspace
     return _shell_join(
         [
             "shipgate",
             "init",
             "--workspace",
-            str(workspace),
+            str(command_workspace),
             "--write",
             "--json",
         ]
@@ -2337,22 +3005,31 @@ def _preview_verify_command(
     base: str | None,
     head: str | None,
     out: Path | None,
+    pr_comment_style: str = "capability-review",
+    preview: bool = False,
 ) -> str:
+    command_workspace = workspace if workspace.is_absolute() else Path.cwd() / workspace
     parts = [
         "agents-shipgate",
         "verify",
         "--workspace",
-        str(workspace),
+        str(command_workspace),
         "--config",
         str(config),
     ]
+    if preview:
+        parts.append("--preview")
     if base is not None:
         parts.extend(["--base", base])
     if head is not None:
         parts.extend(["--head", head])
     if out is not None:
         parts.extend(["--out", str(out)])
-    parts.extend(["--ci-mode", "advisory", "--json"])
+    if pr_comment_style and pr_comment_style != "capability-review":
+        parts.extend(["--pr-comment-style", pr_comment_style])
+    if not preview:
+        parts.extend(["--ci-mode", "advisory"])
+    parts.append("--json")
     return _shell_join(parts)
 
 
@@ -2376,21 +3053,38 @@ def run_preview(
     pr_comment_style: str = "capability-review",
 ) -> tuple[VerifierArtifact, None, int]:
     """Lightweight relevance check for ``agents-shipgate verify --preview``."""
-    root = workspace.resolve()
-    config_path = _resolve_under_workspace(root, config)
+    requested_root = workspace.resolve()
+    try:
+        root = ensure_git_workspace(requested_root)
+    except ConfigError:
+        # Preview remains useful before a project has a Git repository. When
+        # one does exist, use the same repository root and path coordinates as
+        # the full verifier so its authorized command evaluates the same gate.
+        root = requested_root
+    config_path, config_relative = _resolve_config_under_workspace(
+        root,
+        config,
+        requested_workspace=workspace,
+    )
     out_dir = _resolve_under_workspace(root, out or DEFAULT_OUT_DIR)
+    _reject_output_input_overlap(
+        git_root=root,
+        out_dir=out_dir,
+        inputs=[("config", config_path)],
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     _clear_trusted_handoff(out_dir)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
     agent_handoff_path = out_dir / "agent-handoff.json"
     pr_comment_path = out_dir / "pr-comment.md"
-    manifest_present = config_path.exists()
+    manifest_present = config_path.is_file()
 
     changed_files: list[str] = []
     diff_text = ""
     notes: list[str] = []
     diff_unavailable = False
+    diff_failure_requires_review = False
     if base or head:
         try:
             git_root = ensure_git_workspace(root)
@@ -2405,6 +3099,7 @@ def run_preview(
                     )
         except Exception as exc:  # noqa: BLE001 - preview must never crash.
             diff_unavailable = True
+            diff_failure_requires_review = True
             notes.append(f"Preview diff unavailable: {exc}")
 
     trigger = evaluate(
@@ -2426,9 +3121,18 @@ def run_preview(
         base=base,
         head=head,
         out=out,
+        pr_comment_style=pr_comment_style,
     )
 
-    if diff_unavailable and manifest_present:
+    if diff_unavailable and manifest_present and diff_failure_requires_review:
+        why = (
+            "Preview could not collect the requested deterministic diff even "
+            "though ref availability was not the problem. Inspect the reported "
+            "Git configuration/resource failure before rerunning."
+        )
+        next_action = HumanControlAction(kind="review", why=why)
+        headline = "Shipgate preview could not safely inspect the requested PR diff."
+    elif diff_unavailable and manifest_present:
         next_action: AgentControlAction = CodingAgentFetchBaseAction(
             kind="fetch_base",
             expects=base or head or "the requested base and head refs",
@@ -2521,6 +3225,7 @@ def run_preview(
         report=None,
         git_root=root,
         config_path=config_path,
+        config_logical_path=config_relative.as_posix(),
         baseline_path=None,
         policy_pack_paths=[],
         plugins_enabled=None,

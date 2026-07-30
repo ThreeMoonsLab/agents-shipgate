@@ -10,34 +10,32 @@
   },
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "agent_boundary_7908865cfe6b4fa73441f451",
+  "audit_id": "agent_boundary_a0e673974b41fe0c295c4c82",
   "policy_version": "1",
-  "summary": "1 coding-agent boundary change(s) need PR-time review; verify, then report them.",
+  "summary": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
   "changed_files": [
     ".codex/config.toml"
   ],
   "control": {
-    "state": "agent_action_required",
-    "reason": "1 coding-agent boundary change(s) need PR-time review; verify, then report them.",
+    "state": "human_review_required",
+    "reason": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
     "completion_allowed": false,
-    "must_stop": false,
+    "must_stop": true,
     "verify_required": true,
     "next_action": {
-      "actor": "coding_agent",
-      "kind": "verify",
-      "command": "agents-shipgate verify --workspace <workspace> --config <workspace>/shipgate.yaml --json",
+      "actor": "human",
+      "kind": "review",
+      "command": null,
       "expects": null,
-      "why": "This change owes human review but is not an emergency stop: run verify so the PR gate records the decision, and report the pending review items."
+      "why": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command."
     },
-    "allowed_next_commands": [
-      "agents-shipgate verify --workspace <workspace> --config <workspace>/shipgate.yaml --json"
-    ],
+    "allowed_next_commands": [],
     "human_review": {
-      "required": false,
-      "why": null,
+      "required": true,
+      "why": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
       "required_reviewers": []
     },
-    "stop_reason": null
+    "stop_reason": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command."
   },
   "repair": {
     "actor": "human",
@@ -83,7 +81,7 @@
     }
   ],
   "required_reviewers": [],
-  "explanation": "1 coding-agent boundary change(s) need PR-time review; verify, then report them.",
+  "explanation": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
   "suggested_fixes": [
     "Review the unknown permission key before trusting the boundary."
   ],

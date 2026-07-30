@@ -42,6 +42,13 @@ shipgate check --agent codex --workspace . --diff change.diff --format agent-bou
 shipgate check --agent codex --workspace . --diff - --format agent-boundary-json
 ```
 
+A supplied file or stdin diff is detached diagnostic input: it is not bound
+to checkout bytes that `verify` can reconstruct. Shipgate can still report
+boundary findings from it, but when the result owes verification it returns
+`human_review_required` with no allowed command. Re-run the check against the
+intended worktree, or with both `--base` and `--head`, to obtain a replayable
+verification route.
+
 The no-`--diff` form resolves a git diff locally. With no `--base` or `--head`,
 it reads local staged, unstaged, deleted, renamed, and relevant untracked
 changes. With `--base` and `--head`, it reads
@@ -90,10 +97,13 @@ consumers switch only on `control.state`; `decision` is diagnostic context.
 exactly for `human_review_required`. `risk_level` remains explanatory.
 
 With `--format agent-boundary-json`, schema-valid results exit `0`; wrappers
-must switch on `control.state`, not `$?`. Diff-input recovery is represented as
-`agent_action_required` with an exact next action. Unsupported
-CLI shape errors such as an invalid `--agent` or `--format` still exit nonzero
-before a boundary-result object exists.
+must switch on `control.state`, not `$?`. A missing ref may return an
+`agent_action_required` `fetch_base` action naming the exact required refs.
+An unreadable diff file, detached stdin/file diff that owes verification, or
+worktree/ref state Shipgate cannot bind returns `human_review_required` and
+authorizes no speculative rerun. Unsupported CLI shape errors such as an
+invalid `--agent` or `--format` still exit nonzero before a boundary-result
+object exists.
 
 ## State Machine
 

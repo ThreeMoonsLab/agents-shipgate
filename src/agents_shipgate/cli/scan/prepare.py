@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agents_shipgate.config.loader import load_manifest_with_positions
+from agents_shipgate.config.loader import (
+    load_manifest_text_with_positions,
+    load_manifest_with_positions,
+)
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.common import parse_severity
 
@@ -20,6 +23,7 @@ def _prepare_scan(
     packet_enabled: bool | None,
     packet_formats: list[str] | None,
     baseline_mode: str,
+    manifest_text: str | None = None,
 ) -> _ResolvedManifest:
     """Phase 1: load manifest with positions; apply CLI overrides.
 
@@ -27,7 +31,13 @@ def _prepare_scan(
     ``ConfigError`` (exit 2) for invalid packet formats or unsupported
     baseline modes — both fail before any source loading happens.
     """
-    raw_manifest, manifest_positions = load_manifest_with_positions(config_path)
+    if manifest_text is None:
+        raw_manifest, manifest_positions = load_manifest_with_positions(config_path)
+    else:
+        raw_manifest, manifest_positions = load_manifest_text_with_positions(
+            manifest_text,
+            source=config_path,
+        )
     manifest = raw_manifest.model_copy(deep=True)
     if ci_mode:
         manifest.ci.mode = ci_mode
@@ -52,5 +62,9 @@ def _prepare_scan(
     return _ResolvedManifest(
         manifest=manifest,
         manifest_positions=manifest_positions,
-        base_dir=config_path.resolve().parent,
+        base_dir=(
+            config_path.resolve().parent
+            if manifest_text is None
+            else config_path.parent.resolve()
+        ),
     )

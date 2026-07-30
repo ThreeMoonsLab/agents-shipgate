@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -15,7 +16,10 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.preflight import _read_plan
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.core import preflight as preflight_module
+from agents_shipgate.core import trust_roots as trust_roots_module
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.host_grants import build_host_grants_baseline, host_audit_inventory
 from agents_shipgate.core.preflight import (
     build_preflight_result,
@@ -25,6 +29,7 @@ from agents_shipgate.core.preflight import (
     required_evidence_for_capability_request,
 )
 from agents_shipgate.schemas.preflight import (
+    CapabilityRequestControls,
     CapabilityRequestV1,
     PreflightResultV1,
     PreflightResultV2,
@@ -85,13 +90,13 @@ def _write(root: Path, path: str, text: str = "x\n") -> None:
     target.write_text(text, encoding="utf-8")
 
 
-def _manifest_diff(old: str, new: str) -> str:
-    return "diff --git a/shipgate.yaml b/shipgate.yaml\n" + "".join(
+def _manifest_diff(old: str, new: str, path: str = "shipgate.yaml") -> str:
+    return f"diff --git a/{path} b/{path}\n" + "".join(
         difflib.unified_diff(
             old.splitlines(keepends=True),
             new.splitlines(keepends=True),
-            fromfile="a/shipgate.yaml",
-            tofile="b/shipgate.yaml",
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
         )
     )
 
@@ -124,6 +129,47 @@ def test_preflight_routes_protected_surface_touches_to_human(tmp_path: Path) -> 
     assert any(".codex/config.toml" in pattern for pattern in result.forbidden_file_edits)
 
 
+def test_preflight_routes_a_planned_symlink_path_to_human(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    alias = root / "edit-me"
+    alias.symlink_to(root / "AGENTS.md")
+
+    result = build_preflight_result(workspace=root, changed_files=[alias.name])
+
+    touch = next(item for item in result.protected_surface_touches if item.path == alias.name)
+    assert touch.kind == "path_identity"
+    assert touch.scope_type == "whole_file"
+    assert result.control.state == "human_review_required"
+
+
+def test_preflight_routes_a_planned_hardlink_path_to_human(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    alias = root / "edit-me"
+    alias.hardlink_to(root / "AGENTS.md")
+
+    result = build_preflight_result(workspace=root, changed_files=[alias.name])
+
+    touch = next(item for item in result.protected_surface_touches if item.path == alias.name)
+    assert touch.kind == "path_identity"
+    assert touch.scope_type == "whole_file"
+    assert result.control.state == "human_review_required"
+
+
+def test_preflight_treats_stored_case_variants_as_host_trust_roots(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    (root / "AGENTS.md").rename(root / "agents.md")
+
+    result = build_preflight_result(workspace=root, changed_files=["agents.md"])
+
+    touch = next(
+        item for item in result.protected_surface_touches if item.path == "agents.md"
+    )
+    assert touch.kind == "agent_instructions"
+    assert result.control.state == "human_review_required"
+
+
 def test_preflight_nested_verify_command_targets_the_nested_manifest(
     tmp_path: Path,
 ) -> None:
@@ -152,6 +198,112 @@ def test_preflight_nested_verify_command_targets_the_nested_manifest(
     assert (root / argv[argv.index("--config") + 1]).resolve() == (
         nested / "shipgate.yaml"
     ).resolve()
+
+
+def test_preflight_rejects_a_symlinked_config_instead_of_authorizing_its_target(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    target = root / "new-gate.yml"
+    (root / "shipgate.yaml").rename(target)
+    link = root / "gate.yml"
+    link.symlink_to(target.name)
+
+    with pytest.raises(
+        ConfigError,
+        match=r"--config must not contain symlink components: gate\.yml",
+    ):
+        build_preflight_result(
+            workspace=root,
+            config=Path("gate.yml"),
+            changed_files=["gate.yml"],
+        )
+
+
+def test_preflight_accepts_absolute_config_under_external_workspace_alias(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    alias = tmp_path / "repo-alias"
+    alias.symlink_to(root, target_is_directory=True)
+
+    result = build_preflight_result(
+        workspace=alias,
+        config=alias / "shipgate.yaml",
+        changed_files=["shipgate.yaml"],
+    )
+
+    touch = next(
+        item for item in result.protected_surface_touches
+        if item.path == "shipgate.yaml"
+    )
+    assert touch.kind == "manifest"
+    assert result.control.state == "human_review_required"
+
+
+def test_preflight_rejects_a_filesystem_resolved_config_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _workspace(tmp_path)
+    actual = root / "new-gate.yml"
+    (root / "shipgate.yaml").rename(actual)
+    alias = root / "NEW-GATE.yml"
+    real_lstat = Path.lstat
+
+    def aliased_lstat(path: Path, *args, **kwargs):
+        if path == alias:
+            return real_lstat(actual, *args, **kwargs)
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", aliased_lstat)
+
+    with pytest.raises(
+        ConfigError,
+        match=(
+            r"--config must use the exact filesystem spelling: "
+            r"NEW-GATE\.yml resolves to new-gate\.yml"
+        ),
+    ):
+        build_preflight_result(
+            workspace=root,
+            config=Path(alias.name),
+            changed_files=[actual.name],
+        )
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="exercises configured-manifest aliases on macOS filesystems",
+)
+def test_preflight_matches_real_case_drift_to_configured_manifest(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    indexed = root / "Gate.gate"
+    (root / "shipgate.yaml").rename(indexed)
+    configured = root / "gate.gate"
+    indexed.rename(configured)
+    stored_names = {entry.name for entry in root.iterdir()}
+    if configured.name not in stored_names or indexed.name in stored_names:
+        pytest.skip("filesystem did not retain the case-only rename spelling")
+    try:
+        if not os.path.samestat(indexed.lstat(), configured.lstat()):
+            pytest.skip("filesystem does not alias case variants")
+    except OSError:
+        pytest.skip("filesystem does not alias case variants")
+
+    result = build_preflight_result(
+        workspace=root,
+        config=Path(configured.name),
+        changed_files=[indexed.name],
+    )
+
+    touch = next(
+        item for item in result.protected_surface_touches if item.path == configured.name
+    )
+    assert touch.kind == "manifest"
+    assert result.control.state == "human_review_required"
 
 
 def test_preflight_classifies_both_sides_of_a_custom_manifest_rename(
@@ -214,6 +366,49 @@ def test_preflight_allows_exact_append_only_builtin_source_proposal(
     signal = next(item for item in result.signals if item.kind == "protected_surface_touch")
     assert signal.actor == "coding_agent"
     assert "not approved" in signal.reason
+
+
+@pytest.mark.parametrize(
+    ("manifest_relative_source_exists", "proposal_safe"),
+    [(False, False), (True, True)],
+)
+def test_preflight_resolves_proposed_sources_from_custom_manifest_directory(
+    tmp_path: Path,
+    manifest_relative_source_exists: bool,
+    proposal_safe: bool,
+) -> None:
+    root = _workspace(tmp_path)
+    nested = root / "config"
+    nested.mkdir()
+    manifest = nested / "gate.yml"
+    old = (root / "shipgate.yaml").read_text(encoding="utf-8")
+    manifest.write_text(old, encoding="utf-8")
+    (nested / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    # A repository-root decoy must not satisfy `config/gate.yml`'s
+    # manifest-relative `decoy.json` declaration.
+    (root / "decoy.json").write_text('{"tools": []}\n', encoding="utf-8")
+    if manifest_relative_source_exists:
+        (nested / "decoy.json").write_text('{"tools": []}\n', encoding="utf-8")
+    new = old + (
+        "  - id: decoy\n"
+        "    type: mcp\n"
+        "    path: decoy.json\n"
+    )
+
+    result = build_preflight_result(
+        workspace=root,
+        config=Path("config/gate.yml"),
+        diff_text=_manifest_diff(old, new, "config/gate.yml"),
+    )
+
+    assert result.changed_files == ["config/gate.yml"]
+    assert result.protected_surface_touches[0].requires_human_review is (
+        not proposal_safe
+    )
+    assert result.requires_human_review is (not proposal_safe)
+    assert result.control.state == (
+        "agent_action_required" if proposal_safe else "human_review_required"
+    )
 
 
 @pytest.mark.parametrize("safe_block_first", [True, False])
@@ -387,7 +582,7 @@ def test_preflight_rejects_plugin_source_with_symlinked_manifest(tmp_path: Path)
         (".codex/config.toml", "codex_config", "whole_file"),
         (".codex/hooks/preflight.sh", "codex_hooks", "whole_file"),
         (".cursor/cli.json", "host_boundary", "whole_file"),
-        ("AGENTS.override.md", "host_boundary", "whole_file"),
+        ("AGENTS.override.md", "agent_instructions", "whole_file"),
         (".github/workflows/deploy.yml", "host_boundary", "whole_file"),
         (".codex-plugin/plugin.json", "codex_plugin", "capability_surface"),
         ("servers/refund/.mcp.json", "tool_surface_decl", "capability_surface"),
@@ -461,6 +656,117 @@ def test_read_only_capability_request_has_no_required_evidence() -> None:
     assert required_evidence_for_capability_request(request) == []
 
 
+@pytest.mark.parametrize(
+    "request_key,request_payload",
+    [
+        (
+            "capability_requests",
+            [{"tool_name": " \t ", "effect": "read"}],
+        ),
+        (
+            "host_permission_requests",
+            [
+                {
+                    "host": "\n ",
+                    "surface": "permissions.allow",
+                    "operation": "add",
+                    "subject": "Bash(git status)",
+                }
+            ],
+        ),
+        (
+            "host_permission_requests",
+            [
+                {
+                    "host": "claude-code",
+                    "surface": " \t",
+                    "operation": "add",
+                    "subject": "Bash(git status)",
+                }
+            ],
+        ),
+        (
+            "host_permission_requests",
+            [
+                {
+                    "host": "claude-code",
+                    "surface": "permissions.allow",
+                    "operation": " ",
+                    "subject": "Bash(git status)",
+                }
+            ],
+        ),
+        (
+            "host_permission_requests",
+            [
+                {
+                    "host": "claude-code",
+                    "surface": "permissions.allow",
+                    "operation": "add",
+                    "subject": "\t",
+                }
+            ],
+        ),
+    ],
+)
+def test_preflight_plan_rejects_blank_capability_and_host_request_fields(
+    tmp_path: Path,
+    request_key: str,
+    request_payload: list[dict[str, object]],
+) -> None:
+    root = _workspace(tmp_path)
+
+    with pytest.raises(ConfigError, match="must not be blank"):
+        build_preflight_result(
+            workspace=root,
+            plan={
+                "schema_version": "preflight_plan_v1",
+                request_key: request_payload,
+            },
+        )
+
+
+def test_capability_request_normalizes_and_deduplicates_risk_tag_case() -> None:
+    request = CapabilityRequestV1(
+        tool_name="lookup_customer",
+        effect="read",
+        risk_tags=[
+            " Financial_Action ",
+            "financial_action",
+            "PRODUCTION_OPERATION",
+        ],
+    )
+
+    assert request.risk_tags == ["financial_action", "production_operation"]
+    assert required_evidence_for_capability_request(request)
+
+
+def test_external_communication_requires_explicit_confirmation_evidence() -> None:
+    missing = CapabilityRequestV1(
+        tool_name="send_customer_email",
+        effect="external_communication",
+    )
+    confirmed = CapabilityRequestV1(
+        tool_name="send_customer_email",
+        effect="external_communication",
+        controls=CapabilityRequestControls(confirmation_required=True),
+    )
+
+    missing_confirmation = next(
+        item
+        for item in required_evidence_for_capability_request(missing)
+        if item.id == "confirmation"
+    )
+    confirmed_confirmation = next(
+        item
+        for item in required_evidence_for_capability_request(confirmed)
+        if item.id == "confirmation"
+    )
+    assert missing_confirmation.satisfied is False
+    assert missing_confirmation.field == "controls.confirmation_required"
+    assert confirmed_confirmation.satisfied is True
+
+
 def test_policy_and_trust_root_hashes_are_deterministic(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
 
@@ -470,6 +776,202 @@ def test_policy_and_trust_root_hashes_are_deterministic(tmp_path: Path) -> None:
     assert first.policy_snapshot_hash == second.policy_snapshot_hash
     assert first.trust_root_graph_hash == second.trust_root_graph_hash
     assert build_trust_root_graph(root).graph_hash == first.trust_root_graph_hash
+
+
+def test_trust_root_graph_entry_budget_is_aggregate_across_inventory_and_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _workspace(tmp_path)
+    budget = trust_roots_module.IdentityReadBudget(
+        max_entries=10_000,
+        max_total_bytes=1024 * 1024,
+    )
+    reader = trust_roots_module.IdentityBoundReadSession(root, budget=budget)
+    _paths, inventory_entries = preflight_module._walk_trust_root_files(
+        root,
+        reader=reader,
+        max_entries=10_000,
+    )
+    assert inventory_entries > 0
+    monkeypatch.setattr(
+        preflight_module,
+        "_MAX_TRUST_ROOT_GRAPH_ENTRIES",
+        inventory_entries,
+    )
+
+    with pytest.raises(ConfigError, match="aggregate static resource bound"):
+        build_trust_root_graph(root)
+
+
+def test_trust_root_graph_byte_budget_is_aggregate_across_unique_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _workspace(tmp_path)
+    protected = [
+        root / "shipgate.yaml",
+        root / "AGENTS.md",
+        root / ".codex" / "config.toml",
+        root / ".github" / "workflows" / "agents-shipgate.yml",
+    ]
+    individual_sizes = [path.stat().st_size for path in protected]
+    aggregate_limit = max(individual_sizes)
+    assert sum(individual_sizes) > aggregate_limit
+    monkeypatch.setattr(
+        preflight_module,
+        "_MAX_TRUST_ROOT_GRAPH_BYTES",
+        aggregate_limit,
+    )
+
+    with pytest.raises(ConfigError, match="aggregate static resource bound"):
+        build_trust_root_graph(root)
+
+
+def test_trust_root_graph_scans_each_protected_directory_constant_times(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _workspace(tmp_path)
+    policy_directory = root / "policies"
+    for index in range(50):
+        _write(root, f"policies/policy-{index:02d}.yaml", f"index: {index}\n")
+
+    real_scandir = os.scandir
+    calls: dict[str, int] = {}
+
+    def counting_scandir(path: os.PathLike[str] | str | int):
+        if not isinstance(path, int):
+            key = os.path.abspath(os.fspath(path))
+            calls[key] = calls.get(key, 0) + 1
+        return real_scandir(path)
+
+    monkeypatch.setattr(trust_roots_module.os, "scandir", counting_scandir)
+
+    graph = build_trust_root_graph(root)
+
+    node = next(item for item in graph.nodes if item.pattern == "**/policies/**")
+    assert len(node.file_hashes) == 50
+    assert calls[os.path.abspath(os.fspath(policy_directory))] == 2
+
+
+def test_bounded_trust_root_graph_keeps_hardlinks_fail_closed(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    original = root / "policies" / "primary.yaml"
+    _write(root, "policies/primary.yaml", "approval: required\n")
+    alias = root / "policies" / "alias.yaml"
+    alias.hardlink_to(original)
+
+    result = build_preflight_result(workspace=root)
+
+    node = next(
+        item for item in result.trust_root_graph.nodes
+        if item.pattern == "**/policies/**"
+    )
+    assert node.file_hashes["policies/primary.yaml"] == "unavailable:path_identity"
+    assert node.file_hashes["policies/alias.yaml"] == "unavailable:path_identity"
+    assert {
+        item.path
+        for item in result.protected_surface_touches
+        if item.kind == "path_identity"
+    } >= {"policies/primary.yaml", "policies/alias.yaml"}
+    assert result.control.state == "human_review_required"
+
+
+def test_trust_root_graph_rejects_protected_addition_after_inventory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _workspace(tmp_path)
+    (root / "docs").mkdir()
+    added = root / "docs" / "AGENTS.md"
+    real_finish = trust_roots_module.IdentityBoundReadSession.finish
+    injected = False
+
+    def finish_after_addition(
+        reader: trust_roots_module.IdentityBoundReadSession,
+    ) -> None:
+        nonlocal injected
+        if reader.root == root and not injected:
+            injected = True
+            added.write_text("late protected instruction\n", encoding="utf-8")
+        real_finish(reader)
+
+    monkeypatch.setattr(
+        trust_roots_module.IdentityBoundReadSession,
+        "finish",
+        finish_after_addition,
+    )
+
+    with pytest.raises(ConfigError, match="changed identity"):
+        build_trust_root_graph(root)
+
+
+def test_exact_custom_manifest_keeps_literal_glob_characters(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    manifest_name = "gate[production]*?.yml"
+    (root / "shipgate.yaml").rename(root / manifest_name)
+
+    result = build_preflight_result(
+        workspace=root,
+        config=Path(manifest_name),
+        changed_files=[manifest_name],
+    )
+
+    node = next(
+        item
+        for item in result.trust_root_graph.nodes
+        if item.kind == "manifest" and item.pattern == manifest_name
+    )
+    assert node.present_paths == [manifest_name]
+    assert node.file_hashes[manifest_name].startswith("sha256:")
+    touch = next(
+        item for item in result.protected_surface_touches if item.path == manifest_name
+    )
+    assert touch.kind == "manifest"
+    assert result.control.state == "human_review_required"
+
+
+def test_preflight_rejects_a_hardlinked_config_manifest(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    alias = root / "custom-gate.yml"
+    alias.hardlink_to(root / "shipgate.yaml")
+
+    with pytest.raises(ConfigError, match="hardlinked manifest refused"):
+        build_preflight_result(
+            workspace=root,
+            config=Path(alias.name),
+            changed_files=[alias.name],
+        )
+
+
+def test_trust_root_globstar_fails_closed_on_a_symlink_ancestor(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    outside = tmp_path / "outside"
+    (outside / "policies").mkdir(parents=True)
+    secret = "OUTSIDE-POLICY-SECRET"
+    (outside / "policies" / "review.yaml").write_text(secret, encoding="utf-8")
+    (root / "vendor").symlink_to(outside, target_is_directory=True)
+
+    result = build_preflight_result(workspace=root)
+
+    node = next(
+        item
+        for item in result.trust_root_graph.nodes
+        if item.pattern == "**/policies/**"
+    )
+    assert "vendor" in node.present_paths
+    assert node.file_hashes["vendor"] == "unavailable:path_identity"
+    assert secret not in result.model_dump_json()
+    assert any(
+        item.path == "vendor" and item.kind == "path_identity"
+        for item in result.protected_surface_touches
+    )
+    assert result.control.state == "human_review_required"
 
 
 @pytest.mark.parametrize(
@@ -937,7 +1439,7 @@ def test_cli_preflight_routes_incomparable_legacy_host_baseline_to_human(
     assert "--save-baseline" not in json.dumps(payload)
 
 
-def test_cli_preflight_default_corrupt_host_baseline_warns_and_continues(
+def test_cli_preflight_default_corrupt_host_baseline_fails_closed(
     tmp_path: Path,
 ) -> None:
     root = _workspace(tmp_path)
@@ -957,9 +1459,41 @@ def test_cli_preflight_default_corrupt_host_baseline_warns_and_continues(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["host_grant_drift"] is None
-    assert any("host-grant drift skipped" in note for note in payload["notes"])
-    assert not any(signal["kind"] == "host_grant_drift" for signal in payload["signals"])
+    assert payload["host_grant_drift"]["comparison_status"] == "incomparable"
+    assert payload["requires_human_review"] is True
+    assert payload["control"]["state"] == "human_review_required"
+    assert any("requires review" in note for note in payload["notes"])
+    assert any(signal["kind"] == "host_grant_drift" for signal in payload["signals"])
+    assert "--save-baseline" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("broken", [False, True])
+def test_cli_preflight_default_symlinked_host_baseline_fails_closed(
+    tmp_path: Path,
+    broken: bool,
+) -> None:
+    root = _workspace(tmp_path)
+    baseline_path = root / ".agents-shipgate" / "host-grants.json"
+    baseline_path.parent.mkdir(parents=True)
+    external = tmp_path / "external-baseline.json"
+    if not broken:
+        external.write_text(
+            json.dumps(build_host_grants_baseline(host_audit_inventory(root))),
+            encoding="utf-8",
+        )
+    baseline_path.symlink_to(external)
+
+    result = runner.invoke(
+        app,
+        ["preflight", "--workspace", str(root), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["host_grant_drift"]["comparison_status"] == "incomparable"
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["allowed_next_commands"] == []
+    assert "--save-baseline" not in json.dumps(payload)
 
 
 def test_cli_preflight_explicit_missing_or_corrupt_host_baseline_fails(
@@ -979,7 +1513,7 @@ def test_cli_preflight_explicit_missing_or_corrupt_host_baseline_fails(
         ],
     )
     assert result.exit_code == 2
-    assert "No host-grants baseline" in result.output
+    assert "No readable host-grants baseline" in result.output
 
     corrupt = tmp_path / "corrupt-baseline.json"
     corrupt.write_text("{", encoding="utf-8")

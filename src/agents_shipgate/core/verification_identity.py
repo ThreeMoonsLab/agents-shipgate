@@ -20,6 +20,7 @@ from packaging.requirements import Requirement
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import _plugins_enabled, check_catalog
+from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.protocol import REGISTRY
 from agents_shipgate.schemas.verification_identity import (
     VerificationArtifactManifest,
@@ -38,6 +39,7 @@ from agents_shipgate.schemas.verification_identity import (
 )
 
 _GENERATED_DISTRIBUTION_DIRECTORY_NAMES = frozenset({"agents-shipgate-reports"})
+_MAX_PLAN_INPUT_FILE_BYTES = 64 * 1024 * 1024
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -45,6 +47,14 @@ def sha256_bytes(value: bytes) -> str:
 
 
 def sha256_file(path: Path) -> str:
+    snapshot = active_static_input_snapshot()
+    if snapshot is not None and snapshot.has(path):
+        return sha256_bytes(
+            snapshot.read_bytes(
+                path,
+                max_bytes=_MAX_PLAN_INPUT_FILE_BYTES,
+            )
+        )
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -53,7 +63,12 @@ def sha256_file(path: Path) -> str:
 
 
 def build_blob(*, path: Path, logical_path: str, source: str) -> VerificationBlob:
-    data = path.read_bytes()
+    snapshot = active_static_input_snapshot()
+    data = (
+        snapshot.read_bytes(path, max_bytes=_MAX_PLAN_INPUT_FILE_BYTES)
+        if snapshot is not None and snapshot.has(path)
+        else path.read_bytes()
+    )
     return VerificationBlob(
         path=logical_path,
         sha256=sha256_bytes(data),
@@ -166,6 +181,8 @@ def build_verification_plan(
     options: dict[str, Any],
     plugins_enabled: bool | None,
     diff_logical_path: str = "verification-input.diff",
+    external_input_root: Path | None = None,
+    captured_input_paths: list[Path] | None = None,
 ) -> VerificationPlan:
     effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     normalized_options = dict(options)
@@ -207,23 +224,46 @@ def build_verification_plan(
         size_bytes=len(diff_bytes),
         source="generated",
     )
-    tool_sources = _manifest_tool_source_blobs(
-        config_path=config_path,
-        input_root=input_root,
-        source="git_blob" if archived_head else "worktree",
-    )
+    if captured_input_paths is None:
+        tool_sources = _manifest_tool_source_blobs(
+            config_path=config_path,
+            input_root=input_root,
+            source="git_blob" if archived_head else "worktree",
+        )
+    else:
+        excluded_paths = {
+            Path(os.path.abspath(os.path.normpath(os.fspath(path))))
+            for path in [
+                config_path,
+                *policy_pack_paths,
+                *([baseline_path] if baseline_path is not None else []),
+                *([diff_from_path] if diff_from_path is not None else []),
+                *(git_root / path for path in changed_files),
+            ]
+        }
+        tool_sources = _blobs(
+            [
+                path
+                for path in captured_input_paths
+                if Path(os.path.abspath(os.path.normpath(os.fspath(path))))
+                not in excluded_paths
+            ],
+            root=input_root,
+            source="worktree",
+        )
+    bundle_root = external_input_root or input_root
     policy_blobs = _blobs(
         policy_pack_paths,
-        root=input_root,
-        source="git_blob" if archived_head else "external_input",
+        root=bundle_root,
+        source="external_input",
     )
     changed_blobs = _existing_changed_blobs(
         changed_files,
         root=input_root if archived_head else git_root,
         source="git_blob" if archived_head else "worktree",
     )
-    baseline_blob = _optional_blob(baseline_path, root=input_root)
-    diff_from_blob = _optional_blob(diff_from_path, root=input_root)
+    baseline_blob = _optional_blob(baseline_path, root=bundle_root)
+    diff_from_blob = _optional_blob(diff_from_path, root=bundle_root)
     inputs_payload = {
         "evaluation_date": evaluation_date,
         "config": config_blob,
@@ -262,6 +302,9 @@ def build_verification_plan(
                 diff_blob.path,
                 *(blob.path for blob in tool_sources),
                 *(b.path for b in policy_blobs),
+                *(blob.path for blob in changed_blobs),
+                *([baseline_blob.path] if baseline_blob is not None else []),
+                *([diff_from_blob.path] if diff_from_blob is not None else []),
             }
         ),
     }
@@ -812,7 +855,16 @@ def validate_plan_inputs(
 def _manifest_tool_source_blobs(
     *, config_path: Path, input_root: Path, source: str
 ) -> list[VerificationBlob]:
-    raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    snapshot = active_static_input_snapshot()
+    config_text = (
+        snapshot.read_bytes(
+            config_path,
+            max_bytes=_MAX_PLAN_INPUT_FILE_BYTES,
+        ).decode("utf-8", errors="strict")
+        if snapshot is not None and snapshot.contains(config_path)
+        else config_path.read_text(encoding="utf-8")
+    )
+    raw = yaml.safe_load(config_text) or {}
     rows = raw.get("tool_sources") if isinstance(raw, dict) else []
     paths: list[Path] = []
     for row in rows or []:
@@ -821,7 +873,13 @@ def _manifest_tool_source_blobs(
         candidate = (config_path.parent / row["path"]).resolve()
         if input_root.resolve() not in candidate.parents and candidate != input_root.resolve():
             raise ValueError(f"tool source escapes verification input root: {row['path']}")
-        paths.extend(_expand_path(candidate))
+        if snapshot is not None and snapshot.contains(candidate):
+            if snapshot.has(candidate):
+                paths.append(candidate)
+            else:
+                paths.extend(snapshot.paths_under(candidate))
+        else:
+            paths.extend(_expand_path(candidate))
     return _blobs(paths, root=input_root, source=source)
 
 
@@ -835,14 +893,31 @@ def _expand_path(path: Path) -> list[Path]:
 
 def _blobs(paths: list[Path], *, root: Path, source: str) -> list[VerificationBlob]:
     out: list[VerificationBlob] = []
-    for path in sorted({candidate.resolve() for candidate in paths if candidate.is_file()}):
+    snapshot = active_static_input_snapshot()
+    candidates: set[Path] = set()
+    for candidate in paths:
+        lexical = Path(
+            os.path.abspath(os.path.normpath(os.fspath(candidate)))
+        )
+        if snapshot is not None and snapshot.contains(lexical):
+            if snapshot.has(lexical):
+                candidates.add(lexical)
+        elif candidate.is_file():
+            candidates.add(candidate.resolve())
+    for path in sorted(candidates):
         logical = path.relative_to(root.resolve()).as_posix()
         out.append(build_blob(path=path, logical_path=logical, source=source))
     return sorted(out, key=lambda blob: blob.path)
 
 
 def _optional_blob(path: Path | None, *, root: Path) -> VerificationBlob | None:
-    if path is None or not path.is_file():
+    if path is None:
+        return None
+    snapshot = active_static_input_snapshot()
+    if snapshot is not None and snapshot.contains(path):
+        if not snapshot.has(path):
+            return None
+    elif not path.is_file():
         return None
     resolved = path.resolve()
     try:
@@ -859,15 +934,21 @@ def _existing_changed_blobs(paths: list[str], *, root: Path, source: str) -> lis
 
 def _worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    snapshot = active_static_input_snapshot()
     for relative in sorted(set(paths)):
         candidate = (root / relative).resolve()
         if root.resolve() not in candidate.parents:
             raise ValueError(f"worktree path escapes repository: {relative}")
+        present = (
+            snapshot.has(candidate)
+            if snapshot is not None and snapshot.contains(candidate)
+            else candidate.is_file()
+        )
         rows.append(
             {
                 "path": relative,
-                "status": "present" if candidate.is_file() else "deleted",
-                "sha256": sha256_file(candidate) if candidate.is_file() else None,
+                "status": "present" if present else "deleted",
+                "sha256": sha256_file(candidate) if present else None,
             }
         )
     return rows

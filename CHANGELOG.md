@@ -13,11 +13,13 @@
   missed a valid manifest with quoted keys — so neither a *moved* manifest nor
   a base that quietly keeps one can pass itself off as a first adoption) and says so: same check id, same `medium` severity, same
   `human_review_required` state, new evidence kind `manifest_introduced`, and a
-  `fix_task` whose leading instruction is "review the generated shipgate.yaml
-  and merge the adoption through a human-reviewed PR". `check` gets the same
-  correction locally, keyed on the diff carrying exactly one manifest record
-  and that record being a plain addition. Adoption remains a human decision —
-  only the claim about what happened changed.
+  `fix_task` whose leading instruction names the exact configured manifest.
+  Only when adoption is the sole gating concern does that instruction say to
+  merge the adoption through a human-reviewed PR; blockers, insufficient
+  evidence, and additional review items lead with their own stop condition.
+  `check` gets the same correction locally, keyed on the diff carrying exactly
+  one manifest record and that record being a plain addition. Adoption remains
+  a human decision — only the claim about what happened changed.
 - **The manifest a run actually loaded is a trust root.** The trust-root table
   only knew `**/shipgate.yaml`, so a repository run with `--config new-gate.yml`
   had no manifest trust root at all: the file defining its gate could be
@@ -84,13 +86,21 @@
   and the manifest, with the config rendered the way `verify` resolves it —
   relative to the repository root — so a nested manifest is no longer verified
   against the root gate.
+- **Detached diffs never authorize checkout-dependent verification.** A diff
+  supplied by file, stdin, or the read-only MCP adapter can be evaluated for
+  diagnostics, but it is not proof of the bytes a later `verify` command would
+  read. When such a result owes verification, control now stops with no
+  allowed command and the summary says to rerun against the intended worktree
+  or a complete ref range. MCP preflight also rejects a `plan` mixed with
+  direct request fields instead of silently discarding one input source.
 - **A failed baseline is never recovered by overwriting it.** A malformed,
   unknown-schema, or integrity-failed host-grants baseline recommended
   `--save-baseline` against the same path, which replaced the failed artifact
   with the *current* grants — acknowledging them unreviewed and destroying the
-  evidence a human needed. Those now route to review; only a genuinely absent
-  baseline gets a record command, and it carries the `--scope` it was asked
-  for.
+  evidence a human needed. Those now route to review. A genuinely absent
+  baseline also routes to a human because creating the first baseline
+  acknowledges the current grants; a failed read-only drift request never
+  authorizes that state-changing decision.
 - **Host-audit filesystem failures follow the catalog.** A `--baseline-file`
   naming a directory raised `IsADirectoryError` through typer as a traceback
   and exit 1. Filesystem failures on both `--baseline-file` and `--out` are now
@@ -98,15 +108,37 @@
   briefly reported as `config_error`/2, which sends an agent back to re-read
   flags that were fine. The baseline *reader* needed the same treatment through
   its `__cause__`, since the loader converts every read `OSError` into
-  `ValueError`; a genuinely missing baseline keeps its documented
-  `config_error`/2 "record one first" contract.
+  `ValueError`; a genuinely missing baseline remains `config_error`/2 but now
+  carries a review-only route for the first acknowledgement.
 - **The audit id distinguishes the actor.** Detecting the calling agent changed
   the label in the result but not the digest — the central one omitted the
   actor and the legacy one hardcoded `codex` — so identical evaluations by
   Claude Code, Cursor, and Codex shared an `audit_id`, which is exactly the
-  attribution problem actor detection exists to solve. A codex run's id is
-  unchanged — the actor is folded in only for a non-default one, so every id
-  issued before detection existed (all of them codex runs) keeps its value.
+  attribution problem actor detection exists to solve. Legacy replayable
+  provided-diff Codex ids keep their established shape. Non-default actors add
+  actor identity; worktree, ref-range, and detached evaluations also bind
+  input/control replayability, so those ids intentionally rotate. Semantic
+  control state is hashed without checkout-specific command paths.
+- **Static control inputs now fail closed on identity and resource ambiguity.**
+  Local check, preflight, host audit, installed hooks, and verifier Git
+  collection bind exact non-symlink, singly-linked regular files; manifest,
+  policy, baseline, trust-root, diff, and Git inventories have byte or entry
+  ceilings. Executable filters, repository diff drivers, hidden index flags,
+  source-like binary diffs, malformed/coherence-breaking diff records, and
+  filesystem-portability collisions stop instead of silently dropping source
+  text. Prior verifier output is excluded from a worktree request so an
+  identical rerun does not hash its own artifacts.
+- **Portable host instructions are protected consistently.** Boundary
+  matching is case-insensitive and hierarchical for `AGENTS.md`,
+  `AGENTS.override.md`, and `CLAUDE.md`; a case variant or nested copy cannot
+  acquire authority only after checkout on another host. Symlink directories
+  that could conceal a leading-`**/` trust root make host inventory and
+  preflight incomplete and route to human review.
+- **Mechanical repair authorization is subject-bound.** A coding-agent repair
+  route now requires an applicable high-confidence non-manual patch against a
+  worktree subject. A ref-bound verifier cannot authorize a patch command that
+  would edit the checkout and then rerun the unchanged commit; it routes that
+  repair to a human instead.
 - **Adoption wording stands down when something was genuinely weakened.**
   Introducing the manifest while editing an existing policy file produced a
   `base_snapshot_unavailable` finding under a headline saying there was no
@@ -172,8 +204,10 @@
   fail-closed: `block` actions, `critical` risk, incomplete or unparseable
   input, gate-weakening rules, experimental surfaces, and every
   gate-governing trust-root class (`manifest`, `policy`, `ci_gate`,
-  `shipgate_state`) keep the human stop, preserving the composite-diff
-  guarantee from the agent-authored proposal work. The deprecated
+  `shipgate_state`) keep the human stop. Root/case-variant
+  `AGENTS.md`/`AGENTS.override.md`/`CLAUDE.md` instruction identities do too,
+  preserving the composite-diff guarantee from the agent-authored proposal
+  work. The deprecated
   `codex-boundary-json` format grades identically; its frozen v2 schema
   does not carry the new field.
 - **Stop hook follows `control.state` (`0.16.0b7`).** The installed Claude

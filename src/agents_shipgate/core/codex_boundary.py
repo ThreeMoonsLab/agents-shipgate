@@ -13,6 +13,12 @@ import yaml
 
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_controls import (
+    detect_command_for as _shared_detect_command_for,
+)
+from agents_shipgate.core.agent_controls import (
+    preview_command_for as _shared_preview_command_for,
+)
+from agents_shipgate.core.agent_controls import (
     verify_command_for as _shared_verify_command_for,
 )
 
@@ -48,7 +54,10 @@ from agents_shipgate.core.boundary_registry import (
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
-from agents_shipgate.core.trust_roots import trust_root_class_for
+from agents_shipgate.core.trust_roots import (
+    read_absolute_identity_bound_text,
+    trust_root_class_for,
+)
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -137,12 +146,13 @@ _PARSEABLE_EVIDENCE_KINDS: frozenset[str] = frozenset({"unknown_host_config_key"
 # A change here decides what the verifier is allowed to say, so it stays a
 # human stop regardless of how a catch-all rule scored its risk — the graded
 # band exists for incidental agent-surface edits, never for the gate's own
-# governing inputs.  Keeping these out of the band is what preserves the
+# governing inputs. Keeping these out of the band is what preserves the
 # composite-diff guarantee: a safe manifest append bundled with an unsafe
 # manifest edit still routes to a human.
 BAND_EXCLUDED_TRUST_ROOT_CLASSES: frozenset[str] = frozenset(
     {"manifest", "policy", "ci_gate", "shipgate_state"}
 )
+_GATE_INSTRUCTION_BASENAMES = frozenset({"agents.md", "claude.md"})
 
 _SHIPGATE_TERMS = (
     "agents-shipgate",
@@ -441,9 +451,15 @@ def evaluate_codex_boundary_result(
     policy_override: CodexBoundaryPolicy | None = None,
     policy_diagnostics: list[AgentResultDiagnostic] | None = None,
     diff_files_override: list[DiffFile] | None = None,
+    changed_files_override: list[str] | None = None,
     resolved_text_cache: dict[str, ResolvedFileText] | None = None,
     static_read_cache: Any | None = None,
     verify_command: str | None = None,
+    detect_command: str | None = None,
+    preview_command: str | None = None,
+    verification_replayable: bool = False,
+    discovery_replayable: bool = True,
+    manifest_label: str = "shipgate.yaml",
 ) -> AgentResultV2:
     """Return the local Codex boundary-result projection for a unified diff.
 
@@ -469,13 +485,25 @@ def evaluate_codex_boundary_result(
     # agents_shipgate.ci.agent_result.build_agent_result; both produce
     # boundary-result routing fields for different substrates.
     resolved_verify_command = verify_command or _VERIFY_COMMAND
+    resolved_detect_command = detect_command or _DETECT_COMMAND
+    resolved_preview_command = preview_command or _VERIFY_PREVIEW_COMMAND
     workspace = workspace.resolve()
     diff_files = (
         diff_files_override
         if diff_files_override is not None
         else parse_unified_diff(diff_text)
     )
-    changed_files = sorted({item.path for item in diff_files if item.path})
+    changed_files = sorted(
+        {
+            *(changed_files_override or []),
+            *(
+                path
+                for item in diff_files
+                for path in (item.new_path, item.old_path)
+                if path
+            ),
+        }
+    )
     if policy_override is None:
         policy, diagnostics = load_codex_boundary_policy(
             workspace=workspace,
@@ -616,10 +644,22 @@ def evaluate_codex_boundary_result(
         policy=policy,
         finding_fingerprints=finding_fingerprints,
         evaluated_files=evaluated_files,
+        verification_replayable=verification_replayable,
+        discovery_replayable=discovery_replayable,
     )
     if undeclared_gap:
-        first_next_action = _undeclared_next_action(manifest_present=is_adopted_repo)
-        summary = _undeclared_summary(undeclared_surfaces, manifest_present=is_adopted_repo)
+        first_next_action = _undeclared_next_action(
+            manifest_present=is_adopted_repo,
+            detect_command=resolved_detect_command,
+            preview_command=resolved_preview_command,
+            manifest_label=manifest_label,
+        )
+        summary = _undeclared_summary(
+            undeclared_surfaces,
+            manifest_present=is_adopted_repo,
+            manifest_label=manifest_label,
+            discovery_replayable=discovery_replayable,
+        )
         diagnostics = [*diagnostics, _undeclared_diagnostic(undeclared_surfaces)]
         trace = [
             *_trace_for(policy, decision, violations),
@@ -627,15 +667,15 @@ def evaluate_codex_boundary_result(
         ]
         suggested_fixes = (
             [
-                _DETECT_COMMAND,
-                "Add the surface to shipgate.yaml tool_sources",
+                *([resolved_detect_command] if discovery_replayable else []),
+                f"Add the surface to {manifest_label} tool_sources",
                 resolved_verify_command,
             ]
             if is_adopted_repo
-            else [_VERIFY_PREVIEW_COMMAND, resolved_verify_command]
+            else [resolved_preview_command, resolved_verify_command]
         )
     elif coverage_gap:
-        first_next_action = _coverage_next_action()
+        first_next_action = _coverage_next_action(resolved_verify_command)
         summary = _coverage_summary(coverage_surfaces)
         diagnostics = [*diagnostics, _coverage_diagnostic(coverage_surfaces)]
         trace = [*_trace_for(policy, decision, violations), _coverage_trace(coverage_surfaces)]
@@ -661,7 +701,20 @@ def evaluate_codex_boundary_result(
         coverage_gap=coverage_gap,
         trigger_verify_required=trigger_verify_required,
         violations=violations,
+        detect_command=resolved_detect_command,
+        verification_replayable=verification_replayable,
+        discovery_replayable=discovery_replayable,
     )
+    # A detached caller-provided diff can describe a verification obligation
+    # without binding it to bytes that ``verify`` can reconstruct. In that
+    # case the operational control correctly stops, so the top-level prose
+    # must not keep advertising the now-forbidden verify command.
+    if (
+        (not verification_replayable or not discovery_replayable)
+        and control.state == "human_review_required"
+    ):
+        summary = control.reason
+        suggested_fixes = [control.reason]
     return AgentResultV2(
         agent=agent,  # type: ignore[arg-type]
         subject=AgentResultSubject(agent=agent),
@@ -749,7 +802,14 @@ def _governs_the_gate(item: AgentResultViolatedRule) -> bool:
         return True
     if not item.path:
         return False
-    return trust_root_class_for(item.path) in BAND_EXCLUDED_TRUST_ROOT_CLASSES
+    classified = trust_root_class_for(item.path)
+    if classified in BAND_EXCLUDED_TRUST_ROOT_CLASSES:
+        return True
+    return (
+        classified == "agent_instructions"
+        and item.path.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        in _GATE_INSTRUCTION_BASENAMES
+    )
 
 
 def _pending_review_for(
@@ -789,22 +849,92 @@ def _control_for_result(
     trigger_verify_required: bool,
     violations: Sequence[AgentResultViolatedRule] = (),
     verify_command: str | None = None,
+    detect_command: str | None = None,
+    verification_replayable: bool = True,
+    discovery_replayable: bool = True,
 ):
     """Translate boundary facts into the one shared operational projector."""
 
     # Resolved here rather than as a default: the constant is defined further
     # down the module.
     verify_command = verify_command or _VERIFY_COMMAND
+    detect_command = detect_command or _DETECT_COMMAND
+
+    if (
+        undeclared_gap
+        and first_next_action.command == detect_command
+        and not discovery_replayable
+    ):
+        why = (
+            "The undeclared surface was evaluated from a ref range, but detect "
+            "can inspect only the checked-out worktree. A human must select the "
+            "matching checkout before discovery can continue."
+        )
+        return derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(kind="review", why=why),
+            verify_required=True,
+            human_review_required=True,
+            human_review_why=why,
+            stop_reason=why,
+        )
+
+    graded_review = (
+        decision == "require_review"
+        and not repair.safe_to_attempt
+        and not undeclared_gap
+        and violations_within_agent_actionable_band(violations)
+    )
+    command_obligation = verify_required or repair.safe_to_attempt or graded_review
+    if not verification_replayable and command_obligation:
+        why = (
+            "The supplied diff is not bound to a checkout state that verify can "
+            "reconstruct. Re-run check against the intended worktree or with both "
+            "--base and --head before following a verification command."
+        )
+        return derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(kind="review", why=why),
+            verify_required=True,
+            human_review_required=True,
+            human_review_why=why,
+            stop_reason=why,
+        )
+
+    if undeclared_gap:
+        command = first_next_action.command
+        if not command:
+            why = (
+                "An undeclared capability surface requires discovery and a "
+                "manifest coverage decision before verification can continue."
+            )
+            return derive_agent_control(
+                reason=why,
+                next_action=HumanControlAction(kind="review", why=why),
+                verify_required=True,
+                human_review_required=True,
+                human_review_why=why,
+                stop_reason=why,
+            )
+        return derive_agent_control(
+            reason=summary,
+            next_action=CodingAgentCommandAction(
+                kind="discover" if command == detect_command else "configure",
+                command=command,
+                why=(
+                    first_next_action.why
+                    or "Discover and declare the uncovered capability surface."
+                ),
+            ),
+            verify_required=True,
+            allowed_next_commands=[command],
+        )
 
     # Graded review: a low/medium ``require_review`` set routes the agent to the
     # PR gate instead of ending the turn.  The obligation is preserved in
     # ``pending_review`` and re-asserted by verify; only the local stop is
     # relaxed.
-    if (
-        decision == "require_review"
-        and not repair.safe_to_attempt
-        and violations_within_agent_actionable_band(violations)
-    ):
+    if graded_review:
         return derive_agent_control(
             reason=summary,
             next_action=CodingAgentCommandAction(
@@ -854,7 +984,7 @@ def _control_for_result(
     if verify_required:
         command = first_next_action.command or verify_command
         if undeclared_gap:
-            kind = "discover" if command == _DETECT_COMMAND else "configure"
+            kind = "discover" if command == detect_command else "configure"
         elif coverage_gap or trigger_verify_required:
             kind = "verify"
             # Advisory warnings may have a non-verification next action; the
@@ -887,6 +1017,7 @@ def load_codex_boundary_policy(
     workspace: Path,
     policy_path: Path | None,
     allow_foreign_rules: bool = False,
+    policy_text: str | None = None,
 ) -> tuple[CodexBoundaryPolicy, list[AgentResultDiagnostic]]:
     diagnostics: list[AgentResultDiagnostic] = []
     discovery: list[str] = []
@@ -913,7 +1044,14 @@ def load_codex_boundary_policy(
     raw_text: str | None = None
     if candidate is not None and candidate.is_file():
         try:
-            raw_text = candidate.read_text(encoding="utf-8")
+            raw_text = (
+                policy_text
+                if policy_text is not None
+                else read_absolute_identity_bound_text(
+                    candidate,
+                    max_bytes=1024 * 1024,
+                )
+            )
             loaded = yaml.safe_load(raw_text) or {}
             if isinstance(loaded, dict):
                 data = loaded
@@ -926,7 +1064,7 @@ def load_codex_boundary_policy(
                         path=display_path,
                     )
                 )
-        except (OSError, yaml.YAMLError) as exc:
+        except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError) as exc:
             diagnostics.append(
                 AgentResultDiagnostic(
                     level="error" if explicit else "warning",
@@ -1795,7 +1933,13 @@ _VERIFY_PREVIEW_COMMAND = "agents-shipgate verify --preview --json"
 _DETECT_COMMAND = "shipgate detect --workspace . --json"
 
 
-def verify_command_for(workspace: object | None, config: object | None) -> str:
+def verify_command_for(
+    workspace: object | None,
+    config: object | None,
+    *,
+    base: str | None = None,
+    head: str | None = None,
+) -> str:
     """The verify invocation that evaluates *this* check's target.
 
     The bare default drops both the workspace and the manifest, so a check run
@@ -1806,18 +1950,48 @@ def verify_command_for(workspace: object | None, config: object | None) -> str:
     return _shared_verify_command_for(
         Path(str(workspace)) if workspace is not None else None,
         Path(str(config)) if config is not None else None,
+        base=base,
+        head=head,
     )
 
 
-def _undeclared_next_action(*, manifest_present: bool) -> AgentResultNextAction:
+def detect_command_for(workspace: object | None) -> str:
+    return _shared_detect_command_for(
+        Path(str(workspace)) if workspace is not None else None
+    )
+
+
+def preview_command_for(
+    workspace: object | None,
+    config: object | None,
+    *,
+    base: str | None = None,
+    head: str | None = None,
+) -> str:
+    return _shared_preview_command_for(
+        Path(str(workspace)) if workspace is not None else None,
+        Path(str(config)) if config is not None else None,
+        base=base,
+        head=head,
+    )
+
+
+def _undeclared_next_action(
+    *,
+    manifest_present: bool,
+    detect_command: str = _DETECT_COMMAND,
+    preview_command: str = _VERIFY_PREVIEW_COMMAND,
+    manifest_label: str = "shipgate.yaml",
+) -> AgentResultNextAction:
     if manifest_present:
         return AgentResultNextAction(
             actor="coding_agent",
             kind="warn",
-            command=_DETECT_COMMAND,
+            command=detect_command,
             why=(
-                "This diff changes a tool/capability surface that shipgate.yaml does "
-                "not declare, so verify cannot gate it yet. Run detect for "
+                "This diff changes a tool/capability surface that the configured "
+                f"manifest {manifest_label!r} does not declare, so verify cannot "
+                "gate it yet. Run detect for "
                 "suggested_sources, add the missing surface to tool_sources, then "
                 "run verify before completing."
             ),
@@ -1825,29 +1999,43 @@ def _undeclared_next_action(*, manifest_present: bool) -> AgentResultNextAction:
     return AgentResultNextAction(
         actor="coding_agent",
         kind="warn",
-        command=_VERIFY_PREVIEW_COMMAND,
+        command=preview_command,
         why=(
-            "This diff changes a tool/capability surface that shipgate.yaml does not "
-            "declare because no manifest is configured yet. Run verify preview so it "
-            "can route setup when Shipgate is relevant, then run verify before "
-            "completing."
+            "This diff changes a tool/capability surface, but no manifest is "
+            f"configured at {manifest_label!r}. Run verify preview so it can route "
+            "setup when Shipgate is relevant, then run verify before completing."
         ),
     )
 
 
-def _undeclared_summary(surfaces: list[str], *, manifest_present: bool) -> str:
+def _undeclared_summary(
+    surfaces: list[str],
+    *,
+    manifest_present: bool,
+    manifest_label: str = "shipgate.yaml",
+    discovery_replayable: bool = True,
+) -> str:
     if manifest_present:
+        if not discovery_replayable:
+            return (
+                "No Codex boundary rule fired, but the diff changes a "
+                f"tool/capability surface ({', '.join(surfaces[:5])}) that the "
+                f"configured manifest {manifest_label!r} does not declare. The "
+                "evaluated ref is not the checked-out worktree, so local detect "
+                "cannot inspect the same subject; a human must select the matching "
+                "checkout before discovery continues."
+            )
         return (
             "No Codex boundary rule fired, but the diff changes a tool/capability "
-            f"surface ({', '.join(surfaces[:5])}) that shipgate.yaml does not "
-            "declare, so verify cannot gate it yet. Run detect for suggested_sources, "
-            "add the missing surface to tool_sources, then run verify before reporting "
-            "completion."
+            f"surface ({', '.join(surfaces[:5])}) that the configured manifest "
+            f"{manifest_label!r} does not declare, so verify cannot gate it yet. "
+            "Run detect for suggested_sources, add the missing surface to "
+            "tool_sources, then run verify before reporting completion."
         )
     return (
-        "No Codex boundary rule fired, but the diff changes a tool/capability surface "
-        f"({', '.join(surfaces[:5])}) that shipgate.yaml does not declare, so verify "
-        "cannot gate it yet. Run verify preview to route setup when Shipgate is "
+        "No Codex boundary rule fired, but the diff changes a tool/capability "
+        f"surface ({', '.join(surfaces[:5])}) and no manifest is configured at "
+        f"{manifest_label!r}. Run verify preview to route setup when Shipgate is "
         "relevant, then run verify before reporting completion."
     )
 
@@ -1874,11 +2062,13 @@ def _undeclared_trace(surfaces: list[str]) -> AgentResultTraceEvent:
     )
 
 
-def _coverage_next_action() -> AgentResultNextAction:
+def _coverage_next_action(
+    verify_command: str = _VERIFY_COMMAND,
+) -> AgentResultNextAction:
     return AgentResultNextAction(
         actor="coding_agent",
         kind="warn",
-        command=_VERIFY_COMMAND,
+        command=verify_command,
         why=(
             "shipgate check is boundary-only and did not evaluate the changed tool "
             "surface; run verify for the capability merge gate before completing."
@@ -2102,9 +2292,20 @@ def _audit_id(
     policy: CodexBoundaryPolicy,
     finding_fingerprints: list[str],
     evaluated_files: list[dict[str, Any]],
+    verification_replayable: bool,
+    discovery_replayable: bool,
 ) -> str:
     payload = {
         "schema_version": CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+        # Preserve the established id shape for a checkout-bound evaluation.
+        # Detached text can produce a different operational control from the
+        # same findings, so it is a distinct audit row.
+        **(
+            {"verification_replayable": False}
+            if not verification_replayable
+            else {}
+        ),
+        **({"discovery_replayable": False} if not discovery_replayable else {}),
         # The evaluating agent is part of the audited identity: the result
         # records it, and two runs that differ only by actor are two different
         # audit rows. Hardcoding "codex" made them collide, which is precisely
@@ -2346,7 +2547,10 @@ def _run_script_invokes_shipgate(value: str) -> bool:
 
 
 def _is_codex_config_path(path: str) -> bool:
-    return _has_boundary_adapter(path, "codex") and Path(path).name == "config.toml"
+    return (
+        _has_boundary_adapter(path, "codex")
+        and Path(path).name.casefold() == "config.toml"
+    )
 
 
 def is_codex_config_path(path: str) -> bool:
@@ -2354,23 +2558,39 @@ def is_codex_config_path(path: str) -> bool:
 
 
 def is_mcp_json_path(path: str) -> bool:
-    return Path(path).name == ".mcp.json" and bool(boundary_adapters_for_path(path))
+    return (
+        Path(path).name.casefold() == ".mcp.json"
+        and bool(boundary_adapters_for_path(path))
+    )
 
 
 def resolve_changed_file_text(
     workspace: Path,
     diff_file: DiffFile,
     diagnostics: list[AgentResultDiagnostic],
+    *,
+    preserve_rename_source: bool = False,
 ) -> ResolvedFileText:
-    return _resolve_changed_file_text(workspace, diff_file, diagnostics)
+    return _resolve_changed_file_text(
+        workspace,
+        diff_file,
+        diagnostics,
+        preserve_rename_source=preserve_rename_source,
+    )
 
 
 def _is_codex_hooks_path(path: str) -> bool:
-    return _has_boundary_adapter(path, "codex") and Path(path).name == "hooks.json"
+    return (
+        _has_boundary_adapter(path, "codex")
+        and Path(path).name.casefold() == "hooks.json"
+    )
 
 
 def _is_codex_requirements_path(path: str) -> bool:
-    return _has_boundary_adapter(path, "codex") and Path(path).name == "requirements.toml"
+    return (
+        _has_boundary_adapter(path, "codex")
+        and Path(path).name.casefold() == "requirements.toml"
+    )
 
 
 def _has_boundary_adapter(path: str, adapter_id: str) -> bool:
@@ -2380,25 +2600,31 @@ def _has_boundary_adapter(path: str, adapter_id: str) -> bool:
 def _is_agent_instructions_path(path: str) -> bool:
     if not boundary_adapters_for_path(path):
         return False
-    name = Path(path).name
-    return name in {"AGENTS.md", "AGENTS.override.md", "CLAUDE.md"} or path.startswith(
+    folded = path.casefold()
+    name = Path(path).name.casefold()
+    return name in {"agents.md", "agents.override.md", "claude.md"} or folded.startswith(
         ".cursor/rules/"
     )
 
 
 def _is_shipgate_workflow_path(path: str) -> bool:
-    return _has_boundary_adapter(path, "shared") and Path(path).name in {
+    return _has_boundary_adapter(path, "shared") and Path(path).name.casefold() in {
         "agents-shipgate.yml",
         "agents-shipgate.yaml",
     }
 
 
 def _is_codex_boundary_policy_path(path: str) -> bool:
-    return _has_boundary_adapter(path, "shared") and path.startswith("policies/")
+    return _has_boundary_adapter(path, "shared") and path.casefold().startswith(
+        "policies/"
+    )
 
 
 def _is_codex_skill_path(path: str) -> bool:
-    return Path(path).name == "SKILL.md" and bool(boundary_adapters_for_path(path))
+    return (
+        Path(path).name.casefold() == "skill.md"
+        and bool(boundary_adapters_for_path(path))
+    )
 
 
 def is_boundary_path(path: str) -> bool:

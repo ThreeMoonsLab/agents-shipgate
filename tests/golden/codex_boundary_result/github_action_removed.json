@@ -10,7 +10,7 @@
   },
   "decision": "block",
   "risk_level": "critical",
-  "audit_id": "agent_boundary_488574aef143b8ccc5744839",
+  "audit_id": "agent_boundary_4234ea0a6d9096186b3feae9",
   "policy_version": "1",
   "summary": "1 coding-agent boundary change(s) block local continuation.",
   "changed_files": [

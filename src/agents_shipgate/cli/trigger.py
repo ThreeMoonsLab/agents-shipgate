@@ -25,6 +25,13 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.core.bounded_io import (
+    MAX_EXPLICIT_DIFF_BYTES,
+    MAX_EXPLICIT_JSON_BYTES,
+    MAX_EXPLICIT_PATH_LIST_BYTES,
+    read_bounded_utf8_file,
+)
+from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.triggers import (
     _git_diff_context,
     evaluate,
@@ -127,7 +134,7 @@ def trigger(
             paths, diff_text = _git_diff_context(
                 revspec, cwd=workspace.resolve()
             )
-        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        except (FileNotFoundError, subprocess.CalledProcessError, ConfigError) as exc:
             typer.echo(
                 f"--base/--head git diff failed: {exc}. Run inside a git "
                 "checkout, or pass --changed-files / --diff instead.",
@@ -138,9 +145,15 @@ def trigger(
         try:
             paths = _read_lines(changed_files)
             diff_text = (
-                diff.read_text(encoding="utf-8") if diff is not None else ""
+                read_bounded_utf8_file(
+                    diff,
+                    max_bytes=MAX_EXPLICIT_DIFF_BYTES,
+                    label="Trigger diff input",
+                )
+                if diff is not None
+                else ""
             )
-        except (OSError, UnicodeDecodeError) as exc:
+        except (OSError, UnicodeDecodeError, InputParseError) as exc:
             typer.echo(
                 f"Could not read trigger input file: {exc}. Check the "
                 "--changed-files / --diff path.",
@@ -156,8 +169,19 @@ def trigger(
     detect_result: dict | None = None
     if detect_json is not None:
         try:
-            detect_result = json.loads(detect_json.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            detect_result = json.loads(
+                read_bounded_utf8_file(
+                    detect_json,
+                    max_bytes=MAX_EXPLICIT_JSON_BYTES,
+                    label="Detect JSON input",
+                )
+            )
+        except (
+            OSError,
+            UnicodeDecodeError,
+            InputParseError,
+            json.JSONDecodeError,
+        ) as exc:
             typer.echo(
                 f"--detect-json could not be read: {exc}. Check the path "
                 "and that it holds `agents-shipgate detect --json` output.",
@@ -202,6 +226,10 @@ def _read_lines(path: Path | None) -> list[str]:
         return []
     return [
         line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in read_bounded_utf8_file(
+            path,
+            max_bytes=MAX_EXPLICIT_PATH_LIST_BYTES,
+            label="Changed-files input",
+        ).splitlines()
         if line.strip()
     ]

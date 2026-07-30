@@ -4,7 +4,10 @@ import fnmatch
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
+
+from agents_shipgate.core.errors import DiscoveryError
 
 OPENAPI_PATTERNS = (
     "*openapi*.yaml",
@@ -470,11 +473,36 @@ def _candidate_files(workspace: Path) -> list[Path]:
 
 
 def _git_candidate_files(workspace: Path) -> list[Path] | None:
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    env.update(
+        {
+            "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_PAGER": "cat",
+            "GIT_PROTOCOL_FROM_USER": "0",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    )
     try:
         root_result = subprocess.run(
-            ["git", "-C", str(workspace), "rev-parse", "--show-toplevel"],
+            [
+                "git",
+                "--no-replace-objects",
+                "-C",
+                str(workspace),
+                "rev-parse",
+                "--show-toplevel",
+            ],
             check=False,
             capture_output=True,
+            env=env,
             text=True,
             timeout=2,
         )
@@ -486,12 +514,15 @@ def _git_candidate_files(workspace: Path) -> list[Path] | None:
     if not git_root:
         return None
 
-    try:
-        files_result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(workspace),
+    files_output = _run_git_inventory_bounded(
+        workspace,
+        [
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "submodule.recurse=false",
+                "-c",
+                "core.quotePath=false",
                 "ls-files",
                 "-co",
                 "--exclude-standard",
@@ -499,18 +530,18 @@ def _git_candidate_files(workspace: Path) -> list[Path] | None:
                 "-z",
                 "--",
                 ".",
-            ],
-            check=False,
-            capture_output=True,
-            timeout=5,
+        ],
+        env=env,
+        max_output_bytes=16 * 1024 * 1024,
+    )
+    if files_output is None:
+        raise DiscoveryError(
+            "Git candidate-file inventory exceeded static output bounds or "
+            "could not be collected safely."
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if files_result.returncode != 0:
-        return None
 
     candidates: list[Path] = []
-    for raw_rel in files_result.stdout.split(b"\0"):
+    for raw_rel in files_output.split(b"\0"):
         if not raw_rel:
             continue
         try:
@@ -530,6 +561,61 @@ def _git_candidate_files(workspace: Path) -> list[Path] | None:
         if is_file and not _skip(path, workspace):
             candidates.append(path)
     return sorted(candidates)
+
+
+def _run_git_inventory_bounded(
+    workspace: Path,
+    args: list[str],
+    *,
+    env: dict[str, str],
+    max_output_bytes: int,
+) -> bytes | None:
+    """Collect Git discovery paths without buffering unbounded output."""
+
+    try:
+        process = subprocess.Popen(
+            ["git", "--no-replace-objects", "-C", str(workspace), *args],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return None
+    output = bytearray()
+    exceeded = False
+    failed = False
+
+    def drain() -> None:
+        nonlocal exceeded, failed
+        assert process.stdout is not None
+        try:
+            while chunk := process.stdout.read(64 * 1024):
+                remaining = max_output_bytes + 1 - len(output)
+                if remaining > 0:
+                    output.extend(chunk[:remaining])
+                if len(output) > max_output_bytes:
+                    exceeded = True
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                    return
+        except OSError:
+            failed = True
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    try:
+        returncode = process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        reader.join()
+        return None
+    reader.join()
+    if returncode != 0 or exceeded or failed:
+        return None
+    return bytes(output)
 
 
 def _walk_candidate_files(workspace: Path) -> list[Path]:

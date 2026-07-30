@@ -11,6 +11,7 @@ from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.inputs.common import (
     PositionIndex,
     load_structured_file_with_positions,
+    load_structured_text_with_positions,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
@@ -33,6 +34,23 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
 def load_manifest(path: str | Path) -> AgentsShipgateManifest:
     config_path = Path(path)
     data = load_yaml_file(config_path)
+    return _validate_manifest_data(data, config_path)
+
+
+def load_manifest_text(
+    text: str,
+    *,
+    source: str | Path = "shipgate.yaml",
+) -> AgentsShipgateManifest:
+    """Parse manifest bytes that were already read through a trusted snapshot."""
+
+    config_path = Path(source)
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Invalid YAML in {config_path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(f"Config file must contain a YAML object: {config_path}")
     return _validate_manifest_data(data, config_path)
 
 
@@ -60,6 +78,25 @@ def load_manifest_with_positions(
     config_path = Path(path)
     try:
         _, positions = load_structured_file_with_positions(config_path)
+    except InputParseError as exc:
+        raise ConfigError(f"Invalid YAML in {config_path}: {exc}") from exc
+    return manifest, positions
+
+
+def load_manifest_text_with_positions(
+    text: str,
+    *,
+    source: str | Path = "shipgate.yaml",
+) -> tuple[AgentsShipgateManifest, PositionIndex]:
+    """Load a manifest and positions from one already-captured byte snapshot."""
+
+    manifest = load_manifest_text(text, source=source)
+    config_path = Path(source)
+    try:
+        _, positions = load_structured_text_with_positions(
+            text,
+            source=config_path,
+        )
     except InputParseError as exc:
         raise ConfigError(f"Invalid YAML in {config_path}: {exc}") from exc
     return manifest, positions

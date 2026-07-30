@@ -13,7 +13,6 @@ variables, so each test sets exactly the environment it asserts on.
 from __future__ import annotations
 
 import json
-import shlex
 import subprocess
 from pathlib import Path
 
@@ -373,6 +372,22 @@ _DOCUMENTED_ERROR_IDS = {
 }
 
 
+def test_config_error_catalog_covers_non_manifest_request_configuration() -> None:
+    catalog = json.loads(
+        (Path(__file__).resolve().parent.parent / "docs" / "errors.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    entry = next(item for item in catalog["errors"] if item["id"] == "config_error")
+
+    assert "incompatible CLI flags" in entry["description"]
+    assert "preflight" in entry["typical_cause"]
+    assert "host-grants baseline" in entry["typical_cause"]
+    assert "do not assume every config_error is a manifest problem" in entry[
+        "recovery_hint"
+    ]
+
+
 def _assert_documented_envelope(payload: dict) -> None:
     """`docs/errors.json` is the contract, not a description of what we emit.
 
@@ -399,6 +414,32 @@ def _agent_mode_error(result) -> dict:
     lines = [line for line in result.output.splitlines() if line.startswith("{")]
     assert lines, result.output
     return json.loads(lines[-1])
+
+
+@pytest.mark.parametrize("command", ["detect", "init"])
+def test_discovery_inventory_failure_is_a_structured_agent_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    monkeypatch.setattr(
+        "agents_shipgate.cli.discovery.artifacts._run_git_inventory_bounded",
+        lambda *_args, **_kwargs: None,
+    )
+    args = [command, "--workspace", str(tmp_path), "--json"]
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 4
+    assert "Traceback" not in result.output
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    assert payload["error"] == "other_error"
+    assert payload["next_actions"][0]["kind"] == "review"
+    assert "bounded coverage" in payload["message"]
+    assert not (tmp_path / "shipgate.yaml").exists()
 
 
 def test_check_rejects_an_unknown_format_on_the_agent_channel(
@@ -516,14 +557,14 @@ def test_preflight_reports_only_documented_error_kinds(
     _assert_documented_envelope(_agent_mode_error(result))
 
 
-def test_preflight_recovery_reruns_the_same_request(
+def test_preflight_recovery_edits_then_reruns_the_same_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A bare `preflight --json` answers a question nobody asked.
+    """Repair comes first; the later rerun must still preserve the request.
 
-    It discards workspace, config, plan, diff and capability request, so
-    following it after a failed targeted run evaluates the current repository
-    with an empty plan and reports `control.state=complete`.
+    Replaying a malformed manifest cannot repair it. After the edit, a bare
+    `preflight --json` would still answer a question nobody asked because it
+    discards workspace, config, plan, diff and capability request.
     """
 
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
@@ -535,10 +576,207 @@ def test_preflight_recovery_reruns_the_same_request(
     )
 
     assert result.exit_code == 2
-    action = _agent_mode_error(result)["next_actions"][0]
-    assert action["kind"] == "command"
-    assert str(tmp_path) in action["command"]
-    assert "--config shipgate.yaml" in action["command"]
+    payload = _agent_mode_error(result)
+    actions = payload["next_actions"]
+    assert actions[0]["kind"] == "edit"
+    assert actions[0]["path"] == str(tmp_path / "shipgate.yaml")
+    assert payload["next_action"] == f"Edit {tmp_path / 'shipgate.yaml'}"
+    assert actions[1]["kind"] == "command"
+    assert str(tmp_path) in actions[1]["command"]
+    assert "--config shipgate.yaml" in actions[1]["command"]
+
+
+def test_preflight_config_identity_error_is_review_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A symlinked trust root is not an editable or replayable repair target."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    target = tmp_path / "actual-gate.yml"
+    target.write_text(
+        'version: "0.1"\n'
+        "project:\n  name: demo\n"
+        "agent:\n  name: demo\n  declared_purpose:\n    - Test.\n"
+        "environment:\n  target: development\n"
+        "tool_sources: []\n",
+        encoding="utf-8",
+    )
+    alias = tmp_path / "gate.yml"
+    alias.symlink_to(target.name)
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(tmp_path),
+            "--config",
+            alias.name,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    assert payload["error"] == "config_error"
+    assert len(payload["next_actions"]) == 1
+    action = payload["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert action["path"] is None
+    assert "symlink" in payload["message"].lower()
+
+
+def test_preflight_external_request_file_is_not_an_edit_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Passing a file for inspection does not grant authority to rewrite it."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    external_plan = tmp_path / "outside-plan.json"
+    external_plan.write_text("{", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(workspace),
+            "--plan",
+            str(external_plan),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    assert len(payload["next_actions"]) == 1
+    action = payload["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert action["path"] is None
+    assert str(external_plan) in payload["message"]
+
+
+@pytest.mark.parametrize(
+    ("flag", "payload_text", "exit_code"),
+    [
+        ("--plan", "[]\n", 3),
+        ("--plan", '{"changed_files": "not-a-list"}\n', 2),
+        ("--capability-request", "[]\n", 3),
+        ("--capability-request", "{}\n", 2),
+        ("--base-preflight", "[]\n", 3),
+        ("--base-preflight", "{}\n", 2),
+    ],
+)
+def test_preflight_external_json_errors_name_source_and_stay_review_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+    payload_text: str,
+    exit_code: int,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    external = tmp_path / f"outside-{flag.removeprefix('--')}.json"
+    external.write_text(payload_text, encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(workspace),
+            flag,
+            str(external),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == exit_code, result.output
+    envelope = _agent_mode_error(result)
+    _assert_documented_envelope(envelope)
+    assert str(external) in envelope["message"]
+    assert len(envelope["next_actions"]) == 1
+    action = envelope["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert action["path"] is None
+
+
+def test_preflight_hardlinked_request_is_not_an_edit_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    external = tmp_path / "external-request.json"
+    external.write_text("{", encoding="utf-8")
+    request = workspace / "request.json"
+    request.hardlink_to(external)
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(workspace),
+            "--capability-request",
+            str(request),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.output
+    envelope = _agent_mode_error(result)
+    _assert_documented_envelope(envelope)
+    assert request.stat().st_nlink == 2
+    assert len(envelope["next_actions"]) == 1
+    action = envelope["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert action["path"] is None
+
+
+def test_preflight_malformed_request_edits_then_replays_exact_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    request = tmp_path / "capability-request.json"
+    request.write_text("{", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--workspace",
+            str(tmp_path),
+            "--capability-request",
+            str(request),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3
+    payload = _agent_mode_error(result)
+    _assert_documented_envelope(payload)
+    actions = payload["next_actions"]
+    assert actions[0]["kind"] == "edit"
+    assert actions[0]["path"] == str(request)
+    assert actions[1]["kind"] == "command"
+    assert actions[1]["command"] == (
+        "agents-shipgate preflight "
+        f"--workspace {tmp_path} "
+        "--config shipgate.yaml "
+        f"--capability-request {request} "
+        "--json"
+    )
 
 
 def test_preflight_offers_no_command_it_cannot_reproduce(
@@ -560,6 +798,7 @@ def test_preflight_offers_no_command_it_cannot_reproduce(
     payload = _agent_mode_error(result)
     _assert_documented_envelope(payload)
     assert payload["next_actions"][0]["kind"] == "review"
+    assert len(payload["next_actions"]) == 1
 
 
 def test_audit_baseline_directory_is_an_other_error(
@@ -681,6 +920,70 @@ def test_check_rejects_ambiguous_diff_shapes_without_a_command(
     assert action["command"] is None
 
 
+def test_check_missing_diff_file_requires_review_instead_of_repeating_request(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing change.diff"
+
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--workspace",
+            str(tmp_path),
+            "--diff",
+            str(missing),
+            "--format",
+            "agent-boundary-json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["audit_id"].startswith("agent_boundary_error_")
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["next_action"]["kind"] == "review"
+    assert payload["control"]["allowed_next_commands"] == []
+    assert str(missing) in payload["control"]["next_action"]["why"]
+    assert payload["repair"]["safe_to_attempt"] is False
+    assert "command" not in payload["repair"]
+
+
+def test_check_missing_refs_requests_inputs_without_repeating_failed_command(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("test\n", encoding="utf-8")
+    _commit_all(repo, "initial")
+
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--workspace",
+            str(repo),
+            "--base",
+            "origin/missing",
+            "--head",
+            "HEAD",
+            "--format",
+            "agent-boundary-json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["audit_id"].startswith("agent_boundary_error_")
+    assert payload["control"]["state"] == "agent_action_required"
+    action = payload["control"]["next_action"]
+    assert action["kind"] == "fetch_base"
+    assert action["command"] is None
+    assert action["expects"] == "origin/missing and HEAD"
+    assert payload["control"]["allowed_next_commands"] == []
+    assert payload["repair"]["safe_to_attempt"] is False
+    assert "command" not in payload["repair"]
+
+
 def test_preflight_offers_no_command_for_conflicting_flags(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -706,12 +1009,13 @@ def test_preflight_offers_no_command_for_conflicting_flags(
     payload = _agent_mode_error(result)
     _assert_documented_envelope(payload)
     assert payload["next_actions"][0]["kind"] == "review"
+    assert len(payload["next_actions"]) == 1
 
 
-def test_audit_missing_baseline_recovery_preserves_scope_and_target(
+def test_audit_missing_baseline_requires_human_acknowledgement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A missing baseline is a request problem, not a filesystem failure."""
+    """A drift request never authorizes acceptance of the current grants."""
 
     monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
     baseline = tmp_path / "missing baseline; grants.json"
@@ -734,23 +1038,12 @@ def test_audit_missing_baseline_recovery_preserves_scope_and_target(
     payload = _agent_mode_error(result)
     assert payload["error"] == "config_error"
     action = payload["next_actions"][0]
-    assert action["kind"] == "command"
-    argv = shlex.split(action["command"])
-    assert argv == [
-        "agents-shipgate",
-        "audit",
-        "--host",
-        "--workspace",
-        str(tmp_path),
-        "--scope",
-        "local-static",
-        "--save-baseline",
-        "--baseline-file",
-        str(baseline),
-    ]
-    assert "shipgate audit --host --scope repository --save-baseline" not in (
-        result.output
-    )
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert "Human review is required" in action["why"]
+    assert str(tmp_path) in action["why"]
+    assert "local-static" in action["why"]
+    assert "--save-baseline" not in result.output
     assert payload["message"].endswith(
         f"No baseline was written to {baseline}."
     )

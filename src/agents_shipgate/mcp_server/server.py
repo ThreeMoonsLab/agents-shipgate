@@ -9,13 +9,17 @@ from agents_shipgate.cli.agent_result import agent_result_json_payload, build_ag
 from agents_shipgate.cli.capability import build_capability_lock_from_config
 from agents_shipgate.cli.explain_finding import explain_finding_payload
 from agents_shipgate.core.agent_handoff import build_agent_handoff
+from agents_shipgate.core.bounded_io import (
+    MAX_EXPLICIT_DIFF_BYTES,
+    MAX_EXPLICIT_JSON_BYTES,
+    ensure_bounded_utf8_text,
+)
 from agents_shipgate.core.capability_lock import (
     diff_capability_locks,
     load_capability_lock,
     render_capability_lock_diff_json,
     render_capability_lock_json,
 )
-from agents_shipgate.core.codex_boundary import parse_unified_diff
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.preflight import build_preflight_result
 from agents_shipgate.schemas.preflight import CapabilityRequestV1
@@ -37,6 +41,11 @@ def shipgate_check(
     ``shipgate check --format agent-boundary-json``.
     """
 
+    ensure_bounded_utf8_text(
+        diff_text,
+        max_bytes=MAX_EXPLICIT_DIFF_BYTES,
+        label="diff_text",
+    )
     result = build_agent_boundary_result(
         agent=agent,
         workspace=Path(workspace),
@@ -44,6 +53,9 @@ def shipgate_check(
         config=Path(config),
         policy=Path(policy) if policy else None,
         input_mode="provided_diff",
+        # MCP callers supply detached diff text, not a checkout/ref identity
+        # that a later verify command can reproduce.
+        verification_replayable=False,
     )
     return agent_result_json_payload(result)
 
@@ -60,14 +72,43 @@ def shipgate_preflight(
 ) -> dict[str, Any]:
     """Read-only MCP tool implementation for ``shipgate.preflight``."""
 
-    changed = list(changed_files or [])
-    if diff_text:
-        changed = sorted(
-            {
-                *changed,
-                *(item.path for item in parse_unified_diff(diff_text) if item.path),
-            }
+    if diff_text is not None:
+        ensure_bounded_utf8_text(
+            diff_text,
+            max_bytes=MAX_EXPLICIT_DIFF_BYTES,
+            label="diff_text",
         )
+    if len(changed_files or []) > 100_000:
+        raise ConfigError("changed_files exceeds the 100000-entry static input limit")
+    for label, payload in (
+        ("plan", plan),
+        ("capability_request", capability_request),
+        ("base_preflight", base_preflight),
+    ):
+        if payload is not None:
+            ensure_bounded_utf8_text(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                max_bytes=MAX_EXPLICIT_JSON_BYTES,
+                label=label,
+            )
+    if plan is not None:
+        mixed = [
+            name
+            for name, value in (
+                ("changed_files", changed_files),
+                ("diff_text", diff_text),
+                ("capability_request", capability_request),
+                ("base_preflight", base_preflight),
+            )
+            if value is not None
+        ]
+        if mixed:
+            raise ConfigError(
+                "plan cannot be combined with "
+                + ", ".join(mixed)
+                + "; put those inputs in the plan object or omit plan."
+            )
+
     request = (
         CapabilityRequestV1.model_validate(capability_request)
         if capability_request is not None
@@ -76,7 +117,8 @@ def shipgate_preflight(
     result = build_preflight_result(
         workspace=Path(workspace),
         config=Path(config),
-        changed_files=changed,
+        changed_files=changed_files,
+        diff_text=diff_text,
         capability_request=request,
         plan=plan,
         base_preflight=base_preflight,

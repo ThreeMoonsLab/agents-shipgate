@@ -52,8 +52,8 @@ def changed_files(context: ScanContext) -> list[str]:
     """Normalized, de-duplicated changed-file list from the context.
 
     Returns ``[]`` when no verification context is present. Paths are
-    forward-slash-normalized and stripped so glob matching is stable
-    across platforms.
+    forward-slash-normalized without stripping: leading and trailing
+    whitespace are legal, distinct Git path bytes.
     """
     verification = context.verification
     if verification is None:
@@ -61,7 +61,7 @@ def changed_files(context: ScanContext) -> list[str]:
     seen: list[str] = []
     out: set[str] = set()
     for raw in getattr(verification, "changed_files", []) or []:
-        path = str(raw).replace("\\", "/").strip()
+        path = str(raw).replace("\\", "/")
         if path and path not in out:
             out.add(path)
             seen.append(path)

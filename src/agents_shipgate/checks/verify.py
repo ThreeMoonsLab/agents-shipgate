@@ -32,6 +32,7 @@ from agents_shipgate.core.trust_roots import (  # noqa: F401
     PROTECTED_FILE_EDITS,
     TRUST_ROOT_SURFACES,
     is_configured_manifest,
+    is_context_configured_manifest,
 )
 from agents_shipgate.schemas.common import (
     SourceReference,
@@ -50,7 +51,7 @@ def run(context: ScanContext) -> list[Finding]:
     findings: list[Finding] = []
     seen: set[str] = set()
     for raw in verification.changed_files:
-        path = raw.replace("\\", "/").strip()
+        path = raw.replace("\\", "/")
         if not path or path in seen:
             continue
         seen.add(path)
@@ -66,7 +67,7 @@ def run(context: ScanContext) -> list[Finding]:
 
 def _classify(path: str) -> tuple[str, str] | None:
     for trust_root_class, pattern in TRUST_ROOT_SURFACES:
-        if glob_match(pattern, path):
+        if glob_match(pattern, path) or glob_match(pattern.casefold(), path.casefold()):
             return trust_root_class, pattern
     return None
 
@@ -78,8 +79,7 @@ def _configured_manifest(context: ScanContext, path: str) -> tuple[str, str] | N
     not called ``shipgate.yaml``.
     """
 
-    config = getattr(context, "config_path", None)
-    if not is_configured_manifest(config, path):
+    if not is_context_configured_manifest(context, path):
         return None
     # Deliberately the changed path, not ``config_path``: a committed-head run
     # loads its manifest from a freshly named ``agents-shipgate-verify-head-*``

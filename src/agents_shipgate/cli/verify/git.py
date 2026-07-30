@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,10 +14,83 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.schemas.human_authorization import canonical_https_git_endpoint
 
 _GIT_OBJECT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+_WORKTREE_FILTER_CONFIG_LIMIT = 1024 * 1024
+_WORKTREE_ATTRIBUTE_LIST_LIMIT = 8 * 1024 * 1024
+_DIFF_CONFIG_LIMIT = 1024 * 1024
+_DIFF_METADATA_LIMIT = 8 * 1024 * 1024
+_DIFF_BODY_LIMIT = 32 * 1024 * 1024
+_TEXT_CAPABILITY_SUFFIXES = frozenset(
+    {
+        ".json",
+        ".jsonl",
+        ".md",
+        ".mdc",
+        ".mjs",
+        ".cjs",
+        ".js",
+        ".jsx",
+        ".py",
+        ".toml",
+        ".ts",
+        ".tsx",
+        ".txt",
+        ".xml",
+        ".yaml",
+        ".yml",
+    }
+)
+
+_SAFE_DIFF_CONFIG = [
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.safecrlf=false",
+    "-c",
+    "core.eol=lf",
+    "-c",
+    "core.bigFileThreshold=32m",
+    "-c",
+    "core.fileMode=false",
+    "-c",
+    "core.precomposeUnicode=false",
+    "-c",
+    "submodule.recurse=false",
+    "-c",
+    "core.quotePath=false",
+    "-c",
+    f"core.attributesFile={os.devnull}",
+    "-c",
+    f"diff.orderFile={os.devnull}",
+    "-c",
+    "diff.suppressBlankEmpty=false",
+    "-c",
+    "diff.renameLimit=32767",
+]
+_DETERMINISTIC_DIFF_OPTIONS = [
+    "--no-ext-diff",
+    "--no-textconv",
+    "--ignore-submodules=dirty",
+    "--no-color",
+    "--diff-algorithm=myers",
+    "--no-indent-heuristic",
+    "--unified=3",
+    "--inter-hunk-context=0",
+    "-O",
+    os.devnull,
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--find-renames=50%",
+    "--submodule=short",
+    "--full-index",
+]
 
 
 def ensure_git_workspace(workspace: Path) -> Path:
@@ -56,9 +130,16 @@ class GitPushEndpoint:
 
 
 def commit_sha(workspace: Path, ref: str) -> str | None:
+    _validate_ref_token(ref)
     result = _run_git(
         workspace,
-        ["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            f"{ref}^{{commit}}",
+        ],
         check=False,
     )
     if result.returncode != 0:
@@ -255,28 +336,43 @@ def _short_sha(sha: str) -> str:
 
 
 def ref_exists(workspace: Path, ref: str) -> bool:
-    result = _run_git(
-        workspace,
-        ["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-        check=False,
-    )
-    return result.returncode == 0
+    return commit_sha(workspace, ref) is not None
 
 
 def tree_sha(workspace: Path, ref: str) -> str:
-    result = _run_git(workspace, ["rev-parse", f"{ref}^{{tree}}"])
+    commit = commit_sha(workspace, ref)
+    if commit is None:
+        raise ConfigError(f"Git ref is unavailable: {ref}")
+    result = _run_git(
+        workspace,
+        ["rev-parse", "--verify", "--end-of-options", f"{commit}^{{tree}}"],
+    )
     return result.stdout.strip()
 
 
 def merge_base_sha(workspace: Path, base: str, head: str) -> str | None:
-    result = _run_git(workspace, ["merge-base", base, head], check=False)
+    base_commit = commit_sha(workspace, base)
+    head_commit = commit_sha(workspace, head)
+    if base_commit is None or head_commit is None:
+        return None
+    result = _run_git(
+        workspace,
+        ["merge-base", "--", base_commit, head_commit],
+        check=False,
+    )
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
 
 
 def commit_date(workspace: Path, ref: str) -> str:
-    return _run_git(workspace, ["show", "-s", "--format=%cs", ref]).stdout.strip()
+    commit = commit_sha(workspace, ref)
+    if commit is None:
+        raise ConfigError(f"Git ref is unavailable: {ref}")
+    return _run_git(
+        workspace,
+        ["show", "-s", "--format=%cs", "--end-of-options", commit],
+    ).stdout.strip()
 
 
 def repository_identity(workspace: Path) -> str:
@@ -350,134 +446,370 @@ def git_path(workspace: Path, path: str) -> Path:
 
 
 def diff_context(workspace: Path, base: str, head: str) -> tuple[list[str], str]:
-    revspec = f"{base}...{head}"
-    names = _run_git(workspace, ["diff", "--name-only", revspec])
-    body = _run_git(workspace, ["diff", revspec])
-    paths = [line for line in names.stdout.splitlines() if line.strip()]
-    return paths, body.stdout
+    base_commit = commit_sha(workspace, base)
+    head_commit = commit_sha(workspace, head)
+    if base_commit is None or head_commit is None:
+        raise ConfigError("Git diff refs are unavailable locally")
+    revspec = f"{base_commit}...{head_commit}"
+    return diff_revspec_context(workspace, revspec)
+
+
+def diff_revspec_context(workspace: Path, revspec: str) -> tuple[list[str], str]:
+    """Return deterministic committed-ref diff paths and body."""
+
+    _reject_unbound_diff_configuration(workspace)
+    revspec = _resolved_diff_revspec(workspace, revspec)
+    names = _run_git_bounded_output(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            "--name-status",
+            "-z",
+            revspec,
+        ],
+        max_output_bytes=_DIFF_METADATA_LIMIT,
+    )
+    body = _run_git_bounded_output(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            revspec,
+        ],
+        max_output_bytes=_DIFF_BODY_LIMIT,
+    )
+    if names is None or body is None:
+        raise ConfigError("Git diff exceeded static output bounds or could not be read.")
+    paths = sorted(_paths_from_name_status(names))
+    _reject_binary_capability_paths(workspace, revspec)
+    diff_text = _decode_diff_body(body)
+    return paths, diff_text
+
+
+def _paths_from_name_status(payload: bytes) -> list[str]:
+    """Return every path named by a NUL-delimited ``git diff --name-status``.
+
+    Rename and copy records carry two paths.  Both are part of the evaluated
+    change: keeping only the destination lets a protected source disappear
+    behind an unprotected new name before the verifier classifies it.
+    """
+
+    fields = payload.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    paths: list[str] = []
+    index = 0
+    while index < len(fields):
+        status = fields[index].decode("ascii", errors="strict")
+        index += 1
+        path_count = 2 if status[:1] in {"R", "C"} else 1
+        if index + path_count > len(fields):
+            raise ConfigError("Git returned malformed NUL-delimited diff metadata.")
+        for raw_path in fields[index : index + path_count]:
+            path = os.fsdecode(raw_path)
+            if path and path not in paths:
+                paths.append(path)
+        index += path_count
+    return paths
+
+
+def _decode_diff_body(payload: bytes) -> str:
+    """Decode Git text hunks and ASCII binary markers without ambiguity."""
+    try:
+        return payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ConfigError("Git diff body is not valid UTF-8.") from exc
+
+
+def _reject_binary_capability_paths(
+    workspace: Path,
+    revspec: str,
+    *,
+    pathspec: list[str] | None = None,
+) -> None:
+    """Fail closed when a source-like path is hidden behind a binary marker."""
+
+    payload = _run_git_bounded_output(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            "--no-renames",
+            "--numstat",
+            "--no-patch",
+            "-z",
+            revspec,
+            *(["--", *pathspec] if pathspec else []),
+        ],
+        max_output_bytes=_DIFF_METADATA_LIMIT,
+    )
+    if payload is None:
+        raise ConfigError(
+            "Git binary-path metadata exceeded static output bounds or could "
+            "not be read."
+        )
+    hidden: list[str] = []
+    for record in payload.split(b"\0"):
+        if not record:
+            continue
+        added, separator, remainder = record.partition(b"\t")
+        removed, separator_two, raw_path = remainder.partition(b"\t")
+        if not separator or not separator_two:
+            raise ConfigError("Git returned malformed NUL-delimited numstat metadata.")
+        if added != b"-" or removed != b"-":
+            continue
+        path = os.fsdecode(raw_path)
+        if (
+            Path(path).suffix.casefold() in _TEXT_CAPABILITY_SUFFIXES
+            or is_agent_boundary_path(path)
+            or trust_root_class_for(path) is not None
+        ):
+            hidden.append(path)
+    if hidden:
+        raise ConfigError(
+            "Git classified source-like changed paths as binary, so their "
+            "capability text cannot be evaluated statically: "
+            + ", ".join(sorted(hidden)[:3])
+        )
 
 
 def read_file_at_ref(workspace: Path, ref: str, path: Path) -> str | None:
     """Return one file's text at ``ref`` without materializing the tree."""
 
-    result = _run_git(
-        workspace,
-        ["show", f"{ref}:{path.as_posix()}"],
-        check=False,
-    )
-    if result.returncode != 0:
+    commit = commit_sha(workspace, ref)
+    if commit is None:
         return None
-    return result.stdout
+    payload = _run_git_bounded_output(
+        workspace,
+        ["show", f"{commit}:{path.as_posix()}"],
+        max_output_bytes=_MAX_MANIFEST_BYTES,
+    )
+    if payload is None:
+        return None
+    try:
+        return payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return None
 
-def paths_named_at_ref(
-    workspace: Path, ref: str, names: frozenset[str]
-) -> list[str] | None:
-    """Tracked paths at ``ref`` whose file name is one of ``names``.
 
-    Used to prove that a ref carries no Shipgate manifest *anywhere*, not just
-    at the configured path — otherwise moving the manifest to a new path would
-    make a modified gate look like a first adoption.
+def resolve_tree_path_identity(
+    workspace: Path,
+    ref: str,
+    requested: Path,
+) -> Path | None:
+    """Return the exact Git-tree spelling corresponding to ``requested``.
 
-    ``None`` means the listing failed, which is not the same as an empty
-    result: callers must treat it as "cannot prove", never as proven absence.
+    Filesystems such as default APFS can materialize an NFC Git pathname with
+    an NFD directory-entry spelling. Verification must scan the local entry,
+    but receipts and archived-tree lookups must retain the exact Git identity
+    so they reproduce on case-sensitive, normalization-sensitive hosts.
+
+    A portable-key collision is rejected rather than guessed. The archive
+    materializer enforces the same collision rule before writing any tree.
     """
 
-    result = _run_git(workspace, ["ls-tree", "-r", "--name-only", ref], check=False)
-    if result.returncode != 0:
+    commit = commit_sha(workspace, ref)
+    if commit is None:
         return None
-    return [
-        line
-        for line in result.stdout.splitlines()
-        if line.strip() and line.rsplit("/", maxsplit=1)[-1] in names
-    ]
+    requested_text = requested.as_posix()
+    listing = _run_git_bounded_output(
+        workspace,
+        ["ls-tree", "-r", "--name-only", "-z", commit],
+        max_output_bytes=_MAX_MANIFEST_LISTING_BYTES,
+    )
+    if listing is None:
+        raise ConfigError(
+            "Git tree path identity could not be established within static "
+            "resource bounds."
+        )
+    try:
+        paths = [
+            raw.decode("utf-8", errors="strict")
+            for raw in listing.split(b"\0")
+            if raw
+        ]
+    except UnicodeDecodeError as exc:
+        raise ConfigError("Git tree contains a non-UTF-8 path") from exc
+    requested_key = _portable_tree_path_key(requested_text)
+    matches = [path for path in paths if _portable_tree_path_key(path) == requested_key]
+    if len(matches) > 1:
+        raise ConfigError(
+            "Git tree contains filesystem-colliding paths for configured "
+            f"manifest {requested_text!r}: {matches!r}"
+        )
+    if not matches:
+        return None
+    matched = Path(matches[0])
+    try:
+        requested_stat = (workspace / requested).stat(follow_symlinks=False)
+        matched_stat = (workspace / matched).stat(follow_symlinks=False)
+    except OSError:
+        return None
+    # A portable-key match is only an alias hint. On case-sensitive hosts,
+    # distinct files can legitimately differ only by case, normalization, or
+    # trailing spaces; rebinding them would hash one file under another path.
+    return matched if os.path.samestat(requested_stat, matched_stat) else None
 
-
-# Suffixes a Shipgate manifest can plausibly carry. A rename away from one of
-# these is the shape the adoption claim must not survive.
+# Suffixes retained for the independent rename/deletion guard.  Manifest
+# discovery itself is deliberately suffix-agnostic because ``load_manifest``
+# accepts YAML content from any filename.
 _MANIFEST_SUFFIXES = (".yaml", ".yml")
 
 
-# Bounds on the retained-manifest probe. A tree with more candidate YAML files
-# than this, or a candidate larger than this, is not worth reading to decide a
+# Bounds on the retained-manifest probe. A tree with more tracked files than
+# this, or a candidate larger than this, is not worth reading to decide a
 # wording question — the probe reports "cannot prove" and the plainer copy wins.
-_MAX_MANIFEST_CANDIDATES = 400
+# The process cost is now constant (one tree listing plus one cat-file batch),
+# so ordinary repositories should not lose adoption detection merely because
+# they contain a few hundred small tracked files. These are resource-safety
+# bounds, not expected repository sizes.
+_MAX_MANIFEST_CANDIDATES = 10_000
 _MAX_MANIFEST_BYTES = 512 * 1024
+_MAX_MANIFEST_BATCH_BYTES = 64 * 1024 * 1024
+_MAX_MANIFEST_LISTING_BYTES = 8 * 1024 * 1024
 
 # The keys every Shipgate manifest must carry. Matching on parsed structure
 # rather than on raw text is what makes quoted keys, differing indentation, and
 # flow mappings all read the same.
-_MANIFEST_REQUIRED_KEYS = frozenset({"project", "agent"})
+_MANIFEST_REQUIRED_KEYS = frozenset({"version", "project", "agent"})
 
 
-def carries_manifest_like_yaml(workspace: Path, ref: str) -> bool | None:
-    """Whether ``ref`` contains any YAML that parses as a Shipgate manifest.
+def carries_manifest_like_yaml(
+    workspace: Path,
+    ref: str,
+    *,
+    protected_names: frozenset[str] = frozenset(),
+) -> bool | None:
+    """Whether ``ref`` contains any file that parses as a Shipgate manifest.
 
     A basename check cannot prove a base carries no gate: a manifest may be
-    called anything, so a base that keeps an operational ``old-gate.yml`` while
+    called anything, so a base that keeps an operational ``old-gate.json`` while
     the head adds ``new-gate.yml`` passes every name test.
 
-    The candidates are *parsed*, not grepped. A text probe for ``^project:``
-    misses a valid manifest whose keys are quoted, indented, or written in flow
-    style — and a manifest that loads fine while the probe says "absent" is the
-    fail-open this exists to prevent. Over-matching is deliberate: an unrelated
-    YAML carrying both keys merely costs the adoption wording.
+    Every tracked filename is eligible because :func:`load_manifest` selects
+    its parser by content, not suffix. The candidates are *parsed*, not
+    grepped. A text probe for ``^project:`` misses a valid manifest whose keys
+    are quoted, indented, or written in flow style — and a manifest that loads
+    fine while the probe says "absent" is the fail-open this exists to prevent.
+    Over-matching is deliberate: an unrelated document carrying both keys
+    merely costs the adoption wording. ``protected_names`` provides the
+    independent canonical-name guard from this same bounded tree listing, so
+    callers never need a second unbounded ``ls-tree`` process.
 
-    ``None`` means the answer could not be established — an unreadable tree, an
-    unparseable candidate, or more candidates than the bounds above allow.
-    Callers must treat it as "cannot prove", never as absence.
+    ``None`` means the answer could not be established — an unreadable tree or
+    a tree/candidate beyond the bounds above. Files that are not UTF-8 YAML
+    objects are safely skipped because ``load_manifest`` cannot accept them.
+    Callers must treat ``None`` as "cannot prove", never as absence.
     """
 
-    listing = _run_git(workspace, ["ls-tree", "-r", "--name-only", ref], check=False)
-    if listing.returncode != 0:
+    commit = commit_sha(workspace, ref)
+    if commit is None:
         return None
-    # Filtered here rather than with a pathspec: `git ls-tree -- '*.yml'` does
-    # not glob the way it reads — it matches nothing, which would make this
-    # probe silently answer "no manifest" for every tree.
-    candidates = [
-        line.strip()
-        for line in listing.stdout.splitlines()
-        if line.strip().lower().endswith(_MANIFEST_SUFFIXES)
-    ]
-    if len(candidates) > _MAX_MANIFEST_CANDIDATES:
+    listing = _run_git_bounded_output(
+        workspace,
+        ["ls-tree", "-r", "-l", "-z", commit],
+        max_output_bytes=_MAX_MANIFEST_LISTING_BYTES,
+    )
+    if listing is None:
         return None
-    for candidate in candidates:
-        object_name = f"{ref}:{candidate}"
-        size = _run_git(
-            workspace,
-            ["cat-file", "-s", object_name],
-            check=False,
-        )
-        if size.returncode != 0:
-            return None
+    records = [record for record in listing.split(b"\0") if record]
+    if len(records) > _MAX_MANIFEST_CANDIDATES:
+        return None
+    candidates: list[tuple[bytes, str, int]] = []
+    total_bytes = 0
+    for record in records:
         try:
-            byte_count = int(size.stdout.strip())
+            header, encoded_path = record.split(b"\t", 1)
+            _mode, object_type, object_id, encoded_size = header.split()
+            candidate = encoded_path.decode("utf-8")
+        except (UnicodeDecodeError, ValueError):
+            return None
+        # Recursive ls-tree can still contain a submodule commit. It is not a
+        # file the manifest loader could open, so it is outside this probe.
+        if object_type != b"blob":
+            continue
+        if candidate.rsplit("/", maxsplit=1)[-1] in protected_names:
+            return True
+        try:
+            byte_count = int(encoded_size)
         except (TypeError, ValueError):
             return None
         if byte_count > _MAX_MANIFEST_BYTES:
             return None
-        blob = _run_git(
+        total_bytes += byte_count
+        if total_bytes > _MAX_MANIFEST_BATCH_BYTES:
+            return None
+        candidates.append((object_id, candidate, byte_count))
+
+    if not candidates:
+        return False
+
+    # Object IDs from ls-tree, rather than ref:path expressions, keep the
+    # batch protocol unambiguous even for unusual Git filenames. One bounded
+    # cat-file process replaces the former size+show pair per tracked file.
+    try:
+        batch = _run_git(
             workspace,
-            ["show", object_name],
+            ["cat-file", "--batch"],
             check=False,
             text=False,
+            input=b"".join(
+                object_id + b"\n" for object_id, _path, _size in candidates
+            ),
         )
-        if blob.returncode != 0:
-            return None
-        if not isinstance(blob.stdout, bytes) or len(blob.stdout) != byte_count:
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if batch.returncode != 0 or not isinstance(batch.stdout, bytes):
+        return None
+
+    output = batch.stdout
+    offset = 0
+    for expected_id, candidate, expected_size in candidates:
+        header_end = output.find(b"\n", offset)
+        if header_end < 0:
             return None
         try:
-            text = blob.stdout.decode("utf-8")
-        except UnicodeDecodeError:
+            object_id, object_type, encoded_size = output[offset:header_end].split()
+            byte_count = int(encoded_size)
+        except (TypeError, ValueError):
             return None
+        if (
+            object_id != expected_id
+            or object_type != b"blob"
+            or byte_count != expected_size
+        ):
+            return None
+        content_start = header_end + 1
+        content_end = content_start + byte_count
+        if content_end >= len(output) or output[content_end : content_end + 1] != b"\n":
+            return None
+        blob = output[content_start:content_end]
+        offset = content_end + 1
+        try:
+            text = blob.decode("utf-8")
+        except UnicodeDecodeError:
+            if candidate.lower().endswith(_MANIFEST_SUFFIXES):
+                return None
+            continue
         try:
             document = yaml.safe_load(text)
-        except (RecursionError, yaml.YAMLError):
-            # Unparseable YAML cannot be ruled out as a manifest.
-            return None
+        except (RecursionError, ValueError, OverflowError, yaml.YAMLError):
+            if candidate.lower().endswith(_MANIFEST_SUFFIXES):
+                return None
+            # The real manifest loader rejects the same input. Preserve the
+            # long-standing fail-closed contract for declared YAML files while
+            # allowing unrelated source/binary files to be ruled out.
+            continue
         if isinstance(document, dict) and _MANIFEST_REQUIRED_KEYS <= {
             str(key) for key in document
         }:
             return True
+    if offset != len(output):
+        return None
     return False
 
 
@@ -494,22 +826,52 @@ def removes_a_yaml_file(workspace: Path, base: str | None, head: str) -> bool | 
     not claim an adoption.
     """
 
-    args = ["diff", "--name-status", "--find-renames", "--diff-filter=DR"]
-    args.extend([f"{base}...{head}"] if base else ["HEAD"])
-    result = _run_git(workspace, args, check=False)
-    if result.returncode != 0:
+    try:
+        _reject_unbound_diff_configuration(workspace)
+        if base is None:
+            _reject_executable_worktree_filters(workspace)
+    except ConfigError:
         return None
-    for line in result.stdout.splitlines():
-        fields = [field for field in line.split("\t") if field.strip()]
-        if len(fields) < 2:
-            continue
-        source = fields[1].replace("\\", "/")
-        if source.lower().endswith(_MANIFEST_SUFFIXES):
-            return True
-    return False
+    args = [
+        *_SAFE_DIFF_CONFIG,
+        "diff",
+        *_DETERMINISTIC_DIFF_OPTIONS,
+        "--name-status",
+        "--diff-filter=DR",
+        "-z",
+    ]
+    head_commit = commit_sha(workspace, head)
+    if head_commit is None:
+        return None
+    if base:
+        base_commit = commit_sha(workspace, base)
+        if base_commit is None:
+            return None
+        args.append(f"{base_commit}...{head_commit}")
+    else:
+        args.append(head_commit)
+    output = _run_git_bounded_output(
+        workspace,
+        args,
+        max_output_bytes=_DIFF_METADATA_LIMIT,
+    )
+    if output is None:
+        return None
+    try:
+        paths = _paths_from_name_status(output)
+    except (UnicodeDecodeError, ConfigError):
+        return None
+    # Checking both rename sides is deliberately conservative: a destination
+    # YAML path can only suppress friendly adoption wording, never grant it.
+    return any(path.lower().endswith(_MANIFEST_SUFFIXES) for path in paths)
 
 
-def working_tree_context(workspace: Path) -> tuple[list[str], str]:
+def working_tree_context(
+    workspace: Path,
+    *,
+    exclude: Path | None = None,
+    reject_index_hidden: bool = False,
+) -> tuple[list[str], str]:
     """Return uncommitted changed paths and tracked-file diff text.
 
     ``git diff HEAD`` includes staged and unstaged tracked changes. Untracked
@@ -517,15 +879,242 @@ def working_tree_context(workspace: Path) -> tuple[list[str], str]:
     intentionally not read into the diff body.
     """
 
-    names = _run_git(workspace, ["diff", "HEAD", "--name-only"])
-    body = _run_git(workspace, ["diff", "HEAD"])
-    paths = [line for line in names.stdout.splitlines() if line.strip()]
-    untracked = _run_git(workspace, ["ls-files", "--others", "--exclude-standard"])
-    for line in untracked.stdout.splitlines():
-        stripped = line.strip()
-        if stripped and stripped not in paths:
-            paths.append(stripped)
-    return paths, body.stdout
+    _reject_unbound_diff_configuration(workspace)
+    _reject_executable_worktree_filters(workspace)
+    pathspec = _worktree_pathspec(workspace, exclude)
+    if reject_index_hidden:
+        _reject_index_hidden_capability_paths(workspace, pathspec=pathspec)
+    names = _run_git_bounded_output(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            "HEAD",
+            "--name-status",
+            "-z",
+            "--",
+            *pathspec,
+        ],
+        max_output_bytes=_DIFF_METADATA_LIMIT,
+    )
+    body = _run_git_bounded_output(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            "HEAD",
+            "--",
+            *pathspec,
+        ],
+        max_output_bytes=_DIFF_BODY_LIMIT,
+    )
+    if names is None or body is None:
+        raise ConfigError(
+            "Git worktree diff exceeded static output bounds or could not be read."
+        )
+    paths = sorted(_paths_from_name_status(names))
+    _reject_binary_capability_paths(workspace, "HEAD", pathspec=pathspec)
+    diff_text = _decode_diff_body(body)
+    untracked = _run_git_bounded_output(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            *pathspec,
+        ],
+        max_output_bytes=_DIFF_METADATA_LIMIT,
+    )
+    if untracked is None:
+        raise ConfigError(
+            "Git untracked-path inventory exceeded static output bounds."
+        )
+    for raw_path in untracked.split(b"\0"):
+        if not raw_path:
+            continue
+        path = os.fsdecode(raw_path)
+        if path not in paths:
+            paths.append(path)
+    return paths, diff_text
+
+
+def _worktree_pathspec(workspace: Path, exclude: Path | None) -> list[str]:
+    pathspec = [":(top)**"]
+    if exclude is None:
+        return pathspec
+    try:
+        relative = exclude.resolve().relative_to(workspace.resolve()).as_posix()
+    except ValueError as exc:
+        raise ConfigError("Verifier output directory must remain inside workspace") from exc
+    if relative in {"", "."}:
+        raise ConfigError("Verifier output directory cannot be the workspace root")
+    # ``--out`` is user-controlled. Literal magic prevents names such as
+    # ``*`` or ``[x]`` from becoming exclusion patterns that hide unrelated
+    # worktree changes. Matching the directory path excludes its descendants
+    # under Git's ordinary pathspec directory-prefix semantics.
+    pathspec.append(f":(top,literal,exclude){relative}")
+    return pathspec
+
+
+def _reject_index_hidden_capability_paths(
+    workspace: Path,
+    *,
+    pathspec: list[str],
+) -> None:
+    """Reject index flags that can conceal worktree inputs.
+
+    Declared tool sources may use arbitrary extensions, so path heuristics
+    cannot prove a hidden entry irrelevant before the manifest is evaluated.
+    Reject every hidden entry in the bounded pathspec.
+    """
+
+    payload = _run_git_bounded_output(
+        workspace,
+        ["ls-files", "-v", "-z", "--", *pathspec],
+        max_output_bytes=_DIFF_METADATA_LIMIT,
+    )
+    if payload is None:
+        raise ConfigError(
+            "Git index-visibility metadata exceeded static output bounds."
+        )
+    hidden: list[str] = []
+    for record in payload.split(b"\0"):
+        if not record:
+            continue
+        marker, separator, raw_path = record.partition(b" ")
+        if not separator or len(marker) != 1:
+            raise ConfigError("Git returned malformed index-visibility metadata.")
+        code = chr(marker[0])
+        if code != "S" and not code.islower():
+            continue
+        hidden.append(os.fsdecode(raw_path))
+    if hidden:
+        raise ConfigError(
+            "Git index flags hide paths from worktree collection: "
+            + ", ".join(sorted(hidden)[:3])
+        )
+
+
+def _reject_executable_worktree_filters(workspace: Path) -> None:
+    """Fail before Git can execute a configured clean/process filter."""
+
+    payload = _run_git_bounded_output(
+        workspace,
+        [
+            "config",
+            "--includes",
+            "-z",
+            "--get-regexp",
+            r"^filter\..*\.(clean|process|smudge)$",
+        ],
+        max_output_bytes=_WORKTREE_FILTER_CONFIG_LIMIT,
+        allowed_returncodes=(0, 1),
+    )
+    if payload is None:
+        raise ConfigError(
+            "Could not establish whether repository Git clean/process filters "
+            "are safe for static worktree collection."
+        )
+    active: list[str] = []
+    for record in payload.split(b"\0"):
+        if not record:
+            continue
+        raw_key, separator, raw_value = record.partition(b"\n")
+        if not separator:
+            raise ConfigError("Git returned malformed filter configuration.")
+        if raw_value.strip():
+            active.append(raw_key.decode("utf-8", errors="replace"))
+    if active:
+        shown = ", ".join(sorted(active)[:3])
+        raise ConfigError(
+            "Static worktree collection refuses executable Git "
+            f"filters ({shown}). Commit the intended changes and verify refs, "
+            "or provide an explicit inert diff artifact."
+        )
+    attributed = _run_git_bounded_output(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "ls-files",
+            "-z",
+            "--",
+            ":(top)**",
+            ":(exclude,attr:!filter)",
+            ":(exclude,attr:-filter)",
+        ],
+        max_output_bytes=_WORKTREE_ATTRIBUTE_LIST_LIMIT,
+    )
+    if attributed is None:
+        raise ConfigError(
+            "Git filter-attribute metadata exceeded static resource bounds or "
+            "could not be inspected safely."
+        )
+    attributed_paths = [
+        os.fsdecode(raw) for raw in attributed.split(b"\0") if raw
+    ]
+    if attributed_paths:
+        shown = ", ".join(sorted(attributed_paths)[:3])
+        raise ConfigError(
+            "Static worktree collection refuses Git filter attributes because "
+            f"their normalization driver is not receipt-bound ({shown}). "
+            "Commit the intended changes and verify refs instead."
+        )
+
+
+def _reject_unbound_diff_configuration(workspace: Path) -> None:
+    """Reject repository-local presentation state that can rewrite Git diffs."""
+
+    configured = _run_git_bounded_output(
+        workspace,
+        [
+            "config",
+            "--includes",
+            "-z",
+            "--get-regexp",
+            r"^diff\.",
+        ],
+        max_output_bytes=_DIFF_CONFIG_LIMIT,
+        allowed_returncodes=(0, 1),
+    )
+    if configured is None:
+        raise ConfigError(
+            "Could not establish whether repository-local Git diff drivers are "
+            "safe for deterministic collection."
+        )
+    if any(record.partition(b"\n")[2].strip() for record in configured.split(b"\0")):
+        raise ConfigError(
+            "Deterministic diff collection refuses repository-local diff.* "
+            "configuration because it is not receipt-bound."
+        )
+
+    raw_info_path = _run_git(
+        workspace,
+        ["rev-parse", "--git-path", "info/attributes"],
+        check=False,
+    )
+    if raw_info_path.returncode != 0 or not raw_info_path.stdout.strip():
+        raise ConfigError("Could not inspect repository-local Git attributes.")
+    info_path = Path(raw_info_path.stdout.strip())
+    if not info_path.is_absolute():
+        info_path = workspace / info_path
+    try:
+        metadata = info_path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ConfigError(
+            "Could not inspect repository-local Git attributes safely."
+        ) from exc
+    if not info_path.is_file() or info_path.is_symlink() or metadata.st_size:
+        raise ConfigError(
+            "Deterministic diff collection refuses non-empty or aliased "
+            ".git/info/attributes because it is not receipt-bound."
+        )
 
 
 def archive_tree(workspace: Path, ref: str, destination: Path) -> None:
@@ -628,13 +1217,7 @@ def _materialize_isolated_tree(git_dir: Path, *, commit: str, destination: Path)
         path_text = raw_path.decode("utf-8", errors="strict")
         if "\\" in path_text:
             raise ConfigError(f"Git tree path is not portable: {path_text}")
-        portable_parts = [
-            unicodedata.normalize("NFKC", part).casefold().rstrip(" .")
-            for part in path_text.split("/")
-        ]
-        if any(not part for part in portable_parts):
-            raise ConfigError(f"Git tree path is not portable: {path_text}")
-        portable_key = "/".join(portable_parts)
+        portable_key = _portable_tree_path_key(path_text)
         prior = portable_paths.setdefault(portable_key, path_text)
         if prior != path_text:
             raise ConfigError(
@@ -672,6 +1255,36 @@ def _materialize_isolated_tree(git_dir: Path, *, commit: str, destination: Path)
         raise ConfigError("Materialized Git tree differs from the verified object graph")
 
 
+def _portable_tree_path_key(path_text: str) -> str:
+    if (
+        "\\" in path_text
+        or ":" in path_text
+        or path_text.startswith("/")
+        or any(ord(character) < 32 for character in path_text)
+    ):
+        raise ConfigError(f"Git tree path is not portable: {path_text}")
+    raw_parts = path_text.split("/")
+    portable_parts: list[str] = []
+    reserved = {"con", "prn", "aux", "nul"}
+    reserved.update(f"com{number}" for number in range(1, 10))
+    reserved.update(f"lpt{number}" for number in range(1, 10))
+    for raw_part in raw_parts:
+        part = unicodedata.normalize("NFKC", raw_part).casefold()
+        portable = part.rstrip(" .")
+        basename = portable.split(".", 1)[0]
+        if (
+            not portable
+            or raw_part in {".", ".."}
+            or raw_part != raw_part.rstrip(" .")
+            or basename in reserved
+        ):
+            raise ConfigError(f"Git tree path is not portable: {path_text}")
+        portable_parts.append(portable)
+    if not portable_parts:
+        raise ConfigError(f"Git tree path is not portable: {path_text}")
+    return "/".join(portable_parts)
+
+
 def _git_object_id(kind: str, data: bytes, *, algorithm: str) -> str:
     digest = hashlib.new(algorithm)
     digest.update(f"{kind} {len(data)}\0".encode("ascii"))
@@ -679,17 +1292,58 @@ def _git_object_id(kind: str, data: bytes, *, algorithm: str) -> str:
     return digest.hexdigest()
 
 
+def _validate_ref_token(ref: str) -> None:
+    if not ref or ref.startswith("-") or any(char in ref for char in "\0\r\n"):
+        raise ConfigError(
+            "Git refs must be non-empty, must not begin with '-', and must not "
+            "contain control delimiters."
+        )
+
+
+def _resolved_diff_revspec(workspace: Path, revspec: str) -> str:
+    """Resolve a user rev expression to option-safe commit IDs."""
+
+    _validate_ref_token(revspec)
+    if "..." in revspec:
+        parts = revspec.split("...")
+        separator = "..."
+    elif ".." in revspec:
+        parts = revspec.split("..")
+        separator = ".."
+    else:
+        parts = [revspec]
+        separator = ""
+        # ``git diff <one-ref>`` compares that commit with the index/worktree,
+        # so it carries the same repository-configured execution hazards as
+        # the explicit worktree collector.
+        _reject_executable_worktree_filters(workspace)
+    if len(parts) not in {1, 2} or any(not part for part in parts):
+        raise ConfigError(f"Unsupported Git diff revision expression: {revspec!r}")
+    commits = [commit_sha(workspace, part) for part in parts]
+    if any(commit is None for commit in commits):
+        raise ConfigError(f"Git diff revision is unavailable: {revspec!r}")
+    return separator.join(commit for commit in commits if commit is not None)
+
+
 def _git_object_environment() -> dict[str, str]:
-    env = os.environ.copy()
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GIT_")
+    }
     env.update(
         {
-            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_ATTR_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_ALLOW_PROTOCOL": "",
             "GIT_NO_LAZY_FETCH": "1",
             "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_PAGER": "cat",
             "GIT_PROTOCOL_FROM_USER": "0",
+            "GIT_TERMINAL_PROMPT": "0",
         }
     )
     return env
@@ -712,28 +1366,110 @@ def _run_git_dir(
     )
 
 
+def _run_git_bounded_output(
+    workspace: Path,
+    args: list[str],
+    *,
+    max_output_bytes: int,
+    timeout: int = 60,
+    allowed_returncodes: tuple[int, ...] = (0,),
+    input: bytes | None = None,
+) -> bytes | None:
+    """Run read-only Git plumbing without buffering unbounded stdout."""
+
+    cmd = ["git", "--no-replace-objects", "-C", str(workspace), *args]
+    env = _git_object_environment()
+    try:
+        process = subprocess.Popen(  # noqa: S603 - fixed local Git argv, no shell.
+            cmd,
+            env=env,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+        )
+    except OSError:
+        return None
+
+    output = bytearray()
+    exceeded = False
+    read_failed = False
+
+    def _drain_stdout() -> None:
+        nonlocal exceeded, read_failed
+        assert process.stdout is not None
+        try:
+            while chunk := process.stdout.read(64 * 1024):
+                remaining = max_output_bytes + 1 - len(output)
+                if remaining > 0:
+                    output.extend(chunk[:remaining])
+                if len(output) > max_output_bytes:
+                    exceeded = True
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                    return
+        except OSError:
+            read_failed = True
+
+    reader = threading.Thread(target=_drain_stdout, daemon=True)
+    reader.start()
+    write_failed = False
+
+    def _write_stdin() -> None:
+        nonlocal write_failed
+        assert process.stdin is not None
+        try:
+            process.stdin.write(input or b"")
+            process.stdin.close()
+        except (BrokenPipeError, OSError):
+            write_failed = True
+
+    writer = (
+        threading.Thread(target=_write_stdin, daemon=True)
+        if input is not None
+        else None
+    )
+    if writer is not None:
+        writer.start()
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        reader.join()
+        if writer is not None:
+            writer.join()
+        return None
+    reader.join()
+    if writer is not None:
+        writer.join()
+    if (
+        returncode not in allowed_returncodes
+        or exceeded
+        or read_failed
+        or write_failed
+    ):
+        return None
+    return bytes(output)
+
+
 def _run_git(
     workspace: Path,
     args: list[str],
     *,
     check: bool = True,
     text: bool = True,
+    input: bytes | None = None,
 ) -> subprocess.CompletedProcess:
     cmd = ["git", "--no-replace-objects", "-C", str(workspace), *args]
-    env = os.environ.copy()
-    env.update(
-        {
-            "GIT_ALLOW_PROTOCOL": "",
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_PROTOCOL_FROM_USER": "0",
-        }
-    )
+    env = _git_object_environment()
     return _run_process(
         cmd,
         capture_output=True,
         check=check,
         env=env,
+        input=input,
         text=text,
         timeout=60,
     )
@@ -782,7 +1518,18 @@ def staged_paths_under(workspace: Path, subdir: str) -> list[str]:
     """
 
     prefix = subdir.rstrip("/") + "/"
-    result = _run_git(workspace, ["diff", "--cached", "--name-only", "--relative"], check=False)
+    result = _run_git(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            "--cached",
+            "--name-only",
+            "--relative",
+        ],
+        check=False,
+    )
     if result.returncode != 0:
         return []
     return [line.strip() for line in result.stdout.splitlines() if line.strip().startswith(prefix)]
@@ -797,12 +1544,14 @@ __all__ = [
     "detect_default_base",
     "detect_default_base_with_notes",
     "diff_context",
+    "diff_revspec_context",
     "ensure_git_workspace",
     "git_path",
     "GitPushEndpoint",
     "merge_base_sha",
     "read_file_at_ref",
     "repository_identity",
+    "resolve_tree_path_identity",
     "resolve_git_push_endpoint",
     "resolve_source_head_identity",
     "ref_exists",

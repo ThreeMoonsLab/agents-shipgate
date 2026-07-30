@@ -39,7 +39,7 @@ from agents_shipgate.checks._verify_common import (
     verify_finding,
 )
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.trust_roots import is_configured_manifest, trust_root_class_for
+from agents_shipgate.core.trust_roots import is_context_configured_manifest
 from agents_shipgate.schemas.report import Finding
 
 CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
@@ -190,9 +190,8 @@ def _touched_policy_surfaces(context: ScanContext) -> list[str]:
     """
 
     files = changed_files(context)
-    config = getattr(context, "config_path", None)
     hits = set(touched(_POLICY_SURFACES, files))
-    hits.update(path for path in files if is_configured_manifest(config, path))
+    hits.update(path for path in files if is_context_configured_manifest(context, path))
     return sorted(hits)
 
 
@@ -203,15 +202,14 @@ def _fail_safe(context: ScanContext) -> list[Finding]:
         return []
     verification = context.verification
     introducing = verification is not None and verification.manifest_introduced
-    config = getattr(context, "config_path", None)
     # An adoption that *also* edits an existing policy pack or baseline is not
     # covered by "nothing existed to weaken": those files were already there.
     # The friendlier wording is only correct when every touched policy surface
     # is the manifest being introduced.
     if introducing and all(
-        trust_root_class_for(path) == "manifest" or is_configured_manifest(config, path)
-        for path in hit
+        is_context_configured_manifest(context, path) for path in hit
     ):
+        configured_manifest = verification.configured_manifest_path or hit[0]
         # A base with no manifest at all cannot have been weakened. This still
         # emits — at the same check id and severity, so the verdict and every
         # fail-closed consumer are unchanged — because the human decision
@@ -232,8 +230,8 @@ def _fail_safe(context: ScanContext) -> list[Finding]:
                     "This PR introduces the Shipgate manifest rather than "
                     "changing an existing one, so no prior gate was weakened. "
                     "Adopting a release policy is a human decision: review the "
-                    "generated shipgate.yaml and merge it through a "
-                    "human-reviewed PR."
+                    f"configured manifest {configured_manifest!r}; a human "
+                    "must decide whether to adopt it."
                 ),
             )
         ]

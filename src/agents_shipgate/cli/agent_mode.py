@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -125,4 +126,4 @@ def emit_agent_mode_error(
 
 def _command_string() -> str:
     argv = [Path(sys.argv[0]).name, *sys.argv[1:]]
-    return " ".join(argv)
+    return shlex.join(argv)

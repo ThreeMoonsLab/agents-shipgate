@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,6 +14,11 @@ from ruamel.yaml.error import YAMLError
 
 from agents_shipgate.core.domain import ToolParameter
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.static_inputs import (
+    active_static_input_snapshot,
+    read_static_input_text,
+)
+from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 
 # These keys are authority-bearing inputs to the binding resolver. Catalog
 # formats may carry arbitrary extension metadata, so their loaders must never
@@ -50,6 +56,28 @@ def resolve_input_path(base_dir: Path, value: str) -> Path:
     base = base_dir.resolve()
     raw_path = Path(value)
     path = raw_path if raw_path.is_absolute() else base / raw_path
+    snapshot = active_static_input_snapshot()
+    if snapshot is not None:
+        lexical = Path(os.path.abspath(os.path.normpath(os.fspath(path))))
+        try:
+            relative = lexical.relative_to(base)
+        except ValueError as exc:
+            raise InputParseError(
+                f"Input path {value!r} resolves outside manifest directory: {lexical}"
+            ) from exc
+        issue = inspect_lexical_path_identity(base, relative)
+        if issue is not None:
+            raise InputParseError(
+                f"Input path {value!r} does not identify one exact, non-aliased "
+                f"worktree entry: {issue.kind}"
+            )
+        if lexical.is_dir():
+            try:
+                snapshot.bind_directory(lexical)
+            except (OSError, ValueError) as exc:
+                raise InputParseError(
+                    f"Input directory {value!r} could not be captured safely: {exc}"
+                ) from exc
     resolved = path.resolve()
     try:
         resolved.relative_to(base)
@@ -86,17 +114,8 @@ def load_structured_file(path: Path) -> Any:
     if not path.exists():
         raise InputParseError(f"Input file not found: {path}")
     try:
-        size = path.stat().st_size
-    except OSError as exc:
-        raise InputParseError(f"Unable to inspect input file {path}: {exc}") from exc
-    if size > MAX_INPUT_FILE_BYTES:
-        raise InputParseError(
-            f"Input file too large: {path} is {size} bytes; "
-            f"maximum is {MAX_INPUT_FILE_BYTES} bytes"
-        )
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+        text = read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
     try:
         stripped = text.lstrip()
@@ -111,17 +130,8 @@ def load_text_file(path: Path) -> str:
     if not path.exists():
         raise InputParseError(f"Input file not found: {path}")
     try:
-        size = path.stat().st_size
-    except OSError as exc:
-        raise InputParseError(f"Unable to inspect input file {path}: {exc}") from exc
-    if size > MAX_INPUT_FILE_BYTES:
-        raise InputParseError(
-            f"Input file too large: {path} is {size} bytes; "
-            f"maximum is {MAX_INPUT_FILE_BYTES} bytes"
-        )
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError as exc:
+        return read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
 
 
@@ -270,19 +280,24 @@ def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]
     if not path.exists():
         raise InputParseError(f"Input file not found: {path}")
     try:
-        size = path.stat().st_size
-    except OSError as exc:
-        raise InputParseError(f"Unable to inspect input file {path}: {exc}") from exc
-    if size > MAX_INPUT_FILE_BYTES:
-        raise InputParseError(
-            f"Input file too large: {path} is {size} bytes; "
-            f"maximum is {MAX_INPUT_FILE_BYTES} bytes"
-        )
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+        text = read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
+    return load_structured_text_with_positions(text, source=path)
 
+
+def load_structured_text_with_positions(
+    text: str,
+    *,
+    source: str | Path,
+) -> tuple[Any, PositionIndex]:
+    """Parse already-captured structured text and build best-effort positions."""
+
+    path = Path(source)
+    if len(text.encode("utf-8")) > MAX_INPUT_FILE_BYTES:
+        raise InputParseError(
+            f"Input file too large: {path}; maximum is {MAX_INPUT_FILE_BYTES} bytes"
+        )
     stripped = text.lstrip()
     is_json = path.suffix.lower() == ".json" or stripped.startswith(("{", "["))
     if is_json:

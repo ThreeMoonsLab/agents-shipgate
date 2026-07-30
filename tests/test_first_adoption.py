@@ -19,6 +19,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from agents_shipgate.checks import verify_policy
 from agents_shipgate.cli.verify.orchestrator import (
     _manifest_introduced,
@@ -28,6 +30,7 @@ from agents_shipgate.cli.verify.orchestrator import (
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Agent
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verifier import VerifierCapabilityReview
 
@@ -76,6 +79,45 @@ def test_missing_manifest_base_with_no_manifest_anywhere_is_an_adoption(tmp_path
             base="HEAD~1",
             head="HEAD",
             changed_files=[SAMPLE_CONFIG.as_posix()],
+        )
+        is True
+    )
+
+
+def test_unrelated_base_file_with_custom_basename_does_not_hide_adoption(
+    tmp_path: Path,
+) -> None:
+    """A custom basename is not repository-wide manifest identity."""
+
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "release.gate").write_text(
+        "ordinary release notes\n",
+        encoding="utf-8",
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "ordinary same-basename file")
+
+    manifest = repo / "config" / "release.gate"
+    manifest.parent.mkdir()
+    manifest.write_text(
+        'version: "0.1"\nproject:\n  name: demo\nagent:\n  name: assistant\n',
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "adopt custom gate")
+
+    assert (
+        _manifest_introduced(
+            git_root=repo,
+            config_relative=Path("config/release.gate"),
+            base_status="missing_manifest",
+            base="HEAD~1",
+            head="HEAD",
+            changed_files=["config/release.gate"],
         )
         is True
     )
@@ -175,6 +217,7 @@ def _scan_context(*, manifest_introduced: bool, changed=("shipgate.yaml",)):
         config_path=Path("shipgate.yaml"),
         verification=VerificationContext(
             changed_files=list(changed),
+            configured_manifest_path="shipgate.yaml",
             manifest_introduced=manifest_introduced,
         ),
     )
@@ -201,6 +244,24 @@ def test_adoption_fail_safe_still_needs_a_touched_policy_surface():
     assert verify_policy.run(context) == []
 
 
+def test_policy_fail_safe_uses_exact_logical_manifest_identity():
+    context = _scan_context(
+        manifest_introduced=False,
+        changed=("release.gate",),
+    )
+    context.config_path = Path("/tmp/archive/config/release.gate")
+    context.verification.configured_manifest_path = "config/release.gate"
+
+    assert verify_policy.run(context) == []
+
+    context.verification.changed_files = ["config/release.gate"]
+    findings = verify_policy.run(context)
+    assert len(findings) == 1
+    assert findings[0].evidence["changed_policy_files"] == [
+        "config/release.gate"
+    ]
+
+
 # --- headline and fix_task copy ---------------------------------------------
 
 
@@ -213,34 +274,51 @@ def _review(*, policy_weakened=False, trust_root_touched=False):
 
 def test_adoption_headline_replaces_the_weakening_claim():
     review = _review(trust_root_touched=True)
-    adopting = _self_approval_note(review, manifest_introduced=True)
+    adopting = _self_approval_note(
+        review,
+        manifest_introduced=True,
+        pure_adoption_review=True,
+        configured_manifest="config/release.gate",
+    )
     modifying = _self_approval_note(
         _review(policy_weakened=True), manifest_introduced=False
     )
 
     assert adopting is not None and modifying is not None
     assert "introduces Agents Shipgate" in adopting
+    assert "config/release.gate" in adopting
+    assert "shipgate.yaml" not in adopting
+    assert "agent-instruction" not in adopting
+    assert "CI files" not in adopting
     assert "human-reviewed PR" in adopting
     assert "weakens the release policy" in modifying
 
 
-def test_adoption_raises_the_prohibition_on_its_own():
+def test_adoption_raises_the_prohibition_after_a_completed_scan():
     """``_self_approval_note`` is the "a trust root is in play" probe.
 
     ``_can_merge_without_human`` raises on a passed decision that carries one.
     Since `policy_weakened` is now honestly `false` during an adoption, the
-    adoption has to raise the prohibition by itself — including when no other
-    flag is set and when there is no capability review at all.
+    adoption has to raise the prohibition by itself when a completed scan
+    supplies a capability review. Before that point the scan-failure route is
+    authoritative and adoption wording would be unsupported.
     """
 
     for review in (
-        None,
         _review(),
         _review(policy_weakened=True),
         _review(trust_root_touched=True),
         _review(policy_weakened=True, trust_root_touched=True),
     ):
-        assert _self_approval_note(review, manifest_introduced=True) is not None
+        assert (
+            _self_approval_note(
+                review,
+                manifest_introduced=True,
+                pure_adoption_review=True,
+            )
+            is not None
+        )
+    assert _self_approval_note(None, manifest_introduced=True) is None
 
 
 def test_a_weakened_policy_beats_the_adoption_wording():
@@ -253,6 +331,7 @@ def test_a_weakened_policy_beats_the_adoption_wording():
     mixed = _self_approval_note(
         _review(policy_weakened=True, trust_root_touched=True),
         manifest_introduced=True,
+        pure_adoption_review=True,
     )
     assert mixed is not None
     assert "weakens the release policy" in mixed
@@ -271,16 +350,17 @@ def test_non_adoption_wording_is_unchanged():
 def test_adoption_reports_no_policy_weakening_to_machine_consumers(tmp_path):
     """The flag is read as a fact by the registry, attestations, and feedback.
 
-    A run whose headline says "introduces Agents Shipgate" while
-    `capability_review.policy_weakened` is true feeds that contradiction to
-    every downstream consumer — including feedback's gate-bypass alarm.
+    An adoption that has other blockers leads with those blockers, but its
+    machine-readable policy fact must still say no existing gate was weakened.
     """
 
     repo = _repo_adopting_shipgate(tmp_path)
     verifier = _run_verify(repo, base="HEAD~1", head="HEAD")
 
     assert verifier.headline is not None
-    assert "introduces Agents Shipgate" in verifier.headline
+    assert verifier.headline.startswith("5 active finding(s) block release")
+    assert "also introduces the configured manifest" in verifier.headline
+    assert "then merge" not in verifier.headline
     assert verifier.capability_review.policy_weakened is False
     # The adoption is still visible as a trust-root touch, which is what keeps
     # reviewer routing and the gate-bypass alarm intact.
@@ -325,7 +405,9 @@ def test_first_adoption_pr_is_honest_and_actionable(tmp_path):
 
     assert verifier.base_status == "missing_manifest"
     assert verifier.headline is not None
-    assert "introduces Agents Shipgate" in verifier.headline
+    assert verifier.headline.startswith("5 active finding(s) block release")
+    assert "also introduces the configured manifest" in verifier.headline
+    assert "then merge" not in verifier.headline
 
     # Fail-closed, unchanged: adoption is still a human decision.
     assert verifier.can_merge_without_human is False
@@ -336,8 +418,18 @@ def test_first_adoption_pr_is_honest_and_actionable(tmp_path):
     fix_task = verifier.fix_task
     assert fix_task is not None
     assert fix_task.actor == "human"
-    assert [i for i in fix_task.instructions if "adopts Agents Shipgate" in i]
-    assert [r for r in fix_task.allowed_repairs if r.id == "adopt_shipgate_manifest"]
+    assert [
+        i
+        for i in fix_task.instructions
+        if "also introduces the configured manifest" in i
+    ]
+    assert "merge" not in " ".join(fix_task.instructions).lower()
+    assert [
+        r for r in fix_task.allowed_repairs if r.id == "review_shipgate_adoption"
+    ]
+    assert not [
+        r for r in fix_task.allowed_repairs if r.id == "adopt_shipgate_manifest"
+    ]
 
     payload = json.loads(
         (repo / "agents-shipgate-reports" / "report.json").read_text("utf-8")
@@ -349,6 +441,85 @@ def test_first_adoption_pr_is_honest_and_actionable(tmp_path):
     ]
     assert weakening, "the adoption still records a policy finding"
     assert weakening[0]["evidence"]["kind"] == "manifest_introduced"
+
+
+def test_clean_adoption_collapses_same_manifest_rows_into_one_human_act(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "clean-repo"
+    shutil.copytree(REPO_ROOT / "samples" / "clean_read_only_agent", repo)
+    manifest = repo / "shipgate.yaml"
+    held_back = manifest.read_text(encoding="utf-8")
+    manifest.unlink()
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "before shipgate")
+    manifest.write_text(held_back, encoding="utf-8")
+    _git(repo, "add", "shipgate.yaml")
+    _git(repo, "commit", "-m", "adopt shipgate")
+
+    verifier, report, _exit = run_verify(
+        workspace=repo,
+        config=Path("shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=True,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert report.release_decision is not None
+    assert report.release_decision.decision == "review_required"
+    assert verifier.headline is not None
+    assert "introduces Agents Shipgate" in verifier.headline
+    assert "then merge" in verifier.headline
+    assert verifier.fix_task is not None
+    assert "adopt_shipgate_manifest" in {
+        repair.id for repair in verifier.fix_task.allowed_repairs
+    }
+    assert not {
+        "review_shipgate_adoption",
+        "review_trust_root",
+    } & {repair.id for repair in verifier.fix_task.allowed_repairs}
+
+
+def test_failed_head_scan_never_emits_adoption_or_merge_guidance(tmp_path):
+    repo = _repo_adopting_shipgate(tmp_path)
+    manifest = repo / SAMPLE_CONFIG
+    manifest.write_text("version: [\n", encoding="utf-8")
+    _git(repo, "add", SAMPLE_CONFIG.as_posix())
+    _git(repo, "commit", "--amend", "--no-edit")
+
+    with pytest.raises(ConfigError):
+        _run_verify(repo, base="HEAD~1", head="HEAD")
+
+    payload = json.loads(
+        (repo / "agents-shipgate-reports" / "verifier.json").read_text("utf-8")
+    )
+    assert payload["execution"] == "failed"
+    assert payload["headline"] == (
+        "Shipgate could not complete the scan; human review required."
+    )
+    assert "introduces Agents Shipgate" not in json.dumps(payload["control"])
+    assert "then merge" not in json.dumps(payload["control"])
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["verify_required"] is True
+    assert payload["control"]["next_action"]["kind"] == "stop"
+    assert payload["fix_task"]["actor"] == "human"
+    assert "re-run before merge" in " ".join(payload["fix_task"]["instructions"])
 
 
 def test_adopted_repo_gets_the_ordinary_wording_back(tmp_path):
@@ -433,6 +604,20 @@ def test_an_adoption_that_also_edits_a_policy_pack_keeps_the_strict_wording():
     assert findings[0].evidence["kind"] == "base_snapshot_unavailable"
 
 
+def test_adoption_finding_names_the_exact_configured_manifest():
+    context = _scan_context(manifest_introduced=True, changed=("config/release.gate",))
+    context.config_path = Path("/temporary/archive/config/release.gate")
+    assert context.verification is not None
+    context.verification.configured_manifest_path = "config/release.gate"
+
+    findings = verify_policy.run(context)
+
+    assert len(findings) == 1
+    assert "'config/release.gate'" in findings[0].recommendation
+    assert "shipgate.yaml" not in findings[0].recommendation
+    assert "generated" not in findings[0].recommendation
+
+
 def test_a_custom_named_manifest_is_still_a_trust_root(tmp_path):
     """The gate is whatever file the run loaded as the gate.
 
@@ -461,6 +646,15 @@ def test_a_custom_named_manifest_is_still_a_trust_root(tmp_path):
     assert verifier.capability_review.trust_root_touched is True
     assert verifier.can_merge_without_human is False
     assert verifier.control.state != "complete"
+    assert verifier.headline is not None
+    assert "samples/support_refund_agent/new-gate.yml" in verifier.headline
+    assert "generated shipgate.yaml" not in verifier.headline
+    assert "agent-instruction and CI files" not in verifier.headline
+    assert verifier.fix_task is not None
+    instructions = " ".join(verifier.fix_task.instructions)
+    assert "samples/support_refund_agent/new-gate.yml" in instructions
+    assert "generated shipgate.yaml" not in instructions
+    assert "agent-instruction and CI files" not in instructions
 
 
 def _run_verify_worktree(repo: Path, config: str):
@@ -563,9 +757,10 @@ def test_custom_manifest_evidence_is_deterministic(tmp_path):
 def test_a_base_that_keeps_another_manifest_is_not_an_adoption(tmp_path):
     """Absence has to be established, not inferred from two basenames.
 
-    A base that retains an operational `old-gate.yml` deletes nothing and
-    matches no name check, so only a content probe separates it from a genuine
-    first adoption.
+    A base that retains an operational `old-gate.json` deletes nothing and
+    matches no name check. ``load_manifest`` accepts its YAML content despite
+    the suffix, so only a suffix-agnostic content probe separates it from a
+    genuine first adoption.
     """
 
     repo = _repo_adopting_shipgate(tmp_path)
@@ -574,11 +769,11 @@ def test_a_base_that_keeps_another_manifest_is_not_an_adoption(tmp_path):
         repo,
         "mv",
         "samples/support_refund_agent/shipgate.yaml",
-        "samples/support_refund_agent/old-gate.yml",
+        "samples/support_refund_agent/old-gate.json",
     )
     _git(repo, "commit", "-m", "base keeps a custom manifest")
     (sample / "new-gate.yml").write_text(
-        (sample / "old-gate.yml").read_text("utf-8"), encoding="utf-8"
+        (sample / "old-gate.json").read_text("utf-8"), encoding="utf-8"
     )
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "add a second manifest without removing the first")

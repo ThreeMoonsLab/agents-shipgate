@@ -52,6 +52,7 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
         ),
         globs=(
             "**/.mcp.json",
+            "**/CLAUDE.md",
             ".claude/commands/*",
             ".claude/commands/**",
             ".claude/skills/*/SKILL.md",
@@ -83,6 +84,8 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
             "policies/host-boundary.shipgate.yaml",
         ),
         globs=(
+            "**/AGENTS.md",
+            "**/AGENTS.override.md",
             ".agents/skills/*/SKILL.md",
             ".agents/skills/**/SKILL.md",
             ".github/workflows/*.yml",

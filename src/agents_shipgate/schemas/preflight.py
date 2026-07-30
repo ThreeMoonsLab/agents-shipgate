@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 PREFLIGHT_SCHEMA_VERSION = "0.3"
+MAX_PREFLIGHT_DIFF_BYTES = 32 * 1024 * 1024
 
 PreflightActor = Literal["coding_agent", "human"]
 PreflightActionKind = Literal["continue", "review", "gather_evidence", "verify"]
@@ -76,6 +77,16 @@ class CapabilityRequestControls(BaseModel):
     safeguard_rollback: bool | None = None
     safeguard_dry_run: bool | None = None
 
+    @field_validator("approval_threshold")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
+
 
 class CapabilityRequestEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -83,6 +94,16 @@ class CapabilityRequestEvidence(BaseModel):
     owner: str | None = None
     runbook: str | None = None
     approval_ticket: str | None = None
+
+    @field_validator("owner", "runbook", "approval_ticket")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
 
 
 class CapabilityRequestV1(BaseModel):
@@ -105,6 +126,40 @@ class CapabilityRequestV1(BaseModel):
     controls: CapabilityRequestControls = Field(default_factory=CapabilityRequestControls)
     evidence: CapabilityRequestEvidence = Field(default_factory=CapabilityRequestEvidence)
 
+    @field_validator("tool_name")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
+
+    @field_validator("provider", "operation", "source_type")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
+
+    @field_validator("risk_tags")
+    @classmethod
+    def normalize_risk_tags(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().lower() for value in values]
+        if any(not value for value in normalized):
+            raise ValueError("risk tags must not be blank")
+        return list(dict.fromkeys(normalized))
+
+    @field_validator("scopes")
+    @classmethod
+    def normalize_scopes(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values]
+        if any(not value for value in normalized):
+            raise ValueError("scopes must not be blank")
+        return list(dict.fromkeys(normalized))
+
 
 class HostPermissionRequestV1(BaseModel):
     """Planning-time request for coding-agent host authority.
@@ -125,12 +180,40 @@ class HostPermissionRequestV1(BaseModel):
     requested_access: dict[str, Any] = Field(default_factory=dict)
     reason: str | None = None
 
+    @field_validator("host", "surface", "operation", "subject")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
+
+    @field_validator("path", "reason")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
+
 
 class PreflightPlanContextV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent: str | None = None
     task: str | None = None
+
+    @field_validator("agent", "task")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
 
 
 class PreflightPlanV1(BaseModel):
@@ -144,11 +227,31 @@ class PreflightPlanV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["preflight_plan_v1"] = "preflight_plan_v1"
-    changed_files: list[str] = Field(default_factory=list)
+    changed_files: list[str] = Field(default_factory=list, max_length=100_000)
     diff_text: str | None = None
-    capability_requests: list[CapabilityRequestV1] = Field(default_factory=list)
-    host_permission_requests: list[HostPermissionRequestV1] = Field(default_factory=list)
+    capability_requests: list[CapabilityRequestV1] = Field(
+        default_factory=list,
+        max_length=10_000,
+    )
+    host_permission_requests: list[HostPermissionRequestV1] = Field(
+        default_factory=list,
+        max_length=10_000,
+    )
     context: PreflightPlanContextV1 = Field(default_factory=PreflightPlanContextV1)
+
+    @model_validator(mode="after")
+    def enforce_static_input_bounds(self) -> PreflightPlanV1:
+        if (
+            self.diff_text is not None
+            and len(self.diff_text.encode("utf-8")) > MAX_PREFLIGHT_DIFF_BYTES
+        ):
+            raise ValueError(
+                f"diff_text exceeds the {MAX_PREFLIGHT_DIFF_BYTES}-byte static input limit"
+            )
+        for path in self.changed_files:
+            if len(path.encode("utf-8")) > 4096:
+                raise ValueError("changed_files entries must not exceed 4096 UTF-8 bytes")
+        return self
 
 
 class TrustRootNodeV1(BaseModel):
