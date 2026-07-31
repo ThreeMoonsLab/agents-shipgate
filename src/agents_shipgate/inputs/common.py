@@ -72,7 +72,9 @@ def resolve_input_path(base_dir: Path, value: str) -> Path:
                 f"Input path {value!r} does not identify one exact, non-aliased "
                 f"worktree entry: {issue.kind}"
             )
-        if lexical.is_dir():
+        if lexical.is_dir() and (
+            lexical == snapshot.root or snapshot.contains(lexical)
+        ):
             try:
                 snapshot.bind_directory(lexical)
             except (OSError, ValueError) as exc:
