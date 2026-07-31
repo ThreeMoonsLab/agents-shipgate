@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from importlib.resources import files
 from pathlib import Path
@@ -31,6 +30,7 @@ from agents_shipgate.core.boundary_registry import (
     boundary_adapters_for_path,
     is_agent_boundary_path,
 )
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.globbing import glob_match as _glob_match
 
 _TRIGGERS_FILENAME = "triggers.json"
@@ -510,34 +510,20 @@ def _git_diff_context(
 
     Returns ``([paths], diff_text)``.
     """
-    run_kwargs: dict[str, Any] = {
-        "capture_output": True,
-        "text": True,
-        "check": True,
-    }
-    if cwd is not None:
-        run_kwargs["cwd"] = str(cwd)
-    if revspec:
-        names_cmd = ["git", "diff", "--name-only", revspec]
-        body_cmd = ["git", "diff", revspec]
-    else:
-        names_cmd = ["git", "diff", "HEAD", "--name-only"]
-        body_cmd = ["git", "diff", "HEAD"]
-    names = subprocess.run(names_cmd, **run_kwargs)
-    body = subprocess.run(body_cmd, **run_kwargs)
-    paths = [line for line in names.stdout.splitlines() if line.strip()]
-    diff_text = body.stdout
+    # Lazy import avoids a module cycle: the verifier orchestrator imports the
+    # pure trigger evaluator, while this optional CLI-only path reuses the
+    # verifier's audited Git transport.
+    from agents_shipgate.cli.verify.git import (
+        diff_revspec_context,
+        working_tree_context,
+    )
 
-    if not revspec:
-        untracked = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard"],
-            **run_kwargs,
-        )
-        for line in untracked.stdout.splitlines():
-            stripped = line.strip()
-            if stripped and stripped not in paths:
-                paths.append(stripped)
-    return paths, diff_text
+    root = cwd or Path.cwd()
+    return (
+        diff_revspec_context(root, revspec)
+        if revspec
+        else working_tree_context(root, reject_index_hidden=True)
+    )
 
 
 def _read_paths_from_stdin() -> list[str]:
@@ -651,7 +637,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.git_diff is not None:
         try:
             paths, diff_text = _git_diff_context(args.git_diff)
-        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        except (FileNotFoundError, ConfigError) as exc:
             print(
                 f"--git-diff failed: {exc}. Run from a git checkout, or "
                 "pass paths and --diff-text manually.",

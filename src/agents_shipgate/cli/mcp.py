@@ -253,48 +253,70 @@ def build_mcp_audit(
     base_tools: list[Tool] = []
     head_tools: list[Tool] = []
     servers: list[NormalizedMcpServer] = []
-    changed_files = sorted({item.path for item in diff_files if item.path})
+    changed_files = sorted(
+        {
+            path
+            for item in diff_files
+            for path in (item.new_path, item.old_path)
+            if path
+        }
+    )
 
     for diff_file in diff_files:
-        if not diff_file.path:
-            continue
-        if is_codex_config_path(diff_file.path):
-            resolved = resolve_changed_file_text(workspace, diff_file, diagnostics)
-            if resolved.old_text:
+        old_path = diff_file.old_path
+        new_path = diff_file.new_path
+        resolved = None
+        old_is_codex = bool(old_path and is_codex_config_path(old_path))
+        new_is_codex = bool(new_path and is_codex_config_path(new_path))
+        if old_is_codex or new_is_codex:
+            resolved = resolve_changed_file_text(
+                workspace,
+                diff_file,
+                diagnostics,
+                preserve_rename_source=True,
+            )
+            if old_is_codex and resolved.old_text and old_path:
                 base_tools.extend(
                     _tools_from_toml(
                         resolved.old_text,
-                        source_ref=diff_file.path,
-                        source_path=diff_file.path,
+                        source_ref=old_path,
+                        source_path=old_path,
                         diagnostics=diagnostics,
                     )
                 )
-            if resolved.new_text:
+            if new_is_codex and resolved.new_text and new_path:
                 parsed_servers, tools = _servers_tools_from_toml(
                     resolved.new_text,
-                    source_ref=diff_file.path,
-                    source_path=diff_file.path,
+                    source_ref=new_path,
+                    source_path=new_path,
                     diagnostics=diagnostics,
                 )
                 servers.extend(parsed_servers)
                 head_tools.extend(tools)
-            continue
-        if is_mcp_json_path(diff_file.path):
-            resolved = resolve_changed_file_text(workspace, diff_file, diagnostics)
-            if resolved.old_text:
+        old_is_mcp = bool(old_path and is_mcp_json_path(old_path))
+        new_is_mcp = bool(new_path and is_mcp_json_path(new_path))
+        if old_is_mcp or new_is_mcp:
+            if resolved is None:
+                resolved = resolve_changed_file_text(
+                    workspace,
+                    diff_file,
+                    diagnostics,
+                    preserve_rename_source=True,
+                )
+            if old_is_mcp and resolved.old_text and old_path:
                 base_tools.extend(
                     _tools_from_mcp_json(
                         resolved.old_text,
-                        source_ref=diff_file.path,
-                        source_path=diff_file.path,
+                        source_ref=old_path,
+                        source_path=old_path,
                         diagnostics=diagnostics,
                     )
                 )
-            if resolved.new_text:
+            if new_is_mcp and resolved.new_text and new_path:
                 parsed_servers, tools = _servers_tools_from_mcp_json(
                     resolved.new_text,
-                    source_ref=diff_file.path,
-                    source_path=diff_file.path,
+                    source_ref=new_path,
+                    source_path=new_path,
                     diagnostics=diagnostics,
                 )
                 servers.extend(parsed_servers)

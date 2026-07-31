@@ -29,6 +29,7 @@ from agents_shipgate.cli.discovery.gitignore_block import (
 )
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+from agents_shipgate.core.errors import DiscoveryError
 from agents_shipgate.schemas.diagnostics import NextAction
 
 
@@ -304,7 +305,29 @@ def register(app: typer.Typer) -> None:
             )
             next_action_dry = "Inspect the template, then re-run with --write to commit it."
         else:
-            detect_result = detect_workspace(workspace_resolved)
+            try:
+                detect_result = detect_workspace(workspace_resolved)
+            except DiscoveryError as exc:
+                message = (
+                    "Workspace discovery could not establish bounded coverage: "
+                    f"{exc}"
+                )
+                action = NextAction(
+                    kind="review",
+                    why=message,
+                    expects=(
+                        "Reduce the repository inventory or inspect the Git "
+                        "failure, then rerun init."
+                    ),
+                )
+                typer.echo(message, err=True)
+                _emit_agent_mode_error(
+                    "other_error",
+                    message=message,
+                    next_action=action.to_legacy_string(),
+                    next_actions=[action.model_dump(mode="json")],
+                )
+                raise typer.Exit(4) from exc
             template = render_auto_manifest(workspace_resolved, detect_result)
             # Validation gate: refuse to emit a manifest the schema would reject.
             try:

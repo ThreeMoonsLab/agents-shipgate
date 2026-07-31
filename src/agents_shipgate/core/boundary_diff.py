@@ -68,6 +68,37 @@ class BoundaryChangeSet:
     diff_text: str
     changed_paths: tuple[str, ...]
     issues: tuple[BoundaryInputIssue, ...] = ()
+    manifest_text_snapshot: str | None = None
+
+
+def git_diff_path_token(prefix: str, path: str) -> str:
+    """Render one repository path as a Git-compatible diff token.
+
+    Raw diff headers are whitespace-delimited.  Synthetic headers therefore
+    must C-quote names with leading whitespace, controls, non-ASCII bytes, or
+    Git quoting characters; otherwise a legal repository name can be parsed as
+    a different path and fall into the invalid-path sentinel.
+    """
+
+    raw = f"{prefix}{path}".encode()
+    if raw and all(0x21 <= byte <= 0x7E and byte not in {0x22, 0x5C} for byte in raw):
+        return raw.decode("ascii")
+    escapes = {
+        0x07: r"\a",
+        0x08: r"\b",
+        0x09: r"\t",
+        0x0A: r"\n",
+        0x0B: r"\v",
+        0x0C: r"\f",
+        0x0D: r"\r",
+        0x22: r"\"",
+        0x5C: r"\\",
+    }
+    rendered = "".join(
+        escapes.get(byte, chr(byte) if 0x20 <= byte <= 0x7E else f"\\{byte:03o}")
+        for byte in raw
+    )
+    return f'"{rendered}"'
 
 
 def parse_unified_diff(diff_text: str) -> list[DiffFile]:
@@ -99,12 +130,23 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
     for raw_line in diff_text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         if raw_line.startswith("diff --git "):
             finish()
-            parts = raw_line.split()
-            old_path = _strip_diff_prefix(parts[2]) if len(parts) > 2 else None
-            new_path = _strip_diff_prefix(parts[3]) if len(parts) > 3 else old_path
+            try:
+                old_token, remainder = _parse_git_path_token(
+                    raw_line[len("diff --git ") :]
+                )
+                new_token, trailing = _parse_git_path_token(remainder)
+                if trailing.strip():
+                    raise ValueError("unexpected diff-header suffix")
+                old_path = _strip_diff_prefix(old_token)
+                new_path = _strip_diff_prefix(new_token)
+            except (UnicodeDecodeError, ValueError):
+                old_path = "\0invalid-diff-path"
+                new_path = "\0invalid-diff-path"
             current = {
                 "old_path": old_path,
                 "new_path": new_path,
+                "header_old_path": old_path,
+                "header_new_path": new_path,
                 "added_lines": [],
                 "removed_lines": [],
                 "hunks": [],
@@ -121,17 +163,47 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
         elif raw_line.startswith("new file mode"):
             current["is_new"] = True
         elif raw_line.startswith("rename from "):
-            current["old_path"] = raw_line[len("rename from ") :].strip()
+            value = _parse_git_path_value(raw_line[len("rename from ") :])
+            current["old_path"] = (
+                value
+                if value == current.get("header_old_path")
+                else "\0invalid-diff-path"
+            )
             current["is_rename"] = True
         elif raw_line.startswith("rename to "):
-            current["new_path"] = raw_line[len("rename to ") :].strip()
+            value = _parse_git_path_value(raw_line[len("rename to ") :])
+            current["new_path"] = (
+                value
+                if value == current.get("header_new_path")
+                else "\0invalid-diff-path"
+            )
             current["is_rename"] = True
         elif raw_line.startswith("--- "):
-            value = raw_line[4:].strip()
-            current["old_path"] = None if value == "/dev/null" else _strip_diff_prefix(value)
+            value = _parse_git_path_value(raw_line[4:])
+            parsed = None if value == "/dev/null" else _strip_diff_prefix(value)
+            if (
+                (parsed is None and not current.get("is_new"))
+                or (
+                    parsed is not None
+                    and parsed != current.get("header_old_path")
+                )
+            ):
+                current["old_path"] = "\0invalid-diff-path"
+            else:
+                current["old_path"] = parsed
         elif raw_line.startswith("+++ "):
-            value = raw_line[4:].strip()
-            current["new_path"] = None if value == "/dev/null" else _strip_diff_prefix(value)
+            value = _parse_git_path_value(raw_line[4:])
+            parsed = None if value == "/dev/null" else _strip_diff_prefix(value)
+            if (
+                (parsed is None and not current.get("is_deleted"))
+                or (
+                    parsed is not None
+                    and parsed != current.get("header_new_path")
+                )
+            ):
+                current["new_path"] = "\0invalid-diff-path"
+            else:
+                current["new_path"] = parsed
             if value == "/dev/null":
                 current["is_deleted"] = True
         elif raw_line.startswith("@@ "):
@@ -166,10 +238,78 @@ def _parse_hunk_header(line: str) -> DiffHunk:
 
 
 def _strip_diff_prefix(value: str) -> str:
-    value = value.strip()
     if value.startswith("a/") or value.startswith("b/"):
         return value[2:]
     return value
+
+
+def _parse_git_path_value(value: str) -> str:
+    """Decode one Git pathname, failing into a structural-review sentinel."""
+
+    try:
+        candidate = value
+        if not value.lstrip(" ").startswith('"'):
+            # Generic unified diffs conventionally append a timestamp after a
+            # TAB. Split it before token parsing; otherwise the TAB becomes
+            # part of the repository pathname and can hide a protected file.
+            candidate = value.partition("\t")[0]
+        token, trailing = _parse_git_path_token(candidate)
+        if trailing:
+            raise ValueError("unexpected path suffix")
+        return token
+    except (UnicodeDecodeError, ValueError):
+        return "\0invalid-diff-path"
+
+
+def _parse_git_path_token(value: str) -> tuple[str, str]:
+    """Parse Git's raw or C-quoted pathname token exactly."""
+
+    value = value.lstrip(" ")
+    if not value:
+        raise ValueError("missing Git path")
+    if not value.startswith('"'):
+        token, separator, remainder = value.partition(" ")
+        return token, remainder.lstrip(" ") if separator else ""
+
+    data = bytearray()
+    index = 1
+    escapes = {
+        "a": 0x07,
+        "b": 0x08,
+        "f": 0x0C,
+        "n": 0x0A,
+        "r": 0x0D,
+        "t": 0x09,
+        "v": 0x0B,
+        "\\": 0x5C,
+        '"': 0x22,
+    }
+    while index < len(value):
+        char = value[index]
+        if char == '"':
+            token = bytes(data).decode("utf-8", errors="strict")
+            return token, value[index + 1 :].lstrip(" ")
+        if char != "\\":
+            data.extend(char.encode("utf-8"))
+            index += 1
+            continue
+        index += 1
+        if index >= len(value):
+            raise ValueError("truncated Git path escape")
+        escaped = value[index]
+        if escaped in escapes:
+            data.append(escapes[escaped])
+            index += 1
+            continue
+        if escaped in "01234567":
+            end = index
+            while end < len(value) and end < index + 3 and value[end] in "01234567":
+                end += 1
+            data.append(int(value[index:end], 8))
+            index = end
+            continue
+        raise ValueError("unsupported Git path escape")
+    raise ValueError("unterminated Git path quote")
 
 
 def _resolve_changed_file_text(
@@ -177,10 +317,25 @@ def _resolve_changed_file_text(
     diff_file: DiffFile,
     diagnostics: list[AgentResultDiagnostic],
     read_cache: Any | None = None,
+    *,
+    preserve_rename_source: bool = False,
 ) -> ResolvedFileText:
     path = diff_file.path
     if diff_file.is_deleted:
         old_text = _old_text_from_hunks(diff_file)
+        workspace_text, workspace_present = _existing_workspace_text(
+            workspace,
+            path,
+            read_cache=read_cache,
+        )
+        if workspace_present and (
+            workspace_text is None or workspace_text != old_text
+        ):
+            resolved = _unresolved_text("deleted_file_workspace_mismatch")
+            diagnostics.append(
+                _content_source_diagnostic(path, resolved, level="warning")
+            )
+            return resolved
         resolved = ResolvedFileText(
             old_text=old_text,
             new_text="" if old_text is not None else None,
@@ -192,6 +347,19 @@ def _resolve_changed_file_text(
         return resolved
     if diff_file.is_new:
         new_text = _new_text_from_hunks(diff_file)
+        workspace_text, workspace_present = _existing_workspace_text(
+            workspace,
+            path,
+            read_cache=read_cache,
+        )
+        if workspace_present and (
+            workspace_text is None or workspace_text != new_text
+        ):
+            resolved = _unresolved_text("new_file_workspace_mismatch")
+            diagnostics.append(
+                _content_source_diagnostic(path, resolved, level="warning")
+            )
+            return resolved
         resolved = ResolvedFileText(
             old_text="",
             new_text=new_text,
@@ -200,6 +368,68 @@ def _resolve_changed_file_text(
             new_sha256=_sha256_text(new_text),
         )
         diagnostics.append(_content_source_diagnostic(path, resolved))
+        return resolved
+
+    if diff_file.is_rename and preserve_rename_source:
+        # A rename diff still has two content-bearing sides. The previous
+        # resolver treated every rename as ``old_text=""`` because a head
+        # worktree only retains the destination path. That converted a
+        # byte-identical rename into a capability addition and lost removals
+        # when a recognized source was renamed out of an adapter path.
+        #
+        # Prefer the destination when the workspace contains the head tree and
+        # reverse the hunks to reconstruct the source. Also support a base-tree
+        # workspace by reading the source and applying the hunks forward.
+        new_path = _safe_workspace_path(workspace, diff_file.new_path or "")
+        if new_path is not None and new_path.is_file():
+            new_text = _read_changed_text(
+                new_path,
+                workspace=workspace,
+                read_cache=read_cache,
+            )
+            if new_text is not None:
+                old_text = (
+                    _apply_hunks(new_text, diff_file.hunks, direction="reverse")
+                    if diff_file.hunks
+                    else new_text
+                )
+                if old_text is not None:
+                    resolved = ResolvedFileText(
+                        old_text=old_text,
+                        new_text=new_text,
+                        source="workspace_renamed_head_file",
+                        old_sha256=_sha256_text(old_text),
+                        new_sha256=_sha256_text(new_text),
+                    )
+                    diagnostics.append(_content_source_diagnostic(path, resolved))
+                    return resolved
+
+        old_path = _safe_workspace_path(workspace, diff_file.old_path or "")
+        if old_path is not None and old_path.is_file():
+            old_text = _read_changed_text(
+                old_path,
+                workspace=workspace,
+                read_cache=read_cache,
+            )
+            if old_text is not None:
+                new_text = (
+                    _apply_hunks(old_text, diff_file.hunks, direction="forward")
+                    if diff_file.hunks
+                    else old_text
+                )
+                if new_text is not None:
+                    resolved = ResolvedFileText(
+                        old_text=old_text,
+                        new_text=new_text,
+                        source="workspace_renamed_base_file",
+                        old_sha256=_sha256_text(old_text),
+                        new_sha256=_sha256_text(new_text),
+                    )
+                    diagnostics.append(_content_source_diagnostic(path, resolved))
+                    return resolved
+
+        resolved = _unresolved_text("renamed_file_unresolved")
+        diagnostics.append(_content_source_diagnostic(path, resolved, level="warning"))
         return resolved
 
     if diff_file.is_rename:
@@ -318,6 +548,58 @@ def _unresolved_text(source: str) -> ResolvedFileText:
     )
 
 
+def _read_changed_text(
+    path: Path,
+    *,
+    workspace: Path,
+    read_cache: Any | None,
+) -> str | None:
+    """Read one contained diff side without converting failures to content."""
+
+    try:
+        if read_cache is None:
+            return path.read_text(encoding="utf-8")
+        text, error = read_cache.read(path, containment_root=workspace)
+        return text if error is None else None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _existing_workspace_text(
+    workspace: Path,
+    path: str,
+    *,
+    read_cache: Any | None,
+) -> tuple[str | None, bool]:
+    """Return a present workspace side without treating unsafe aliases as text."""
+
+    lexical = workspace / path
+    try:
+        present = lexical.exists() or lexical.is_symlink()
+    except OSError:
+        return None, True
+    if not present:
+        return None, False
+    safe = _safe_workspace_path(workspace, path)
+    try:
+        if (
+            safe is None
+            or lexical.is_symlink()
+            or not lexical.is_file()
+        ):
+            return None, True
+    except OSError:
+        return None, True
+    return (
+        _read_changed_text(
+            lexical,
+            workspace=workspace,
+            read_cache=read_cache,
+        ),
+        True,
+    )
+
+
 def _content_source_diagnostic(
     path: str,
     resolved: ResolvedFileText,
@@ -426,7 +708,10 @@ def _canonical_json(value: Any) -> str:
 
 
 def _safe_workspace_path(workspace: Path, value: str) -> Path | None:
-    candidate = (workspace / value).resolve()
+    try:
+        candidate = (workspace / value).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
     try:
         candidate.relative_to(workspace)
     except ValueError:

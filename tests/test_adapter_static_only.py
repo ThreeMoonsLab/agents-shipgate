@@ -193,87 +193,41 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="attr_call:subprocess.run",
-        line=474,
+        line=494,
         snippet=(
-            "subprocess.run(['git', '-C', str(workspace), 'rev-parse', "
-            "'--show-toplevel'], check=False, capture_output=True, "
-            "text=True, timeout=2)"
+            "subprocess.run(['git', '--no-replace-objects', '-C', "
+            "str(workspace), 'rev-parse', '--show-toplevel'], check=False, "
+            "capture_output=True, env=env, text=True, timeout=2)"
         ),
         rationale=(
             "_git_candidate_files step 1: ``git -C <workspace> "
             "rev-parse --show-toplevel`` to locate the repo root. "
-            "Fixed argv, capture-only, no shell, hard timeout."
+            "Fixed argv, sanitized Git environment, capture-only, no shell, "
+            "and a hard timeout."
         ),
     ),
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
-        surface="attr_call:subprocess.run",
-        line=490,
+        surface="attr_call:subprocess.Popen",
+        line=576,
         snippet=(
-            "subprocess.run(['git', '-C', str(workspace), 'ls-files', "
-            "'-co', '--exclude-standard', '--full-name', '-z', '--', "
-            "'.'], check=False, capture_output=True, timeout=5)"
+            "subprocess.Popen(['git', '--no-replace-objects', '-C', "
+            "str(workspace), *args], env=env, stdout=subprocess.PIPE, "
+            "stderr=subprocess.DEVNULL)"
         ),
         rationale=(
             "_git_candidate_files step 2: ``git -C <workspace> "
             "ls-files -co --exclude-standard --full-name -z -- .`` to "
             "enumerate tracked + untracked-not-ignored files in NUL-"
-            "delimited form. Fixed argv, capture-only, no shell."
-        ),
-    ),
-    # triggers.py — trigger evaluation reads ``git diff`` output. Same
-    # trust profile as discovery/artifacts.py.
-    AllowedException(
-        relative_path="triggers.py",
-        surface="import:subprocess",
-        line=24,
-        snippet="import subprocess",
-        rationale=(
-            "Trigger evaluation runs ``git diff`` to determine whether a "
-            "PR's changes match Shipgate's triggers.json rules. Fixed git "
-            "argv, capture-only, no shell."
-        ),
-    ),
-    AllowedException(
-        relative_path="triggers.py",
-        surface="attr_call:subprocess.run",
-        line=526,
-        snippet="subprocess.run(names_cmd, **run_kwargs)",
-        rationale=(
-            "git-diff change-name pass: ``git diff --name-only "
-            "base...HEAD``. argv (names_cmd) constructed inside Shipgate "
-            "from validated base ref; run_kwargs is a fixed capture-only "
-            "dict (capture_output/text/check, optional cwd)."
-        ),
-    ),
-    AllowedException(
-        relative_path="triggers.py",
-        surface="attr_call:subprocess.run",
-        line=527,
-        snippet="subprocess.run(body_cmd, **run_kwargs)",
-        rationale=(
-            "git-diff body pass: ``git diff base...HEAD`` for full "
-            "diff body inspection. argv (body_cmd) constructed inside "
-            "Shipgate; run_kwargs is the same fixed capture-only dict."
-        ),
-    ),
-    AllowedException(
-        relative_path="triggers.py",
-        surface="attr_call:subprocess.run",
-        line=532,
-        snippet=(
-            "subprocess.run(['git', 'ls-files', '--others', '--exclude-standard'], **run_kwargs)"
-        ),
-        rationale=(
-            "git-untracked enumeration: ``git ls-files --others "
-            "--exclude-standard``. Fixed argv, capture-only, no shell."
+            "delimited form. The fixed-argv, sanitized-environment collector "
+            "drains incrementally and kills Git at a hard byte or wall-clock "
+            "bound; no shell or user-code execution."
         ),
     ),
     # cli/trigger.py — the `agents-shipgate trigger` subcommand imports
     # subprocess ONLY to catch ``subprocess.CalledProcessError`` from the
-    # shared ``triggers._git_diff_context`` git probe (allowlisted above).
-    # It issues no subprocess call of its own — git is invoked exclusively
-    # inside triggers.py, and only when --base/--head is passed.
+    # verifier's shared audited Git collector. It issues no subprocess call
+    # of its own.
     AllowedException(
         relative_path="cli/trigger.py",
         surface="import:subprocess",
@@ -281,9 +235,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
         snippet="import subprocess",
         rationale=(
             "trigger subcommand catches subprocess.CalledProcessError from "
-            "the shared triggers._git_diff_context git probe; this file "
-            "issues no subprocess.run call itself (git runs in triggers.py "
-            "only, and only under --base/--head)."
+            "the shared audited Git collector reached through "
+            "triggers._git_diff_context; this file issues no subprocess "
+            "call itself."
         ),
     ),
     # cli/verify/git.py — verify orchestrates local base/head git reads.
@@ -302,8 +256,25 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/verify/git.py",
+        surface="attr_call:subprocess.Popen",
+        line=1404,
+        snippet=(
+            "subprocess.Popen(cmd, env=env, stderr=subprocess.DEVNULL, "
+            "stdin=subprocess.PIPE if input is not None else "
+            "subprocess.DEVNULL, stdout=subprocess.PIPE)"
+        ),
+        rationale=(
+            "The shared bounded Git collector drains fixed local Git argv "
+            "incrementally and kills them at a hard byte or wall-clock "
+            "bound. It covers diff/name/attribute/inventory reads and "
+            "retained-manifest discovery without a shell, user-code "
+            "execution, or fetch."
+        ),
+    ),
+    AllowedException(
+        relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=616,
+        line=1514,
         snippet=(
             "subprocess.run(cmd, capture_output=capture_output, check=check, "
             "env=env, input=input, stderr=stderr, stdin=stdin, stdout=stdout, "
@@ -413,7 +384,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="import:importlib.resources.files",
-        line=26,
+        line=25,
         snippet="from importlib.resources import files",
         rationale=(
             "triggers.py reads the bundled docs/triggers.json catalog from "
@@ -1291,16 +1262,14 @@ def test_no_unallowlisted_forbidden_surface_in_scanner() -> None:
     )
 
 
-def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
+def test_allowed_exceptions_pin_subprocess_per_call_site() -> None:
     """v0.18 (PR #2 review follow-up): regression test for the P1
     bypass the reviewer caught.
 
-    Confirms that ``triggers.py`` has THREE distinct
-    ``subprocess.run`` AllowedException entries (one per call site at
-    lines 480, 481, 486), not one blanket entry that permits all
-    occurrences. Same for ``cli/discovery/artifacts.py`` (two call
-    sites at 474 and 490). Adding a fourth ``subprocess.run`` to
-    ``triggers.py`` must require adding a new ALLOWED_EXCEPTIONS entry.
+    Trigger evaluation now delegates to the verifier's audited Git transport,
+    so ``triggers.py`` has no subprocess exception. Discovery has one bounded
+    root probe and one bounded inventory collector; verify has one shared
+    conventional process boundary and one shared bounded-output boundary.
 
     If the test fails because lines drifted, that is the intended
     failure mode — the contributor must re-review the move and bump
@@ -1311,31 +1280,39 @@ def test_allowed_exceptions_pin_subprocess_run_per_call_site() -> None:
     for exc in ALLOWED_EXCEPTIONS:
         by_file_surface.setdefault((exc.relative_path, exc.surface), []).append(exc)
 
-    triggers_subprocess_run = by_file_surface.get(("triggers.py", "attr_call:subprocess.run"), [])
-    assert len(triggers_subprocess_run) == 3, (
-        f"Expected 3 distinct AllowedException entries for "
-        f"triggers.py subprocess.run calls (one per call site at "
-        f"lines 480, 481, 486), got {len(triggers_subprocess_run)}. "
-        f"Per-call-site pinning is the structural fix for the "
-        f"P1 review finding — each subprocess.run call must have "
-        f"its own entry with line + snippet pinning."
-    )
+    assert not [
+        exc
+        for exc in ALLOWED_EXCEPTIONS
+        if exc.relative_path == "triggers.py"
+        and exc.surface.startswith(("import:subprocess", "attr_call:subprocess."))
+    ], "triggers.py must use the verifier's audited Git transport"
+
     artifacts_subprocess_run = by_file_surface.get(
         ("cli/discovery/artifacts.py", "attr_call:subprocess.run"), []
     )
-    assert len(artifacts_subprocess_run) == 2, (
-        f"Expected 2 distinct AllowedException entries for "
-        f"cli/discovery/artifacts.py subprocess.run calls (one per "
-        f"call site at lines 474 and 490), got "
-        f"{len(artifacts_subprocess_run)}."
+    artifacts_subprocess_popen = by_file_surface.get(
+        ("cli/discovery/artifacts.py", "attr_call:subprocess.Popen"), []
+    )
+    assert len(artifacts_subprocess_run) == 1, (
+        "Expected one root-resolution subprocess.run exception for cli/discovery/artifacts.py."
+    )
+    assert len(artifacts_subprocess_popen) == 1, (
+        "Expected one bounded inventory subprocess.Popen exception for cli/discovery/artifacts.py."
     )
     verify_subprocess_run = by_file_surface.get(
         ("cli/verify/git.py", "attr_call:subprocess.run"), []
+    )
+    verify_subprocess_popen = by_file_surface.get(
+        ("cli/verify/git.py", "attr_call:subprocess.Popen"), []
     )
     assert len(verify_subprocess_run) == 1, (
         f"Expected 1 AllowedException entry for cli/verify/git.py "
         f"subprocess.run (the shared fixed-argv process boundary), got "
         f"{len(verify_subprocess_run)}."
+    )
+    assert len(verify_subprocess_popen) == 1, (
+        "Expected one AllowedException entry for cli/verify/git.py "
+        "subprocess.Popen (the shared bounded-output Git boundary)."
     )
 
 

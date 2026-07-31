@@ -14,7 +14,10 @@ If the base snapshot is unavailable (no diff reference, or a pre-v0.22
 base) AND the PR touched a policy/manifest trust root, it emits a single
 ``base_snapshot_unavailable`` review-required finding — a reward-hacker
 must not be able to dodge review by breaking the base scan (§5.3: ambiguous
-direction -> review_required, never silent pass).
+direction -> review_required, never silent pass). When the base is proven
+to carry no manifest at all, the same fail-safe emits under evidence kind
+``manifest_introduced`` instead: adoption is still a human decision, but
+nothing existed to weaken and the finding says so.
 
 Weakening is defined as movement toward less review / less blocking. A
 strengthening change (stricter mode, more fail-on severities, raised
@@ -36,6 +39,7 @@ from agents_shipgate.checks._verify_common import (
     verify_finding,
 )
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.trust_roots import is_context_configured_manifest
 from agents_shipgate.schemas.report import Finding
 
 CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
@@ -176,11 +180,61 @@ def _effective_severity(
     return overrides.get(check_id) or defaults.get(check_id)
 
 
+def _touched_policy_surfaces(context: ScanContext) -> list[str]:
+    """Changed policy trust roots, including a non-default manifest name.
+
+    ``_POLICY_SURFACES`` only knows ``**/shipgate.yaml``. A repository whose
+    gate is ``new-gate.yml`` was therefore invisible to this fail-safe: its
+    manifest could be introduced or rewritten with no base snapshot and this
+    check emitted nothing at all.
+    """
+
+    files = changed_files(context)
+    hits = set(touched(_POLICY_SURFACES, files))
+    hits.update(path for path in files if is_context_configured_manifest(context, path))
+    return sorted(hits)
+
+
 def _fail_safe(context: ScanContext) -> list[Finding]:
     """No base snapshot: emit review-required iff a policy root was touched."""
-    hit = touched(_POLICY_SURFACES, changed_files(context))
+    hit = _touched_policy_surfaces(context)
     if not hit:
         return []
+    verification = context.verification
+    introducing = verification is not None and verification.manifest_introduced
+    # An adoption that *also* edits an existing policy pack or baseline is not
+    # covered by "nothing existed to weaken": those files were already there.
+    # The friendlier wording is only correct when every touched policy surface
+    # is the manifest being introduced.
+    if introducing and all(
+        is_context_configured_manifest(context, path) for path in hit
+    ):
+        configured_manifest = verification.configured_manifest_path or hit[0]
+        # A base with no manifest at all cannot have been weakened. This still
+        # emits — at the same check id and severity, so the verdict and every
+        # fail-closed consumer are unchanged — because the human decision
+        # (adopt this policy) is real. Only the claim about what happened
+        # changes. The orchestrator proves the base carries no manifest under
+        # any name, so a moved-and-loosened manifest does not reach here.
+        return [
+            verify_finding(
+                context,
+                check_id=CHECK_ID,
+                title="Initial Shipgate adoption: the base carries no policy",
+                severity="medium",
+                evidence={
+                    "kind": "manifest_introduced",
+                    "changed_policy_files": hit,
+                },
+                recommendation=(
+                    "This PR introduces the Shipgate manifest rather than "
+                    "changing an existing one, so no prior gate was weakened. "
+                    "Adopting a release policy is a human decision: review the "
+                    f"configured manifest {configured_manifest!r}; a human "
+                    "must decide whether to adopt it."
+                ),
+            )
+        ]
     return [
         verify_finding(
             context,

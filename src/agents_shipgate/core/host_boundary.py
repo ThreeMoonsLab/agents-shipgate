@@ -47,6 +47,7 @@ from agents_shipgate.core.codex_boundary import (
     _dedupe_violations,
     _display_path,
 )
+from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
     AgentResultRiskLevel,
@@ -256,16 +257,24 @@ def load_host_boundary_policy(
     *,
     workspace: Path,
     policy_path: Path,
+    policy_text: str | None = None,
 ) -> tuple[HostBoundaryPolicy, list[AgentResultDiagnostic]]:
     diagnostics: list[AgentResultDiagnostic] = []
     candidate = policy_path if policy_path.is_absolute() else workspace / policy_path
     data: dict[str, Any] | None = None
     if candidate.is_file():
         try:
-            loaded = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+            loaded = yaml.safe_load(
+                policy_text
+                if policy_text is not None
+                else read_absolute_identity_bound_text(
+                    candidate,
+                    max_bytes=1024 * 1024,
+                )
+            ) or {}
             if isinstance(loaded, dict):
                 data = loaded
-        except (OSError, yaml.YAMLError) as exc:
+        except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError) as exc:
             diagnostics.append(
                 AgentResultDiagnostic(
                     level="warning",

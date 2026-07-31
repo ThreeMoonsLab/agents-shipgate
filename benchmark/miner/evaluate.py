@@ -383,14 +383,14 @@ def _verify_pr(
         head_sha,
     ]
     if baseline_path is not None:
-        cmd += ["--baseline", str(baseline_path)]
+        cmd += ["--baseline", str(baseline_path.resolve())]
     cmd += [
         "--ci-mode",
         "advisory",
         "--format",
         "json",
         "--out",
-        str(tmp_path / "verify-reports"),
+        str((tmp_path / "verify-reports").resolve()),
     ]
     result = _run(cmd)
     payload = _parse_json(result.stdout)

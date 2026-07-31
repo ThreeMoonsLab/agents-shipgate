@@ -2,6 +2,152 @@
 
 ## Unreleased
 
+- **A first adoption no longer reads as a policy weakening.** Adding the
+  manifest to a repository that had none is the first verdict every new adopter
+  sees, and it said "This PR weakens the release policy that evaluates it",
+  carried a finding titled "Policy change cannot be proven safe (no base
+  snapshot)", and — because a missing-manifest base was classified as a safe
+  recovery — shipped no `fix_task` at all, so nothing named the act that would
+  clear it. `verify` now proves adoption from git (the comparison base carries
+  no manifest under any name and no YAML that *parses* as one — a text probe
+  missed a valid manifest with quoted keys — so neither a *moved* manifest nor
+  a base that quietly keeps one can pass itself off as a first adoption) and says so: same check id, same `medium` severity, same
+  `human_review_required` state, new evidence kind `manifest_introduced`, and a
+  `fix_task` whose leading instruction names the exact configured manifest.
+  Only when adoption is the sole gating concern does that instruction say to
+  merge the adoption through a human-reviewed PR; blockers, insufficient
+  evidence, and additional review items lead with their own stop condition.
+  `check` gets the same correction locally, keyed on the diff carrying exactly
+  one manifest record and that record being a plain addition. Adoption remains
+  a human decision — only the claim about what happened changed.
+- **The manifest a run actually loaded is a trust root.** The trust-root table
+  only knew `**/shipgate.yaml`, so a repository run with `--config new-gate.yml`
+  had no manifest trust root at all: the file defining its gate could be
+  introduced or rewritten without a single finding, leaving the release
+  substrate empty. With a clean scan that produced `passed` / `mergeable` /
+  `complete` — beneath an adoption headline that said a human was required.
+  Whatever a run loads as its gate is now classified as one, in both the
+  trust-root check and the policy fail-safe — and in `check` and `preflight`,
+  which classified it no better: a diff for a custom-named manifest returned
+  `allow` with no violations locally and no protected touch in preflight — the
+  local check dropped it from the diff entirely before any evaluator saw it —
+  and both then recommended a verify command for the default `shipgate.yaml`.
+  Identity is compared on normalized, containment-checked paths, so an
+  equivalent spelling (`docs/x/../manifest.yaml`) cannot slip past, and
+  preflight classifies the *source* side of a rename, which is where the gate
+  sits when a diff moves it out from under itself. The
+  classification is recorded on the boundary row so a gate-governing surface
+  stays out of the graded agent route regardless of its name, and the evidence
+  carries the changed path rather than the resolved config path, which for a
+  committed-head run is a temporary archive location that would make two
+  identical runs produce different fingerprints.
+- **`check` detects which agent is running it.** `--agent` defaulted to `codex`
+  and never consulted the harness variables Shipgate already reads to switch on
+  agent mode, so every Claude Code and Cursor run recorded the wrong actor in
+  its result and audit id. Detection now comes from one table that also defines
+  those hints, so the two cannot drift; an explicit `--agent` still wins, and a
+  plain shell still gets `codex`.
+- **`check`, `audit`, and `preflight` honor the agent-mode error contract.**
+  The skills and slash command tell agents that with
+  `AGENTS_SHIPGATE_AGENT_MODE=1` a failing command emits a structured
+  `next_action` line on stderr; these three printed prose only, so an agent that
+  mis-invoked them had to parse English. Each error path now emits the line with
+  its `exit_code`, and `preflight` no longer lets an unexpected failure escape
+  as a bare traceback.
+- **A rerun command that actually reruns.** The `fix_task` verification command
+  omitted `--config`, substituted `origin/main` for a base the run never used,
+  and always appended `--head HEAD`. In a repository with a nested manifest it
+  re-ran against a different gate, and for an uncommitted first adoption it
+  switched to the committed tree — where the new manifest does not exist — and
+  exited 2. It now emits the config always, the base only when one was used,
+  and no `--head` for a working-tree run — plus the rest of the evaluated
+  request (policy packs, baseline, `--ci-mode`, plugin and heuristic modes, and
+  an explicit `--no-base`), because a rerun that drops them evaluates a
+  different question than the one whose findings it is meant to reproduce. The
+  structured adoption repair now names the resolved config path instead of a
+  hardcoded `shipgate.yaml`, and the command carries the resolved `--workspace`
+  and a non-default `--out`, so a rerun from another directory evaluates the
+  same checkout and writes to the same place. `check`'s recovery command is
+  rebuilt from the failing request with only the invalid field corrected —
+  a fixed command discarded actor, workspace, config, policy, and diff context
+  — and a request whose diff came from stdin gets a review action instead of a
+  command that cannot be replayed.
+- **Preflight recovery keeps the request it failed on.** Every preflight error
+  recommended a bare `agents-shipgate preflight --json`, discarding workspace,
+  config, plan, diff, and capability request: following it after a failed
+  targeted run evaluated the current repository with an empty plan and returned
+  `control.state=complete`. The recovery action now reproduces the actual
+  invocation, and offers no command at all when the request came from stdin or
+  mixed `--plan` with the per-flag inputs — replaying a request-shape conflict
+  can never satisfy its own `expects`. `check`'s recovery is one quoted
+  serializer for every path, including diff-input failures, which previously
+  joined user-controlled paths and refs unquoted into a published *authorized*
+  command; commands the CLI emits for its own targets now name the workspace
+  and the manifest, with the config rendered the way `verify` resolves it —
+  relative to the repository root — so a nested manifest is no longer verified
+  against the root gate.
+- **Detached diffs never authorize checkout-dependent verification.** A diff
+  supplied by file, stdin, or the read-only MCP adapter can be evaluated for
+  diagnostics, but it is not proof of the bytes a later `verify` command would
+  read. When such a result owes verification, control now stops with no
+  allowed command and the summary says to rerun against the intended worktree
+  or a complete ref range. MCP preflight also rejects a `plan` mixed with
+  direct request fields instead of silently discarding one input source.
+- **A failed baseline is never recovered by overwriting it.** A malformed,
+  unknown-schema, or integrity-failed host-grants baseline recommended
+  `--save-baseline` against the same path, which replaced the failed artifact
+  with the *current* grants — acknowledging them unreviewed and destroying the
+  evidence a human needed. Those now route to review. A genuinely absent
+  baseline also routes to a human because creating the first baseline
+  acknowledges the current grants; a failed read-only drift request never
+  authorizes that state-changing decision.
+- **Host-audit filesystem failures follow the catalog.** A `--baseline-file`
+  naming a directory raised `IsADirectoryError` through typer as a traceback
+  and exit 1. Filesystem failures on both `--baseline-file` and `--out` are now
+  `other_error` with exit 4, as `docs/errors.json` specifies — they were
+  briefly reported as `config_error`/2, which sends an agent back to re-read
+  flags that were fine. The baseline *reader* needed the same treatment through
+  its `__cause__`, since the loader converts every read `OSError` into
+  `ValueError`; a genuinely missing baseline remains `config_error`/2 but now
+  carries a review-only route for the first acknowledgement.
+- **The audit id distinguishes the actor.** Detecting the calling agent changed
+  the label in the result but not the digest — the central one omitted the
+  actor and the legacy one hardcoded `codex` — so identical evaluations by
+  Claude Code, Cursor, and Codex shared an `audit_id`, which is exactly the
+  attribution problem actor detection exists to solve. Legacy replayable
+  provided-diff Codex ids keep their established shape. Non-default actors add
+  actor identity; worktree, ref-range, and detached evaluations also bind
+  input/control replayability, so those ids intentionally rotate. Semantic
+  control state is hashed without checkout-specific command paths.
+- **Static control inputs now fail closed on identity and resource ambiguity.**
+  Local check, preflight, host audit, installed hooks, and verifier Git
+  collection bind exact non-symlink, singly-linked regular files; manifest,
+  policy, baseline, trust-root, diff, and Git inventories have byte or entry
+  ceilings. Executable filters, repository diff drivers, hidden index flags,
+  source-like binary diffs, malformed/coherence-breaking diff records, and
+  filesystem-portability collisions stop instead of silently dropping source
+  text. Prior verifier output is excluded from a worktree request so an
+  identical rerun does not hash its own artifacts.
+- **Portable host instructions are protected consistently.** Boundary
+  matching is case-insensitive and hierarchical for `AGENTS.md`,
+  `AGENTS.override.md`, and `CLAUDE.md`; a case variant or nested copy cannot
+  acquire authority only after checkout on another host. Symlink directories
+  that could conceal a leading-`**/` trust root make host inventory and
+  preflight incomplete and route to human review.
+- **Mechanical repair authorization is subject-bound.** A coding-agent repair
+  route now requires an applicable high-confidence non-manual patch against a
+  worktree subject. A ref-bound verifier cannot authorize a patch command that
+  would edit the checkout and then rerun the unchanged commit; it routes that
+  repair to a human instead.
+- **Adoption wording stands down when something was genuinely weakened.**
+  Introducing the manifest while editing an existing policy file produced a
+  `base_snapshot_unavailable` finding under a headline saying there was no
+  prior gate to weaken, and dropped the `review_policy_weakening` repair. The
+  pure-adoption wording now requires that nothing else needing review changed.
+  The adoption proof itself also stopped resting on two basenames: a base that
+  simply keeps an operational manifest under another name deletes nothing and
+  matches no name check, so absence is now established by content.
+
 - **A way out of `insufficient_evidence` (#292).** An abstention was
   unactionable in practice: the decision engine generated the exact manifest
   snippet each evidence gap wants, but those snippets were only reachable by
@@ -58,8 +204,10 @@
   fail-closed: `block` actions, `critical` risk, incomplete or unparseable
   input, gate-weakening rules, experimental surfaces, and every
   gate-governing trust-root class (`manifest`, `policy`, `ci_gate`,
-  `shipgate_state`) keep the human stop, preserving the composite-diff
-  guarantee from the agent-authored proposal work. The deprecated
+  `shipgate_state`) keep the human stop. Root/case-variant
+  `AGENTS.md`/`AGENTS.override.md`/`CLAUDE.md` instruction identities do too,
+  preserving the composite-diff guarantee from the agent-authored proposal
+  work. The deprecated
   `codex-boundary-json` format grades identically; its frozen v2 schema
   does not carry the new field.
 - **Stop hook follows `control.state` (`0.16.0b7`).** The installed Claude

@@ -32,7 +32,7 @@
       "id": "claude_code",
       "hosts": ["claude-code"],
       "exact_paths": [".claude/settings.json", ".claude/settings.local.json", ".mcp.json", "CLAUDE.md"],
-      "globs": ["**/.mcp.json", ".claude/commands/*", ".claude/commands/**", ".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
+      "globs": ["**/.mcp.json", "**/CLAUDE.md", ".claude/commands/*", ".claude/commands/**", ".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
       "experimental": false
     },
     {
@@ -53,7 +53,7 @@
       "id": "shared",
       "hosts": ["codex", "claude-code", "cursor"],
       "exact_paths": ["AGENTS.md", "AGENTS.override.md", "shipgate.yaml", ".shipgate/agent-contract.json", "policies/agent-boundary.shipgate.yaml", "policies/codex-boundary.shipgate.yaml", "policies/host-boundary.shipgate.yaml"],
-      "globs": [".agents/skills/*/SKILL.md", ".agents/skills/**/SKILL.md", ".github/workflows/*.yml", ".github/workflows/*.yaml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", ".agents-shipgate/baseline*.json", ".agents-shipgate/*waiver*.json", ".agents-shipgate/state*.json", "policies/*.shipgate.yaml"],
+      "globs": ["**/AGENTS.md", "**/AGENTS.override.md", ".agents/skills/*/SKILL.md", ".agents/skills/**/SKILL.md", ".github/workflows/*.yml", ".github/workflows/*.yaml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", ".agents-shipgate/baseline*.json", ".agents-shipgate/*waiver*.json", ".agents-shipgate/state*.json", "policies/*.shipgate.yaml"],
       "experimental": false
     }
   ],

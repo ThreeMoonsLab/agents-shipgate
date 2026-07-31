@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from agents_shipgate.cli.verify.git import archive_tree, repository_identity
+from agents_shipgate.cli.verify.git import (
+    archive_tree,
+    diff_revspec_context,
+    repository_identity,
+)
 from agents_shipgate.core.errors import ConfigError
 
 
@@ -86,6 +90,20 @@ def test_exact_snapshot_rejects_blob_bytes_that_do_not_match_their_oid(tmp_path:
 
     with pytest.raises(ConfigError, match="Git object"):
         archive_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+def test_diff_rejects_binary_source_like_paths(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    source = root / "agent.py"
+    source.write_text("print('base')\n", encoding="utf-8")
+    _git(root, "add", "agent.py")
+    _git(root, "commit", "-m", "base")
+    source.write_bytes(b"\x00binary capability payload\n")
+    _git(root, "add", "agent.py")
+    _git(root, "commit", "-m", "binary head")
+
+    with pytest.raises(ConfigError, match="source-like changed paths as binary"):
+        diff_revspec_context(root, "HEAD~1...HEAD")
 
 
 def test_repository_identity_normalizes_ssh_and_https_remotes(tmp_path: Path) -> None:

@@ -261,6 +261,11 @@ def test_codex_mcp_auto_approval_requires_human_then_clean_diff_completes(
 
 
 def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: Path) -> None:
+    workspace = tmp_path / "work space; target"
+    workspace.mkdir()
+    config = Path("gate file; config.yml")
+    policy = Path("policy file; rules.yml")
+    missing_diff = tmp_path / "missing diff; printf INJECTED"
     result = runner.invoke(
         app,
         [
@@ -268,9 +273,13 @@ def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: P
             "--agent",
             "claude-code",
             "--workspace",
-            str(tmp_path),
+            str(workspace),
+            "--config",
+            str(config),
+            "--policy",
+            str(policy),
             "--diff",
-            str(tmp_path / "missing.diff"),
+            str(missing_diff),
             "--format",
             "codex-boundary-json",
         ],
@@ -284,13 +293,63 @@ def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: P
     assert payload["schema_version"] == "shipgate.codex_boundary_result/v2"
     assert payload["decision"] == "block"
     control = _control(payload)
-    assert control["state"] == "agent_action_required"
+    assert control["state"] == "human_review_required"
     assert control["completion_allowed"] is False
-    assert control["must_stop"] is False
-    assert control["next_action"]["actor"] == "coding_agent"
-    assert control["next_action"]["kind"] == "repair"
-    assert payload["repair"]["safe_to_attempt"] is True
+    assert control["must_stop"] is True
+    assert control["next_action"]["actor"] == "human"
+    assert control["next_action"]["kind"] == "review"
+    assert control["next_action"]["command"] is None
+    assert control["allowed_next_commands"] == []
+    assert payload["repair"]["actor"] == "human"
+    assert payload["repair"]["safe_to_attempt"] is False
+    assert "command" not in payload["repair"]
     assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
+    assert str(missing_diff) in control["next_action"]["why"]
+
+
+def test_check_diff_input_failure_preserves_a_complete_quoted_range(
+    tmp_path: Path,
+) -> None:
+    """Missing refs may be fetched; their exact range must survive recovery."""
+
+    workspace = tmp_path / "range work space"
+    workspace.mkdir()
+    base = "missing-base; printf INJECTED"
+    head = "missing-head; printf INJECTED"
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--agent",
+            "cursor",
+            "--workspace",
+            str(workspace),
+            "--config",
+            "custom gate.yml",
+            "--policy",
+            "custom policy.yml",
+            "--base",
+            base,
+            "--head",
+            head,
+            "--format",
+            "codex-boundary-json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    control = _control(payload)
+    assert control["state"] == "agent_action_required"
+    assert control["next_action"]["actor"] == "coding_agent"
+    assert control["next_action"]["kind"] == "fetch_base"
+    assert control["next_action"]["command"] is None
+    assert control["next_action"]["expects"] == f"{base} and {head}"
+    assert control["allowed_next_commands"] == []
+    assert payload["repair"]["actor"] == "coding_agent"
+    assert payload["repair"]["safe_to_attempt"] is False
+    assert "command" not in payload["repair"]
+    assert str(workspace) in control["next_action"]["why"]
 
 
 def test_missing_install_fixture_is_schema_valid_and_actionable() -> None:

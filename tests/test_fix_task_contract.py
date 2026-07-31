@@ -14,7 +14,11 @@ import pytest
 from pydantic import ValidationError
 
 from agents_shipgate.cli.verify.fix_task import build_fix_task
-from agents_shipgate.cli.verify.orchestrator import _derive_verifier_control
+from agents_shipgate.cli.verify.orchestrator import (
+    _derive_verifier_control,
+    _verifier_headline,
+)
+from agents_shipgate.schemas.patches import AppendPointerPatch
 from agents_shipgate.schemas.report import (
     BaselineDelta,
     EvidenceCoverageDecision,
@@ -57,6 +61,23 @@ def _finding(
         requires_human_review=requires_human_review,
         autofix_safe=autofix_safe,
     )
+
+
+def _with_applicable_patch(finding: Finding) -> Finding:
+    """Make an autofix-safe finding genuinely selectable by apply-patches."""
+
+    finding.patches = [
+        AppendPointerPatch(
+            target_file="/abs/shipgate.yaml",
+            pointer=f"/checks/{finding.id}",
+            value="owner",
+            target_format="yaml",
+            confidence="high",
+            rationale=f"Apply {finding.id}.",
+            target_sha256="abc123",
+        )
+    ]
+    return finding
 
 
 def _item(finding: Finding) -> ReleaseDecisionItem:
@@ -138,6 +159,7 @@ def _fix_task(report, *, capability_review=None, base_ref="origin/main", head_re
         capability_review=capability_review or _review(),
         base_ref=base_ref,
         head_ref=head_ref,
+        worktree=True,
     )
 
 
@@ -210,11 +232,13 @@ def test_semantic_gap_routes_human_with_structured_declaration_repair() -> None:
 
 
 def test_mechanical_review_routes_to_coding_agent() -> None:
-    f = _finding(
-        "F1",
-        requires_human_review=False,
-        autofix_safe=True,
-        recommendation="Add an owner field from CODEOWNERS.",
+    f = _with_applicable_patch(
+        _finding(
+            "F1",
+            requires_human_review=False,
+            autofix_safe=True,
+            recommendation="Add an owner field from CODEOWNERS.",
+        )
     )
     task = _fix_task(_report(decision="review_required", findings=[f], review_items=[f]))
     assert task is not None
@@ -232,13 +256,15 @@ def test_authority_review_routes_to_human() -> None:
 
 
 def test_blocked_but_mechanical_routes_by_autofix_not_verdict() -> None:
-    # Routing is by the per-finding autofix_safe signal, not the verdict label.
-    f = _finding(
-        "F1",
-        requires_human_review=False,
-        autofix_safe=True,
-        severity="critical",
-        blocks_release=True,
+    # Routing is by an exact applicable patch, not the verdict label alone.
+    f = _with_applicable_patch(
+        _finding(
+            "F1",
+            requires_human_review=False,
+            autofix_safe=True,
+            severity="critical",
+            blocks_release=True,
+        )
     )
     task = _fix_task(_report(decision="blocked", findings=[f], blockers=[f]))
     assert task is not None
@@ -246,7 +272,9 @@ def test_blocked_but_mechanical_routes_by_autofix_not_verdict() -> None:
 
 
 def test_policy_weakened_forces_human_even_when_mechanical() -> None:
-    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    f = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
     task = _fix_task(
         _report(decision="review_required", findings=[f], review_items=[f]),
         capability_review=_review(policy_weakened=True),
@@ -258,7 +286,9 @@ def test_policy_weakened_forces_human_even_when_mechanical() -> None:
 
 
 def test_trust_root_touched_forces_human_even_when_mechanical() -> None:
-    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    f = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
     task = _fix_task(
         _report(decision="review_required", findings=[f], review_items=[f]),
         capability_review=_review(trust_root_touched=True),
@@ -282,12 +312,14 @@ def test_degraded_evidence_under_review_required_forces_human() -> None:
     # — opening an auto-fix path on evidence too weak to gate. The fix_task must
     # still fail closed to a human because the evidence is below the IE
     # threshold (2 low-confidence tools of 2 → threshold 1).
-    f = _finding(
-        "F1",
-        requires_human_review=False,
-        autofix_safe=True,
-        severity="high",
-        recommendation="Add the missing scope bound.",
+    f = _with_applicable_patch(
+        _finding(
+            "F1",
+            requires_human_review=False,
+            autofix_safe=True,
+            severity="high",
+            recommendation="Add the missing scope bound.",
+        )
     )
     report = _report(
         decision="review_required",
@@ -313,12 +345,14 @@ def test_review_required_with_full_evidence_stays_mechanical() -> None:
     # Counterpart guard: a mechanically-fixable high finding with HIGH-confidence
     # evidence (no gap) must still route to the coding agent — the escalation
     # fires on degraded evidence, not on severity.
-    f = _finding(
-        "F1",
-        requires_human_review=False,
-        autofix_safe=True,
-        severity="high",
-        recommendation="Add an owner field from CODEOWNERS.",
+    f = _with_applicable_patch(
+        _finding(
+            "F1",
+            requires_human_review=False,
+            autofix_safe=True,
+            severity="high",
+            recommendation="Add an owner field from CODEOWNERS.",
+        )
     )
     report = _report(
         decision="review_required",
@@ -347,7 +381,7 @@ def test_forbidden_shortcuts_and_verification_command_present() -> None:
     )
     assert task is not None
     assert task.verification_command == (
-        "agents-shipgate verify --base origin/main --head HEAD --json"
+        "agents-shipgate verify --base origin/main --json"
     )
     assert task.forbidden_shortcuts
     assert any("suppress" in shortcut for shortcut in task.forbidden_shortcuts)
@@ -383,13 +417,11 @@ def test_human_allowed_repairs_reserve_terminal_verify_step() -> None:
     assert len(task.allowed_repairs) == 10
     assert task.allowed_repairs[-1].id == "rerun_verify_after_human_action"
     assert task.allowed_repairs[-1].command == (
-        "agents-shipgate verify --base origin/main --head HEAD --json"
+        "agents-shipgate verify --base origin/main --json"
     )
 
 
 def test_mechanical_allowed_repairs_reserve_terminal_verify_step() -> None:
-    from agents_shipgate.schemas.patches import AppendPointerPatch
-
     findings = [
         _finding(
             f"F{i}",
@@ -418,7 +450,7 @@ def test_mechanical_allowed_repairs_reserve_terminal_verify_step() -> None:
     assert len(task.allowed_repairs) == 10
     assert task.allowed_repairs[-1].id == "rerun_verify"
     assert task.allowed_repairs[-1].command == (
-        "agents-shipgate verify --base origin/main --head HEAD --json"
+        "agents-shipgate verify --base origin/main --json"
     )
 
 
@@ -426,7 +458,9 @@ def test_mechanical_allowed_repairs_reserve_terminal_verify_step() -> None:
 
 
 def test_first_next_action_actor_matches_fix_task() -> None:
-    mech = _finding("F1", requires_human_review=False, autofix_safe=True)
+    mech = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
     mech_task = _fix_task(_report(decision="review_required", findings=[mech], review_items=[mech]))
     assert (
         _control_for_task(
@@ -540,9 +574,13 @@ def test_verification_command_quotes_shell_metacharacters() -> None:
     # ';' is a valid git ref character, so an unquoted command would be
     # injectable when an agent or human runs the suggested string.
     f = _finding("F1", requires_human_review=True, autofix_safe=False)
-    task = _fix_task(
+    task = build_fix_task(
         _report(decision="blocked", findings=[f], blockers=[f]),
+        merge_verdict="blocked",
+        capability_review=_review(),
+        base_ref="origin/main",
         head_ref="foo;rm -rf /",
+        worktree=False,
     )
     assert task is not None
     assert task.verification_command is not None
@@ -554,7 +592,9 @@ def test_verification_command_quotes_shell_metacharacters() -> None:
 
 
 def test_control_next_action_follows_agent_safe_fix_task() -> None:
-    mech = _finding("F1", requires_human_review=False, autofix_safe=True)
+    mech = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
     task = _fix_task(_report(decision="review_required", findings=[mech], review_items=[mech]))
     control = _control_for_task(
         task,
@@ -562,11 +602,14 @@ def test_control_next_action_follows_agent_safe_fix_task() -> None:
     )
     action = control.next_action
     assert action.actor == "coding_agent"
-    assert action.command == task.verification_command
+    assert action.command == task.allowed_repairs[0].command
+    assert action.command != task.verification_command
 
 
 def test_control_does_not_substitute_summary_commands_for_fix_task_contract() -> None:
-    mech = _finding("F1", requires_human_review=False, autofix_safe=True)
+    mech = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
     task = _fix_task(_report(decision="review_required", findings=[mech], review_items=[mech]))
     control = _control_for_task(
         task,
@@ -574,11 +617,12 @@ def test_control_does_not_substitute_summary_commands_for_fix_task_contract() ->
     )
     action = control.next_action
     assert action.actor == "coding_agent"
-    assert action.command == task.verification_command
+    assert action.command == task.allowed_repairs[0].command
+    assert "--finding-id F1 --confidence high --apply" in (action.command or "")
 
 
 def test_mechanical_task_projects_machine_patches() -> None:
-    from agents_shipgate.schemas.patches import AppendPointerPatch, ManualPatch
+    from agents_shipgate.schemas.patches import ManualPatch
 
     f = _finding("F1", requires_human_review=False, autofix_safe=True)
     f.patches = [
@@ -641,7 +685,7 @@ def test_human_task_carries_no_patches() -> None:
     assert task.patches == []
 
 
-def test_fix_task_without_suggest_patches_has_empty_patches() -> None:
+def test_autofix_flag_without_an_applicable_patch_fails_closed_to_human() -> None:
     f = _finding("F1", requires_human_review=False, autofix_safe=True)
     report = _report(decision="review_required", findings=[f], review_items=[f])
 
@@ -654,11 +698,52 @@ def test_fix_task_without_suggest_patches_has_empty_patches() -> None:
     )
 
     assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
     assert task.patches == []
+    assert not any(
+        repair.kind == "apply_high_confidence_patch"
+        for repair in task.allowed_repairs
+    )
+
+
+def test_ref_bound_mechanical_finding_routes_human_without_apply_repair() -> None:
+    finding = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
+    report = _report(
+        decision="review_required",
+        findings=[finding],
+        review_items=[finding],
+    )
+
+    task = build_fix_task(
+        report,
+        merge_verdict="human_review_required",
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        worktree=False,
+        repair_subject_available=False,
+    )
+
+    assert task is not None
+    assert task.actor == "human"
+    assert task.safe_to_attempt is False
+    assert task.patches == []
+    assert task.verification_command == (
+        "agents-shipgate verify --base origin/main --head HEAD --json"
+    )
+    assert not any(
+        repair.kind == "apply_high_confidence_patch"
+        for repair in task.allowed_repairs
+    )
 
 
 def test_insufficient_evidence_names_low_confidence_sources() -> None:
-    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    f = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
     report = _report(decision="insufficient_evidence", findings=[f], review_items=[f])
     report.tool_inventory = [
         {
@@ -700,7 +785,9 @@ def test_insufficient_evidence_names_low_confidence_sources() -> None:
 
 
 def test_insufficient_evidence_without_inventory_gives_generic_remedy() -> None:
-    f = _finding("F1", requires_human_review=False, autofix_safe=True)
+    f = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
     report = _report(decision="insufficient_evidence", findings=[f], review_items=[f])
 
     task = build_fix_task(
@@ -715,3 +802,198 @@ def test_insufficient_evidence_without_inventory_gives_generic_remedy() -> None:
     joined = " ".join(task.instructions)
     assert "explicit local tool inventory" in joined
     assert "re-run verify" in joined
+
+
+# --- first adoption: the same routing, honest wording -----------------------
+
+
+def _trust_root_report(*, adoption: bool = False, path: str = "shipgate.yaml"):
+    f = _finding("F1", requires_human_review=True, autofix_safe=False)
+    if adoption:
+        f.check_id = "SHIP-VERIFY-POLICY-WEAKENED"
+        f.evidence = {
+            "kind": "manifest_introduced",
+            "changed_policy_files": [path],
+        }
+    return _report(decision="review_required", findings=[f], review_items=[f])
+
+
+def test_manifest_modification_keeps_the_weakening_wording() -> None:
+    task = build_fix_task(
+        _trust_root_report(adoption=True),
+        merge_verdict="human_review_required",
+        capability_review=_review(policy_weakened=True, trust_root_touched=True),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=False,
+    )
+
+    assert task is not None and task.actor == "human"
+    joined = " ".join(task.instructions)
+    assert "cannot self-approve" in joined
+    assert "adopts Agents Shipgate" not in joined
+    assert {"review_policy_weakening", "review_trust_root"} <= {
+        r.id for r in task.allowed_repairs
+    }
+
+
+def test_first_adoption_replaces_the_weakening_wording() -> None:
+    """Adoption is not weakening: one honest instruction, not two wrong ones."""
+
+    task = build_fix_task(
+        _trust_root_report(adoption=True),
+        merge_verdict="human_review_required",
+        capability_review=_review(trust_root_touched=True),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=True,
+    )
+
+    assert task is not None
+    # Routing is untouched: adoption is still an authority escalation.
+    assert task.actor == "human" and task.safe_to_attempt is False
+    joined = " ".join(task.instructions)
+    assert "adopts Agents Shipgate" in joined
+    assert "cannot self-approve" not in joined
+    repair_ids = {r.id for r in task.allowed_repairs}
+    assert "adopt_shipgate_manifest" in repair_ids
+    assert not {"review_policy_weakening", "review_trust_root"} & repair_ids
+
+    report = _trust_root_report(adoption=True)
+    headline = _verifier_headline(
+        report=report,
+        merge_verdict="human_review_required",
+        head_status="succeeded",
+        capability_review=_review(trust_root_touched=True),
+        manifest_introduced=True,
+        pure_adoption_review=True,
+        configured_manifest="shipgate.yaml",
+    )
+    assert headline is not None
+    assert "introduces Agents Shipgate" in headline
+    assert "then merge" in headline
+
+
+def test_first_adoption_names_only_the_configured_manifest() -> None:
+    task = build_fix_task(
+        _trust_root_report(adoption=True, path="config/release.gate"),
+        merge_verdict="human_review_required",
+        capability_review=_review(trust_root_touched=True),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=True,
+        config="config/release.gate",
+    )
+
+    assert task is not None
+    joined = " ".join(task.instructions)
+    assert "config/release.gate" in joined
+    assert "generated shipgate.yaml" not in joined
+    assert "agent-instruction" not in joined
+    assert "CI files" not in joined
+    adoption = next(
+        repair
+        for repair in task.allowed_repairs
+        if repair.id == "adopt_shipgate_manifest"
+    )
+    assert adoption.target == "config/release.gate"
+
+
+def test_an_adoption_that_also_weakens_policy_keeps_the_weakening_repair() -> None:
+    """`review_policy_weakening` must not vanish behind adoption wording."""
+
+    task = build_fix_task(
+        _trust_root_report(),
+        merge_verdict="human_review_required",
+        capability_review=_review(policy_weakened=True, trust_root_touched=True),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=True,
+    )
+
+    assert task is not None
+    joined = " ".join(task.instructions)
+    assert "cannot self-approve" in joined
+    assert "nothing existing was weakened" not in joined
+    assert "review_policy_weakening" in {r.id for r in task.allowed_repairs}
+
+
+def test_adoption_escalates_without_borrowing_another_flag() -> None:
+    """An adoption is an authority decision in its own right.
+
+    `policy_weakened` is honestly `false` during an adoption, so routing must
+    not depend on it: with no capability flags set at all, a mechanically
+    fixable finding must still route to a human rather than opening the
+    coding-agent auto-fix path.
+    """
+
+    f = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
+    report = _report(decision="review_required", findings=[f], review_items=[f])
+
+    task = build_fix_task(
+        report,
+        merge_verdict="human_review_required",
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=True,
+    )
+
+    assert task is not None
+    assert task.actor == "human" and task.safe_to_attempt is False
+    assert "adopts Agents Shipgate" not in " ".join(task.instructions)
+    assert "adopt_shipgate_manifest" not in {r.id for r in task.allowed_repairs}
+
+
+@pytest.mark.parametrize(
+    ("decision", "merge_verdict"),
+    [
+        ("blocked", "blocked"),
+        ("insufficient_evidence", "insufficient_evidence"),
+    ],
+)
+def test_non_mergeable_adoption_leads_with_the_real_stop_condition(
+    decision: str,
+    merge_verdict: str,
+) -> None:
+    adoption = _finding("adoption", requires_human_review=True, autofix_safe=False)
+    adoption.check_id = "SHIP-VERIFY-POLICY-WEAKENED"
+    adoption.evidence = {"kind": "manifest_introduced"}
+    other = _finding("other", requires_human_review=True, autofix_safe=False)
+    report = _report(
+        decision=decision,
+        findings=[adoption, other],
+        blockers=[other] if decision == "blocked" else [],
+        review_items=[adoption, other],
+    )
+
+    task = build_fix_task(
+        report,
+        merge_verdict=merge_verdict,  # type: ignore[arg-type]
+        capability_review=_review(trust_root_touched=True),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        manifest_introduced=True,
+        config="config/release.gate",
+    )
+
+    assert task is not None and task.actor == "human"
+    assert task.instructions[0] == report.release_decision.reason
+    assert "merge" not in " ".join(task.instructions).lower()
+    assert "adopt_shipgate_manifest" not in {r.id for r in task.allowed_repairs}
+
+    headline = _verifier_headline(
+        report=report,
+        merge_verdict=merge_verdict,  # type: ignore[arg-type]
+        head_status="succeeded",
+        capability_review=_review(trust_root_touched=True),
+        manifest_introduced=True,
+        pure_adoption_review=False,
+        configured_manifest="config/release.gate",
+    )
+    assert headline is not None
+    assert headline.startswith(report.release_decision.reason)
+    assert "then merge" not in headline.lower()
+    assert "separate human-review decision" in headline

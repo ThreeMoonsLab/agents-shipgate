@@ -62,6 +62,14 @@ def apply_patches(
             "manual explicitly."
         ),
     ),
+    finding_ids: list[str] | None = typer.Option(
+        None,
+        "--finding-id",
+        help=(
+            "Apply patches only from this exact finding id. May be repeated. "
+            "Every requested id must exist; omission keeps the legacy all-findings behavior."
+        ),
+    ),
     apply: bool = typer.Option(
         False,
         "--apply",
@@ -130,8 +138,27 @@ def apply_patches(
         raise typer.Exit(5)
     manifest_dir_resolved = Path(manifest_dir).resolve()
 
+    findings = report.get("findings", [])
+    requested_ids = set(finding_ids or [])
+    available_ids = {
+        str(finding.get("id"))
+        for finding in findings
+        if isinstance(finding, dict) and finding.get("id")
+    }
+    missing_ids = sorted(requested_ids - available_ids)
+    if missing_ids:
+        message = (
+            "Requested finding id(s) are absent from the report: "
+            + ", ".join(missing_ids)
+        )
+        typer.echo(message, err=True)
+        _emit_malformed_patch_error(from_path, message)
+        raise typer.Exit(2)
+
     raw_patches: list[dict[str, Any]] = []
-    for finding in report.get("findings", []):
+    for finding in findings:
+        if requested_ids and str(finding.get("id")) not in requested_ids:
+            continue
         for patch in finding.get("patches") or []:
             raw_patches.append(patch)
 

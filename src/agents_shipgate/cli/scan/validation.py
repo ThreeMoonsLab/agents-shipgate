@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.inputs.common import load_text_file
 
 
 def _resolve_source_paths(
@@ -27,8 +29,8 @@ def _resolve_source_paths(
     """
     unresolved: list[dict[str, object]] = []
     try:
-        manifest_text = config_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        manifest_text = load_text_file(config_path)
+    except InputParseError:
         manifest_text = ""
     text_lines = manifest_text.splitlines()
     base_resolved = base_dir.resolve()
@@ -80,8 +82,8 @@ def _manifest_placeholder_warnings(config_path: Path) -> list[str]:
     in that case.
     """
     try:
-        manifest_text = config_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        manifest_text = load_text_file(config_path)
+    except InputParseError:
         return []
     placeholders = collect_placeholders(manifest_text)
     name = config_path.name

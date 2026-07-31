@@ -47,6 +47,7 @@ def assess_coverage_increasing_tool_source_proposal(
     workspace: Path,
     diff_file: DiffFile,
     resolved: ResolvedFileText | None = None,
+    manifest_dir: Path | None = None,
 ) -> ToolSourceProposalAssessment:
     """Recognize an append-only, coverage-increasing manifest proposal.
 
@@ -56,8 +57,8 @@ def assess_coverage_increasing_tool_source_proposal(
     * every non-``tool_sources`` value must remain identical;
     * all existing source rows must remain identical and in the same order;
     * added rows may use only built-in adapters and non-authority fields; and
-    * every added path must resolve to an existing, non-symlink workspace
-      artifact of the expected broad shape.
+    * every added path must resolve from the manifest directory to an
+      existing, non-symlink workspace artifact of the expected broad shape.
 
     A safe result authorizes proposal authorship only.  It never supplies or
     asserts approval, action semantics, bindings, policy evidence, or release
@@ -65,6 +66,12 @@ def assess_coverage_increasing_tool_source_proposal(
     """
 
     root = workspace.resolve()
+    source_root = manifest_dir if manifest_dir is not None else root
+    source_root = source_root if source_root.is_absolute() else root / source_root
+    try:
+        source_root.relative_to(root)
+    except ValueError:
+        return _unsafe("manifest directory resolves outside the workspace")
     if resolved is None:
         resolved = _resolve_changed_file_text(root, diff_file, [])
     if resolved.old_text is None or resolved.new_text is None:
@@ -102,7 +109,11 @@ def assess_coverage_increasing_tool_source_proposal(
         return _unsafe(added_rows_reason)
     added_ids: list[str] = []
     for row in additions:
-        reason = _validate_added_source(root, row)
+        reason = _validate_added_source(
+            containment_root=root,
+            source_root=source_root,
+            row=row,
+        )
         if reason is not None:
             return _unsafe(reason)
         assert isinstance(row, dict)  # proved by _validate_added_source
@@ -127,7 +138,12 @@ def _load_yaml_mapping(text: str) -> dict[str, Any]:
     return dict(payload)
 
 
-def _validate_added_source(root: Path, row: Any) -> str | None:
+def _validate_added_source(
+    *,
+    containment_root: Path,
+    source_root: Path,
+    row: Any,
+) -> str | None:
     if not isinstance(row, dict):
         return "added tool source must be a mapping"
     if not set(row).issubset(_SAFE_SOURCE_KEYS):
@@ -152,11 +168,17 @@ def _validate_added_source(root: Path, row: Any) -> str | None:
     pure = PurePosixPath(normalized)
     if pure.is_absolute() or normalized in {"", "."} or ".." in pure.parts:
         return "added tool source path must be a contained non-root relative path"
-    candidate = root.joinpath(*pure.parts)
-    if _path_has_symlink(root, pure):
+    candidate = source_root.joinpath(*pure.parts)
+    try:
+        candidate_relative = PurePosixPath(
+            candidate.relative_to(containment_root).as_posix()
+        )
+    except ValueError:
+        return "added tool source path resolves outside the workspace"
+    if _path_has_symlink(containment_root, candidate_relative):
         return "added tool source path must not traverse a symlink"
     try:
-        candidate.resolve().relative_to(root)
+        candidate.resolve().relative_to(containment_root)
     except (OSError, ValueError):
         return "added tool source path resolves outside the workspace"
     if not candidate.exists():
@@ -167,10 +189,12 @@ def _validate_added_source(root: Path, row: Any) -> str | None:
     if source_type == "codex_plugin":
         if mode == "package":
             plugin_manifest = candidate / ".codex-plugin" / "plugin.json"
-            plugin_manifest_relative = PurePosixPath(plugin_manifest.relative_to(root).as_posix())
+            plugin_manifest_relative = PurePosixPath(
+                plugin_manifest.relative_to(containment_root).as_posix()
+            )
             if (
                 not candidate.is_dir()
-                or _path_has_symlink(root, plugin_manifest_relative)
+                or _path_has_symlink(containment_root, plugin_manifest_relative)
                 or not plugin_manifest.is_file()
             ):
                 return "Codex plugin package lacks .codex-plugin/plugin.json"

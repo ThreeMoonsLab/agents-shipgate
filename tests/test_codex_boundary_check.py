@@ -8,9 +8,13 @@ import pytest
 from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
-from agents_shipgate.cli.agent_result import build_codex_agent_result
+from agents_shipgate.cli.agent_result import (
+    build_codex_agent_result as _build_codex_agent_result,
+)
 from agents_shipgate.cli.main import app
-from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result
+from agents_shipgate.core.codex_boundary import (
+    evaluate_codex_boundary_result as _evaluate_codex_boundary_result,
+)
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,6 +23,20 @@ GOLDEN = ROOT / "tests" / "golden" / "codex_boundary_result"
 SCHEMA = ROOT / "docs" / "codex-boundary-result-schema.v2.json"
 
 runner = CliRunner()
+
+
+def build_codex_agent_result(**kwargs):
+    """Build a result for the worktree-bound evaluator fixtures in this file."""
+
+    kwargs.setdefault("input_mode", "worktree")
+    return _build_codex_agent_result(**kwargs)
+
+
+def evaluate_codex_boundary_result(**kwargs):
+    """Evaluate a diff whose test workspace is its reproducible subject."""
+
+    kwargs.setdefault("verification_replayable", True)
+    return _evaluate_codex_boundary_result(**kwargs)
 
 
 # case -> (decision, rule ids, expected control state).  The graded local
@@ -51,7 +69,8 @@ CASES = {
     "unknown_permission_key": (
         "require_review",
         ["CODEX-UNKNOWN-PERMISSION-KEY"],
-        "agent_action_required",  # medium, parseable -> graded verify route
+        # A standalone diff is not bound to a checkout verify can reproduce.
+        "human_review_required",
     ),
     "malformed_toml": (
         "require_review",
@@ -59,6 +78,19 @@ CASES = {
         "human_review_required",  # unparseable content is band-excluded
     ),
 }
+
+
+def _normalize_workspace(payload: object, workspace: Path) -> object:
+    """Replace this run's workspace path with a stable placeholder.
+
+    Both spellings: macOS resolves ``/var/folders/...`` to ``/private/var/...``,
+    and the emitted command carries the resolved form.
+    """
+
+    raw = json.dumps(payload)
+    for spelling in (str(workspace.resolve()), str(workspace)):
+        raw = raw.replace(spelling, "<workspace>")
+    return json.loads(raw)
 
 
 def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
@@ -81,7 +113,13 @@ def test_codex_check_boundary_json_golden_outputs(tmp_path: Path) -> None:
         assert result.stderr == ""
         payload = json.loads(result.output)
         validator.validate(payload)
-        assert payload == json.loads((GOLDEN / f"{case}.json").read_text(encoding="utf-8"))
+        # The authorized verify command names this invocation's own workspace
+        # and manifest, so the golden pins its shape rather than one machine's
+        # temporary directory.
+        normalized = _normalize_workspace(payload, tmp_path)
+        expected = json.loads((GOLDEN / f"{case}.json").read_text(encoding="utf-8"))
+        assert normalized == expected
+        assert payload["audit_id"].startswith("agent_boundary_")
         assert payload["decision"] == decision
         assert [item["id"] for item in payload["violated_rules"]] == rule_ids
         control = _control(payload)
@@ -102,6 +140,26 @@ def test_codex_check_audit_id_is_stable(tmp_path: Path) -> None:
     second = json.loads(runner.invoke(app, args).output)
 
     assert first["audit_id"] == second["audit_id"]
+
+
+def test_codex_audit_id_distinguishes_detached_control_from_replayable(
+    tmp_path: Path,
+) -> None:
+    diff = (CORPUS / "unknown_permission_key.diff").read_text(encoding="utf-8")
+    detached = _evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=diff,
+        verification_replayable=False,
+    )
+    replayable = _evaluate_codex_boundary_result(
+        workspace=tmp_path,
+        diff_text=diff,
+        verification_replayable=True,
+    )
+
+    assert detached.control.state == "human_review_required"
+    assert replayable.control.state == "agent_action_required"
+    assert detached.audit_id != replayable.audit_id
 
 
 # --- Coverage gap: check is boundary-only and must not green-light a -------
@@ -827,7 +885,11 @@ def test_no_manifest_capability_add_via_check_warns_and_routes_to_verify_preview
     )
     assert result.decision == "warn"
     assert result.control.next_action.kind == "configure"
-    assert result.control.next_action.command.startswith("agents-shipgate verify --preview")
+    command = result.control.next_action.command
+    assert command is not None
+    assert str(tmp_path) in command
+    assert "shipgate.yaml" in command
+    assert "--preview" in command
 
 
 def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other(
@@ -850,7 +912,9 @@ def test_capability_add_to_undeclared_surface_warns_when_manifest_declares_other
     )
     assert result.decision == "warn"
     assert result.control.next_action.kind == "discover"
-    assert result.control.next_action.command == "shipgate detect --workspace . --json"
+    assert result.control.next_action.command == (
+        f"shipgate detect --workspace {tmp_path} --json"
+    )
     payload = result.model_dump(mode="json", exclude_none=True)
     assert any(d["code"] == "undeclared_capability_surface" for d in payload["diagnostics"])
     assert "suggested_sources" in payload["control"]["next_action"]["why"]
@@ -874,7 +938,9 @@ def test_mixed_declared_and_undeclared_via_check_routes_to_detect(
     )
     assert result.decision == "warn"
     assert result.control.next_action.kind == "discover"
-    assert result.control.next_action.command == "shipgate detect --workspace . --json"
+    assert result.control.next_action.command == (
+        f"shipgate detect --workspace {tmp_path} --json"
+    )
     payload = result.model_dump(mode="json", exclude_none=True)
     diag = next(d for d in payload["diagnostics"] if d["code"] == "undeclared_capability_surface")
     assert "api/openapi.yaml" in diag["message"]
@@ -917,7 +983,8 @@ def test_manifest_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None
 
 def test_prompts_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None:
     # Review finding P2: a prompts/ edit fires TRIGGER-PROMPTS-OR-POLICIES but
-    # is not a declarable tool source — no undeclared-surface warn / detect.
+    # is not a declarable tool source. It is nevertheless a trust-root change,
+    # so it stops for human review without an undeclared-surface/detect route.
     _write_manifest(
         tmp_path,
         "  - id: mcp\n    type: mcp\n    path: mcp-tools.json\n    trust: internal\n",
@@ -937,7 +1004,17 @@ def test_prompts_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None:
         config=Path("shipgate.yaml"),
         policy=None,
     )
-    assert result.decision == "allow"
+    assert result.decision == "require_review"
+    assert result.control.state == "agent_action_required"
+    assert result.control.next_action.kind == "verify"
+    assert [item.check_id for item in result.violated_rules] == [
+        "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
+    ]
+    payload = result.model_dump(mode="json", exclude_none=True)
+    assert not any(
+        diagnostic["code"] == "undeclared_capability_surface"
+        for diagnostic in payload.get("diagnostics", [])
+    )
 
 
 def test_docs_file_mentioning_tool_decorator_is_not_undeclared_surface(
@@ -1069,17 +1146,8 @@ def test_codex_check_rejects_one_sided_git_refs(tmp_path: Path) -> None:
         ],
     )
 
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(payload)
-    assert payload["decision"] == "block"
-    control = _control(payload)
-    assert control["state"] == "agent_action_required"
-    assert control["completion_allowed"] is False
-    assert control["must_stop"] is False
-    assert control["next_action"]["actor"] == "coding_agent"
-    assert control["next_action"]["kind"] == "repair"
-    assert payload["diagnostics"][0]["code"] == "diff_input_unresolved"
+    assert result.exit_code == 2
+    assert "--base and --head must be provided together" in result.output
 
 
 def test_codex_check_malformed_toml_returns_schema_valid_json(tmp_path: Path) -> None:

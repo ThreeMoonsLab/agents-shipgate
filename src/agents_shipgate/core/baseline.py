@@ -23,6 +23,7 @@ from agents_shipgate.core.check_ids import LEGACY_CHECK_ID_ALIASES
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.evaluation_clock import trust_expiry_date
 from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
+from agents_shipgate.core.static_inputs import read_static_input_text
 from agents_shipgate.schemas.baseline import (
     BaselineFile,
     BaselineFinding,
@@ -232,8 +233,8 @@ def load_baseline(path: Path) -> BaselineFile:
     if not path.exists():
         raise InputParseError(f"Baseline file not found: {path}")
     try:
-        return BaselineFile.model_validate_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValidationError, ValueError) as exc:
+        return BaselineFile.model_validate_json(read_static_input_text(path))
+    except (OSError, UnicodeDecodeError, ValidationError, ValueError) as exc:
         raise InputParseError(f"Invalid baseline file {path}: {exc}") from exc
 
 

@@ -10,6 +10,7 @@ from agents_shipgate.core.capability_policy import match_policy_pack_subject
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.policy_evidence import finding_support, policy_evidence_gap
+from agents_shipgate.core.static_inputs import read_static_input_bytes
 from agents_shipgate.inputs.common import load_structured_file, resolve_input_path
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, PolicyPackConfig
@@ -177,8 +178,8 @@ def _verify_pack_pin(
     if not pinned:
         return None, "unpinned"
     try:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError as exc:
+        digest = hashlib.sha256(read_static_input_bytes(path)).hexdigest()
+    except (OSError, ValueError) as exc:
         raise ConfigError(
             f"Could not hash pinned policy pack {config.path!r}: {exc}"
         ) from exc

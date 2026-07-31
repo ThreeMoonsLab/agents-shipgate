@@ -1046,19 +1046,26 @@ tests on every CI run, not by convention:
   - **`cli/bootstrap.py`** — one `subprocess.run` call shells the
     installed agents-shipgate CLI to chain
     `detect → init → scan → apply-patches`.
-  - **`cli/discovery/artifacts.py`** — two `subprocess.run` calls
-    invoke `git rev-parse` + `git ls-files` to enumerate user-repo
-    files. Reads git metadata only.
-  - **`triggers.py`** — three `subprocess.run` calls (`git diff
-    --name-only`, `git diff`, `git ls-files --others
-    --exclude-standard`) for trigger evaluation. Reads diff content
-    only. **Plus** one `importlib.resources.files('agents_shipgate')`
-    call to resolve the bundled trigger catalog.
+  - **`cli/discovery/artifacts.py`** — one `subprocess.run` call resolves
+    the repository root with `git rev-parse`; one `subprocess.Popen`
+    boundary incrementally drains the fixed `git ls-files` inventory under
+    hard byte and wall-clock limits. Both use a sanitized Git environment,
+    read repository metadata only, and never invoke a shell or fetch.
+  - **`triggers.py`** — one
+    `importlib.resources.files('agents_shipgate')` call resolves the bundled
+    trigger catalog. Optional Git-backed trigger input delegates to the
+    verifier's audited collector described below; this module has no
+    subprocess surface of its own.
   - **`cli/verify/git.py`** — one shared `subprocess.run` boundary invokes
     local Git plumbing for exact base/head and working-tree orchestration,
     plus `pack-objects`, `index-pack`, and `fsck` to materialize an isolated,
-    object-ID-validated snapshot. It never fetches, uses list argv without a
-    shell, and never executes user code.
+    object-ID-validated snapshot. One shared `subprocess.Popen` boundary
+    incrementally drains fixed Git diff, changed-path, attribute, inventory,
+    and retained-manifest reads under hard output and wall-clock bounds. The
+    bound is fail-closed: timeout, overflow, read/write failure, or an
+    unexpected return code yields no trusted result. Neither process boundary
+    fetches or executes user code; both use sanitized environments and list
+    argv without a shell.
   - **`core/authorization_execution.py`** — one shared `subprocess.run`
     boundary consumes the fixed protected Git argv, and one audited
     `subprocess.Popen` boundary parent-streams `pack-objects` with hard stdout,
@@ -1081,9 +1088,8 @@ tests on every CI run, not by convention:
     `--agent-instructions-kit`, never dynamic imports or network fetches.
   - **`cli/trigger.py`** — imports `subprocess` only to catch
     `subprocess.CalledProcessError` from the shared
-    `triggers._git_diff_context` git probe. The `agents-shipgate trigger`
-    subcommand issues no `subprocess.run` call of its own; git runs in
-    `triggers.py` exclusively, and only when `--base`/`--head` is passed.
+    verifier Git collector reached through `triggers._git_diff_context`. The
+    `agents-shipgate trigger` subcommand issues no subprocess call of its own.
   - **`cli/self_check.py`** — one `__import__(module_name)` call
     validates that supplied modules import cleanly. Runs only under
     `agents-shipgate self-check`, never during scan.
@@ -1101,7 +1107,7 @@ tests on every CI run, not by convention:
   real violation on all four fields),
   `test_no_unallowlisted_forbidden_surface_in_scanner` (every
   observed violation has a matching entry), and
-  `test_allowed_exceptions_pin_subprocess_run_per_call_site` (the
+  `test_allowed_exceptions_pin_subprocess_per_call_site` (the
   multi-call files have distinct entries per call site, regression-
   testing the structural fix from the v0.18 PR #2 review).
 - **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —

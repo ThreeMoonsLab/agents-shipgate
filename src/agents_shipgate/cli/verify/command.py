@@ -25,17 +25,41 @@ from .orchestrator import run_preview, run_verify
 logger = logging.getLogger(__name__)
 
 
+def _unsafe_config_identity_error(exc: ConfigError) -> bool:
+    """Whether recovery must not offer edits or a replay command."""
+
+    message = str(exc)
+    identity_failure = any(
+        marker in message
+        for marker in (
+            "must be inside --workspace",
+            "must not contain symlink components",
+            "must use the exact filesystem spelling",
+            "could not be inspected safely",
+        )
+    )
+    return identity_failure and (
+        message.startswith("--config")
+        or message.startswith("Head manifest")
+        or message.startswith("Base manifest")
+    )
+
+
 def verify(
     workspace: Path = typer.Option(
         Path("."),
         "--workspace",
         help="Workspace/git checkout containing the head tree.",
     ),
-    config: Path = typer.Option(
-        Path("shipgate.yaml"),
+    config: Path | None = typer.Option(
+        None,
         "--config",
         "-c",
-        help="Path to shipgate.yaml, relative to --workspace unless absolute.",
+        help=(
+            "Path to shipgate.yaml. An explicit relative path is relative to "
+            "--workspace; when omitted, the default is shipgate.yaml at the "
+            "Git root."
+        ),
     ),
     base: str | None = typer.Option(
         None,
@@ -175,6 +199,16 @@ def verify(
         stdout_format = _resolve_verify_format(format_, json_output=json_output, preview=preview)
         if ci_mode and ci_mode not in {"advisory", "strict"}:
             raise ConfigError("--ci-mode must be advisory or strict")
+        for label, value in (("--base", base), ("--head", head)):
+            if value is not None and (
+                not value
+                or value.startswith("-")
+                or any(char in value for char in "\0\r\n")
+            ):
+                raise ConfigError(
+                    f"{label} must be non-empty, must not begin with '-', "
+                    "and must not contain control delimiters"
+                )
         parsed_fail_on = _parse_fail_on(fail_on)
         parsed_pr_comment_style = _parse_pr_comment_style(pr_comment_style)
         if preview and authorization is not None:
@@ -198,10 +232,20 @@ def verify(
         raise typer.Exit(2) from exc
 
     try:
+        effective_config = config
+        if effective_config is None:
+            if preview:
+                try:
+                    config_root = ensure_git_workspace(workspace.resolve())
+                except ConfigError:
+                    config_root = workspace.resolve()
+            else:
+                config_root = ensure_git_workspace(workspace.resolve())
+            effective_config = config_root / "shipgate.yaml"
         if preview:
             verifier, _report, exit_code = run_preview(
                 workspace=workspace,
-                config=config,
+                config=effective_config,
                 base=base,
                 head=head,
                 out=out,
@@ -211,7 +255,7 @@ def verify(
             head_ref = head or "HEAD"
             verifier, _report, exit_code = run_verify(
                 workspace=workspace,
-                config=config,
+                config=effective_config,
                 base=base,
                 head=head_ref,
                 archive_head=head is not None,
@@ -233,13 +277,29 @@ def verify(
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        diagnostics = _diagnose_config_error(
-            config=str(config),
-            workspace=workspace,
-            exc=exc,
-            plugins_enabled=False if no_plugins else None,
-        )
-        flattened = top_next_actions(diagnostics)
+        if _unsafe_config_identity_error(exc):
+            guidance = (
+                "Review the configured manifest identity and rerun verify only "
+                "after selecting an exact in-workspace, non-symlink path."
+            )
+            flattened = [
+                NextAction(
+                    kind="review",
+                    why=guidance,
+                    expects=(
+                        "The configured manifest uses its exact stored identity "
+                        "inside the evaluated workspace."
+                    ),
+                )
+            ]
+        else:
+            diagnostics = _diagnose_config_error(
+                config=str(config or Path("shipgate.yaml")),
+                workspace=workspace,
+                exc=exc,
+                plugins_enabled=False if no_plugins else None,
+            )
+            flattened = top_next_actions(diagnostics)
         _echo_next_action_hint(flattened)
         emit_agent_mode_error(
             "config_error",

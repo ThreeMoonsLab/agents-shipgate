@@ -10,13 +10,16 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.cli.verification import assemble, worker
+from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 from agents_shipgate.cli.verify.git import commit_date
 from agents_shipgate.cli.verify.orchestrator import run_verify
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.static_inputs import StaticInputSnapshot
 from agents_shipgate.core.verification_identity import (
     build_terminal_receipt,
     validate_receipt_artifacts,
 )
+from agents_shipgate.schemas.baseline import BaselineFile
 from agents_shipgate.schemas.verification_identity import (
     VerificationPlan,
     VerificationReceipt,
@@ -102,6 +105,189 @@ def test_verify_backdated_commit_cannot_extend_expired_override(tmp_path: Path) 
             no_heuristics=False,
             verbose=False,
         )
+
+
+def test_archived_verify_rejects_external_baseline_change_after_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "fixture")
+
+    baseline_path = tmp_path / "external-baseline.json"
+    baseline_path.write_text(
+        BaselineFile(
+            created_at="2026-01-01T00:00:00Z",
+            source_report_run_id="baseline-test",
+        ).model_dump_json(indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    real_run_scan = verify_orchestrator.run_scan
+    changed = False
+
+    def mutate_baseline_after_scan(**kwargs):
+        nonlocal changed
+        result = real_run_scan(**kwargs)
+        if not changed:
+            changed = True
+            baseline_path.write_text("{}\n", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(verify_orchestrator, "run_scan", mutate_baseline_after_scan)
+
+    with pytest.raises(
+        InputParseError,
+        match="Verification inputs changed while they were being evaluated",
+    ):
+        run_verify(
+            workspace=repo,
+            config=Path("samples/support_refund_agent/shipgate.yaml"),
+            base=None,
+            head="HEAD",
+            archive_head=True,
+            out=repo / "agents-shipgate-reports",
+            ci_mode="advisory",
+            fail_on=None,
+            baseline=baseline_path,
+            baseline_mode="new-findings",
+            diff_from=None,
+            policy_packs=None,
+            plugins_enabled=False,
+            strict_plugins=False,
+            suggest_patches=False,
+            no_heuristics=False,
+            verbose=False,
+        )
+
+
+def test_finalized_snapshot_keeps_deleted_baseline_in_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "fixture")
+
+    baseline_path = tmp_path / "external-baseline.json"
+    baseline_bytes = (
+        BaselineFile(
+            created_at="2026-01-01T00:00:00Z",
+            source_report_run_id="baseline-test",
+        ).model_dump_json(indent=2)
+        + "\n"
+    ).encode("utf-8")
+    baseline_path.write_bytes(baseline_bytes)
+    real_finish = StaticInputSnapshot.finish
+    deleted = False
+
+    def finish_then_delete(snapshot: StaticInputSnapshot) -> None:
+        nonlocal deleted
+        real_finish(snapshot)
+        if not deleted and snapshot.has(baseline_path):
+            deleted = True
+            baseline_path.unlink()
+
+    monkeypatch.setattr(StaticInputSnapshot, "finish", finish_then_delete)
+    out_dir = repo / "agents-shipgate-reports"
+
+    _verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base=None,
+        head="HEAD",
+        archive_head=True,
+        out=out_dir,
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=baseline_path,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert deleted is True
+    plan = VerificationPlan.model_validate(
+        json.loads((out_dir / "verification-plan.json").read_text(encoding="utf-8"))
+    )
+    assert plan.inputs.baseline is not None
+    portable_baseline = out_dir / plan.inputs.baseline.path
+    assert portable_baseline.read_bytes() == baseline_bytes
+
+
+def test_worktree_recursive_source_excludes_verifier_output(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".codex").mkdir()
+    (repo / ".codex" / "config.toml").write_text(
+        "[features]\nresponses_websockets = true\n",
+        encoding="utf-8",
+    )
+    (repo / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: root-config
+agent:
+  name: root-agent
+  declared_purpose:
+    - inspect repository config
+environment:
+  target: local
+tool_sources:
+  - id: codex
+    type: codex_config
+    path: .
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "fixture")
+
+    _verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("shipgate.yaml"),
+        base=None,
+        head="HEAD",
+        archive_head=False,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert (repo / "agents-shipgate-reports" / "verification-plan.json").is_file()
 
 
 def test_verify_threads_changed_files_into_head_scan(tmp_path):
@@ -296,7 +482,7 @@ def test_verify_fails_closed_when_worktree_diff_cannot_be_collected(monkeypatch,
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "base")
 
-    def fail_worktree_context(_repo):
+    def fail_worktree_context(_repo, **_kwargs):
         raise RuntimeError("simulated worktree diff failure")
 
     monkeypatch.setattr(

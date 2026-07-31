@@ -17,11 +17,11 @@
   "errors": [
     {
       "id": "config_error",
-      "description": "The manifest is missing or invalid: file not found, YAML parse error, schema-validation failure, or unsupported version.",
+      "description": "A command's configuration or request shape is missing, invalid, inconsistent, or unsafe to apply. This includes manifest loading failures as well as incompatible CLI flags, invalid preflight inputs, and host-audit baseline/control errors.",
       "exit_code": 2,
-      "typical_cause": "shipgate.yaml does not exist OR exists but the loader rejected it (extra key, missing required field, wrong nesting level).",
+      "typical_cause": "The manifest is missing or rejected; mutually exclusive or dependent CLI flags were combined; a preflight request is invalid; or a host-grants baseline request cannot be completed or acknowledged safely.",
       "additional_fields": ["message", "next_action", "next_actions"],
-      "recovery_hint": "Distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run `agents-shipgate verify --workspace <dir> --preview --json`; if preview routes setup, run the emitted init command. `SHIP-DIAG-INVALID-MANIFEST` → edit the manifest at the path in the error; do NOT re-run `init` (it refuses to overwrite an existing file)."
+      "recovery_hint": "Follow the emitted ranked `next_actions[]`; do not assume every config_error is a manifest problem. For manifests, distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run the emitted preview/setup route; `SHIP-DIAG-INVALID-MANIFEST` → edit the existing manifest and do NOT re-run `init`. For flag, preflight, and host-audit errors, preserve the original workspace and request context, and stop for review whenever no exact safe command is emitted."
     },
     {
       "id": "config_already_exists",

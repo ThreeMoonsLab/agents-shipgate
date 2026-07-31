@@ -109,6 +109,15 @@ one-time human act instead of schema archaeology — and corrects the attributio
 so the notice stops implicating the current change. The residual gap belongs to
 the host-authenticated approval work, not here.
 
+**Follow-up (2026-07-28).** The adjacent half of the same cold-start experience
+shipped separately: the *adoption* verdict itself. Verify used to greet a first
+adoption with "This PR weakens the release policy that evaluates it" and no
+`fix_task`, which is the same failure as an unreachable remedy — a correct
+routing decision with nothing a reader can act on. Adoption is now proved from
+git (the base carries no manifest under any name) and the copy says so, while
+the verdict, severity, and check id are untouched. Same principle as the
+scaffold: change what the tool *says*, never what it *allows*.
+
 **Observed end to end.** On a representative cold-start repo the loop now
 closes: the scaffold's effect and authority blocks, filled in and merged, clear
 `inferred_effect_only` and `missing_authority_evidence`, and the verdict moves

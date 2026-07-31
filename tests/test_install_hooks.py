@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -135,6 +137,25 @@ def test_install_hooks_rejects_unknown_target(tmp_path: Path) -> None:
     assert "Unsupported hook target" in result.output
 
 
+def test_install_hooks_rejects_head_without_base(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "install-hooks",
+            "--workspace",
+            str(tmp_path),
+            "--base",
+            "",
+            "--head",
+            "HEAD",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--head requires --base" in result.output
+
+
 def test_generated_post_tool_hook_emits_trigger_context(tmp_path: Path) -> None:
     render_or_install_hooks(
         workspace=tmp_path,
@@ -179,7 +200,9 @@ def test_generated_post_tool_hook_emits_trigger_context(tmp_path: Path) -> None:
     assert "Do not bypass the verifier" in context
 
 
-def test_generated_post_tool_hook_ignores_irrelevant_docs_edit(tmp_path: Path) -> None:
+def test_generated_post_tool_hook_evaluates_relevance_without_manifest_force_run(
+    tmp_path: Path,
+) -> None:
     render_or_install_hooks(
         workspace=tmp_path,
         target="claude-code",
@@ -217,6 +240,9 @@ def test_generated_post_tool_hook_ignores_irrelevant_docs_edit(tmp_path: Path) -
     )
 
     assert result.returncode == 0, result.stderr
+    # A configured repository would force every PR through Shipgate, but the
+    # edit-time hook deliberately passes manifest_present=false so an ordinary
+    # docs edit remains quiet rather than becoming a force-run nudge.
     assert result.stdout == ""
 
 
@@ -230,13 +256,16 @@ def test_generated_post_tool_hook_matches_untracked_diff_tokens(tmp_path: Path) 
         head="",
         ci_mode="advisory",
     )
-    (tmp_path / "shipgate.yaml").write_text("version: '0.1'\n", encoding="utf-8")
+    _init_repo(tmp_path)
     agent = tmp_path / "agent.py"
     agent.write_text(
         "from agents import function_tool\n\n@function_tool\ndef lookup() -> str:\n"
         "    return ''\n",
         encoding="utf-8",
     )
+    hook_namespace = _rendered_hook_namespace(tmp_path)
+    git_diff_for_paths = hook_namespace["_git_diff_for_paths"]
+    assert "@function_tool" in git_diff_for_paths(tmp_path, ["agent.py"])
     event = {
         "hook_event_name": "PostToolUse",
         "cwd": str(tmp_path),
@@ -264,9 +293,40 @@ def test_generated_post_tool_hook_matches_untracked_diff_tokens(tmp_path: Path) 
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert "Agents Shipgate trigger matched" in (
-        payload["hookSpecificOutput"]["additionalContext"]
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert "Agents Shipgate trigger matched" in context
+
+
+def test_post_tool_hook_treats_custom_manifest_as_relevant_without_catalog_match(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+    custom = tmp_path / "config" / "release.gate"
+    custom.parent.mkdir()
+    custom.write_text("version: '0.1'\n", encoding="utf-8")
+    namespace["_git_diff_for_paths"] = lambda *_args, **_kwargs: "diff"
+    namespace["_run_trigger_for_paths"] = lambda *_args, **_kwargs: {
+        "should_run": False
+    }
+    args = SimpleNamespace(
+        config="config/release.gate",
+        base="HEAD",
+        head="HEAD",
+        ci_mode="advisory",
     )
+
+    result = namespace["_trigger"](
+        {"tool_input": {"file_path": str(custom)}},
+        tmp_path,
+        args,
+    )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert "configured protected surface changed" in context.lower()
+    assert "--head" not in context
 
 
 def test_generated_stop_hook_advisory_uses_system_message(tmp_path: Path) -> None:
@@ -300,10 +360,12 @@ def test_generated_stop_hook_advisory_uses_system_message(tmp_path: Path) -> Non
     payload = json.loads(result.stdout)
     assert "systemMessage" in payload
     assert "hookSpecificOutput" not in payload
-    assert "could not evaluate the local trigger" in payload["systemMessage"]
+    assert "verify could not start" in payload["systemMessage"]
 
 
-def test_generated_stop_hook_skips_clean_opted_in_repo(tmp_path: Path) -> None:
+def test_generated_stop_hook_warns_when_clean_repo_base_is_unavailable(
+    tmp_path: Path,
+) -> None:
     render_or_install_hooks(
         workspace=tmp_path,
         target="claude-code",
@@ -331,7 +393,10 @@ def test_generated_stop_hook_skips_clean_opted_in_repo(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == ""
+    payload = json.loads(result.stdout)
+    assert "decision" not in payload
+    assert "configured base ref is unavailable" in payload["systemMessage"]
+    assert "Fetch the base ref" in payload["systemMessage"]
     assert not log.exists()
 
 
@@ -386,6 +451,148 @@ def test_generated_stop_hook_verifies_worktree_once_without_head(tmp_path: Path)
     assert "--no-manifest-present" in trigger_entries[0]
 
 
+def test_generated_stop_hook_omits_configured_head_for_worktree_snapshot(
+    tmp_path: Path,
+) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="HEAD",
+        head="HEAD",
+        ci_mode="advisory",
+    )
+    _init_repo(tmp_path)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "refund.md").write_text(
+        "require approval\n",
+        encoding="utf-8",
+    )
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+    env["AGENTS_SHIPGATE_VERIFY_BASE"] = "HEAD"
+    env["AGENTS_SHIPGATE_VERIFY_HEAD"] = "HEAD"
+
+    result = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    verify_args = next(entry for entry in entries if entry[0] == "verify")
+    assert verify_args[verify_args.index("--base") + 1] == "HEAD"
+    assert "--head" not in verify_args
+
+
+def test_generated_stop_hook_warns_on_index_hidden_worktree_path(
+    tmp_path: Path,
+) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="HEAD",
+        head="",
+        ci_mode="advisory",
+    )
+    hidden = tmp_path / "inventory.surface"
+    hidden.write_text("safe\n", encoding="utf-8")
+    _init_repo(tmp_path)
+    subprocess.run(
+        ["git", "update-index", "--assume-unchanged", hidden.name],
+        cwd=tmp_path,
+        check=True,
+    )
+    hidden.write_text("expanded authority\n", encoding="utf-8")
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+
+    result = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), "verify"],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "could not collect a bounded, static worktree snapshot" in payload[
+        "systemMessage"
+    ]
+    assert not log.exists()
+
+
+def test_generated_stop_hook_binds_ignored_custom_manifest(
+    tmp_path: Path,
+) -> None:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("config/release.gate"),
+        base="HEAD",
+        head="",
+        ci_mode="advisory",
+    )
+    _init_repo(tmp_path)
+    with (tmp_path / ".gitignore").open("a", encoding="utf-8") as handle:
+        handle.write("config/release.gate\n")
+    subprocess.run(["git", "add", ".gitignore"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "ignore custom gate"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    custom = tmp_path / "config" / "release.gate"
+    custom.parent.mkdir()
+    custom.write_text("version: '0.1'\n", encoding="utf-8")
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH),
+            "verify",
+            "--config",
+            "config/release.gate",
+            "--base",
+            "HEAD",
+        ],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert any(entry[0] == "verify" for entry in entries)
+
+
 def _run_stop_hook(
     tmp_path: Path,
     *,
@@ -437,6 +644,7 @@ def test_stop_hook_blocks_only_for_agent_action_required(tmp_path: Path) -> None
                 "state": "agent_action_required",
                 "reason": "verify pending",
                 "next_action": {"kind": "verify", "command": "agents-shipgate verify --json"},
+                "allowed_next_commands": ["agents-shipgate verify --json"],
             },
         }
     )
@@ -481,6 +689,40 @@ def test_stop_hook_hands_off_instead_of_blocking_on_human_review(tmp_path: Path)
     rerun = _run_stop_hook(tmp_path, verify_payload=payload)
     assert rerun.returncode == 0, rerun.stderr
     assert rerun.stdout == ""
+
+
+def test_stop_hook_surfaces_fetch_base_without_inventing_a_command(
+    tmp_path: Path,
+) -> None:
+    _stop_hook_workspace(tmp_path)
+    payload = json.dumps(
+        {
+            "release_decision": {
+                "decision": "unknown",
+                "blockers": [],
+                "review_items": [],
+            },
+            "control": {
+                "state": "agent_action_required",
+                "reason": "base ref is missing",
+                "allowed_next_commands": [],
+                "next_action": {
+                    "kind": "fetch_base",
+                    "expects": "origin/main",
+                    "why": "Make the base ref available locally.",
+                },
+            },
+        }
+    )
+
+    result = _run_stop_hook(tmp_path, verify_payload=payload)
+
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["decision"] == "block"
+    assert "origin/main" in out["reason"]
+    assert "No executable command was authorized" in out["reason"]
+    assert "agents-shipgate verify" not in out["reason"]
 
 
 def test_stop_hook_warns_and_never_caches_unparseable_verifier_output(
@@ -533,8 +775,13 @@ def test_stop_hook_cold_start_advises_instead_of_blocking(tmp_path: Path) -> Non
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
     assert "decision" not in out
-    assert "no shipgate.yaml exists" in out["systemMessage"]
+    assert "configured manifest 'shipgate.yaml' does not exist" in out["systemMessage"]
     assert "verify --preview" in out["systemMessage"]
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert len(entries) == 1
+    assert entries[0][0] == "trigger"
+    assert "--no-manifest-present" in entries[0]
 
 
 def _pretooluse_out(
@@ -787,6 +1034,165 @@ def _render_hook_script(tmp_path: Path) -> Path:
     return tmp_path / HOOK_SCRIPT_RELATIVE_PATH
 
 
+def _rendered_hook_namespace(tmp_path: Path) -> dict[str, object]:
+    script = _render_hook_script(tmp_path)
+    namespace: dict[str, object] = {"__name__": "hook_under_test"}
+    code = script.read_text(encoding="utf-8")
+    exec(compile(code, str(script), "exec"), namespace)
+    return namespace
+
+
+def test_rendered_bounded_git_runner_fails_closed_on_output_overflow(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdout = io.BytesIO(b"overflow")
+            self.killed = False
+
+        def wait(self, timeout=None) -> int:
+            return 0
+
+        def kill(self) -> None:
+            self.killed = True
+
+    process = FakeProcess()
+    subprocess_module = namespace["subprocess"]
+    monkeypatch.setattr(subprocess_module, "Popen", lambda *args, **kwargs: process)
+
+    run_git_bounded = namespace["_run_git_bounded"]
+    assert run_git_bounded(tmp_path, ["status"], limit=4) is None
+    assert process.killed is True
+
+
+def test_rendered_bounded_git_runner_fails_closed_on_timeout(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdout = io.BytesIO()
+            self.killed = False
+            self.wait_calls = 0
+
+        def wait(self, timeout=None) -> int:
+            self.wait_calls += 1
+            if self.wait_calls == 1:
+                raise subprocess.TimeoutExpired(cmd=["git"], timeout=timeout)
+            return -9
+
+        def kill(self) -> None:
+            self.killed = True
+
+    process = FakeProcess()
+    subprocess_module = namespace["subprocess"]
+    monkeypatch.setattr(subprocess_module, "Popen", lambda *args, **kwargs: process)
+
+    run_git_bounded = namespace["_run_git_bounded"]
+    assert run_git_bounded(tmp_path, ["status"], limit=1024) is None
+    assert process.killed is True
+
+
+def test_rendered_post_tool_diff_fails_closed_on_bounded_git_failure(
+    tmp_path: Path,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+    namespace["_is_git_repository"] = lambda _root: True
+    namespace["_has_executable_worktree_filter"] = lambda _root: False
+    namespace["_run_git_bounded"] = lambda *_args, **_kwargs: None
+
+    git_diff_for_paths = namespace["_git_diff_for_paths"]
+    assert git_diff_for_paths(tmp_path, ["agent.py"]) is None
+
+
+def test_rendered_post_tool_diff_fails_closed_on_executable_filter(
+    tmp_path: Path,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+    namespace["_is_git_repository"] = lambda _root: True
+    namespace["_has_executable_worktree_filter"] = lambda _root: True
+
+    git_diff_for_paths = namespace["_git_diff_for_paths"]
+    assert git_diff_for_paths(tmp_path, ["agent.py"]) is None
+
+
+def test_rendered_untracked_diff_enforces_an_aggregate_content_budget(
+    tmp_path: Path,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+    namespace["GIT_DIFF_OUTPUT_LIMIT_BYTES"] = 64
+    namespace["_run_git_bounded"] = lambda *_args, **_kwargs: b""
+    metadata = SimpleNamespace(st_size=8, st_mtime_ns=1)
+    namespace["_read_untracked_file"] = (
+        lambda _root, _path: (b"12345678", metadata)
+    )
+
+    untracked_content = namespace["_untracked_content_for_paths"]
+    assert untracked_content(
+        tmp_path,
+        ["one.py", "two.py", "three.py"],
+    ) is None
+
+
+def test_rendered_git_path_arguments_are_literal_pathspecs(tmp_path: Path) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(_root, args, *, limit):
+        calls.append(args)
+        if "ls-files" in args:
+            return b":(exclude)**\0shipgate.yaml\0"
+        return b""
+
+    namespace["_is_git_repository"] = lambda _root: True
+    namespace["_ref_exists"] = lambda _root, _ref: True
+    namespace["_has_executable_worktree_filter"] = lambda _root: False
+    namespace["_run_git_bounded"] = fake_run
+
+    diff_for_paths = namespace["_git_diff_for_paths"]
+    assert diff_for_paths(tmp_path, [":(exclude)**", "shipgate.yaml"]) == ""
+    flattened = [argument for call in calls for argument in call]
+    assert ":(top,literal):(exclude)**" in flattened
+    assert ":(exclude)**" not in flattened
+
+
+def test_rendered_untracked_binary_marker_binds_content_digest(
+    tmp_path: Path,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+    namespace["_run_git_bounded"] = lambda *_args, **_kwargs: b""
+    metadata = SimpleNamespace(st_size=4)
+    untracked_content = namespace["_untracked_content_for_paths"]
+
+    namespace["_read_untracked_file"] = lambda _root, _path: (b"a\0aa", metadata)
+    first = untracked_content(tmp_path, ["agent.bin"])
+    namespace["_read_untracked_file"] = lambda _root, _path: (b"b\0bb", metadata)
+    second = untracked_content(tmp_path, ["agent.bin"])
+
+    assert first is not None
+    assert second is not None
+    assert first != second
+    assert "sha256=" in first
+
+
+def test_rendered_untracked_oversized_file_makes_snapshot_unavailable(
+    tmp_path: Path,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+    namespace["_run_git_bounded"] = lambda *_args, **_kwargs: b""
+    limit = namespace["UNTRACKED_DIFF_CONTENT_LIMIT_BYTES"]
+    metadata = SimpleNamespace(st_size=limit + 1)
+    namespace["_read_untracked_file"] = lambda _root, _path: (b"", metadata)
+
+    untracked_content = namespace["_untracked_content_for_paths"]
+    assert untracked_content(tmp_path, ["large-agent.py"]) is None
+
+
 def _run_pretooluse(tmp_path: Path, file_path: str, *, env_extra=None) -> str:
     script = _render_hook_script(tmp_path)
     event = {
@@ -845,6 +1251,31 @@ def test_pretooluse_hook_allow_mode_disables(tmp_path: Path) -> None:
     assert out == ""
 
 
+def test_rendered_alias_inspector_rejects_nonexact_unicode_entry(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    namespace = _rendered_hook_namespace(tmp_path)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    stored = config_dir / "café.gate"
+    stored.write_text("version: '0.1'\n", encoding="utf-8")
+    requested = config_dir / "cafe\u0301.gate"
+    original_lstat = Path.lstat
+
+    def aliasing_lstat(path: Path):
+        if path == requested:
+            return original_lstat(stored)
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", aliasing_lstat)
+    unsafe_alias_kind = namespace["_unsafe_alias_kind"]
+    assert (
+        unsafe_alias_kind(tmp_path, "config/cafe\u0301.gate")
+        == "aliased-path"
+    )
+
+
 def test_rendered_script_glob_matcher_matches_canonical_globbing(
     tmp_path: Path,
 ) -> None:
@@ -853,12 +1284,7 @@ def test_rendered_script_glob_matcher_matches_canonical_globbing(
     from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
     from agents_shipgate.core.globbing import glob_match
 
-    script = _render_hook_script(tmp_path)
-    namespace: dict = {}
-    # Extract just the rendered module constants/functions we need by
-    # executing the script with a stubbed __name__ so main() doesn't run.
-    code = script.read_text(encoding="utf-8")
-    exec(compile(code, str(script), "exec"), {"__name__": "hook_under_test"}, namespace)
+    namespace = _rendered_hook_namespace(tmp_path)
     hook_match = namespace["_glob_match"]
     surfaces = namespace["PROTECTED_SURFACES"]
 

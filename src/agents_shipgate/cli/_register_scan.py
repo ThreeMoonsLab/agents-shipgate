@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import typer
@@ -19,12 +20,44 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.agent_controls import git_root_for
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.verification import VerificationContext
 
 logger = logging.getLogger(__name__)
+
+
+def _lexical_git_root(path: Path) -> Path | None:
+    """Find the nearest Git root before any repository-internal symlink.
+
+    Symlinks before the first Git marker are invocation anchors (for example
+    ``repo-alias -> repo``). Once a Git marker has established the repository,
+    a later symlink is a mutable path inside that repository and discovery
+    must not cross it into another checkout.
+    """
+
+    selected: Path | None = None
+    anchors = [*reversed(path.parents), path]
+    for anchor in anchors:
+        try:
+            is_symlink = anchor.is_symlink()
+        except OSError:
+            return None
+        if is_symlink:
+            if selected is not None:
+                break
+            continue
+        if (anchor / ".git").exists():
+            selected = anchor
+    if selected is None:
+        return None
+    try:
+        return selected.resolve()
+    except OSError:
+        return None
 
 
 def _build_verification_context(
@@ -44,8 +77,117 @@ def _build_verification_context(
         raise ConfigError(
             f"--changed-files file could not be read: {changed_files} ({exc})"
         ) from exc
-    paths = [line.strip() for line in text.splitlines() if line.strip()]
+    # Preserve exact path spellings. The transport delimiter is the literal
+    # LF byte only: ``str.splitlines`` would also split legal POSIX filenames
+    # at VT, FF, NEL, U+2028, and U+2029 and could detach a custom manifest
+    # identity from its trust-root finding.
+    paths = [line for line in text.split("\n") if line]
     return VerificationContext(changed_files=paths, diff_text_available=False)
+
+
+def _configured_manifest_identity(
+    *,
+    config_path: Path,
+    workspace: Path | None,
+) -> tuple[str, Path]:
+    """Bind the loaded path to one repo-relative manifest identity.
+
+    The returned physical path is the same normalized lexical path inspected
+    here. The scan must load that path rather than the pre-normalized CLI
+    spelling: on POSIX, ``link/../gate.yml`` follows ``link`` before applying
+    ``..``, so inspecting the normalized path but loading the original would
+    validate one manifest and evaluate another.
+    """
+
+    lexical = Path(os.path.abspath(os.path.normpath(os.fspath(config_path))))
+    try:
+        canonical_parent = lexical.parent.resolve()
+    except OSError:
+        canonical_parent = lexical.parent
+    # Resolve this only to choose the comparison root. The identity mapper
+    # below starts from the first *outer* lexical anchor that resolves inside
+    # that root, then inspects every repository-relative component without
+    # following it. That distinction allows `/var` or `repo-alias -> repo`
+    # while still rejecting `repo/gate-dir -> .`, whose retargeting changes
+    # which manifest the scan loads.
+    candidate = canonical_parent / lexical.name
+    lexical_git_root = _lexical_git_root(lexical.parent)
+    cwd = Path.cwd().resolve()
+    if lexical_git_root is not None:
+        root = lexical_git_root
+    elif workspace is not None:
+        workspace_root = workspace.resolve()
+        root = git_root_for(workspace_root) or workspace_root
+    elif lexical.is_relative_to(cwd) or candidate.is_relative_to(cwd):
+        # A caller standing inside a non-Git project still supplies a concrete
+        # lexical anchor. Prefer it to a Git repository reached only by an
+        # internal config-path symlink.
+        root = git_root_for(cwd) or cwd
+    else:
+        canonical_git_root = git_root_for(canonical_parent)
+        if canonical_git_root is None:
+            raise ConfigError(
+                "--changed-files paths are repository-relative, but no "
+                "repository root could be proven for --config "
+                f"{config_path}. Invoke scan from the repository root or "
+                "use a Git/workspace-rooted checkout."
+            )
+        # No lexical workspace/cwd root owns the config path, so a Git root
+        # reached through an external alias is the only remaining provable
+        # repository anchor.
+        root = canonical_git_root
+
+    relative: Path | None = None
+    for anchor in reversed(lexical.parents):
+        try:
+            resolved_anchor = anchor.resolve()
+            anchor_tail = resolved_anchor.relative_to(root)
+            lexical_tail = lexical.relative_to(anchor)
+        except (OSError, ValueError):
+            continue
+        relative = anchor_tail / lexical_tail
+        break
+    if relative is None:
+        raise ConfigError(
+            "--config could not be mapped into the changed-files workspace: "
+            f"{config_path}"
+        )
+    if "\n" in relative.as_posix() or "\r" in relative.as_posix():
+        raise ConfigError(
+            "--config cannot contain a newline when --changed-files uses a "
+            "line-delimited path transport."
+        )
+
+    # Normalize filesystem-proved case/Unicode aliases, but never follow a
+    # symlink below the repository anchor. There can be more than one alias
+    # component, so correct one stored entry at a time and inspect again.
+    for _attempt in range(len(relative.parts) + 1):
+        issue = inspect_lexical_path_identity(root, relative)
+        if issue is None:
+            return relative.as_posix(), lexical
+        if issue.kind == "symlink":
+            raise ConfigError(
+                "--config must not contain repository symlink components: "
+                f"{issue.requested}"
+            )
+        if issue.kind != "alias" or issue.actual is None:
+            detail = f": {issue.detail}" if issue.detail else ""
+            raise ConfigError(
+                "--config could not be inspected safely: "
+                f"{issue.requested}{detail}"
+            )
+        requested = root / relative
+        try:
+            suffix = requested.relative_to(issue.requested)
+            relative = (issue.actual / suffix).relative_to(root)
+        except ValueError as exc:
+            raise ConfigError(
+                "--config alias could not be mapped safely: "
+                f"{issue.requested}"
+            ) from exc
+    # The loop is bounded by the number of components. Reaching this point
+    # means aliases did not converge to one stored path.
+    raise ConfigError(f"--config identity did not converge safely: {config_path}")
 
 
 def register(app: typer.Typer) -> None:
@@ -230,6 +372,19 @@ def register(app: typer.Typer) -> None:
                     f"{len(config_paths)} manifests resolved. Re-run scan "
                     "against one manifest (-c <path>) when supplying "
                     "--changed-files."
+                )
+            if verification_context is not None and len(config_paths) == 1:
+                configured_manifest_path, validated_config_path = (
+                    _configured_manifest_identity(
+                        config_path=config_paths[0],
+                        workspace=workspace,
+                    )
+                )
+                config_paths[0] = validated_config_path
+                verification_context = verification_context.model_copy(
+                    update={
+                        "configured_manifest_path": configured_manifest_path
+                    }
                 )
             if len(config_paths) == 1:
                 report, exit_code = run_scan(

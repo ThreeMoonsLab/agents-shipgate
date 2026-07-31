@@ -77,7 +77,11 @@ def prepare(
     head_ref = head or "HEAD"
     if not ref_exists(root, head_ref):
         raise typer.BadParameter(f"head ref is unavailable locally: {head_ref}")
-    changed, diff_text = diff_context(root, base, head_ref) if base else working_tree_context(root)
+    changed, diff_text = (
+        diff_context(root, base, head_ref)
+        if base
+        else working_tree_context(root, reject_index_hidden=True)
+    )
     resolved_date = evaluation_date or commit_date(root, head_ref)
     config_relative = _under(root, config).relative_to(root)
     policy_paths = [_under(root, path) for path in policy_packs or []]

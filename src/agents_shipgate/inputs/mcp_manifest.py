@@ -14,6 +14,7 @@ from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     load_structured_file_with_positions,
+    load_text_file,
     manifest_relative_path,
     schema_to_parameters,
     stable_tool_id,
@@ -110,8 +111,8 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
         if rel == ".codex/config.toml" or rel.endswith("/.codex/config.toml"):
             source_ref = _relative(path, base_dir)
             try:
-                data = tomllib.loads(path.read_text(encoding="utf-8"))
-            except (OSError, tomllib.TOMLDecodeError) as exc:
+                data = tomllib.loads(load_text_file(path))
+            except (InputParseError, tomllib.TOMLDecodeError) as exc:
                 sources.append(
                     LoadedToolSource(
                         source_id=f"codex_config_mcp:{source_ref}",

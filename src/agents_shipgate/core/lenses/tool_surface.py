@@ -17,6 +17,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.risk_hints import HIGH_RISK_TAGS, risk_tags
+from agents_shipgate.core.static_inputs import read_static_input_text
 from agents_shipgate.core.tool_identity import ToolSelectorIndex
 from agents_shipgate.core.toolkit_scope import toolkit_bound_facts
 from agents_shipgate.schemas.baseline import BaselineFile
@@ -291,8 +292,8 @@ def load_tool_surface_diff_reference(
     if not path.exists():
         raise InputParseError(f"Diff reference file not found: {path}")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        payload = json.loads(read_static_input_text(path))
+    except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
         raise InputParseError(f"Invalid diff reference file {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise InputParseError(f"Invalid diff reference file {path}: expected object")

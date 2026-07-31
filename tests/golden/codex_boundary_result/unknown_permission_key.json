@@ -1,146 +1,144 @@
 {
-    "schema_version": "shipgate.codex_boundary_result/v2",
-    "agent": "codex",
-    "tool": {
-        "name": "agents-shipgate",
-        "version": "0.16.0b7"
+  "schema_version": "shipgate.codex_boundary_result/v2",
+  "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.16.0b7"
+  },
+  "subject": {
+    "agent": "codex"
+  },
+  "decision": "require_review",
+  "risk_level": "medium",
+  "audit_id": "agent_boundary_a0e673974b41fe0c295c4c82",
+  "policy_version": "1",
+  "summary": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
+  "changed_files": [
+    ".codex/config.toml"
+  ],
+  "control": {
+    "state": "human_review_required",
+    "reason": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": true,
+    "next_action": {
+      "actor": "human",
+      "kind": "review",
+      "command": null,
+      "expects": null,
+      "why": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command."
     },
-    "subject": {
-        "agent": "codex"
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
+      "required_reviewers": []
     },
-    "decision": "require_review",
-    "risk_level": "medium",
-    "audit_id": "agent_boundary_7908865cfe6b4fa73441f451",
-    "policy_version": "1",
-    "summary": "1 coding-agent boundary change(s) need PR-time review; verify, then report them.",
+    "stop_reason": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command."
+  },
+  "repair": {
+    "actor": "human",
+    "safe_to_attempt": false,
+    "instructions": [
+      "Review the unknown permission key before trusting the boundary."
+    ],
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "agent-boundary",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+    "discovery": [
+      "packaged_default:agent-boundary"
+    ]
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-UNKNOWN-PERMISSION-KEY",
+      "check_id": "SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY",
+      "action": "require_review",
+      "risk_level": "medium",
+      "title": "Unknown Codex permission key",
+      "path": ".codex/config.toml",
+      "evidence": {
+        "kind": "unknown_permission_network_key",
+        "profile": "workspace",
+        "key": "surprise"
+      },
+      "recommendation": "Review the unknown permission key before trusting the boundary."
+    }
+  ],
+  "affected_files": [
+    {
+      "path": ".codex/config.toml"
+    }
+  ],
+  "required_reviewers": [],
+  "explanation": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
+  "suggested_fixes": [
+    "Review the unknown permission key before trusting the boundary."
+  ],
+  "agent_repair_instructions": [
+    "Review the unknown permission key before trusting the boundary."
+  ],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "content_source",
+      "message": "Evaluated coding-agent boundary file from diff_new_file.",
+      "path": ".codex/config.toml"
+    }
+  ],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded 2 coding-agent boundary policy families."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 1 violation(s) to require_review."
+    }
+  ],
+  "source_artifacts": {},
+  "trigger": {
+    "schema_version": "0.2",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
+        "action": "run_shipgate",
+        "surface_class": "host_boundary",
+        "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
+        "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
+      }
+    ],
     "changed_files": [
-        ".codex/config.toml"
+      ".codex/config.toml"
     ],
-    "control": {
-        "state": "agent_action_required",
-        "reason": "1 coding-agent boundary change(s) need PR-time review; verify, then report them.",
-        "completion_allowed": false,
-        "must_stop": false,
-        "verify_required": true,
-        "next_action": {
-            "actor": "coding_agent",
-            "kind": "verify",
-            "command": "agents-shipgate verify --json",
-            "expects": null,
-            "why": "This change owes human review but is not an emergency stop: run verify so the PR gate records the decision, and report the pending review items."
-        },
-        "allowed_next_commands": [
-            "agents-shipgate verify --json"
-        ],
-        "human_review": {
-            "required": false,
-            "why": null,
-            "required_reviewers": []
-        },
-        "stop_reason": null
-    },
-    "repair": {
-        "actor": "human",
-        "safe_to_attempt": false,
-        "instructions": [
-            "Review the unknown permission key before trusting the boundary."
-        ],
-        "forbidden_shortcuts": [
-            "Do not suppress the finding (checks.ignore in shipgate.yaml).",
-            "Do not lower severity or add a waiver just to pass the gate.",
-            "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
-            "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
-        ]
-    },
-    "policy": {
-        "id": "agent-boundary",
-        "version": "1",
-        "source": "packaged_default",
-        "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
-        "discovery": [
-            "packaged_default:agent-boundary"
-        ]
-    },
-    "violated_rules": [
-        {
-            "id": "CODEX-UNKNOWN-PERMISSION-KEY",
-            "check_id": "SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY",
-            "action": "require_review",
-            "risk_level": "medium",
-            "title": "Unknown Codex permission key",
-            "path": ".codex/config.toml",
-            "evidence": {
-                "kind": "unknown_permission_network_key",
-                "profile": "workspace",
-                "key": "surprise"
-            },
-            "recommendation": "Review the unknown permission key before trusting the boundary."
-        }
-    ],
-    "affected_files": [
-        {
-            "path": ".codex/config.toml"
-        }
-    ],
-    "required_reviewers": [],
-    "explanation": "1 coding-agent boundary change(s) need PR-time review; verify, then report them.",
-    "suggested_fixes": [
-        "Review the unknown permission key before trusting the boundary."
-    ],
-    "agent_repair_instructions": [
-        "Review the unknown permission key before trusting the boundary."
-    ],
-    "diagnostics": [
-        {
-            "level": "info",
-            "code": "content_source",
-            "message": "Evaluated coding-agent boundary file from diff_new_file.",
-            "path": ".codex/config.toml"
-        }
-    ],
-    "trace": [
-        {
-            "step": "policy_discovery",
-            "summary": "Loaded 2 coding-agent boundary policy families."
-        },
-        {
-            "step": "decision",
-            "summary": "Projected 1 violation(s) to require_review."
-        }
-    ],
-    "source_artifacts": {},
-    "trigger": {
-        "schema_version": "0.2",
-        "should_run": true,
-        "run_shipgate": true,
-        "skip": false,
-        "force_run": false,
-        "dry_run_recommended": false,
-        "skip_reason": null,
-        "stop_conditions_fired": false,
-        "stop_conditions_evaluated": false,
-        "rationale": "1 run_shipgate rule(s) matched.",
-        "matched_rules": [
-            {
-                "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
-                "action": "run_shipgate",
-                "surface_class": "host_boundary",
-                "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-                "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
-            }
-        ],
-        "changed_files": [
-            ".codex/config.toml"
-        ],
-        "diff_tokens": [],
-        "next_action": {
-            "kind": "command",
-            "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
-            "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
-        }
-    },
-    "finding_fingerprints": [
-        "fp_b75e128442b5e376"
-    ],
-    "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
+      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_b75e128442b5e376"
+  ],
+  "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
 }

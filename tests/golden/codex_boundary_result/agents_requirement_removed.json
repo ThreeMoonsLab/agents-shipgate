@@ -1,144 +1,144 @@
 {
-    "schema_version": "shipgate.codex_boundary_result/v2",
-    "agent": "codex",
-    "tool": {
-        "name": "agents-shipgate",
-        "version": "0.16.0b7"
+  "schema_version": "shipgate.codex_boundary_result/v2",
+  "agent": "codex",
+  "tool": {
+    "name": "agents-shipgate",
+    "version": "0.16.0b7"
+  },
+  "subject": {
+    "agent": "codex"
+  },
+  "decision": "require_review",
+  "risk_level": "medium",
+  "audit_id": "agent_boundary_130a698865cb613276ec3b70",
+  "policy_version": "1",
+  "summary": "1 coding-agent boundary change(s) require human review.",
+  "changed_files": [
+    "AGENTS.md"
+  ],
+  "control": {
+    "state": "human_review_required",
+    "reason": "1 coding-agent boundary change(s) require human review.",
+    "completion_allowed": false,
+    "must_stop": true,
+    "verify_required": false,
+    "next_action": {
+      "actor": "human",
+      "kind": "review",
+      "command": null,
+      "expects": null,
+      "why": "AGENTS.md removed a Shipgate requirement"
     },
-    "subject": {
-        "agent": "codex"
-    },
-    "decision": "require_review",
-    "risk_level": "medium",
-    "audit_id": "agent_boundary_c22c9f245720d8f6f31d67cd",
-    "policy_version": "1",
-    "summary": "1 coding-agent boundary change(s) require human review.",
-    "changed_files": [
-        "AGENTS.md"
-    ],
-    "control": {
-        "state": "human_review_required",
-        "reason": "1 coding-agent boundary change(s) require human review.",
-        "completion_allowed": false,
-        "must_stop": true,
-        "verify_required": false,
-        "next_action": {
-            "actor": "human",
-            "kind": "review",
-            "command": null,
-            "expects": null,
-            "why": "AGENTS.md removed a Shipgate requirement"
-        },
-        "allowed_next_commands": [],
-        "human_review": {
-            "required": true,
-            "why": "AGENTS.md removed a Shipgate requirement",
-            "required_reviewers": [
-                "agent-platform"
-            ]
-        },
-        "stop_reason": "AGENTS.md removed a Shipgate requirement"
-    },
-    "repair": {
-        "actor": "human",
-        "safe_to_attempt": false,
-        "instructions": [
-            "Have a human confirm the agent instructions were not weakened."
-        ],
-        "forbidden_shortcuts": [
-            "Do not suppress the finding (checks.ignore in shipgate.yaml).",
-            "Do not lower severity or add a waiver just to pass the gate.",
-            "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
-            "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
-        ]
-    },
-    "policy": {
-        "id": "agent-boundary",
-        "version": "1",
-        "source": "packaged_default",
-        "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
-        "discovery": [
-            "packaged_default:agent-boundary"
-        ]
-    },
-    "violated_rules": [
-        {
-            "id": "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
-            "check_id": "SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
-            "action": "require_review",
-            "risk_level": "medium",
-            "title": "AGENTS.md removed a Shipgate requirement",
-            "path": "AGENTS.md",
-            "evidence": {
-                "kind": "shipgate_instruction_removed",
-                "deleted": false,
-                "removed_shipgate_lines": true,
-                "softened_shipgate_lines": false,
-                "removed_requirement_lines": true,
-                "replacement_requirement_lines": false
-            },
-            "recommendation": "Have a human confirm the agent instructions were not weakened."
-        }
-    ],
-    "affected_files": [
-        {
-            "path": "AGENTS.md"
-        }
-    ],
-    "required_reviewers": [
+    "allowed_next_commands": [],
+    "human_review": {
+      "required": true,
+      "why": "AGENTS.md removed a Shipgate requirement",
+      "required_reviewers": [
         "agent-platform"
-    ],
-    "explanation": "1 coding-agent boundary change(s) require human review.",
-    "suggested_fixes": [
-        "Have a human confirm the agent instructions were not weakened."
-    ],
-    "agent_repair_instructions": [
-        "Have a human confirm the agent instructions were not weakened."
-    ],
-    "diagnostics": [],
-    "trace": [
-        {
-            "step": "policy_discovery",
-            "summary": "Loaded 2 coding-agent boundary policy families."
-        },
-        {
-            "step": "decision",
-            "summary": "Projected 1 violation(s) to require_review."
-        }
-    ],
-    "source_artifacts": {},
-    "trigger": {
-        "schema_version": "0.2",
-        "should_run": true,
-        "run_shipgate": true,
-        "skip": false,
-        "force_run": false,
-        "dry_run_recommended": false,
-        "skip_reason": null,
-        "stop_conditions_fired": false,
-        "stop_conditions_evaluated": false,
-        "rationale": "1 run_shipgate rule(s) matched.",
-        "matched_rules": [
-            {
-                "id": "TRIGGER-SHARED-HOST-BOUNDARY-CHANGED",
-                "action": "run_shipgate",
-                "surface_class": "host_boundary",
-                "rationale": "Workflow permissions, pull_request_target, and write-capable automation are shared coding-agent trust roots.",
-                "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
-            }
-        ],
-        "changed_files": [
-            "AGENTS.md"
-        ],
-        "diff_tokens": [],
-        "next_action": {
-            "kind": "command",
-            "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
-            "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
-        }
+      ]
     },
-    "finding_fingerprints": [
-        "fp_e3eff6c19a8ab16d"
+    "stop_reason": "AGENTS.md removed a Shipgate requirement"
+  },
+  "repair": {
+    "actor": "human",
+    "safe_to_attempt": false,
+    "instructions": [
+      "Have a human confirm the agent instructions were not weakened."
     ],
-    "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
+    "forbidden_shortcuts": [
+      "Do not suppress the finding (checks.ignore in shipgate.yaml).",
+      "Do not lower severity or add a waiver just to pass the gate.",
+      "Do not invent or assume approval, idempotency, or audit evidence you cannot prove from the code.",
+      "Do not weaken the release policy, CI gate, or agent instructions that evaluate this change."
+    ]
+  },
+  "policy": {
+    "id": "agent-boundary",
+    "version": "1",
+    "source": "packaged_default",
+    "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+    "discovery": [
+      "packaged_default:agent-boundary"
+    ]
+  },
+  "violated_rules": [
+    {
+      "id": "CODEX-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
+      "check_id": "SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED",
+      "action": "require_review",
+      "risk_level": "medium",
+      "title": "AGENTS.md removed a Shipgate requirement",
+      "path": "AGENTS.md",
+      "evidence": {
+        "kind": "shipgate_instruction_removed",
+        "deleted": false,
+        "removed_shipgate_lines": true,
+        "softened_shipgate_lines": false,
+        "removed_requirement_lines": true,
+        "replacement_requirement_lines": false
+      },
+      "recommendation": "Have a human confirm the agent instructions were not weakened."
+    }
+  ],
+  "affected_files": [
+    {
+      "path": "AGENTS.md"
+    }
+  ],
+  "required_reviewers": [
+    "agent-platform"
+  ],
+  "explanation": "1 coding-agent boundary change(s) require human review.",
+  "suggested_fixes": [
+    "Have a human confirm the agent instructions were not weakened."
+  ],
+  "agent_repair_instructions": [
+    "Have a human confirm the agent instructions were not weakened."
+  ],
+  "diagnostics": [],
+  "trace": [
+    {
+      "step": "policy_discovery",
+      "summary": "Loaded 2 coding-agent boundary policy families."
+    },
+    {
+      "step": "decision",
+      "summary": "Projected 1 violation(s) to require_review."
+    }
+  ],
+  "source_artifacts": {},
+  "trigger": {
+    "schema_version": "0.2",
+    "should_run": true,
+    "run_shipgate": true,
+    "skip": false,
+    "force_run": false,
+    "dry_run_recommended": false,
+    "skip_reason": null,
+    "stop_conditions_fired": false,
+    "stop_conditions_evaluated": false,
+    "rationale": "1 run_shipgate rule(s) matched.",
+    "matched_rules": [
+      {
+        "id": "TRIGGER-SHARED-HOST-BOUNDARY-CHANGED",
+        "action": "run_shipgate",
+        "surface_class": "host_boundary",
+        "rationale": "Workflow permissions, pull_request_target, and write-capable automation are shared coding-agent trust roots.",
+        "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
+      }
+    ],
+    "changed_files": [
+      "AGENTS.md"
+    ],
+    "diff_tokens": [],
+    "next_action": {
+      "kind": "command",
+      "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
+      "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
+    }
+  },
+  "finding_fingerprints": [
+    "fp_e3eff6c19a8ab16d"
+  ],
+  "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
 }

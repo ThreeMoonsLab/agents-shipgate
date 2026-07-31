@@ -363,6 +363,8 @@ def test_org_status_treats_incomparable_host_baseline_as_violation(
     assert payload["summary"]["host_grant_drift"] is True
     assert payload["host_grant_drift"]["comparison_status"] == "incomparable"
     assert payload["host_grant_drift"]["has_drift"] is None
+    assert payload["host_grant_drift"]["next_action"] is None
+    assert "--save-baseline" not in json.dumps(payload["host_grant_drift"])
     assert payload["violations"] == [
         {
             "kind": "host_grant_drift",

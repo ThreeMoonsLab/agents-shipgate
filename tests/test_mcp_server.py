@@ -59,6 +59,32 @@ index 0000000..1111111
     json.dumps(payload)
 
 
+def test_mcp_check_never_authorizes_verify_for_detached_diff_text(
+    tmp_path: Path,
+) -> None:
+    payload = shipgate_check(
+        workspace=str(tmp_path),
+        diff_text=(
+            "diff --git a/.codex/config.toml b/.codex/config.toml\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/.codex/config.toml\n"
+            "@@ -0,0 +1,3 @@\n"
+            "+[permissions.workspace.network]\n"
+            "+enabled = true\n"
+            '+surprise = "value"\n'
+        ),
+    )
+
+    assert payload["decision"] == "require_review"
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["allowed_next_commands"] == []
+    assert payload["control"]["next_action"]["command"] is None
+    assert "not bound to a checkout state" in payload["control"]["stop_reason"]
+    assert payload["summary"] == payload["control"]["reason"]
+    assert "Re-run check against the intended worktree" in payload["summary"]
+
+
 def test_mcp_preflight_handler_is_read_only(tmp_path: Path) -> None:
     workspace = tmp_path / "wk"
     shutil.copytree("samples/clean_read_only_agent", workspace)
@@ -85,6 +111,28 @@ def test_mcp_preflight_handler_is_read_only(tmp_path: Path) -> None:
     }
     assert any(signal["kind"] == "protected_surface_touch" for signal in payload["signals"])
     assert _snapshot(workspace) == before
+
+
+def test_mcp_preflight_keeps_the_source_side_of_a_rename(tmp_path: Path) -> None:
+    workspace = tmp_path / "wk"
+    shutil.copytree("samples/clean_read_only_agent", workspace)
+
+    payload = shipgate_preflight(
+        workspace=str(workspace),
+        diff_text=(
+            "diff --git a/shipgate.yaml b/retired.txt\n"
+            "similarity index 100%\n"
+            "rename from shipgate.yaml\n"
+            "rename to retired.txt\n"
+        ),
+    )
+
+    assert payload["changed_files"] == ["retired.txt", "shipgate.yaml"]
+    assert payload["requires_human_review"] is True
+    assert any(
+        touch["path"] == "shipgate.yaml"
+        for touch in payload["protected_surface_touches"]
+    )
 
 
 def test_mcp_preflight_accepts_plan_without_writes(tmp_path: Path) -> None:
@@ -116,6 +164,47 @@ def test_mcp_preflight_accepts_plan_without_writes(tmp_path: Path) -> None:
     assert payload["control"]["state"] == "human_review_required"
     assert any(signal["kind"] == "least_privilege" for signal in payload["signals"])
     assert _snapshot(workspace) == before
+
+
+def test_mcp_preflight_rejects_plan_combined_with_direct_diff(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "wk"
+    shutil.copytree("samples/clean_read_only_agent", workspace)
+
+    with pytest.raises(
+        ConfigError,
+        match=r"plan cannot be combined with diff_text",
+    ):
+        shipgate_preflight(
+            workspace=str(workspace),
+            plan={"schema_version": "preflight_plan_v1"},
+            diff_text=(
+                "diff --git a/shipgate.yaml b/shipgate.yaml\n"
+                "--- a/shipgate.yaml\n"
+                "+++ b/shipgate.yaml\n"
+                "@@ -1 +1 @@\n"
+                '-version: "0.1"\n'
+                '+version: "0.2"\n'
+            ),
+        )
+
+
+def test_mcp_preflight_rejects_mixed_shape_before_validating_direct_input(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "wk"
+    shutil.copytree("samples/clean_read_only_agent", workspace)
+
+    with pytest.raises(
+        ConfigError,
+        match=r"plan cannot be combined with capability_request",
+    ):
+        shipgate_preflight(
+            workspace=str(workspace),
+            plan={"schema_version": "preflight_plan_v1"},
+            capability_request={"not": "a capability request"},
+        )
 
 
 def test_mcp_explain_handler_returns_check_metadata() -> None:

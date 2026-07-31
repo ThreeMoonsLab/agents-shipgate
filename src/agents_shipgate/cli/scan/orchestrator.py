@@ -43,6 +43,7 @@ def run_scan(
     packet_generated_at: str | None = None,
     verification_context: VerificationContext | None = None,
     capability_lock_callback: Callable[[CapabilityLockFileV1], None] | None = None,
+    manifest_text: str | None = None,
 ) -> tuple[ReadinessReport, int]:
     """Run a full scan pipeline. Returns ``(report, exit_code)``.
 
@@ -67,6 +68,7 @@ def run_scan(
             packet_enabled=packet_enabled,
             packet_formats=packet_formats,
             baseline_mode=baseline_mode,
+            manifest_text=manifest_text,
         )
     with _perf.phase("load_inputs"):
         inputs = _load_inputs(

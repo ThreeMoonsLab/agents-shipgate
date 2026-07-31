@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 from pathlib import Path
 
 import pytest
+import typer
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
+import agents_shipgate.cli.host_audit as host_audit_cli
+import agents_shipgate.core.trust_roots as trust_roots_module
 from agents_shipgate.cli.host_audit import (
+    HOST_GRANTS_SCHEMA_VERSION,
+    _atomic_write_baseline,
+    _refuse_invalid_baseline_overwrite,
     host_audit_inventory,
     host_grants_sha256,
     render_host_audit_markdown,
@@ -19,6 +27,7 @@ from agents_shipgate.core.host_grants import (
     build_host_boundary_snapshot,
     build_host_drift_payload,
     build_host_grants_baseline,
+    load_host_grants_baseline,
 )
 from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV2,
@@ -28,6 +37,17 @@ from agents_shipgate.schemas.host_grants import (
 )
 
 runner = CliRunner()
+
+
+def _agent_mode_error(output: str) -> dict:
+    for line in reversed(output.splitlines()):
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and "error" in payload:
+            return payload
+    raise AssertionError(f"No structured agent-mode error in output:\n{output}")
 
 
 def _seed_workspace(tmp_path: Path) -> Path:
@@ -396,6 +416,36 @@ def test_invalid_config_is_structured_partial_coverage_and_cannot_baseline(tmp_p
     assert "cannot acknowledge missing evidence" in result.output
 
 
+def test_incomplete_inventory_save_routes_to_coverage_review_without_rerun(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    (tmp_path / ".mcp.json").write_text("{not-json", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--save-baseline",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result.output)
+    action = payload["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert "claude-code=partial" in action["why"]
+    assert "claude-code:.mcp.json" in action["why"]
+    assert "--save-baseline" not in result.output
+    assert not (tmp_path / ".agents-shipgate/host-grants.json").exists()
+
+
 def test_repository_intermediate_symlink_is_rejected_without_secret_leak(tmp_path: Path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-outside"
     outside.mkdir()
@@ -411,6 +461,34 @@ def test_repository_intermediate_symlink_is_rejected_without_secret_leak(tmp_pat
     assert issue["kind"] == "unreadable"
     assert "symbolic links" in issue["message"]
     coverage = next(item for item in inventory["host_coverage"] if item["host"] == "claude-code")
+    assert coverage["status"] == "partial"
+
+
+def test_repository_globstar_boundary_fails_closed_on_symlink_ancestor(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-globstar"
+    outside.mkdir()
+    secret = "OUTSIDE-INSTRUCTION-TOP-SECRET"
+    (outside / "CLAUDE.md").write_text(secret, encoding="utf-8")
+    (tmp_path / "vendor").symlink_to(outside, target_is_directory=True)
+
+    inventory = host_audit_inventory(tmp_path)
+
+    assert secret not in json.dumps(inventory)
+    issues = [
+        item
+        for item in inventory["issues"]
+        if item["source"] == "vendor" and item["host"] == "claude-code"
+    ]
+    assert issues
+    assert all(item["kind"] == "unreadable" for item in issues)
+    assert all(item["blocking"] is True for item in issues)
+    coverage = next(
+        item
+        for item in inventory["host_coverage"]
+        if item["host"] == "claude-code"
+    )
     assert coverage["status"] == "partial"
 
 
@@ -505,6 +583,152 @@ def test_shared_snapshot_reads_and_parses_each_file_once(tmp_path: Path) -> None
     assert cache.parse_counts == before_parses
 
 
+def test_host_static_entry_budget_is_aggregate_across_inventory_and_reads(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "AGENTS.md").write_text("Use least privilege.\n", encoding="utf-8")
+    cache = HostStaticParseCache(
+        max_entries=1,
+        max_total_bytes=1024 * 1024,
+    )
+
+    snapshot = build_host_boundary_snapshot(tmp_path, cache=cache)
+
+    assert cache.resource_bound_error is not None
+    assert any(
+        issue["kind"] == "unreadable"
+        and "aggregate" in issue["message"]
+        and issue["blocking"]
+        for issue in snapshot.inventory["issues"]
+    )
+    assert all(
+        coverage["status"] != "complete"
+        for coverage in snapshot.inventory["host_coverage"]
+    )
+
+
+def test_host_static_byte_budget_is_aggregate_across_unique_sources(
+    tmp_path: Path,
+) -> None:
+    agents = tmp_path / "AGENTS.md"
+    claude = tmp_path / "CLAUDE.md"
+    agents.write_text("A" * 40, encoding="utf-8")
+    claude.write_text("C" * 40, encoding="utf-8")
+    cache = HostStaticParseCache(
+        max_entries=10_000,
+        max_total_bytes=40,
+    )
+
+    snapshot = build_host_boundary_snapshot(tmp_path, cache=cache)
+
+    assert cache.resource_bound_error is not None
+    assert any(
+        issue["kind"] == "unreadable"
+        and "aggregate" in issue["message"]
+        and issue["blocking"]
+        for issue in snapshot.inventory["issues"]
+    )
+    assert all(
+        coverage["status"] != "complete"
+        for coverage in snapshot.inventory["host_coverage"]
+    )
+
+
+def test_host_static_reader_scans_each_source_directory_constant_times(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rules = tmp_path / ".cursor" / "rules"
+    rules.mkdir(parents=True)
+    for index in range(50):
+        (rules / f"rule-{index:02d}.mdc").write_text(
+            f"rule {index}\n",
+            encoding="utf-8",
+        )
+    real_scandir = os.scandir
+    calls: dict[str, int] = {}
+
+    def counting_scandir(path: os.PathLike[str] | str | int):
+        if not isinstance(path, int):
+            key = os.path.abspath(os.fspath(path))
+            calls[key] = calls.get(key, 0) + 1
+        return real_scandir(path)
+
+    monkeypatch.setattr(trust_roots_module.os, "scandir", counting_scandir)
+
+    inventory = host_audit_inventory(tmp_path)
+
+    assert not inventory["issues"]
+    assert calls[os.path.abspath(os.fspath(rules))] == 2
+
+
+def test_bounded_host_static_reader_keeps_hardlinks_fail_closed(
+    tmp_path: Path,
+) -> None:
+    claude = tmp_path / ".claude"
+    claude.mkdir()
+    settings = claude / "settings.json"
+    settings.write_text("{}", encoding="utf-8")
+    alias = tmp_path / "settings-alias.json"
+    alias.hardlink_to(settings)
+
+    inventory = host_audit_inventory(tmp_path)
+
+    issue = next(
+        item
+        for item in inventory["issues"]
+        if item["source"] == ".claude/settings.json"
+    )
+    assert issue["kind"] == "unreadable"
+    assert "singly-linked" in issue["message"]
+    assert issue["blocking"] is True
+    assert all(
+        grant["source"] != ".claude/settings.json"
+        for grant in inventory["grants"]
+    )
+
+
+def test_host_inventory_rejects_protected_addition_after_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    added = docs / "AGENTS.md"
+    real_finish = trust_roots_module.IdentityBoundReadSession.finish
+    injected = False
+
+    def finish_after_addition(
+        reader: trust_roots_module.IdentityBoundReadSession,
+    ) -> None:
+        nonlocal injected
+        if reader.root == tmp_path and not injected:
+            injected = True
+            added.write_text("late host instruction\n", encoding="utf-8")
+        real_finish(reader)
+
+    monkeypatch.setattr(
+        trust_roots_module.IdentityBoundReadSession,
+        "finish",
+        finish_after_addition,
+    )
+
+    inventory = host_audit_inventory(tmp_path)
+
+    assert inventory["artifacts"] == []
+    assert inventory["grants"] == []
+    assert any(
+        issue["kind"] == "unreadable"
+        and "changed identity" in issue["message"]
+        and issue["blocking"]
+        for issue in inventory["issues"]
+    )
+    assert all(
+        coverage["status"] == "partial"
+        for coverage in inventory["host_coverage"]
+    )
+
+
 def test_snapshot_projection_rejects_scope_or_workspace_mismatch(tmp_path: Path) -> None:
     snapshot = build_host_boundary_snapshot(tmp_path)
     with pytest.raises(ValueError, match="scope"):
@@ -535,6 +759,190 @@ def test_v02_baseline_is_typed_portable_redacted_and_idempotent(tmp_path: Path) 
     assert second.exit_code == 0
     assert json.loads(second.output)["status"] == "unchanged"
     assert baseline_path.read_bytes() == first
+
+
+def test_valid_baseline_update_uses_atomic_replacement(tmp_path: Path) -> None:
+    _seed_workspace(tmp_path)
+    baseline = _save_baseline(tmp_path)
+    original_inode = baseline.stat().st_ino
+    config = tmp_path / ".mcp.json"
+    payload = json.loads(config.read_text(encoding="utf-8"))
+    payload["mcpServers"]["github"]["args"].append("--new-scope")
+    config.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(tmp_path), "--save-baseline", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["status"] == "updated"
+    assert baseline.stat().st_ino != original_inode
+    assert not list(baseline.parent.glob(f".{baseline.name}.*.tmp"))
+
+
+def test_save_refuses_valid_symlink_and_preserves_external_target(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    external = _save_baseline(source)
+    before = external.read_bytes()
+    requested = tmp_path / "requested"
+    baseline = requested / ".agents-shipgate" / "host-grants.json"
+    baseline.parent.mkdir(parents=True)
+    baseline.symlink_to(external)
+
+    result = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(requested), "--save-baseline"],
+    )
+
+    assert result.exit_code == 2
+    assert baseline.is_symlink()
+    assert external.read_bytes() == before
+
+
+def test_save_refuses_symlinked_parent_and_preserves_external_directory(
+    tmp_path: Path,
+) -> None:
+    external = tmp_path / "external"
+    external.mkdir()
+    requested = tmp_path / "requested"
+    requested.mkdir()
+    (requested / ".agents-shipgate").symlink_to(
+        external,
+        target_is_directory=True,
+    )
+
+    result = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(requested), "--save-baseline"],
+    )
+
+    assert result.exit_code == 2
+    assert not (external / "host-grants.json").exists()
+
+
+def test_save_refuses_hardlink_and_preserves_external_target(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    external = _save_baseline(source)
+    before = external.read_bytes()
+    requested = tmp_path / "requested"
+    baseline = requested / ".agents-shipgate" / "host-grants.json"
+    baseline.parent.mkdir(parents=True)
+    baseline.hardlink_to(external)
+
+    result = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(requested), "--save-baseline"],
+    )
+
+    assert result.exit_code == 2
+    assert external.read_bytes() == before
+    assert baseline.read_bytes() == before
+    assert external.stat().st_nlink == 2
+
+
+def test_baseline_read_rejects_a_symlink_swap_before_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    baseline = _save_baseline(source)
+    external_root = tmp_path / "external"
+    external_root.mkdir()
+    external = _save_baseline(external_root)
+    real_open = os.open
+    swapped = False
+
+    def swapping_open(path, flags, *args, **kwargs):
+        nonlocal swapped
+        if Path(path) == baseline and not swapped:
+            swapped = True
+            baseline.unlink()
+            baseline.symlink_to(external)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", swapping_open)
+
+    with pytest.raises(ValueError, match="readable host-grants baseline"):
+        load_host_grants_baseline(baseline)
+    assert swapped is True
+    assert baseline.is_symlink()
+
+
+def test_save_allows_explicit_absolute_regular_target_but_not_relative_escape(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    absolute = tmp_path / "explicit-baseline.json"
+    created = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(workspace),
+            "--save-baseline",
+            "--baseline-file",
+            str(absolute),
+        ],
+    )
+    assert created.exit_code == 0, created.output
+    assert absolute.is_file()
+
+    escaped = tmp_path / "escaped-baseline.json"
+    refused = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(workspace),
+            "--save-baseline",
+            "--baseline-file",
+            "../escaped-baseline.json",
+        ],
+    )
+    assert refused.exit_code == 2
+    assert not escaped.exists()
+
+
+def test_atomic_save_fails_closed_if_target_appears(tmp_path: Path) -> None:
+    target = tmp_path / "appeared.json"
+    target.write_text("external evidence", encoding="utf-8")
+
+    with pytest.raises(typer.Exit) as raised:
+        _atomic_write_baseline(target, "{}\n", expected=None)
+
+    assert raised.value.exit_code == 2
+    assert target.read_text(encoding="utf-8") == "external evidence"
+
+
+def test_save_reports_symlink_loop_without_a_traceback(tmp_path: Path) -> None:
+    loop = tmp_path / "loop"
+    loop.symlink_to("loop")
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--save-baseline",
+            "--baseline-file",
+            str(loop / "host-grants.json"),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Refusing to write host-grants baseline" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_clean_and_changed_v02_drift(tmp_path: Path) -> None:
@@ -773,27 +1181,52 @@ def test_legacy_v01_baseline_is_incomparable_advisory_and_strict_20(tmp_path: Pa
     _seed_workspace(tmp_path)
     baseline = tmp_path / ".agents-shipgate/host-grants.json"
     baseline.parent.mkdir()
+    legacy = {
+        "host_grants_schema_version": "0.1",
+        "inventory_sha256": "legacy",
+        "inventory": {"mcp_servers": []},
+    }
     baseline.write_text(
-        json.dumps(
-            {
-                "host_grants_schema_version": "0.1",
-                "inventory_sha256": "legacy",
-                "inventory": {"mcp_servers": []},
-            }
-        ),
+        json.dumps(legacy),
         encoding="utf-8",
     )
+    shared = build_host_drift_payload(
+        baseline=legacy,
+        inventory=host_audit_inventory(tmp_path),
+        baseline_file=".agents-shipgate/host-grants.json",
+    )
+    HostGrantsDriftV2.model_validate(shared)
+    assert shared["comparison_status"] == "incomparable"
+    assert shared["next_action"] is None
+    assert "--save-baseline" not in json.dumps(shared)
+
     code, payload = _drift_json(tmp_path)
     assert code == 0
+    HostGrantsDriftV2.model_validate(payload)
     assert payload["comparison_status"] == "incomparable"
     assert payload["has_drift"] is None
     assert "baseline_schema_v0.1" in payload["incomparable_reasons"][0]
-    assert payload["next_action"] == "shipgate audit --host --scope repository --save-baseline"
+    assert payload["next_action"] is None
+    assert baseline.exists()
+
+    before = baseline.read_bytes()
+    replace = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(tmp_path), "--save-baseline"],
+    )
+    assert replace.exit_code == 2
+    assert "--save-baseline" not in replace.output
+    assert baseline.read_bytes() == before
 
     strict = runner.invoke(
         app,
         [
-            "audit", "--host", "--workspace", str(tmp_path), "--drift", "--json",
+            "audit",
+            "--host",
+            "--workspace",
+            str(tmp_path),
+            "--drift",
+            "--json",
             "--fail-on-drift",
         ],
     )
@@ -821,13 +1254,16 @@ def test_malformed_nested_v02_baseline_is_incomparable_not_a_crash(tmp_path: Pat
     )
     code, payload = _drift_json(tmp_path)
     assert code == 0
+    HostGrantsDriftV2.model_validate(payload)
     assert payload["comparison_status"] == "incomparable"
     assert payload["has_drift"] is None
     assert payload["incomparable_reasons"] == ["malformed_v0.2_baseline"]
-    assert payload["next_action"] == (
-        "shipgate audit --host --scope repository --save-baseline"
-    )
-    strict = runner.invoke(
+    assert payload["next_action"] is None
+    assert json.loads(baseline.read_text(encoding="utf-8"))["inventory"]["grants"] == [
+        "malformed-grant"
+    ]
+
+    markdown = runner.invoke(
         app,
         [
             "audit",
@@ -835,7 +1271,26 @@ def test_malformed_nested_v02_baseline_is_incomparable_not_a_crash(tmp_path: Pat
             "--workspace",
             str(tmp_path),
             "--drift",
-            "--json",
+        ],
+    )
+    assert markdown.exit_code == 0, markdown.output
+    assert "--save-baseline" not in markdown.output
+    assert "Review the existing baseline" in markdown.output
+    assert "Next: None" not in markdown.output
+
+    before = baseline.read_bytes()
+    replace = runner.invoke(
+        app,
+        ["audit", "--host", "--workspace", str(tmp_path), "--save-baseline"],
+    )
+    assert replace.exit_code == 2
+    assert "--save-baseline" not in replace.output
+    assert baseline.read_bytes() == before
+
+    strict = runner.invoke(
+        app,
+        [
+            "audit", "--host", "--workspace", str(tmp_path), "--drift", "--json",
             "--fail-on-drift",
         ],
     )
@@ -850,6 +1305,7 @@ def test_scope_mismatch_is_incomparable(tmp_path: Path, monkeypatch: pytest.Monk
     assert code == 0
     assert payload["comparison_status"] == "incomparable"
     assert "scope_mismatch:repository->local_static" in payload["incomparable_reasons"]
+    assert payload["next_action"] is None
 
 
 def test_fail_on_drift_exits_20_and_advisory_stays_zero(tmp_path: Path) -> None:
@@ -883,6 +1339,7 @@ def test_missing_corrupt_unknown_and_tampered_baselines_fail_closed(tmp_path: Pa
         baseline.write_text(content, encoding="utf-8")
         result = runner.invoke(app, ["audit", "--host", "--workspace", str(tmp_path), "--drift"])
         assert result.exit_code == 2
+    baseline.unlink()
     baseline = _save_baseline(tmp_path)
     payload = json.loads(baseline.read_text(encoding="utf-8"))
     payload["inventory_sha256"] = "0" * 64
@@ -902,6 +1359,253 @@ def test_invalid_flag_combinations_are_usage_errors(tmp_path: Path) -> None:
         app, ["audit", "--host", "--workspace", str(tmp_path), "--fail-on-drift"]
     )
     assert no_drift.exit_code == 2
+
+
+def test_missing_host_recovery_preserves_the_complete_quoted_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "workspace with spaces"
+    workspace.mkdir()
+    baseline = workspace / "reviewed grants; baseline.json"
+    out = workspace / "reports with spaces" / "saved.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--workspace",
+            str(workspace),
+            "--scope",
+            "local-static",
+            "--save-baseline",
+            "--baseline-file",
+            str(baseline),
+            "--json",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 2
+    action = _agent_mode_error(result.output)["next_actions"][0]
+    assert action["kind"] == "command"
+    assert shlex.split(action["command"]) == [
+        "agents-shipgate",
+        "audit",
+        "--host",
+        "--workspace",
+        str(workspace),
+        "--scope",
+        "local-static",
+        "--save-baseline",
+        "--baseline-file",
+        str(baseline),
+        "--json",
+        "--out",
+        str(out),
+    ]
+
+
+def test_invalid_scope_with_full_custom_request_requires_a_choice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "custom workspace"
+    baseline = workspace / "custom baseline.json"
+    out = workspace / "custom output.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(workspace),
+            "--scope",
+            "repo-or-local",
+            "--save-baseline",
+            "--baseline-file",
+            str(baseline),
+            "--json",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 2
+    payload = _agent_mode_error(result.output)
+    action = payload["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert "agents-shipgate audit --host" not in payload["next_action"]
+
+
+def test_save_and_drift_conflict_never_authorizes_a_different_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "custom workspace"
+    baseline = workspace / "custom baseline.json"
+    out = workspace / "custom output.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(workspace),
+            "--scope",
+            "local-static",
+            "--save-baseline",
+            "--drift",
+            "--baseline-file",
+            str(baseline),
+            "--fail-on-drift",
+            "--json",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 2
+    action = _agent_mode_error(result.output)["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+
+
+def test_missing_baseline_with_output_still_requires_human_acknowledgement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "custom workspace"
+    workspace.mkdir()
+    baseline = workspace / "missing baseline.json"
+    out = workspace / "custom output.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "--host",
+            "--workspace",
+            str(workspace),
+            "--scope",
+            "local-static",
+            "--drift",
+            "--baseline-file",
+            str(baseline),
+            "--fail-on-drift",
+            "--json",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 2
+    action = _agent_mode_error(result.output)["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert str(workspace) in action["why"]
+    assert str(baseline) in action["why"]
+    assert "local-static" in action["why"]
+    assert "--save-baseline" not in result.output
+    assert not out.exists()
+
+
+def test_baseline_lstat_failure_is_an_io_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    baseline = tmp_path / "baseline.json"
+    original_lstat = Path.lstat
+
+    def denied_lstat(path: Path) -> object:
+        if path == baseline:
+            raise PermissionError("inspection denied")
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", denied_lstat)
+
+    with pytest.raises(typer.Exit) as raised:
+        _refuse_invalid_baseline_overwrite(baseline)
+
+    assert raised.value.exit_code == 4
+    payload = _agent_mode_error(capsys.readouterr().err)
+    assert payload["error"] == "other_error"
+    assert payload["exit_code"] == 4
+
+
+def test_baseline_read_failure_is_an_io_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text("{}", encoding="utf-8")
+
+    def denied_read(_path: Path) -> tuple[dict, str]:
+        try:
+            raise PermissionError("read denied")
+        except PermissionError as cause:
+            raise ValueError("could not read baseline") from cause
+
+    monkeypatch.setattr(
+        host_audit_cli,
+        "load_host_grants_baseline_with_text",
+        denied_read,
+    )
+
+    with pytest.raises(typer.Exit) as raised:
+        _refuse_invalid_baseline_overwrite(baseline)
+
+    assert raised.value.exit_code == 4
+    payload = _agent_mode_error(capsys.readouterr().err)
+    assert payload["error"] == "other_error"
+    assert payload["exit_code"] == 4
+
+
+def test_baseline_overwrite_reuses_descriptor_bound_text_without_path_reread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text("{}", encoding="utf-8")
+    original_read_text = Path.read_text
+    descriptor_text = '{"host_grants_schema_version":"0.2"}\n'
+
+    monkeypatch.setattr(
+        host_audit_cli,
+        "load_host_grants_baseline_with_text",
+        lambda _path: (
+            {"host_grants_schema_version": HOST_GRANTS_SCHEMA_VERSION},
+            descriptor_text,
+        ),
+    )
+
+    def denied_read_text(
+        path: Path,
+        *args: object,
+        **kwargs: object,
+    ) -> str:
+        if path == baseline:
+            raise PermissionError("post-validation read denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", denied_read_text)
+
+    state = _refuse_invalid_baseline_overwrite(baseline)
+
+    assert state is not None
+    assert state[1] == descriptor_text
 
 
 def test_generated_models_reject_unknown_fields_and_invalid_literals(tmp_path: Path) -> None:

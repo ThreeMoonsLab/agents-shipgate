@@ -15,7 +15,12 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from agents_shipgate.core.boundary_diff import BoundaryInputIssue, parse_unified_diff
+from agents_shipgate.core.boundary_diff import (
+    BoundaryInputIssue,
+    DiffFile,
+    git_diff_path_token,
+    parse_unified_diff,
+)
 from agents_shipgate.core.boundary_registry import (
     BOUNDARY_ADAPTERS,
     boundary_hosts_for_path,
@@ -38,8 +43,11 @@ from agents_shipgate.core.codex_boundary import (
     _required_reviewers_for,
     _risk_for,
     _violation_fingerprint,
+    detect_command_for,
     evaluate_codex_boundary_result,
     load_codex_boundary_policy,
+    preview_command_for,
+    verify_command_for,
     violations_within_agent_actionable_band,
 )
 from agents_shipgate.core.host_boundary import (
@@ -54,6 +62,12 @@ from agents_shipgate.core.host_grants import (
     HostBoundarySnapshot,
     build_host_boundary_snapshot,
 )
+from agents_shipgate.core.trust_roots import (
+    is_configured_manifest,
+    is_portable_repo_path,
+    read_absolute_identity_bound_text,
+    trust_root_class_for,
+)
 from agents_shipgate.schemas.agent_boundary import (
     AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
     AgentBoundaryResultV1,
@@ -67,6 +81,9 @@ from agents_shipgate.schemas.agent_result_v1 import (
 )
 from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
+# The actor every pre-detection audit id implicitly described.
+_LEGACY_AUDIT_ACTOR = "codex"
+
 UNIFIED_POLICY_PATH = Path("policies/agent-boundary.shipgate.yaml")
 LEGACY_CODEX_POLICY_PATH = Path("policies/codex-boundary.shipgate.yaml")
 
@@ -74,6 +91,7 @@ LEGACY_CODEX_POLICY_PATH = Path("policies/codex-boundary.shipgate.yaml")
 @dataclass(frozen=True)
 class AgentBoundaryAssessment:
     actor: str
+    verify_command: str
     input_mode: Literal["worktree", "git_range", "provided_diff"]
     scope: Literal["repository"]
     input_coverage: Literal["complete", "partial", "unknown"]
@@ -159,7 +177,29 @@ def evaluate_agent_boundary(
     input_mode: Literal["worktree", "git_range", "provided_diff"] = "provided_diff",
     input_issues: list[BoundaryInputIssue] | None = None,
     host_snapshot: HostBoundarySnapshot | None = None,
+    changed_files_override: list[str] | None = None,
+    config_path: Path | None = None,
+    requested_workspace: Path | None = None,
+    base: str | None = None,
+    head: str | None = None,
+    verification_replayable: bool = False,
+    base_manifest_absent: bool | None = None,
 ) -> AgentBoundaryAssessment:
+    # The command this assessment authorizes must evaluate the target that was
+    # actually checked, not the default manifest in the current directory.
+    verify_command = verify_command_for(
+        requested_workspace,
+        config_path,
+        base=base,
+        head=head,
+    )
+    detect_command = detect_command_for(requested_workspace)
+    preview_command = preview_command_for(
+        requested_workspace,
+        config_path,
+        base=base,
+        head=head,
+    )
     workspace = workspace.resolve()
     host_snapshot = host_snapshot or build_host_boundary_snapshot(
         workspace,
@@ -168,14 +208,29 @@ def evaluate_agent_boundary(
     diff_files = parse_unified_diff(diff_text)
     changed_files = sorted(
         {
-            path
-            for item in diff_files
-            for path in (item.path, item.old_path)
-            if path and (path == item.path or is_agent_boundary_path(path))
+            *(changed_files_override or []),
+            *(
+                path
+                for item in diff_files
+                for path in (item.new_path, item.old_path)
+                if path
+            ),
         }
     )
     input_issues = [
         *(input_issues or []),
+        *[
+            BoundaryInputIssue(
+                code=f"host_inventory_{item.get('kind', 'unresolved')}",
+                path=str(item.get("source") or ""),
+                message=str(
+                    item.get("message")
+                    or "A repository host-boundary source could not be inventoried."
+                ),
+            )
+            for item in host_snapshot.inventory.get("issues", [])
+            if item.get("blocking")
+        ],
         *_structural_diff_issues(
             workspace=workspace,
             diff_files=diff_files,
@@ -197,8 +252,15 @@ def evaluate_agent_boundary(
         policy_override=policies.codex,
         policy_diagnostics=list(policies.diagnostics),
         diff_files_override=diff_files,
+        changed_files_override=changed_files,
         resolved_text_cache=resolved_text_cache,
         static_read_cache=host_snapshot.cache,
+        verify_command=verify_command,
+        detect_command=detect_command,
+        preview_command=preview_command,
+        verification_replayable=verification_replayable,
+        discovery_replayable=input_mode != "git_range",
+        manifest_label=_manifest_label(config_path, workspace),
     )
     host_violations, host_diagnostics = evaluate_host_boundary(
         workspace=workspace,
@@ -227,6 +289,15 @@ def evaluate_agent_boundary(
     combined = _with_unclassified_protected_changes(
         changed_files=changed_files,
         violations=combined,
+        adoption_paths=_manifest_adoption_paths(
+            diff_files,
+            config_path,
+            workspace,
+            base_manifest_absent=base_manifest_absent,
+        ),
+        config_path=config_path,
+        policy_path=policy_path,
+        workspace=workspace,
         evaluated_paths={
             item.path
             for item in diagnostics
@@ -336,19 +407,55 @@ def evaluate_agent_boundary(
     diagnostics = _sanitize_diagnostics(diagnostics)
 
     projected = _project_legacy(
+        verify_command=verify_command,
         legacy=legacy,
         violations=combined,
         diagnostics=diagnostics,
         policy_set=policies,
         release_decision=release_decision,
+        detect_command=detect_command,
+        input_mode=input_mode,
+        verification_replayable=verification_replayable,
+        discovery_replayable=input_mode != "git_range",
+        diff_text=diff_text,
     )
+    invocation_shared_paths = {
+        path
+        for path in changed_files
+        if (
+            _is_invocation_path(
+                policy_path,
+                path,
+                workspace=workspace,
+            )
+            or _is_invocation_path(
+                config_path,
+                path,
+                workspace=workspace,
+            )
+        )
+    }
     affected_hosts = tuple(
-        sorted({host for path in changed_files for host in boundary_hosts_for_path(path)})
+        sorted(
+            {
+                *(
+                    host
+                    for path in changed_files
+                    for host in boundary_hosts_for_path(path)
+                ),
+                *(
+                    {"codex", "claude-code", "cursor"}
+                    if invocation_shared_paths
+                    else set()
+                ),
+            }
+        )
     )
     coverage = _coverage_for(
         changed_files=changed_files,
         violations=combined,
         issues=issue_codes,
+        invocation_shared_paths=invocation_shared_paths,
     )
     input_coverage: Literal["complete", "partial", "unknown"] = (
         "partial"
@@ -363,6 +470,7 @@ def evaluate_agent_boundary(
     )
     return AgentBoundaryAssessment(
         actor=actor,
+        verify_command=verify_command,
         input_mode=input_mode,
         scope="repository",
         input_coverage=input_coverage,
@@ -427,15 +535,66 @@ def assessment_for_scan_context(context) -> AgentBoundaryAssessment:
     if verification is None:
         raise ValueError("boundary assessment requires verification context")
     diff_text = verification.diff_text or "\n".join(
-        f"diff --git a/{path} b/{path}" for path in verification.changed_files
+        "diff --git "
+        f"{git_diff_path_token('a/', path)} {git_diff_path_token('b/', path)}"
+        for path in verification.changed_files
+    )
+    configured_manifest = (
+        Path(verification.configured_manifest_path)
+        if verification.configured_manifest_path
+        else Path(context.config_path)
     )
     context.agent_boundary = evaluate_agent_boundary(
-        workspace=Path(context.config_path).resolve().parent,
+        workspace=_scan_workspace(
+            config_path=Path(context.config_path),
+            configured_manifest=configured_manifest,
+        ),
         diff_text=diff_text,
         trigger=verification.trigger_result,
         input_mode="provided_diff",
+        changed_files_override=list(verification.changed_files),
+        # Without this a custom-named manifest produced the protected-surface
+        # boundary finding under local `check` but not under full `verify`, so
+        # the two public surfaces published different evidence for one diff.
+        config_path=configured_manifest,
+        verification_replayable=True,
+        # Verify already proved this fact from the comparison base. Reusing it
+        # keeps the cached boundary projection from re-inferring adoption from
+        # diff shape alone.
+        base_manifest_absent=verification.manifest_introduced,
     )
     return context.agent_boundary
+
+
+def _scan_workspace(*, config_path: Path, configured_manifest: Path) -> Path:
+    """Recover the scan's repository root from its stable manifest identity.
+
+    Verify scans a committed head from a temporary archive. ``config_path`` is
+    therefore physical (``<tmp>/head/services/support/new-gate.yml``), while
+    changed paths and ``configured_manifest`` are repository-relative
+    (``services/support/new-gate.yml``). Removing those stable path components
+    recovers the archive root, so boundary content resolution and configured-
+    manifest comparison use the same coordinate system.
+
+    Direct scan callers predating the additive identity field retain the
+    historical manifest-parent fallback.
+    """
+
+    resolved_config = config_path.resolve()
+    if configured_manifest.is_absolute():
+        return resolved_config.parent
+    components = configured_manifest.parts
+    if not components or any(part == ".." for part in components):
+        return resolved_config.parent
+    root = resolved_config
+    for _part in components:
+        root = root.parent
+    try:
+        if (root / configured_manifest).resolve() == resolved_config:
+            return root
+    except OSError:
+        pass
+    return resolved_config.parent
 
 
 def _project_legacy(
@@ -445,6 +604,12 @@ def _project_legacy(
     diagnostics: list[AgentResultDiagnostic],
     policy_set: _PolicySet,
     release_decision: dict[str, Any] | None,
+    verify_command: str | None = None,
+    detect_command: str | None = None,
+    input_mode: Literal["worktree", "git_range", "provided_diff"] = "provided_diff",
+    verification_replayable: bool = True,
+    discovery_replayable: bool = True,
+    diff_text: str = "",
 ) -> CodexBoundaryResultV2:
     needs_reprojection = violations != legacy.violated_rules or bool(policy_set.issues)
     if needs_reprojection:
@@ -453,17 +618,25 @@ def _project_legacy(
         repair = _repair_for(decision, violations, legacy.agent)
         human = _human_review_for(decision, violations, repair)
         summary = _boundary_summary(decision, violations)
-        first_action = _next_action_for(decision, violations, repair)
+        undeclared_gap = any(
+            item.code == "undeclared_capability_surface"
+            for item in diagnostics
+        )
+        first_action = (
+            legacy.control.next_action
+            if undeclared_gap
+            and getattr(legacy.control.next_action, "command", None)
+            else _next_action_for(decision, violations, repair)
+        )
         control = _control_for_result(
+            verify_command=verify_command,
             decision=decision,
             summary=summary,
             first_next_action=first_action,
             human_review=human,
             repair=repair,
             verify_required=legacy.control.verify_required,
-            undeclared_gap=any(
-                item.code == "undeclared_capability_surface" for item in diagnostics
-            ),
+            undeclared_gap=undeclared_gap,
             coverage_gap=any(
                 item.code == "capability_change_requires_verify" for item in diagnostics
             ),
@@ -471,13 +644,32 @@ def _project_legacy(
                 legacy.trigger and legacy.trigger.get("force_run")
             ),
             violations=violations,
+            detect_command=detect_command,
+            verification_replayable=verification_replayable,
+            discovery_replayable=discovery_replayable,
         )
     else:
         decision = legacy.decision
         risk = legacy.risk_level
         repair = legacy.repair
         summary = _boundary_summary(decision, violations)
-        control = legacy.control.model_copy(update={"reason": summary})
+        control = legacy.control.model_copy(
+            update={
+                "reason": (
+                    legacy.control.reason
+                    if (
+                        (not verification_replayable or not discovery_replayable)
+                        and legacy.control.verify_required
+                    )
+                    else summary
+                )
+            }
+        )
+    if (
+        (not verification_replayable or not discovery_replayable)
+        and control.state == "human_review_required"
+    ):
+        summary = control.reason
     fingerprints = [_violation_fingerprint(item) for item in violations]
     aggregate = AgentResultPolicy(
         id="agent-boundary",
@@ -493,9 +685,16 @@ def _project_legacy(
         ),
     )
     audit_id = _agent_boundary_audit_id(
+        actor=legacy.agent,
         changed_files=legacy.changed_files,
         fingerprints=fingerprints,
         policy_digest=policy_set.digest,
+        input_mode=input_mode,
+        verification_replayable=verification_replayable,
+        trigger=legacy.trigger,
+        control=control.model_dump(mode="json", exclude_none=True),
+        diff_text=diff_text,
+        legacy_audit_id=legacy.audit_id,
     )
     trace = [
         AgentResultTraceEvent(
@@ -536,12 +735,75 @@ def _project_legacy(
 
 def _agent_boundary_audit_id(
     *,
+    actor: str,
     changed_files: list[str],
     fingerprints: list[str],
     policy_digest: str,
+    input_mode: Literal["worktree", "git_range", "provided_diff"],
+    verification_replayable: bool,
+    trigger: dict[str, Any] | None = None,
+    control: dict[str, Any] | None = None,
+    diff_text: str = "",
+    legacy_audit_id: str | None = None,
 ) -> str:
+    """Identity of one audited evaluation.
+
+    The actor belongs in it: the result records which agent was evaluated, so
+    two runs differing only by actor are two audit rows, not one — without it,
+    detecting the actor changed the label while leaving every Claude Code and
+    Cursor run indistinguishable from a codex run in the audit trail.
+
+    Actor is folded in only for a non-default actor. The input binding is
+    omitted only for the legacy verify projection (a replayable provided diff)
+    so established ids for that exact substrate stay stable. Worktree, ref
+    range, and detached provided-diff evaluations can produce different
+    controls from identical text and therefore must be distinct audit rows.
+    """
+
+    legacy_subject = input_mode == "provided_diff" and verification_replayable
     payload = {
         "schema": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        # Added only for a non-default actor, so every id issued before actor
+        # detection existed keeps its value. Rotating established codex ids
+        # would break anyone who stored one, and the identity contract is not
+        # versioned separately from the schema.
+        **({"actor": actor} if actor != _LEGACY_AUDIT_ACTOR else {}),
+        **(
+            {
+                "input_mode": input_mode,
+                "verification_replayable": verification_replayable,
+            }
+            if not legacy_subject
+            else {}
+        ),
+        **(
+            {
+                "trigger": {
+                    key: trigger.get(key)
+                    for key in (
+                        "should_run",
+                        "run_shipgate",
+                        "force_run",
+                        "dry_run_recommended",
+                        "skip_reason",
+                    )
+                    if trigger is not None and key in trigger
+                },
+                "control": {
+                    "state": (control or {}).get("state"),
+                    "verify_required": (control or {}).get("verify_required"),
+                    "next_action_kind": (
+                        ((control or {}).get("next_action") or {}).get("kind")
+                        if isinstance((control or {}).get("next_action"), dict)
+                        else None
+                    ),
+                },
+                "subject_sha256": hashlib.sha256(diff_text.encode()).hexdigest(),
+                "legacy_audit_id": legacy_audit_id,
+            }
+            if not legacy_subject
+            else {}
+        ),
         "changed_files": sorted(changed_files),
         "fingerprints": sorted(fingerprints),
         "policy_set_sha256": policy_digest,
@@ -612,14 +874,32 @@ def _load_policy_set(*, workspace: Path, explicit: Path | None) -> _PolicySet:
         codex_source = host_source = "packaged_default"
         discovery = ["packaged_default:agent-boundary"]
 
+    shared_policy_text: str | None = None
+    if codex_path is not None:
+        codex_candidate = (
+            codex_path if codex_path.is_absolute() else workspace / codex_path
+        )
+        host_candidate = host_path if host_path.is_absolute() else workspace / host_path
+        if codex_candidate == host_candidate and codex_candidate.is_file():
+            try:
+                shared_policy_text = read_absolute_identity_bound_text(
+                    codex_candidate,
+                    max_bytes=1024 * 1024,
+                )
+            except (OSError, UnicodeDecodeError, ValueError):
+                # Family loaders retain their established diagnostics and
+                # default-policy fallback when the shared capture fails.
+                shared_policy_text = None
     codex, codex_diagnostics = load_codex_boundary_policy(
         workspace=workspace,
         policy_path=codex_path,
         allow_foreign_rules=True,
+        policy_text=shared_policy_text,
     )
     host, host_diagnostics = load_host_boundary_policy(
         workspace=workspace,
         policy_path=host_path,
+        policy_text=shared_policy_text,
     )
     diagnostics.extend(codex_diagnostics)
     diagnostics.extend(host_diagnostics)
@@ -684,6 +964,7 @@ def _coverage_for(
     changed_files: list[str],
     violations: list[AgentResultViolatedRule],
     issues: list[str],
+    invocation_shared_paths: set[str] | None = None,
 ) -> list[BoundaryHostCoverage]:
     failure_paths = {
         item.path
@@ -698,6 +979,8 @@ def _coverage_for(
     coverage: list[BoundaryHostCoverage] = []
     for adapter in BOUNDARY_ADAPTERS:
         paths = sorted(path for path in changed_files if adapter.matches(path))
+        if adapter.id == "shared" and invocation_shared_paths:
+            paths = sorted({*paths, *invocation_shared_paths})
         if any(path in failure_paths for path in paths) or (paths and issues):
             status = "partial"
         elif paths and adapter.experimental:
@@ -735,11 +1018,62 @@ def _boundary_summary(decision: str, violations: list[AgentResultViolatedRule]) 
     return f"{len(violations)} coding-agent boundary change(s) block local continuation."
 
 
+def _manifest_adoption_paths(
+    diff_files: list[DiffFile],
+    config_path: Path | None = None,
+    workspace: Path | None = None,
+    *,
+    base_manifest_absent: bool | None = None,
+) -> frozenset[str]:
+    """Paths where this diff *introduces* a Shipgate manifest.
+
+    "Adopting the gate" and "changing the gate" deserve different words, and a
+    pure addition is the only shape that is unambiguously the first. The
+    qualification is deliberately narrow: exactly one manifest record in the
+    whole diff, and that record a plain addition. A diff that also modifies,
+    deletes, or renames a manifest is touching an existing gate — PR #282's
+    lesson is that a block-level "this part is safe" signal must never soften a
+    path-wide fail-closed guard, and the composite shapes are exactly where
+    that goes wrong.
+
+    Only the wording moves: the rule id, action, and risk level are unchanged,
+    so the local decision and the control state are identical either way.
+    """
+
+    # A plain added file proves only that this path is new. It does not prove
+    # that the repository had no operational manifest under another name.
+    # Callers with a git/worktree subject supply the separately established
+    # base fact; raw diff callers receive neutral protected-surface wording.
+    if base_manifest_absent is not True:
+        return frozenset()
+
+    records = [
+        item
+        for item in diff_files
+        for candidate in (item.new_path, item.old_path)
+        if candidate
+        and (
+            trust_root_class_for(candidate.replace("\\", "/")) == "manifest"
+            or is_configured_manifest(config_path, candidate, workspace=workspace)
+        )
+    ]
+    if len(records) != 1:
+        return frozenset()
+    only = records[0]
+    if not only.is_new or only.is_deleted or only.is_rename or only.old_path:
+        return frozenset()
+    return frozenset({only.path.replace("\\", "/")})
+
+
 def _with_unclassified_protected_changes(
     *,
     changed_files: list[str],
     violations: list[AgentResultViolatedRule],
     evaluated_paths: set[str],
+    adoption_paths: frozenset[str] = frozenset(),
+    config_path: Path | None = None,
+    policy_path: Path | None = None,
+    workspace: Path | None = None,
 ) -> list[AgentResultViolatedRule]:
     covered = {item.path for item in violations if item.path}
     additions: list[AgentResultViolatedRule] = []
@@ -748,7 +1082,25 @@ def _with_unclassified_protected_changes(
         if (
             normalized in covered
             or normalized in evaluated_paths
-            or not is_agent_boundary_path(normalized)
+            or not (
+                is_agent_boundary_path(normalized)
+                or trust_root_class_for(normalized) is not None
+                # The manifest this invocation loaded is a protected surface
+                # whatever it is called: a repository run with
+                # ``--config new-gate.yml`` otherwise got ``allow`` and no
+                # violations for a diff that rewrote its own gate.
+                or is_configured_manifest(
+                    config_path, normalized, workspace=workspace
+                )
+                # An explicit ``--policy`` is the live boundary gate for this
+                # invocation even when it has a custom name outside
+                # ``policies/*.shipgate.yaml``.
+                or _is_invocation_path(
+                    policy_path,
+                    normalized,
+                    workspace=workspace,
+                )
+            )
         ):
             continue
         kind = (
@@ -757,25 +1109,87 @@ def _with_unclassified_protected_changes(
             else "PROTECTED-SURFACE-UNCLASSIFIED"
         )
         rule = _GENERIC_RULES[kind]
+        adopting = normalized in adoption_paths
+        # Recorded only for a manifest the path table cannot see, so existing
+        # rows keep their fingerprints. The band predicate reads it to keep a
+        # gate-governing surface out of the graded route.
+        configured_manifest = trust_root_class_for(
+            normalized
+        ) is None and is_configured_manifest(
+            config_path, normalized, workspace=workspace
+        )
+        configured_policy = (
+            trust_root_class_for(normalized) is None
+            and _is_invocation_path(
+                policy_path,
+                normalized,
+                workspace=workspace,
+            )
+        )
         additions.append(
             AgentResultViolatedRule(
                 id=rule.id,
                 check_id=rule.check_id,
                 action=rule.action,  # type: ignore[arg-type]
                 risk_level=rule.risk_level,  # type: ignore[arg-type]
-                title=rule.title,
+                title=(
+                    "Adopting Agents Shipgate: this change introduces the manifest"
+                    if adopting
+                    else rule.title
+                ),
                 path=path,
                 evidence={
                     "kind": (
-                        "static_requirements_changed"
+                        "manifest_introduced"
+                        if adopting
+                        else "static_requirements_changed"
                         if kind == "STATIC-REQUIREMENTS-CHANGED"
                         else "protected_surface_unclassified"
-                    )
+                    ),
+                    **(
+                        {"trust_root_class": "manifest"}
+                        if configured_manifest
+                        else {"trust_root_class": "policy"}
+                        if configured_policy
+                        else {}
+                    ),
                 },
-                recommendation=rule.recommendation,
+                recommendation=(
+                    f"Review {normalized} and merge the adoption "
+                    "through a human-reviewed PR; a coding agent cannot adopt a "
+                    "release policy on the repository's behalf."
+                    if adopting
+                    else rule.recommendation
+                ),
             )
         )
     return _dedupe_violations([*violations, *additions])
+
+
+def _is_invocation_path(
+    selected_path: Path | None,
+    changed_path: str,
+    *,
+    workspace: Path,
+) -> bool:
+    """Match one CLI-selected repo file to its exact changed-path identity."""
+
+    return is_configured_manifest(
+        selected_path,
+        changed_path,
+        workspace=workspace,
+    )
+
+
+def _manifest_label(config_path: Path | None, workspace: Path) -> str:
+    if config_path is None:
+        return "shipgate.yaml"
+    if not config_path.is_absolute():
+        return config_path.as_posix()
+    try:
+        return config_path.relative_to(workspace).as_posix()
+    except ValueError:
+        return config_path.as_posix()
 
 
 def _sanitize_violations(
@@ -879,6 +1293,7 @@ def _structural_diff_issues(
     diff_text: str,
 ) -> list[BoundaryInputIssue]:
     issues: list[BoundaryInputIssue] = []
+    seen_paths: set[str] = set()
     if diff_text.strip() and not diff_files:
         issues.append(
             BoundaryInputIssue(
@@ -888,6 +1303,58 @@ def _structural_diff_issues(
             )
         )
     for item in diff_files:
+        record_paths = {
+            path for path in (item.old_path, item.new_path) if path is not None
+        }
+        duplicate_paths = sorted(record_paths.intersection(seen_paths))
+        seen_paths.update(record_paths)
+        if duplicate_paths:
+            issues.extend(
+                BoundaryInputIssue(
+                    code="boundary_diff_shape_invalid",
+                    path=path,
+                    message=(
+                        "The supplied diff contains more than one file record "
+                        "for the same path; one coherent record per path is required."
+                    ),
+                )
+                for path in duplicate_paths
+            )
+            continue
+        shape_errors = [
+            *(
+                ["new-file record retains an old path"]
+                if item.is_new and item.old_path is not None
+                else []
+            ),
+            *(
+                ["deleted-file record retains a new path"]
+                if item.is_deleted and item.new_path is not None
+                else []
+            ),
+            *(
+                ["record is both new and deleted"]
+                if item.is_new and item.is_deleted
+                else []
+            ),
+            *(
+                ["new/deleted record is also marked as a rename"]
+                if item.is_rename and (item.is_new or item.is_deleted)
+                else []
+            ),
+        ]
+        if shape_errors:
+            issues.append(
+                BoundaryInputIssue(
+                    code="boundary_diff_shape_invalid",
+                    path=item.path or "<diff>",
+                    message=(
+                        "A diff record has contradictory file-mode and path "
+                        f"headers: {', '.join(shape_errors)}."
+                    ),
+                )
+            )
+            continue
         invalid_paths = [
             path
             for path in (item.old_path, item.new_path)
@@ -940,11 +1407,7 @@ def _structural_diff_issues(
 
 
 def _is_canonical_diff_path(path: str) -> bool:
-    if not path or "\x00" in path or "\\" in path:
-        return False
-    if path.startswith(("/", "./")) or "//" in path:
-        return False
-    return ".." not in Path(path).parts
+    return is_portable_repo_path(path)
 
 
 def _validate_renamed_boundary_head(

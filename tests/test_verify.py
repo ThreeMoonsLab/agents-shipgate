@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
+import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -10,13 +13,16 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.verify import git as verify_git
+from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 from agents_shipgate.cli.verify.capability_review import build_capability_review
 from agents_shipgate.cli.verify.fix_task import build_fix_task
-from agents_shipgate.cli.verify.git import read_file_at_ref
-from agents_shipgate.cli.verify.orchestrator import _prune_base_scan_cache
+from agents_shipgate.cli.verify.git import carries_manifest_like_yaml, read_file_at_ref
+from agents_shipgate.cli.verify.orchestrator import _prune_base_scan_cache, _rerun_options
 from agents_shipgate.cli.verify.pr_comment import render_pr_comment
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.trust_roots import PathIdentityIssue
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.capabilities import (
@@ -60,6 +66,247 @@ from agents_shipgate.schemas.verifier import (
 runner = CliRunner()
 
 
+def test_verify_rejects_a_retargeted_tracked_config_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = _init_repo(tmp_path)
+    _write_manifest(repo)
+    strict = repo / "strict.yml"
+    (repo / "shipgate.yaml").rename(strict)
+    weak = repo / "weak.yml"
+    weak.write_text(strict.read_text("utf-8"), encoding="utf-8")
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    gate = repo / "gate.yml"
+    gate.symlink_to("strict.yml")
+    _commit_all(repo, "tracked strict gate")
+
+    gate.unlink()
+    gate.symlink_to("weak.yml")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "gate.yml",
+            "--no-base",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "--config must not contain symlink components: gate.yml" in result.output
+    assert "weak.yml" not in result.output
+    assert not (repo / "agents-shipgate-reports" / "verifier.json").exists()
+    json_lines = [line for line in result.output.splitlines() if line.startswith("{")]
+    payload = json.loads(json_lines[-1])
+    assert len(payload["next_actions"]) == 1
+    action = payload["next_actions"][0]
+    assert action["kind"] == "review"
+    assert action["command"] is None
+    assert action["path"] is None
+
+
+@pytest.mark.parametrize("flag", ["--policy-pack", "--baseline"])
+def test_ref_bound_verify_rejects_retargeted_static_input_symlinks(
+    tmp_path: Path,
+    flag: str,
+) -> None:
+    repo = _init_repo(tmp_path)
+    _write_manifest(repo)
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    strict = repo / "strict-input.yml"
+    weak = repo / "weak-input.yml"
+    strict.write_text("version: 1\n", encoding="utf-8")
+    weak.write_text("version: 1\n", encoding="utf-8")
+    _commit_all(repo, "tracked verifier inputs")
+
+    strict.unlink()
+    strict.symlink_to(weak.name)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--head",
+            "HEAD",
+            "--no-base",
+            flag,
+            strict.name,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert f"{flag} must not contain symlink components" in result.output
+    assert not (repo / "agents-shipgate-reports" / "verifier.json").exists()
+
+
+def test_verify_rejects_a_filesystem_resolved_config_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    _write_manifest(repo)
+    actual = repo / "new-gate.yml"
+    (repo / "shipgate.yaml").rename(actual)
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    _commit_all(repo, "custom manifest")
+    alias = repo / "NEW-GATE.yml"
+    real_lstat = Path.lstat
+
+    def aliased_lstat(path: Path, *args, **kwargs):
+        if path == alias:
+            return real_lstat(actual, *args, **kwargs)
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", aliased_lstat)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            alias.name,
+            "--no-base",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "--config must use the exact filesystem spelling" in result.output
+    assert "NEW-GATE.yml resolves to new-gate.yml" in result.output
+    assert not (repo / "agents-shipgate-reports" / "verifier.json").exists()
+
+
+def test_archive_alias_allowance_requires_a_proven_same_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested = tmp_path / "Gate.gate"
+    monkeypatch.setattr(
+        verify_orchestrator,
+        "inspect_lexical_path_identity",
+        lambda _root, _relative: PathIdentityIssue(
+            kind="alias",
+            requested=requested,
+            actual=None,
+        ),
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match=r"must use the exact filesystem spelling",
+    ):
+        verify_orchestrator._reject_symlink_components(
+            tmp_path,
+            Path("Gate.gate"),
+            label="Head manifest Gate.gate",
+            allow_filesystem_alias=True,
+        )
+
+
+def test_tree_identity_rejects_portable_collision_even_on_an_exact_hit(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    parent = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    blob = subprocess.run(
+        ["git", "hash-object", "-w", "--stdin"],
+        cwd=repo,
+        check=True,
+        input=b'version: "0.1"\n',
+        capture_output=True,
+    ).stdout.decode("ascii").strip()
+    tree_input = b"".join(
+        f"100644 blob {blob}\t{name}".encode() + b"\0"
+        for name in sorted(("GATE.yml", "gate.yml"))
+    )
+    tree = subprocess.run(
+        ["git", "mktree", "-z"],
+        cwd=repo,
+        check=True,
+        input=tree_input,
+        capture_output=True,
+    ).stdout.decode("ascii").strip()
+    commit = subprocess.run(
+        ["git", "commit-tree", tree, "-p", parent, "-m", "portable collision"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    with pytest.raises(ConfigError, match="filesystem-colliding paths"):
+        verify_git.resolve_tree_path_identity(repo, commit, Path("gate.yml"))
+
+
+def test_verify_accepts_absolute_config_under_direct_nested_workspace_alias(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    nested = repo / "services" / "api"
+    nested.mkdir(parents=True)
+    _write_manifest(repo)
+    (repo / "shipgate.yaml").rename(nested / "gate.yml")
+    (nested / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    _commit_all(repo, "nested manifest")
+    alias = tmp_path / "api-alias"
+    alias.symlink_to(nested, target_is_directory=True)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(alias),
+            "--config",
+            str(alias / "gate.yml"),
+            "--no-base",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "succeeded"
+    assert (repo / "agents-shipgate-reports" / "report.json").is_file()
+
+
+def test_diff_context_retains_both_sides_of_a_rename(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    policy = repo / "policies" / "review.yml"
+    policy.parent.mkdir()
+    policy.write_text("review: required\n", encoding="utf-8")
+    _commit_all(repo, "policy")
+    subprocess.run(
+        ["git", "mv", "policies/review.yml", "retired.txt"],
+        cwd=repo,
+        check=True,
+    )
+    _commit_all(repo, "retire policy")
+
+    changed_files, _diff = verify_git.diff_context(repo, "HEAD~1", "HEAD")
+
+    assert changed_files == ["policies/review.yml", "retired.txt"]
+
+
 def test_verify_manifest_present_force_runs_even_docs_only_diff(tmp_path: Path) -> None:
     repo = _repo_with_manifest(tmp_path)
     _set_origin_main(repo)
@@ -98,6 +345,86 @@ def test_verify_manifest_present_force_runs_even_docs_only_diff(tmp_path: Path) 
     assert (repo / "agents-shipgate-reports" / "report.json").is_file()
     assert "report_json" in payload["artifacts"]
     assert payload["base_status"] == "succeeded"
+
+
+def test_no_base_worktree_runs_exclude_their_own_outputs_from_identity(
+    tmp_path: Path,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    (repo / "tools.json").write_text(
+        '{"tools":[{"name":"docs.lookup","description":"Read docs."}]}\n',
+        encoding="utf-8",
+    )
+    args = [
+        "verify",
+        "--workspace",
+        str(repo),
+        "--config",
+        "shipgate.yaml",
+        "--no-base",
+        "--json",
+    ]
+
+    first = runner.invoke(app, args)
+    assert first.exit_code == 0, first.output
+    first_payload = json.loads(first.output)
+    first_diff = (
+        repo / "agents-shipgate-reports" / "verification-input.diff"
+    ).read_bytes()
+
+    second = runner.invoke(app, args)
+    assert second.exit_code == 0, second.output
+    second_payload = json.loads(second.output)
+    second_diff = (
+        repo / "agents-shipgate-reports" / "verification-input.diff"
+    ).read_bytes()
+
+    assert first_payload["changed_files"] == second_payload["changed_files"]
+    assert first_payload["changed_files"] == ["tools.json"]
+    assert not any(
+        path.startswith("agents-shipgate-reports/")
+        for path in second_payload["changed_files"]
+    )
+    assert first_diff == second_diff
+    for field in ("request_id", "subject_id", "input_set_id", "decision_id"):
+        assert first_payload[field] == second_payload[field]
+
+
+def test_verify_rejects_an_index_hidden_source_in_worktree_mode(
+    tmp_path: Path,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    subprocess.run(
+        ["git", "update-index", "--assume-unchanged", "tools.json"],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "tools.json").write_text(
+        '{"tools":[{"name":"hidden.delete","description":"Delete data."}]}\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--no-base",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["head_status"] == "failed"
+    assert payload["control"]["state"] == "human_review_required"
+    assert "Git index flags hide paths from worktree collection" in " ".join(
+        payload["base_notes"]
+    )
+    assert not (repo / "agents-shipgate-reports" / "report.json").exists()
 
 
 def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> None:
@@ -141,7 +468,8 @@ def test_verify_missing_config_docs_only_diff_fails_closed(tmp_path: Path) -> No
     assert payload["control"]["must_stop"] is False
     assert payload["control"]["human_review"]["required"] is False
     assert payload["control"]["next_action"]["command"] == (
-        "agents-shipgate verify --preview --json"
+        f"agents-shipgate verify --workspace {repo} --config missing.yaml "
+        "--preview --base origin/main --head HEAD --json"
     )
     assert (out_dir / "verifier.json").is_file()
     assert not (out_dir / "verify-run.json").exists()
@@ -177,8 +505,52 @@ def test_verify_json_missing_config_emits_verifier_unknown(tmp_path: Path) -> No
     assert payload["head_exit_code"] == 2
     assert payload["can_merge_without_human"] is False
     assert payload["control"]["state"] == "agent_action_required"
+    assert payload["control"]["next_action"]["command"] == (
+        f"agents-shipgate verify --workspace {repo} --config missing.yaml "
+        "--preview --json"
+    )
     assert "schema_version" not in payload
     assert not (repo / "agents-shipgate-reports" / "report.json").exists()
+
+
+def test_missing_config_preview_recovery_preserves_custom_request(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (repo / "README.md").write_text("head\n", encoding="utf-8")
+    _commit_all(repo, "head")
+    out = repo / "custom reports"
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "config/custom gate.yml",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--out",
+            str(out),
+            "--pr-comment-style",
+            "findings",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["control"]["next_action"]["command"] == (
+        f"agents-shipgate verify --workspace {repo} "
+        "--config 'config/custom gate.yml' --preview --base origin/main "
+        f"--head HEAD --out '{out}' --pr-comment-style findings --json"
+    )
 
 
 def test_verify_missing_config_relevant_diff_fails_before_head_scan(
@@ -759,7 +1131,7 @@ def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
     assert "Head scan did not produce a report" in comment
 
 
-def test_fix_task_structures_allowed_and_forbidden_repairs() -> None:
+def test_worktree_fix_task_structures_allowed_and_forbidden_repairs() -> None:
     report = _report(decision="blocked", exit_code=20)
     finding = Finding(
         id="F-stale",
@@ -800,6 +1172,7 @@ def test_fix_task_structures_allowed_and_forbidden_repairs() -> None:
         capability_review=VerifierCapabilityReview(),
         base_ref="origin/main",
         head_ref="HEAD",
+        worktree=True,
     )
 
     assert task is not None
@@ -1018,7 +1391,8 @@ def test_verify_base_scan_cache_hit_skips_second_base_scan(
     assert json.loads(first.output)["base_status"] == "succeeded"
     assert json.loads(second.output)["base_status"] == "succeeded"
     cache_path = json.loads(second.output)["base_report_json"]
-    assert "agents-shipgate-reports/.cache" not in cache_path
+    assert cache_path == "agents-shipgate-reports/verification-base-report.json"
+    assert (repo / cache_path).is_file()
     assert not (repo / "agents-shipgate-reports" / ".cache").exists()
     assert len(calls) == 3
     assert calls[0]["config_path"] != calls[1]["config_path"]  # base then head
@@ -1383,6 +1757,365 @@ def test_read_file_at_ref_reads_single_blob(tmp_path: Path) -> None:
     assert read_file_at_ref(repo, "HEAD", Path("missing.json")) is None
 
 
+def test_authorization_rerun_path_is_invocation_absolute_and_lexical(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    invocation_dir = tmp_path / "invocation"
+    invocation_dir.mkdir()
+    host_dir = tmp_path / "host"
+    host_dir.mkdir()
+    target = host_dir / "grant-target.json"
+    target.write_text("{}\n", encoding="utf-8")
+    link = host_dir / "grant.json"
+    link.symlink_to(target)
+    monkeypatch.chdir(invocation_dir)
+
+    options = _rerun_options(
+        git_root=repo,
+        out_dir=repo / "agents-shipgate-reports",
+        pr_comment_style="capability-review",
+        base=None,
+        auto_base=False,
+        ci_mode=None,
+        fail_on=None,
+        baseline_path=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_pack_paths=None,
+        plugins_enabled=None,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        authorization=Path("../host/grant.json"),
+    )
+
+    tokens = shlex.split(" ".join(options))
+    serialized = tokens[tokens.index("--authorization") + 1]
+    assert serialized == str(link)
+    assert serialized != str(target)
+
+
+def test_retained_manifest_probe_parses_quoted_flow_mapping(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "old-gate.yml").write_text(
+        '{"version": "0.1", "project": {"name": "demo"}, '
+        '"agent": {"name": "assistant"}}\n',
+        encoding="utf-8",
+    )
+    _commit_all(repo, "quoted manifest")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is True
+
+
+def test_retained_manifest_probe_batches_large_small_file_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    for index in range(500):
+        (repo / f"source-{index:03d}.txt").write_text(
+            f"ordinary source {index}\n",
+            encoding="utf-8",
+        )
+    (repo / "release.gate").write_text(
+        '{"version": "0.1", "project": {"name": "demo"}, '
+        '"agent": {"name": "assistant"}}\n',
+        encoding="utf-8",
+    )
+    _commit_all(repo, "large small-file tree")
+    calls: list[tuple[str, ...]] = []
+    bounded_calls: list[tuple[str, ...]] = []
+    original = verify_git._run_git
+    original_bounded = verify_git._run_git_bounded_output
+
+    def recording_run_git(workspace, args, **kwargs):
+        calls.append(tuple(args))
+        return original(workspace, args, **kwargs)
+
+    def recording_bounded(workspace, args, **kwargs):
+        bounded_calls.append(tuple(args))
+        return original_bounded(workspace, args, **kwargs)
+
+    monkeypatch.setattr(verify_git, "_run_git", recording_run_git)
+    monkeypatch.setattr(verify_git, "_run_git_bounded_output", recording_bounded)
+
+    assert (
+        carries_manifest_like_yaml(
+            repo,
+            "HEAD",
+            protected_names=frozenset({"shipgate.yaml"}),
+        )
+        is True
+    )
+    assert [args[0] for args in bounded_calls] == ["ls-tree"]
+    assert [args[0] for args in calls] == ["rev-parse", "cat-file"]
+    assert calls[1][:2] == ("cat-file", "--batch")
+
+
+def test_retained_manifest_name_guard_reuses_the_bounded_listing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "shipgate.yaml").write_text("not: an operational manifest\n", encoding="utf-8")
+    _commit_all(repo, "named gate")
+    calls: list[tuple[str, ...]] = []
+    bounded_calls: list[tuple[str, ...]] = []
+    original = verify_git._run_git
+    original_bounded = verify_git._run_git_bounded_output
+
+    def recording_run_git(workspace, args, **kwargs):
+        calls.append(tuple(args))
+        return original(workspace, args, **kwargs)
+
+    def recording_bounded(workspace, args, **kwargs):
+        bounded_calls.append(tuple(args))
+        return original_bounded(workspace, args, **kwargs)
+
+    monkeypatch.setattr(verify_git, "_run_git", recording_run_git)
+    monkeypatch.setattr(verify_git, "_run_git_bounded_output", recording_bounded)
+
+    assert (
+        carries_manifest_like_yaml(
+            repo,
+            "HEAD",
+            protected_names=frozenset({"shipgate.yaml"}),
+        )
+        is True
+    )
+    assert [args[0] for args in bounded_calls] == ["ls-tree"]
+    assert [args[0] for args in calls] == ["rev-parse"]
+
+
+@pytest.mark.parametrize("filename", ["old-gate.json", "old-gate.conf", "MANIFEST"])
+def test_retained_manifest_probe_is_suffix_agnostic(
+    tmp_path: Path,
+    filename: str,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / filename).write_text(
+        """
+version: "0.1"
+project:
+  name: demo
+agent:
+  name: assistant
+  declared_purpose:
+    - test
+environment:
+  target: local
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _commit_all(repo, "custom named manifest")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is True
+
+
+def test_retained_manifest_probe_treats_unknown_version_as_manifest_like(
+    tmp_path: Path,
+) -> None:
+    """A future or legacy gate must conservatively suppress adoption wording."""
+
+    repo = _init_repo(tmp_path)
+    (repo / "old-policy.conf").write_text(
+        """
+version: "0.2"
+project:
+  name: demo
+agent:
+  name: assistant
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _commit_all(repo, "unknown-version gate")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is True
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="exercises Git NFC/worktree NFD spelling drift on macOS",
+)
+def test_explicit_head_nfd_manifest_adoption_keeps_adoption_wording(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    _commit_all(repo, "base")
+
+    nfc_name = "café.gate"
+    nfd_name = unicodedata.normalize("NFD", nfc_name)
+    assert nfd_name != nfc_name
+    _write_manifest(repo)
+    (repo / "shipgate.yaml").rename(repo / nfd_name)
+    _commit_all(repo, "adopt decomposed manifest")
+
+    emitted = subprocess.run(
+        [
+            "git",
+            "-c",
+            "core.quotepath=false",
+            "diff",
+            "--name-only",
+            "HEAD~1",
+            "HEAD",
+        ],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    if nfc_name not in emitted or nfd_name in emitted:
+        pytest.skip("Git did not precompose the configured filename")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            nfd_name,
+            "--base",
+            "HEAD~1",
+            "--head",
+            "HEAD",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert "also introduces the configured manifest" in payload["headline"]
+    assert "weakens the release policy" not in payload["headline"]
+
+
+def test_retained_manifest_probe_fails_closed_on_unparseable_yaml(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "unknown.yml").write_text("project: [\nagent:\n", encoding="utf-8")
+    _commit_all(repo, "unparseable yaml")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+
+
+def test_retained_manifest_probe_fails_closed_on_batch_read_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "candidate.txt").write_text("ordinary text\n", encoding="utf-8")
+    _commit_all(repo, "candidate")
+    original = verify_git._run_git
+
+    def failing_batch(workspace, args, **kwargs):
+        if args[:2] == ["cat-file", "--batch"]:
+            return subprocess.CompletedProcess(args, 1, stdout=b"", stderr=b"failed")
+        return original(workspace, args, **kwargs)
+
+    monkeypatch.setattr(verify_git, "_run_git", failing_batch)
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+
+
+def test_retained_manifest_probe_fails_closed_on_batch_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "candidate.txt").write_text("ordinary text\n", encoding="utf-8")
+    _commit_all(repo, "candidate")
+    original = verify_git._run_git
+
+    def timing_out_batch(workspace, args, **kwargs):
+        if args[:2] == ["cat-file", "--batch"]:
+            raise subprocess.TimeoutExpired(args, 60)
+        return original(workspace, args, **kwargs)
+
+    monkeypatch.setattr(verify_git, "_run_git", timing_out_batch)
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+
+
+def test_retained_manifest_probe_skips_non_yaml_constructor_errors(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "digits.txt").write_text("9" * 5_000, encoding="utf-8")
+    _commit_all(repo, "large integer-like source")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is False
+
+
+def test_bounded_git_output_stops_before_buffering_the_full_blob(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "large.txt").write_text("x" * 32_000, encoding="utf-8")
+    _commit_all(repo, "large blob")
+
+    assert (
+        verify_git._run_git_bounded_output(
+            repo,
+            ["show", "HEAD:large.txt"],
+            max_output_bytes=128,
+        )
+        is None
+    )
+
+
+def test_retained_manifest_probe_rejects_oversized_blob_before_reading_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "oversized.yml").write_bytes(
+        b"project:\n  name: demo\nagent:\n  name: assistant\n"
+        + b"#" * verify_git._MAX_MANIFEST_BYTES
+    )
+    _commit_all(repo, "oversized yaml")
+    calls: list[tuple[str, ...]] = []
+    original = verify_git._run_git
+
+    def recording_run_git(workspace, args, **kwargs):
+        calls.append(tuple(args))
+        return original(workspace, args, **kwargs)
+
+    monkeypatch.setattr(verify_git, "_run_git", recording_run_git)
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+    assert [args[0] for args in calls] == ["rev-parse"]
+
+
+def test_retained_manifest_probe_fails_closed_above_candidate_bound(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "one.txt").write_text("one\n", encoding="utf-8")
+    (repo / "two.txt").write_text("two\n", encoding="utf-8")
+    _commit_all(repo, "two candidates")
+    monkeypatch.setattr(verify_git, "_MAX_MANIFEST_CANDIDATES", 1)
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+
+
+def test_retained_manifest_probe_fails_closed_on_non_utf8_yaml(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "unknown.yml").write_bytes(b"project:\n  name: \xff\nagent:\n  name: bot\n")
+    _commit_all(repo, "non-utf8 yaml")
+
+    assert carries_manifest_like_yaml(repo, "HEAD") is None
+
+
 def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:
     cache_root = tmp_path / "base-scans"
     cache_root.mkdir()
@@ -1400,7 +2133,9 @@ def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:
     assert newest.exists()
 
 
-def test_verify_preview_requires_no_manifest_and_exits_zero(tmp_path: Path) -> None:
+def test_non_git_preview_with_omitted_config_uses_workspace_default(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "fresh"
     workspace.mkdir()
 
@@ -1419,6 +2154,130 @@ def test_verify_preview_requires_no_manifest_and_exits_zero(tmp_path: Path) -> N
     assert "init" in payload["control"]["next_action"]["command"]
     assert (workspace / "agents-shipgate-reports" / "verifier.json").is_file()
     assert not (workspace / "shipgate.yaml").exists()
+
+
+def test_verify_preview_rejects_output_that_overlaps_its_config(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "fresh"
+    workspace.mkdir()
+    config = workspace / "verifier.json"
+    original = '{"manifest": "must survive"}\n'
+    config.write_text(original, encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(workspace),
+            "--config",
+            "verifier.json",
+            "--out",
+            ".",
+            "--preview",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Verifier --out cannot be the workspace root" in result.output
+    assert config.read_text(encoding="utf-8") == original
+
+
+def test_verify_preview_rejects_a_manifest_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "fresh"
+    workspace.mkdir()
+    (workspace / "shipgate.yaml").mkdir()
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(workspace),
+            "--preview",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "must identify one singly-linked regular file" in result.output
+    payload = json.loads(
+        [line for line in result.output.splitlines() if line.startswith("{")][-1]
+    )
+    assert payload["error"] == "config_error"
+    assert payload["next_actions"][0]["kind"] == "command"
+    assert " verify " in payload["next_actions"][0]["command"]
+    assert "--preview --json" in payload["next_actions"][0]["command"]
+
+
+def test_verify_preview_rejects_a_symlinked_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "fresh"
+    workspace.mkdir()
+    (workspace / "target.yml").write_text('version: "0.1"\n', encoding="utf-8")
+    (workspace / "gate.yml").symlink_to("target.yml")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(workspace),
+            "--config",
+            "gate.yml",
+            "--preview",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "--config must not contain symlink components" in result.output
+    payload = json.loads(
+        [line for line in result.output.splitlines() if line.startswith("{")][-1]
+    )
+    assert [action["kind"] for action in payload["next_actions"]] == ["review"]
+
+
+def test_verify_preview_rejects_an_external_absolute_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    workspace = tmp_path / "fresh"
+    workspace.mkdir()
+    external = tmp_path / "external.yml"
+    external.write_text('version: "0.1"\n', encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(workspace),
+            "--config",
+            str(external),
+            "--preview",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "--config must be inside --workspace" in result.output
+    payload = json.loads(
+        [line for line in result.output.splitlines() if line.startswith("{")][-1]
+    )
+    assert [action["kind"] for action in payload["next_actions"]] == ["review"]
 
 
 def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -> None:
@@ -1482,6 +2341,7 @@ def test_verify_preview_missing_base_without_manifest_recommends_init(tmp_path: 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["mode"] == "preview"
+    assert payload["config"] == "shipgate.yaml"
     assert payload["control"]["state"] == "agent_action_required"
     assert payload["control"]["next_action"]["kind"] == "initialize"
     assert payload["control"]["next_action"]["command"] == (
@@ -1528,6 +2388,58 @@ def test_verify_preview_configured_repo_preserves_exact_verify_args(tmp_path: Pa
         f"agents-shipgate verify --workspace {repo} --config shipgate.yaml "
         f"--base origin/main --head HEAD --out {out} --ci-mode advisory --json"
     )
+
+
+def test_nested_workspace_preview_command_verifies_the_same_manifest(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    _write_manifest(repo)
+    root_gate = repo / "gate.yml"
+    (repo / "shipgate.yaml").rename(root_gate)
+    (repo / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    nested = repo / "services" / "api"
+    nested.mkdir(parents=True)
+    nested_gate = nested / "gate.yml"
+    nested_gate.write_text(
+        root_gate.read_text(encoding="utf-8").replace(
+            "name: test\n",
+            "name: nested-test\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    (nested / "tools.json").write_text('{"tools":[]}\n', encoding="utf-8")
+    _commit_all(repo, "root and nested gates")
+
+    preview = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(nested),
+            "--config",
+            "gate.yml",
+            "--preview",
+            "--json",
+        ],
+    )
+
+    assert preview.exit_code == 0, preview.output
+    preview_payload = json.loads(preview.output)
+    assert preview_payload["config"] == "services/api/gate.yml"
+    command = preview_payload["control"]["next_action"]["command"]
+    assert command is not None
+
+    verified = runner.invoke(app, shlex.split(command)[1:])
+
+    assert verified.exit_code == 0, verified.output
+    verified_payload = json.loads(verified.output)
+    assert verified_payload["config"] == "services/api/gate.yml"
+    report = json.loads(
+        (repo / "agents-shipgate-reports" / "report.json").read_text(encoding="utf-8")
+    )
+    assert report["project"]["name"] == "nested-test"
 
 
 def test_verify_preview_configured_repo_missing_base_fetches_base(tmp_path: Path) -> None:
