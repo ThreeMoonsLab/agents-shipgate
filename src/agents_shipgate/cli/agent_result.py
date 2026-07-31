@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agents_shipgate.cli.verify.git import (
+    BinaryCapabilityDiffError,
     carries_manifest_like_yaml,
     read_file_at_ref,
     removes_a_yaml_file,
@@ -544,6 +545,25 @@ def git_boundary_change_set(
         raise RuntimeError("Workspace is not inside a Git repository.")
     try:
         changed_paths, diff_text = _git_diff_context(revspec, cwd=workspace)
+    except BinaryCapabilityDiffError as exc:
+        return BoundaryChangeSet(
+            mode="git_range" if revspec else "worktree",
+            scope="repository",
+            completeness="partial",
+            diff_text=exc.diff_text,
+            changed_paths=exc.changed_paths,
+            issues=tuple(
+                BoundaryInputIssue(
+                    code="boundary_input_binary",
+                    path=path,
+                    message=(
+                        "A recognized tracked boundary or capability source is "
+                        "binary and cannot be evaluated statically."
+                    ),
+                )
+                for path in exc.paths
+            ),
+        )
     except ConfigError as exc:
         # Preserve trust-root/index-identity failures so ``shipgate check``
         # keeps the typed exit-2 contract instead of degrading them into the

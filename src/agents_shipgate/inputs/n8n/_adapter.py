@@ -30,6 +30,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     load_structured_file,
     resolve_input_path,
+    walk_input_tree,
 )
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.n8n._common import (
@@ -183,7 +184,7 @@ def _artifact_paths(
                 sorted(
                     (
                         item
-                        for item in path.rglob("*")
+                        for item in walk_input_tree(path)
                         if item.is_file()
                         and item.suffix.lower() in {".json", ".yaml", ".yml"}
                         and not _skip_path(item, path)

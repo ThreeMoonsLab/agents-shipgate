@@ -30,6 +30,7 @@ class StaticInputSnapshot:
         root: Path,
         *,
         external_paths: Iterable[Path] = (),
+        excluded_paths: Iterable[Path] = (),
         max_total_bytes: int = DEFAULT_STATIC_INPUT_TOTAL_BYTES,
         max_files: int = DEFAULT_STATIC_INPUT_FILES,
     ) -> None:
@@ -39,6 +40,10 @@ class StaticInputSnapshot:
         self._external_paths = {
             Path(os.path.abspath(os.path.normpath(os.fspath(path))))
             for path in external_paths
+        }
+        self._excluded_paths = {
+            Path(os.path.abspath(os.path.normpath(os.fspath(path))))
+            for path in excluded_paths
         }
         self._entries: dict[Path, bytes] = {}
         self._total_bytes = 0
@@ -68,11 +73,21 @@ class StaticInputSnapshot:
     def contains(self, path: Path) -> bool:
         raw = path if path.is_absolute() else self.root / path
         key = Path(os.path.abspath(os.path.normpath(os.fspath(raw))))
+        if self.excludes(key):
+            return False
         try:
             key.relative_to(self.root)
         except ValueError:
             return key in self._external_paths
         return key != self.root
+
+    def excludes(self, path: Path) -> bool:
+        raw = path if path.is_absolute() else self.root / path
+        key = Path(os.path.abspath(os.path.normpath(os.fspath(raw))))
+        return any(
+            key == excluded or excluded in key.parents
+            for excluded in self._excluded_paths
+        )
 
     def has(self, path: Path) -> bool:
         raw = path if path.is_absolute() else self.root / path

@@ -562,40 +562,6 @@ def run_verify(
         )
         return verifier, None, 0
 
-    if diff_from is not None:
-        base_status = "diff_from_provided"
-        assert static_diff_from_path is not None
-        base_report = static_diff_from_path
-        base_notes.append(f"Using explicit diff reference: {_display_path(base_report, git_root)}")
-    elif base and base_exists:
-        (
-            base_status,
-            base_tree,
-            base_report,
-            base_capability_lock,
-            cache_notes,
-        ) = _prepare_base_report(
-            git_root=git_root,
-            base=base,
-            config_relative=config_relative,
-            baseline_path=baseline_path,
-            policy_packs=policy_pack_paths or [],
-            plugins_enabled=plugins_enabled,
-            no_heuristics=no_heuristics,
-            verbose=verbose,
-            evaluation_date=verification_date,
-        )
-        base_notes.extend(cache_notes)
-
-    manifest_introduced = _manifest_introduced(
-        git_root=git_root,
-        config_relative=config_relative,
-        base_status=base_status,
-        base=base,
-        head=head,
-        changed_files=changed_files,
-    )
-
     report: ReadinessReport | None = None
     head_status = "failed"
     head_exit_code = 4
@@ -613,23 +579,22 @@ def run_verify(
         nonlocal head_capability_lock
         head_capability_lock = lock
 
-    static_snapshot: StaticInputSnapshot | None = None
-    static_snapshot_token = None
+    external_snapshot_paths = [
+        path
+        for path in [
+            baseline_path,
+            *list(policy_pack_paths or []),
+            static_diff_from_path,
+        ]
+        if path is not None
+    ]
+    static_snapshot = StaticInputSnapshot(
+        git_root,
+        external_paths=external_snapshot_paths,
+        excluded_paths=[out_dir],
+    )
     if not archive_head:
         assert worktree_manifest_text is not None
-        external_snapshot_paths = [
-            path
-            for path in [
-                baseline_path,
-                *list(policy_pack_paths or []),
-                static_diff_from_path,
-            ]
-            if path is not None
-        ]
-        static_snapshot = StaticInputSnapshot(
-            git_root,
-            external_paths=external_snapshot_paths,
-        )
         static_snapshot.preload(
             config_path,
             worktree_manifest_text.encode("utf-8"),
@@ -660,7 +625,47 @@ def run_verify(
                     f"Changed worktree input {relative!r} could not be captured "
                     f"for verification: {exc}"
                 ) from exc
-        static_snapshot_token = activate_static_input_snapshot(static_snapshot)
+    static_snapshot_token = activate_static_input_snapshot(static_snapshot)
+
+    try:
+        if diff_from is not None:
+            base_status = "diff_from_provided"
+            assert static_diff_from_path is not None
+            base_report = static_diff_from_path
+            base_notes.append(
+                f"Using explicit diff reference: {_display_path(base_report, git_root)}"
+            )
+        elif base and base_exists:
+            (
+                base_status,
+                base_tree,
+                base_report,
+                base_capability_lock,
+                cache_notes,
+            ) = _prepare_base_report(
+                git_root=git_root,
+                base=base,
+                config_relative=config_relative,
+                baseline_path=baseline_path,
+                policy_packs=policy_pack_paths or [],
+                plugins_enabled=plugins_enabled,
+                no_heuristics=no_heuristics,
+                verbose=verbose,
+                evaluation_date=verification_date,
+            )
+            base_notes.extend(cache_notes)
+
+        manifest_introduced = _manifest_introduced(
+            git_root=git_root,
+            config_relative=config_relative,
+            base_status=base_status,
+            base=base,
+            head=head,
+            changed_files=changed_files,
+        )
+    except Exception:
+        reset_static_input_snapshot(static_snapshot_token)
+        raise
 
     try:
         if archive_head:
@@ -1027,12 +1032,12 @@ def _cache_report_path(
                 if baseline_path is not None
                 else None
             ),
-            "sha256": _sha256_file(baseline_path),
+            "sha256": _static_input_sha256(baseline_path),
         },
         "policy_packs": [
             {
                 "path": _display_path(path.resolve(), git_root),
-                "sha256": _sha256_file(path),
+                "sha256": _static_input_sha256(path),
             }
             for path in policy_packs
         ],
@@ -2268,13 +2273,21 @@ def _write_artifacts(
         )
         for path in policy_pack_paths
     ]
+    baseline_was_captured = (
+        baseline_path is not None
+        and (
+            active_snapshot.has(baseline_path)
+            if active_snapshot is not None and active_snapshot.contains(baseline_path)
+            else baseline_path.is_file()
+        )
+    )
     portable_baseline_path = (
         _write_portable_static_input(
             baseline_path,
             root=external_input_root,
             category="baseline",
         )
-        if baseline_path is not None and baseline_path.is_file()
+        if baseline_path is not None and baseline_was_captured
         else None
     )
     logical_config = config_logical_path or (
@@ -2593,6 +2606,16 @@ def _sha256_file(path: Path | None) -> str | None:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _static_input_sha256(path: Path | None) -> str | None:
+    """Hash the same cached bytes consumed by a verification scan."""
+
+    if path is None or not path.is_file():
+        return None
+    return hashlib.sha256(
+        read_static_input_bytes(path, max_bytes=64 * 1024 * 1024)
+    ).hexdigest()
 
 
 def _write_capability_review_artifacts(

@@ -4,7 +4,11 @@ from pathlib import Path
 from typing import ClassVar, Literal
 
 from agents_shipgate.core.artifact_models import CodexBoundaryArtifacts
-from agents_shipgate.inputs.common import manifest_relative_path, resolve_input_path
+from agents_shipgate.inputs.common import (
+    manifest_relative_path,
+    resolve_input_path,
+    walk_input_tree,
+)
 from agents_shipgate.inputs.mcp_manifest import load_codex_config_mcp_sources
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
@@ -43,7 +47,7 @@ def _collect_codex_boundary_artifacts(root: Path, base_dir: Path) -> CodexBounda
     if not root.exists():
         artifact.warnings.append(f"Codex config root does not exist: {root}")
         return artifact
-    for path in sorted(root.rglob("*")):
+    for path in walk_input_tree(root):
         if not path.is_file():
             continue
         rel = _relative(path, root)

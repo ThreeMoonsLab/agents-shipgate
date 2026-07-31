@@ -46,6 +46,21 @@ _TEXT_CAPABILITY_SUFFIXES = frozenset(
     }
 )
 
+
+class BinaryCapabilityDiffError(ConfigError):
+    """A diff whose capability-like binary paths cannot be read statically."""
+
+    def __init__(self, paths: list[str]) -> None:
+        self.paths = tuple(sorted(paths))
+        self.changed_paths: tuple[str, ...] = ()
+        self.diff_text = ""
+        super().__init__(
+            "Git classified source-like changed paths as binary, so their "
+            "capability text cannot be evaluated statically: "
+            + ", ".join(self.paths[:3])
+        )
+
+
 _SAFE_DIFF_CONFIG = [
     "-c",
     "core.fsmonitor=false",
@@ -484,8 +499,13 @@ def diff_revspec_context(workspace: Path, revspec: str) -> tuple[list[str], str]
     if names is None or body is None:
         raise ConfigError("Git diff exceeded static output bounds or could not be read.")
     paths = sorted(_paths_from_name_status(names))
-    _reject_binary_capability_paths(workspace, revspec)
     diff_text = _decode_diff_body(body)
+    try:
+        _reject_binary_capability_paths(workspace, revspec)
+    except BinaryCapabilityDiffError as exc:
+        exc.changed_paths = tuple(paths)
+        exc.diff_text = diff_text
+        raise
     return paths, diff_text
 
 
@@ -539,8 +559,8 @@ def _reject_binary_capability_paths(
             "diff",
             *_DETERMINISTIC_DIFF_OPTIONS,
             "--no-renames",
-            "--numstat",
             "--no-patch",
+            "--numstat",
             "-z",
             revspec,
             *(["--", *pathspec] if pathspec else []),
@@ -570,11 +590,7 @@ def _reject_binary_capability_paths(
         ):
             hidden.append(path)
     if hidden:
-        raise ConfigError(
-            "Git classified source-like changed paths as binary, so their "
-            "capability text cannot be evaluated statically: "
-            + ", ".join(sorted(hidden)[:3])
-        )
+        raise BinaryCapabilityDiffError(hidden)
 
 
 def read_file_at_ref(workspace: Path, ref: str, path: Path) -> str | None:
@@ -915,8 +931,13 @@ def working_tree_context(
             "Git worktree diff exceeded static output bounds or could not be read."
         )
     paths = sorted(_paths_from_name_status(names))
-    _reject_binary_capability_paths(workspace, "HEAD", pathspec=pathspec)
     diff_text = _decode_diff_body(body)
+    try:
+        _reject_binary_capability_paths(workspace, "HEAD", pathspec=pathspec)
+    except BinaryCapabilityDiffError as exc:
+        exc.changed_paths = tuple(paths)
+        exc.diff_text = diff_text
+        raise
     untracked = _run_git_bounded_output(
         workspace,
         [
@@ -1538,6 +1559,7 @@ def staged_paths_under(workspace: Path, subdir: str) -> list[str]:
 __all__ = [
     "active_replace_refs",
     "archive_tree",
+    "BinaryCapabilityDiffError",
     "commit_date",
     "commit_sha",
     "DefaultBaseDetection",

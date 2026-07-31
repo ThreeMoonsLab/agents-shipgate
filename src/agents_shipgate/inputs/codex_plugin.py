@@ -13,6 +13,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
     PositionIndex,
     json_pointer_escape,
+    list_input_directory,
     load_structured_file,
     load_structured_file_with_positions,
     load_text_file,
@@ -867,7 +868,14 @@ def _resolve_plugin_path(root: Path, raw_path: str) -> Path:
 def _skill_files(path: Path) -> list[Path]:
     if path.name == "SKILL.md":
         return [path]
-    return sorted(child for child in path.glob("*/SKILL.md") if child.is_file())
+    skill_files: list[Path] = []
+    for child in list_input_directory(path):
+        if not child.is_dir():
+            continue
+        for candidate in list_input_directory(child):
+            if candidate.name == "SKILL.md" and candidate.is_file():
+                skill_files.append(candidate)
+    return sorted(skill_files)
 
 
 def _skill_frontmatter(text: str) -> dict[str, str]:

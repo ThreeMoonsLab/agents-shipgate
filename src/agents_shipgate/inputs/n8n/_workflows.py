@@ -37,6 +37,7 @@ from agents_shipgate.inputs.common import (
     json_pointer_escape,
     load_structured_file,
     resolve_input_path,
+    walk_input_tree,
 )
 from agents_shipgate.inputs.n8n._auth_risk import _record_credentials
 from agents_shipgate.inputs.n8n._common import (
@@ -139,7 +140,11 @@ def _workflow_paths(path: Path, base_dir: Path) -> list[Path]:
     if not path.is_dir():
         raise InputParseError(f"n8n workflow source must be a file or directory: {path}")
     return sorted(
-        (candidate for candidate in path.rglob("*.json") if candidate.is_file()),
+        (
+            candidate
+            for candidate in walk_input_tree(path)
+            if candidate.suffix == ".json" and candidate.is_file()
+        ),
         key=lambda item: _display_path(item, base_dir),
     )
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -86,6 +87,73 @@ def resolve_input_path(base_dir: Path, value: str) -> Path:
             f"Input path {value!r} resolves outside manifest directory: {resolved}"
         ) from exc
     return resolved
+
+
+def list_input_directory(directory: Path) -> list[Path]:
+    """List one directory through the active identity-bound snapshot."""
+
+    lexical = Path(os.path.abspath(os.path.normpath(os.fspath(directory))))
+    snapshot = active_static_input_snapshot()
+    if snapshot is None or (
+        lexical != snapshot.root and not snapshot.contains(lexical)
+    ):
+        try:
+            return sorted(lexical.iterdir())
+        except OSError as exc:
+            raise InputParseError(
+                f"Input directory {lexical} could not be inspected safely: {exc}"
+            ) from exc
+    try:
+        names = snapshot.bind_directory(lexical)
+    except (OSError, ValueError) as exc:
+        raise InputParseError(
+            f"Input directory {lexical} could not be captured safely: {exc}"
+        ) from exc
+    return [lexical / name for name in names]
+
+
+def walk_input_tree(root: Path) -> list[Path]:
+    """Return a deterministic recursive inventory bound to the active snapshot.
+
+    ``Path.rglob`` discovers descendants without exposing which directories it
+    traversed.  A verifier snapshot must bind every one of those directory
+    inventories, including empty directories, so a relevant file cannot appear
+    after enumeration without invalidating the run.
+    """
+
+    snapshot = active_static_input_snapshot()
+    lexical_root = Path(os.path.abspath(os.path.normpath(os.fspath(root))))
+
+    pending = [lexical_root]
+    paths: list[Path] = []
+    visited_entries = 0
+    while pending:
+        directory = pending.pop()
+        children = list_input_directory(directory)
+        visited_entries += len(children)
+        if snapshot is not None and visited_entries > snapshot.max_files:
+            raise InputParseError(
+                "Input directory tree exceeds the "
+                f"{snapshot.max_files}-entry snapshot limit: {lexical_root}"
+            )
+
+        child_directories: list[Path] = []
+        for child in children:
+            try:
+                metadata = child.lstat()
+            except OSError as exc:
+                raise InputParseError(
+                    f"Input directory entry {child} could not be inspected safely: {exc}"
+                ) from exc
+            paths.append(child)
+            if (
+                stat.S_ISDIR(metadata.st_mode)
+                and not stat.S_ISLNK(metadata.st_mode)
+                and not (snapshot is not None and snapshot.excludes(child))
+            ):
+                child_directories.append(child)
+        pending.extend(reversed(sorted(child_directories)))
+    return sorted(paths)
 
 
 def manifest_relative_path(value: str, base_dir: Path) -> str:
