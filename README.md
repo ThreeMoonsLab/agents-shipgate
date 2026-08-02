@@ -174,13 +174,20 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json --base origin/main --head HEAD
 ```
 
-For local, uncommitted work, omit `--base`/`--head` so your working-tree edits
-are scanned instead:
+For local, uncommitted work, omit `--base`/`--head`. Verify scans the worktree
+only after it safely selects a remote default or proves HEAD is already at the
+default commit:
 
 ```bash
 agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json
 ```
+
+If that committed comparison scope cannot be proved, verify exits 2 before
+the head scan and returns nonterminal control: fetch missing remote history or
+ask a human to select `--base <ref>`. Use `--no-base` only when a person or
+calling workflow intentionally chooses head/worktree-only verification; a
+coding agent must not add it merely to clear the failure.
 
 If a repo is not configured yet, use the verify flow's preview entry point:
 
@@ -654,7 +661,7 @@ artifacts — in read order:
 | Code | Meaning |
 |---|---|
 | `0` | Pass (advisory mode or strict-no-blockers) |
-| `2` | Manifest config error |
+| `2` | Configuration/input-scope error, including an unresolved comparison base |
 | `3` | Input parse error (file missing, malformed, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
 | `20` | Strict-mode gate failure |

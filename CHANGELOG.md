@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Zero-base verification now fails closed.** Omitting `--base` no longer
+  silently turns an unresolved default branch into a head/worktree-only scan.
+  The resolver prefers an authoritative `origin/HEAD`, accepts one
+  unambiguous `origin/main`/`origin/master` commit, and uses local
+  `main`/`master` only to prove that HEAD is already at the default commit —
+  never as an implicit comparison base. A missing remote ref routes
+  `control.state=agent_action_required` with `next_action.kind=fetch_base`;
+  ambiguous or divergent candidates route `human_review_required`. Both exit
+  2 before `run_scan`, remove stale scan/receipt artifacts, and retain failed
+  verifier, plan, unit, verify-run, handoff, and PR-comment evidence with no
+  release decision. Only an explicit `--no-base` requests intentional
+  head/worktree-only verification. Shallow missing-history failures now route
+  to fetch, while unrelated non-shallow histories remain human-owned.
 - **A first adoption no longer reads as a policy weakening.** Adding the
   manifest to a repository that had none is the first verdict every new adopter
   sees, and it said "This PR weakens the release policy that evaluates it",

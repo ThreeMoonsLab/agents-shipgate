@@ -495,6 +495,13 @@ changes only by bumping `contract_version` and updating this file.
 | `agents-shipgate self-check` | `--json` |
 | `agents-shipgate agent handoff` | `--from`, `--report`, `--verify-run`, `--out`, `--json` |
 
+For `agents-shipgate verify`, omitting `--base` means safe auto-resolution,
+not an implicit head-only scan. The verifier selects an available trustworthy
+remote default, proves HEAD already equals the default, or exits 2 before
+scanning with nonterminal control. Only explicit `--no-base` selects
+head/worktree-only verification. This is a fail-closed clarification of the
+stable flags, not a command-surface or top-level schema change.
+
 ### Provisional CLI command surface
 
 The org/fleet governance commands are preview surfaces in the current

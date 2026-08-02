@@ -56,8 +56,7 @@ class BinaryCapabilityDiffError(ConfigError):
         self.diff_text = ""
         super().__init__(
             "Git classified source-like changed paths as binary, so their "
-            "capability text cannot be evaluated statically: "
-            + ", ".join(self.paths[:3])
+            "capability text cannot be evaluated statically: " + ", ".join(self.paths[:3])
         )
 
 
@@ -127,12 +126,21 @@ def ensure_git_workspace(workspace: Path) -> Path:
 
 REMOTE_BASE_CANDIDATES = ("origin/main", "origin/master")
 LOCAL_BASE_CANDIDATES = ("main", "master")
+DefaultBaseResolution = Literal[
+    "selected",
+    "head_at_default",
+    "fetch_required",
+    "selection_required",
+]
 
 
 @dataclass(frozen=True)
 class DefaultBaseDetection:
     base: str | None
     notes: list[str]
+    state: DefaultBaseResolution
+    default_ref: str | None = None
+    candidates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -268,48 +276,186 @@ def _normalized_sha_hint(value: str | None, *, label: str) -> str | None:
 
 
 def detect_default_base(workspace: Path, head: str = "HEAD") -> str | None:
-    """Best-effort default base ref for PR-style diff enrichment.
+    """Return a safely selected default base ref for PR-style verification.
 
-    Tries the remote default branch (``origin/HEAD``) first, then remote
-    conventional candidates (``origin/main``, ``origin/master``). A
-    candidate qualifies only when it exists locally and points at a
-    different commit than ``head`` — diffing a branch against itself adds
-    scan cost without diff signal. Local ``main``/``master`` are never
-    selected implicitly because they are often stale in CI and worktrees;
-    pass ``--base main`` explicitly when that is intended. Never fetches;
-    this only reads refs that already exist in the checkout.
+    A ``None`` return is intentionally lossy compatibility: callers that need
+    to distinguish "the head is already the default" from "comparison scope
+    is unresolved" must use :func:`detect_default_base_with_notes` and switch
+    on its ``state``. Verification does that and fails closed for unresolved
+    states. This function never fetches or implicitly selects a local branch.
     """
 
     return detect_default_base_with_notes(workspace, head).base
 
 
 def detect_default_base_with_notes(workspace: Path, head: str = "HEAD") -> DefaultBaseDetection:
-    """Return the implicit base plus warnings for skipped local defaults."""
+    """Resolve the implicit comparison scope without guessing or fetching.
+
+    ``origin/HEAD`` is authoritative when it exists, even when its target is
+    not available locally. Without it, conventional remote refs may establish
+    one unambiguous default commit. Local ``main``/``master`` refs can prove
+    only that ``head`` is already at a default commit; they are never selected
+    as an implicit comparison base.
+    """
 
     head_sha = commit_sha(workspace, head)
     if head_sha is None:
-        return DefaultBaseDetection(base=None, notes=[])
-    candidates: list[str] = []
-    origin_head = _run_git(workspace, ["rev-parse", "--abbrev-ref", "origin/HEAD"], check=False)
-    if origin_head.returncode == 0:
-        name = origin_head.stdout.strip()
-        if name and name != "origin/HEAD":
-            candidates.append(name)
-    candidates.extend(c for c in REMOTE_BASE_CANDIDATES if c not in candidates)
-    selected_base: str | None = None
-    selected_base_sha: str | None = None
-    for candidate in candidates:
-        sha = commit_sha(workspace, candidate)
-        if sha is not None and sha != head_sha:
-            selected_base = candidate
-            selected_base_sha = sha
-            break
-    notes = _skipped_local_base_notes(
+        return DefaultBaseDetection(
+            base=None,
+            notes=[f"Head ref {head!r} is not available locally."],
+            state="selection_required",
+        )
+
+    origin_head = _run_git(
         workspace,
-        head_sha,
-        selected_base_sha=selected_base_sha,
+        ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"],
+        check=False,
     )
-    return DefaultBaseDetection(base=selected_base, notes=notes)
+    if origin_head.returncode == 0:
+        target = _remote_ref_display(origin_head.stdout.strip())
+        if target is None:
+            return DefaultBaseDetection(
+                base=None,
+                notes=[
+                    "origin/HEAD does not target a refs/remotes/origin/* ref; "
+                    "select --base explicitly."
+                ],
+                state="selection_required",
+                candidates=("origin/HEAD",),
+            )
+        target_sha = commit_sha(workspace, target)
+        if target_sha is None:
+            return DefaultBaseDetection(
+                base=None,
+                notes=[
+                    f"origin/HEAD targets {target!r}, but that commit is not "
+                    "available locally. Fetch the remote default branch and rerun verify."
+                ],
+                state="fetch_required",
+                default_ref=target,
+                candidates=(target,),
+            )
+        notes = _skipped_local_base_notes(
+            workspace,
+            head_sha,
+            selected_base_sha=target_sha,
+        )
+        if target_sha == head_sha:
+            return DefaultBaseDetection(
+                base=None,
+                notes=notes,
+                state="head_at_default",
+                default_ref=target,
+                candidates=(target,),
+            )
+        return DefaultBaseDetection(
+            base=target,
+            notes=notes,
+            state="selected",
+            default_ref=target,
+            candidates=(target,),
+        )
+
+    remote_refs = [
+        (candidate, sha)
+        for candidate in REMOTE_BASE_CANDIDATES
+        if (sha := commit_sha(workspace, candidate)) is not None
+    ]
+    remote_commits = {sha for _, sha in remote_refs}
+    if len(remote_commits) > 1:
+        candidates = tuple(candidate for candidate, _ in remote_refs)
+        return DefaultBaseDetection(
+            base=None,
+            notes=[
+                "origin/main and origin/master resolve to different commits, so "
+                "Shipgate cannot infer which branch is the intended comparison base."
+            ],
+            state="selection_required",
+            candidates=candidates,
+        )
+    if remote_refs:
+        selected, selected_sha = remote_refs[0]
+        notes = _skipped_local_base_notes(
+            workspace,
+            head_sha,
+            selected_base_sha=selected_sha,
+        )
+        candidates = tuple(candidate for candidate, _ in remote_refs)
+        if selected_sha == head_sha:
+            return DefaultBaseDetection(
+                base=None,
+                notes=notes,
+                state="head_at_default",
+                default_ref=selected,
+                candidates=candidates,
+            )
+        return DefaultBaseDetection(
+            base=selected,
+            notes=notes,
+            state="selected",
+            default_ref=selected,
+            candidates=candidates,
+        )
+
+    if _origin_is_configured(workspace):
+        return DefaultBaseDetection(
+            base=None,
+            notes=[
+                "The origin remote is configured, but no remote default branch ref "
+                "is available locally. Fetch the remote default branch and rerun verify."
+            ],
+            state="fetch_required",
+        )
+
+    local_refs = [
+        (candidate, sha)
+        for candidate in LOCAL_BASE_CANDIDATES
+        if (sha := commit_sha(workspace, candidate)) is not None
+    ]
+    local_candidates = tuple(candidate for candidate, _ in local_refs)
+    if local_refs and all(sha == head_sha for _, sha in local_refs):
+        selected = local_refs[0][0]
+        return DefaultBaseDetection(
+            base=None,
+            notes=[],
+            state="head_at_default",
+            default_ref=selected,
+            candidates=local_candidates,
+        )
+    if local_refs:
+        return DefaultBaseDetection(
+            base=None,
+            notes=[
+                "Only local default-branch refs are available and at least one differs "
+                "from HEAD. Shipgate will not guess from potentially stale local refs; "
+                "select --base explicitly."
+            ],
+            state="selection_required",
+            candidates=local_candidates,
+        )
+    return DefaultBaseDetection(
+        base=None,
+        notes=[
+            "No remote or local default-branch evidence is available. Select --base "
+            "explicitly, or use --no-base only for intentional head/worktree-only verification."
+        ],
+        state="selection_required",
+    )
+
+
+def _remote_ref_display(ref: str) -> str | None:
+    prefix = "refs/remotes/"
+    if not ref.startswith(prefix):
+        return None
+    display = ref[len(prefix) :]
+    if not display.startswith("origin/") or display == "origin/HEAD":
+        return None
+    return display
+
+
+def _origin_is_configured(workspace: Path) -> bool:
+    result = _run_git(workspace, ["remote", "get-url", "origin"], check=False)
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def _skipped_local_base_notes(
@@ -378,6 +524,17 @@ def merge_base_sha(workspace: Path, base: str, head: str) -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
+
+
+def is_shallow_repository(workspace: Path) -> bool:
+    """Return whether Git considers the checkout shallow."""
+
+    result = _run_git(
+        workspace,
+        ["rev-parse", "--is-shallow-repository"],
+        check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
 def commit_date(workspace: Path, ref: str) -> str:
@@ -569,8 +726,7 @@ def _reject_binary_capability_paths(
     )
     if payload is None:
         raise ConfigError(
-            "Git binary-path metadata exceeded static output bounds or could "
-            "not be read."
+            "Git binary-path metadata exceeded static output bounds or could not be read."
         )
     hidden: list[str] = []
     for record in payload.split(b"\0"):
@@ -639,15 +795,10 @@ def resolve_tree_path_identity(
     )
     if listing is None:
         raise ConfigError(
-            "Git tree path identity could not be established within static "
-            "resource bounds."
+            "Git tree path identity could not be established within static resource bounds."
         )
     try:
-        paths = [
-            raw.decode("utf-8", errors="strict")
-            for raw in listing.split(b"\0")
-            if raw
-        ]
+        paths = [raw.decode("utf-8", errors="strict") for raw in listing.split(b"\0") if raw]
     except UnicodeDecodeError as exc:
         raise ConfigError("Git tree contains a non-UTF-8 path") from exc
     requested_key = _portable_tree_path_key(requested_text)
@@ -669,6 +820,7 @@ def resolve_tree_path_identity(
     # distinct files can legitimately differ only by case, normalization, or
     # trailing spaces; rebinding them would hash one file under another path.
     return matched if os.path.samestat(requested_stat, matched_stat) else None
+
 
 # Suffixes retained for the independent rename/deletion guard.  Manifest
 # discovery itself is deliberately suffix-agnostic because ``load_manifest``
@@ -773,9 +925,7 @@ def carries_manifest_like_yaml(
             ["cat-file", "--batch"],
             check=False,
             text=False,
-            input=b"".join(
-                object_id + b"\n" for object_id, _path, _size in candidates
-            ),
+            input=b"".join(object_id + b"\n" for object_id, _path, _size in candidates),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -793,11 +943,7 @@ def carries_manifest_like_yaml(
             byte_count = int(encoded_size)
         except (TypeError, ValueError):
             return None
-        if (
-            object_id != expected_id
-            or object_type != b"blob"
-            or byte_count != expected_size
-        ):
+        if object_id != expected_id or object_type != b"blob" or byte_count != expected_size:
             return None
         content_start = header_end + 1
         content_end = content_start + byte_count
@@ -820,9 +966,7 @@ def carries_manifest_like_yaml(
             # long-standing fail-closed contract for declared YAML files while
             # allowing unrelated source/binary files to be ruled out.
             continue
-        if isinstance(document, dict) and _MANIFEST_REQUIRED_KEYS <= {
-            str(key) for key in document
-        }:
+        if isinstance(document, dict) and _MANIFEST_REQUIRED_KEYS <= {str(key) for key in document}:
             return True
     if offset != len(output):
         return None
@@ -927,9 +1071,7 @@ def working_tree_context(
         max_output_bytes=_DIFF_BODY_LIMIT,
     )
     if names is None or body is None:
-        raise ConfigError(
-            "Git worktree diff exceeded static output bounds or could not be read."
-        )
+        raise ConfigError("Git worktree diff exceeded static output bounds or could not be read.")
     paths = sorted(_paths_from_name_status(names))
     diff_text = _decode_diff_body(body)
     try:
@@ -952,9 +1094,7 @@ def working_tree_context(
         max_output_bytes=_DIFF_METADATA_LIMIT,
     )
     if untracked is None:
-        raise ConfigError(
-            "Git untracked-path inventory exceeded static output bounds."
-        )
+        raise ConfigError("Git untracked-path inventory exceeded static output bounds.")
     for raw_path in untracked.split(b"\0"):
         if not raw_path:
             continue
@@ -1000,9 +1140,7 @@ def _reject_index_hidden_capability_paths(
         max_output_bytes=_DIFF_METADATA_LIMIT,
     )
     if payload is None:
-        raise ConfigError(
-            "Git index-visibility metadata exceeded static output bounds."
-        )
+        raise ConfigError("Git index-visibility metadata exceeded static output bounds.")
     hidden: list[str] = []
     for record in payload.split(b"\0"):
         if not record:
@@ -1016,8 +1154,7 @@ def _reject_index_hidden_capability_paths(
         hidden.append(os.fsdecode(raw_path))
     if hidden:
         raise ConfigError(
-            "Git index flags hide paths from worktree collection: "
-            + ", ".join(sorted(hidden)[:3])
+            "Git index flags hide paths from worktree collection: " + ", ".join(sorted(hidden)[:3])
         )
 
 
@@ -1075,9 +1212,7 @@ def _reject_executable_worktree_filters(workspace: Path) -> None:
             "Git filter-attribute metadata exceeded static resource bounds or "
             "could not be inspected safely."
         )
-    attributed_paths = [
-        os.fsdecode(raw) for raw in attributed.split(b"\0") if raw
-    ]
+    attributed_paths = [os.fsdecode(raw) for raw in attributed.split(b"\0") if raw]
     if attributed_paths:
         shown = ", ".join(sorted(attributed_paths)[:3])
         raise ConfigError(
@@ -1128,9 +1263,7 @@ def _reject_unbound_diff_configuration(workspace: Path) -> None:
     except FileNotFoundError:
         return
     except OSError as exc:
-        raise ConfigError(
-            "Could not inspect repository-local Git attributes safely."
-        ) from exc
+        raise ConfigError("Could not inspect repository-local Git attributes safely.") from exc
     if not info_path.is_file() or info_path.is_symlink() or metadata.st_size:
         raise ConfigError(
             "Deterministic diff collection refuses non-empty or aliased "
@@ -1242,8 +1375,7 @@ def _materialize_isolated_tree(git_dir: Path, *, commit: str, destination: Path)
         prior = portable_paths.setdefault(portable_key, path_text)
         if prior != path_text:
             raise ConfigError(
-                "Git tree contains filesystem-colliding paths: "
-                f"{prior!r} and {path_text!r}"
+                f"Git tree contains filesystem-colliding paths: {prior!r} and {path_text!r}"
             )
         if object_type != "blob" or mode in {"120000", "160000"}:
             raise ConfigError(
@@ -1347,11 +1479,7 @@ def _resolved_diff_revspec(workspace: Path, revspec: str) -> str:
 
 
 def _git_object_environment() -> dict[str, str]:
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith("GIT_")
-    }
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     env.update(
         {
             "GIT_ATTR_NOSYSTEM": "1",
@@ -1446,11 +1574,7 @@ def _run_git_bounded_output(
         except (BrokenPipeError, OSError):
             write_failed = True
 
-    writer = (
-        threading.Thread(target=_write_stdin, daemon=True)
-        if input is not None
-        else None
-    )
+    writer = threading.Thread(target=_write_stdin, daemon=True) if input is not None else None
     if writer is not None:
         writer.start()
     try:
@@ -1465,12 +1589,7 @@ def _run_git_bounded_output(
     reader.join()
     if writer is not None:
         writer.join()
-    if (
-        returncode not in allowed_returncodes
-        or exceeded
-        or read_failed
-        or write_failed
-    ):
+    if returncode not in allowed_returncodes or exceeded or read_failed or write_failed:
         return None
     return bytes(output)
 
@@ -1570,6 +1689,7 @@ __all__ = [
     "ensure_git_workspace",
     "git_path",
     "GitPushEndpoint",
+    "is_shallow_repository",
     "merge_base_sha",
     "read_file_at_ref",
     "repository_identity",

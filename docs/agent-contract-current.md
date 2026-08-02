@@ -284,7 +284,17 @@ Markdown/HTML/PDF rendering. Read
 `verifier.json.base_status` to understand whether base diff enrichment ran;
 do not use it as a release verdict. The release gate is still
 `report.json.release_decision.decision`. `verify` never fetches, so CI callers
-must make the base ref available before invocation. Supplying `--head` makes
+must make the base ref available before invocation. When `--base` is omitted,
+verify resolves one safe default-branch state: `selected`, `head_at_default`,
+`fetch_required`, or `selection_required`. The first two may proceed; the last
+two exit 2 before the head scan with no `release_decision`. Fetchable missing
+history produces `control.state="agent_action_required"` and
+`next_action.kind="fetch_base"`; ambiguous selection produces
+`human_review_required` with no allowed command. `verification-plan.json`
+records the additive audit options `base_mode`, `base_resolution`, and
+`resolved_default_ref`. Only explicit `--no-base` sets intentional
+head/worktree-only scope; coding agents must not invent it as recovery.
+Supplying `--head` makes
 verify scan an isolated archive of that ref; omitting it scans the checked-out
 workspace. If an explicit `--base` ref or PR diff cannot be inspected, verify
 skips a head-only scan; `verifier.json.merge_verdict` is `unknown` and the

@@ -107,6 +107,7 @@ from .git import (
     diff_context,
     ensure_git_workspace,
     git_path,
+    is_shallow_repository,
     merge_base_sha,
     read_file_at_ref,
     ref_exists,
@@ -153,6 +154,9 @@ def run_verify(
     authorization: Path | None = None,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     git_root = ensure_git_workspace(workspace.resolve())
+    base_mode = "explicit" if base is not None else ("auto" if auto_base else "disabled")
+    base_resolution = "selected" if base is not None else ("pending" if auto_base else "disabled")
+    resolved_default_ref: str | None = None
     config_path, config_relative = _resolve_config_under_workspace(
         git_root,
         config,
@@ -196,11 +200,7 @@ def run_verify(
             ("config", config_path),
             *([("baseline", baseline_path)] if baseline_path is not None else []),
             *[("policy pack", path) for path in (policy_pack_paths or [])],
-            *(
-                [("diff-from", static_diff_from_path)]
-                if static_diff_from_path is not None
-                else []
-            ),
+            *([("diff-from", static_diff_from_path)] if static_diff_from_path is not None else []),
         ],
     )
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -306,7 +306,7 @@ def run_verify(
     base_capability_lock: CapabilityLockFileV1 | None = None
     base_notes: list[str] = []
     diff_unavailable = False
-    diff_failure_action: HumanControlAction | None = None
+    diff_failure_action: AgentControlAction | None = None
 
     head_exists = ref_exists(git_root, head)
     if not head_exists:
@@ -389,32 +389,140 @@ def run_verify(
     if base is None and auto_base:
         detection = detect_default_base_with_notes(git_root, head)
         base_notes.extend(detection.notes)
-        if detection.base is not None:
+        base_resolution = detection.state
+        resolved_default_ref = detection.default_ref
+        if detection.state == "selected":
+            assert detection.base is not None
             base = detection.base
             base_notes.append(
                 f"Auto-detected base {detection.base!r} for diff context; "
                 "pass --base to override or --no-base to disable."
             )
+        elif detection.state in {"fetch_required", "selection_required"}:
+            unresolved_base = (
+                detection.default_ref
+                if detection.state == "fetch_required" and detection.default_ref
+                else None
+            )
+            trigger = evaluate(
+                paths=[],
+                diff_text="",
+                manifest_present=True,
+                user_requested=True,
+            )
+            headline = (
+                "Shipgate could not bind a trustworthy comparison base, so it "
+                "did not run a head-only scan."
+            )
+            if detection.state == "fetch_required":
+                action: AgentControlAction = CodingAgentFetchBaseAction(
+                    kind="fetch_base",
+                    expects=(detection.default_ref or "the remote default branch"),
+                    why=(
+                        "Make the remote default branch available locally, then rerun "
+                        "verify without adding --no-base."
+                    ),
+                )
+            else:
+                action = HumanControlAction(
+                    kind="stop",
+                    why=(
+                        "A human must select the intended --base <ref>, or explicitly "
+                        "choose --no-base only when head/worktree-only verification is "
+                        "the intended scope."
+                    ),
+                )
+            verifier = _build_verifier(
+                git_root=git_root,
+                config_path=config_path,
+                base=unresolved_base,
+                head=head,
+                changed_files=[],
+                diff_text="",
+                trigger=trigger,
+                base_status="ref_missing",
+                base_tree=None,
+                base_report=None,
+                base_notes=base_notes,
+                report=None,
+                head_status="failed",
+                head_exit_code=2,
+                out_dir=out_dir,
+                ci_mode=ci_mode,
+                headline_override=headline,
+                first_next_action_override=action,
+                worktree=not archive_head,
+                rerun_options=rerun_options,
+            )
+            _assert_base_input_failure(verifier)
+            _remove_scan_artifacts(out_dir)
+            _write_artifacts(
+                verifier,
+                verifier_path,
+                verify_run_path,
+                pr_comment_path,
+                report=None,
+                git_root=git_root,
+                config_path=config_path,
+                config_logical_path=config_relative.as_posix(),
+                baseline_path=baseline_path,
+                policy_pack_paths=policy_pack_paths or [],
+                plugins_enabled=plugins_enabled,
+                no_heuristics=no_heuristics,
+                fail_on=fail_on,
+                pr_comment_style=pr_comment_style,
+                verification_options={
+                    "base_mode": base_mode,
+                    "base_resolution": base_resolution,
+                    "resolved_default_ref": resolved_default_ref,
+                },
+                evaluation_date=verification_date,
+            )
+            return verifier, None, 2
 
     base_exists = False
     if base:
         base_exists = ref_exists(git_root, base)
         if base_exists:
-            try:
-                changed_files, diff_text = diff_context(git_root, base, head)
-            except Exception as exc:  # noqa: BLE001 - diff context degrades only.
+            if merge_base_sha(git_root, base, head) is None:
                 diff_unavailable = True
                 base_status = "archive_failed"
-                detail = f"Could not collect diff for {base}...{head}: {exc}"
+                detail = f"Could not find a merge base for {base}...{head}"
                 base_notes.append(detail)
-                diff_failure_action = HumanControlAction(
-                    kind="review",
-                    why=(
-                        f"{detail}. The refs are present; fetching cannot repair "
-                        "this deterministic input failure. Inspect the reported "
-                        "Git configuration/resource issue before rerunning."
-                    ),
-                )
+                if is_shallow_repository(git_root):
+                    diff_failure_action = CodingAgentFetchBaseAction(
+                        kind="fetch_base",
+                        expects=base,
+                        why=(
+                            f"{detail} in a shallow repository. Fetch enough history "
+                            "to establish the merge base, then rerun verify."
+                        ),
+                    )
+                else:
+                    diff_failure_action = HumanControlAction(
+                        kind="review",
+                        why=(
+                            f"{detail}. The repository is not shallow, so a human "
+                            "must confirm the intended comparison refs or unrelated-history "
+                            "boundary before rerunning."
+                        ),
+                    )
+            else:
+                try:
+                    changed_files, diff_text = diff_context(git_root, base, head)
+                except Exception as exc:  # noqa: BLE001 - diff context degrades only.
+                    diff_unavailable = True
+                    base_status = "archive_failed"
+                    detail = f"Could not collect diff for {base}...{head}: {exc}"
+                    base_notes.append(detail)
+                    diff_failure_action = HumanControlAction(
+                        kind="review",
+                        why=(
+                            f"{detail}. The refs and merge base are present; fetching "
+                            "cannot repair this deterministic input failure. Inspect the "
+                            "reported Git configuration/resource issue before rerunning."
+                        ),
+                    )
         else:
             diff_unavailable = True
             base_status = "ref_missing"
@@ -503,6 +611,8 @@ def run_verify(
             worktree=not archive_head,
             rerun_options=rerun_options,
         )
+        if verifier.base_status in {"ref_missing", "archive_failed"}:
+            _assert_base_input_failure(verifier)
         _write_artifacts(
             verifier,
             verifier_path,
@@ -518,6 +628,12 @@ def run_verify(
             no_heuristics=no_heuristics,
             fail_on=fail_on,
             pr_comment_style=pr_comment_style,
+            verification_options={
+                "base_mode": base_mode,
+                "base_resolution": base_resolution,
+                "resolved_default_ref": resolved_default_ref,
+            },
+            evaluation_date=verification_date,
         )
         return verifier, None, 2
 
@@ -559,6 +675,12 @@ def run_verify(
             no_heuristics=no_heuristics,
             fail_on=fail_on,
             pr_comment_style=pr_comment_style,
+            verification_options={
+                "base_mode": base_mode,
+                "base_resolution": base_resolution,
+                "resolved_default_ref": resolved_default_ref,
+            },
+            evaluation_date=verification_date,
         )
         return verifier, None, 0
 
@@ -600,11 +722,7 @@ def run_verify(
             worktree_manifest_text.encode("utf-8"),
         )
         for relative in changed_files:
-            candidate = Path(
-                os.path.abspath(
-                    os.path.normpath(os.fspath(git_root / relative))
-                )
-            )
+            candidate = Path(os.path.abspath(os.path.normpath(os.fspath(git_root / relative))))
             try:
                 metadata = candidate.lstat()
             except FileNotFoundError:
@@ -811,7 +929,10 @@ def run_verify(
                     authorization_path=authorization,
                     verification_options={
                         "archive_head": archive_head,
+                        "base_mode": base_mode,
+                        "base_resolution": base_resolution,
                         "baseline_mode": baseline_mode,
+                        "resolved_default_ref": resolved_default_ref,
                         "strict_plugins": strict_plugins,
                         "suggest_patches": suggest_patches,
                         "evaluated_head_commit_sha": (os.getenv("EVALUATED_HEAD_SHA") or None),
@@ -1253,9 +1374,7 @@ def _rerun_options(
         # identity now. ``abspath`` normalizes ``..`` without following a
         # symlink and silently changing the operator-supplied grant path.
         authorization_path = Path(os.path.abspath(os.fspath(authorization)))
-        options.extend(
-            ["--authorization", shlex.quote(str(authorization_path))]
-        )
+        options.extend(["--authorization", shlex.quote(str(authorization_path))])
     return options
 
 
@@ -1413,11 +1532,7 @@ def _self_approval_note(
         # trust-root facts can support adoption guidance. Scan-failure routing
         # must remain the authoritative headline and next action.
         return None
-    if (
-        manifest_introduced
-        and pure_adoption_review
-        and not capability_review.policy_weakened
-    ):
+    if manifest_introduced and pure_adoption_review and not capability_review.policy_weakened:
         manifest = (
             f"the configured manifest {configured_manifest!r}"
             if configured_manifest
@@ -1472,9 +1587,7 @@ _VOLATILE_PATH_RE = re.compile(r"(/[^\s'\"]*)+")
 def _stable_subject(subject: str) -> str:
     """A subject with run-specific absolute paths collapsed."""
 
-    return _VOLATILE_PATH_RE.sub(
-        lambda match: f"/…/{PurePosixPath(match.group(0)).name}", subject
-    )
+    return _VOLATILE_PATH_RE.sub(lambda match: f"/…/{PurePosixPath(match.group(0)).name}", subject)
 
 
 def _gap_provenance_note(
@@ -1498,15 +1611,12 @@ def _gap_provenance_note(
     if coverage is None or not coverage.evidence_gaps:
         return None
     head = Counter(
-        (str(gap.kind), _stable_subject(str(gap.subject or "")))
-        for gap in coverage.evidence_gaps
+        (str(gap.kind), _stable_subject(str(gap.subject or ""))) for gap in coverage.evidence_gaps
     )
     if base_report is None or not base_report.is_file():
         return None
     try:
-        base = _evidence_gap_identities(
-            json.loads(base_report.read_text(encoding="utf-8"))
-        )
+        base = _evidence_gap_identities(json.loads(base_report.read_text(encoding="utf-8")))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     if base is None:
@@ -1529,8 +1639,7 @@ def _gap_provenance_note(
     if scaffolded:
         subset = "all of them" if scaffolded == total else f"{scaffolded} of them"
         remedy = (
-            f" A one-time human declaration closes {subset} "
-            f"({SUGGESTED_DECLARATIONS_FILENAME})."
+            f" A one-time human declaration closes {subset} ({SUGGESTED_DECLARATIONS_FILENAME})."
         )
     else:
         remedy = ""
@@ -1654,16 +1763,9 @@ def _derive_verifier_control(
         )
 
     if fix_task is not None and fix_task.actor == "coding_agent" and fix_task.safe_to_attempt:
-        repair_commands = [
-            repair.command
-            for repair in fix_task.allowed_repairs
-            if repair.command
-        ]
+        repair_commands = [repair.command for repair in fix_task.allowed_repairs if repair.command]
         commands = list(dict.fromkeys(repair_commands))
-        if (
-            fix_task.verification_command
-            and fix_task.verification_command not in commands
-        ):
+        if fix_task.verification_command and fix_task.verification_command not in commands:
             commands.append(fix_task.verification_command)
         if not commands:
             raise ValueError("agent-safe verifier repair requires an exact repair command")
@@ -1842,9 +1944,7 @@ def _build_verifier(
         base_tree_sha=base_tree,
         head_tree_sha=head_tree,
         base_report_json=(
-            artifacts.get("verification_base_report_json")
-            if base_report is not None
-            else None
+            artifacts.get("verification_base_report_json") if base_report is not None else None
         ),
         base_notes=base_notes,
         execution=head_status,  # type: ignore[arg-type]
@@ -1954,6 +2054,28 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
                 path.unlink()
 
 
+def _assert_base_input_failure(verifier: VerifierArtifact) -> None:
+    """Reject any failed base-input route that accidentally carries a gate."""
+
+    if not (
+        verifier.execution == "failed"
+        and verifier.head_status == "failed"
+        and verifier.head_exit_code == 2
+        and verifier.base_status in {"ref_missing", "archive_failed"}
+        and verifier.release_decision is None
+        and verifier.decision is None
+        and verifier.merge_verdict == "unknown"
+        and verifier.applicability == "failed"
+        and not verifier.can_merge_without_human
+        and verifier.fix_task is None
+        and not verifier.control.completion_allowed
+    ):
+        raise ValueError(
+            "base-input recovery must be a failed, nonterminal verifier without "
+            "release-decision or merge authority"
+        )
+
+
 def _clear_trusted_handoff(out_dir: Path) -> None:
     """Remove every prior terminal/projection artifact before a new run."""
 
@@ -2048,9 +2170,7 @@ def _evaluate_authorization_overlay(
         )
     if plan.inputs.options.get("plugins_enabled") is not False:
         return (
-            AuthorizationEvaluationV1.not_applicable(
-                "authorization_requires_plugins_disabled"
-            ),
+            AuthorizationEvaluationV1.not_applicable("authorization_requires_plugins_disabled"),
             None,
         )
     try:
@@ -2177,9 +2297,7 @@ def _write_artifacts(
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
     portable_diff_from_path: Path | None = None
     if diff_from_path is not None and diff_from_path.is_file():
-        portable_diff_from_path = verifier_path.with_name(
-            "verification-base-report.json"
-        )
+        portable_diff_from_path = verifier_path.with_name("verification-base-report.json")
         source_bytes = read_static_input_bytes(
             diff_from_path,
             max_bytes=64 * 1024 * 1024,
@@ -2252,15 +2370,10 @@ def _write_artifacts(
                 f"Verification inputs changed while they were being evaluated: {exc}"
             ) from exc
     original_static_inputs = {
-        Path(os.path.abspath(os.path.normpath(os.fspath(path))))
-        for path in original_paths
+        Path(os.path.abspath(os.path.normpath(os.fspath(path)))) for path in original_paths
     }
     captured_input_paths = (
-        [
-            path
-            for path in active_snapshot.paths()
-            if path not in original_static_inputs
-        ]
+        [path for path in active_snapshot.paths() if path not in original_static_inputs]
         if active_snapshot is not None
         else None
     )
@@ -2273,13 +2386,10 @@ def _write_artifacts(
         )
         for path in policy_pack_paths
     ]
-    baseline_was_captured = (
-        baseline_path is not None
-        and (
-            active_snapshot.has(baseline_path)
-            if active_snapshot is not None and active_snapshot.contains(baseline_path)
-            else baseline_path.is_file()
-        )
+    baseline_was_captured = baseline_path is not None and (
+        active_snapshot.has(baseline_path)
+        if active_snapshot is not None and active_snapshot.contains(baseline_path)
+        else baseline_path.is_file()
     )
     portable_baseline_path = (
         _write_portable_static_input(
@@ -2613,9 +2723,7 @@ def _static_input_sha256(path: Path | None) -> str | None:
 
     if path is None or not path.is_file():
         return None
-    return hashlib.sha256(
-        read_static_input_bytes(path, max_bytes=64 * 1024 * 1024)
-    ).hexdigest()
+    return hashlib.sha256(read_static_input_bytes(path, max_bytes=64 * 1024 * 1024)).hexdigest()
 
 
 def _write_capability_review_artifacts(
@@ -2721,9 +2829,7 @@ def _resolve_static_input_path(
     except OSError as exc:
         raise ConfigError(f"{label} could not be inspected safely: {path}") from exc
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-        raise ConfigError(
-            f"{label} must identify one singly-linked regular file: {path}"
-        )
+        raise ConfigError(f"{label} must identify one singly-linked regular file: {path}")
     return lexical
 
 
@@ -2742,15 +2848,11 @@ def _resolve_config_under_workspace(
     """
 
     requested_anchor = (
-        requested_workspace.resolve()
-        if requested_workspace is not None
-        else workspace
+        requested_workspace.resolve() if requested_workspace is not None else workspace
     )
     candidate = path if path.is_absolute() else requested_anchor / path
     if path.is_absolute() and requested_workspace is not None:
-        lexical_requested = Path(
-            os.path.abspath(os.path.normpath(os.fspath(requested_workspace)))
-        )
+        lexical_requested = Path(os.path.abspath(os.path.normpath(os.fspath(requested_workspace))))
         canonical_requested = requested_workspace.resolve()
         lexical_path = Path(os.path.normpath(os.fspath(path)))
         try:
@@ -2833,12 +2935,9 @@ def _reject_symlink_components(
             else "a differently spelled filesystem entry"
         )
         raise ConfigError(
-            f"{label} must use the exact filesystem spelling: "
-            f"{requested} resolves to {actual}"
+            f"{label} must use the exact filesystem spelling: {requested} resolves to {actual}"
         )
-    raise ConfigError(
-        f"{label} could not be inspected safely: {requested}: {issue.detail}"
-    )
+    raise ConfigError(f"{label} could not be inspected safely: {requested}: {issue.detail}")
 
 
 def _dedupe_paths(paths: list[str]) -> list[str]:
@@ -2909,8 +3008,7 @@ def _project_archived_report_paths(
                 ) from exc
             if patch_target != archived_target:
                 raise ConfigError(
-                    "Archived suggested patch targets an unsupported file: "
-                    f"{target_file}"
+                    f"Archived suggested patch targets an unsupported file: {target_file}"
                 )
             patch.target_file = str(checkout_target)
 
@@ -2998,8 +3096,7 @@ def _reject_output_input_overlap(
         except ValueError:
             continue
         raise ConfigError(
-            f"Verifier --out overlaps the {label} input at "
-            f"{_display_path(candidate, git_root)}."
+            f"Verifier --out overlaps the {label} input at {_display_path(candidate, git_root)}."
         )
 
 

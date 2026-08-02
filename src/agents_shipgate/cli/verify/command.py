@@ -69,15 +69,17 @@ def verify(
             "omitted, verify auto-detects the default branch (origin/HEAD, "
             "origin/main, origin/master) if it points at a different commit "
             "than the head. Local main/master are used only when passed "
-            "explicitly; --no-base disables auto-detection."
+            "explicitly. If trustworthy comparison scope cannot be proved, "
+            "verify exits 2 without running a head-only scan."
         ),
     ),
     no_base: bool = typer.Option(
         False,
         "--no-base",
         help=(
-            "Disable base auto-detection when --base is omitted; scan only "
-            "the working tree or explicit head."
+            "Explicitly choose intentional head/worktree-only verification "
+            "when --base is omitted. This is the only opt-out from safe "
+            "auto-detection."
         ),
     ),
     head: str | None = typer.Option(
@@ -201,9 +203,7 @@ def verify(
             raise ConfigError("--ci-mode must be advisory or strict")
         for label, value in (("--base", base), ("--head", head)):
             if value is not None and (
-                not value
-                or value.startswith("-")
-                or any(char in value for char in "\0\r\n")
+                not value or value.startswith("-") or any(char in value for char in "\0\r\n")
             ):
                 raise ConfigError(
                     f"{label} must be non-empty, must not begin with '-', "
