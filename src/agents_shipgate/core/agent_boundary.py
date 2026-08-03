@@ -304,6 +304,7 @@ def evaluate_agent_boundary(
             if (
                 (item.code == "content_source" and item.path == ".codex/config.toml")
                 or item.code == "proposal_safe_manifest_addition"
+                or item.code == "version_synced_instruction_document"
             )
         },
     )

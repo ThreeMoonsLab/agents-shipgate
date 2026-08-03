@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- **A reviewer-requested version sync no longer stops the turn.** Editing an
+  agent-instruction document was classified whole-file, so bumping a contract
+  or schema number in `AGENTS.md` — work a human reviewer had just asked for —
+  produced the same `critical`, human-routed stop as deleting the instruction
+  that protects the gate. Because conversational acknowledgement never changes
+  control state, the only thing an agent could do with that stop was ask the
+  operator a question whose answer nothing reads. `preflight` and `check` now
+  recognize one narrow shape they can prove is not a weakening: a diff over an
+  agent-instruction **prose document** (`.md`/`.mdc`) whose removed and added
+  lines pair 1:1 and are byte-identical once version literals are masked, where
+  every new literal is a version this CLI itself publishes (sourced from the
+  `contract --json` payload, so a contract bump cannot leave it recognizing
+  stale numbers). Prose is provably preserved, so no instruction can have been
+  removed, added, reordered, or reworded. A bare integer only counts as a
+  version literal on a line that says `version`/`contract`/`schema`, which
+  keeps "require at least N approvals" out of the exception. Machine-consumed
+  surfaces (`.claude/settings.json`, `.mcp.json`, hooks), every other
+  whole-file trust-root class (`ci_gate`, `policy`, `host_boundary`), and
+  added/deleted/renamed files keep the standing route. As in PR #282, a
+  per-record safe result never clears the path-wide guard: a document touched
+  by more than one diff record stays human-routed in both orderings. The
+  concrete diff still carries its verify-mode trust-root findings into review.
+- **A protected-surface stop now says what would clear it.** A human-routed
+  preflight signal stated only that a coding agent must not self-approve the
+  edit, which gave the reader no way to tell a refusable plan from a missing
+  input — the failure mode above. Each signal now names the concrete outcome:
+  the refusal reason when a diff was assessed (`'v9999' is not a version this
+  CLI publishes`, `an edited line changes prose outside its version literals`),
+  or the missing input when preflight was handed paths without a diff. The text
+  propagates to `control.reason`, `control.stop_reason`, and
+  `first_next_action.why`. The recommendation also states the non-route
+  explicitly — approval goes through the pull request, and the agent must not
+  ask the operator to approve the edit in chat — so a stop can no longer be
+  mistaken for a prompt to seek conversational sign-off.
+
 - **A first adoption no longer reads as a policy weakening.** Adding the
   manifest to a repository that had none is the first verdict every new adopter
   sees, and it said "This PR weakens the release policy that evaluates it",
