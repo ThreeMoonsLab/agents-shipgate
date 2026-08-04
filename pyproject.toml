@@ -101,7 +101,7 @@ dev = [
   "pytest-xdist>=3.8,<4",
   "ruff>=0.15.22,<1",
   "sigstore>=4.2.0,<5",
-  "twine>=6.2.0,<7",
+  "twine>=7.0.0,<8",
 ]
 
 [project.scripts]
