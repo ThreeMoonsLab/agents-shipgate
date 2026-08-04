@@ -10,20 +10,35 @@
   control state, the only thing an agent could do with that stop was ask the
   operator a question whose answer nothing reads. `preflight` and `check` now
   recognize one narrow shape they can prove is not a weakening: a diff over an
-  agent-instruction **prose document** (`.md`/`.mdc`) whose removed and added
-  lines pair 1:1 and are byte-identical once version literals are masked, where
-  every new literal is a version this CLI itself publishes (sourced from the
-  `contract --json` payload, so a contract bump cannot leave it recognizing
-  stale numbers). Prose is provably preserved, so no instruction can have been
-  removed, added, reordered, or reworded. A bare integer only counts as a
-  version literal on a line that says `version`/`contract`/`schema`, which
-  keeps "require at least N approvals" out of the exception. Machine-consumed
-  surfaces (`.claude/settings.json`, `.mcp.json`, hooks), every other
-  whole-file trust-root class (`ci_gate`, `policy`, `host_boundary`), and
-  added/deleted/renamed files keep the standing route. As in PR #282, a
-  per-record safe result never clears the path-wide guard: a document touched
-  by more than one diff record stays human-routed in both orderings. The
-  concrete diff still carries its verify-mode trust-root findings into review.
+  agent-instruction **prose document** (`.md`/`.mdc`) whose complete old and
+  new line sequences — **context lines included** — are identical position for
+  position once version literals are masked. Comparing removed lines against
+  added lines while ignoring context would accept a *move*: relocating
+  "Contract vN applies to the next rule" from above an instruction to below it
+  rebinds "the next rule" without changing a character of prose. With position
+  preserved, no instruction can have been removed, added, reordered, moved
+  relative to its neighbours, or reworded.
+  Four guards keep a moved literal from carrying meaning with it. It must be a
+  version this CLI itself publishes (sourced from the `contract --json`
+  payload, so a contract bump cannot leave the exception recognizing stale
+  numbers). It must not *decrease*, because one published value is not
+  automatically a safe replacement for another — lowering "contract version >=
+  19" to ">= 14" moves a real threshold using two legitimate numbers. A line
+  stating a version condition (`>=`, "at least", "or later", …) is refused
+  outright, since its literal is a threshold rather than a fact. And a bare
+  integer counts as a version only where a version *field* introduces it
+  (`...contract_version: 14`, `contract 14`), not merely because the line
+  mentions one — line-level context would make "Use subversion 2 for schema"
+  rewritable, and substring matching would let `conversion` qualify "require at
+  least 2 approvals".
+  Machine-consumed surfaces (`.claude/settings.json`, `.mcp.json`, hooks),
+  every other whole-file trust-root class (`ci_gate`, `policy`,
+  `host_boundary`), added/deleted/renamed files, control characters in a
+  compared line, and edited lines that no hunk accounts for all keep the
+  standing route. As in PR #282, a per-record safe result never clears the
+  path-wide guard: a document touched by more than one diff record stays
+  human-routed in both orderings. The concrete diff still carries its
+  verify-mode trust-root findings into review.
 - **A protected-surface stop now says what would clear it.** A human-routed
   preflight signal stated only that a coding agent must not self-approve the
   edit, which gave the reader no way to tell a refusable plan from a missing
