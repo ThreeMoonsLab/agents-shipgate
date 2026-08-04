@@ -2,57 +2,18 @@
 
 ## Unreleased
 
-- **A reviewer-requested version sync no longer stops the turn.** Editing an
-  agent-instruction document was classified whole-file, so bumping a contract
-  or schema number in `AGENTS.md` — work a human reviewer had just asked for —
-  produced the same `critical`, human-routed stop as deleting the instruction
-  that protects the gate. Because conversational acknowledgement never changes
-  control state, the only thing an agent could do with that stop was ask the
-  operator a question whose answer nothing reads. `preflight` and `check` now
-  recognize one narrow shape they can prove is not a weakening: a diff over an
-  agent-instruction **prose document** (`.md`/`.mdc`) whose complete old and
-  new line sequences — **context lines included** — are identical position for
-  position except at **managed-field values**. Comparing removed lines against
-  added lines while ignoring context would accept a *move*: relocating a line
-  from above an instruction to below it rebinds what it qualifies without
-  changing a character of prose.
-  Recognition is positive, not exclusionary. A version is a managed field only
-  when it is the value of an exact `contract --json` payload key, written
-  either inside a code span holding nothing but the assignment
-  (``report `minimum_control_contract_version: 14` ``) or on a line holding
-  nothing but the assignment. The new value must be the published value **of
-  that field**, so one field's number can never be written into another. An
-  earlier form of this exception masked any version-shaped token and refused a
-  list of conditional phrasings; that cannot be made sound, because prose
-  encodes constraints in unbounded ways ("Allow contract versions **through**
-  v14", "Reject contract versions **after** v14") and deciding which sentences
-  are rules is exactly the semantic judgement Shipgate does not make. A version
-  cited in ordinary prose is therefore **not** recognized and keeps the
-  standing human route.
-  There is deliberately no monotonicity rule: field binding already proves the
-  new value is the published one, so correcting a document that claims
-  `contract_version: 99` down to `19` is a valid synchronization.
-  Machine-consumed surfaces (`.claude/settings.json`, `.mcp.json`, hooks),
-  every other whole-file trust-root class (`ci_gate`, `policy`,
-  `host_boundary`), added/deleted/renamed files, control characters in a
-  compared line, and edited lines that no hunk accounts for all keep the
-  standing route. As in PR #282, a per-record safe result never clears the
-  path-wide guard: a document touched by more than one diff record stays
-  human-routed in both orderings. The concrete diff still carries its
-  verify-mode trust-root findings into review.
-- **A protected-surface stop now says what would clear it.** A human-routed
-  preflight signal stated only that a coding agent must not self-approve the
-  edit, which gave the reader no way to tell a refusable plan from a missing
-  input — the failure mode above. Each signal now names the concrete outcome:
-  the refusal reason when a diff was assessed (`'9999' is not the published
-  value of 'contract_version'`, `an edited line changes text outside a
-  managed-field value`), or the missing input when preflight was handed paths
-  without a diff. The text
-  propagates to `control.reason`, `control.stop_reason`, and
-  `first_next_action.why`. The recommendation also states the non-route
-  explicitly — approval goes through the pull request, and the agent must not
-  ask the operator to approve the edit in chat — so a stop can no longer be
-  mistaken for a prompt to seek conversational sign-off.
+- **A protected-surface stop now names the route, and the non-route that looks
+  like one.** A human-routed preflight signal said only that a coding agent must
+  not self-approve the edit. That leaves the agent to guess how a human decides,
+  and the plausible guess is to ask the operator in conversation — which
+  preflight does not read. The agent then either stalls on an answer nothing
+  consumes, or treats a spoken "yes" as authority and proceeds past the gate;
+  the first wastes a human context switch on a reviewer-requested edit, and the
+  second is the gate teaching the behaviour it exists to prevent. The
+  recommendation now states both halves: approval goes through the pull request,
+  and the agent must not ask the operator to approve the edit in chat.
+  This is text on an existing signal — no check id, schema, or routing changed.
+  A trust-root edit is still `critical` and still stops the turn.
 
 - **A first adoption no longer reads as a policy weakening.** Adding the
   manifest to a repository that had none is the first verdict every new adopter

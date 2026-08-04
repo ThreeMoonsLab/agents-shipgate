@@ -31,10 +31,6 @@ from agents_shipgate.core.host_grants import (
     host_audit_inventory,
     load_host_grants_baseline,
 )
-from agents_shipgate.core.instruction_sync import (
-    assess_version_literal_sync,
-    is_instruction_prose_document,
-)
 from agents_shipgate.core.lenses.effective_policy import (
     build_effective_policy_snapshot,
 )
@@ -344,10 +340,6 @@ def build_preflight_result(
         touches=touches,
         diff_text=effective_diff_text,
     )
-    touches, touch_explanations = _classify_version_synced_instruction_touches(
-        touches=touches,
-        diff_text=effective_diff_text,
-    )
     requests = _coerce_capability_requests(
         capability_request=capability_request,
         capability_requests=capability_requests,
@@ -378,7 +370,7 @@ def build_preflight_result(
         notes = [*notes, host_grant_drift_note]
     signals = _sorted_signals(
         [
-            *signals_for_protected_touches(touches, touch_explanations),
+            *signals_for_protected_touches(touches),
             *signals_for_host_grant_drift(
                 host_grant_drift,
                 workspace=root,
@@ -810,17 +802,9 @@ def required_evidence_for_capability_requests(
 
 def signals_for_protected_touches(
     touches: list[PreflightProtectedSurfaceTouch],
-    explanations: dict[str, str] | None = None,
 ) -> list[PreflightSignalV1]:
-    """Project protected-surface touches into routed signals.
+    """Project protected-surface touches into routed signals."""
 
-    ``explanations`` carries the per-path outcome of a concrete-diff assessment
-    (see :func:`_classify_version_synced_instruction_touches`). It is threaded
-    as a side table rather than a touch field so a refusal reason can reach the
-    reader without widening the published preflight schema.
-    """
-
-    notes = explanations or {}
     return [
         PreflightSignalV1(
             id=f"protected_surface:{touch.path}",
@@ -829,7 +813,7 @@ def signals_for_protected_touches(
             actor="human" if touch.requires_human_review else "coding_agent",
             subject=touch.kind,
             path=touch.path,
-            reason=_protected_touch_reason(touch, notes.get(touch.path)),
+            reason=_protected_touch_reason(touch),
             recommendation=_protected_touch_recommendation(touch),
             related_command=None,
         )
@@ -837,55 +821,35 @@ def signals_for_protected_touches(
     ]
 
 
-def _protected_touch_reason(
-    touch: PreflightProtectedSurfaceTouch,
-    explanation: str | None,
-) -> str:
-    """State why this touch routed where it did, and what would change it.
-
-    A human-routed signal that only says "stop" has no exit: the coding agent
-    cannot tell whether a narrower plan would clear it, so it asks the user a
-    question whose answer preflight does not read. Naming the concrete refusal
-    (or the missing input) turns the stop into an actionable next step.
-    """
-
+def _protected_touch_reason(touch: PreflightProtectedSurfaceTouch) -> str:
     if not touch.requires_human_review:
-        if touch.kind == "agent_instructions":
-            return (
-                f"{touch.path} synchronizes only managed-field values this CLI "
-                "publishes for those exact fields, so its instruction prose is "
-                "provably unchanged; "
-                "authorship is allowed, but the concrete protected-surface "
-                "diff is not approved."
-            )
         return (
             f"{touch.path} contains only an exact append-only proposal for "
             "built-in tool-source coverage; proposal authorship is allowed, "
             "but the concrete protected-surface diff is not approved."
         )
-    base = (
+    return (
         f"{touch.path} matches protected surface {touch.pattern}; "
         "a coding agent must not self-approve trust-root edits."
     )
-    return f"{base} {explanation}" if explanation else base
 
 
 def _protected_touch_recommendation(touch: PreflightProtectedSurfaceTouch) -> str:
+    """State the route, and the non-route that reads like one.
+
+    A stop that only says "a human must decide" leaves the coding agent to
+    guess how a human decides. The plausible guess is to ask the operator in
+    conversation, which preflight does not read: the agent then either stalls
+    on an answer nothing consumes, or treats a spoken "yes" as authority and
+    proceeds past the gate. Naming the pull request as the route, and chat as
+    not a route, closes both.
+    """
+
     if not touch.requires_human_review:
-        if touch.kind == "agent_instructions":
-            return (
-                "Apply only the exact planned managed-field synchronization, "
-                "then run the required verifier and route its concrete review "
-                "evidence to a human."
-            )
         return (
             "Apply only the exact planned tool-source addition, then run the "
             "required verifier and route its concrete review evidence to a human."
         )
-    # Naming the non-route matters as much as naming the route: asking the
-    # operator to confirm in conversation reads like a valid unblock and is
-    # not one, so an agent that does it either stalls or learns to ignore the
-    # gate after the operator says yes.
     return (
         "Route this protected-surface edit to a human reviewer through the pull "
         "request. Conversational confirmation does not clear this signal, so do "
@@ -932,86 +896,6 @@ def _classify_proposal_safe_manifest_touch(
         else touch
         for touch in touches
     ]
-
-
-def _classify_version_synced_instruction_touches(
-    *,
-    touches: list[PreflightProtectedSurfaceTouch],
-    diff_text: str | None,
-) -> tuple[list[PreflightProtectedSurfaceTouch], dict[str, str]]:
-    """Mark provably prose-preserving instruction edits as authoring-safe.
-
-    Path-only preflight stays fail-closed: with no diff there is nothing to
-    prove, so the standing whole-file route holds and the reader is told which
-    input is missing. With a diff, exactly one record may target a given
-    instruction document — PR #282's lesson is that a block-level "this part is
-    safe" result must never clear the path-wide guard for another record
-    touching the same protected path.
-
-    A safe result changes only the per-touch routing flag. The concrete diff
-    still carries its verify-mode trust-root findings into human review.
-    """
-
-    candidates = [
-        touch
-        for touch in touches
-        if touch.kind == "agent_instructions"
-        and is_instruction_prose_document(touch.path)
-    ]
-    if not candidates:
-        return touches, {}
-
-    if not diff_text:
-        hint = (
-            "Preflight classified this path without a diff, so it could not "
-            "check whether the edit only synchronizes managed-field values; re-run "
-            "preflight with the planned diff to have that assessment applied."
-        )
-        return touches, {touch.path: hint for touch in candidates}
-
-    records: dict[str, list[Any]] = {}
-    for item in parse_unified_diff(diff_text):
-        # Both sides are indexed so a rename away from an instruction document
-        # still counts as a record against the old path, but one record must
-        # not count twice when a plain modification repeats the same path.
-        for candidate_path in {
-            side.replace("\\", "/")
-            for side in (item.new_path, item.old_path)
-            if side
-        }:
-            records.setdefault(candidate_path, []).append(item)
-
-    safe_paths: set[str] = set()
-    explanations: dict[str, str] = {}
-    for touch in candidates:
-        matching = records.get(touch.path, [])
-        if len(matching) != 1:
-            explanations[touch.path] = (
-                "Preflight found no single diff record for this document, so a "
-                "managed-field synchronization could not be proven."
-            )
-            continue
-        assessment = assess_version_literal_sync(diff_file=matching[0])
-        if assessment.sync_safe:
-            safe_paths.add(touch.path)
-            continue
-        explanations[touch.path] = (
-            "Preflight checked whether the edit only synchronizes managed "
-            f"contract-field values and refused it: {assessment.reason}."
-        )
-
-    if not safe_paths:
-        return touches, explanations
-    return (
-        [
-            touch.model_copy(update={"requires_human_review": False})
-            if touch.path in safe_paths
-            and touch.kind == "agent_instructions"
-            else touch
-            for touch in touches
-        ],
-        explanations,
-    )
 
 
 def signals_for_capability_requests(

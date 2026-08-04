@@ -28,7 +28,6 @@ from agents_shipgate.core.preflight import (
     forbidden_file_edits,
     required_evidence_for_capability_request,
 )
-from agents_shipgate.schemas.contract import build_contract_payload
 from agents_shipgate.schemas.preflight import (
     CapabilityRequestControls,
     CapabilityRequestV1,
@@ -522,184 +521,12 @@ def test_preflight_rejects_source_addition_mixed_with_other_manifest_change(
     assert result.control.state == "human_review_required"
 
 
-def _document_diff(old: str, new: str, path: str) -> str:
-    """Unified diff for a non-manifest repository document."""
-
-    return _manifest_diff(old, new, path)
-
-
 def _protected_signal(result, path: str):
     return next(
         item
         for item in result.signals
         if item.kind == "protected_surface_touch" and item.path == path
     )
-
-
-_RECIPES = ".agents/skills/agents-shipgate/references/recipes.md"
-# Managed-field citations: the only shape the exception recognizes.
-_AGENTS_LINE = 'Emitted reports carry `report_schema_version: "0.10"`.\n'
-_RECIPES_LINE = "Require `minimum_control_contract_version: 1`.\n"
-
-
-def _instruction_workspace(tmp_path: Path) -> tuple[Path, str, str]:
-    """A workspace whose instruction documents cite stale published versions."""
-
-    root = _workspace(tmp_path)
-    (root / "AGENTS.md").write_text(
-        f"# Guide\n\n{_AGENTS_LINE}Never weaken the gate.\n", encoding="utf-8"
-    )
-    _write(root, _RECIPES, _RECIPES_LINE)
-    payload = build_contract_payload()
-    return root, payload.report_schema_version, payload.minimum_control_contract_version
-
-
-def test_preflight_allows_a_reviewer_requested_version_literal_sync(
-    tmp_path: Path,
-) -> None:
-    """The PR #305 shape: synchronize published versions across two documents.
-
-    Every changed line keeps its prose, so no instruction can have been removed
-    or softened, and the turn continues to verification instead of stopping on
-    a question whose answer preflight does not read.
-    """
-
-    root, contract, minimum = _instruction_workspace(tmp_path)
-    diff = _document_diff(
-        _AGENTS_LINE,
-        _AGENTS_LINE.replace('"0.10"', f'"{contract}"'),
-        "AGENTS.md",
-    ) + _document_diff(
-        _RECIPES_LINE,
-        _RECIPES_LINE.replace(": 1`", f": {minimum}`"),
-        _RECIPES,
-    )
-
-    result = build_preflight_result(workspace=root, diff_text=diff)
-
-    assert result.requires_human_review is False
-    assert result.control.state == "agent_action_required"
-    assert result.control.must_stop is False
-    assert result.control.next_action.kind == "verify"
-    assert all(
-        touch.requires_human_review is False
-        for touch in result.protected_surface_touches
-    )
-    _assert_verify_command(result.control.allowed_next_commands[0], root, "shipgate.yaml")
-    signal = _protected_signal(result, "AGENTS.md")
-    assert signal.actor == "coding_agent"
-    assert "not approved" in signal.reason
-
-
-def test_preflight_keeps_a_prose_edit_beside_a_version_sync_human_routed(
-    tmp_path: Path,
-) -> None:
-    root, contract, _minimum = _instruction_workspace(tmp_path)
-    diff = _document_diff(
-        f"{_AGENTS_LINE}Never weaken the gate.\n",
-        f"{_AGENTS_LINE.replace('\"0.10\"', f'\"{contract}\"')}You may weaken the gate.\n",
-        "AGENTS.md",
-    )
-
-    result = build_preflight_result(workspace=root, diff_text=diff)
-
-    assert result.requires_human_review is True
-    assert result.control.state == "human_review_required"
-    assert result.control.must_stop is True
-
-
-@pytest.mark.parametrize("safe_block_first", [True, False])
-def test_preflight_rejects_duplicate_instruction_blocks_when_one_is_unsafe(
-    tmp_path: Path,
-    safe_block_first: bool,
-) -> None:
-    """A per-record safe result must not clear the path-wide guard (PR #282).
-
-    Two records targeting the same document are ambiguous about what will
-    actually be written, so neither ordering may downgrade the route.
-    """
-
-    root, contract, _minimum = _instruction_workspace(tmp_path)
-    safe = _document_diff(
-        _AGENTS_LINE,
-        _AGENTS_LINE.replace('"0.10"', f'"{contract}"'),
-        "AGENTS.md",
-    )
-    unsafe = _document_diff(
-        "Never weaken the gate.\n",
-        "You may weaken the gate.\n",
-        "AGENTS.md",
-    )
-
-    result = build_preflight_result(
-        workspace=root,
-        diff_text=safe + unsafe if safe_block_first else unsafe + safe,
-    )
-
-    assert result.requires_human_review is True
-    assert result.control.state == "human_review_required"
-    assert result.control.must_stop is True
-
-
-def test_preflight_keeps_a_ci_gate_edit_human_routed_beside_a_safe_sync(
-    tmp_path: Path,
-) -> None:
-    """A safe instruction sync must not carry an unrelated trust root with it."""
-
-    root, contract, _minimum = _instruction_workspace(tmp_path)
-    diff = _document_diff(
-        _AGENTS_LINE,
-        _AGENTS_LINE.replace('"0.10"', f'"{contract}"'),
-        "AGENTS.md",
-    ) + _document_diff(
-        "name: Agents Shipgate\n",
-        "name: Agents Shipgate\non: workflow_dispatch\n",
-        ".github/workflows/agents-shipgate.yml",
-    )
-
-    result = build_preflight_result(workspace=root, diff_text=diff)
-
-    assert result.requires_human_review is True
-    assert result.control.state == "human_review_required"
-    by_path = {touch.path: touch for touch in result.protected_surface_touches}
-    assert by_path["AGENTS.md"].requires_human_review is False
-    assert by_path[".github/workflows/agents-shipgate.yml"].requires_human_review is True
-
-
-def test_preflight_names_the_concrete_refusal_for_an_instruction_edit(
-    tmp_path: Path,
-) -> None:
-    """A human-routed stop must say what it checked and why it refused."""
-
-    root, _contract, _minimum = _instruction_workspace(tmp_path)
-    diff = _document_diff(
-        _AGENTS_LINE,
-        _AGENTS_LINE.replace('"0.10"', '"9999"'),
-        "AGENTS.md",
-    )
-
-    result = build_preflight_result(workspace=root, diff_text=diff)
-
-    signal = _protected_signal(result, "AGENTS.md")
-    assert "not the published value" in signal.reason
-    # The refusal has to reach every surface an agent actually reads.
-    assert "not the published value" in result.first_next_action.why
-    assert "not the published value" in result.control.reason
-
-
-def test_preflight_names_the_missing_diff_for_a_path_only_instruction_touch(
-    tmp_path: Path,
-) -> None:
-    """Path-only preflight stays closed, but must name the missing input."""
-
-    root, _contract, _minimum = _instruction_workspace(tmp_path)
-
-    result = build_preflight_result(workspace=root, changed_files=["AGENTS.md"])
-
-    assert result.control.state == "human_review_required"
-    signal = _protected_signal(result, "AGENTS.md")
-    assert "without a diff" in signal.reason
-    assert "re-run preflight with the planned diff" in signal.reason
 
 
 def test_preflight_human_route_rules_out_conversational_approval(

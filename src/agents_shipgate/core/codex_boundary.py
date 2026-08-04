@@ -51,10 +51,6 @@ from agents_shipgate.core.boundary_registry import (
     boundary_adapters_for_path,
     is_agent_boundary_path,
 )
-from agents_shipgate.core.instruction_sync import (
-    assess_version_literal_sync,
-    is_instruction_prose_document,
-)
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
@@ -563,18 +559,6 @@ def evaluate_codex_boundary_result(
     proposal_candidate = (
         manifest_diff_files[0] if len(manifest_diff_files) == 1 else None
     )
-    # Same single-record discipline as the manifest proposal above: a document
-    # touched by more than one record is ambiguous about what will be written,
-    # so no record may clear the path-wide guard for it.
-    instruction_records: dict[str, list[DiffFile]] = {}
-    for item in diff_files:
-        for side in {
-            candidate.replace("\\", "/")
-            for candidate in (item.new_path, item.old_path)
-            if candidate
-        }:
-            if is_instruction_prose_document(side):
-                instruction_records.setdefault(side, []).append(item)
     for diff_file in diff_files:
         path = diff_file.path
         if not path:
@@ -599,25 +583,6 @@ def evaluate_codex_boundary_result(
                             "Manifest change only appends valid built-in tool-source "
                             "coverage. The coding agent may author this proposal, but "
                             "verify and human review still govern the concrete diff."
-                        ),
-                        path=normalized,
-                    )
-                )
-        records = instruction_records.get(normalized, [])
-        if len(records) == 1 and records[0] is diff_file:
-            assessment = assess_version_literal_sync(diff_file=diff_file)
-            if assessment.sync_safe:
-                diagnostics.append(
-                    AgentResultDiagnostic(
-                        level="info",
-                        code="version_synced_instruction_document",
-                        message=(
-                            "Instruction document changes only managed-field values "
-                            "this CLI publishes for those exact fields, so its "
-                            "prose is provably unchanged. The coding agent may "
-                            "make this edit, but "
-                            "verify and human review still govern the concrete "
-                            "diff."
                         ),
                         path=normalized,
                     )
