@@ -852,8 +852,9 @@ def _protected_touch_reason(
     if not touch.requires_human_review:
         if touch.kind == "agent_instructions":
             return (
-                f"{touch.path} synchronizes only version literals this CLI "
-                "publishes, so its instruction prose is provably unchanged; "
+                f"{touch.path} synchronizes only managed-field values this CLI "
+                "publishes for those exact fields, so its instruction prose is "
+                "provably unchanged; "
                 "authorship is allowed, but the concrete protected-surface "
                 "diff is not approved."
             )
@@ -873,7 +874,7 @@ def _protected_touch_recommendation(touch: PreflightProtectedSurfaceTouch) -> st
     if not touch.requires_human_review:
         if touch.kind == "agent_instructions":
             return (
-                "Apply only the exact planned version-literal synchronization, "
+                "Apply only the exact planned managed-field synchronization, "
                 "then run the required verifier and route its concrete review "
                 "evidence to a human."
             )
@@ -963,7 +964,7 @@ def _classify_version_synced_instruction_touches(
     if not diff_text:
         hint = (
             "Preflight classified this path without a diff, so it could not "
-            "check whether the edit only synchronizes version literals; re-run "
+            "check whether the edit only synchronizes managed-field values; re-run "
             "preflight with the planned diff to have that assessment applied."
         )
         return touches, {touch.path: hint for touch in candidates}
@@ -987,7 +988,7 @@ def _classify_version_synced_instruction_touches(
         if len(matching) != 1:
             explanations[touch.path] = (
                 "Preflight found no single diff record for this document, so a "
-                "version-literal synchronization could not be proven."
+                "managed-field synchronization could not be proven."
             )
             continue
         assessment = assess_version_literal_sync(diff_file=matching[0])
@@ -995,8 +996,8 @@ def _classify_version_synced_instruction_touches(
             safe_paths.add(touch.path)
             continue
         explanations[touch.path] = (
-            "Preflight checked whether the edit only synchronizes version "
-            f"literals and refused it: {assessment.reason}."
+            "Preflight checked whether the edit only synchronizes managed "
+            f"contract-field values and refused it: {assessment.reason}."
         )
 
     if not safe_paths:

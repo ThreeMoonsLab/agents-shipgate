@@ -1,50 +1,57 @@
-"""Fail-closed recognition of prose-preserving version-literal synchronization.
+"""Fail-closed recognition of managed-field version synchronization.
 
 This module does not approve an agent-instruction change.  It recognizes one
 narrow shape that a static evaluator *can* prove is not an instruction
-weakening: a diff over an agent-instruction **prose document** in which the
-complete old and new line sequences are identical once version literals are
-masked, and every moved literal is a non-decreasing published version on a line
-that states no version condition.
+weakening: a diff over an agent-instruction **prose document** whose old and
+new line sequences are identical position for position except at
+**managed-field values**, where each new value is the published value of the
+exact contract field naming it.
 
-Why that shape is safe to author without stopping the turn
-----------------------------------------------------------
-``SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED`` routes agent-instruction edits to a
-human because Shipgate is static and cannot prove from text that an instruction
-was not softened.  That reasoning is sound for a general edit.  It is *not*
-needed for a diff whose prose is provably preserved: when the masked old and
-new sequences match **position for position, context lines included**, no
-instruction can have been removed, added, reordered, moved relative to its
-neighbours, or reworded.
+Why recognition is positive rather than exclusionary
+-----------------------------------------------------
+An earlier form of this exception masked any version-shaped token and refused a
+list of conditional phrasings (``>=``, "at least", "or later").  That cannot be
+made sound.  Prose encodes constraints in unbounded ways — "Allow contract
+versions **through** v14", "Reject contract versions **after** v14" — and each
+of those changes meaning when the number moves, while no blacklist can
+enumerate them.  Deciding which sentences are rules and which are facts is
+precisely the semantic judgement Shipgate does not make (Principle 3: prompts
+are not controls).
 
-Preserving position is load-bearing, not incidental.  Comparing removed lines
-against added lines while ignoring context accepts a *move*: relocating
-"Contract vN applies to the next rule" from above an instruction to below it
-rebinds "the next rule" to a different instruction without changing a single
-character of prose.
+So nothing is recognized unless it matches a template whose meaning is fixed by
+structure rather than by English:
 
-Four separate guards keep a moved literal from carrying meaning with it:
+* the token is inside a code span whose entire content is
+  ``<field><separator><value>`` — a quoted machine literal, e.g. "…report
+  ``minimum_control_contract_version: 14``."; or
+* the whole line, trimmed of list markers and trailing punctuation, is exactly
+  ``<field><separator><value>`` — a fenced-block or YAML/JSON snippet line.
 
-* the literal must be a version this CLI publishes (:func:`build_contract_payload`,
-  the exact values ``agents-shipgate contract --json` emits), so a fabricated
-  number is refused and the value is the one the installed CLI implements;
-* it must not *decrease*, because a published value is not automatically a safe
-  replacement for another published value — lowering "contract version >= 19"
-  to ">= 14" moves a real threshold using two legitimate numbers;
-* a line stating a version condition (``>=``, "at least", "or later", …) is
-  refused outright, since its literal is a threshold rather than a fact; and
-* a bare integer counts as a version only on a line naming ``version`` /
-  ``contract`` / ``schema`` at an identifier boundary, so "2 approvals for
-  conversion" neither matches on the substring ``version`` nor becomes
-  rewritable.
+``<field>`` must be an exact key of :func:`build_contract_payload`, the values
+``agents-shipgate contract --json`` publishes, and the new value must be the
+published value **of that field**.  Binding to the field is what keeps a real
+version from being written where it does not belong: ``report_schema_version``
+cannot take the contract's number merely because that number is published
+somewhere.
+
+Because the field name sits outside the value span, it is compared as prose —
+renaming the field is a prose change and is refused.
+
+Consequences worth stating plainly: a version cited in ordinary prose
+("Contract v14 publishes these boundaries") is **not** recognized and keeps the
+standing human route.  That is deliberate.  A monotonicity rule is likewise
+absent and would be wrong here: correcting a document that claims
+``contract_version: 99`` down to the published ``19`` is a valid
+synchronization, and field binding already proves the new value is the true
+one.
 
 Deliberately out of scope, all of which keep the standing whole-file route:
 
 * every non-prose agent-instruction surface (``.claude/settings.json``,
-  ``.mcp.json``, hook scripts) — those are machine-consumed configuration where
-  a number is not documentation;
+  ``.mcp.json``, hook scripts) — machine-consumed configuration where a number
+  is not documentation;
 * every other whole-file trust-root class (``ci_gate``, ``policy``,
-  ``host_boundary``) — a version literal there changes machine behaviour;
+  ``host_boundary``);
 * added, deleted, or renamed files, and any line-count change.
 
 A safe result downgrades *authoring* routing only.  The concrete diff still
@@ -66,51 +73,17 @@ from agents_shipgate.schemas.contract import build_contract_payload
 # claim about the CLI; in a settings file it is behaviour.
 _PROSE_SUFFIXES = frozenset({".md", ".mdc", ".markdown"})
 
-# A bare integer is a version literal only when a version *field* introduces it
-# directly ("...contract_version: 14", "contract 14"), not merely because the
-# line mentions a version somewhere. Line-level context would make every number
-# on the line rewritable: "Use subversion 2 for schema" qualifies on "schema"
-# while its 2 is a count.
-#
-# Matching respects identifier boundaries in both directions. Plain word
-# boundaries reject ``minimum_control_contract_version`` (``_`` is a word
-# character), while substring matching accepts ``conversion`` and
-# ``subversion``. Underscores and other non-alphanumerics separate; letters and
-# digits do not.
-_VERSION_FIELD_SUFFIX_RE = re.compile(
-    r"(?<![a-z0-9])(?:version|contract|schema)s?$"
-)
-# Separators that may sit between a version field and its value.
-_FIELD_VALUE_SEPARATORS = " \t:=`\"'([,"
-
-# A line stating a version *condition* carries a threshold, not a fact, so a
-# changed literal moves the condition even when both values are published.
-_VERSION_CONDITION_RE = re.compile(
-    r"(?:>=|<=|=>|=<|>|<|≥|≤)"
-    r"|(?<![a-z0-9])(?:"
-    r"at\s+least|at\s+most|no\s+(?:lower|higher|older|newer|earlier|later)\s+than"
-    r"|or\s+(?:later|newer|higher|above|greater|earlier|older|lower|below)"
-    r"|(?:newer|older|greater|later|earlier|lower|higher)\s+than"
-    r")(?![a-z0-9])"
-)
-
-# Dotted/suffixed releases ("0.34", "0.16.0b7", "v0.34") and plain "vN" tags.
-# Ordered so the dotted form wins before the short ``v\d+`` alternative.
-_DOTTED_OR_TAGGED = r"v?\d+(?:\.\d+)+(?:[A-Za-z]+\d*)?|v\d+"
-_BARE_INTEGER = r"\d+"
-# ``.`` and ``/`` are intentionally allowed on the left so a literal embedded in
-# a filename or namespace ("report-schema.v0.34.json",
-# "shipgate.agent_handoff/v6") is recognized as one token.
-_LEFT_BOUNDARY = r"(?<![0-9A-Za-z_-])"
-_RIGHT_BOUNDARY = r"(?![0-9A-Za-z])"
-_TAGGED_TOKEN_RE = re.compile(
-    rf"{_LEFT_BOUNDARY}(?:{_DOTTED_OR_TAGGED}){_RIGHT_BOUNDARY}"
-)
-_ANY_TOKEN_RE = re.compile(
-    rf"{_LEFT_BOUNDARY}(?:{_DOTTED_OR_TAGGED}|{_BARE_INTEGER}){_RIGHT_BOUNDARY}"
+# One managed-field assignment and nothing else: an optional list marker, an
+# optionally quoted field name, a ``:``/``=`` separator, an optionally quoted
+# version value, and at most trailing sentence punctuation. The value group is
+# located by span so it can be masked in place.
+_ASSIGNMENT_RE = re.compile(
+    r"""^\s*(?:[-*+]\s+)?["']?(?P<field>[A-Za-z_][A-Za-z0-9_]*)["']?\s*[:=]\s*
+        ["']?(?P<value>v?\d+(?:\.\d+)*(?:[A-Za-z]+\d*)?)["']?
+        \s*[.,;:)\]]?\s*$""",
+    re.VERBOSE,
 )
 _VERSION_VALUE_RE = re.compile(r"\d+(?:\.\d+)*(?:[A-Za-z]+\d*)?")
-_NUMERIC_COMPONENT_RE = re.compile(r"^(\d+)([A-Za-z]+\d*)?$")
 
 
 @dataclass(frozen=True)
@@ -135,13 +108,12 @@ def assess_version_literal_sync(
     *,
     diff_file: DiffFile,
 ) -> InstructionSyncAssessment:
-    """Recognize a prose-preserving version-literal synchronization.
+    """Recognize a managed-field version synchronization.
 
     Safety is structural: the masked old and new line sequences of every hunk
     must match position for position with context included, at least one
-    literal must actually move, and every moved literal must be a
-    non-decreasing published version on a line that states no version
-    condition.
+    managed-field value must actually move, and every moved value must be the
+    published value of the exact field that names it.
 
     The assessment reads only the diff, so it never depends on workspace state
     and cannot be widened by a file that changes underneath it.
@@ -152,7 +124,7 @@ def assess_version_literal_sync(
         return _unsafe("change has no resolvable repository path")
     if not is_instruction_prose_document(path):
         return _unsafe(
-            "version-literal synchronization is recognized only for "
+            "managed-field version synchronization is recognized only for "
             "agent-instruction prose documents"
         )
     if diff_file.is_new or diff_file.is_deleted or diff_file.is_rename:
@@ -189,13 +161,13 @@ def assess_version_literal_sync(
                 return _unsafe(reason)
 
     if not synchronized:
-        return _unsafe("change moves no version literal")
+        return _unsafe("change moves no managed-field version value")
     return InstructionSyncAssessment(
         sync_safe=True,
         reason=(
-            "every line keeps its position and prose except at version literals "
-            "this CLI publishes; the concrete diff still requires verification "
-            "and reviewer sign-off"
+            "every line keeps its position and prose except at managed-field "
+            "values this CLI publishes for those exact fields; the concrete "
+            "diff still requires verification and reviewer sign-off"
         ),
         synchronized_literals=tuple(synchronized),
     )
@@ -213,54 +185,39 @@ def _assess_line_pair(
 
     # Segments are compared as a tuple rather than joined around a placeholder:
     # a placeholder that can also occur in the text would let two different
-    # lines mask to the same string. Tokenization is a pure function of each
-    # line, so a number the two sides classify differently shows up as a
-    # segment mismatch and is refused.
-    old_segments, old_tokens = _mask(old_line)
-    new_segments, new_tokens = _mask(new_line)
+    # lines mask to the same string. Field names live in the segments, so a
+    # renamed field is a prose change.
+    old_segments, old_values = _mask(old_line)
+    new_segments, new_values = _mask(new_line)
     if old_segments != new_segments:
-        return "an edited line changes prose outside its version literals"
-
-    # Equal segment tuples imply equal token counts.
-    changed = [
-        (old_token, new_token)
-        for old_token, new_token in zip(old_tokens, new_tokens, strict=True)
-        if old_token != new_token
-    ]
-    if not changed:
-        return None
-    if _states_version_condition(old_line) or _states_version_condition(new_line):
         return (
-            "an edited line states a version condition, so a changed literal "
-            "would move a threshold rather than restate a fact"
+            "an edited line changes text outside a managed-field value; only a "
+            "published value of a named contract field may move"
         )
 
-    authoritative = _authoritative_version_literals()
-    for old_token, new_token in changed:
-        if new_token not in authoritative:
+    # Equal segment tuples imply equal value counts.
+    published = _published_field_values()
+    changed = [
+        (old_field, old_value, new_value)
+        for (old_field, old_value), (_new_field, new_value) in zip(
+            old_values, new_values, strict=True
+        )
+        if old_value != new_value
+    ]
+    for field, old_value, new_value in changed:
+        allowed = published.get(field.casefold())
+        if allowed is None:
             return (
-                f"{new_token!r} is not a version this CLI publishes; a coding "
-                "agent must not invent a contract, schema, or release number"
+                f"{field!r} is not a contract field this CLI publishes, so its "
+                "value cannot be synchronized automatically"
             )
-        if not _is_non_decreasing(old_token, new_token):
+        if new_value not in allowed:
             return (
-                f"{old_token!r} to {new_token!r} moves a documented version "
-                "backwards; one published value is not a safe replacement for "
-                "another"
+                f"{new_value!r} is not the published value of {field!r}; a "
+                "coding agent must not write one field's version into another"
             )
-        synchronized.append((old_token, new_token))
+        synchronized.append((old_value, new_value))
     return None
-
-
-def _states_version_condition(line: str) -> bool:
-    return _VERSION_CONDITION_RE.search(line.casefold()) is not None
-
-
-def _version_field_introduces(line: str, index: int) -> bool:
-    """Whether a version field name sits immediately before ``index``."""
-
-    prefix = line[:index].casefold().rstrip(_FIELD_VALUE_SEPARATORS)
-    return _VERSION_FIELD_SUFFIX_RE.search(prefix) is not None
 
 
 def _has_disallowed_control(line: str) -> bool:
@@ -269,89 +226,84 @@ def _has_disallowed_control(line: str) -> bool:
     return any(character < " " and character != "\t" for character in line)
 
 
-def _mask(line: str) -> tuple[tuple[str, ...], list[str]]:
-    """Split a line into literal segments and the version tokens between them.
+def _code_spans(line: str) -> list[tuple[int, int]]:
+    """Interior spans of backtick-delimited code runs, outermost first."""
 
-    A ``vN``/dotted token is self-identifying. A bare integer is only a version
-    when a version field introduces it; otherwise it stays inside a segment and
-    therefore has to match the other side exactly.
+    spans: list[tuple[int, int]] = []
+    index = 0
+    length = len(line)
+    while index < length:
+        if line[index] != "`":
+            index += 1
+            continue
+        fence_end = index
+        while fence_end < length and line[fence_end] == "`":
+            fence_end += 1
+        fence = line[index:fence_end]
+        closing = line.find(fence, fence_end)
+        if closing == -1:
+            break
+        spans.append((fence_end, closing))
+        index = closing + len(fence)
+    return spans
+
+
+def _managed_field_values(line: str) -> list[tuple[int, int, str, str]]:
+    """Locate ``(start, end, field, value)`` for each managed-field assignment.
+
+    Only two containers are recognized, both of which fix the meaning of the
+    number structurally: a code span holding nothing but the assignment, and a
+    line that is nothing but the assignment. A version mentioned in ordinary
+    prose is not a managed field and is left in the compared text.
     """
+
+    found: dict[tuple[int, int], tuple[str, str]] = {}
+    candidates = [(start, line[start:end]) for start, end in _code_spans(line)]
+    candidates.append((0, line))
+    for offset, text in candidates:
+        match = _ASSIGNMENT_RE.match(text)
+        if match is None:
+            continue
+        found[(offset + match.start("value"), offset + match.end("value"))] = (
+            match.group("field"),
+            match.group("value"),
+        )
+    return [(start, end, field, value) for (start, end), (field, value) in found.items()]
+
+
+def _mask(line: str) -> tuple[tuple[str, ...], list[tuple[str, str]]]:
+    """Split a line into literal segments and its managed-field values."""
 
     segments: list[str] = []
-    tokens: list[str] = []
+    values: list[tuple[str, str]] = []
     cursor = 0
-    for match in _ANY_TOKEN_RE.finditer(line):
-        token = match.group(0)
-        if _TAGGED_TOKEN_RE.fullmatch(token) is None and not _version_field_introduces(
-            line, match.start()
-        ):
-            continue
-        segments.append(line[cursor : match.start()])
-        tokens.append(token)
-        cursor = match.end()
+    for start, end, field, value in sorted(_managed_field_values(line)):
+        if start < cursor:
+            # Overlapping recognitions cannot be masked unambiguously.
+            return (line,), []
+        segments.append(line[cursor:start])
+        values.append((field, value))
+        cursor = end
     segments.append(line[cursor:])
-    return tuple(segments), tokens
+    return tuple(segments), values
 
 
-def _is_non_decreasing(old_token: str, new_token: str) -> bool:
-    """Whether ``new_token`` orders at or above ``old_token``.
-
-    A published value is not automatically a safe replacement for another
-    published value: "contract version 19" and "14" are both real, and swapping
-    them lowers whatever the sentence asserts. Only a forward move can be a
-    synchronization. Anything this cannot order — a pre-release suffix, an
-    unparsable shape — fails closed.
-    """
-
-    old_key = _numeric_key(old_token)
-    new_key = _numeric_key(new_token)
-    if old_key is None or new_key is None:
-        return False
-    old_numbers, old_suffix = old_key
-    new_numbers, new_suffix = new_key
-    width = max(len(old_numbers), len(new_numbers))
-    old_padded = old_numbers + (0,) * (width - len(old_numbers))
-    new_padded = new_numbers + (0,) * (width - len(new_numbers))
-    if new_padded != old_padded:
-        return new_padded > old_padded
-    # Identical numbers: only a pure spelling change ("14" to "v14") remains,
-    # and pre-release suffixes have no reliable order.
-    return old_suffix == new_suffix
-
-
-def _numeric_key(token: str) -> tuple[tuple[int, ...], str] | None:
-    text = token[1:] if token[:1] in {"v", "V"} else token
-    if not text:
-        return None
-    numbers: list[int] = []
-    suffix = ""
-    parts = text.split(".")
-    for index, part in enumerate(parts):
-        match = _NUMERIC_COMPONENT_RE.match(part)
-        if match is None:
-            return None
-        trailing = match.group(2)
-        if trailing and index != len(parts) - 1:
-            return None
-        numbers.append(int(match.group(1)))
-        suffix = trailing or ""
-    return tuple(numbers), suffix
-
-
-def _authoritative_version_literals() -> frozenset[str]:
-    """Every version string this CLI publishes, in the spellings docs use.
+def _published_field_values() -> dict[str, frozenset[str]]:
+    """Published value spellings for each contract field, keyed by field name.
 
     Sourced from the contract payload rather than a hand-kept list so a
     contract or schema bump cannot leave this exception recognizing stale
     numbers — the authority and the published surface move together.
     """
 
-    values: set[str] = set()
+    out: dict[str, frozenset[str]] = {}
     for name, value in build_contract_payload().model_dump().items():
         if not name.endswith("_version") or not isinstance(value, str):
             continue
-        values |= _version_forms(value)
-    return frozenset(values)
+        forms = _version_forms(value)
+        if forms:
+            out[name.casefold()] = frozenset(forms)
+    return out
 
 
 def _version_forms(value: str) -> set[str]:

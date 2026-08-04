@@ -12,25 +12,26 @@
   recognize one narrow shape they can prove is not a weakening: a diff over an
   agent-instruction **prose document** (`.md`/`.mdc`) whose complete old and
   new line sequences — **context lines included** — are identical position for
-  position once version literals are masked. Comparing removed lines against
-  added lines while ignoring context would accept a *move*: relocating
-  "Contract vN applies to the next rule" from above an instruction to below it
-  rebinds "the next rule" without changing a character of prose. With position
-  preserved, no instruction can have been removed, added, reordered, moved
-  relative to its neighbours, or reworded.
-  Four guards keep a moved literal from carrying meaning with it. It must be a
-  version this CLI itself publishes (sourced from the `contract --json`
-  payload, so a contract bump cannot leave the exception recognizing stale
-  numbers). It must not *decrease*, because one published value is not
-  automatically a safe replacement for another — lowering "contract version >=
-  19" to ">= 14" moves a real threshold using two legitimate numbers. A line
-  stating a version condition (`>=`, "at least", "or later", …) is refused
-  outright, since its literal is a threshold rather than a fact. And a bare
-  integer counts as a version only where a version *field* introduces it
-  (`...contract_version: 14`, `contract 14`), not merely because the line
-  mentions one — line-level context would make "Use subversion 2 for schema"
-  rewritable, and substring matching would let `conversion` qualify "require at
-  least 2 approvals".
+  position except at **managed-field values**. Comparing removed lines against
+  added lines while ignoring context would accept a *move*: relocating a line
+  from above an instruction to below it rebinds what it qualifies without
+  changing a character of prose.
+  Recognition is positive, not exclusionary. A version is a managed field only
+  when it is the value of an exact `contract --json` payload key, written
+  either inside a code span holding nothing but the assignment
+  (``report `minimum_control_contract_version: 14` ``) or on a line holding
+  nothing but the assignment. The new value must be the published value **of
+  that field**, so one field's number can never be written into another. An
+  earlier form of this exception masked any version-shaped token and refused a
+  list of conditional phrasings; that cannot be made sound, because prose
+  encodes constraints in unbounded ways ("Allow contract versions **through**
+  v14", "Reject contract versions **after** v14") and deciding which sentences
+  are rules is exactly the semantic judgement Shipgate does not make. A version
+  cited in ordinary prose is therefore **not** recognized and keeps the
+  standing human route.
+  There is deliberately no monotonicity rule: field binding already proves the
+  new value is the published one, so correcting a document that claims
+  `contract_version: 99` down to `19` is a valid synchronization.
   Machine-consumed surfaces (`.claude/settings.json`, `.mcp.json`, hooks),
   every other whole-file trust-root class (`ci_gate`, `policy`,
   `host_boundary`), added/deleted/renamed files, control characters in a
@@ -43,9 +44,10 @@
   preflight signal stated only that a coding agent must not self-approve the
   edit, which gave the reader no way to tell a refusable plan from a missing
   input — the failure mode above. Each signal now names the concrete outcome:
-  the refusal reason when a diff was assessed (`'v9999' is not a version this
-  CLI publishes`, `an edited line changes prose outside its version literals`),
-  or the missing input when preflight was handed paths without a diff. The text
+  the refusal reason when a diff was assessed (`'9999' is not the published
+  value of 'contract_version'`, `an edited line changes text outside a
+  managed-field value`), or the missing input when preflight was handed paths
+  without a diff. The text
   propagates to `control.reason`, `control.stop_reason`, and
   `first_next_action.why`. The recommendation also states the non-route
   explicitly — approval goes through the pull request, and the agent must not

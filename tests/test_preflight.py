@@ -537,7 +537,8 @@ def _protected_signal(result, path: str):
 
 
 _RECIPES = ".agents/skills/agents-shipgate/references/recipes.md"
-_AGENTS_LINE = "Contract v14 publishes these boundaries.\n"
+# Managed-field citations: the only shape the exception recognizes.
+_AGENTS_LINE = 'Emitted reports carry `report_schema_version: "0.10"`.\n'
 _RECIPES_LINE = "Require `minimum_control_contract_version: 1`.\n"
 
 
@@ -550,7 +551,7 @@ def _instruction_workspace(tmp_path: Path) -> tuple[Path, str, str]:
     )
     _write(root, _RECIPES, _RECIPES_LINE)
     payload = build_contract_payload()
-    return root, payload.contract_version, payload.minimum_control_contract_version
+    return root, payload.report_schema_version, payload.minimum_control_contract_version
 
 
 def test_preflight_allows_a_reviewer_requested_version_literal_sync(
@@ -566,7 +567,7 @@ def test_preflight_allows_a_reviewer_requested_version_literal_sync(
     root, contract, minimum = _instruction_workspace(tmp_path)
     diff = _document_diff(
         _AGENTS_LINE,
-        _AGENTS_LINE.replace("v14", f"v{contract}"),
+        _AGENTS_LINE.replace('"0.10"', f'"{contract}"'),
         "AGENTS.md",
     ) + _document_diff(
         _RECIPES_LINE,
@@ -596,7 +597,7 @@ def test_preflight_keeps_a_prose_edit_beside_a_version_sync_human_routed(
     root, contract, _minimum = _instruction_workspace(tmp_path)
     diff = _document_diff(
         f"{_AGENTS_LINE}Never weaken the gate.\n",
-        f"{_AGENTS_LINE.replace('v14', f'v{contract}')}You may weaken the gate.\n",
+        f"{_AGENTS_LINE.replace('\"0.10\"', f'\"{contract}\"')}You may weaken the gate.\n",
         "AGENTS.md",
     )
 
@@ -621,7 +622,7 @@ def test_preflight_rejects_duplicate_instruction_blocks_when_one_is_unsafe(
     root, contract, _minimum = _instruction_workspace(tmp_path)
     safe = _document_diff(
         _AGENTS_LINE,
-        _AGENTS_LINE.replace("v14", f"v{contract}"),
+        _AGENTS_LINE.replace('"0.10"', f'"{contract}"'),
         "AGENTS.md",
     )
     unsafe = _document_diff(
@@ -648,7 +649,7 @@ def test_preflight_keeps_a_ci_gate_edit_human_routed_beside_a_safe_sync(
     root, contract, _minimum = _instruction_workspace(tmp_path)
     diff = _document_diff(
         _AGENTS_LINE,
-        _AGENTS_LINE.replace("v14", f"v{contract}"),
+        _AGENTS_LINE.replace('"0.10"', f'"{contract}"'),
         "AGENTS.md",
     ) + _document_diff(
         "name: Agents Shipgate\n",
@@ -673,17 +674,17 @@ def test_preflight_names_the_concrete_refusal_for_an_instruction_edit(
     root, _contract, _minimum = _instruction_workspace(tmp_path)
     diff = _document_diff(
         _AGENTS_LINE,
-        _AGENTS_LINE.replace("v14", "v9999"),
+        _AGENTS_LINE.replace('"0.10"', '"9999"'),
         "AGENTS.md",
     )
 
     result = build_preflight_result(workspace=root, diff_text=diff)
 
     signal = _protected_signal(result, "AGENTS.md")
-    assert "not a version this CLI publishes" in signal.reason
+    assert "not the published value" in signal.reason
     # The refusal has to reach every surface an agent actually reads.
-    assert "not a version this CLI publishes" in result.first_next_action.why
-    assert "not a version this CLI publishes" in result.control.reason
+    assert "not the published value" in result.first_next_action.why
+    assert "not the published value" in result.control.reason
 
 
 def test_preflight_names_the_missing_diff_for_a_path_only_instruction_touch(

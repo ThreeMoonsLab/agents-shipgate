@@ -612,9 +612,10 @@ def evaluate_codex_boundary_result(
                         level="info",
                         code="version_synced_instruction_document",
                         message=(
-                            "Instruction document changes only version literals "
-                            "this CLI publishes, so its prose is provably "
-                            "unchanged. The coding agent may make this edit, but "
+                            "Instruction document changes only managed-field values "
+                            "this CLI publishes for those exact fields, so its "
+                            "prose is provably unchanged. The coding agent may "
+                            "make this edit, but "
                             "verify and human review still govern the concrete "
                             "diff."
                         ),
