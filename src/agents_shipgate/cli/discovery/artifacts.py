@@ -7,6 +7,7 @@ import subprocess
 import threading
 from pathlib import Path
 
+from agents_shipgate.cli.discovery.source_ids import assign_source_ids
 from agents_shipgate.core.errors import DiscoveryError
 
 OPENAPI_PATTERNS = (
@@ -193,7 +194,7 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
     adapters accept. A glob hit that fails the parse probe (e.g. an
     ``mcpServers``-style host config matching ``*mcp*.json``) is dropped:
     writing it would guarantee a ``scan`` input-parse failure."""
-    sources: list[dict[str, str]] = []
+    found: list[tuple[str, str]] = []  # (type, relative path)
     seen: set[Path] = set()
     rejected: set[Path] = set()
     for pattern in OPENAPI_PATTERNS:
@@ -205,13 +206,7 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
                 rejected.add(path)
                 continue
             seen.add(path)
-            sources.append(
-                {
-                    "id": _source_id(path, "openapi"),
-                    "type": "openapi",
-                    "path": rel,
-                }
-            )
+            found.append(("openapi", rel))
     for pattern in MCP_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,)):
             if path.name == ".mcp.json":
@@ -222,13 +217,7 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
             if probe_suggested_source(workspace, rel, "mcp") is not None:
                 continue
             seen.add(path)
-            sources.append(
-                {
-                    "id": _source_id(path, "mcp"),
-                    "type": "mcp",
-                    "path": rel,
-                }
-            )
+            found.append(("mcp", rel))
     for pattern in CONDUCTOR_WORKFLOW_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,)):
             if path in seen:
@@ -237,14 +226,14 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
             if probe_suggested_source(workspace, rel, "conductor") is not None:
                 continue
             seen.add(path)
-            sources.append(
-                {
-                    "id": _source_id(path, "conductor"),
-                    "type": "conductor",
-                    "path": rel,
-                }
-            )
-    return sources
+            found.append(("conductor", rel))
+    # Ids come from the whole relative path and are assigned for the set,
+    # so two services that both ship ``openapi.yaml`` no longer render one
+    # id twice — a manifest the schema rejects (#307).
+    return [
+        {"id": source_id, "type": source_type, "path": rel}
+        for (source_type, rel), source_id in zip(found, assign_source_ids(found), strict=True)
+    ]
 
 
 def render_manifest_template(workspace: Path) -> str:
@@ -645,8 +634,3 @@ def _relative(path: Path, base: Path) -> str:
         return path.relative_to(base).as_posix()
     except ValueError:
         return path.as_posix()
-
-
-def _source_id(path: Path, source_type: str) -> str:
-    stem = path.stem.lower().replace("-", "_").replace(".", "_")
-    return f"{source_type}_{stem}"

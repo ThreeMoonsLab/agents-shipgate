@@ -10,8 +10,11 @@ config block populated from glob discovery. OpenAPI/MCP suggested sources
 are emitted as ``tool_sources`` entries.
 
 The ``--minimal`` mode in ``main.py`` bypasses this module and uses
-``artifacts.render_manifest_template`` directly to preserve byte-exact
-backwards-compatibility with v0.5.x.
+``artifacts.render_manifest_template`` directly to preserve
+backwards-compatibility with the v0.5.x template. Both renderers derive
+``tool_sources[].id`` from the same helper (``source_ids.py``) — the one
+place where v0.16 changed the legacy output, because a basename-only id
+made both of them render manifests the schema rejects (#307).
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     discover_n8n_artifacts,
     discover_openai_api_artifacts,
 )
+from agents_shipgate.cli.discovery.source_ids import assign_source_ids
 from agents_shipgate.schemas.detect import DetectResult
 
 # Frameworks that register one tool_sources entry per candidate file.
@@ -35,7 +39,7 @@ def render_auto_manifest(workspace: Path, detect_result: DetectResult) -> str:
 
     Falls back to a CHANGE_ME-heavy template when no framework was
     detected (mirroring today's static-init behavior; ``--minimal`` is
-    the dedicated path for byte-exact pre-v0.6 output).
+    the dedicated path for the pre-v0.6 template).
     """
     workspace = workspace.resolve()
     project_name = _project_name(workspace, detect_result)
@@ -149,7 +153,7 @@ def _tool_sources_block(
     suppress duplicate config blocks downstream)."""
     lines: list[str] = []
     used: set[str] = set()
-    entries: list[tuple[str, str, str, str | None]] = []  # (type, id, path, mode)
+    entries: list[tuple[str, str, str | None]] = []  # (type, path, mode)
     seen_paths: set[str] = set()
 
     for framework in detect_result.frameworks:
@@ -159,8 +163,7 @@ def _tool_sources_block(
             if candidate in seen_paths:
                 continue
             seen_paths.add(candidate)
-            entry_id = _source_id_for(framework.type, candidate)
-            entries.append((framework.type, entry_id, candidate, None))
+            entries.append((framework.type, candidate, None))
             used.add(framework.type)
 
     for source in detect_result.suggested_sources:
@@ -168,22 +171,25 @@ def _tool_sources_block(
         if path in seen_paths:
             continue
         seen_paths.add(path)
-        entry_id = _source_id_for(source["type"], path)
-        entries.append((source["type"], entry_id, path, None))
+        entries.append((source["type"], path, None))
 
     for candidate in detect_result.codex_plugin_candidates:
         path = candidate.path
         if path in seen_paths:
             continue
         seen_paths.add(path)
-        entry_id = _source_id_for("codex_plugin", path)
-        entries.append(("codex_plugin", entry_id, path, candidate.mode))
+        entries.append(("codex_plugin", path, candidate.mode))
 
     if not entries:
         return [], used
 
+    # Ids are assigned for the block as a whole: paths are deduplicated
+    # above, but two distinct paths must not end up sharing an id — the
+    # manifest schema rejects the whole render when they do (#307).
+    entry_ids = assign_source_ids([(entry[0], entry[1]) for entry in entries])
+
     lines.append("tool_sources:")
-    for framework_type, entry_id, path, mode in entries:
+    for (framework_type, path, mode), entry_id in zip(entries, entry_ids, strict=True):
         lines.append(f"  - id: {entry_id}")
         lines.append(f"    type: {framework_type}")
         lines.append(f"    path: {path}")
@@ -212,21 +218,6 @@ def _excluded_sources_hint(excluded: list[dict[str, str]]) -> list[str]:
         "to tool_sources."
     )
     return lines
-
-
-def _source_id_for(framework_type: str, path: str) -> str:
-    path_obj = Path(path)
-    stem = (path_obj.stem or path_obj.name or "root").lower().replace("-", "_").replace(".", "_")
-    prefix = {
-        "langchain": "lc",
-        "crewai": "crewai",
-        "google_adk": "adk",
-        "openai_agents_sdk": "openai_sdk",
-        "mcp": "mcp",
-        "openapi": "openapi",
-        "codex_plugin": "codex_plugin",
-    }.get(framework_type, framework_type)
-    return f"{prefix}_{stem}"
 
 
 def _anthropic_block(workspace: Path, detect_result: DetectResult) -> list[str]:
