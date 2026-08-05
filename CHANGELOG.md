@@ -16,14 +16,18 @@
   `openapi.yaml` got an invalid manifest written to disk, and the documented
   next step (`scan`) failed on it with a config error telling the user not to
   re-run `init`. Both renderers now derive the id from the whole
-  workspace-relative path (`openai_sdk_strix_tools_finish_tool`), so an id
-  depends only on the file it names — a positional `_2` suffix would have
-  renumbered existing entries whenever an unrelated file appeared earlier in
-  the walk. Paths that still sanitize to one id (`a-b/` and `a_b/`) each take
-  a digest of their own path rather than one side keeping the plain form, and
-  a deep monorepo path keeps its most specific segments plus a digest so ids
-  stay readable in report output. Verified end to end on the repository from
-  the report: 23 sources, 23 unique ids, `init --write` → `scan` exits 0.
+  workspace-relative path (`openai_sdk_strix_tools_finish_tool`), with no
+  positional component — a `_2` suffix would have renumbered existing entries
+  whenever an unrelated file appeared earlier in the walk. Sanitizing is
+  lossy, so paths that still fold to one id (`a-b/` and `a_b/`) each take a
+  digest of their own path rather than one side keeping the plain form; that
+  group is the one case where adding a file changes an id that already
+  existed, and `init` refuses to overwrite an existing manifest, so ids are
+  assigned once per adoption. A deep monorepo path keeps its most specific
+  segments plus a digest, and the 64-character bound is enforced on the value
+  that ships, disambiguated ones included. Verified end to end on the
+  repository from the report: 23 sources, 23 unique ids, `init --write` →
+  `scan` exits 0.
   Nested sources declared by `--minimal` change id (they had no valid id
   before); ids in an existing `shipgate.yaml` are untouched — `init` refuses
   to overwrite one.

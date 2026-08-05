@@ -432,9 +432,10 @@ def test_cold_start_init_then_scan_with_repeated_basenames(tmp_path: Path) -> No
 
 
 def test_auto_init_source_ids_are_stable_when_a_sibling_appears(tmp_path: Path) -> None:
-    """An id must depend only on the file it names. A positional suffix
-    (`_2`, `_3`) would renumber existing entries when an unrelated file is
-    added earlier in the walk, churning anything keyed on the id."""
+    """Ids carry no positional component: a file added earlier in the walk
+    must not renumber the entries after it, the way a `_2`/`_3` suffix
+    would. (The one case that does shift an existing id — a path that
+    sanitizes to the same string — is pinned below.)"""
     before_ws = _openai_sdk_workspace(
         tmp_path / "before", ["pkg/beta/tool.py", "pkg/gamma/tool.py"]
     )
@@ -476,19 +477,83 @@ def test_minimal_template_repeated_basenames_emit_unique_source_ids(
     assert sorted(ids) == ["openapi_billing_openapi", "openapi_support_openapi"]
 
 
-def test_source_id_helper_disambiguates_and_bounds_length() -> None:
-    """Unit-level invariants the two renderers rely on."""
-    # Two paths can sanitize to the same id; both sides then take a digest
-    # of their own path, so walk order never decides which one is renamed.
-    collided = assign_source_ids(
-        [("openapi", "a-b/spec.yaml"), ("openapi", "a_b/spec.yaml")]
-    )
+def test_source_id_helper_disambiguates_identically_sanitized_paths() -> None:
+    # Sanitizing is lossy: `a-b/` and `a_b/` fold to the same string. Every
+    # member of the group takes a digest of its own path, so walk order
+    # never decides which one is renamed.
+    entries = [("openapi", "a-b/spec.yaml"), ("openapi", "a_b/spec.yaml")]
+    collided = assign_source_ids(entries)
     assert len(set(collided)) == 2
     assert all(value.startswith("openapi_a_b_spec_") for value in collided)
     # Assignment is a pure function of the entries, not of the call.
-    assert collided == assign_source_ids(
+    assert collided == assign_source_ids(entries)
+    # Reordering the same set renames the same files, not different ones.
+    assert dict(zip([p for _t, p in entries], collided, strict=True)) == dict(
+        zip(
+            [p for _t, p in reversed(entries)],
+            assign_source_ids(list(reversed(entries))),
+            strict=True,
+        )
+    )
+
+    # Unknown source types (third-party adapters) keep their own name.
+    assert source_id_for("my_custom_source", "specs/api.yaml") == (
+        "my_custom_source_specs_api"
+    )
+
+
+def test_source_ids_shift_only_within_the_group_that_sanitizes_alike(
+    tmp_path: Path,
+) -> None:
+    """The narrowed stability guarantee, pinned in both directions.
+
+    An id is a pure function of its own path *unless* another declared
+    path sanitizes to the same string; then both members take a digest, so
+    the one that was already there changes too. Making that file-local
+    would mean a digest on every id, including the readable common ones.
+    """
+    alone = assign_source_ids([("openapi", "a-b/spec.yaml")])
+    assert alone == ["openapi_a_b_spec"]
+
+    with_twin = assign_source_ids(
         [("openapi", "a-b/spec.yaml"), ("openapi", "a_b/spec.yaml")]
     )
+    assert with_twin[0] != alone[0]
+    assert with_twin[0].startswith("openapi_a_b_spec_")
+
+    # An unrelated third source is untouched by that group's rename.
+    with_bystander = assign_source_ids(
+        [
+            ("openapi", "a-b/spec.yaml"),
+            ("openapi", "a_b/spec.yaml"),
+            ("openapi", "billing/openapi.yaml"),
+        ]
+    )
+    assert with_bystander[:2] == with_twin
+    assert with_bystander[2] == "openapi_billing_openapi"
+
+
+def test_source_id_length_bound_holds_after_disambiguation() -> None:
+    """The cap is enforced on the value that ships, not on the value before
+    the collision digest is appended: two near-limit paths that sanitize
+    alike used to render 67-character ids."""
+    near_limit = ["a" * 20 + "/" + "b" * 20 + f"/spec{sep}one.yaml" for sep in "-_"]
+    plain = [source_id_for("openapi", path) for path in near_limit]
+    assert len(plain[0]) == 58 and plain[0] == plain[1]  # fits, and collides
+
+    resolved = assign_source_ids([("openapi", path) for path in near_limit])
+    assert len(set(resolved)) == 2
+    assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
+
+    # A source-type prefix long enough to crowd out the digest is truncated
+    # too, so the bound holds for third-party adapter names of any length.
+    long_type = "my_" + "very_" * 15 + "custom_source"
+    assert len(source_id_for(long_type, "specs/api.yaml")) <= MAX_SOURCE_ID_LENGTH
+    long_prefix_collision = assign_source_ids(
+        [(long_type, "a-b/spec.yaml"), (long_type, "a_b/spec.yaml")]
+    )
+    assert len(set(long_prefix_collision)) == 2
+    assert all(len(v) <= MAX_SOURCE_ID_LENGTH for v in long_prefix_collision)
 
     # Deep monorepo paths stay readable: most specific segments, then a
     # digest of the full path so truncation cannot merge two files.
@@ -504,7 +569,22 @@ def test_source_id_helper_disambiguates_and_bounds_length() -> None:
         "packages/services/billing/src/agents/tools/refunds/tools.py",
     )
 
-    # Unknown source types (third-party adapters) keep their own name.
-    assert source_id_for("my_custom_source", "specs/api.yaml") == (
-        "my_custom_source_specs_api"
-    )
+
+def test_source_ids_stay_unique_when_a_plain_id_matches_a_digest_form() -> None:
+    """Contrived but constructible: a file named after the digest another
+    entry will be given. `--minimal` has no validation gate behind it, so
+    the assignment must not hand a duplicate to the render."""
+    from agents_shipgate.cli.discovery.source_ids import _digest
+
+    twin_digest = _digest("a-b/spec.yaml")
+    entries = [
+        ("openapi", "a-b/spec.yaml"),
+        ("openapi", "a_b/spec.yaml"),
+        ("openapi", f"a_b/spec_{twin_digest}.yaml"),
+    ]
+    # The third file's plain id is exactly what the first one is renamed to.
+    assert source_id_for(*entries[2]) == f"openapi_a_b_spec_{twin_digest}"
+
+    resolved = assign_source_ids(entries)
+    assert len(set(resolved)) == 3
+    assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
