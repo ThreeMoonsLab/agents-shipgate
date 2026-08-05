@@ -803,6 +803,8 @@ def required_evidence_for_capability_requests(
 def signals_for_protected_touches(
     touches: list[PreflightProtectedSurfaceTouch],
 ) -> list[PreflightSignalV1]:
+    """Project protected-surface touches into routed signals."""
+
     return [
         PreflightSignalV1(
             id=f"protected_surface:{touch.path}",
@@ -811,30 +813,48 @@ def signals_for_protected_touches(
             actor="human" if touch.requires_human_review else "coding_agent",
             subject=touch.kind,
             path=touch.path,
-            reason=(
-                (
-                    f"{touch.path} matches protected surface {touch.pattern}; "
-                    "a coding agent must not self-approve trust-root edits."
-                )
-                if touch.requires_human_review
-                else (
-                    f"{touch.path} contains only an exact append-only proposal for "
-                    "built-in tool-source coverage; proposal authorship is allowed, "
-                    "but the concrete protected-surface diff is not approved."
-                )
-            ),
-            recommendation=(
-                "Route this protected-surface edit to a human before making or relying on it."
-                if touch.requires_human_review
-                else (
-                    "Apply only the exact planned tool-source addition, then run the "
-                    "required verifier and route its concrete review evidence to a human."
-                )
-            ),
+            reason=_protected_touch_reason(touch),
+            recommendation=_protected_touch_recommendation(touch),
             related_command=None,
         )
         for touch in touches
     ]
+
+
+def _protected_touch_reason(touch: PreflightProtectedSurfaceTouch) -> str:
+    if not touch.requires_human_review:
+        return (
+            f"{touch.path} contains only an exact append-only proposal for "
+            "built-in tool-source coverage; proposal authorship is allowed, "
+            "but the concrete protected-surface diff is not approved."
+        )
+    return (
+        f"{touch.path} matches protected surface {touch.pattern}; "
+        "a coding agent must not self-approve trust-root edits."
+    )
+
+
+def _protected_touch_recommendation(touch: PreflightProtectedSurfaceTouch) -> str:
+    """State the route, and the non-route that reads like one.
+
+    A stop that only says "a human must decide" leaves the coding agent to
+    guess how a human decides. The plausible guess is to ask the operator in
+    conversation, which preflight does not read: the agent then either stalls
+    on an answer nothing consumes, or treats a spoken "yes" as authority and
+    proceeds past the gate. Naming the pull request as the route, and chat as
+    not a route, closes both.
+    """
+
+    if not touch.requires_human_review:
+        return (
+            "Apply only the exact planned tool-source addition, then run the "
+            "required verifier and route its concrete review evidence to a human."
+        )
+    return (
+        "Route this protected-surface edit to a human reviewer through the pull "
+        "request. Conversational confirmation does not clear this signal, so do "
+        "not ask the operator to approve the edit in chat."
+    )
 
 
 def _classify_proposal_safe_manifest_touch(

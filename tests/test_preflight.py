@@ -521,6 +521,39 @@ def test_preflight_rejects_source_addition_mixed_with_other_manifest_change(
     assert result.control.state == "human_review_required"
 
 
+def _protected_signal(result, path: str):
+    return next(
+        item
+        for item in result.signals
+        if item.kind == "protected_surface_touch" and item.path == path
+    )
+
+
+def test_preflight_human_route_rules_out_conversational_approval(
+    tmp_path: Path,
+) -> None:
+    """The stop must not read as "ask the operator to confirm".
+
+    Conversational acknowledgement never changes control state, so an agent
+    that asks for it either stalls or learns to proceed past the gate once the
+    operator says yes.
+    """
+
+    root = _workspace(tmp_path)
+
+    result = build_preflight_result(
+        workspace=root,
+        changed_files=["AGENTS.md", ".github/workflows/agents-shipgate.yml"],
+    )
+
+    assert result.control.state == "human_review_required"
+    for path in ("AGENTS.md", ".github/workflows/agents-shipgate.yml"):
+        recommendation = _protected_signal(result, path).recommendation
+        assert "pull request" in recommendation
+        assert "does not clear this signal" in recommendation
+        assert "do not ask the operator" in recommendation
+
+
 def test_preflight_rejects_source_addition_mixed_with_comment_claim(
     tmp_path: Path,
 ) -> None:

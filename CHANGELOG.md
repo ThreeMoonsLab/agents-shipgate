@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **A protected-surface stop now names the route, and the non-route that looks
+  like one.** A human-routed preflight signal said only that a coding agent must
+  not self-approve the edit. That leaves the agent to guess how a human decides,
+  and the plausible guess is to ask the operator in conversation — which
+  preflight does not read. The agent then either stalls on an answer nothing
+  consumes, or treats a spoken "yes" as authority and proceeds past the gate;
+  the first wastes a human context switch on a reviewer-requested edit, and the
+  second is the gate teaching the behaviour it exists to prevent. The
+  recommendation now states both halves: approval goes through the pull request,
+  and the agent must not ask the operator to approve the edit in chat.
+  This is text on an existing signal — no check id, schema, or routing changed.
+  A trust-root edit is still `critical` and still stops the turn.
+
 - **A first adoption no longer reads as a policy weakening.** Adding the
   manifest to a repository that had none is the first verdict every new adopter
   sees, and it said "This PR weakens the release policy that evaluates it",
