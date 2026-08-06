@@ -44,7 +44,7 @@ jobs:
       # stayed_in_workspace scorer blocker). On by default; pinned here for clarity.
       SHIPGATE_HARNESS_SCOPE_HOME: "1"
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v6
@@ -84,7 +84,7 @@ jobs:
     # the pipeline. PR CI exercises the same code via tests/harness/.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
