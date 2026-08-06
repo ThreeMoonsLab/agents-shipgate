@@ -26,9 +26,18 @@
   fixes both directions at once — the defect was never "the base is forced
   to advisory", it was "the snapshot describes the invocation". The run's
   own gate is unchanged: top-level `report.ci_mode` / `report.fail_on`, the
-  exit code, and `run_id` all still reflect the overrides. Base-scan caches
-  written by an older CLI are keyed on the version and so are discarded on
-  upgrade; no manual cache clearing is needed. Unit coverage had injected
+  exit code, and `run_id` all still reflect the overrides. Fixing the
+  producer alone would have left the bug observable, because a cached base
+  report is admitted on a content hash — which proves it was not tampered
+  with and says nothing about whether its fields still mean what the current
+  CLI expects. `__version__` is in the cache key but does not move for a
+  source checkout, an editable install, or between two builds sharing a
+  pre-release version string, so a base report written before this change
+  was reused verbatim and kept reporting `advisory` for a base that declared
+  `strict`. The cache-key epoch is therefore bumped (`BASE_CACHE_KEY_EPOCH`,
+  2 -> 3), which strands those entries on a key nothing computes; upgrading
+  costs one re-scan per base tree and needs no manual cache clearing.
+  Unit coverage had injected
   the base `EffectivePolicy` directly and could not see how the snapshot was
   produced, so the regressions drive real base and head scans through
   `verify --base` in both directions, backed by a structural test that

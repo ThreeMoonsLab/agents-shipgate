@@ -17,6 +17,7 @@ category-"verify" findings that flow through the one decision engine.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agents_shipgate.checks import (
@@ -257,6 +258,21 @@ def _sample_repo(tmp_path: Path) -> tuple[Path, Path]:
     return repo, sample_dst / "shipgate.yaml"
 
 
+def _weakened_repo(tmp_path: Path) -> Path:
+    """A repo whose HEAD downgrades the declared gate strict -> advisory."""
+    repo, manifest_path = _sample_repo(tmp_path)
+    declared = manifest_path.read_text(encoding="utf-8")
+    manifest_path.write_text(
+        declared.replace("ci:\n  mode: advisory", "ci:\n  mode: strict"),
+        encoding="utf-8",
+    )
+    _init_repo(repo)
+    _commit(repo, "base: strict gate")
+    manifest_path.write_text(declared, encoding="utf-8")
+    _commit(repo, "head: weaken gate to advisory")
+    return repo
+
+
 def _run_verify(repo: Path, **overrides):
     from agents_shipgate.cli.verify.orchestrator import run_verify
 
@@ -299,16 +315,7 @@ def test_ci_mode_weakened_fires_through_real_base_scan(tmp_path):
     leak into the base report's ``effective_policy``, so every base read back
     as advisory and this disjunct could never fire.
     """
-    repo, manifest_path = _sample_repo(tmp_path)
-    declared = manifest_path.read_text(encoding="utf-8")
-    manifest_path.write_text(
-        declared.replace("ci:\n  mode: advisory", "ci:\n  mode: strict"),
-        encoding="utf-8",
-    )
-    _init_repo(repo)
-    _commit(repo, "base: strict gate")
-    manifest_path.write_text(declared, encoding="utf-8")
-    _commit(repo, "head: weaken gate to advisory")
+    repo = _weakened_repo(tmp_path)
 
     _, report, _ = _run_verify(repo)
     assert report is not None
@@ -350,18 +357,74 @@ def test_fail_on_cli_override_is_not_reported_as_loosening(tmp_path):
 
 def test_ci_mode_weakening_still_fires_under_a_strict_cli_override(tmp_path):
     """A ``--ci-mode strict`` invocation must not mask a weakened manifest."""
-    repo, manifest_path = _sample_repo(tmp_path)
-    declared = manifest_path.read_text(encoding="utf-8")
-    manifest_path.write_text(
-        declared.replace("ci:\n  mode: advisory", "ci:\n  mode: strict"),
-        encoding="utf-8",
-    )
-    _init_repo(repo)
-    _commit(repo, "base: strict gate")
-    manifest_path.write_text(declared, encoding="utf-8")
-    _commit(repo, "head: weaken gate to advisory")
+    repo = _weakened_repo(tmp_path)
 
     _, report, _ = _run_verify(repo, ci_mode="strict")
+    assert report is not None
+    assert "ci_mode_weakened" in _policy_kinds(report)
+
+
+def _stale_base_cache_entries(repo: Path) -> list[Path]:
+    """Rewrite every cached base report the way the pre-#298 CLI left it.
+
+    ``ci_mode`` back to ``"advisory"`` with a matching content hash — the
+    cache admits an entry on that hash alone, so this is indistinguishable
+    from an entry a pre-fix build wrote.
+    """
+    import hashlib
+
+    entries = sorted(
+        (repo / ".git" / "agents-shipgate" / "base-scans").glob("*/report.json")
+    )
+    for entry in entries:
+        payload = json.loads(entry.read_text(encoding="utf-8"))
+        payload["effective_policy"]["ci_mode"] = "advisory"
+        entry.write_text(json.dumps(payload), encoding="utf-8")
+        entry.with_suffix(".sha256").write_text(
+            f"{hashlib.sha256(entry.read_bytes()).hexdigest()}\n", encoding="ascii"
+        )
+    return entries
+
+
+# The base-scan cache-key epoch the pre-#298 CLI wrote its entries under.
+# Pinned as a literal, not as ``BASE_CACHE_KEY_EPOCH - 1``: the point is that
+# entries from THIS epoch stay unreachable, which a relative expression would
+# stop asserting the moment the epoch moved again — or if it were reverted.
+_PRE_298_CACHE_EPOCH = 2
+
+
+def test_base_cache_from_the_pre_fix_epoch_is_not_reused(tmp_path, monkeypatch):
+    """Fixing the producer is not enough while stale entries stay readable.
+
+    The base-scan cache validates an entry by content hash, which proves it
+    was not tampered with and says nothing about whether its fields still
+    mean what this CLI expects. ``__version__`` is in the key but does not
+    move for a source checkout or between two builds sharing a pre-release
+    version string, so a base report written before #298 — recording
+    ``advisory`` for a base that declared ``strict`` — was reused verbatim
+    and the fix stayed invisible. ``BASE_CACHE_KEY_EPOCH`` strands those
+    entries on a key nothing computes.
+    """
+    from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
+
+    repo = _weakened_repo(tmp_path)
+    monkeypatch.setattr(
+        verify_orchestrator, "BASE_CACHE_KEY_EPOCH", _PRE_298_CACHE_EPOCH
+    )
+    _run_verify(repo)
+    assert _stale_base_cache_entries(repo), "no base cache entry was written to poison"
+
+    # Positive control: under the epoch that wrote it, the poisoned entry IS
+    # believed. Without this the assertion below could pass because the entry
+    # was never readable in the first place.
+    _, report, _ = _run_verify(repo)
+    assert report is not None
+    assert "ci_mode_weakened" not in _policy_kinds(report)
+
+    # Under the shipped epoch the same entry is unreachable, so the base is
+    # re-scanned and the weakening is named.
+    monkeypatch.undo()
+    _, report, _ = _run_verify(repo)
     assert report is not None
     assert "ci_mode_weakened" in _policy_kinds(report)
 
