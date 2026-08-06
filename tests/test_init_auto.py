@@ -13,6 +13,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -20,9 +21,11 @@ from agents_shipgate.cli.discovery import (
     detect_workspace,
     render_auto_manifest,
     render_manifest_template,
+    source_ids,
 )
 from agents_shipgate.cli.discovery.source_ids import (
     MAX_SOURCE_ID_LENGTH,
+    _digest,
     assign_source_ids,
     source_id_for,
 )
@@ -502,15 +505,16 @@ def test_source_id_helper_disambiguates_identically_sanitized_paths() -> None:
     )
 
 
-def test_source_ids_shift_only_within_the_group_that_sanitizes_alike(
+def test_source_ids_shift_only_for_entries_whose_ids_collide(
     tmp_path: Path,
 ) -> None:
     """The narrowed stability guarantee, pinned in both directions.
 
-    An id is a pure function of its own path *unless* another declared
-    path sanitizes to the same string; then both members take a digest, so
-    the one that was already there changes too. Making that file-local
-    would mean a digest on every id, including the readable common ones.
+    An id is a pure function of its own path *unless it collides* with
+    another entry's id; then both members take a digest, so the one that
+    was already there changes too. Making that file-local would mean a
+    digest on every id, including the readable common ones. Nothing
+    outside the collision is re-keyed.
     """
     alone = assign_source_ids([("openapi", "a-b/spec.yaml")])
     assert alone == ["openapi_a_b_spec"]
@@ -573,18 +577,68 @@ def test_source_id_length_bound_holds_after_disambiguation() -> None:
 def test_source_ids_stay_unique_when_a_plain_id_matches_a_digest_form() -> None:
     """Contrived but constructible: a file named after the digest another
     entry will be given. `--minimal` has no validation gate behind it, so
-    the assignment must not hand a duplicate to the render."""
-    from agents_shipgate.cli.discovery.source_ids import _digest
-
-    twin_digest = _digest("a-b/spec.yaml")
+    the assignment must not hand a duplicate to the render — and it must
+    settle that conflict without re-keying anything else."""
+    twin_digest = _digest("a-b/spec.yaml", 8)
     entries = [
         ("openapi", "a-b/spec.yaml"),
         ("openapi", "a_b/spec.yaml"),
         ("openapi", f"a_b/spec_{twin_digest}.yaml"),
+        ("openapi", "billing/openapi.yaml"),
     ]
     # The third file's plain id is exactly what the first one is renamed to.
     assert source_id_for(*entries[2]) == f"openapi_a_b_spec_{twin_digest}"
 
     resolved = assign_source_ids(entries)
+    assert len(set(resolved)) == 4
+    assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
+    # Only the two entries that actually tied move to the wider digest: the
+    # third member of the sanitized class keeps its 8-hex id, and the
+    # bystander keeps the id its own path produced.
+    assert resolved[1] == f"openapi_a_b_spec_{_digest('a_b/spec.yaml', 8)}"
+    assert resolved[3] == "openapi_billing_openapi"
+
+
+# The pair below shares an 8-hex SHA-256 prefix *and* one sanitized class,
+# so the first disambiguation round hands both entries the same id. Found by
+# enumerating the 2**17 `-`/`_` spellings of one path and looking for a
+# repeated digest — seconds of work, which is why a digest prefix cannot be
+# treated as a unique key.
+_DIGEST_PREFIX_TWINS = (
+    "a_b_c-d_e-f-g_h_i-j_k_l_m-n-o-p_q_r/spec.yaml",
+    "a-b_c_d-e_f_g_h-i-j-k_l-m_n_o-p_q-r/spec.yaml",
+)
+
+
+def test_source_ids_survive_a_real_digest_prefix_collision() -> None:
+    first, second = _DIGEST_PREFIX_TWINS
+    assert source_id_for("openapi", first) == source_id_for("openapi", second)
+    assert _digest(first, 8) == _digest(second, 8)
+
+    resolved = assign_source_ids([("openapi", first), ("openapi", second)])
+    assert len(set(resolved)) == 2
+    assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
+    # Settled by widening, not by numbering: still a digest of each path.
+    assert resolved[0].endswith(_digest(first, 16))
+    assert resolved[1].endswith(_digest(second, 16))
+
+
+def test_source_ids_number_tied_paths_when_every_digest_width_collides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uniqueness must not rest on an assumption about the hash. With the
+    digest forced to collide at every width, the tied paths are numbered in
+    sorted-path order — a property of the set, not of the walk."""
+    monkeypatch.setattr(source_ids, "_digest", lambda path, width: "f" * width)
+    entries = [
+        ("openapi", "a-b/spec.yaml"),
+        ("openapi", "a_b/spec.yaml"),
+        ("openapi", "a.b/spec.yaml"),
+    ]
+
+    resolved = assign_source_ids(entries)
     assert len(set(resolved)) == 3
     assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
+    # "a-b" < "a.b" < "a_b" by path, so that is the numbering order.
+    assert [resolved[0][-2:], resolved[2][-2:], resolved[1][-2:]] == ["_0", "_1", "_2"]
+    assert assign_source_ids(list(reversed(entries))) == list(reversed(resolved))

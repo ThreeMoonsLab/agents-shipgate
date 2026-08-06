@@ -20,12 +20,16 @@
   positional component — a `_2` suffix would have renumbered existing entries
   whenever an unrelated file appeared earlier in the walk. Sanitizing is
   lossy, so paths that still fold to one id (`a-b/` and `a_b/`) each take a
-  digest of their own path rather than one side keeping the plain form; that
-  group is the one case where adding a file changes an id that already
-  existed, and `init` refuses to overwrite an existing manifest, so ids are
-  assigned once per adoption. A deep monorepo path keeps its most specific
-  segments plus a digest, and the 64-character bound is enforced on the value
-  that ships, disambiguated ones included. Verified end to end on the
+  digest of their own path rather than one side keeping the plain form; a
+  collision is the one case where adding a file changes an id that already
+  existed, nothing outside it is re-keyed, and `init` refuses to overwrite an
+  existing manifest, so ids are assigned once per adoption. A digest prefix
+  is not treated as a unique key either — two paths in one sanitized class
+  sharing an 8-hex prefix are searchable in seconds — so whatever is still
+  tied moves to a wider digest and the rendered set is unique by
+  construction. A deep monorepo path keeps its most specific segments plus a
+  digest, and the 64-character bound is enforced on the value that ships,
+  disambiguated ones included. Verified end to end on the
   repository from the report: 23 sources, 23 unique ids, `init --write` →
   `scan` exits 0.
   Nested sources declared by `--minimal` change id (they had no valid id
