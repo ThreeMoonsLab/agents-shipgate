@@ -10,11 +10,14 @@
 # `docs/triggers.json` — manifest, MCP/OpenAPI/Swagger exports, static tool
 # inventories, coding-agent host configuration/instructions, plugin package
 # files, prompts/policies, AND GitHub workflow files.
-# Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR` and
-# `TRIGGER-FRAMEWORK-VERSION-BUMP`) are not covered by the regex pre-gate —
-# pre-commit's `files:` regex is purely path-based and cannot inspect diff
-# contents. Once the hook fires, the `verify` entry runs the full trigger
-# evaluator (including diff_contains rules) itself; use the GitHub Action
+# Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`,
+# `TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED`) are not covered by the regex
+# pre-gate — pre-commit's `files:` regex is purely path-based and cannot
+# inspect diff contents. `TRIGGER-FRAMEWORK-VERSION-BUMP` needs a package
+# token in the diff *in addition to* a changed dependency manifest, so a
+# path-only regex cannot decide it either. Once the hook fires, the
+# `verify` entry runs the full trigger evaluator (including diff_contains
+# rules) itself; use the GitHub Action
 # for coverage on commits whose paths don't match the regex at all, or
 # `python -m agents_shipgate.triggers --git-diff HEAD` for a diff-aware
 # local check without running verify.

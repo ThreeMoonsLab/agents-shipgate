@@ -215,6 +215,27 @@
       "rationale": "`@function_tool` / `@tool` (LangChain, CrewAI, OpenAI Agents SDK) and ADK `FunctionTool(...)` add or modify the tools the agent can call."
     },
     {
+      "id": "TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED",
+      "surface_class": "capability",
+      "agents_md_row": "Adds/changes a Google ADK `Agent`/`LlmAgent` `tools=[...]` list",
+      "when": {
+        "all_of": [
+          {"any_of": [
+            {"diff_contains": "google.adk"},
+            {"diff_contains": "google-adk"}
+          ]},
+          {"any_of": [
+            {"diff_contains": "LlmAgent("},
+            {"diff_contains": "Agent("}
+          ]},
+          {"diff_contains": "tools=["}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "Three structural signals co-occur in this diff: a Google ADK module path (`google.adk`) or package name, an `Agent(` / `LlmAgent(` construction, and a `tools=[...]` argument. Plain functions passed to `tools=[...]` carry no decorator, so TRIGGER-FUNCTION-TOOL-DECORATOR never sees them — this rule is what routes an ADK agent's directly reachable tool list. The spaced form `tools = [` is deliberately not matched: it is TOML array syntax as often as it is Python, and a token that broad is what this catalog is trying to stop reporting as structure.",
+      "command": "agents-shipgate verify --preview --json"
+    },
+    {
       "id": "TRIGGER-PROMPTS-OR-POLICIES",
       "surface_class": "governance",
       "agents_md_row": "Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml`",
@@ -262,16 +283,38 @@
       "surface_class": "dependency",
       "agents_md_row": "(Optional) Refactor or framework upgrade that may shift the extracted tool surface",
       "when": {
-        "any_of": [
-          {"diff_contains": "openai-agents"},
-          {"diff_contains": "langchain"},
-          {"diff_contains": "crewai"},
-          {"diff_contains": "google-adk"},
-          {"diff_contains": "conductor-oss"}
+        "all_of": [
+          {"any_of": [
+            {"diff_contains": "openai-agents"},
+            {"diff_contains": "langchain"},
+            {"diff_contains": "crewai"},
+            {"diff_contains": "google-adk"},
+            {"diff_contains": "conductor-oss"}
+          ]},
+          {"any_of": [
+            {"glob": "**/pyproject.toml"},
+            {"glob": "**/setup.py"},
+            {"glob": "**/setup.cfg"},
+            {"glob": "**/requirements*.txt"},
+            {"glob": "**/requirements/*.txt"},
+            {"glob": "**/constraints*.txt"},
+            {"glob": "**/Pipfile"},
+            {"glob": "**/Pipfile.lock"},
+            {"glob": "**/poetry.lock"},
+            {"glob": "**/uv.lock"},
+            {"glob": "**/environment.yml"},
+            {"glob": "**/package.json"},
+            {"glob": "**/package-lock.json"},
+            {"glob": "**/pnpm-lock.yaml"},
+            {"glob": "**/yarn.lock"},
+            {"glob": "**/pom.xml"},
+            {"glob": "**/build.gradle"},
+            {"glob": "**/build.gradle.kts"}
+          ]}
         ]
       },
       "action": "dry_run",
-      "rationale": "Framework dependency bumps can shift the extracted tool surface; dry-run is a defensive no-cost check."
+      "rationale": "Two signals co-occur: a supported-framework package token appears somewhere in this diff, AND a dependency manifest is among the changed files. That co-occurrence is the whole of the evidence — the rule does not confirm that any version moved, and a bare token in prose or sample code no longer matches on its own. A framework upgrade can shift the statically extracted tool surface, so an advisory dry-run is a no-cost defensive check. (The rule ID is retained for 0.x compatibility; read this rationale, not the ID, for what was observed.)"
     },
     {
       "id": "TRIGGER-DOCS-ONLY-NEGATIVE",

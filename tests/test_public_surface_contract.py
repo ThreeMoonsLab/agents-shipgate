@@ -54,7 +54,12 @@ from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHE
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
-from agents_shipgate.triggers import VALID_SURFACE_CLASSES, evaluate, load_triggers
+from agents_shipgate.triggers import (
+    VALID_SURFACE_CLASSES,
+    evaluate,
+    load_triggers,
+    result_has_surface_class,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -1370,6 +1375,188 @@ def test_triggers_dry_run_sets_dry_run_recommended():
     )
 
 
+# Reduced from google/adk-python#6605 (`contributing/samples/agent_hooks`):
+# two plain functions — one of them destructive — passed straight into an
+# `LlmAgent(tools=[...])`. Neither carries a decorator, so the shape has no
+# `@function_tool` / `FunctionTool(` token for the decorator rule to see.
+_ADK_TOOLS_LIST_DIFF = """\
++from google.adk.agents.llm_agent import LlmAgent
++
++
++def lookup_account(user_id: str) -> dict:
++    return {"user_id": user_id, "api_key": "EXAMPLE_NOT_A_REAL_KEY"}
++
++
++def delete_account(user_id: str) -> dict:
++    return {"user_id": user_id, "status": "deleted"}
++
++
++root_agent = LlmAgent(
++    name="support_agent",
++    tools=[lookup_account, delete_account],
++)
+"""
+
+# The ADK quickstart spelling: the `Agent` alias (ADK exports it for
+# `LlmAgent`) with the tool list inline. Same capability change, different
+# surface syntax.
+_ADK_AGENT_ALIAS_DIFF = """\
++from google.adk.agents import Agent
++
++root_agent = Agent(name="weather_agent", tools=[get_weather, refund_order])
+"""
+
+
+def test_triggers_google_adk_agent_tools_list_routes_run():
+    """A Google ADK `LlmAgent(..., tools=[...])` addition is a tool-surface
+    change and must route positively — not as a framework-upgrade dry-run.
+
+    Regression for #315: the engine already resolves this shape (detection,
+    the ADK adapter, and the binding graph all handle it), but the catalog
+    carried no ADK rule, so the only thing that fired was a bare `google-adk`
+    diff token on the dependency rule and the PR routed `dry_run_only`."""
+    result = evaluate(
+        paths=["contributing/samples/agent_hooks/agent.py"],
+        diff_text=_ADK_TOOLS_LIST_DIFF,
+    )
+    assert result["should_run"] is True and result["run_shipgate"] is True, (
+        f"ADK tools=[...] change must route run_shipgate; got {result!r}."
+    )
+    matched_ids = {m["id"] for m in result["matched_rules"]}
+    assert "TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED" in matched_ids, (
+        "Expected the ADK agent-tools rule to carry the verdict; got "
+        f"matched_rules={result['matched_rules']!r}."
+    )
+    assert "TRIGGER-FRAMEWORK-VERSION-BUMP" not in matched_ids, (
+        "The sample mutates no dependency manifest, so the dependency rule "
+        f"must not claim a framework version bump; got {result!r}."
+    )
+    assert result_has_surface_class(result, "capability"), (
+        "The ADK rule must be classed `capability` so consumers switching on "
+        f"surface_class (undeclared-surface inference) see it; got {result!r}."
+    )
+
+
+def test_triggers_google_adk_agent_alias_routes_run():
+    """The quickstart spelling uses the `Agent` alias rather than `LlmAgent`.
+    It is the same capability change and must route the same way."""
+    result = evaluate(paths=["app/agent.py"], diff_text=_ADK_AGENT_ALIAS_DIFF)
+    assert result["run_shipgate"] is True, (
+        f"ADK `Agent` alias with an inline tools list must run; got {result!r}."
+    )
+
+
+def test_triggers_do_not_watch_the_spaced_toml_tools_array_token():
+    """`tools = [` is TOML array syntax as often as it is Python, and
+    `diff_contains` is a substring match — so the token also swallows
+    `enabled_tools = [...]` in a Codex config. Watching it would put a token
+    with no structural meaning into every `diff_tokens` list, which is the
+    reporting defect this catalog is supposed to be fixing."""
+    result = evaluate(
+        paths=[".codex/config.toml"],
+        diff_text='+enabled_tools = ["get_input", "output_summary"]\n',
+    )
+    assert result["diff_tokens"] == [], (
+        "A TOML array must not register as a catalog token; got "
+        f"diff_tokens={result['diff_tokens']!r}."
+    )
+    assert "TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED" not in {
+        m["id"] for m in result["matched_rules"]
+    }, f"The ADK rule must not fire on a TOML tools array; got {result!r}."
+
+
+def test_triggers_google_adk_tool_and_toolset_classes_retain_coverage():
+    """ADK's decorator-free tool wrappers were already covered by
+    TRIGGER-FUNCTION-TOOL-DECORATOR. Adding the agent-tools rule must not
+    move or weaken that coverage."""
+    for diff in (
+        "+refund = FunctionTool(func=issue_refund)\n",
+        "+watcher = LongRunningFunctionTool(func=poll_job)\n",
+    ):
+        result = evaluate(paths=["agent.py"], diff_text=diff)
+        assert result["run_shipgate"] is True, (
+            f"ADK tool wrapper {diff!r} must still route run_shipgate; got {result!r}."
+        )
+        matched_ids = {m["id"] for m in result["matched_rules"]}
+        assert "TRIGGER-FUNCTION-TOOL-DECORATOR" in matched_ids, (
+            f"Expected the decorator rule to still carry {diff!r}; got {result!r}."
+        )
+
+
+def test_triggers_docs_mentioning_google_adk_is_not_a_framework_version_bump():
+    """A bare package token is not evidence that a version moved. A README
+    that mentions `google-adk` must not be classified as a framework upgrade
+    — the rule would be stating a conclusion its evidence cannot support."""
+    result = evaluate(
+        paths=["README.md", "docs/quickstart.md"],
+        diff_text="+Install the sample with `pip install google-adk`.\n",
+    )
+    matched_ids = {m["id"] for m in result["matched_rules"]}
+    assert "TRIGGER-FRAMEWORK-VERSION-BUMP" not in matched_ids, (
+        "A docs-only mention of `google-adk` must not match the dependency "
+        f"rule; got matched_rules={result['matched_rules']!r}."
+    )
+    assert result["dry_run_recommended"] is False, (
+        f"Docs-only mention must not recommend a dry run; got {result!r}."
+    )
+    assert "google-adk" in result["diff_tokens"], (
+        "The token is still reported — `diff_tokens` states what is present "
+        f"in the diff and draws no conclusion; got {result!r}."
+    )
+
+
+def test_triggers_framework_version_bump_requires_a_dependency_manifest():
+    """The dependency rule must observe both halves of its claim: a
+    framework package token AND a changed dependency manifest. A source-only
+    refactor that merely imports the framework is not a version bump."""
+    source_only = evaluate(
+        paths=["src/agent.py"],
+        diff_text="+from langchain_core.tools import BaseTool\n",
+    )
+    assert "TRIGGER-FRAMEWORK-VERSION-BUMP" not in {
+        m["id"] for m in source_only["matched_rules"]
+    }, f"Token without a dependency manifest must not match; got {source_only!r}."
+
+    for manifest in (
+        "pyproject.toml",
+        "requirements-dev.txt",
+        "services/api/package.json",
+        "uv.lock",
+    ):
+        bumped = evaluate(
+            paths=[manifest],
+            diff_text='-"langchain==0.2.0"\n+"langchain==0.3.0"\n',
+        )
+        assert bumped["dry_run_recommended"] is True, (
+            f"A real bump in {manifest!r} must still recommend a dry run; "
+            f"got {bumped!r}."
+        )
+
+
+def test_framework_version_bump_rule_cannot_fire_on_a_token_alone():
+    """Structural pin for the rationale-honesty fix: the dependency rule's
+    `when` clause must keep a path leg alongside the token leg. Reverting it
+    to a bare `any_of` of `diff_contains` tokens would restore the defect
+    where a bare token is reported as a framework upgrade."""
+    triggers = _load_triggers_json()
+    rule = next(
+        (r for r in triggers["rules"] if r["id"] == "TRIGGER-FRAMEWORK-VERSION-BUMP"),
+        None,
+    )
+    assert rule is not None, "TRIGGER-FRAMEWORK-VERSION-BUMP must remain in the catalog."
+    legs = rule["when"].get("all_of")
+    assert legs, (
+        "TRIGGER-FRAMEWORK-VERSION-BUMP must conjoin its token leg with a "
+        f"dependency-manifest path leg; got when={rule['when']!r}."
+    )
+    assert any(
+        "glob" in nested for leg in legs for nested in leg.get("any_of", [leg])
+    ), (
+        "TRIGGER-FRAMEWORK-VERSION-BUMP lost its dependency-manifest path "
+        f"leg; got when={rule['when']!r}."
+    )
+
+
 def _init_git_repo(tmp_path: Path) -> None:
     """Initialize an empty git repo at `tmp_path` with one commit so
     `git diff HEAD` works. Used by the --git-diff helper tests."""
@@ -1936,9 +2123,11 @@ def test_primary_surfaces_do_not_claim_broad_agent_healthcare(relpath):
 
 # Path-based positive triggers in docs/triggers.json. Each entry maps the
 # trigger ID to a representative path that should match the hook regex.
-# Excludes diff-only triggers (decorator, version bump) and
-# file_present-only triggers (existing manifest), neither of which the
-# hook regex can cover.
+# Excludes triggers the hook regex cannot cover: diff-only ones (decorator,
+# ADK agent tools), file_present-only ones (existing manifest), and the
+# dependency rule — its path leg names dependency manifests, but it only
+# fires when a framework token is in the diff body too, so a path-only
+# regex cannot decide it.
 _HOOK_PATH_TRIGGER_FIXTURES = {
     "TRIGGER-MCP-EXPORT-CHANGED": [
         "server/mcp-export.json",
