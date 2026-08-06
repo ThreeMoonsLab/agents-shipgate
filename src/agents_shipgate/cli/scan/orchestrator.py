@@ -117,6 +117,7 @@ def run_scan(
             suggest_patches=suggest_patches,
             no_heuristics=no_heuristics,
             verification_context=verification_context,
+            declared_ci=resolved.declared_ci,
         )
     with _perf.phase("plan_outputs"):
         plan = _plan_outputs(
@@ -140,6 +141,7 @@ def run_scan(
             manifest=resolved.manifest,
             sanitized=sanitized,
             plan=plan,
+            declared_ci=resolved.declared_ci,
         )
     with _perf.phase("write_outputs"):
         _write_outputs(

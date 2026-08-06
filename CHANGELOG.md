@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **`SHIP-VERIFY-POLICY-WEAKENED` can now actually see a weakened CI gate.**
+  The `effective_policy` snapshot was built from the manifest *after* CLI
+  overrides were folded into it, so it described the invocation rather than
+  the repository — and `verify` overrides both sides, differently. The base
+  tree is scanned with a forced `ci_mode="advisory"` (load-bearing: it keeps
+  a base scan from failing the run on the base's own findings), so every
+  cached base report recorded `effective_policy.ci_mode == "advisory"` no
+  matter what the base declared. Comparing that against the head manifest
+  made `head_rank == base_rank` for the one case the check exists to catch:
+  a PR downgrading `ci.mode` from `strict` to `advisory` emitted nothing.
+  The flagship claim is that an agent cannot quietly weaken its own gate,
+  and on this axis the specific finding that names the weakening never
+  fired. (Such a PR still routed to a human through
+  `SHIP-VERIFY-TRUST-ROOT-TOUCHED`, so this was a missing name on a real
+  review, not a silent merge.) The same root cause ran the other way on
+  `fail_on`, where only the head carries the override: `verify --fail-on
+  high` against a manifest declaring `fail_on: [high, critical]` compared a
+  head snapshot of `["high"]` against a base snapshot of `["high",
+  "critical"]` and reported a **high**-severity "this PR removes severities
+  from the CI fail-on set" against a PR that touched no policy at all.
+  The snapshot is now built from the `ci` block as declared on disk, which
+  fixes both directions at once — the defect was never "the base is forced
+  to advisory", it was "the snapshot describes the invocation". The run's
+  own gate is unchanged: top-level `report.ci_mode` / `report.fail_on`, the
+  exit code, and `run_id` all still reflect the overrides. Base-scan caches
+  written by an older CLI are keyed on the version and so are discarded on
+  upgrade; no manual cache clearing is needed. Unit coverage had injected
+  the base `EffectivePolicy` directly and could not see how the snapshot was
+  produced, so the regressions drive real base and head scans through
+  `verify --base` in both directions, backed by a structural test that
+  replays every CLI override `_prepare_scan` supports and asserts the
+  snapshot is byte-identical to the on-disk manifest's.
+
 - **`init` no longer fails on a repository that names two files the same.**
   A generated `tool_sources[].id` was the source type plus the file's
   basename, so `strix/tools/finish/tool.py`, `strix/tools/respond/tool.py`,

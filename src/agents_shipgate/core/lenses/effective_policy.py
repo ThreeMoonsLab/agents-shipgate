@@ -11,6 +11,9 @@ leakage).
 It is intentionally NOT a text diff: comparing snapshots answers "did the
 gate move toward less review / less blocking / broader waivers?" robustly
 across reformatting and key reordering in ``shipgate.yaml``.
+
+The snapshot describes the policy the repository DECLARES, never the
+policy this invocation happens to run under. See ``declared_ci`` below.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from agents_shipgate.schemas.capability_change import EffectivePolicy
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 
 
 def build_effective_policy_snapshot(
@@ -26,6 +29,7 @@ def build_effective_policy_snapshot(
     *,
     baseline_fingerprints: Iterable[str] = (),
     ci_gate_present: bool = True,
+    declared_ci: CiConfig | None = None,
 ) -> EffectivePolicy:
     """Build the normalized effective-policy snapshot from the manifest.
 
@@ -37,13 +41,27 @@ def build_effective_policy_snapshot(
     fact, not a manifest fact — plain ``scan`` cannot see it, so it
     defaults to ``True`` and is only flipped by verify orchestration.
 
+    ``declared_ci`` is the manifest's ``ci`` block as loaded from disk,
+    BEFORE ``--ci-mode`` / ``--fail-on`` were folded into it. Callers that
+    run behind CLI overrides must pass it, because the snapshot has to
+    describe the repository's declared gate rather than the invocation's
+    (#298): ``verify`` scans the base tree with a forced
+    ``ci_mode="advisory"`` (load-bearing for the base scan's own exit
+    code) and the head tree with the caller's values, so a snapshot taken
+    off the post-override manifest made every base read back as advisory
+    — ``ci_mode_weakened`` could never fire — while ``--fail-on`` narrowed
+    only the head, accusing policy-untouched PRs of loosening ``fail_on``.
+    Defaults to the manifest's own block, which is correct for every
+    caller that loads the manifest straight from disk (preflight, plain
+    in-check head snapshots).
+
     The ``EffectivePolicy`` model validator sorts every list/dict, so the
     output is byte-stable regardless of manifest key order.
     """
     # Every manifest sub-config is optional and may be None / absent; coalesce
     # defensively so a sparse shipgate.yaml yields the empty snapshot rather
     # than raising. ``getattr`` guards keep this robust to schema evolution.
-    ci = manifest.ci
+    ci = manifest.ci if declared_ci is None else declared_ci
     checks = manifest.checks
     baseline = manifest.baseline
     ignore = getattr(checks, "ignore", None) or []

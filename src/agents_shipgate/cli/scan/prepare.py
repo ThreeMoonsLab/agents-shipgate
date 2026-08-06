@@ -39,6 +39,10 @@ def _prepare_scan(
             source=config_path,
         )
     manifest = raw_manifest.model_copy(deep=True)
+    # Snapshot the declared CI block before the overrides below rewrite it.
+    # ``manifest`` is already a deep copy, so this is the untouched on-disk
+    # view; copy it too so nothing downstream can alias the loader's object.
+    declared_ci = raw_manifest.ci.model_copy(deep=True)
     if ci_mode:
         manifest.ci.mode = ci_mode
     if fail_on is not None:
@@ -62,6 +66,7 @@ def _prepare_scan(
     return _ResolvedManifest(
         manifest=manifest,
         manifest_positions=manifest_positions,
+        declared_ci=declared_ci,
         base_dir=(
             config_path.resolve().parent
             if manifest_text is None
