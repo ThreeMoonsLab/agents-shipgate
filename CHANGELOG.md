@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **`init` no longer fails on a repository that names two files the same.**
+  A generated `tool_sources[].id` was the source type plus the file's
+  basename, so `strix/tools/finish/tool.py`, `strix/tools/respond/tool.py`,
+  and `strix/tools/load_skill/tool.py` all rendered as `openai_sdk_tool` —
+  and the manifest schema, correctly, rejects a manifest whose ids repeat.
+  One `tool.py` per tool package is the conventional Python layout, not an
+  edge case, so on those repositories the primary adoption path failed
+  outright: `init --write` exited 4 with `internal_error` and wrote nothing,
+  and the fallback it routed to (`--minimal`) discards the detection work for
+  a `CHANGE_ME` template. Worse, `--minimal` had the same rule with no
+  validation gate in front of it — two services that each ship
+  `openapi.yaml` got an invalid manifest written to disk, and the documented
+  next step (`scan`) failed on it with a config error telling the user not to
+  re-run `init`. Both renderers now derive the id from the whole
+  workspace-relative path (`openai_sdk_strix_tools_finish_tool`), with no
+  positional component — a `_2` suffix would have renumbered existing entries
+  whenever an unrelated file appeared earlier in the walk. Sanitizing is
+  lossy, so paths that still fold to one id (`a-b/` and `a_b/`) each take a
+  digest of their own path rather than one side keeping the plain form; a
+  collision is the one case where adding a file changes an id that already
+  existed, nothing outside it is re-keyed, and `init` refuses to overwrite an
+  existing manifest, so ids are assigned once per adoption. A digest prefix
+  is not treated as a unique key either — two paths in one sanitized class
+  sharing an 8-hex prefix are searchable in seconds — so whatever is still
+  tied moves to a wider digest and the rendered set is unique by
+  construction. A deep monorepo path keeps its most specific segments plus a
+  digest, and the 64-character bound is enforced on the value that ships,
+  disambiguated ones included. Verified end to end on the
+  repository from the report: 23 sources, 23 unique ids, `init --write` →
+  `scan` exits 0.
+  Nested sources declared by `--minimal` change id (they had no valid id
+  before); ids in an existing `shipgate.yaml` are untouched — `init` refuses
+  to overwrite one.
+
 - **A protected-surface stop now names the route, and the non-route that looks
   like one.** A human-routed preflight signal said only that a coding agent must
   not self-approve the edit. That leaves the agent to guess how a human decides,

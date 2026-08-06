@@ -4,7 +4,8 @@ The auto-default produces a *valid* shipgate.yaml that scans cleanly
 against the real loaders, replacing v0.5's CHANGE_ME-heavy template for
 workspaces that already look like agent projects.
 
-``--minimal`` preserves byte-exact compatibility with the v0.5 output.
+``--minimal`` preserves the v0.5 output, except for the ``tool_sources``
+ids it shares with the auto renderer (see the issue #307 section below).
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -19,6 +21,13 @@ from agents_shipgate.cli.discovery import (
     detect_workspace,
     render_auto_manifest,
     render_manifest_template,
+    source_ids,
+)
+from agents_shipgate.cli.discovery.source_ids import (
+    MAX_SOURCE_ID_LENGTH,
+    _digest,
+    assign_source_ids,
+    source_id_for,
 )
 from agents_shipgate.cli.main import app
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
@@ -345,3 +354,291 @@ def test_minimal_template_excludes_mcpservers_config(tmp_path: Path) -> None:
     template = render_manifest_template(workspace.resolve())
     assert "tools/payments-mcp.json" in template
     assert "providers/cursor/plugin/mcp.json" not in template
+
+
+# --- Repeated basenames must not collide into one id (issue #307) ---
+# Found on usestrix/strix, a real OpenAI Agents SDK project: one `tool.py`
+# per tool package (`strix/tools/finish/tool.py`, `.../respond/tool.py`, …)
+# plus several `*/tools.py` modules. Ids derived from the basename alone
+# produced `openai_sdk_tool` three times, and the schema rejects a manifest
+# whose `tool_sources[].id` values repeat — so auto-init wrote nothing at
+# all on a conventional Python layout.
+
+_FUNCTION_TOOL_MODULE = """from agents import function_tool
+
+
+@function_tool
+def do_thing(target: str) -> str:
+    \"\"\"Do the thing.\"\"\"
+    return target
+"""
+
+
+def _openai_sdk_workspace(root: Path, relative_paths: list[str]) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "strixlike"\ndependencies = ["openai-agents"]\n',
+        encoding="utf-8",
+    )
+    for relative in relative_paths:
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_FUNCTION_TOOL_MODULE, encoding="utf-8")
+    return root
+
+
+_REPEATED_BASENAMES = [
+    "strix/tools/finish/tool.py",
+    "strix/tools/load_skill/tool.py",
+    "strix/tools/respond/tool.py",
+    "strix/agents/tools.py",
+    "strix/runtime/tools.py",
+]
+
+
+def test_auto_init_repeated_basenames_emit_unique_source_ids(tmp_path: Path) -> None:
+    workspace = _openai_sdk_workspace(tmp_path / "strixlike", _REPEATED_BASENAMES)
+    detect = detect_workspace(workspace)
+    manifest = _validates(render_auto_manifest(workspace, detect))
+
+    declared = {s.path for s in manifest.tool_sources}
+    assert declared == set(_REPEATED_BASENAMES)
+    ids = [s.id for s in manifest.tool_sources]
+    assert len(set(ids)) == len(ids)
+    # Derived from the whole relative path, so the id still names its file.
+    by_path = {s.path: s.id for s in manifest.tool_sources}
+    assert by_path["strix/tools/finish/tool.py"] == "openai_sdk_strix_tools_finish_tool"
+    assert by_path["strix/agents/tools.py"] == "openai_sdk_strix_agents_tools"
+
+
+def test_cold_start_init_then_scan_with_repeated_basenames(tmp_path: Path) -> None:
+    """The documented cold-start flow — `init --write` → `scan` — must
+    survive a repo that ships one `tool.py` per tool package. Before the
+    fix, `init` exited 4 with `internal_error` and wrote no manifest."""
+    import json as _json
+
+    workspace = _openai_sdk_workspace(tmp_path / "strixlike", _REPEATED_BASENAMES)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = _json.loads(result.output)
+    assert payload["created"] is True
+
+    scan_result = runner.invoke(
+        app, ["scan", "--config", str(workspace / "shipgate.yaml")]
+    )
+    assert scan_result.exit_code == 0, scan_result.output
+    assert "Config error" not in scan_result.output
+
+
+def test_auto_init_source_ids_are_stable_when_a_sibling_appears(tmp_path: Path) -> None:
+    """Ids carry no positional component: a file added earlier in the walk
+    must not renumber the entries after it, the way a `_2`/`_3` suffix
+    would. (The one case that does shift an existing id — a path that
+    sanitizes to the same string — is pinned below.)"""
+    before_ws = _openai_sdk_workspace(
+        tmp_path / "before", ["pkg/beta/tool.py", "pkg/gamma/tool.py"]
+    )
+    after_ws = _openai_sdk_workspace(
+        tmp_path / "after",
+        ["pkg/alpha/tool.py", "pkg/beta/tool.py", "pkg/gamma/tool.py"],
+    )
+
+    def ids_by_path(workspace: Path) -> dict[str, str]:
+        manifest = _validates(
+            render_auto_manifest(workspace, detect_workspace(workspace))
+        )
+        return {s.path: s.id for s in manifest.tool_sources}
+
+    before = ids_by_path(before_ws)
+    after = ids_by_path(after_ws)
+    assert before == {path: after[path] for path in before}
+
+
+def test_minimal_template_repeated_basenames_emit_unique_source_ids(
+    tmp_path: Path,
+) -> None:
+    """`--minimal` is the documented recovery path, and it had the same
+    basename-only id rule — with no validation gate, so it wrote the
+    invalid manifest and `scan` failed on it with a config error."""
+    workspace = tmp_path / "services"
+    spec = (
+        "openapi: 3.1.0\ninfo:\n  title: T\n  version: '1'\npaths:\n"
+        "  /thing:\n    get:\n      operationId: get_thing\n"
+        "      responses:\n        '200':\n          description: ok\n"
+    )
+    for service in ("billing", "support"):
+        target = workspace / service / "openapi.yaml"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(spec, encoding="utf-8")
+
+    manifest = _validates(render_manifest_template(workspace.resolve()))
+    ids = [s.id for s in manifest.tool_sources]
+    assert sorted(ids) == ["openapi_billing_openapi", "openapi_support_openapi"]
+
+
+def test_source_id_helper_disambiguates_identically_sanitized_paths() -> None:
+    # Sanitizing is lossy: `a-b/` and `a_b/` fold to the same string. Every
+    # member of the group takes a digest of its own path, so walk order
+    # never decides which one is renamed.
+    entries = [("openapi", "a-b/spec.yaml"), ("openapi", "a_b/spec.yaml")]
+    collided = assign_source_ids(entries)
+    assert len(set(collided)) == 2
+    assert all(value.startswith("openapi_a_b_spec_") for value in collided)
+    # Assignment is a pure function of the entries, not of the call.
+    assert collided == assign_source_ids(entries)
+    # Reordering the same set renames the same files, not different ones.
+    assert dict(zip([p for _t, p in entries], collided, strict=True)) == dict(
+        zip(
+            [p for _t, p in reversed(entries)],
+            assign_source_ids(list(reversed(entries))),
+            strict=True,
+        )
+    )
+
+    # Unknown source types (third-party adapters) keep their own name.
+    assert source_id_for("my_custom_source", "specs/api.yaml") == (
+        "my_custom_source_specs_api"
+    )
+
+
+def test_source_ids_shift_only_for_entries_whose_ids_collide(
+    tmp_path: Path,
+) -> None:
+    """The narrowed stability guarantee, pinned in both directions.
+
+    An id is a pure function of its own path *unless it collides* with
+    another entry's id; then both members take a digest, so the one that
+    was already there changes too. Making that file-local would mean a
+    digest on every id, including the readable common ones. Nothing
+    outside the collision is re-keyed.
+    """
+    alone = assign_source_ids([("openapi", "a-b/spec.yaml")])
+    assert alone == ["openapi_a_b_spec"]
+
+    with_twin = assign_source_ids(
+        [("openapi", "a-b/spec.yaml"), ("openapi", "a_b/spec.yaml")]
+    )
+    assert with_twin[0] != alone[0]
+    assert with_twin[0].startswith("openapi_a_b_spec_")
+
+    # An unrelated third source is untouched by that group's rename.
+    with_bystander = assign_source_ids(
+        [
+            ("openapi", "a-b/spec.yaml"),
+            ("openapi", "a_b/spec.yaml"),
+            ("openapi", "billing/openapi.yaml"),
+        ]
+    )
+    assert with_bystander[:2] == with_twin
+    assert with_bystander[2] == "openapi_billing_openapi"
+
+
+def test_source_id_length_bound_holds_after_disambiguation() -> None:
+    """The cap is enforced on the value that ships, not on the value before
+    the collision digest is appended: two near-limit paths that sanitize
+    alike used to render 67-character ids."""
+    near_limit = ["a" * 20 + "/" + "b" * 20 + f"/spec{sep}one.yaml" for sep in "-_"]
+    plain = [source_id_for("openapi", path) for path in near_limit]
+    assert len(plain[0]) == 58 and plain[0] == plain[1]  # fits, and collides
+
+    resolved = assign_source_ids([("openapi", path) for path in near_limit])
+    assert len(set(resolved)) == 2
+    assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
+
+    # A source-type prefix long enough to crowd out the digest is truncated
+    # too, so the bound holds for third-party adapter names of any length.
+    long_type = "my_" + "very_" * 15 + "custom_source"
+    assert len(source_id_for(long_type, "specs/api.yaml")) <= MAX_SOURCE_ID_LENGTH
+    long_prefix_collision = assign_source_ids(
+        [(long_type, "a-b/spec.yaml"), (long_type, "a_b/spec.yaml")]
+    )
+    assert len(set(long_prefix_collision)) == 2
+    assert all(len(v) <= MAX_SOURCE_ID_LENGTH for v in long_prefix_collision)
+
+    # Deep monorepo paths stay readable: most specific segments, then a
+    # digest of the full path so truncation cannot merge two files.
+    deep = source_id_for(
+        "openai_agents_sdk",
+        "packages/services/payments/src/agents/tools/refunds/tools.py",
+    )
+    assert len(deep) <= MAX_SOURCE_ID_LENGTH
+    assert deep.startswith("openai_sdk_")
+    assert "refunds_tools" in deep
+    assert deep != source_id_for(
+        "openai_agents_sdk",
+        "packages/services/billing/src/agents/tools/refunds/tools.py",
+    )
+
+
+def test_source_ids_stay_unique_when_a_plain_id_matches_a_digest_form() -> None:
+    """Contrived but constructible: a file named after the digest another
+    entry will be given. `--minimal` has no validation gate behind it, so
+    the assignment must not hand a duplicate to the render — and it must
+    settle that conflict without re-keying anything else."""
+    twin_digest = _digest("a-b/spec.yaml", 8)
+    entries = [
+        ("openapi", "a-b/spec.yaml"),
+        ("openapi", "a_b/spec.yaml"),
+        ("openapi", f"a_b/spec_{twin_digest}.yaml"),
+        ("openapi", "billing/openapi.yaml"),
+    ]
+    # The third file's plain id is exactly what the first one is renamed to.
+    assert source_id_for(*entries[2]) == f"openapi_a_b_spec_{twin_digest}"
+
+    resolved = assign_source_ids(entries)
+    assert len(set(resolved)) == 4
+    assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
+    # Only the two entries that actually tied move to the wider digest: the
+    # third member of the sanitized class keeps its 8-hex id, and the
+    # bystander keeps the id its own path produced.
+    assert resolved[1] == f"openapi_a_b_spec_{_digest('a_b/spec.yaml', 8)}"
+    assert resolved[3] == "openapi_billing_openapi"
+
+
+# The pair below shares an 8-hex SHA-256 prefix *and* one sanitized class,
+# so the first disambiguation round hands both entries the same id. Found by
+# enumerating the 2**17 `-`/`_` spellings of one path and looking for a
+# repeated digest — seconds of work, which is why a digest prefix cannot be
+# treated as a unique key.
+_DIGEST_PREFIX_TWINS = (
+    "a_b_c-d_e-f-g_h_i-j_k_l_m-n-o-p_q_r/spec.yaml",
+    "a-b_c_d-e_f_g_h-i-j-k_l-m_n_o-p_q-r/spec.yaml",
+)
+
+
+def test_source_ids_survive_a_real_digest_prefix_collision() -> None:
+    first, second = _DIGEST_PREFIX_TWINS
+    assert source_id_for("openapi", first) == source_id_for("openapi", second)
+    assert _digest(first, 8) == _digest(second, 8)
+
+    resolved = assign_source_ids([("openapi", first), ("openapi", second)])
+    assert len(set(resolved)) == 2
+    assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
+    # Settled by widening, not by numbering: still a digest of each path.
+    assert resolved[0].endswith(_digest(first, 16))
+    assert resolved[1].endswith(_digest(second, 16))
+
+
+def test_source_ids_number_tied_paths_when_every_digest_width_collides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uniqueness must not rest on an assumption about the hash. With the
+    digest forced to collide at every width, the tied paths are numbered in
+    sorted-path order — a property of the set, not of the walk."""
+    monkeypatch.setattr(source_ids, "_digest", lambda path, width: "f" * width)
+    entries = [
+        ("openapi", "a-b/spec.yaml"),
+        ("openapi", "a_b/spec.yaml"),
+        ("openapi", "a.b/spec.yaml"),
+    ]
+
+    resolved = assign_source_ids(entries)
+    assert len(set(resolved)) == 3
+    assert all(len(value) <= MAX_SOURCE_ID_LENGTH for value in resolved)
+    # "a-b" < "a.b" < "a_b" by path, so that is the numbering order.
+    assert [resolved[0][-2:], resolved[2][-2:], resolved[1][-2:]] == ["_0", "_1", "_2"]
+    assert assign_source_ids(list(reversed(entries))) == list(reversed(resolved))
