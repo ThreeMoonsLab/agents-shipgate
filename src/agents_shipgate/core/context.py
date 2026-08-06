@@ -27,7 +27,7 @@ from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.inputs.common import PositionIndex
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import CapabilityRuntimeEvidence, EvidenceGap
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 from agents_shipgate.schemas.verification import VerificationContext
@@ -92,6 +92,14 @@ class ScanContext:
     toolkit_bounds: list[ToolkitScopeBound] = field(default_factory=list)
     # Computed once during verify and shared by all boundary Finding projections.
     agent_boundary: AgentBoundaryAssessment | None = None
+    # The manifest's ``ci`` block as declared on disk, before ``--ci-mode`` /
+    # ``--fail-on`` were folded into ``manifest.ci``. The Tier B weakening
+    # checks build their HEAD effective-policy snapshot from this so the
+    # base-vs-head comparison is repository-vs-repository, not
+    # invocation-vs-repository (#298). ``None`` means "no override was
+    # applied" — direct constructions (tests, plugins) fall back to
+    # ``manifest.ci``, which is then already the declared block.
+    declared_ci: CiConfig | None = None
 
     def artifact(self, source_type: str, expected_type: type[T]) -> T | None:
         return self.framework_artifacts.get(source_type, expected_type)

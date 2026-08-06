@@ -17,7 +17,7 @@ from agents_shipgate.core.lenses.effective_policy import (
 )
 from agents_shipgate.core.semantic_consistency import validate_semantic_consistency
 from agents_shipgate.report.json_report import report_json_payload
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import ReadinessReport
 
 from .models import _OutputPlan, _SanitizedSurfaces
@@ -29,6 +29,7 @@ def _build_final_report(
     manifest: AgentsShipgateManifest,
     sanitized: _SanitizedSurfaces,
     plan: _OutputPlan,
+    declared_ci: CiConfig | None = None,
 ) -> tuple[ReadinessReport, Any]:
     """Phase 8: hash the run_id, build the ``ReadinessReport`` from the
     fully sanitized surfaces, run capability-diff enrichment, and
@@ -37,6 +38,10 @@ def _build_final_report(
     The ``_run_id`` inputs are exactly what they were pre-decomp —
     STABILITY contract requires byte-identical hashes for the same
     workspace.
+
+    ``declared_ci`` is the pre-override ``ci`` block; only
+    ``effective_policy`` uses it. Everything else here — ``run_id``,
+    ``report.ci_mode``, ``report.fail_on`` — keeps describing the run.
     """
     report = build_report(
         run_id=_run_id(
@@ -111,9 +116,15 @@ def _build_final_report(
         base_action_surface_facts=sanitized.base_action_surface_facts,
     )
     report.protected_surface_changes = build_protected_surface_changes(report)
+    # Built from the DECLARED ci block, not ``sanitized.manifest.ci``: this
+    # block is what a downstream ``verify --base`` reads back as the base
+    # policy, so it must survive this run's ``--ci-mode`` / ``--fail-on``
+    # untouched (#298). ``CiConfig`` is enums and bools only — nothing the
+    # sanitizer would have redacted out of it.
     report.effective_policy = build_effective_policy_snapshot(
         sanitized.manifest,
         baseline_fingerprints=accepted_debt_fingerprints(report.findings),
+        declared_ci=declared_ci,
     )
     report.human_ack = build_human_ack(report, sanitized.manifest)
     report.verifier_summary = build_verifier_summary(report)

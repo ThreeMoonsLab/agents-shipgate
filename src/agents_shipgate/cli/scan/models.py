@@ -22,7 +22,7 @@ from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
 from agents_shipgate.core.privacy import RedactionStats
 from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import PolicyAudit
 from agents_shipgate.schemas.surfaces import ActionSurfaceFacts
 
@@ -34,6 +34,13 @@ class _ResolvedManifest:
     manifest: AgentsShipgateManifest
     manifest_positions: Any
     base_dir: Path
+    # The ``ci`` block exactly as declared on disk, kept aside before
+    # ``--ci-mode`` / ``--fail-on`` were folded into ``manifest.ci``. The
+    # effective-policy snapshot is built from THIS, so it describes the
+    # repository's gate rather than the invocation's (#298). ``manifest.ci``
+    # stays the post-override view — that is what the run's own exit code
+    # and ``report.ci_mode`` must reflect.
+    declared_ci: CiConfig
 
 
 @dataclass(frozen=True)

@@ -17,6 +17,7 @@ category-"verify" findings that flow through the one decision engine.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agents_shipgate.checks import (
@@ -88,6 +89,36 @@ def _rank(sev):
     from agents_shipgate.schemas.capability_change import SEVERITY_RANK
 
     return (SEVERITY_RANK.get(sev, -1), sev)
+
+
+def test_cli_overrides_never_reach_the_effective_policy_snapshot(tmp_path):
+    """The snapshot describes the repository, never the invocation (#298).
+
+    This is the structural guard behind the end-to-end regressions further
+    down: it drives every CLI override ``_prepare_scan`` supports at once
+    and asserts the snapshot is byte-identical to one built from the
+    untouched on-disk manifest. A future override that lands on a
+    snapshot field without carrying its declared value fails here.
+    """
+    from agents_shipgate.cli.scan.prepare import _prepare_scan
+
+    resolved = _prepare_scan(
+        config_path=SAMPLE,
+        ci_mode="strict",
+        fail_on=["critical"],
+        output_dir=tmp_path,
+        formats=["json"],
+        packet_enabled=False,
+        packet_formats=["md"],
+        baseline_mode="new-findings",
+    )
+    # The run itself honors the overrides — that is what gates this scan.
+    assert resolved.manifest.ci.mode == "strict"
+    assert list(resolved.manifest.ci.fail_on) == ["critical"]
+    # The snapshot does not.
+    assert build_effective_policy_snapshot(
+        resolved.manifest, declared_ci=resolved.declared_ci
+    ).model_dump() == build_effective_policy_snapshot(_manifest()).model_dump()
 
 
 # --- SHIP-VERIFY-POLICY-WEAKENED -------------------------------------------
@@ -183,6 +214,219 @@ def test_policy_weakened_no_base_no_policy_touch_emits_nothing():
         _context(base_policy=None, changed_files=["README.md"])
     )
     assert findings == []
+
+
+# --- SHIP-VERIFY-POLICY-WEAKENED through the real `verify --base` path ------
+#
+# The unit tests above inject the base ``EffectivePolicy`` directly, so they
+# cannot see how the snapshot is *produced*. These two drive real base and
+# head scans through ``run_verify``, which is where the snapshot used to
+# describe the invocation instead of the repository (issue #298): the base
+# scan is forced to ``ci_mode="advisory"`` and the head scan inherits the
+# caller's ``--ci-mode`` / ``--fail-on``. Both directions are covered — the
+# under-fire on ``ci_mode`` and the over-fire on ``fail_on``.
+
+
+def _init_repo(repo: Path) -> None:
+    import subprocess
+
+    for args in (
+        ("init",),
+        ("config", "user.email", "test@example.test"),
+        ("config", "user.name", "Test User"),
+    ):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+def _commit(repo: Path, message: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", message], cwd=repo, check=True, capture_output=True
+    )
+
+
+def _sample_repo(tmp_path: Path) -> tuple[Path, Path]:
+    """Copy the sample agent into a fresh git repo. Returns (repo, manifest)."""
+    import shutil
+
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(Path(__file__).resolve().parent.parent / SAMPLE.parent, sample_dst)
+    return repo, sample_dst / "shipgate.yaml"
+
+
+def _weakened_repo(tmp_path: Path) -> Path:
+    """A repo whose HEAD downgrades the declared gate strict -> advisory."""
+    repo, manifest_path = _sample_repo(tmp_path)
+    declared = manifest_path.read_text(encoding="utf-8")
+    manifest_path.write_text(
+        declared.replace("ci:\n  mode: advisory", "ci:\n  mode: strict"),
+        encoding="utf-8",
+    )
+    _init_repo(repo)
+    _commit(repo, "base: strict gate")
+    manifest_path.write_text(declared, encoding="utf-8")
+    _commit(repo, "head: weaken gate to advisory")
+    return repo
+
+
+def _run_verify(repo: Path, **overrides):
+    from agents_shipgate.cli.verify.orchestrator import run_verify
+
+    kwargs = dict(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=True,
+        out=repo / "agents-shipgate-reports",
+        ci_mode=None,
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+    kwargs.update(overrides)
+    return run_verify(**kwargs)
+
+
+def _policy_kinds(report) -> set[str]:
+    return {
+        f.evidence.get("kind")
+        for f in report.findings
+        if f.check_id == "SHIP-VERIFY-POLICY-WEAKENED"
+    }
+
+
+def test_ci_mode_weakened_fires_through_real_base_scan(tmp_path):
+    """strict -> advisory in the manifest must be named by the specific check.
+
+    Regression for #298: the base scan runs with a forced
+    ``ci_mode="advisory"`` for its own exit code, and that override used to
+    leak into the base report's ``effective_policy``, so every base read back
+    as advisory and this disjunct could never fire.
+    """
+    repo = _weakened_repo(tmp_path)
+
+    _, report, _ = _run_verify(repo)
+    assert report is not None
+    assert "ci_mode_weakened" in _policy_kinds(report)
+    weakened = next(
+        f
+        for f in report.findings
+        if f.evidence.get("kind") == "ci_mode_weakened"
+    )
+    assert weakened.evidence["base_ci_mode"] == "strict"
+    assert weakened.evidence["head_ci_mode"] == "advisory"
+
+
+def test_fail_on_cli_override_is_not_reported_as_loosening(tmp_path):
+    """``--fail-on`` narrows this run; it does not weaken the repository.
+
+    Regression for #298: the head scan applied the caller's ``--fail-on``
+    to the manifest before the snapshot was taken while the base scan did
+    not, so a PR that touched no policy at all was accused of dropping a
+    severity from the gate.
+    """
+    repo, manifest_path = _sample_repo(tmp_path)
+    manifest_path.write_text(
+        manifest_path.read_text(encoding="utf-8").replace(
+            "ci:\n  mode: advisory",
+            "ci:\n  mode: advisory\n  fail_on: [high, critical]",
+        ),
+        encoding="utf-8",
+    )
+    _init_repo(repo)
+    _commit(repo, "base")
+    (repo / "README.md").write_text("unrelated\n", encoding="utf-8")
+    _commit(repo, "head: unrelated change")
+
+    _, report, _ = _run_verify(repo, fail_on=["high"])
+    assert report is not None
+    assert "fail_on_loosened" not in _policy_kinds(report)
+
+
+def test_ci_mode_weakening_still_fires_under_a_strict_cli_override(tmp_path):
+    """A ``--ci-mode strict`` invocation must not mask a weakened manifest."""
+    repo = _weakened_repo(tmp_path)
+
+    _, report, _ = _run_verify(repo, ci_mode="strict")
+    assert report is not None
+    assert "ci_mode_weakened" in _policy_kinds(report)
+
+
+def _stale_base_cache_entries(repo: Path) -> list[Path]:
+    """Rewrite every cached base report the way the pre-#298 CLI left it.
+
+    ``ci_mode`` back to ``"advisory"`` with a matching content hash — the
+    cache admits an entry on that hash alone, so this is indistinguishable
+    from an entry a pre-fix build wrote.
+    """
+    import hashlib
+
+    entries = sorted(
+        (repo / ".git" / "agents-shipgate" / "base-scans").glob("*/report.json")
+    )
+    for entry in entries:
+        payload = json.loads(entry.read_text(encoding="utf-8"))
+        payload["effective_policy"]["ci_mode"] = "advisory"
+        entry.write_text(json.dumps(payload), encoding="utf-8")
+        entry.with_suffix(".sha256").write_text(
+            f"{hashlib.sha256(entry.read_bytes()).hexdigest()}\n", encoding="ascii"
+        )
+    return entries
+
+
+# The base-scan cache-key epoch the pre-#298 CLI wrote its entries under.
+# Pinned as a literal, not as ``BASE_CACHE_KEY_EPOCH - 1``: the point is that
+# entries from THIS epoch stay unreachable, which a relative expression would
+# stop asserting the moment the epoch moved again — or if it were reverted.
+_PRE_298_CACHE_EPOCH = 2
+
+
+def test_base_cache_from_the_pre_fix_epoch_is_not_reused(tmp_path, monkeypatch):
+    """Fixing the producer is not enough while stale entries stay readable.
+
+    The base-scan cache validates an entry by content hash, which proves it
+    was not tampered with and says nothing about whether its fields still
+    mean what this CLI expects. ``__version__`` is in the key but does not
+    move for a source checkout or between two builds sharing a pre-release
+    version string, so a base report written before #298 — recording
+    ``advisory`` for a base that declared ``strict`` — was reused verbatim
+    and the fix stayed invisible. ``BASE_CACHE_KEY_EPOCH`` strands those
+    entries on a key nothing computes.
+    """
+    from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
+
+    repo = _weakened_repo(tmp_path)
+    monkeypatch.setattr(
+        verify_orchestrator, "BASE_CACHE_KEY_EPOCH", _PRE_298_CACHE_EPOCH
+    )
+    _run_verify(repo)
+    assert _stale_base_cache_entries(repo), "no base cache entry was written to poison"
+
+    # Positive control: under the epoch that wrote it, the poisoned entry IS
+    # believed. Without this the assertion below could pass because the entry
+    # was never readable in the first place.
+    _, report, _ = _run_verify(repo)
+    assert report is not None
+    assert "ci_mode_weakened" not in _policy_kinds(report)
+
+    # Under the shipped epoch the same entry is unreachable, so the base is
+    # re-scanned and the weakening is named.
+    monkeypatch.undo()
+    _, report, _ = _run_verify(repo)
+    assert report is not None
+    assert "ci_mode_weakened" in _policy_kinds(report)
 
 
 # --- SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED -------------------------------

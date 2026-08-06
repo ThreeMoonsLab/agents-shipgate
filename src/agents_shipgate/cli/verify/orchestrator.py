@@ -124,6 +124,26 @@ HEAD_FORMATS = ["markdown", "json", "sarif"]
 HEAD_PACKET_FORMATS = ["json"]
 DEFAULT_OUT_DIR = Path("agents-shipgate-reports")
 BASE_CACHE_KEEP_ENTRIES = 16
+# Cache-key epoch for base-scan reuse.
+#
+# A cached base report is admitted on a content hash alone: that proves the
+# file was not tampered with, never that its CONTENTS still mean what the
+# current CLI expects of them. ``__version__`` is in the key but is not
+# sufficient on its own — a source checkout, an editable install, or any two
+# builds sharing one pre-release version string can change what a field means
+# without moving the version, and the stale entry is then reused verbatim.
+#
+# Bump this whenever the MEANING of anything inside a cached base report
+# changes. Pre-existing entries then land on a key nothing computes and are
+# never read again; the next run does a fresh base scan. Bumping is cheap —
+# the cost is one re-scan per base tree — so prefer it to reasoning about
+# whether a given change is observable through the cache.
+#
+# 3 — ``effective_policy`` records the manifest's DECLARED ci block rather
+#     than the base scan's forced ``ci_mode="advisory"`` (#298). Entries
+#     written before that read back as advisory for every base, which is
+#     exactly the state in which ``ci_mode_weakened`` cannot fire.
+BASE_CACHE_KEY_EPOCH = 3
 MAX_HUMAN_AUTHORIZATION_BYTES = 1024 * 1024
 MAX_WORKTREE_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
@@ -1022,7 +1042,7 @@ def _cache_report_path(
     evaluation_date: str,
 ) -> Path:
     payload = {
-        "version": 2,
+        "version": BASE_CACHE_KEY_EPOCH,
         "agents_shipgate_version": __version__,
         "base_tree": base_tree,
         "config": config_relative.as_posix(),

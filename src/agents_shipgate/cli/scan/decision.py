@@ -26,7 +26,7 @@ from agents_shipgate.core.lenses.action_surface import (
 from agents_shipgate.core.policy_evidence import policy_evidence_gap
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
 from agents_shipgate.inputs.policy_packs import run_policy_pack_rules
-from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.verification import VerificationContext
 
 from .models import _ChecksDecision, _DiffReferences, _LoadedInputs, _ToolsAndAgent
@@ -47,6 +47,7 @@ def _run_checks_and_decide(
     suggest_patches: bool,
     no_heuristics: bool,
     verification_context: VerificationContext | None = None,
+    declared_ci: CiConfig | None = None,
 ) -> _ChecksDecision:
     """Phase 5: build internal action-surface facts, run all checks
     (built-in + plugin + policy-pack + action-surface policies),
@@ -113,6 +114,9 @@ def _run_checks_and_decide(
         diff_reference=diffs.diff_reference,
         # HEAD-side toolkit scope bounds for the capability-scope check.
         toolkit_bounds=tools_and_agent.toolkit_bounds,
+        # Pre-override ``ci`` block, so the Tier B weakening checks judge the
+        # declared gate instead of this invocation's (#298).
+        declared_ci=declared_ci,
     )
     context.capability_runtime_evidence = build_capability_runtime_evidence(context)
     loaded_plugins: list[dict[str, str | None]] = []

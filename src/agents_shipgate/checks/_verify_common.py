@@ -81,8 +81,18 @@ def head_effective_policy(context: ScanContext) -> EffectivePolicy:
     checks run before the report is assembled. ``baseline_fingerprints``
     is intentionally left empty at check time — findings are not yet
     baseline-matched — so comparisons use only the manifest-derived fields.
+
+    ``context.declared_ci`` carries the on-disk ``ci`` block from before
+    ``--ci-mode`` / ``--fail-on`` were applied, so the head side of every
+    comparison describes the head *repository* — the same thing the base
+    report's snapshot describes. Without it, ``verify --fail-on high``
+    against a manifest declaring more severities reads as a loosening
+    that nobody authored (#298).
     """
-    return build_effective_policy_snapshot(context.manifest)
+    return build_effective_policy_snapshot(
+        context.manifest,
+        declared_ci=context.declared_ci,
+    )
 
 
 def base_effective_policy(context: ScanContext) -> EffectivePolicy | None:
