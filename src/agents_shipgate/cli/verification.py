@@ -31,6 +31,7 @@ from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
+    read_static_input_text,
     reset_static_input_snapshot,
 )
 from agents_shipgate.core.verification_identity import (
@@ -332,6 +333,11 @@ def _captured_inputs(
     token = activate_static_input_snapshot(snapshot)
     try:
         try:
+            # Read the manifest once, through the snapshot, and parse from those
+            # exact bytes. `load_manifest_with_positions` otherwise reads it
+            # twice — a direct `Path.read_text` for the model, then the snapshot
+            # for positions — so a rewrite between the two would let the
+            # adapters follow one manifest while the plan hashes the other.
             resolved = _prepare_scan(
                 config_path=config_path,
                 ci_mode=None,
@@ -341,6 +347,10 @@ def _captured_inputs(
                 packet_enabled=None,
                 packet_formats=None,
                 baseline_mode="new-findings",
+                manifest_text=read_static_input_text(
+                    config_path,
+                    max_bytes=_MAX_CHANGED_FILE_BYTES,
+                ),
             )
             _load_inputs(
                 manifest=resolved.manifest,

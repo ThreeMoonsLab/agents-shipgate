@@ -665,6 +665,7 @@ def run_verify(
     head_tree: str | None = None
     head_snapshot: StaticInputSnapshot | None = None
     head_snapshot_token: Token[StaticInputSnapshot | None] | None = None
+    head_manifest_text: str | None = None
     head_capability_lock: CapabilityLockFileV1 | None = None
     capability_lock_diff: CapabilityLockDiffV1 | None = None
 
@@ -744,6 +745,11 @@ def run_verify(
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
             archive_tree(git_root, head, head_tree_dir)
+            # Resolve once the tree exists. The snapshot matches paths lexically,
+            # and on macOS the temporary directory is reached through /var while
+            # every adapter resolves its base directory to /private/var — two
+            # spellings make `contains()` false for paths plainly inside it.
+            head_tree_dir = head_tree_dir.resolve()
             head_input_root = head_tree_dir
             head_tree = tree_sha(git_root, head)
             head_config_path = head_tree_dir / config_relative
@@ -773,14 +779,28 @@ def run_verify(
             # actually being evaluated, so an input discovered while parsing an
             # entrypoint — an ADK McpToolset inventory, an OpenAPI spec named
             # only from Python — reaches `input_set_id` here exactly as it
-            # already does for a worktree run. Resolve the root: on macOS the
-            # temporary directory is reached through /var, and every adapter
-            # resolves its base directory, so an unresolved root would make
-            # `contains()` false for every path under it.
+            # already does for a worktree run.
             head_snapshot = StaticInputSnapshot(
-                head_tree_dir.resolve(),
+                head_tree_dir,
                 excluded_paths=[out_dir],
             )
+            # Read the manifest once, here, and hand those exact bytes to the
+            # scan. `load_manifest_with_positions` otherwise parses it twice —
+            # first through a direct `Path.read_text`, only then through the
+            # snapshot for positions — so a rewrite between the two would let
+            # the scan follow one manifest while the plan hashes the other.
+            # The worktree path has always passed its captured text for this
+            # reason; the archived path passed None.
+            try:
+                head_manifest_text = head_snapshot.read_bytes(
+                    head_config_path,
+                    max_bytes=MAX_WORKTREE_CHANGED_FILE_BYTES,
+                ).decode("utf-8")
+            except (OSError, ValueError, UnicodeDecodeError) as exc:
+                raise ConfigError(
+                    f"Head manifest {config_relative.as_posix()} could not be "
+                    f"captured for verification: {exc}"
+                ) from exc
             # Externally supplied inputs keep their worktree location even for a
             # committed-tree run — `_map_optional_tree_path` only rewrites paths
             # under the repository — so the scan below reads them from outside
@@ -803,7 +823,7 @@ def run_verify(
             # worktree preload above.
             _bind_changed_files(
                 head_snapshot,
-                root=head_tree_dir.resolve(),
+                root=head_tree_dir,
                 relative_paths=changed_files,
             )
         with use_evaluation_date(date.fromisoformat(verification_date)):
@@ -838,7 +858,9 @@ def run_verify(
                         manifest_introduced=manifest_introduced,
                     ),
                     capability_lock_callback=capture_capability_lock,
-                    manifest_text=worktree_manifest_text if not archive_head else None,
+                    manifest_text=(
+                        head_manifest_text if archive_head else worktree_manifest_text
+                    ),
                 )
             finally:
                 # Deactivated for the rest of the run so the worktree snapshot

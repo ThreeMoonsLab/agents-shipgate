@@ -134,6 +134,13 @@
   explicit `--baseline`, `--diff-from`, and policy packs, with the comparison
   report bound as an external input on a committed-tree preparation because it
   is never mapped into the evaluated tree.
+  The manifest itself is now read once, through the snapshot, and parsed from
+  those bytes. `load_manifest_with_positions` otherwise reads it twice — a
+  direct `Path.read_text` for the model, then the snapshot for positions — so a
+  rewrite between the two let the adapters follow one manifest while the plan's
+  config blob attested to another: a receipt could name an entrypoint the scan
+  never opened. The worktree path always passed its captured text for this
+  reason; the committed-tree path and `verification prepare` passed none.
   A committed-tree run therefore has two snapshots alive, and each external
   input must belong to exactly one of them: the worktree snapshot binds the
   baseline, policy packs, and comparison report *before* the archived scan

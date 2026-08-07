@@ -507,6 +507,136 @@ def test_prepare_binds_the_explicit_baseline_and_comparison_report(
     assert plans[0]["inputs"]["input_set_id"] != plans[1]["inputs"]["input_set_id"]
 
 
+def _spy_on_the_parsed_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    replacement: str,
+) -> tuple[list[str], list[Path]]:
+    """Record each manifest parse, rewriting the parsed file after the first.
+
+    The rewrite targets the manifest the loader was actually handed — the
+    archived copy on a committed-tree run, not the worktree original, which the
+    scan there never opens. It lands between the first parse and anything that
+    reads the manifest again, which is exactly the window this guards.
+    """
+
+    from agents_shipgate.cli.scan import prepare as scan_prepare
+
+    seen: list[str] = []
+    rewritten: list[Path] = []
+    real_from_path = scan_prepare.load_manifest_with_positions
+    real_from_text = scan_prepare.load_manifest_text_with_positions
+
+    def record(text: str, target: Path) -> None:
+        seen.append(text)
+        if len(seen) == 1 and target.is_file():
+            target.write_text(replacement, encoding="utf-8")
+            rewritten.append(target)
+
+    def spy_from_path(path: Path):  # type: ignore[no-untyped-def]
+        target = Path(path)
+        record(target.read_text(encoding="utf-8"), target)
+        return real_from_path(path)
+
+    def spy_from_text(text: str, *, source: Any = "shipgate.yaml"):  # type: ignore[no-untyped-def]
+        record(text, Path(source))
+        return real_from_text(text, source=source)
+
+    monkeypatch.setattr(scan_prepare, "load_manifest_with_positions", spy_from_path)
+    monkeypatch.setattr(scan_prepare, "load_manifest_text_with_positions", spy_from_text)
+    return seen, rewritten
+
+
+def _adk_manifest_naming(entrypoint: str) -> str:
+    return (
+        'version: "0.1"\n\n'
+        "project:\n  name: google-adk-support-agent\n\n"
+        "agent:\n  name: adk-support-agent\n"
+        "  declared_purpose:\n    - handle support lookup\n\n"
+        "environment:\n  target: production_like\n\n"
+        "tool_sources:\n"
+        "  - id: adk_support\n    type: google_adk\n"
+        f"    path: {entrypoint}\n"
+    )
+
+
+@pytest.mark.parametrize("committed", [False, True], ids=["prepare", "committed_verify"])
+def test_the_scan_and_the_plan_agree_on_one_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    committed: bool,
+) -> None:
+    """The manifest must be parsed once, from the bytes the plan hashes.
+
+    ``load_manifest_with_positions`` reads it twice — a direct ``Path.read_text``
+    for the model, then the snapshot for positions. A rewrite in between lets
+    the adapters follow one manifest while the plan's config blob attests to
+    another, so a receipt could name an entrypoint the scan never opened.
+
+    Two outcomes are correct once the manifest is read through the snapshot:
+    refusing the run because the bytes moved, or emitting a plan that agrees
+    with the manifest the scan followed. Only the third is a defect — succeeding
+    with a plan that disagrees — so that is what this asserts against. Both
+    outcomes occur here: ``prepare`` fails closed, committed-tree ``verify``
+    emits a consistent plan.
+    """
+
+    repo = _sample_repo(tmp_path, "google_adk_agent")
+    (repo / "agent-two.py").write_bytes((repo / "agent.py").read_bytes())
+    manifest = repo / "shipgate.yaml"
+    manifest.write_text(_adk_manifest_naming("agent.py"), encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "single-entrypoint manifest")
+
+    seen, rewritten = _spy_on_the_parsed_manifest(
+        monkeypatch,
+        replacement=_adk_manifest_naming("agent-two.py"),
+    )
+
+    if committed:
+        plan_path = repo / "reports" / "verifier.json" / "verification-plan.json"
+        result = runner.invoke(
+            app,
+            [
+                "verify",
+                "--workspace",
+                str(repo),
+                # No base comparison: the base tree is scanned first and would
+                # otherwise absorb the one rewrite before the head scan parses.
+                "--no-base",
+                "--head",
+                "HEAD",
+                "--out",
+                str(repo / "reports" / "verifier.json"),
+            ],
+        )
+    else:
+        plan_path = tmp_path / "out" / "verification-plan.json"
+        result = runner.invoke(
+            app,
+            ["verification", "prepare", "--workspace", str(repo), "--out", str(plan_path)],
+        )
+
+    assert seen, "no manifest parse was observed; the test proves nothing"
+    # Compare against the replacement text, not the file: an archived tree is a
+    # temporary directory that is already gone by now.
+    assert rewritten, "the rewrite never landed; the test proves nothing"
+    assert seen[0] != _adk_manifest_naming("agent-two.py")
+
+    if not plan_path.is_file():
+        # Refused the run rather than attesting to a manifest that moved.
+        assert result.exit_code != 0, result.output
+        return
+
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    # The plan attests to the manifest the scan actually followed...
+    assert plan["inputs"]["config"]["sha256"] == sha256_bytes(seen[0].encode("utf-8"))
+    # ...and to the entrypoint that manifest named.
+    bound = {blob["path"] for blob in plan["inputs"]["tool_sources"]}
+    assert "agent.py" in bound
+    assert "agent-two.py" not in bound
+
+
 def test_prepare_input_error_carries_the_agent_mode_envelope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
