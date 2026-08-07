@@ -1425,7 +1425,9 @@ when it is `"not_evaluated"`, `should_run`, `run_shipgate`, `skip`, and
 one of `stop_conditions`, `skip_rule`, `dry_run_only`, `no_match` — and
 `no_match` is never emitted for inputs that were not fully read. A `run`
 verdict *is* still published from partial evidence: rule matching is monotone,
-so more evidence can only add matches. It also carries `base_status`,
+so more evidence can only add matches. `matched_rules` says what carried it —
+a `force_run` match rests on the manifest being present, not on anything the
+diff showed. It also carries `base_status`,
 `head_status`, `base_ref`, `head_ref`, `changed_files`, `base_notes`, the full
 embedded `release_decision`, and an `artifacts` map
 (`{verifier_json, pr_comment, report_json, report_markdown, report_sarif,

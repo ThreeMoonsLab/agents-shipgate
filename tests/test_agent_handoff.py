@@ -152,6 +152,7 @@ def _authorized_verifier_payload() -> dict:
     release["reason"] = "A protected workflow change requires human review."
     release["review_items"] = release.pop("blockers")
     payload["verifier_schema_version"] = "0.7"
+    payload["diff_status"] = {"completeness": "complete"}
     payload["decision"] = "review_required"
     payload["merge_verdict"] = "human_review_required"
     payload["control"] = derive_agent_control(
@@ -384,6 +385,7 @@ def test_preview_handoff_carries_standing_forbidden_lists() -> None:
         "merge_verdict": "unknown",
         "applicability": "not_evaluated",
         "can_merge_without_human": False,
+        "diff_status": {"completeness": "complete"},
         "authorization": AuthorizationEvaluationV1.not_requested().model_dump(mode="json"),
         "control": derive_agent_control(
             reason="Configure Agents Shipgate before verification.",

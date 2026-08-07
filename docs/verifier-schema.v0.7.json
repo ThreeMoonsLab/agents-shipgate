@@ -1875,7 +1875,8 @@
           "enum": [
             "complete",
             "partial",
-            "unavailable"
+            "unavailable",
+            "unknown"
           ],
           "title": "Completeness",
           "type": "string"
@@ -2562,15 +2563,7 @@
       "title": "Decision Id"
     },
     "diff_status": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/VerifierDiffStatus"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+      "$ref": "#/$defs/VerifierDiffStatus"
     },
     "diff_text_available": {
       "default": false,
@@ -2812,6 +2805,7 @@
   "required": [
     "workspace",
     "config",
+    "diff_status",
     "control",
     "authorization"
   ],

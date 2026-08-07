@@ -59,6 +59,7 @@ from agents_shipgate.schemas.surfaces import (
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierCapabilityReview,
+    VerifierDiffStatus,
     VerifierFixTask,
     VerifierRepair,
 )
@@ -852,6 +853,7 @@ def test_verify_real_base_scan_enables_head_diff(tmp_path: Path) -> None:
 def test_pr_comment_keeps_code_span_values_unescaped() -> None:
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         base_ref="origin/main",
@@ -950,6 +952,7 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     )
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -1019,6 +1022,7 @@ def test_capability_review_pr_comment_preserves_valid_agent_json_when_compacted(
     ]
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -1062,6 +1066,7 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
     report = _report(decision="review_required", exit_code=0)
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -1088,6 +1093,7 @@ def test_capability_review_pr_comment_does_not_double_blank_without_headline() -
     report = _report(decision="review_required", exit_code=0)
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -1111,6 +1117,7 @@ def test_capability_review_pr_comment_does_not_double_blank_without_headline() -
 def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},

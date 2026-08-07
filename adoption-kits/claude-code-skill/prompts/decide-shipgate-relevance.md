@@ -58,9 +58,12 @@ the rules to the changed file list.
    the diff could not be read, so there is no verdict. Report the missing
    input and stop — never treat it as "this PR is not agent-related".
    An `input_status` other than `complete` alongside
-   `evaluation_status: evaluated` is not a contradiction: the evidence that
-   was read already proved Shipgate should run. Honor that verdict, and say
-   the diff still needs recovering.
+   `evaluation_status: evaluated` is not a contradiction: evidence that did
+   not depend on the missing bytes already proved Shipgate should run — a
+   rule matched on the change set, or `force_run` from a manifest that is
+   present regardless of the diff. Honor that verdict, read `matched_rules`
+   before saying what established it, and say the diff still needs
+   recovering.
 
 4. **Emit the decision.** Always reply in this exact JSON shape so
    downstream automation can parse you:

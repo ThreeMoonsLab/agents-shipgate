@@ -24,6 +24,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
@@ -650,3 +651,178 @@ def test_verify_merges_partial_worktree_paths_into_the_change_set(
     }
     assert payload["merge_verdict"] == "unknown"
     assert payload["can_merge_without_human"] is False
+
+
+# --- the status, the repair, and the headline must agree -------------------
+
+
+def test_a_current_artifact_cannot_omit_its_input_health(tmp_path: Path) -> None:
+    """`diff_status` is the input-health contract; dropping it must not validate.
+
+    A v0.7 payload with no `diff_status` would be indistinguishable from one
+    that read its diff cleanly — the exact claim the field exists to prevent.
+    """
+
+    from agents_shipgate.schemas.verifier import VerifierArtifact, VerifierDiffStatus
+
+    repo = _repo(tmp_path / "repo")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit(repo, "base")
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--preview", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    emitted = json.loads(result.output)
+    assert emitted["diff_status"]["completeness"] == "complete"
+
+    without = {k: v for k, v in emitted.items() if k != "diff_status"}
+    with pytest.raises(ValidationError):
+        VerifierArtifact.model_validate(without)
+
+    # A pre-v0.7 artifact legitimately has none, and normalizes to "unknown" —
+    # which is not "complete", so it still withholds trust in a negative result.
+    legacy = dict(without)
+    legacy["verifier_schema_version"] = "0.6"
+    normalized = VerifierArtifact.model_validate(legacy)
+    assert normalized.verifier_schema_version == "0.7"
+    assert normalized.diff_status == VerifierDiffStatus.unknown()
+    assert normalized.diff_status.completeness == "unknown"
+    assert normalized.diff_status.reason is None
+
+
+def test_fetch_repairable_cannot_be_claimed_for_a_deterministic_failure() -> None:
+    from agents_shipgate.schemas.verifier import VerifierDiffStatus
+
+    with pytest.raises(ValueError, match="fetching cannot repair"):
+        VerifierDiffStatus(
+            completeness="unavailable",
+            reason="unrelated_histories",
+            fetch_repairable=True,
+        )
+
+
+def test_the_worst_failure_decides_both_status_and_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fetchable committed failure must not authorize a fetch for a worse one.
+
+    Committed diff fails fetch-repairably (`refs_missing`); the worktree then
+    fails deterministically. Deriving the action incrementally published
+    `fetch_base` beside a `diff_status` no fetch could repair — a loop.
+    """
+
+    repo = _repo(tmp_path / "repo")
+    (repo / "shipgate.yaml").write_text(MINIMAL_MANIFEST, encoding="utf-8")
+    (repo / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit(repo, "base")
+    (repo / "README.md").write_text("uncommitted\n", encoding="utf-8")
+
+    def _explode(*args: object, **kwargs: object) -> tuple[list[str], str]:
+        raise RuntimeError("simulated deterministic worktree failure")
+
+    monkeypatch.setattr(
+        "agents_shipgate.cli.verify.orchestrator.working_tree_context", _explode
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--base",
+            "does-not-exist",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    status = payload["diff_status"]
+    action = payload["control"]["next_action"]
+
+    assert status["reason"] == "git_failed"
+    assert status["fetch_repairable"] is False
+    # The published status and the authorized repair may not disagree.
+    assert action["kind"] != "fetch_base"
+    assert payload["can_merge_without_human"] is False
+
+
+def test_the_failure_headline_matches_the_control_route(tmp_path: Path) -> None:
+    """A `fetch_base` route may not be summarized as "human review required"."""
+
+    repo = _repo(tmp_path / "repo")
+    (repo / "shipgate.yaml").write_text(MINIMAL_MANIFEST, encoding="utf-8")
+    (repo / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit(repo, "base")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    control = payload["control"]
+
+    assert payload["diff_status"]["reason"] == "refs_missing"
+    assert control["state"] == "agent_action_required"
+    assert control["next_action"]["kind"] == "fetch_base"
+    assert control["human_review"]["required"] is False
+    for surface in (payload["headline"], control["reason"]):
+        assert "human review required" not in surface.casefold()
+        assert "refs_missing" in surface
+
+
+def test_a_force_run_verdict_is_not_attributed_to_unread_paths(
+    tmp_path: Path,
+) -> None:
+    """An adopted repo force-runs on the manifest, with no paths read at all."""
+
+    repo = _repo(tmp_path / "repo")
+    (repo / "shipgate.yaml").write_text(MINIMAL_MANIFEST, encoding="utf-8")
+    (repo / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit(repo, "base")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--preview",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    trigger = payload["trigger"]
+
+    assert payload["changed_files"] == []
+    assert trigger["force_run"] is True
+    assert trigger["should_run"] is True
+    assert {match["id"] for match in trigger["matched_rules"]} == {
+        "TRIGGER-EXISTING-MANIFEST-PRESENT"
+    }
+    for surface in (payload["headline"], payload["control"]["reason"]):
+        assert "already shows an agent-capability surface" not in surface
+        assert "already configured for Shipgate" in surface

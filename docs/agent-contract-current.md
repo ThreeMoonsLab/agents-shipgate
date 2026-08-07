@@ -361,8 +361,10 @@ operational overlay and cannot change those fields.
   are `null` and `next_action.kind` is `"input_required"`. `skip_reason` is
   never `"no_match"` for inputs that were not fully read. `"evaluated"` on an
   incomplete `diff_status` is not a contradiction: only *skip* verdicts are
-  withheld, so a `should_run: true` reached from the paths that were read is
-  authoritative and must not be overridden.
+  withheld, so a `should_run: true` reached from evidence that did not depend
+  on the missing bytes is authoritative and must not be overridden. Read
+  `matched_rules` to see what carried it — a `force_run` match rests on the
+  manifest, not on the diff.
 - `merge_verdict` — `"mergeable"` / `"human_review_required"` /
   `"insufficient_evidence"` / `"blocked"` / `"unknown"`. Deterministic projection
   of `release_decision.decision` (`passed`→`mergeable`,

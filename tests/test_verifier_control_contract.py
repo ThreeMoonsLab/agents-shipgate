@@ -18,7 +18,11 @@ from agents_shipgate.core.verification_identity import (
 from agents_shipgate.schemas.agent_control import CodingAgentCommandAction, HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
-from agents_shipgate.schemas.verifier import VerifierArtifact, map_merge_verdict
+from agents_shipgate.schemas.verifier import (
+    VerifierArtifact,
+    VerifierDiffStatus,
+    map_merge_verdict,
+)
 from agents_shipgate.schemas.verify_run import VerifyRunOutcome, build_verify_run_artifact
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -72,6 +76,7 @@ def _release_decision(decision: str) -> dict[str, object]:
 def _passed_verifier() -> VerifierArtifact:
     return VerifierArtifact(
         workspace="/tmp/repo",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         execution="succeeded",
         head_status="succeeded",
@@ -98,6 +103,7 @@ def _authorized_verifier() -> VerifierArtifact:
     )
     return VerifierArtifact(
         workspace="/tmp/repo",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         execution="succeeded",
         head_status="succeeded",
@@ -261,6 +267,7 @@ def test_nonpassing_release_decision_cannot_claim_merge_authority(decision: str)
     with pytest.raises(ValidationError):
         VerifierArtifact(
             workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
             execution="succeeded",
             head_status="succeeded",
@@ -301,6 +308,7 @@ def test_accepted_authorization_rejects_control_mismatch(mismatch: str) -> None:
     with pytest.raises(ValidationError):
         VerifierArtifact(
             workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
             execution="succeeded",
             head_status="succeeded",

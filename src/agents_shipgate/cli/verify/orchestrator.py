@@ -95,6 +95,9 @@ from agents_shipgate.schemas.verify_run import (
     build_verify_run_artifact,
 )
 from agents_shipgate.triggers import (
+    ACTION_FORCE_RUN as TRIGGER_ACTION_FORCE_RUN,
+)
+from agents_shipgate.triggers import (
     INPUT_COMPLETE,
     INPUT_PARTIAL,
     INPUT_UNAVAILABLE,
@@ -346,8 +349,11 @@ def run_verify(
     base_capability_lock: CapabilityLockFileV1 | None = None
     base_notes: list[str] = []
     diff_unavailable = False
-    diff_input: DiffContext | None = None
-    diff_failure_action: AgentControlAction | None = None
+    # Every collector that fell short, paired with what its repair would need.
+    # The action and the headline are derived once from the worst of them, so
+    # a published ``diff_status`` can never disagree with the repair it
+    # authorizes.
+    diff_failures: list[tuple[DiffContext, str]] = []
 
     head_exists = ref_exists(git_root, head)
     if not head_exists:
@@ -460,22 +466,24 @@ def run_verify(
                 # different repair. Report which one instead of a single
                 # "could not be read".
                 diff_unavailable = True
-                diff_input = collected
                 base_status = "archive_failed"
+                diff_failures.append((collected, f"{base}...{head}"))
                 base_notes.append(
                     f"Could not collect the {base}...{head} diff in full. "
                     f"{collected.note}"
                 )
-                diff_failure_action = _diff_failure_action(
-                    collected, expects=f"{base}...{head}"
-                )
         else:
             diff_unavailable = True
             base_status = "ref_missing"
-            diff_input = DiffContext(
-                completeness="unavailable",
-                reason="refs_missing",
-                detail=f"Base ref {base!r} is not available locally.",
+            diff_failures.append(
+                (
+                    DiffContext(
+                        completeness="unavailable",
+                        reason="refs_missing",
+                        detail=f"Base ref {base!r} is not available locally.",
+                    ),
+                    base,
+                )
             )
             base_notes.append(
                 f"Base ref {base!r} is not available locally; run with fetch-depth: 0 "
@@ -509,17 +517,23 @@ def run_verify(
                 [*changed_files, *worktree_failure.changed_files]
             )
             diff_text = _join_diff_text(diff_text, worktree_failure.diff_text)
-            # A worktree shortfall is never softened by a committed-ref diff
-            # that did read cleanly: the two are unioned into one change set,
-            # so the union is only as complete as its weakest half.
-            diff_input = _least_complete(diff_input, worktree_failure)
+            diff_failures.append((worktree_failure, head))
             base_notes.append(
                 f"Could not collect working-tree diff context. "
                 f"{worktree_failure.note}"
             )
-            diff_failure_action = diff_failure_action or _diff_failure_action(
-                worktree_failure, expects=head
-            )
+
+    # A worktree shortfall is never softened by a committed-ref diff that did
+    # read cleanly: the two are unioned into one change set, so the union is
+    # only as complete as its weakest half — and the repair Shipgate authorizes
+    # has to be the repair for *that* half. Deriving it incrementally published
+    # a fetch_base action beside a diff_status no fetch could repair.
+    diff_input, diff_failure_expects = _worst_diff_failure(diff_failures)
+    diff_failure_action = (
+        _diff_failure_action(diff_input, expects=diff_failure_expects)
+        if diff_input is not None
+        else None
+    )
 
     trigger = evaluate(
         paths=changed_files,
@@ -573,6 +587,7 @@ def run_verify(
             out_dir=out_dir,
             ci_mode=ci_mode,
             first_next_action_override=diff_failure_action,
+            headline_override=_diff_failure_headline(diff_input),
             worktree=not archive_head,
             rerun_options=rerun_options,
         )
@@ -1826,14 +1841,64 @@ def _as_diff_context(exc: Exception) -> DiffContext:
 _DIFF_COMPLETENESS_ORDER = {"complete": 0, "partial": 1, "unavailable": 2}
 
 
-def _least_complete(*contexts: DiffContext | None) -> DiffContext:
-    """Return the weakest input among several halves of one change set."""
+def _worst_diff_failure(
+    failures: list[tuple[DiffContext, str]],
+) -> tuple[DiffContext | None, str]:
+    """Pick the one failure the artifact must report, with its repair target.
 
-    present = [context for context in contexts if context is not None]
-    if not present:
-        return DiffContext()
+    Halves of a single change set are unioned, so the union is only as complete
+    as its weakest half. Among equally incomplete halves the one a fetch cannot
+    repair wins: authorizing another fetch against a deterministic failure is
+    the loop this ordering exists to prevent.
+    """
+
+    if not failures:
+        return None, ""
     return max(
-        present, key=lambda context: _DIFF_COMPLETENESS_ORDER[context.completeness]
+        failures,
+        key=lambda pair: (
+            _DIFF_COMPLETENESS_ORDER[pair[0].completeness],
+            0 if pair[0].fetch_repairable else 1,
+        ),
+    )
+
+
+def _matched_diff_evidence(trigger: dict[str, Any]) -> bool:
+    """Whether any matched rule was decided by the change set itself.
+
+    ``force_run`` fires from the presence of a manifest, which is repository
+    state rather than diff evidence. Separating the two keeps a headline from
+    claiming a diff showed something when no diff was read.
+    """
+
+    return any(
+        match.get("action") != TRIGGER_ACTION_FORCE_RUN
+        for match in trigger.get("matched_rules", [])
+        if isinstance(match, dict)
+    )
+
+
+def _diff_failure_headline(context: DiffContext | None) -> str | None:
+    """Summarize a diff-input failure in the terms its control route uses.
+
+    The generic failed-scan headline says "human review required" for every
+    unknown verdict, which contradicts an artifact whose control state is
+    ``agent_action_required`` with a ``fetch_base`` next action. The headline
+    and the route are both derived from the same classified failure here.
+    """
+
+    if context is None:
+        return None
+    if context.fetch_repairable:
+        return (
+            f"Shipgate could not read the PR diff ({context.reason}); the "
+            "history it needs is not available locally yet, so no verdict was "
+            "reached. Make it available, then rerun verify."
+        )
+    return (
+        f"Shipgate could not read the PR diff ({context.reason}); fetching "
+        "cannot repair this, so no verdict was reached and a human must "
+        "resolve the input."
     )
 
 
@@ -3322,15 +3387,25 @@ def run_preview(
         # Partial evidence can still carry a sound run verdict — a matched path
         # rule needs no diff body — and the evaluator publishes it. Saying "no
         # relevance verdict was reached" alongside `should_run: true` would make
-        # the headline contradict the artifact it summarizes.
-        if trigger.get("run_shipgate"):
+        # the headline contradict the artifact it summarizes. But the run may
+        # rest on evidence that has nothing to do with the diff: an adopted
+        # repository force-runs on the manifest alone, with no paths read at
+        # all, so naming the paths there would attribute the verdict to
+        # evidence that does not exist.
+        if not trigger.get("run_shipgate"):
+            outcome = "no relevance verdict was reached"
+        elif _matched_diff_evidence(trigger):
             outcome = (
-                "the paths it did read already show an agent-capability "
+                "the change it did read already shows an agent-capability "
                 "surface, so relevance is established; recover the full diff "
                 "before trusting any merge verdict"
             )
         else:
-            outcome = "no relevance verdict was reached"
+            outcome = (
+                "this workspace is already configured for Shipgate, so "
+                "verification must run regardless; recover the full diff "
+                "before trusting any merge verdict"
+            )
         headline = (
             f"Shipgate preview {read} the requested PR diff "
             f"({diff_input.reason}); {outcome}."
