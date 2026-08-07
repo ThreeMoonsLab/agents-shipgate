@@ -8,6 +8,7 @@ from agents_shipgate.ci.release_decision import (
     SUGGESTED_DECLARATIONS_FILENAME,
     SUGGESTED_INVENTORY_FILENAME,
 )
+from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.packet.builder import build_packet
@@ -37,6 +38,10 @@ def _write_outputs(
     never serializes raw manifest content into the packet).
     """
     public_report = ReadinessReport.model_validate(public_report_payload)
+    # A standalone scan supersedes the report set in this directory.  Verify
+    # also calls run_scan internally, but writes its fresh route/identity
+    # artifacts only after this phase completes.
+    clear_verifier_route_artifacts(plan.out_dir)
     _write_reports(
         public_report,
         plan.generated_paths,

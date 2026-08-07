@@ -1,8 +1,12 @@
 import json
 from pathlib import Path
 
+import pytest
+
+from agents_shipgate.cli._artifact_lifecycle import VERIFIER_ROUTE_ARTIFACT_NAMES
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.baseline import write_baseline
+from agents_shipgate.core.errors import AgentsShipgateError
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 GOOGLE_ADK_SAMPLE = Path("samples/google_adk_agent/shipgate.yaml")
@@ -26,6 +30,56 @@ def test_sample_scan_generates_reports(tmp_path):
     assert (tmp_path / "report.md").exists()
     assert (tmp_path / "report.json").exists()
     assert "summary" in (tmp_path / "report.json").read_text(encoding="utf-8")
+
+
+def test_scan_removes_stale_verifier_route_artifacts(tmp_path: Path) -> None:
+    for name in VERIFIER_ROUTE_ARTIFACT_NAMES:
+        (tmp_path / name).write_text('{"stale": true}\n', encoding="utf-8")
+
+    run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert (tmp_path / "report.json").is_file()
+    assert not [
+        name for name in VERIFIER_ROUTE_ARTIFACT_NAMES if (tmp_path / name).exists()
+    ]
+
+
+def test_scan_does_not_replace_report_when_stale_route_cannot_be_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale_handoff = tmp_path / "agent-handoff.json"
+    stale_handoff.write_text('{"stale": true}\n', encoding="utf-8")
+    report_path = tmp_path / "report.json"
+    prior_report = '{"prior": true}\n'
+    report_path.write_text(prior_report, encoding="utf-8")
+    real_unlink = Path.unlink
+
+    def deny_stale_handoff_unlink(
+        path: Path, missing_ok: bool = False
+    ) -> None:
+        if path == stale_handoff:
+            raise PermissionError("test denied stale handoff cleanup")
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", deny_stale_handoff_unlink)
+
+    with pytest.raises(AgentsShipgateError, match="Could not remove stale verifier artifact"):
+        run_scan(
+            config_path=SAMPLE,
+            output_dir=tmp_path,
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+
+    assert stale_handoff.is_file()
+    assert report_path.read_text(encoding="utf-8") == prior_report
 
 
 def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):

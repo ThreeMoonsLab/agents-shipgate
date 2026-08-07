@@ -637,6 +637,16 @@ and pre-commit equivalents.
 When a PR changes what your agent can do, the verify loop writes these
 artifacts — in read order:
 
+The read path is command-scoped. After standalone `scan`, read
+`report.json.release_decision.decision`; `scan` does not produce a valid
+verifier handoff or receipt. After `verify`, validate
+`verification-receipt.json` and then read `agent-handoff.json`. If both
+commands use the same output directory, a later standalone scan removes the
+prior handoff, plan, unit result, artifact manifest, receipt, and copied human
+authorization before writing its report. `verify` writes a fresh
+content-addressed set after its internal scan completes. This prevents an old
+verifier route from being mistaken for the current scan result.
+
 - **`agents-shipgate-reports/verification-receipt.json`** — the **first artifact a coding agent validates**: a terminal content-addressed closure over the exact request (including `verification-input.diff`), worker result, decision, and artifact set. It is written last; use `agents-shipgate verification reproduce` to validate every referenced hash.
 - **`agents-shipgate-reports/agent-handoff.json`** — the compact `shipgate.agent_handoff/v6` object. Lead with `control.state`, then `gate.merge_verdict`; it projects the same request, decision, and authorization evaluation and does not introduce a second verdict.
 - **`agents-shipgate-reports/verifier.json`** — the **authoritative PR/control evidence substrate** (`verifier_schema_version: "0.6"`). A coding agent switches on `control.state`, then reads `authorization`, `merge_verdict` (`mergeable | human_review_required | insufficient_evidence | blocked | unknown`), `can_merge_without_human`, `control.next_action`, and `fix_task` when producing reviewer evidence for an agent-capability PR. Only an accepted signed authorization evaluation may expose an exact reviewed command; the release verdict remains unchanged. Local control comes from `shipgate check --format agent-boundary-json` and `shipgate.agent_boundary_result/v1`. See [`docs/agent-contract-current.md`](docs/agent-contract-current.md) for the field contract.

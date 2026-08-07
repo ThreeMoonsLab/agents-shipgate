@@ -17,6 +17,7 @@ from typing import Any
 from agents_shipgate import __version__
 from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
+from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.agent_control import derive_agent_control
@@ -224,7 +225,7 @@ def run_verify(
         ],
     )
     out_dir.mkdir(parents=True, exist_ok=True)
-    _clear_trusted_handoff(out_dir)
+    clear_verifier_route_artifacts(out_dir)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
@@ -1974,23 +1975,6 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
                 path.unlink()
 
 
-def _clear_trusted_handoff(out_dir: Path) -> None:
-    """Remove every prior terminal/projection artifact before a new run."""
-
-    for name in (
-        "agent-handoff.json",
-        "verification-plan.json",
-        "verification-unit-result.json",
-        "verification-artifacts.json",
-        "verification-receipt.json",
-        "human-authorization.json",
-    ):
-        path = out_dir / name
-        if path.is_file() or path.is_symlink():
-            with contextlib.suppress(OSError):
-                path.unlink()
-
-
 def _apply_authorization_overlay(
     verifier: VerifierArtifact,
     evaluation: AuthorizationEvaluationV1,
@@ -3116,7 +3100,7 @@ def run_preview(
         inputs=[("config", config_path)],
     )
     out_dir.mkdir(parents=True, exist_ok=True)
-    _clear_trusted_handoff(out_dir)
+    clear_verifier_route_artifacts(out_dir)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
     agent_handoff_path = out_dir / "agent-handoff.json"

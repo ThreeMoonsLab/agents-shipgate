@@ -128,6 +128,28 @@ one decision engine.
 `merge_verdict` is a deterministic projection of `release_decision.decision`, so
 the two can never disagree.
 
+### Command-scoped artifact lifecycle
+
+Choose the read path from the command that just completed, not merely from
+filenames already present in the output directory:
+
+- After standalone `scan`, `report.json.release_decision.decision` is
+  authoritative. `scan` writes report, advisory scaffold, and configured
+  packet formats; it does not produce a verifier handoff or terminal receipt.
+- After `verify`, validate `verification-receipt.json`, then read
+  `agent-handoff.json` and the supporting verifier artifacts in the order
+  above. The receipt and handoff retain the content-addressed identity of that
+  exact verify run.
+
+When standalone `scan` replaces a report set in the same output directory, it
+removes any prior `agent-handoff.json`, `verification-plan.json`,
+`verification-unit-result.json`, `verification-artifacts.json`,
+`verification-receipt.json`, and `human-authorization.json` before writing the
+new report. Their absence is intentional: an older verifier route or receipt
+must never appear to authorize or describe the newer scan. `verify` calls the
+same scan pipeline internally and writes a fresh, mutually consistent verifier
+artifact set afterward.
+
 ## Primary vs supporting surfaces
 
 Primary gates are intentionally narrow. CI gates on
