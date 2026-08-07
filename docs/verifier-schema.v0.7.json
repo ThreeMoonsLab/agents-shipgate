@@ -1904,6 +1904,7 @@
                 "not_attempted",
                 "refs_missing",
                 "merge_base_missing",
+                "unrelated_histories",
                 "objects_missing",
                 "metadata_limit_exceeded",
                 "body_limit_exceeded",

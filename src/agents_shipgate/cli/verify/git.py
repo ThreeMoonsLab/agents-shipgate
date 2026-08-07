@@ -71,6 +71,7 @@ DiffInputReason = Literal[
     "not_attempted",
     "refs_missing",
     "merge_base_missing",
+    "unrelated_histories",
     "objects_missing",
     "metadata_limit_exceeded",
     "body_limit_exceeded",
@@ -96,9 +97,15 @@ _DIFF_REASON_REMEDIATION: dict[str, str] = {
         "`git fetch --no-tags origin <ref>`), then rerun."
     ),
     "merge_base_missing": (
-        "The two refs share no reachable merge base, which a shallow clone "
-        "causes. Deepen history (`git fetch --deepen=<n>`, or "
+        "This checkout is shallow, so the merge base the two refs share was "
+        "truncated away. Deepen history (`git fetch --deepen=<n>`, or "
         "`git fetch --unshallow` / checkout with `fetch-depth: 0`), then rerun."
+    ),
+    "unrelated_histories": (
+        "The two refs share no common ancestor and this checkout is not "
+        "shallow, so no fetch can create one. Confirm the base names the right "
+        "comparison point — a force-push or a rewritten branch produces this — "
+        "then rerun."
     ),
     "objects_missing": (
         "This checkout is a partial clone and the objects the diff needs were "
@@ -1121,38 +1128,11 @@ def working_tree_context(
         raise DiffInputError(
             DiffContext(completeness="unavailable", reason=reason, detail=detail)
         )
-    body = _run_git_bounded_result(
-        workspace,
-        [
-            *_SAFE_DIFF_CONFIG,
-            "diff",
-            *_DETERMINISTIC_DIFF_OPTIONS,
-            "HEAD",
-            "--",
-            *pathspec,
-        ],
-        max_output_bytes=_DIFF_BODY_LIMIT,
-    )
     paths = sorted(_paths_from_name_status(names.payload))
-    if body.payload is None:
-        reason, detail = _classify_diff_failure(
-            body, limit_reason="body_limit_exceeded", workspace=workspace
-        )
-        raise DiffInputError(
-            DiffContext(
-                changed_files=tuple(paths),
-                completeness="partial",
-                reason=reason,
-                detail=detail,
-            )
-        )
-    diff_text = _decode_diff_body(body.payload)
-    try:
-        _reject_binary_capability_paths(workspace, "HEAD", pathspec=pathspec)
-    except BinaryCapabilityDiffError as exc:
-        exc.changed_paths = tuple(paths)
-        exc.diff_text = diff_text
-        raise
+    # The untracked inventory is cheap path metadata, independent of the diff
+    # body. Collecting it here rather than after the body read means a body
+    # that cannot be read still hands back the complete set of changed paths —
+    # a brand-new capability file appears in no `git diff` at all.
     untracked = _run_git_bounded_output(
         workspace,
         [
@@ -1176,6 +1156,50 @@ def working_tree_context(
         path = os.fsdecode(raw_path)
         if path not in paths:
             paths.append(path)
+    body = _run_git_bounded_result(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            "HEAD",
+            "--",
+            *pathspec,
+        ],
+        max_output_bytes=_DIFF_BODY_LIMIT,
+    )
+    if body.payload is None:
+        reason, detail = _classify_diff_failure(
+            body, limit_reason="body_limit_exceeded", workspace=workspace
+        )
+        raise DiffInputError(
+            DiffContext(
+                changed_files=tuple(paths),
+                completeness="partial",
+                reason=reason,
+                detail=detail,
+            )
+        )
+    diff_text = _decode_diff_body(body.payload)
+    try:
+        _reject_binary_capability_paths(workspace, "HEAD", pathspec=pathspec)
+    except BinaryCapabilityDiffError as exc:
+        exc.changed_paths = tuple(paths)
+        exc.diff_text = diff_text
+        raise
+    except DiffInputError as exc:
+        # The binary-hiding guard could not run, so the body is not proven to
+        # cover every capability path. Carry what was read: a caller that can
+        # act on partial evidence should not have to re-collect it.
+        raise DiffInputError(
+            DiffContext(
+                changed_files=tuple(paths),
+                diff_text=diff_text,
+                completeness="partial",
+                reason=exc.context.reason,
+                detail=exc.context.detail,
+            )
+        ) from exc
     return paths, diff_text
 
 
@@ -1768,6 +1792,27 @@ def _decode_git_stderr(payload: bytes | bytearray) -> str:
     return collapsed
 
 
+def _history_is_truncated(workspace: Path) -> bool | None:
+    """Whether this checkout's commit history is shallow.
+
+    ``None`` when Git could not answer. That is not "no": it is the one case
+    where the caller has no basis to claim the histories are unrelated, so it
+    must not synthesize either repair.
+    """
+
+    result = _run_git(
+        workspace, ["rev-parse", "--is-shallow-repository"], check=False
+    )
+    if result.returncode != 0:
+        return None
+    answer = result.stdout.strip().casefold()
+    if answer == "true":
+        return True
+    if answer == "false":
+        return False
+    return None
+
+
 def _redact_local_paths(text: str, workspace: Path) -> str:
     """Keep local filesystem layout out of a diagnostic that ships in JSON."""
 
@@ -1803,7 +1848,19 @@ def _classify_diff_failure(
         return "git_timeout", detail
     lowered = result.stderr.casefold()
     if "no merge base" in lowered:
-        return "merge_base_missing", detail
+        # "No merge base" has two causes with opposite repairs, and Git reports
+        # them identically. A shallow checkout truncated a merge base that does
+        # exist — deepening restores it. Two genuinely unrelated roots have no
+        # common ancestor at all, and routing that to another fetch loops an
+        # agent forever, so it goes to whoever chose the base ref.
+        truncated = (
+            _history_is_truncated(workspace) if workspace is not None else None
+        )
+        if truncated is True:
+            return "merge_base_missing", detail
+        if truncated is False:
+            return "unrelated_histories", detail
+        return "git_failed", detail
     if any(
         marker in lowered
         for marker in (

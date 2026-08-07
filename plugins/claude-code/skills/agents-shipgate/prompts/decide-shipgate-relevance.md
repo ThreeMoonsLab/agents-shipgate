@@ -57,6 +57,10 @@ the rules to the changed file list.
    When `evaluation_status` is `not_evaluated`, `run_shipgate` is `null`:
    the diff could not be read, so there is no verdict. Report the missing
    input and stop — never treat it as "this PR is not agent-related".
+   An `input_status` other than `complete` alongside
+   `evaluation_status: evaluated` is not a contradiction: the evidence that
+   was read already proved Shipgate should run. Honor that verdict, and say
+   the diff still needs recovering.
 
 4. **Emit the decision.** Always reply in this exact JSON shape so
    downstream automation can parse you:

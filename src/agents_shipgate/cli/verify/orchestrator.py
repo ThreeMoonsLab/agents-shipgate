@@ -501,6 +501,14 @@ def run_verify(
         except Exception as exc:  # noqa: BLE001 - local context degrades only.
             diff_unavailable = True
             worktree_failure = _as_diff_context(exc)
+            # Whatever the failed collector did read still counts. Reporting
+            # "changed paths were collected" in the notes while handing the
+            # trigger an empty list would lose the path-rule match the paths
+            # exist to produce.
+            changed_files = _dedupe_paths(
+                [*changed_files, *worktree_failure.changed_files]
+            )
+            diff_text = _join_diff_text(diff_text, worktree_failure.diff_text)
             # A worktree shortfall is never softened by a committed-ref diff
             # that did read cleanly: the two are unioned into one change set,
             # so the union is only as complete as its weakest half.
@@ -3311,9 +3319,21 @@ def run_preview(
             if diff_input.completeness == "partial"
             else "could not read"
         )
+        # Partial evidence can still carry a sound run verdict — a matched path
+        # rule needs no diff body — and the evaluator publishes it. Saying "no
+        # relevance verdict was reached" alongside `should_run: true` would make
+        # the headline contradict the artifact it summarizes.
+        if trigger.get("run_shipgate"):
+            outcome = (
+                "the paths it did read already show an agent-capability "
+                "surface, so relevance is established; recover the full diff "
+                "before trusting any merge verdict"
+            )
+        else:
+            outcome = "no relevance verdict was reached"
         headline = (
             f"Shipgate preview {read} the requested PR diff "
-            f"({diff_input.reason}); no relevance verdict was reached."
+            f"({diff_input.reason}); {outcome}."
         )
     elif manifest_present:
         next_action = CodingAgentCommandAction(

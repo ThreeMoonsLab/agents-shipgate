@@ -51,6 +51,23 @@ root_agent = LlmAgent(name="support", tools=[refund_tool])
 """
 
 
+MINIMAL_MANIFEST = """\
+version: "0.1"
+project:
+  name: test
+agent:
+  name: test-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+"""
+
+
 def _git(root: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(root), *args],
@@ -95,7 +112,44 @@ def _unrelated_histories(tmp_path: Path) -> Path:
     return repo
 
 
-def _blobless_clone(tmp_path: Path) -> Path:
+def _shallow_clone(tmp_path: Path) -> Path:
+    """A shallow clone whose truncated history hides a merge base that exists.
+
+    The `actions/checkout` default shape: head fetched at depth 1, base
+    fetched at depth 1, no reachable common ancestor between them.
+    """
+
+    origin = _repo(tmp_path / "origin")
+    (origin / "README.md").write_text("one\n", encoding="utf-8")
+    _commit(origin, "c1")
+    (origin / "README.md").write_text("two\n", encoding="utf-8")
+    _commit(origin, "c2")
+    _git(origin, "branch", "base-ref")
+    agent = origin / "src" / "agent.py"
+    agent.parent.mkdir(parents=True, exist_ok=True)
+    agent.write_text(ADK_AGENT_SOURCE, encoding="utf-8")
+    _commit(origin, "add adk agent")
+
+    clone = tmp_path / "clone"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", "--no-local", f"file://{origin}", str(clone)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    _git(clone, "config", "user.email", "test@example.test")
+    _git(clone, "config", "user.name", "Test")
+    _git(clone, "fetch", "-q", "--depth", "1", "origin", "base-ref:base-ref")
+    assert _git(clone, "rev-parse", "--is-shallow-repository") == "true"
+    return clone
+
+
+def _blobless_clone(
+    tmp_path: Path,
+    *,
+    capability_path: str = "src/agent.py",
+    capability_text: str = ADK_AGENT_SOURCE,
+) -> Path:
     """A partial clone missing the blobs the base side of the diff needs."""
 
     origin = _repo(tmp_path / "origin")
@@ -103,9 +157,9 @@ def _blobless_clone(tmp_path: Path) -> Path:
     _commit(origin, "base")
     _git(origin, "branch", "base-ref")
 
-    agent = origin / "src" / "agent.py"
+    agent = origin / capability_path
     agent.parent.mkdir(parents=True, exist_ok=True)
-    agent.write_text(ADK_AGENT_SOURCE, encoding="utf-8")
+    agent.write_text(capability_text, encoding="utf-8")
     # An existing file must also change, so the base side owns a blob the
     # clone never fetches. A pure addition would leave nothing missing.
     (origin / "README.md").write_text("base, revised\n", encoding="utf-8")
@@ -149,23 +203,63 @@ def _blobless_clone(tmp_path: Path) -> Path:
 # --- 1. no merge base ------------------------------------------------------
 
 
-def test_missing_merge_base_is_not_a_generic_bounds_failure(tmp_path: Path) -> None:
-    repo = _unrelated_histories(tmp_path)
+def test_shallow_history_reports_a_repairable_missing_merge_base(
+    tmp_path: Path,
+) -> None:
+    clone = _shallow_clone(tmp_path)
 
-    context = collect_diff_context(repo, "detached-base", "HEAD")
+    context = collect_diff_context(clone, "base-ref", "HEAD")
 
     assert context.completeness == "unavailable"
     assert context.reason == "merge_base_missing"
     assert "no merge base" in context.detail
-    # Deepening history is the repair, so this is agent work, not review work.
+    # Deepening history really does restore the merge base here, so this is
+    # agent work rather than review work.
     assert context.fetch_repairable is True
     assert "deepen" in context.remediation.casefold()
 
 
-def test_preview_withholds_the_verdict_when_no_merge_base_exists(
+def test_deepening_a_shallow_clone_actually_repairs_the_diff(
     tmp_path: Path,
 ) -> None:
+    """The remediation must be the one that works, not the one that reads well."""
+
+    clone = _shallow_clone(tmp_path)
+    assert collect_diff_context(clone, "base-ref", "HEAD").reason == "merge_base_missing"
+
+    _git(clone, "fetch", "-q", "--deepen=10", "origin", "main", "base-ref")
+
+    repaired = collect_diff_context(clone, "base-ref", "HEAD")
+    assert repaired.completeness == "complete"
+    assert "src/agent.py" in repaired.changed_files
+
+
+def test_unrelated_histories_are_never_routed_to_another_fetch(
+    tmp_path: Path,
+) -> None:
+    """Git reports both causes as "no merge base"; only one is fetch-repairable.
+
+    Two orphan roots in a complete checkout share no ancestor at all, so
+    `--deepen`/`--unshallow` can never produce one. Routing this to `fetch_base`
+    would loop an agent forever.
+    """
+
     repo = _unrelated_histories(tmp_path)
+    assert _git(repo, "rev-parse", "--is-shallow-repository") == "false"
+
+    context = collect_diff_context(repo, "detached-base", "HEAD")
+
+    assert context.completeness == "unavailable"
+    assert context.reason == "unrelated_histories"
+    assert "no merge base" in context.detail
+    assert context.fetch_repairable is False
+    assert "no fetch can create one" in context.remediation
+
+
+def test_unrelated_histories_route_a_verify_run_to_a_human(tmp_path: Path) -> None:
+    repo = _unrelated_histories(tmp_path)
+    (repo / "shipgate.yaml").write_text('version: "0.1"\n', encoding="utf-8")
+    _commit(repo, "adopt shipgate")
 
     result = runner.invoke(
         app,
@@ -173,9 +267,37 @@ def test_preview_withholds_the_verdict_when_no_merge_base_exists(
             "verify",
             "--workspace",
             str(repo),
-            "--preview",
             "--base",
             "detached-base",
+            "--head",
+            "HEAD",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["diff_status"]["reason"] == "unrelated_histories"
+    assert payload["diff_status"]["fetch_repairable"] is False
+    assert payload["control"]["next_action"]["kind"] != "fetch_base"
+    assert payload["can_merge_without_human"] is False
+
+
+def test_preview_withholds_the_verdict_when_no_merge_base_exists(
+    tmp_path: Path,
+) -> None:
+    clone = _shallow_clone(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(clone),
+            "--preview",
+            "--base",
+            "base-ref",
             "--head",
             "HEAD",
             "--json",
@@ -195,18 +317,18 @@ def test_preview_withholds_the_verdict_when_no_merge_base_exists(
 
 
 def test_verify_fails_closed_and_names_the_missing_merge_base(tmp_path: Path) -> None:
-    repo = _unrelated_histories(tmp_path)
-    (repo / "shipgate.yaml").write_text('version: "0.1"\n', encoding="utf-8")
-    _commit(repo, "adopt shipgate")
+    clone = _shallow_clone(tmp_path)
+    (clone / "shipgate.yaml").write_text('version: "0.1"\n', encoding="utf-8")
+    _commit(clone, "adopt shipgate")
 
     result = runner.invoke(
         app,
         [
             "verify",
             "--workspace",
-            str(repo),
+            str(clone),
             "--base",
-            "detached-base",
+            "base-ref",
             "--head",
             "HEAD",
             "--format",
@@ -420,3 +542,111 @@ def test_diagnostics_do_not_leak_the_local_checkout_path(tmp_path: Path) -> None
 
     assert str(repo) not in context.detail
     assert str(repo) not in context.note
+
+
+# --- the artifact may not contradict itself --------------------------------
+
+
+def test_partial_evidence_that_proves_relevance_keeps_its_run_verdict(
+    tmp_path: Path,
+) -> None:
+    """A path rule needs no diff body, so partial input can still decide "run".
+
+    The evaluator publishes that verdict deliberately. The headline and
+    `control.reason` summarize the same artifact and must not answer
+    "no relevance verdict was reached" over the top of `should_run: true`.
+    """
+
+    clone = _blobless_clone(
+        tmp_path,
+        capability_path="tools/new_mcp.json",
+        capability_text='{"mcpServers": {}}\n',
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(clone),
+            "--preview",
+            "--base",
+            "base-ref",
+            "--head",
+            "HEAD",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    trigger = payload["trigger"]
+
+    assert payload["diff_status"]["completeness"] == "partial"
+    assert "tools/new_mcp.json" in payload["changed_files"]
+    assert trigger["evaluation_status"] == "evaluated"
+    assert trigger["should_run"] is True
+    assert "TRIGGER-MCP-EXPORT-CHANGED" in {
+        match["id"] for match in trigger["matched_rules"]
+    }
+
+    for surface in (payload["headline"], payload["control"]["reason"]):
+        assert "no relevance verdict" not in surface
+        assert "relevance is established" in surface
+    # The diff still has to be recovered before any merge verdict is trusted.
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["can_merge_without_human"] is False
+
+
+def test_verify_merges_partial_worktree_paths_into_the_change_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed worktree read still contributes the paths it did collect.
+
+    Reporting "changed paths were collected" in `base_notes` while handing the
+    trigger an empty list loses exactly the path-rule match those paths exist
+    to produce.
+    """
+
+    repo = _repo(tmp_path / "repo")
+    (repo / "shipgate.yaml").write_text(MINIMAL_MANIFEST, encoding="utf-8")
+    (repo / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit(repo, "base")
+    _git(repo, "branch", "base-ref")
+
+    # Uncommitted: one capability path plus enough text to blow the body bound.
+    (repo / "tools").mkdir()
+    (repo / "tools" / "new_mcp.json").write_text('{"mcpServers": {}}\n', encoding="utf-8")
+    (repo / "README.md").write_text("x" * 200_000 + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(verify_git, "_DIFF_BODY_LIMIT", 4096)
+
+    # No --head: that is what makes verify read the working tree rather than an
+    # archived committed tree, which is the collector under test.
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--base",
+            "base-ref",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+
+    assert payload["diff_status"]["completeness"] == "partial"
+    assert payload["diff_status"]["reason"] == "body_limit_exceeded"
+    assert any("paths were collected" in note for note in payload["base_notes"])
+    # The claim in base_notes and the published change set must agree.
+    assert "tools/new_mcp.json" in payload["changed_files"]
+    assert "TRIGGER-MCP-EXPORT-CHANGED" in {
+        match["id"] for match in payload["trigger"]["matched_rules"]
+    }
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["can_merge_without_human"] is False

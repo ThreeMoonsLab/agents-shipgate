@@ -347,8 +347,10 @@ operational overlay and cannot change those fields.
 - `diff_status` — whether the compared change set was read at all.
   `completeness` is `"complete"` / `"partial"` / `"unavailable"`; `reason` is
   `null` only when complete, and otherwise `not_attempted`, `refs_missing`,
-  `merge_base_missing`, `objects_missing`, `metadata_limit_exceeded`,
-  `body_limit_exceeded`, `git_timeout`, or `git_failed`. `remediation` names
+  `merge_base_missing` (shallow checkout — deepening restores the merge base),
+  `unrelated_histories` (no common ancestor exists; no fetch can create one),
+  `objects_missing`, `metadata_limit_exceeded`, `body_limit_exceeded`,
+  `git_timeout`, or `git_failed`. `remediation` names
   the repair and `fetch_repairable` says whether fetching can perform it.
   **Only `"complete"` licenses reading a negative `trigger` result**; anything
   else means the diff was not read, which is never evidence that a PR is
@@ -357,7 +359,10 @@ operational overlay and cannot change those fields.
 - `trigger` — the run/skip evaluation. Read `evaluation_status` first: when it
   is `"not_evaluated"`, `should_run` / `run_shipgate` / `skip` / `skip_reason`
   are `null` and `next_action.kind` is `"input_required"`. `skip_reason` is
-  never `"no_match"` for inputs that were not fully read.
+  never `"no_match"` for inputs that were not fully read. `"evaluated"` on an
+  incomplete `diff_status` is not a contradiction: only *skip* verdicts are
+  withheld, so a `should_run: true` reached from the paths that were read is
+  authoritative and must not be overridden.
 - `merge_verdict` — `"mergeable"` / `"human_review_required"` /
   `"insufficient_evidence"` / `"blocked"` / `"unknown"`. Deterministic projection
   of `release_decision.decision` (`passed`→`mergeable`,

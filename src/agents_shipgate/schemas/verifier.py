@@ -35,7 +35,11 @@ DiffInputReason = Literal[
     # against). Nothing failed in Git; nothing about the change set is known.
     "not_attempted",
     "refs_missing",
+    # A shallow checkout truncated a merge base that does exist (deepen), as
+    # against ``unrelated_histories``, where no common ancestor exists at all
+    # and no fetch can create one.
     "merge_base_missing",
+    "unrelated_histories",
     "objects_missing",
     "metadata_limit_exceeded",
     "body_limit_exceeded",

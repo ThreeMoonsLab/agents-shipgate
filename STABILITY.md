@@ -23,9 +23,9 @@ stays at `19`; no CLI surface changed.
 `verifier.json` gains a top-level `diff_status` block that reports whether the
 compared change set was actually read: `completeness` (`complete` / `partial` /
 `unavailable`), a `reason` token (`not_attempted`, `refs_missing`,
-`merge_base_missing`, `objects_missing`, `metadata_limit_exceeded`,
-`body_limit_exceeded`, `git_timeout`, `git_failed`), a bounded path-redacted
-`detail`, the
+`merge_base_missing`, `unrelated_histories`, `objects_missing`,
+`metadata_limit_exceeded`, `body_limit_exceeded`, `git_timeout`,
+`git_failed`), a bounded path-redacted `detail`, the
 `remediation`, and `fetch_repairable`. Verifier v0.6 remains a frozen reference
 and its artifacts still parse.
 
@@ -1355,9 +1355,13 @@ fields a consumer may read:
   why not when it was not. `completeness` is `"complete" | "partial" |
   "unavailable"`; `reason` is `null` exactly when `completeness` is
   `"complete"`, and otherwise one of `not_attempted`, `refs_missing`,
-  `merge_base_missing`, `objects_missing`, `metadata_limit_exceeded`,
-  `body_limit_exceeded`, `git_timeout`, `git_failed`. `detail` is a bounded,
-  path-redacted excerpt of
+  `merge_base_missing`, `unrelated_histories`, `objects_missing`,
+  `metadata_limit_exceeded`, `body_limit_exceeded`, `git_timeout`,
+  `git_failed`. `merge_base_missing` and `unrelated_histories` are
+  deliberately distinct: the first is a shallow checkout that truncated a
+  merge base which does exist, and deepening restores it; the second is two
+  roots with no common ancestor, which no fetch can create — `fetch_repairable`
+  is the field to branch on. `detail` is a bounded, path-redacted excerpt of
   Git's own diagnostic; `remediation` names the repair; `fetch_repairable`
   says whether making refs or objects available locally can fix it.
   **`"complete"` is the only value that licenses reading a negative `trigger`

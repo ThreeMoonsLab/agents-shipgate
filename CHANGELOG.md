@@ -15,9 +15,12 @@
   first contact — fell through to *"Shipgate is not configured in this
   workspace"* with the Git error visible nowhere but `base_notes`. Three
   things changed. Diff acquisition is now classified rather than flattened:
-  `not_attempted`, `refs_missing`, `merge_base_missing`, `objects_missing`,
-  `metadata_limit_exceeded`, `body_limit_exceeded`, `git_timeout`, and
-  `git_failed` are read off Git's own diagnostic and travel on the new
+  `not_attempted`, `refs_missing`, `merge_base_missing`,
+  `unrelated_histories`, `objects_missing`, `metadata_limit_exceeded`,
+  `body_limit_exceeded`, `git_timeout`, and `git_failed` are read off Git's own
+  diagnostic — including the two causes Git reports identically as "no merge
+  base", a shallow checkout that deepening repairs versus two roots that no
+  fetch can ever join — and travel on the new
   `verifier.json` `diff_status` block together with a bounded, path-redacted
   excerpt and the precise repair — deepen history, hydrate partial-clone
   objects (verification sets `GIT_NO_LAZY_FETCH=1`, so Git will not fetch them
