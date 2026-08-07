@@ -451,9 +451,13 @@ def test_preview_then_init_scan_removes_preview_handoff(tmp_path: Path) -> None:
     assert preview.exit_code == 0, preview.output
     reports = workspace / "agents-shipgate-reports"
     handoff_path = reports / "agent-handoff.json"
+    verifier_path = reports / "verifier.json"
+    pr_comment_path = reports / "pr-comment.md"
     preview_handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
     assert preview_handoff["operation"] == "verify_preview"
     assert preview_handoff["control"]["state"] == "agent_action_required"
+    assert verifier_path.is_file()
+    assert pr_comment_path.is_file()
 
     initialized = runner.invoke(
         app,
@@ -474,6 +478,8 @@ def test_preview_then_init_scan_removes_preview_handoff(tmp_path: Path) -> None:
     report = json.loads((reports / "report.json").read_text(encoding="utf-8"))
     assert report["release_decision"]["decision"] == "insufficient_evidence"
     assert not handoff_path.exists()
+    assert not verifier_path.exists()
+    assert not pr_comment_path.exists()
 
 
 def test_auto_init_source_ids_are_stable_when_a_sibling_appears(tmp_path: Path) -> None:

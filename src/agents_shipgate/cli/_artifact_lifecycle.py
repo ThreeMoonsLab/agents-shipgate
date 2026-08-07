@@ -9,13 +9,26 @@ from agents_shipgate.core.errors import AgentsShipgateError
 # even one beside a report from a later standalone scan can make the older
 # verification run look current.
 VERIFIER_ROUTE_ARTIFACT_NAMES = (
+    "verifier.json",
     "agent-handoff.json",
+    "pr-comment.md",
+    "verify-run.json",
     "verification-plan.json",
+    "verification-input.diff",
+    "verification-base-report.json",
     "verification-unit-result.json",
     "verification-artifacts.json",
     "verification-receipt.json",
     "human-authorization.json",
 )
+
+
+class ArtifactLifecycleError(AgentsShipgateError):
+    """A stale verifier artifact could not be removed safely."""
+
+    def __init__(self, path: Path, cause: OSError) -> None:
+        self.path = path
+        super().__init__(f"Could not remove stale verifier artifact {path}: {cause}")
 
 
 def clear_verifier_route_artifacts(out_dir: Path) -> None:
@@ -37,6 +50,4 @@ def clear_verifier_route_artifacts(out_dir: Path) -> None:
             # holds, so the caller can continue.
             continue
         except OSError as exc:
-            raise AgentsShipgateError(
-                f"Could not remove stale verifier artifact {path}: {exc}"
-            ) from exc
+            raise ArtifactLifecycleError(path, exc) from exc

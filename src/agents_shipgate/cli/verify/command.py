@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.cli._artifact_lifecycle import ArtifactLifecycleError
 from agents_shipgate.cli._helpers import (
     _diagnose_config_error,
     _echo_next_action_hint,
@@ -201,9 +202,7 @@ def verify(
             raise ConfigError("--ci-mode must be advisory or strict")
         for label, value in (("--base", base), ("--head", head)):
             if value is not None and (
-                not value
-                or value.startswith("-")
-                or any(char in value for char in "\0\r\n")
+                not value or value.startswith("-") or any(char in value for char in "\0\r\n")
             ):
                 raise ConfigError(
                     f"{label} must be non-empty, must not begin with '-', "
@@ -331,6 +330,31 @@ def verify(
             ],
         )
         raise typer.Exit(3) from exc
+    except ArtifactLifecycleError as exc:
+        typer.echo(f"Agents Shipgate error: {exc}", err=True)
+        guidance = (
+            f"Remove {exc.path} and re-run verify; Agents Shipgate will not "
+            "write a replacement verifier route while a stale verifier "
+            "artifact survives."
+        )
+        emit_agent_mode_error(
+            "other_error",
+            message=str(exc),
+            exit_code=4,
+            next_action=guidance,
+            next_actions=[
+                NextAction(
+                    kind="edit",
+                    path=str(exc.path),
+                    why=guidance,
+                    expects=(
+                        "The stale verifier artifact is absent, then verify "
+                        "writes one content-addressed artifact set."
+                    ),
+                ).model_dump(mode="json")
+            ],
+        )
+        raise typer.Exit(4) from exc
     except AgentsShipgateError as exc:
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
         guidance = (

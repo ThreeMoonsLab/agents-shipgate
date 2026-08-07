@@ -1166,13 +1166,17 @@ filenames already present in the output directory:
   exact verify run.
 
 When standalone `scan` replaces a report set in the same output directory, it
-removes any prior `agent-handoff.json`, `verification-plan.json`,
-`verification-unit-result.json`, `verification-artifacts.json`,
-`verification-receipt.json`, and `human-authorization.json` before writing the
-new report. Their absence is intentional: an older verifier route or receipt
-must never appear to authorize or describe the newer scan. `verify` calls the
-same scan pipeline internally and writes a fresh, mutually consistent verifier
-artifact set afterward.
+removes the complete prior verifier route and its identity support:
+`verifier.json`, `agent-handoff.json`, `pr-comment.md`, `verify-run.json`,
+`verification-plan.json`, `verification-input.diff`,
+`verification-base-report.json`, `verification-unit-result.json`,
+`verification-artifacts.json`, `verification-receipt.json`, and
+`human-authorization.json`. Their absence is intentional: an older controller
+substrate, route, or receipt must never appear to authorize or describe the
+newer scan. `verify` calls the same scan pipeline internally and writes a fresh,
+mutually consistent verifier artifact set afterward. Supporting commands that
+only need an in-memory report, including `baseline save`, scan into an isolated
+temporary directory so they preserve the current report and verifier evidence.
 
 ## Primary vs supporting surfaces
 

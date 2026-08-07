@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -102,23 +103,30 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(2)
         try:
             configure_logging(verbose=verbose)
-            report, _ = run_scan(
-                config_path=config,
-                formats=["json"],
-                ci_mode="advisory",
-                verbose=verbose,
-            )
-            manifest = load_manifest(config)
-            audit_log = _resolve_audit_log_path(manifest, out)
-            baseline = write_baseline(
-                report,
-                out,
-                audit_log_path=audit_log,
-                owner=owner,
-                reason=reason,
-                expires=expires_date,
-                apply_to_existing=apply_to_existing,
-            )
+            # Baseline creation only consumes the in-memory report. Keep this
+            # supporting scan out of the manifest's normal reports directory:
+            # it must not supersede a verifier receipt or replace report.json.
+            with tempfile.TemporaryDirectory(
+                prefix="agents-shipgate-baseline-save-"
+            ) as scan_output:
+                report, _ = run_scan(
+                    config_path=config,
+                    output_dir=Path(scan_output),
+                    formats=["json"],
+                    ci_mode="advisory",
+                    verbose=verbose,
+                )
+                manifest = load_manifest(config)
+                audit_log = _resolve_audit_log_path(manifest, out)
+                baseline = write_baseline(
+                    report,
+                    out,
+                    audit_log_path=audit_log,
+                    owner=owner,
+                    reason=reason,
+                    expires=expires_date,
+                    apply_to_existing=apply_to_existing,
+                )
         except ConfigError as exc:
             typer.echo(f"Config error: {exc}", err=True)
             raise typer.Exit(2) from exc

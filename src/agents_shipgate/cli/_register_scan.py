@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.cli._artifact_lifecycle import ArtifactLifecycleError
 from agents_shipgate.cli._helpers import (
     _apply_strict_plugins,
     _diagnose_config_error,
@@ -495,6 +496,32 @@ def register(app: typer.Typer) -> None:
                 next_actions=[a.model_dump(mode="json") for a in actions],
             )
             raise typer.Exit(3) from exc
+        except ArtifactLifecycleError as exc:
+            typer.echo(f"Agents Shipgate error: {exc}", err=True)
+            guidance = (
+                f"Remove {exc.path} and re-run scan; Agents Shipgate will not "
+                "write a replacement report while a stale verifier artifact "
+                "survives."
+            )
+            actions = [
+                NextAction(
+                    kind="edit",
+                    path=str(exc.path),
+                    why=guidance,
+                    expects=(
+                        "The stale verifier artifact is absent, then scan writes "
+                        "one current report set."
+                    ),
+                )
+            ]
+            _echo_next_action_hint(actions)
+            _emit_agent_mode_error(
+                "other_error",
+                message=str(exc),
+                next_action=guidance,
+                next_actions=[action.model_dump(mode="json") for action in actions],
+            )
+            raise typer.Exit(4) from exc
         except AgentsShipgateError as exc:
             typer.echo(f"Agents Shipgate error: {exc}", err=True)
             guidance = (

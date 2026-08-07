@@ -116,7 +116,18 @@ tool_sources:
     assert exit_code == 0
     assert events == ["scan_cleanup", "verify_write"]
     reports = repo / "agents-shipgate-reports"
-    assert (reports / "agent-handoff.json").is_file()
+    for name in (
+        "verifier.json",
+        "agent-handoff.json",
+        "pr-comment.md",
+        "verify-run.json",
+        "verification-plan.json",
+        "verification-input.diff",
+        "verification-unit-result.json",
+        "verification-artifacts.json",
+        "verification-receipt.json",
+    ):
+        assert (reports / name).is_file(), name
     receipt = VerificationReceipt.model_validate(
         json.loads((reports / "verification-receipt.json").read_text(encoding="utf-8"))
     )
