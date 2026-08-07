@@ -30,6 +30,20 @@ model calls, no MCP connections, and no network access.
 - Generate stable names and IDs so finding fingerprints and baselines are
   reproducible.
 
+## Agent Bindings
+
+- Emit one `Tool` per tool *definition*, never one per agent binding. Catalog
+  observation identity is `(source_type, source_id, native_locator)`, so a tool
+  object bound to several agents collides and aborts the scan; widening that
+  identity with the agent name is not the fix, because it models one underlying
+  action as several independent capabilities.
+- Publish agent wiring as `LoadedToolSource.binding_observations`
+  (`AgentBindingObservation`) rather than a per-tool annotation. A single-valued
+  annotation can only ever name one of N binding agents, and catalog-controlled
+  annotations must never become authority-bearing binding evidence.
+- Keep unique tool counts and binding counts separately reportable, so one tool
+  shared by three agents reads as one tool and three bindings.
+
 ## Confidence
 
 - Set high confidence for explicit inventories and direct static function/class

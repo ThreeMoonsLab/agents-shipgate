@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -9,6 +10,7 @@ from agents_shipgate.core.artifact_models import (
     GoogleAdkToolset,
 )
 from agents_shipgate.core.domain import (
+    AgentBindingObservation,
     AuthInfo,
     LoadedToolSource,
     Tool,
@@ -417,6 +419,9 @@ def _tool_from_config_entry(
             "metadata_present": bool(args.get("description") or args.get("parameters")),
         }
     )
+    _record_tool_binding(
+        artifacts, agent_name=agent_name, tool_name=tool.name, source_ref=location
+    )
     return []
 
 
@@ -452,6 +457,9 @@ def _record_config_openapi_toolset(
     for tool in loaded.tools:
         tool.annotations["adk_toolset"] = "OpenAPIToolset"
         tool.annotations["adk_agent_name"] = agent_name
+        _record_tool_binding(
+            artifacts, agent_name=agent_name, tool_name=tool.name, source_ref=location
+        )
     return [loaded]
 
 
@@ -491,7 +499,57 @@ def _record_config_mcp_toolset(
     for tool in loaded.tools:
         tool.annotations["adk_toolset"] = "McpToolset"
         tool.annotations["adk_agent_name"] = agent_name
+        _record_tool_binding(
+            artifacts, agent_name=agent_name, tool_name=tool.name, source_ref=location
+        )
     return [loaded]
+
+
+@dataclass
+class _AdkAgentBinding:
+    """One agent's ordered tool bindings inside a single ADK Python module.
+
+    An ADK tool object may be bound to any number of agents (the canonical
+    multi-agent shape shares one ``FunctionTool`` between a coordinator and
+    its sub-agents). The underlying function is one capability, so it must
+    enter the catalog exactly once; the many-to-many agent relation is
+    carried here and published as ``AgentBindingObservation`` instead.
+    """
+
+    agent: str
+    source_pointer: str
+    tool_names: list[str] = field(default_factory=list)
+
+    def bind(self, tool_name: str) -> bool:
+        """Add one tool to this agent; return False if it was already bound."""
+
+        if tool_name in self.tool_names:
+            return False
+        self.tool_names.append(tool_name)
+        return True
+
+
+def _record_tool_binding(
+    artifacts: GoogleAdkArtifacts,
+    *,
+    agent_name: str,
+    tool_name: str,
+    source_ref: str,
+) -> None:
+    """Record one agent -> tool binding edge.
+
+    Bindings are counted separately from tool definitions so a shared tool
+    stays one entry in ``function_tools`` while every agent that can call it
+    remains visible to reviewers.
+    """
+
+    artifacts.tool_bindings.append(
+        {
+            "agent_name": agent_name,
+            "tool_name": tool_name,
+            "source_ref": source_ref,
+        }
+    )
 
 
 class _PythonAdkExtractor:
@@ -518,6 +576,14 @@ class _PythonAdkExtractor:
         }
         self.wrappers = self._wrapper_assignments()
         self.toolset_assignments = self._toolset_assignments()
+        # One canonical Tool per function definition, keyed by the def name.
+        # Every later binding of the same definition reuses this entry.
+        self.canonical_function_tools: dict[str, Tool] = {}
+        # Tool names produced by one toolset construction, keyed by the AST
+        # call node. A toolset assigned to a variable and shared between
+        # agents is loaded once, not once per agent.
+        self.toolset_tool_names: dict[int, list[str]] = {}
+        self.agent_bindings: dict[str, _AdkAgentBinding] = {}
 
     def extract(self) -> list[LoadedToolSource]:
         tools: list[Tool] = []
@@ -553,16 +619,51 @@ class _PythonAdkExtractor:
                         )
                     )
                 continue
+            binding = self._binding_for(agent_name, call)
             for item in tools_expr.elts:
-                loaded_sources.extend(self._extract_tool_expr(item, tools, agent_name))
+                loaded_sources.extend(
+                    self._extract_tool_expr(item, tools, agent_name, binding)
+                )
         return [
             LoadedToolSource(
                 source_id=self.source_id,
                 source_type="google_adk",
                 tools=tools,
                 warnings=[],
+                binding_observations=self._binding_observations(),
             ),
             *loaded_sources,
+        ]
+
+    def _binding_for(self, agent_name: str, call: ast.Call) -> _AdkAgentBinding:
+        binding = self.agent_bindings.get(agent_name)
+        if binding is None:
+            binding = _AdkAgentBinding(
+                agent=agent_name,
+                source_pointer=f"{self.source_ref}:{call.lineno}",
+            )
+            self.agent_bindings[agent_name] = binding
+        return binding
+
+    def _binding_observations(self) -> list[AgentBindingObservation]:
+        """Publish agent wiring as framework-owned binding observations.
+
+        Bindings deliberately do not travel on ``Tool.annotations``: the
+        catalog holds one observation per tool definition, so a per-tool
+        agent name could only ever name one of N binding agents. Handoffs
+        stay with the ``sub_agents`` artifact records that already own them.
+        """
+
+        return [
+            AgentBindingObservation(
+                agent=binding.agent,
+                source_id=self.source_id,
+                source=self.source_ref,
+                source_pointer=binding.source_pointer,
+                tool_names=list(binding.tool_names),
+            )
+            for binding in self.agent_bindings.values()
+            if binding.tool_names
         ]
 
     def _agent_calls(self) -> list[tuple[str | None, ast.Call]]:
@@ -616,19 +717,19 @@ class _PythonAdkExtractor:
         expr: ast.AST,
         tools: list[Tool],
         agent_name: str,
+        binding: _AdkAgentBinding,
     ) -> list[LoadedToolSource]:
         if isinstance(expr, ast.Name):
             if expr.id in self.wrappers:
-                self._append_wrapper_tool(expr.id, tools, agent_name)
+                self._append_wrapper_tool(expr.id, tools, agent_name, binding)
             elif expr.id in self.toolset_assignments:
-                call = self.toolset_assignments[expr.id]
-                call_name = _qualified_name(call.func, self.aliases)
-                if call_name in OPENAPI_TOOLSET_NAMES:
-                    return self._extract_openapi_toolset(call, agent_name)
-                if call_name in MCP_TOOLSET_NAMES:
-                    return self._extract_mcp_toolset(call, agent_name)
+                return self._extract_toolset_call(
+                    self.toolset_assignments[expr.id], agent_name, binding
+                )
             elif expr.id in self.functions:
-                tools.append(self._function_to_tool(self.functions[expr.id], agent_name, False))
+                self._bind_function_tool(
+                    self.functions[expr.id], tools, agent_name, binding, False
+                )
             else:
                 self.artifacts.warnings.append(
                     f"Google ADK agent {agent_name!r} references unresolved tool {expr.id!r}."
@@ -639,38 +740,128 @@ class _PythonAdkExtractor:
             if call_name in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES:
                 func_name = _call_func_name(expr)
                 if func_name and func_name in self.functions:
-                    tools.append(
-                        self._function_to_tool(
-                            self.functions[func_name],
-                            agent_name,
-                            call_name in LONG_RUNNING_TOOL_NAMES,
-                        )
+                    self._bind_function_tool(
+                        self.functions[func_name],
+                        tools,
+                        agent_name,
+                        binding,
+                        call_name in LONG_RUNNING_TOOL_NAMES,
                     )
                 return []
-            if call_name in OPENAPI_TOOLSET_NAMES:
-                return self._extract_openapi_toolset(expr, agent_name)
-            if call_name in MCP_TOOLSET_NAMES:
-                return self._extract_mcp_toolset(expr, agent_name)
+            if call_name in OPENAPI_TOOLSET_NAMES | MCP_TOOLSET_NAMES:
+                return self._extract_toolset_call(expr, agent_name, binding)
         self.artifacts.warnings.append(
             f"Google ADK agent {agent_name!r} has a tool expression that could not be statically resolved."
         )
         return []
 
-    def _append_wrapper_tool(self, wrapper_name: str, tools: list[Tool], agent_name: str) -> None:
+    def _append_wrapper_tool(
+        self,
+        wrapper_name: str,
+        tools: list[Tool],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> None:
         wrapper = self.wrappers[wrapper_name]
         func_name = wrapper.get("func_name")
         if isinstance(func_name, str) and func_name in self.functions:
-            tools.append(
-                self._function_to_tool(
-                    self.functions[func_name],
-                    agent_name,
-                    bool(wrapper.get("long_running")),
-                )
+            self._bind_function_tool(
+                self.functions[func_name],
+                tools,
+                agent_name,
+                binding,
+                bool(wrapper.get("long_running")),
             )
             return
         self.artifacts.warnings.append(
             f"Google ADK tool wrapper {wrapper_name!r} has no statically resolvable function."
         )
+
+    def _bind_function_tool(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        tools: list[Tool],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+        long_running: bool,
+    ) -> None:
+        """Bind one function definition to one agent.
+
+        The first binding creates the canonical catalog observation; later
+        bindings of the same definition only add an edge. Emitting a tool per
+        binding would model one action as several independent capabilities
+        (and collide on tool observation identity).
+        """
+
+        tool = self.canonical_function_tools.get(node.name)
+        if tool is None:
+            tool = self._function_to_tool(node, agent_name, long_running)
+            self.canonical_function_tools[node.name] = tool
+            tools.append(tool)
+        elif long_running != (tool.annotations.get("long_running") is True):
+            # The same function wrapped as both FunctionTool and
+            # LongRunningFunctionTool is a contradictory declaration about one
+            # action. Keep the stricter contract and route it to review rather
+            # than letting binding order decide.
+            self.artifacts.warnings.append(
+                f"Google ADK function {node.name!r} is bound as both a long-running "
+                "and a standard function tool; review its operation contract."
+            )
+            if long_running:
+                tool.annotations["long_running"] = True
+                self.artifacts.long_running_tools.append(
+                    self._function_tool_payload(tool, agent_name)
+                )
+        if binding.bind(tool.name):
+            _record_tool_binding(
+                self.artifacts,
+                agent_name=agent_name,
+                tool_name=tool.name,
+                source_ref=tool.source_location or self.source_ref,
+            )
+
+    def _extract_toolset_call(
+        self,
+        call: ast.Call,
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> list[LoadedToolSource]:
+        """Extract one toolset construction, at most once per call site.
+
+        A toolset bound to a variable and shared between agents is one tool
+        surface, so it is loaded once; every sharing agent gets an edge.
+        """
+
+        cached = self.toolset_tool_names.get(id(call))
+        if cached is not None:
+            self._bind_toolset_tools(cached, agent_name, binding)
+            return []
+        call_name = _qualified_name(call.func, self.aliases)
+        if call_name in OPENAPI_TOOLSET_NAMES:
+            loaded_sources = self._extract_openapi_toolset(call, agent_name)
+        else:
+            loaded_sources = self._extract_mcp_toolset(call, agent_name)
+        tool_names = [
+            tool.name for loaded in loaded_sources for tool in loaded.tools
+        ]
+        self.toolset_tool_names[id(call)] = tool_names
+        self._bind_toolset_tools(tool_names, agent_name, binding)
+        return loaded_sources
+
+    def _bind_toolset_tools(
+        self,
+        tool_names: list[str],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> None:
+        for tool_name in tool_names:
+            if binding.bind(tool_name):
+                _record_tool_binding(
+                    self.artifacts,
+                    agent_name=agent_name,
+                    tool_name=tool_name,
+                    source_ref=self.source_ref,
+                )
 
     def _function_to_tool(
         self,
@@ -704,7 +895,10 @@ class _PythonAdkExtractor:
             parameters=parameters,
             function_signature=signature,
             annotations={
-                "adk_agent_name": agent_name,
+                # No ``adk_agent_name`` here: this Tool is the canonical
+                # observation of one function definition, and the same
+                # definition may be bound to several agents. The binding
+                # relation travels as AgentBindingObservation instead.
                 "adk_agent_source_id": self.source_id,
                 "long_running": long_running,
             },
@@ -712,16 +906,25 @@ class _PythonAdkExtractor:
             extraction_confidence="medium",
             extraction={"method": "google_adk_python_ast", "confidence": "medium"},
         )
-        payload = {
+        payload = self._function_tool_payload(tool, agent_name)
+        self.artifacts.function_tools.append(payload)
+        if long_running:
+            self.artifacts.long_running_tools.append(payload)
+        return tool
+
+    def _function_tool_payload(self, tool: Tool, agent_name: str) -> dict[str, Any]:
+        """One record per function definition (not per agent binding).
+
+        ``agent_name`` is the first agent observed binding the definition;
+        the complete set of binding agents lives in ``tool_bindings``.
+        """
+
+        return {
             "name": tool.name,
             "source_ref": tool.source_location,
             "agent_name": agent_name,
             "metadata_present": bool(tool.description and tool.parameters),
         }
-        self.artifacts.function_tools.append(payload)
-        if long_running:
-            self.artifacts.long_running_tools.append(payload)
-        return tool
 
     def _extract_openapi_toolset(self, call: ast.Call, agent_name: str) -> list[LoadedToolSource]:
         spec_path = _extract_path_argument(call, self.aliases, OPENAPI_PATH_KEYS)
@@ -751,7 +954,9 @@ class _PythonAdkExtractor:
         )
         for tool in loaded.tools:
             tool.annotations["adk_toolset"] = "OpenAPIToolset"
-            tool.annotations["adk_agent_name"] = agent_name
+            # ``adk_agent_source_id`` keeps the binding resolver able to match
+            # these tools back to the ADK source; the binding agents
+            # themselves come from AgentBindingObservation.
             tool.annotations["adk_agent_source_id"] = self.source_id
         return [loaded]
 
@@ -787,7 +992,6 @@ class _PythonAdkExtractor:
         )
         for tool in loaded.tools:
             tool.annotations["adk_toolset"] = "McpToolset"
-            tool.annotations["adk_agent_name"] = agent_name
             tool.annotations["adk_agent_source_id"] = self.source_id
         return [loaded]
 

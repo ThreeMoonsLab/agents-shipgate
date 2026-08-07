@@ -208,8 +208,13 @@ class GoogleAdkArtifacts(BaseModel):
     trace_sample_files: list[str] = Field(default_factory=list)
     trace_samples: list[dict[str, Any]] = Field(default_factory=list)
     agents: list[dict[str, Any]] = Field(default_factory=list)
+    # One record per tool *definition*. A tool shared by several agents is
+    # one entry here, not one per binding.
     function_tools: list[dict[str, Any]] = Field(default_factory=list)
     long_running_tools: list[dict[str, Any]] = Field(default_factory=list)
+    # One record per agent -> tool binding edge, so a shared tool stays a
+    # single capability while every agent that can reach it stays visible.
+    tool_bindings: list[dict[str, Any]] = Field(default_factory=list)
     toolsets: list[GoogleAdkToolset] = Field(default_factory=list)
     callbacks: list[dict[str, Any]] = Field(default_factory=list)
     plugins: list[dict[str, Any]] = Field(default_factory=list)
@@ -226,6 +231,9 @@ class GoogleAdkArtifacts(BaseModel):
             "agent_count": len(self.agents),
             "function_tool_count": len(self.function_tools),
             "long_running_tool_count": len(self.long_running_tools),
+            # Distinct from ``function_tool_count``: one function shared by
+            # three agents is one tool and three bindings.
+            "tool_binding_count": len(self.tool_bindings),
             "toolset_count": len(self.toolsets),
             "dynamic_toolset_count": len(dynamic_toolsets),
             "callback_count": len(self.callbacks),
