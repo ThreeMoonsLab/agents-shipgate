@@ -1,6 +1,14 @@
 import json
 from pathlib import Path
 
+import pytest
+from typer.testing import CliRunner
+
+from agents_shipgate.cli._artifact_lifecycle import (
+    VERIFIER_ROUTE_ARTIFACT_NAMES,
+    ArtifactLifecycleError,
+)
+from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.baseline import write_baseline
 
@@ -26,6 +34,108 @@ def test_sample_scan_generates_reports(tmp_path):
     assert (tmp_path / "report.md").exists()
     assert (tmp_path / "report.json").exists()
     assert "summary" in (tmp_path / "report.json").read_text(encoding="utf-8")
+
+
+def test_scan_removes_stale_verifier_route_artifacts(tmp_path: Path) -> None:
+    assert set(VERIFIER_ROUTE_ARTIFACT_NAMES) == {
+        "verifier.json",
+        "agent-handoff.json",
+        "pr-comment.md",
+        "verify-run.json",
+        "verification-plan.json",
+        "verification-input.diff",
+        "verification-base-report.json",
+        "verification-unit-result.json",
+        "verification-artifacts.json",
+        "verification-receipt.json",
+        "human-authorization.json",
+    }
+    for name in VERIFIER_ROUTE_ARTIFACT_NAMES:
+        (tmp_path / name).write_text('{"stale": true}\n', encoding="utf-8")
+
+    run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    assert (tmp_path / "report.json").is_file()
+    assert not [
+        name for name in VERIFIER_ROUTE_ARTIFACT_NAMES if (tmp_path / name).exists()
+    ]
+
+
+def test_scan_does_not_replace_report_when_stale_route_cannot_be_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale_handoff = tmp_path / "agent-handoff.json"
+    stale_handoff.write_text('{"stale": true}\n', encoding="utf-8")
+    report_path = tmp_path / "report.json"
+    prior_report = '{"prior": true}\n'
+    report_path.write_text(prior_report, encoding="utf-8")
+    real_unlink = Path.unlink
+
+    def deny_stale_handoff_unlink(
+        path: Path, missing_ok: bool = False
+    ) -> None:
+        if path == stale_handoff:
+            raise PermissionError("test denied stale handoff cleanup")
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", deny_stale_handoff_unlink)
+
+    with pytest.raises(
+        ArtifactLifecycleError, match="Could not remove stale verifier artifact"
+    ):
+        run_scan(
+            config_path=SAMPLE,
+            output_dir=tmp_path,
+            formats=["json"],
+            ci_mode="advisory",
+            packet_enabled=False,
+        )
+
+    assert stale_handoff.is_file()
+    assert report_path.read_text(encoding="utf-8") == prior_report
+
+
+def test_scan_cleanup_failure_agent_mode_names_exact_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale_verifier = tmp_path / "verifier.json"
+    stale_verifier.write_text('{"stale": true}\n', encoding="utf-8")
+    real_unlink = Path.unlink
+
+    def deny_stale_verifier_unlink(
+        path: Path, missing_ok: bool = False
+    ) -> None:
+        if path == stale_verifier:
+            raise PermissionError("test denied stale verifier cleanup")
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", deny_stale_verifier_unlink)
+    result = CliRunner().invoke(
+        app,
+        [
+            "scan",
+            "--config",
+            str(SAMPLE),
+            "--out",
+            str(tmp_path),
+            "--format",
+            "json",
+        ],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code == 4, result.output
+    payload = json.loads(result.output.strip().splitlines()[-1])
+    expected_prefix = f"Remove {stale_verifier} and re-run scan"
+    assert payload["next_action"].startswith(expected_prefix)
+    assert payload["next_actions"][0]["kind"] == "edit"
+    assert payload["next_actions"][0]["path"] == str(stale_verifier)
 
 
 def test_openai_agents_sdk_directory_fixture_scans_static_tools(tmp_path):
@@ -1329,7 +1439,7 @@ def test_default_scan_does_not_import_user_code(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     (project / "agent.py").write_text(
-        """
+        '''
 from pathlib import Path
 Path("imported.txt").write_text("executed")
 
@@ -1340,7 +1450,7 @@ def function_tool(fn):
 def harmless(name: str) -> str:
     \"\"\"Return a harmless greeting.\"\"\"
     return name
-""",
+''',
         encoding="utf-8",
     )
     (project / "shipgate.yaml").write_text(
@@ -1495,7 +1605,7 @@ agent = create_agent(model=None, tools=[lookup_case])
     )
     config = project / "shipgate.yaml"
     config.write_text(
-        '''
+        """
 version: "0.1"
 project:
   name: unreviewed-langchain
@@ -1508,7 +1618,7 @@ tool_sources:
   - id: langchain
     type: langchain
     path: agent.py
-''',
+""",
         encoding="utf-8",
     )
     return config

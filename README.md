@@ -634,6 +634,19 @@ and pre-commit equivalents.
 
 ## What it produces
 
+The read path is command-scoped. After standalone `scan`, read
+`report.json.release_decision.decision`; `scan` does not produce a valid
+verifier handoff or receipt. After `verify`, validate
+`verification-receipt.json` and then read `agent-handoff.json`. If both
+commands use the same output directory, a later standalone scan removes the
+prior verifier substrate, handoff, PR comment, run projection, plan, diff,
+base-report copy, unit result, artifact manifest, receipt, and copied human
+authorization before writing its report. `verify` writes a fresh
+content-addressed set after its internal scan completes. This prevents an old
+verifier route from being mistaken for the current scan result. Supporting
+commands such as `baseline save` run their internal scans in isolated temporary
+directories and do not replace either command's report set.
+
 When a PR changes what your agent can do, the verify loop writes these
 artifacts — in read order:
 

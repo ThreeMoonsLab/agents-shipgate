@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 
 from agents_shipgate import __version__
 from agents_shipgate.checks import registry
+from agents_shipgate.cli._artifact_lifecycle import VERIFIER_ROUTE_ARTIFACT_NAMES
 from agents_shipgate.cli._helpers import _safe_output_name
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
@@ -1033,6 +1034,44 @@ def test_cli_baseline_save_and_scan(tmp_path):
     # mode must still fail even when every fingerprint is baseline-matched.
     assert scan.exit_code == 20
     assert "Baseline delta: matched=" in scan.output
+
+
+def test_cli_baseline_save_preserves_verification_evidence_and_report(tmp_path):
+    sample = tmp_path / "support_refund_agent"
+    shutil.copytree(
+        "samples/support_refund_agent",
+        sample,
+        ignore=shutil.ignore_patterns("agents-shipgate-reports"),
+    )
+    reports = sample / "agents-shipgate-reports"
+    reports.mkdir()
+    preserved = {
+        "report.json": b'{"current": "verification report"}\n',
+        **{
+            name: f"current verification artifact: {name}\n".encode()
+            for name in VERIFIER_ROUTE_ARTIFACT_NAMES
+        },
+    }
+    for name, contents in preserved.items():
+        (reports / name).write_bytes(contents)
+
+    baseline_path = sample / ".agents-shipgate" / "baseline.json"
+    result = runner.invoke(
+        app,
+        [
+            "baseline",
+            "save",
+            "--config",
+            str(sample / "shipgate.yaml"),
+            "--out",
+            str(baseline_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert baseline_path.is_file()
+    for name, contents in preserved.items():
+        assert (reports / name).read_bytes() == contents, name
 
 
 def test_cli_scan_missing_baseline_exits_three(tmp_path):

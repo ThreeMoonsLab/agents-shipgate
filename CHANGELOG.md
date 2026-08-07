@@ -40,6 +40,15 @@
   published report schema's `required` set; `report_schema_version` stays at
   `0.34`.
 
+- **Standalone scans now retire the complete verifier route as one lifecycle
+  set.** A later `scan` removes `verifier.json`, `agent-handoff.json`, the PR
+  comment and run projection, and every verification identity input and output
+  before publishing a replacement report, so stale control actions cannot
+  survive beside a newer release decision. Cleanup failures now return the
+  exact artifact path and recovery action in agent mode. `baseline save` keeps
+  its supporting scan in a temporary directory, preserving both the current
+  report and forensic verifier evidence.
+
 - **`SHIP-VERIFY-POLICY-WEAKENED` can now actually see a weakened CI gate.**
   The `effective_policy` snapshot was built from the manifest *after* CLI
   overrides were folded into it, so it described the invocation rather than

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from agents_shipgate.cli.scan import writing as scan_writing
 from agents_shipgate.cli.verification import assemble, worker
 from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 from agents_shipgate.cli.verify.git import commit_date
@@ -39,6 +40,98 @@ def _git(repo: Path, *args: str, env: dict[str, str] | None = None) -> None:
         capture_output=True,
         env=command_env,
     )
+
+
+def test_verify_writes_identity_after_internal_scan_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pin verify's clear -> scan -> fresh identity-artifact ordering."""
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: lifecycle-test
+agent:
+  name: lifecycle-agent
+  declared_purpose:
+    - test artifact lifecycle
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "fixture")
+
+    events: list[str] = []
+    real_clear = scan_writing.clear_verifier_route_artifacts
+    real_write = verify_orchestrator._write_artifacts
+
+    def track_scan_cleanup(out_dir: Path) -> None:
+        events.append("scan_cleanup")
+        real_clear(out_dir)
+
+    def track_verify_write(*args, **kwargs) -> None:
+        events.append("verify_write")
+        real_write(*args, **kwargs)
+
+    monkeypatch.setattr(
+        scan_writing,
+        "clear_verifier_route_artifacts",
+        track_scan_cleanup,
+    )
+    monkeypatch.setattr(verify_orchestrator, "_write_artifacts", track_verify_write)
+
+    _, _, exit_code = run_verify(
+        workspace=repo,
+        config=Path("shipgate.yaml"),
+        base=None,
+        head="HEAD",
+        archive_head=True,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert exit_code == 0
+    assert events == ["scan_cleanup", "verify_write"]
+    reports = repo / "agents-shipgate-reports"
+    for name in (
+        "verifier.json",
+        "agent-handoff.json",
+        "pr-comment.md",
+        "verify-run.json",
+        "verification-plan.json",
+        "verification-input.diff",
+        "verification-unit-result.json",
+        "verification-artifacts.json",
+        "verification-receipt.json",
+    ):
+        assert (reports / name).is_file(), name
+    receipt = VerificationReceipt.model_validate(
+        json.loads((reports / "verification-receipt.json").read_text(encoding="utf-8"))
+    )
+    assert receipt.request_id
 
 
 def test_verify_backdated_commit_cannot_extend_expired_override(tmp_path: Path) -> None:
