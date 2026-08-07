@@ -18,7 +18,11 @@ from agents_shipgate.core.verification_identity import (
 from agents_shipgate.schemas.agent_control import CodingAgentCommandAction, HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
-from agents_shipgate.schemas.verifier import VerifierArtifact, map_merge_verdict
+from agents_shipgate.schemas.verifier import (
+    VerifierArtifact,
+    VerifierDiffStatus,
+    map_merge_verdict,
+)
 from agents_shipgate.schemas.verify_run import VerifyRunOutcome, build_verify_run_artifact
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -72,6 +76,7 @@ def _release_decision(decision: str) -> dict[str, object]:
 def _passed_verifier() -> VerifierArtifact:
     return VerifierArtifact(
         workspace="/tmp/repo",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         execution="succeeded",
         head_status="succeeded",
@@ -98,6 +103,7 @@ def _authorized_verifier() -> VerifierArtifact:
     )
     return VerifierArtifact(
         workspace="/tmp/repo",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         execution="succeeded",
         head_status="succeeded",
@@ -177,7 +183,7 @@ def test_handoff_rejects_tampered_current_verify_run_outcome() -> None:
 @pytest.mark.parametrize(
     ("schema_path", "control_path"),
     [
-        ("docs/verifier-schema.v0.6.json", ("control",)),
+        ("docs/verifier-schema.v0.7.json", ("control",)),
         ("docs/agent-handoff-schema.v6.json", ("control",)),
         ("docs/verify-run-schema.v3.json", ("outcome", "control")),
     ],
@@ -190,7 +196,7 @@ def test_generated_public_schemas_reject_contradictory_control(
     run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
-        "docs/verifier-schema.v0.6.json": verifier.model_dump(mode="json"),
+        "docs/verifier-schema.v0.7.json": verifier.model_dump(mode="json"),
         "docs/agent-handoff-schema.v6.json": handoff.model_dump(mode="json"),
         "docs/verify-run-schema.v3.json": run.model_dump(mode="json"),
     }
@@ -206,7 +212,7 @@ def test_generated_public_schemas_reject_contradictory_control(
 
 @pytest.mark.parametrize(
     "schema_path",
-    ["docs/verifier-schema.v0.6.json", "docs/agent-handoff-schema.v6.json"],
+    ["docs/verifier-schema.v0.7.json", "docs/agent-handoff-schema.v6.json"],
 )
 def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
     schema_path: str,
@@ -215,7 +221,7 @@ def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
     run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
-        "docs/verifier-schema.v0.6.json": verifier.model_dump(mode="json"),
+        "docs/verifier-schema.v0.7.json": verifier.model_dump(mode="json"),
         "docs/agent-handoff-schema.v6.json": handoff.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
@@ -243,7 +249,7 @@ def test_verifier_schema_requires_complete_authorized_projection(field: str) -> 
     payload = _authorized_verifier().model_dump(mode="json")
     payload.pop(field)
 
-    schema = json.loads((ROOT / "docs/verifier-schema.v0.6.json").read_text(encoding="utf-8"))
+    schema = json.loads((ROOT / "docs/verifier-schema.v0.7.json").read_text(encoding="utf-8"))
     assert list(Draft202012Validator(schema).iter_errors(payload))
 
 
@@ -261,6 +267,7 @@ def test_nonpassing_release_decision_cannot_claim_merge_authority(decision: str)
     with pytest.raises(ValidationError):
         VerifierArtifact(
             workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
             execution="succeeded",
             head_status="succeeded",
@@ -301,6 +308,7 @@ def test_accepted_authorization_rejects_control_mismatch(mismatch: str) -> None:
     with pytest.raises(ValidationError):
         VerifierArtifact(
             workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
             execution="succeeded",
             head_status="succeeded",
@@ -359,5 +367,5 @@ def test_passed_wrapper_contradictions_fail_pydantic_and_generated_schema(
     mutate(payload)
     with pytest.raises(ValidationError):
         VerifierArtifact.model_validate(payload)
-    schema = json.loads((ROOT / "docs/verifier-schema.v0.6.json").read_text())
+    schema = json.loads((ROOT / "docs/verifier-schema.v0.7.json").read_text())
     assert list(Draft202012Validator(schema).iter_errors(payload))

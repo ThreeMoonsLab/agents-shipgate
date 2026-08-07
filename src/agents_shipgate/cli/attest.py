@@ -132,7 +132,7 @@ def _attest_command(
     receipt_path = source.with_name("verification-receipt.json")
     receipt_payload = _load_optional_json_object(receipt_path)
     receipt_sha256 = None
-    if verifier.get("verifier_schema_version") in {"0.5", "0.6"}:
+    if verifier.get("verifier_schema_version") in {"0.5", "0.6", "0.7"}:
         if not receipt_payload:
             raise typer.Exit(3)
         receipt = VerificationReceipt.model_validate(receipt_payload)

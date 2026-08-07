@@ -204,7 +204,7 @@ def test_local_contract_renderer_has_required_fields() -> None:
     assert payload["host_grants_inventory_schema_version"] == "0.2"
     assert payload["host_grants_baseline_schema_version"] == "0.2"
     assert payload["host_grants_drift_schema_version"] == "0.2"
-    assert payload["trigger_catalog_schema_version"] == "0.2"
+    assert payload["trigger_catalog_schema_version"] == "0.3"
     assert payload["gating_signal"] == "release_decision.decision"
     assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
     assert payload["verifier_read_order"] == [

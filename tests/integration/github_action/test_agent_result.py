@@ -34,6 +34,7 @@ from agents_shipgate.schemas.report import (
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierCapabilityReview,
+    VerifierDiffStatus,
     VerifierFixTask,
 )
 from scripts.github_action_outputs import extract_outputs, merge_verdict_policy_exit_code
@@ -461,6 +462,7 @@ def _verifier(
         )
     return VerifierArtifact(
         workspace="/tmp/workspace",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         base_ref="origin/main",
         head_ref="HEAD",

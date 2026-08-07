@@ -13,6 +13,42 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-diff-status"></a>
+
+## Migration Note: unreleased — diff input health
+
+Verifier schema `0.6 → 0.7` and trigger catalog `0.2 → 0.3`. `contract_version`
+stays at `19`; no CLI surface changed.
+
+`verifier.json` gains a top-level `diff_status` block that reports whether the
+compared change set was actually read: `completeness` (`complete` / `partial` /
+`unavailable`), a `reason` token (`not_attempted`, `refs_missing`,
+`merge_base_missing`, `unrelated_histories`, `objects_missing`,
+`metadata_limit_exceeded`, `body_limit_exceeded`, `git_timeout`,
+`git_failed`), a bounded path-redacted `detail`, the
+`remediation`, and `fetch_repairable`. Verifier v0.6 remains a frozen reference
+and its artifacts still parse.
+
+The trigger evaluator gains `input_status` and `evaluation_status`, and
+`should_run`, `run_shipgate`, `skip`, and `skip_reason` become nullable.
+**Consumers that switch on `should_run` must handle `null`**: it means the diff
+was not read in full, so no verdict exists. Treating `null` as falsy is safe —
+it routes to "do not claim this PR is irrelevant" — but reporting it as "skip"
+is not. `next_action.kind` gains `"input_required"`; treat unrecognized kinds as
+"no command is authorized".
+
+Before this change, a shallow clone with no reachable merge base and a partial
+clone with unfetched blobs both surfaced as one message, and the trigger then
+evaluated the empty inputs those failures left behind and reported
+`skip_reason: "no_match"` — "nothing in this PR signals a tool-surface change" —
+about a PR the verifier never read. On a workspace without `shipgate.yaml` the
+failure was not surfaced at all: preview routed to "Shipgate is not configured
+in this workspace". Both are fixed, and a diff whose body cannot be read now
+keeps the changed paths that were collected successfully instead of discarding
+them.
+
+---
+
 <a id="migration-note-0-16-0b7"></a>
 
 ## Migration Note: 0.16.0b7
@@ -595,6 +631,9 @@ Stable JSON fields:
   control contract vocabulary.
 - `verifier_schema_version` — schema version for
   `agents-shipgate-reports/verifier.json`.
+- `trigger_catalog_schema_version` — schema version of the published trigger
+  catalog (`docs/triggers.json`) and, with it, of the run/skip verdict the
+  evaluator emits.
 - `verify_run_schema_version` — schema version for
   `agents-shipgate-reports/verify-run.json`.
 - `human_authorization_request_schema_version`,
@@ -1300,17 +1339,38 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.6.json`](docs/verifier-schema.v0.6.json).
-Verifier v0.1 through v0.5 remain frozen references. It remains an orchestration artifact: `release_decision.decision` in
+`verifier.json` is governed by [`docs/verifier-schema.v0.7.json`](docs/verifier-schema.v0.7.json).
+Verifier v0.1 through v0.6 remain frozen references. It remains an orchestration artifact: `release_decision.decision` in
 `report.json` is still the only release gate. Release and merge fields remain
 mirrors or deterministic projections of report data; the v0.6 authorization
-evaluation is an operational overlay that cannot change them. Stable additive
+evaluation and the v0.7 `diff_status` block are operational overlays that
+cannot change them. Stable additive
 fields a consumer may read:
 
 - `control` — the schema-enforced `complete | agent_action_required |
   human_review_required` operational projection. The same serialized object is
   emitted by verifier, handoff, and verify-run.
 - `execution` — `"not_run" | "succeeded" | "skipped" | "failed"`.
+- `diff_status` (v0.7+) — how completely the compared change set was read, and
+  why not when it was not. `completeness` is `"complete" | "partial" |
+  "unavailable"`; `reason` is `null` exactly when `completeness` is
+  `"complete"`, and otherwise one of `not_attempted`, `refs_missing`,
+  `merge_base_missing`, `unrelated_histories`, `objects_missing`,
+  `metadata_limit_exceeded`, `body_limit_exceeded`, `git_timeout`,
+  `git_failed`. `merge_base_missing` and `unrelated_histories` are
+  deliberately distinct: the first is a shallow checkout that truncated a
+  merge base which does exist, and deepening restores it; the second is two
+  roots with no common ancestor, which no fetch can create — `fetch_repairable`
+  is the field to branch on. `detail` is a bounded, path-redacted excerpt of
+  Git's own diagnostic; `remediation` names the repair; `fetch_repairable`
+  says whether making refs or objects available locally can fix it.
+  **`"complete"` is the only value that licenses reading a negative `trigger`
+  result.** Anything else means the evidence the verdict would rest on was
+  missing — it is never evidence that a PR is unrelated to agent capabilities.
+  `null` means the artifact predates v0.7 and carries no input-health
+  evidence, which a consumer must treat as unknown, never as complete. New
+  `reason` values may be added additively; treat an unrecognized reason as
+  "the diff was not read in full".
 - `static_analysis_only`, `runtime_behavior_verified`, and
   `static_verdict_disclaimer` — locked to `true`, `false`, and the canonical
   static-only disclaimer. When an embedded release decision is present, the
@@ -1357,7 +1417,17 @@ fields a consumer may read:
   context, not as the controller's primary verdict.
 - `mode` — `"advisory"` / `"strict"` / `"skipped"` / `"preview"`.
 
-`verifier.json` also carries `trigger` (the run/skip evaluation), `base_status`,
+`verifier.json` also carries `trigger` — the run/skip evaluation, catalog
+schema `0.3`. Read `trigger.evaluation_status` before `trigger.should_run`:
+when it is `"not_evaluated"`, `should_run`, `run_shipgate`, `skip`, and
+`skip_reason` are all `null` because the diff was not read in full (see
+`diff_status`), and `next_action.kind` is `"input_required"`. `skip_reason` is
+one of `stop_conditions`, `skip_rule`, `dry_run_only`, `no_match` — and
+`no_match` is never emitted for inputs that were not fully read. A `run`
+verdict *is* still published from partial evidence: rule matching is monotone,
+so more evidence can only add matches. `matched_rules` says what carried it —
+a `force_run` match rests on the manifest being present, not on anything the
+diff showed. It also carries `base_status`,
 `head_status`, `base_ref`, `head_ref`, `changed_files`, `base_notes`, the full
 embedded `release_decision`, and an `artifacts` map
 (`{verifier_json, pr_comment, report_json, report_markdown, report_sarif,

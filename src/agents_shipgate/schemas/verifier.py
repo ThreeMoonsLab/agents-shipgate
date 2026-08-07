@@ -24,6 +24,32 @@ VerifierBaseStatus = Literal[
 ]
 VerifierExecution = Literal["not_run", "succeeded", "skipped", "failed"]
 VerifierHeadStatus = VerifierExecution
+# How completely the compared change set was read, and — when it was not read
+# in full — why. This is an input-acquisition fact, never a verdict: an
+# unreadable diff says nothing about what the PR contains, so a consumer must
+# not read anything but ``complete`` as evidence that a PR is unrelated to
+# agent capabilities.
+# ``unknown`` is reachable only through legacy normalization: a pre-v0.7
+# artifact recorded no input health at all, and saying so is the one honest
+# answer. Current emitters never produce it. Like every value other than
+# ``complete`` it withholds permission to read a negative trigger verdict.
+DiffCompleteness = Literal["complete", "partial", "unavailable", "unknown"]
+DiffInputReason = Literal[
+    # Verification stopped before it read any diff (e.g. no manifest to gate
+    # against). Nothing failed in Git; nothing about the change set is known.
+    "not_attempted",
+    "refs_missing",
+    # A shallow checkout truncated a merge base that does exist (deepen), as
+    # against ``unrelated_histories``, where no common ancestor exists at all
+    # and no fetch can create one.
+    "merge_base_missing",
+    "unrelated_histories",
+    "objects_missing",
+    "metadata_limit_exceeded",
+    "body_limit_exceeded",
+    "git_timeout",
+    "git_failed",
+]
 MergeVerdict = Literal[
     "mergeable",
     "human_review_required",
@@ -288,6 +314,67 @@ class VerifierCapabilityReview(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+# Only these three describe history or objects that a fetch can make local.
+# The rest are deterministic failures that another fetch cannot touch, so a
+# ``fetch_repairable`` claim about them is rejected at construction rather than
+# published as an instruction that loops.
+_FETCH_REPAIRABLE_REASONS = frozenset(
+    {"refs_missing", "merge_base_missing", "objects_missing"}
+)
+
+
+class VerifierDiffStatus(BaseModel):
+    """Whether the compared change set was actually read, and why not.
+
+    Emitted on every verifier artifact so automation never has to infer input
+    health from a verdict. ``completeness: "complete"`` is the only value that
+    licenses reading a negative trigger result — anything else means the
+    evidence the verdict would rest on was missing, and the artifact says so
+    instead of reporting "nothing in this PR signals a tool-surface change".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    completeness: DiffCompleteness = "complete"
+    # Present exactly when the diff was read neither completely nor not-at-all:
+    # ``complete`` has nothing to explain, and ``unknown`` has no record to
+    # explain it with.
+    reason: DiffInputReason | None = None
+    # Bounded, path-redacted excerpt of Git's own diagnostic. Diagnostics only.
+    detail: str | None = None
+    # The precise repair, e.g. deepen history or hydrate partial-clone objects.
+    remediation: str | None = None
+    # Whether making refs/objects available locally can repair the failure.
+    # ``False`` routes to a human instead of another fetch attempt.
+    fetch_repairable: bool = False
+
+    @model_validator(mode="after")
+    def _reason_tracks_completeness(self) -> VerifierDiffStatus:
+        explainable = self.completeness in {"partial", "unavailable"}
+        if explainable != (self.reason is not None):
+            raise ValueError(
+                "VerifierDiffStatus.reason must be present exactly when the "
+                "diff was partially read or unavailable"
+            )
+        if self.completeness != "complete" and self.fetch_repairable and (
+            self.reason not in _FETCH_REPAIRABLE_REASONS
+        ):
+            raise ValueError(
+                f"VerifierDiffStatus.fetch_repairable is not true for "
+                f"{self.reason!r}: fetching cannot repair it"
+            )
+        return self
+
+    @classmethod
+    def unknown(cls) -> VerifierDiffStatus:
+        """The input health of an artifact that predates v0.7 reporting."""
+
+        return cls(
+            completeness="unknown",
+            detail="This artifact predates verifier v0.7 input-health reporting.",
+        )
+
+
 AgentStopReason = Literal[
     "self_approval_prohibited",
     "blocked_findings",
@@ -487,7 +574,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.6"] = "0.6"
+    verifier_schema_version: Literal["0.7"] = "0.7"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -503,6 +590,11 @@ class VerifierArtifact(BaseModel):
     head_ref: str = "HEAD"
     changed_files: list[str] = Field(default_factory=list)
     diff_text_available: bool = False
+    # Required, so a current artifact cannot omit the input-health contract:
+    # a payload with no ``diff_status`` would be indistinguishable from one
+    # that read its diff cleanly. Pre-v0.7 artifacts are normalized to
+    # ``VerifierDiffStatus.unknown()`` on the legacy path instead.
+    diff_status: VerifierDiffStatus
     trigger: dict[str, Any] = Field(default_factory=dict)
     base_status: VerifierBaseStatus = "not_requested"
     base_tree_sha: str | None = None
@@ -541,14 +633,20 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
-        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4", "0.5"}
+        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6"}
         if not legacy:
-            # Current v0.6 artifacts must already carry the authoritative
+            # Current v0.7 artifacts must already carry the authoritative
             # control union.  Silently synthesizing a missing or malformed
             # current control would turn an internal consistency failure into
-            # a trusted handoff.  Only the frozen v0.2 reader is normalized.
+            # a trusted handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.6"
+        normalized["verifier_schema_version"] = "0.7"
+        # A pre-v0.7 artifact recorded nothing about whether its diff was
+        # readable. Defaulting that to ``complete`` would manufacture the one
+        # claim the whole field exists to stop.
+        normalized.setdefault(
+            "diff_status", VerifierDiffStatus.unknown().model_dump(mode="json")
+        )
         normalized.setdefault(
             "authorization",
             AuthorizationEvaluationV1.not_requested().model_dump(mode="json"),

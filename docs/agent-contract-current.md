@@ -77,7 +77,7 @@ Downstream repos generated with
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v2` — [`docs/agent-result-schema.v2.json`](agent-result-schema.v2.json)
-- Current verifier schema: `0.6` — [`docs/verifier-schema.v0.6.json`](verifier-schema.v0.6.json)
+- Current verifier schema: `0.7` — [`docs/verifier-schema.v0.7.json`](verifier-schema.v0.7.json)
 - Current verify-run schema: `shipgate.verify_run/v3` — [`docs/verify-run-schema.v3.json`](verify-run-schema.v3.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current human-authorization schemas: request, signed grant, verifier evaluation, and external trust policy v1 — [`docs/human-authorization-schema.v1.json`](human-authorization-schema.v1.json)
@@ -93,7 +93,7 @@ Downstream repos generated with
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
 - Current host-grants inventory, baseline, and drift schemas: `0.2` — [`inventory`](host-grants-inventory-schema.v0.2.json), [`baseline`](host-grants-baseline-schema.v0.2.json), [`drift`](host-grants-drift-schema.v0.2.json)
-- Current trigger catalog schema: `0.2` — [`docs/triggers.json`](triggers.json)
+- Current trigger catalog schema: `0.3` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
 - Frozen-reference report schemas: frozen [`v0.33`](report-schema.v0.33.json), frozen [`v0.32`](report-schema.v0.32.json), frozen [`v0.31`](report-schema.v0.31.json), frozen [`v0.30`](report-schema.v0.30.json), and older versions listed in [`docs/INDEX.md`](INDEX.md#reference)
@@ -357,8 +357,8 @@ from existing artifacts with:
 agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json
 ```
 
-In `agents-shipgate-reports/verifier.json`, read the v0.6 fields below (full
-schema [`docs/verifier-schema.v0.6.json`](verifier-schema.v0.6.json)). **Lead
+In `agents-shipgate-reports/verifier.json`, read the v0.7 fields below (full
+schema [`docs/verifier-schema.v0.7.json`](verifier-schema.v0.7.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.
@@ -370,6 +370,27 @@ operational overlay and cannot change those fields.
   generated schemas enforce the variants with `oneOf`. Only a new verifier
   artifact can clear a pending control obligation.
 - `execution` — `"not_run" | "succeeded" | "skipped" | "failed"`.
+- `diff_status` — whether the compared change set was read at all.
+  `completeness` is `"complete"` / `"partial"` / `"unavailable"`; `reason` is
+  `null` only when complete, and otherwise `not_attempted`, `refs_missing`,
+  `merge_base_missing` (shallow checkout — deepening restores the merge base),
+  `unrelated_histories` (no common ancestor exists; no fetch can create one),
+  `objects_missing`, `metadata_limit_exceeded`, `body_limit_exceeded`,
+  `git_timeout`, or `git_failed`. `remediation` names
+  the repair and `fetch_repairable` says whether fetching can perform it.
+  **Only `"complete"` licenses reading a negative `trigger` result**; anything
+  else means the diff was not read, which is never evidence that a PR is
+  unrelated to agent capabilities. `null` means a pre-v0.7 artifact — unknown,
+  not complete.
+- `trigger` — the run/skip evaluation. Read `evaluation_status` first: when it
+  is `"not_evaluated"`, `should_run` / `run_shipgate` / `skip` / `skip_reason`
+  are `null` and `next_action.kind` is `"input_required"`. `skip_reason` is
+  never `"no_match"` for inputs that were not fully read. `"evaluated"` on an
+  incomplete `diff_status` is not a contradiction: only *skip* verdicts are
+  withheld, so a `should_run: true` reached from evidence that did not depend
+  on the missing bytes is authoritative and must not be overridden. Read
+  `matched_rules` to see what carried it — a `force_run` match rests on the
+  manifest, not on the diff.
 - `merge_verdict` — `"mergeable"` / `"human_review_required"` /
   `"insufficient_evidence"` / `"blocked"` / `"unknown"`. Deterministic projection
   of `release_decision.decision` (`passed`→`mergeable`,

@@ -241,6 +241,7 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
             "config": "shipgate.yaml",
             "execution": "succeeded",
             "head_status": "succeeded",
+            "diff_status": {"completeness": "complete"},
             "release_decision": {
                 "decision": "passed",
                 "reason": "All required static verification passed.",

@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- **An unreadable PR diff is no longer reported as "nothing here is
+  agent-related."** `verify --preview` collapsed every diff-acquisition failure
+  into one message, then evaluated the trigger catalog against the empty inputs
+  that failure left behind — publishing `skip_reason: "no_match"` with the
+  rationale *"nothing in this PR signals a tool-surface change"* about a PR it
+  had never read. The top-level control result stayed fail-closed
+  (`merge_verdict: "unknown"`), but the explanation invited exactly the wrong
+  conclusion, and on an unconfigured workspace the failure was not reported at
+  all: both diff-failure branches were gated on a manifest being present, so a
+  shallow or blobless clone of an un-adopted repository — the normal shape of
+  first contact — fell through to *"Shipgate is not configured in this
+  workspace"* with the Git error visible nowhere but `base_notes`. Three
+  things changed. Diff acquisition is now classified rather than flattened:
+  `not_attempted`, `refs_missing`, `merge_base_missing`,
+  `unrelated_histories`, `objects_missing`, `metadata_limit_exceeded`,
+  `body_limit_exceeded`, `git_timeout`, and `git_failed` are read off Git's own
+  diagnostic — including the two causes Git reports identically as "no merge
+  base", a shallow checkout that deepening repairs versus two roots that no
+  fetch can ever join — and travel on the new
+  `verifier.json` `diff_status` block together with a bounded, path-redacted
+  excerpt and the precise repair — deepen history, hydrate partial-clone
+  objects (verification sets `GIT_NO_LAZY_FETCH=1`, so Git will not fetch them
+  implicitly), or take it to a human when fetching cannot help. Metadata and
+  body are collected separately, so a diff whose body cannot be read no longer
+  discards the changed paths that were read successfully; a blobless clone
+  answers `--name-status` in full, and those paths are exactly what says a PR
+  touches an agent surface. And the trigger evaluator gained the state it was
+  missing: `input_status` and `evaluation_status`, with `should_run`,
+  `run_shipgate`, `skip`, and `skip_reason` all `null` when the inputs were not
+  fully read. The asymmetry is deliberate — rule matching is monotone in the
+  evidence, so a *run* verdict reached from partial evidence stays sound and is
+  still published, while any *skip* verdict is withheld. Trigger catalog schema
+  `0.2 → 0.3` (nullable verdict fields, the two new fields, and the new
+  `next_action.kind: "input_required"`); verifier schema `0.6 → 0.7`
+  (`diff_status`; v0.6 remains a frozen reference and is still readable).
+  `contract_version`, `report_schema_version`, and every other schema counter
+  are unchanged.
+
 - **Google ADK repositories that share one tool between agents can be scanned
   again.** Binding the same `FunctionTool` to a coordinator and its sub-agents
   is the canonical ADK multi-agent shape — it is what `google/adk-samples`

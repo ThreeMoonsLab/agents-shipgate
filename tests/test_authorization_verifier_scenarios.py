@@ -9,7 +9,12 @@ from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
-from agents_shipgate.schemas.verifier import VerifierArtifact, VerifierFixTask, map_merge_verdict
+from agents_shipgate.schemas.verifier import (
+    VerifierArtifact,
+    VerifierDiffStatus,
+    VerifierFixTask,
+    map_merge_verdict,
+)
 
 AUTHORIZED_COMMAND = (
     "git push --force-with-lease=refs/heads/codex/human-authorization-state:"
@@ -107,6 +112,7 @@ def _verifier(
         reason = "Shipgate could not complete verification."
         return VerifierArtifact(
             workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
             execution="failed",
             head_status="failed",
@@ -122,6 +128,7 @@ def _verifier(
     reason = f"Release decision is {decision}."
     return VerifierArtifact(
         workspace="/tmp/repo",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         execution="succeeded",
         head_status="succeeded",

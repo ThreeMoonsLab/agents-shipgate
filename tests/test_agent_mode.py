@@ -226,7 +226,7 @@ def test_verify_json_shortcut_prints_verifier_artifact(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.6"
+    assert payload["verifier_schema_version"] == "0.7"
     assert payload["merge_verdict"] == "insufficient_evidence"
     assert payload["can_merge_without_human"] is False
     assert payload["control"]["state"] == "human_review_required"
@@ -275,7 +275,7 @@ def test_verify_format_json_still_prints_full_verifier_artifact(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.6"
+    assert payload["verifier_schema_version"] == "0.7"
     assert payload["execution"] == "succeeded"
     assert payload["head_status"] == "succeeded"
     assert payload["trigger"]["run_shipgate"] is True
@@ -292,7 +292,7 @@ def test_verify_agent_environment_defaults_to_verifier_json(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.6"
+    assert payload["verifier_schema_version"] == "0.7"
     assert payload["merge_verdict"] == "insufficient_evidence"
 
 

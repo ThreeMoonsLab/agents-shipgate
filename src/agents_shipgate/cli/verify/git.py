@@ -25,6 +25,8 @@ _WORKTREE_ATTRIBUTE_LIST_LIMIT = 8 * 1024 * 1024
 _DIFF_CONFIG_LIMIT = 1024 * 1024
 _DIFF_METADATA_LIMIT = 8 * 1024 * 1024
 _DIFF_BODY_LIMIT = 32 * 1024 * 1024
+_GIT_STDERR_LIMIT = 8 * 1024
+_GIT_STDERR_EXCERPT_CHARS = 240
 _TEXT_CAPABILITY_SUFFIXES = frozenset(
     {
         ".json",
@@ -59,6 +61,140 @@ class BinaryCapabilityDiffError(ConfigError):
             "capability text cannot be evaluated statically: "
             + ", ".join(self.paths[:3])
         )
+
+
+# Why a requested diff could not be read in full. These are input-acquisition
+# states, not verdicts: none of them says anything about what the PR contains.
+# ``refs_missing``/``merge_base_missing``/``objects_missing`` are repairable by
+# making history or objects locally available; the rest are not.
+DiffInputReason = Literal[
+    "not_attempted",
+    "refs_missing",
+    "merge_base_missing",
+    "unrelated_histories",
+    "objects_missing",
+    "metadata_limit_exceeded",
+    "body_limit_exceeded",
+    "git_timeout",
+    "git_failed",
+]
+
+# Mirrors ``BoundaryChangeSet.completeness`` so ``check`` and ``verify`` speak
+# one vocabulary for partially-read inputs.
+DiffCompleteness = Literal["complete", "partial", "unavailable"]
+
+_FETCHABLE_DIFF_REASONS: frozenset[str] = frozenset(
+    {"refs_missing", "merge_base_missing", "objects_missing"}
+)
+
+_DIFF_REASON_REMEDIATION: dict[str, str] = {
+    "not_attempted": (
+        "Verification stopped before it read any diff, so nothing is known "
+        "about the change set. Clear the reported blocker and rerun."
+    ),
+    "refs_missing": (
+        "Fetch the missing ref locally (for example "
+        "`git fetch --no-tags origin <ref>`), then rerun."
+    ),
+    "merge_base_missing": (
+        "This checkout is shallow, so the merge base the two refs share was "
+        "truncated away. Deepen history (`git fetch --deepen=<n>`, or "
+        "`git fetch --unshallow` / checkout with `fetch-depth: 0`), then rerun."
+    ),
+    "unrelated_histories": (
+        "The two refs share no common ancestor and this checkout is not "
+        "shallow, so no fetch can create one. Confirm the base names the right "
+        "comparison point — a force-push or a rewritten branch produces this — "
+        "then rerun."
+    ),
+    "objects_missing": (
+        "This checkout is a partial clone and the objects the diff needs were "
+        "never fetched. Verification runs with GIT_NO_LAZY_FETCH=1 and will "
+        "not fetch them implicitly. Hydrate them (for example "
+        "`git fetch --refetch origin`, or clone without `--filter`), then "
+        "rerun."
+    ),
+    "metadata_limit_exceeded": (
+        "The change set exceeds Shipgate's static diff-metadata bound. Split "
+        "the change, or exclude generated output from the compared range."
+    ),
+    "body_limit_exceeded": (
+        "The unified diff exceeds Shipgate's static diff-body bound. Changed "
+        "paths were still collected; split the change or exclude generated "
+        "output to recover the textual evidence."
+    ),
+    "git_timeout": (
+        "Git did not finish within the static timeout. Inspect repository "
+        "size and local Git health before rerunning; fetching refs will not "
+        "repair it."
+    ),
+    "git_failed": (
+        "Inspect the reported Git failure before rerunning; fetching refs "
+        "cannot repair a deterministic input failure."
+    ),
+}
+
+
+@dataclass(frozen=True)
+class DiffContext:
+    """One diff-acquisition attempt and exactly how complete its result is.
+
+    ``completeness`` is the contract. ``complete`` means every changed path and
+    the full unified-diff body were read; ``partial`` means the changed paths
+    are authoritative but the textual body is missing or unproven; and
+    ``unavailable`` means nothing about the change set was established. A caller
+    must never treat ``partial`` or ``unavailable`` evidence as proof that a PR
+    is unrelated to agent capabilities.
+    """
+
+    changed_files: tuple[str, ...] = ()
+    diff_text: str = ""
+    completeness: DiffCompleteness = "complete"
+    reason: DiffInputReason | None = None
+    detail: str = ""
+
+    @property
+    def remediation(self) -> str:
+        if self.reason is None:
+            return ""
+        return _DIFF_REASON_REMEDIATION[self.reason]
+
+    @property
+    def fetch_repairable(self) -> bool:
+        """Whether making refs/objects available locally can repair this."""
+
+        return self.reason in _FETCHABLE_DIFF_REASONS
+
+    @property
+    def note(self) -> str:
+        """One safe operator-facing line for ``base_notes``."""
+
+        if self.completeness == "complete":
+            return ""
+        scope = (
+            "Changed paths were collected but the diff body could not be read"
+            if self.completeness == "partial"
+            else "The diff could not be read"
+        )
+        detail = ""
+        if self.detail:
+            terminated = self.detail.rstrip()
+            if terminated and terminated[-1] not in ".!?":
+                terminated += "."
+            detail = f" Git reported: {terminated}"
+        return f"{scope} ({self.reason}).{detail} {self.remediation}"
+
+
+class DiffInputError(ConfigError):
+    """A diff that could not be read in full, with its classified reason."""
+
+    def __init__(self, context: DiffContext) -> None:
+        self.context = context
+        super().__init__(context.note.strip())
+
+
+class _UnavailableRevisionError(ConfigError):
+    """A revision expression that names refs this checkout does not have."""
 
 
 _SAFE_DIFF_CONFIG = [
@@ -461,20 +597,63 @@ def git_path(workspace: Path, path: str) -> Path:
 
 
 def diff_context(workspace: Path, base: str, head: str) -> tuple[list[str], str]:
-    base_commit = commit_sha(workspace, base)
-    head_commit = commit_sha(workspace, head)
-    if base_commit is None or head_commit is None:
-        raise ConfigError("Git diff refs are unavailable locally")
-    revspec = f"{base_commit}...{head_commit}"
-    return diff_revspec_context(workspace, revspec)
+    """Return committed-ref diff paths and body, or raise on any shortfall.
+
+    Callers that can act on a partially-read diff should use
+    :func:`collect_diff_context` instead. This wrapper stays strict so a caller
+    that cannot represent partial evidence never silently reasons over it.
+    """
+
+    return _require_complete(collect_diff_context(workspace, base, head))
 
 
 def diff_revspec_context(workspace: Path, revspec: str) -> tuple[list[str], str]:
-    """Return deterministic committed-ref diff paths and body."""
+    """Return deterministic committed-ref diff paths and body, or raise."""
+
+    return _require_complete(collect_revspec_diff_context(workspace, revspec))
+
+
+def _require_complete(context: DiffContext) -> tuple[list[str], str]:
+    if context.completeness != "complete":
+        raise DiffInputError(context)
+    return list(context.changed_files), context.diff_text
+
+
+def collect_diff_context(workspace: Path, base: str, head: str) -> DiffContext:
+    """Collect the ``base...head`` diff and report exactly how complete it is."""
+
+    base_commit = commit_sha(workspace, base)
+    head_commit = commit_sha(workspace, head)
+    if base_commit is None or head_commit is None:
+        missing = base if base_commit is None else head
+        return DiffContext(
+            completeness="unavailable",
+            reason="refs_missing",
+            detail=f"Git ref {missing!r} is not available locally.",
+        )
+    return collect_revspec_diff_context(workspace, f"{base_commit}...{head_commit}")
+
+
+def collect_revspec_diff_context(workspace: Path, revspec: str) -> DiffContext:
+    """Collect a deterministic committed-ref diff without discarding evidence.
+
+    Metadata and body are read separately and reported separately. A body that
+    cannot be read no longer throws away the changed-path evidence that was
+    successfully collected — a blobless clone, for instance, answers
+    ``--name-status`` fully while failing the textual diff, and those paths are
+    exactly what tells a caller the PR touches an agent surface.
+    """
 
     _reject_unbound_diff_configuration(workspace)
-    revspec = _resolved_diff_revspec(workspace, revspec)
-    names = _run_git_bounded_output(
+    try:
+        revspec = _resolved_diff_revspec(workspace, revspec)
+    except _UnavailableRevisionError as exc:
+        return DiffContext(
+            completeness="unavailable",
+            reason="refs_missing",
+            detail=str(exc),
+        )
+    names = _run_git_bounded_result(
         workspace,
         [
             *_SAFE_DIFF_CONFIG,
@@ -486,7 +665,15 @@ def diff_revspec_context(workspace: Path, revspec: str) -> tuple[list[str], str]
         ],
         max_output_bytes=_DIFF_METADATA_LIMIT,
     )
-    body = _run_git_bounded_output(
+    if names.payload is None:
+        reason, detail = _classify_diff_failure(
+            names, limit_reason="metadata_limit_exceeded", workspace=workspace
+        )
+        return DiffContext(
+            completeness="unavailable", reason=reason, detail=detail
+        )
+    paths = tuple(sorted(_paths_from_name_status(names.payload)))
+    body = _run_git_bounded_result(
         workspace,
         [
             *_SAFE_DIFF_CONFIG,
@@ -496,17 +683,34 @@ def diff_revspec_context(workspace: Path, revspec: str) -> tuple[list[str], str]
         ],
         max_output_bytes=_DIFF_BODY_LIMIT,
     )
-    if names is None or body is None:
-        raise ConfigError("Git diff exceeded static output bounds or could not be read.")
-    paths = sorted(_paths_from_name_status(names))
-    diff_text = _decode_diff_body(body)
+    if body.payload is None:
+        reason, detail = _classify_diff_failure(
+            body, limit_reason="body_limit_exceeded", workspace=workspace
+        )
+        return DiffContext(
+            changed_files=paths,
+            completeness="partial",
+            reason=reason,
+            detail=detail,
+        )
+    diff_text = _decode_diff_body(body.payload)
     try:
         _reject_binary_capability_paths(workspace, revspec)
     except BinaryCapabilityDiffError as exc:
-        exc.changed_paths = tuple(paths)
+        exc.changed_paths = paths
         exc.diff_text = diff_text
         raise
-    return paths, diff_text
+    except DiffInputError as exc:
+        # The binary-hiding guard could not run, so the body is not proven to
+        # contain every capability path's text. Keep it, but never as complete.
+        return DiffContext(
+            changed_files=paths,
+            diff_text=diff_text,
+            completeness="partial",
+            reason=exc.context.reason,
+            detail=exc.context.detail,
+        )
+    return DiffContext(changed_files=paths, diff_text=diff_text)
 
 
 def _paths_from_name_status(payload: bytes) -> list[str]:
@@ -552,7 +756,7 @@ def _reject_binary_capability_paths(
 ) -> None:
     """Fail closed when a source-like path is hidden behind a binary marker."""
 
-    payload = _run_git_bounded_output(
+    result = _run_git_bounded_result(
         workspace,
         [
             *_SAFE_DIFF_CONFIG,
@@ -567,10 +771,13 @@ def _reject_binary_capability_paths(
         ],
         max_output_bytes=_DIFF_METADATA_LIMIT,
     )
+    payload = result.payload
     if payload is None:
-        raise ConfigError(
-            "Git binary-path metadata exceeded static output bounds or could "
-            "not be read."
+        reason, detail = _classify_diff_failure(
+            result, limit_reason="metadata_limit_exceeded", workspace=workspace
+        )
+        raise DiffInputError(
+            DiffContext(completeness="unavailable", reason=reason, detail=detail)
         )
     hidden: list[str] = []
     for record in payload.split(b"\0"):
@@ -900,7 +1107,7 @@ def working_tree_context(
     pathspec = _worktree_pathspec(workspace, exclude)
     if reject_index_hidden:
         _reject_index_hidden_capability_paths(workspace, pathspec=pathspec)
-    names = _run_git_bounded_output(
+    names = _run_git_bounded_result(
         workspace,
         [
             *_SAFE_DIFF_CONFIG,
@@ -914,30 +1121,18 @@ def working_tree_context(
         ],
         max_output_bytes=_DIFF_METADATA_LIMIT,
     )
-    body = _run_git_bounded_output(
-        workspace,
-        [
-            *_SAFE_DIFF_CONFIG,
-            "diff",
-            *_DETERMINISTIC_DIFF_OPTIONS,
-            "HEAD",
-            "--",
-            *pathspec,
-        ],
-        max_output_bytes=_DIFF_BODY_LIMIT,
-    )
-    if names is None or body is None:
-        raise ConfigError(
-            "Git worktree diff exceeded static output bounds or could not be read."
+    if names.payload is None:
+        reason, detail = _classify_diff_failure(
+            names, limit_reason="metadata_limit_exceeded", workspace=workspace
         )
-    paths = sorted(_paths_from_name_status(names))
-    diff_text = _decode_diff_body(body)
-    try:
-        _reject_binary_capability_paths(workspace, "HEAD", pathspec=pathspec)
-    except BinaryCapabilityDiffError as exc:
-        exc.changed_paths = tuple(paths)
-        exc.diff_text = diff_text
-        raise
+        raise DiffInputError(
+            DiffContext(completeness="unavailable", reason=reason, detail=detail)
+        )
+    paths = sorted(_paths_from_name_status(names.payload))
+    # The untracked inventory is cheap path metadata, independent of the diff
+    # body. Collecting it here rather than after the body read means a body
+    # that cannot be read still hands back the complete set of changed paths —
+    # a brand-new capability file appears in no `git diff` at all.
     untracked = _run_git_bounded_output(
         workspace,
         [
@@ -961,6 +1156,50 @@ def working_tree_context(
         path = os.fsdecode(raw_path)
         if path not in paths:
             paths.append(path)
+    body = _run_git_bounded_result(
+        workspace,
+        [
+            *_SAFE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            "HEAD",
+            "--",
+            *pathspec,
+        ],
+        max_output_bytes=_DIFF_BODY_LIMIT,
+    )
+    if body.payload is None:
+        reason, detail = _classify_diff_failure(
+            body, limit_reason="body_limit_exceeded", workspace=workspace
+        )
+        raise DiffInputError(
+            DiffContext(
+                changed_files=tuple(paths),
+                completeness="partial",
+                reason=reason,
+                detail=detail,
+            )
+        )
+    diff_text = _decode_diff_body(body.payload)
+    try:
+        _reject_binary_capability_paths(workspace, "HEAD", pathspec=pathspec)
+    except BinaryCapabilityDiffError as exc:
+        exc.changed_paths = tuple(paths)
+        exc.diff_text = diff_text
+        raise
+    except DiffInputError as exc:
+        # The binary-hiding guard could not run, so the body is not proven to
+        # cover every capability path. Carry what was read: a caller that can
+        # act on partial evidence should not have to re-collect it.
+        raise DiffInputError(
+            DiffContext(
+                changed_files=tuple(paths),
+                diff_text=diff_text,
+                completeness="partial",
+                reason=exc.context.reason,
+                detail=exc.context.detail,
+            )
+        ) from exc
     return paths, diff_text
 
 
@@ -1342,7 +1581,9 @@ def _resolved_diff_revspec(workspace: Path, revspec: str) -> str:
         raise ConfigError(f"Unsupported Git diff revision expression: {revspec!r}")
     commits = [commit_sha(workspace, part) for part in parts]
     if any(commit is None for commit in commits):
-        raise ConfigError(f"Git diff revision is unavailable: {revspec!r}")
+        raise _UnavailableRevisionError(
+            f"Git diff revision is unavailable: {revspec!r}"
+        )
     return separator.join(commit for commit in commits if commit is not None)
 
 
@@ -1387,6 +1628,16 @@ def _run_git_dir(
     )
 
 
+@dataclass(frozen=True)
+class _BoundedGitResult:
+    """One bounded Git read, keeping why it failed instead of only that it did."""
+
+    payload: bytes | None
+    exceeded: bool = False
+    timed_out: bool = False
+    stderr: str = ""
+
+
 def _run_git_bounded_output(
     workspace: Path,
     args: list[str],
@@ -1398,20 +1649,48 @@ def _run_git_bounded_output(
 ) -> bytes | None:
     """Run read-only Git plumbing without buffering unbounded stdout."""
 
+    return _run_git_bounded_result(
+        workspace,
+        args,
+        max_output_bytes=max_output_bytes,
+        timeout=timeout,
+        allowed_returncodes=allowed_returncodes,
+        input=input,
+    ).payload
+
+
+def _run_git_bounded_result(
+    workspace: Path,
+    args: list[str],
+    *,
+    max_output_bytes: int,
+    timeout: int = 60,
+    allowed_returncodes: tuple[int, ...] = (0,),
+    input: bytes | None = None,
+) -> _BoundedGitResult:
+    """Run bounded Git plumbing and retain a bounded stderr excerpt.
+
+    stderr is drained on its own thread under a small cap for the same reason
+    stdout is: an unread pipe deadlocks the child, and an unbounded one is a
+    memory hazard. The excerpt exists only so an input failure can be
+    classified and explained; it never becomes evidence.
+    """
+
     cmd = ["git", "--no-replace-objects", "-C", str(workspace), *args]
     env = _git_object_environment()
     try:
         process = subprocess.Popen(  # noqa: S603 - fixed local Git argv, no shell.
             cmd,
             env=env,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
         )
-    except OSError:
-        return None
+    except OSError as exc:
+        return _BoundedGitResult(payload=None, stderr=str(exc))
 
     output = bytearray()
+    errors = bytearray()
     exceeded = False
     read_failed = False
 
@@ -1433,8 +1712,20 @@ def _run_git_bounded_output(
         except OSError:
             read_failed = True
 
+    def _drain_stderr() -> None:
+        assert process.stderr is not None
+        try:
+            while chunk := process.stderr.read(4096):
+                remaining = _GIT_STDERR_LIMIT - len(errors)
+                if remaining > 0:
+                    errors.extend(chunk[:remaining])
+        except OSError:
+            pass
+
     reader = threading.Thread(target=_drain_stdout, daemon=True)
     reader.start()
+    error_reader = threading.Thread(target=_drain_stderr, daemon=True)
+    error_reader.start()
     write_failed = False
 
     def _write_stdin() -> None:
@@ -1459,20 +1750,141 @@ def _run_git_bounded_output(
         process.kill()
         process.wait()
         reader.join()
+        error_reader.join()
         if writer is not None:
             writer.join()
-        return None
+        return _BoundedGitResult(
+            payload=None,
+            timed_out=True,
+            stderr=_decode_git_stderr(errors),
+        )
     reader.join()
+    error_reader.join()
     if writer is not None:
         writer.join()
+    stderr_text = _decode_git_stderr(errors)
     if (
         returncode not in allowed_returncodes
         or exceeded
         or read_failed
         or write_failed
     ):
+        return _BoundedGitResult(
+            payload=None,
+            exceeded=exceeded,
+            stderr=stderr_text,
+        )
+    return _BoundedGitResult(payload=bytes(output), stderr=stderr_text)
+
+
+def _decode_git_stderr(payload: bytes | bytearray) -> str:
+    """Return Git's diagnostic text as one safe, bounded, single-line string."""
+
+    text = bytes(payload).decode("utf-8", errors="replace")
+    collapsed = " ".join(
+        part
+        for part in "".join(
+            character if character.isprintable() else " " for character in text
+        ).split()
+    )
+    if len(collapsed) > _GIT_STDERR_EXCERPT_CHARS:
+        collapsed = collapsed[:_GIT_STDERR_EXCERPT_CHARS].rstrip() + "…"
+    return collapsed
+
+
+def _history_is_truncated(workspace: Path) -> bool | None:
+    """Whether this checkout's commit history is shallow.
+
+    ``None`` when Git could not answer. That is not "no": it is the one case
+    where the caller has no basis to claim the histories are unrelated, so it
+    must not synthesize either repair.
+    """
+
+    result = _run_git(
+        workspace, ["rev-parse", "--is-shallow-repository"], check=False
+    )
+    if result.returncode != 0:
         return None
-    return bytes(output)
+    answer = result.stdout.strip().casefold()
+    if answer == "true":
+        return True
+    if answer == "false":
+        return False
+    return None
+
+
+def _redact_local_paths(text: str, workspace: Path) -> str:
+    """Keep local filesystem layout out of a diagnostic that ships in JSON."""
+
+    if not text:
+        return text
+    for absolute in (str(workspace.resolve()), str(workspace), str(Path.home())):
+        if absolute and absolute != os.sep:
+            text = text.replace(absolute, "<redacted-path>")
+    return text
+
+
+def _classify_diff_failure(
+    result: _BoundedGitResult,
+    *,
+    limit_reason: DiffInputReason,
+    workspace: Path | None = None,
+) -> tuple[DiffInputReason, str]:
+    """Map one failed bounded Git read to a stable reason and a safe detail.
+
+    Classification reads Git's own diagnostic rather than guessing from the
+    repository shape, so a shallow clone with no merge base and a partial clone
+    with unfetched blobs stop being reported as the same failure.
+    """
+
+    if result.exceeded:
+        return limit_reason, ""
+    detail = (
+        _redact_local_paths(result.stderr, workspace)
+        if workspace is not None
+        else result.stderr
+    )
+    if result.timed_out:
+        return "git_timeout", detail
+    lowered = result.stderr.casefold()
+    if "no merge base" in lowered:
+        # "No merge base" has two causes with opposite repairs, and Git reports
+        # them identically. A shallow checkout truncated a merge base that does
+        # exist — deepening restores it. Two genuinely unrelated roots have no
+        # common ancestor at all, and routing that to another fetch loops an
+        # agent forever, so it goes to whoever chose the base ref.
+        truncated = (
+            _history_is_truncated(workspace) if workspace is not None else None
+        )
+        if truncated is True:
+            return "merge_base_missing", detail
+        if truncated is False:
+            return "unrelated_histories", detail
+        return "git_failed", detail
+    if any(
+        marker in lowered
+        for marker in (
+            "promisor remote",
+            "lazy fetching disabled",
+            "missing blob",
+            "unable to read",
+            "cannot read object",
+            "object file is empty",
+        )
+    ):
+        return "objects_missing", detail
+    if any(
+        marker in lowered
+        for marker in (
+            "unknown revision",
+            "ambiguous argument",
+            "not a valid object name",
+            "bad revision",
+            "bad object",
+        )
+    ):
+        return "refs_missing", detail
+    return "git_failed", detail
 
 
 def _run_git(
@@ -1560,11 +1972,15 @@ __all__ = [
     "active_replace_refs",
     "archive_tree",
     "BinaryCapabilityDiffError",
+    "collect_diff_context",
+    "collect_revspec_diff_context",
     "commit_date",
     "commit_sha",
     "DefaultBaseDetection",
     "detect_default_base",
     "detect_default_base_with_notes",
+    "DiffContext",
+    "DiffInputError",
     "diff_context",
     "diff_revspec_context",
     "ensure_git_workspace",

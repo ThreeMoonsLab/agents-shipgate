@@ -22,7 +22,7 @@ the rules to the changed file list.
    - **Local repo** (already adopted Shipgate): read `docs/triggers.json` directly.
    - **Remote** (target repo without Shipgate): fetch
      `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`.
-   - The catalog has `schema_version: "0.2"`; match `surface_class` instead of maintaining a parallel path list.
+   - The catalog has `schema_version: "0.3"`; match `surface_class` instead of maintaining a parallel path list.
 
 3. **Apply the rules.** Two equivalent options:
 
@@ -52,7 +52,18 @@ the rules to the changed file list.
    manually). If your repo already has a manifest, also pass
    `--manifest-present` so the `force_run` rule can fire.
    The output shape is `{run_shipgate, dry_run_recommended,
-   matched_rules, stop_conditions_fired, rationale, schema_version}`.
+   matched_rules, stop_conditions_fired, rationale, schema_version,
+   input_status, evaluation_status}`.
+   When `evaluation_status` is `not_evaluated`, `run_shipgate` is `null`:
+   the diff could not be read, so there is no verdict. Report the missing
+   input and stop — never treat it as "this PR is not agent-related".
+   An `input_status` other than `complete` alongside
+   `evaluation_status: evaluated` is not a contradiction: evidence that did
+   not depend on the missing bytes already proved Shipgate should run — a
+   rule matched on the change set, or `force_run` from a manifest that is
+   present regardless of the diff. Honor that verdict, read `matched_rules`
+   before saying what established it, and say the diff still needs
+   recovering.
 
 4. **Emit the decision.** Always reply in this exact JSON shape so
    downstream automation can parse you:

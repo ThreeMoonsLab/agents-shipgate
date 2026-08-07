@@ -1033,8 +1033,8 @@ def test_triggers_json_loads_via_canonical_loader():
     reaches a different verdict than this loader, that's a drift bug —
     catch it by exercising the loader during CI."""
     triggers = load_triggers()
-    assert triggers["schema_version"] == "0.2", (
-        "docs/triggers.json schema_version moved off 0.2; bump the "
+    assert triggers["schema_version"] == "0.3", (
+        "docs/triggers.json schema_version moved off 0.3; bump the "
         "test constant deliberately so external consumers are notified."
     )
     assert isinstance(triggers.get("rules"), list) and triggers["rules"], (

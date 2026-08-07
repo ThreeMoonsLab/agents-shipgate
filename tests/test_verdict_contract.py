@@ -30,6 +30,7 @@ from agents_shipgate.schemas.report import (
 from agents_shipgate.schemas.verifier import (
     _DECISION_TO_VERDICT,
     VerifierArtifact,
+    VerifierDiffStatus,
     applicability_for,
     map_merge_verdict,
     merge_verdict_for,
@@ -152,6 +153,7 @@ def _artifact(**overrides) -> VerifierArtifact:
         "config": "shipgate.yaml",
         "head_status": "succeeded",
         "authorization": AuthorizationEvaluationV1.not_requested(),
+        "diff_status": VerifierDiffStatus(),
     }
     base.update(overrides)
     return VerifierArtifact(**base)
@@ -255,6 +257,7 @@ def test_artifact_rejects_applicability_inconsistent_with_substrate() -> None:
     with pytest.raises(ValidationError):
         VerifierArtifact(
             workspace="/tmp/w",
+            diff_status=VerifierDiffStatus(),
             config="shipgate.yaml",
             head_status="succeeded",
             execution="succeeded",

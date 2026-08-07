@@ -59,6 +59,7 @@ from agents_shipgate.schemas.surfaces import (
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierCapabilityReview,
+    VerifierDiffStatus,
     VerifierFixTask,
     VerifierRepair,
 )
@@ -852,6 +853,7 @@ def test_verify_real_base_scan_enables_head_diff(tmp_path: Path) -> None:
 def test_pr_comment_keeps_code_span_values_unescaped() -> None:
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         base_ref="origin/main",
@@ -950,6 +952,7 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     )
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -1019,6 +1022,7 @@ def test_capability_review_pr_comment_preserves_valid_agent_json_when_compacted(
     ]
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -1062,6 +1066,7 @@ def test_capability_review_pr_comment_uses_merge_verdict_vocabulary() -> None:
     report = _report(decision="review_required", exit_code=0)
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -1088,6 +1093,7 @@ def test_capability_review_pr_comment_does_not_double_blank_without_headline() -
     report = _report(decision="review_required", exit_code=0)
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -1111,6 +1117,7 @@ def test_capability_review_pr_comment_does_not_double_blank_without_headline() -
 def test_capability_review_pr_comment_unknown_when_head_scan_failed() -> None:
     verifier = VerifierArtifact(
         workspace="/tmp/work",
+        diff_status=VerifierDiffStatus(),
         config="shipgate.yaml",
         authorization=AuthorizationEvaluationV1.not_requested(),
         trigger={"rationale": "1 run_shipgate rule(s) matched."},
@@ -2315,7 +2322,17 @@ def test_verify_preview_docs_only_diff_does_not_recommend_init(tmp_path: Path) -
     )
 
 
-def test_verify_preview_missing_base_without_manifest_recommends_init(tmp_path: Path) -> None:
+def test_verify_preview_missing_base_without_manifest_reports_the_missing_ref(
+    tmp_path: Path,
+) -> None:
+    """An unreadable diff outranks the adoption route, manifest or not.
+
+    A shallow or blobless clone of an un-adopted repository is the normal
+    shape of first contact, so this is exactly the case where routing to
+    "Shipgate is not configured here" would hide the fact that the PR was
+    never inspected.
+    """
+
     repo = _init_repo(tmp_path)
     (repo / "README.md").write_text("base\n", encoding="utf-8")
     _commit_all(repo, "base")
@@ -2343,11 +2360,15 @@ def test_verify_preview_missing_base_without_manifest_recommends_init(tmp_path: 
     assert payload["mode"] == "preview"
     assert payload["config"] == "shipgate.yaml"
     assert payload["control"]["state"] == "agent_action_required"
-    assert payload["control"]["next_action"]["kind"] == "initialize"
-    assert payload["control"]["next_action"]["command"] == (
-        f"shipgate init --workspace {repo} --write --json"
-    )
+    assert payload["control"]["next_action"]["kind"] == "fetch_base"
+    assert payload["diff_status"]["completeness"] == "unavailable"
+    assert payload["diff_status"]["reason"] == "refs_missing"
+    assert payload["trigger"]["evaluation_status"] == "not_evaluated"
+    assert payload["trigger"]["should_run"] is None
+    assert payload["trigger"]["skip_reason"] is None
     assert payload["base_notes"]
+    assert payload["merge_verdict"] == "unknown"
+    assert payload["can_merge_without_human"] is False
 
 
 def test_verify_preview_configured_repo_preserves_exact_verify_args(tmp_path: Path) -> None:
@@ -2468,8 +2489,10 @@ def test_verify_preview_configured_repo_missing_base_fetches_base(tmp_path: Path
     assert payload["mode"] == "preview"
     assert payload["control"]["state"] == "agent_action_required"
     assert payload["control"]["next_action"]["kind"] == "fetch_base"
-    assert "could not inspect" in payload["control"]["next_action"]["why"]
-    assert payload["control"]["next_action"]["expects"] == "origin/main"
+    why = payload["control"]["next_action"]["why"]
+    assert "refs_missing" in why
+    assert "git fetch" in why
+    assert payload["control"]["next_action"]["expects"] == "origin/main...HEAD"
     assert payload["base_notes"]
 
 

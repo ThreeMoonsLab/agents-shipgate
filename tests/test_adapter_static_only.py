@@ -257,9 +257,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.Popen",
-        line=1404,
+        line=1682,
         snippet=(
-            "subprocess.Popen(cmd, env=env, stderr=subprocess.DEVNULL, "
+            "subprocess.Popen(cmd, env=env, stderr=subprocess.PIPE, "
             "stdin=subprocess.PIPE if input is not None else "
             "subprocess.DEVNULL, stdout=subprocess.PIPE)"
         ),
@@ -268,13 +268,15 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
             "incrementally and kills them at a hard byte or wall-clock "
             "bound. It covers diff/name/attribute/inventory reads and "
             "retained-manifest discovery without a shell, user-code "
-            "execution, or fetch."
+            "execution, or fetch. stderr is piped (not discarded) and "
+            "drained on its own thread under a small cap so an input "
+            "failure can be classified; the excerpt is diagnostic only."
         ),
     ),
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=1514,
+        line=1926,
         snippet=(
             "subprocess.run(cmd, capture_output=capture_output, check=check, "
             "env=env, input=input, stderr=stderr, stdin=stdin, stdout=stdout, "
@@ -396,7 +398,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:importlib.resources.files",
-        line=97,
+        line=117,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves the bundled trigger catalog (docs/triggers.json) "

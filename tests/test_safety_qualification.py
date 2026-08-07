@@ -40,7 +40,10 @@ from agents_shipgate.schemas.verification_identity import (
     VerificationTask,
     content_id,
 )
-from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verifier import (
+    VerifierArtifact,
+    VerifierDiffStatus,
+)
 from agents_shipgate.schemas.verify_run import (
     VerifyRunOutcome,
     build_verify_run_artifact,
@@ -358,6 +361,7 @@ def _fixture(
         )
         verifier = VerifierArtifact(
             workspace=".",
+            diff_status=VerifierDiffStatus(),
             request_id=plan.request_id,
             subject_id=plan.subject.subject_id,
             input_set_id=plan.inputs.input_set_id,

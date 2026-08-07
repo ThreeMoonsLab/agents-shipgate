@@ -64,7 +64,7 @@ AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v2.json"] = (
 AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal["docs/agent-boundary-result-schema.v1.json"] = (
     "docs/agent-boundary-result-schema.v1.json"
 )
-TRIGGER_CATALOG_SCHEMA_VERSION: Literal["0.2"] = "0.2"
+TRIGGER_CATALOG_SCHEMA_VERSION: Literal["0.3"] = "0.3"
 # Fields of the SHARED agent result (``agent_result_schema_path``). The graded
 # ``pending_review[]`` obligation is deliberately absent: it exists only on
 # ``shipgate.agent_boundary_result/v1``, because adding it to the shared base
