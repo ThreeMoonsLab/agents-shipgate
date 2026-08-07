@@ -36,7 +36,11 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.verification_identity import build_verification_plan
+from agents_shipgate.core.static_inputs import StaticInputSnapshot
+from agents_shipgate.core.verification_identity import (
+    build_verification_plan,
+    sha256_bytes,
+)
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ArtifactPathConfig,
@@ -348,6 +352,101 @@ def test_committed_tree_verify_agrees_with_the_worktree_on_the_input_set(
 
     assert "inventories/mcp-tools.json" in bound["committed"]
     assert bound["committed"] == bound["worktree"]
+
+
+def test_prepare_hashes_the_captured_bytes_not_a_later_rewrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Paths and hashes must come from one instant, not two.
+
+    Capturing the read set and then reopening the files to hash them leaves a
+    window: a rewrite in between is attested at its new content while
+    ``tool_sources`` still lists what the old content pointed at, so the receipt
+    describes bytes the scan never evaluated.
+    """
+
+    repo = _sample_repo(tmp_path, "google_adk_agent")
+    agent = repo / "agent.py"
+    captured = agent.read_bytes()
+    real_finish = StaticInputSnapshot.finish
+    rewritten = False
+
+    def finish_then_rewrite(snapshot: StaticInputSnapshot) -> None:
+        nonlocal rewritten
+        real_finish(snapshot)
+        if not rewritten and snapshot.has(agent):
+            rewritten = True
+            agent.write_bytes(captured + b'\nEXTRA = "written after capture"\n')
+
+    monkeypatch.setattr(StaticInputSnapshot, "finish", finish_then_rewrite)
+    plan = _prepared_plan(repo, "out")
+
+    assert rewritten, "the rewrite never fired; the test proves nothing"
+    blob = next(
+        item for item in plan["inputs"]["tool_sources"] if item["path"] == "agent.py"
+    )
+    assert blob["sha256"] == sha256_bytes(captured)
+    assert blob["sha256"] != sha256_bytes(agent.read_bytes())
+
+
+def test_committed_tree_verify_hashes_the_captured_bytes_not_a_later_rewrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same window on the archived tree, where the receipt is actually minted."""
+
+    repo = _sample_repo(tmp_path, "google_adk_agent")
+    _git(repo, "branch", "base", "HEAD")
+    (repo / "note.txt").write_text("unrelated\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "unrelated change")
+    captured = (repo / "agent.py").read_bytes()
+    real_finish = StaticInputSnapshot.finish
+    rewritten: Path | None = None
+
+    def finish_then_rewrite(snapshot: StaticInputSnapshot) -> None:
+        nonlocal rewritten
+        real_finish(snapshot)
+        if rewritten is not None:
+            return
+        for path in snapshot.paths():
+            # Only the archived tree's copy; the worktree snapshot is finalized
+            # first and must not be the one we tamper with.
+            if path.name == "agent.py" and repo not in path.parents:
+                rewritten = path
+                path.write_bytes(captured + b'\nEXTRA = "written after capture"\n')
+                return
+
+    monkeypatch.setattr(StaticInputSnapshot, "finish", finish_then_rewrite)
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--base",
+            "base",
+            "--head",
+            "HEAD",
+            "--out",
+            str(repo / "reports" / "verifier.json"),
+        ],
+    )
+    assert result.exit_code in {0, 1}, result.output
+    assert rewritten is not None, "the rewrite never fired; the test proves nothing"
+
+    plan = json.loads(
+        (repo / "reports" / "verifier.json" / "verification-plan.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    blob = next(
+        item for item in plan["inputs"]["tool_sources"] if item["path"] == "agent.py"
+    )
+    assert blob["sha256"] == sha256_bytes(captured)
+    # The changed file no adapter opens still has to survive the capture path.
+    assert "note.txt" in {item["path"] for item in plan["inputs"]["changed_files"]}
 
 
 def test_prepare_input_error_carries_the_agent_mode_envelope(

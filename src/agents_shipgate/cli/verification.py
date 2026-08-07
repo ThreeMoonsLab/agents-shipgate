@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +61,9 @@ from agents_shipgate.schemas.verify_run import (
 )
 
 verification_app = typer.Typer(no_args_is_help=True)
+
+#: Matches the verifier's worktree changed-file ceiling.
+_MAX_CHANGED_FILE_BYTES = 64 * 1024 * 1024
 
 
 @verification_app.command("prepare")
@@ -190,70 +195,77 @@ def _build_plan(
         "plugins_enabled": not no_plugins,
     }
     if head is None:
-        return build_verification_plan(
-            git_root=root,
-            input_root=root,
+        with _captured_inputs(
             config_path=root / config_relative,
-            config_logical_path=config_relative.as_posix(),
-            base_ref=base,
-            head_ref=head_ref,
-            archived_head=False,
-            source_head_commit_sha=None,
-            **git_identity,
-            changed_files=changed,
-            diff_text=diff_text,
-            baseline_path=baseline_path,
-            diff_from_path=diff_from_path,
+            input_root=root,
             policy_pack_paths=policy_paths,
-            evaluation_date=resolved_date,
-            options=options,
             plugins_enabled=False if no_plugins else None,
-            captured_input_paths=_captured_input_paths(
-                config_path=root / config_relative,
+            changed_files=changed,
+        ) as captured:
+            return build_verification_plan(
+                git_root=root,
                 input_root=root,
+                config_path=root / config_relative,
+                config_logical_path=config_relative.as_posix(),
+                base_ref=base,
+                head_ref=head_ref,
+                archived_head=False,
+                source_head_commit_sha=None,
+                **git_identity,
+                changed_files=changed,
+                diff_text=diff_text,
+                baseline_path=baseline_path,
+                diff_from_path=diff_from_path,
                 policy_pack_paths=policy_paths,
+                evaluation_date=resolved_date,
+                options=options,
                 plugins_enabled=False if no_plugins else None,
-            ),
-        )
+                captured_input_paths=captured,
+            )
     source_identity = resolve_source_head_identity(root, head_ref=head_ref)
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
         snapshot = Path(tmp) / "snapshot"
         archive_tree(root, head_ref, snapshot)
-        return build_verification_plan(
-            git_root=root,
-            input_root=snapshot,
+        mapped_policy_paths = [_map(snapshot, root, path) for path in policy_paths]
+        with _captured_inputs(
             config_path=snapshot / config_relative,
-            config_logical_path=config_relative.as_posix(),
-            base_ref=base,
-            head_ref=head_ref,
-            archived_head=True,
-            source_head_commit_sha=source_identity.source_head_commit_sha,
-            **git_identity,
-            changed_files=changed,
-            diff_text=diff_text,
-            baseline_path=_map(snapshot, root, baseline_path),
-            diff_from_path=diff_from_path,
-            policy_pack_paths=[_map(snapshot, root, path) for path in policy_paths],
-            evaluation_date=resolved_date,
-            options=options,
-            captured_input_paths=_captured_input_paths(
-                config_path=snapshot / config_relative,
-                input_root=snapshot,
-                policy_pack_paths=[_map(snapshot, root, path) for path in policy_paths],
-                plugins_enabled=False if no_plugins else None,
-            ),
+            input_root=snapshot,
+            policy_pack_paths=mapped_policy_paths,
             plugins_enabled=False if no_plugins else None,
-        )
+            changed_files=changed,
+        ) as captured:
+            return build_verification_plan(
+                git_root=root,
+                input_root=snapshot,
+                config_path=snapshot / config_relative,
+                config_logical_path=config_relative.as_posix(),
+                base_ref=base,
+                head_ref=head_ref,
+                archived_head=True,
+                source_head_commit_sha=source_identity.source_head_commit_sha,
+                **git_identity,
+                changed_files=changed,
+                diff_text=diff_text,
+                baseline_path=_map(snapshot, root, baseline_path),
+                diff_from_path=diff_from_path,
+                policy_pack_paths=mapped_policy_paths,
+                evaluation_date=resolved_date,
+                options=options,
+                captured_input_paths=captured,
+                plugins_enabled=False if no_plugins else None,
+            )
 
 
-def _captured_input_paths(
+@contextlib.contextmanager
+def _captured_inputs(
     *,
     config_path: Path,
     input_root: Path,
     policy_pack_paths: list[Path],
     plugins_enabled: bool | None,
-) -> list[Path]:
-    """Record which files the adapters actually open for this manifest.
+    changed_files: list[str],
+) -> Iterator[list[Path]]:
+    """Yield the paths the adapters opened, with their bytes still bound.
 
     Enumerating the manifest reaches only what it names. An input discovered
     while parsing something the manifest names — a Google ADK ``McpToolset``
@@ -262,6 +274,12 @@ def _captured_input_paths(
     byte-identical across two trees whose adapters read different bytes.
     Only the read boundary sees those, and it is the same boundary ``verify``
     binds its receipt to.
+
+    The snapshot stays active for the caller's plan construction. Handing back
+    a path list and letting the builder reopen the files would take the paths
+    and their hashes from two different instants: a file rewritten in between
+    would be attested at its new content while the path list still describes
+    what the old content pointed at.
 
     ``prepare`` still evaluates no policy: source loading is static, local,
     network-free, and decision-free, and the scan phases after it make no
@@ -277,34 +295,43 @@ def _captured_input_paths(
     snapshot = StaticInputSnapshot(resolved_root)
     token = activate_static_input_snapshot(snapshot)
     try:
-        resolved = _prepare_scan(
-            config_path=config_path,
-            ci_mode=None,
-            fail_on=None,
-            output_dir=None,
-            formats=None,
-            packet_enabled=None,
-            packet_formats=None,
-            baseline_mode="new-findings",
-        )
-        _load_inputs(
-            manifest=resolved.manifest,
-            base_dir=resolved.base_dir,
-            config_path=config_path,
-            policy_pack_paths=policy_pack_paths,
-            verbose=False,
-            plugins_enabled=plugins_enabled,
-        )
-        snapshot.finish()
-    except (OSError, ValueError) as exc:
-        raise InputParseError(
-            f"Verification inputs changed while they were being read: {exc}"
-        ) from exc
+        try:
+            resolved = _prepare_scan(
+                config_path=config_path,
+                ci_mode=None,
+                fail_on=None,
+                output_dir=None,
+                formats=None,
+                packet_enabled=None,
+                packet_formats=None,
+                baseline_mode="new-findings",
+            )
+            _load_inputs(
+                manifest=resolved.manifest,
+                base_dir=resolved.base_dir,
+                config_path=config_path,
+                policy_pack_paths=policy_pack_paths,
+                verbose=False,
+                plugins_enabled=plugins_enabled,
+            )
+            # Bind changed files too: plan construction runs under this
+            # snapshot, and ``_blobs`` drops a path it contains but never read,
+            # so a changed file no adapter opens would vanish from
+            # ``changed_files``.
+            for relative in changed_files:
+                candidate = resolved_root / relative
+                if candidate.is_file() and not candidate.is_symlink():
+                    snapshot.read_bytes(candidate, max_bytes=_MAX_CHANGED_FILE_BYTES)
+            snapshot.finish()
+        except (OSError, ValueError) as exc:
+            raise InputParseError(
+                f"Verification inputs changed while they were being read: {exc}"
+            ) from exc
+        # Blob paths are logical and relative to the input root, so a read
+        # outside it cannot become one.
+        yield [path for path in snapshot.paths() if resolved_root in path.parents]
     finally:
         reset_static_input_snapshot(token)
-    # Blob paths are logical and relative to the input root, so a read outside
-    # it cannot become one.
-    return [path for path in snapshot.paths() if resolved_root in path.parents]
 
 
 @verification_app.command("worker")

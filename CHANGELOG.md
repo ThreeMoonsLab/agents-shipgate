@@ -119,6 +119,15 @@
   plan built with no snapshot at all; that table is derived from the manifest
   models rather than hand-kept, so a new artifact list — or a whole new framework
   block — is covered without editing it.
+  Capture also has to supply the *bytes*, not just the path list. Recording what
+  was read and then reopening those files to hash them takes the two halves of
+  the plan from two different instants: a file rewritten in between is attested
+  at its new content while `tool_sources` still lists what the old content
+  pointed at, so the receipt describes bytes the scan never evaluated. Plan
+  construction now runs under the finalized snapshot on both paths, and the
+  changed files are bound into it as well — `_blobs` skips a path the snapshot
+  contains but never read, so a changed file no adapter opens would otherwise
+  have dropped out of `changed_files`.
   A committed-tree run therefore has two snapshots alive, and each external
   input must belong to exactly one of them: the worktree snapshot binds the
   baseline, policy packs, and comparison report *before* the archived scan

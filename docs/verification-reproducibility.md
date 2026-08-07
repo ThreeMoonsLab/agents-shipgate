@@ -52,6 +52,11 @@ statically, deciding nothing — for the same reason. Report output directories,
 `organization.audit.registry` (existence-tested, never read), and
 `baseline.audit_log` are deliberately not inputs.
 
+The snapshot supplies the hashed bytes as well as the path list. Plan blobs are
+never re-read from disk after capture, so a plan cannot pair a path list taken
+at one instant with content taken at another, and a receipt cannot attest to
+bytes the scan did not evaluate.
+
 Because `prepare` reads inputs, it fails on a manifest whose inputs cannot be
 loaded. That is the same condition under which `verify` fails, and it is
 exactly when a prepared plan could not honestly claim an input set. Enumerating
