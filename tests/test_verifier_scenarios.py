@@ -306,7 +306,11 @@ def test_scenario_docs_only_no_shipgate_fails_closed(tmp_path: Path) -> None:
 
     assert result.exit_code == 2, result.output
     payload = json.loads(result.output)
-    assert payload["trigger"]["should_run"] is False
+    # verify stopped at the missing manifest before reading any diff, so the
+    # trigger has no change set to judge and must not claim "no rules matched".
+    assert payload["trigger"]["evaluation_status"] == "not_evaluated"
+    assert payload["trigger"]["should_run"] is None
+    assert payload["trigger"]["skip_reason"] is None
     assert payload["head_status"] == "failed"
     assert payload["merge_verdict"] == "unknown"
     assert payload["applicability"] == "failed"

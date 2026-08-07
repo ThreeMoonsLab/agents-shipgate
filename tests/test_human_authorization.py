@@ -812,7 +812,7 @@ def test_wire_schema_constrains_keys_signatures_and_push_syntax(
 
 @pytest.mark.parametrize(
     "schema_name",
-    ["verifier-schema.v0.6.json", "agent-handoff-schema.v6.json"],
+    ["verifier-schema.v0.7.json", "agent-handoff-schema.v6.json"],
 )
 def test_embedded_authorization_evaluation_schemas_are_fail_closed(
     schema_name: str,

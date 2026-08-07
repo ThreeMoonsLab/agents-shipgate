@@ -84,6 +84,7 @@ from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierBaseStatus,
     VerifierCapabilityReview,
+    VerifierDiffStatus,
     VerifierFixTask,
     applicability_for,
     merge_verdict_for,
@@ -93,18 +94,25 @@ from agents_shipgate.schemas.verify_run import (
     VerifyRunOutcome,
     build_verify_run_artifact,
 )
-from agents_shipgate.triggers import evaluate
+from agents_shipgate.triggers import (
+    INPUT_COMPLETE,
+    INPUT_PARTIAL,
+    INPUT_UNAVAILABLE,
+    evaluate,
+)
 
 from .capability_review import build_capability_review
 from .fix_task import FORBIDDEN_SHORTCUTS, build_fix_task, is_pure_adoption_review
 from .git import (
+    DiffContext,
+    DiffInputError,
     active_replace_refs,
     archive_tree,
     carries_manifest_like_yaml,
+    collect_diff_context,
     commit_date,
     commit_sha,
     detect_default_base_with_notes,
-    diff_context,
     ensure_git_workspace,
     git_path,
     merge_base_sha,
@@ -263,6 +271,9 @@ def run_verify(
             diff_text="",
             manifest_present=False,
             user_requested=True,
+            # verify stopped before reading any diff, so the evaluator has no
+            # change set to reason about and must not report "no rules matched".
+            input_status=INPUT_UNAVAILABLE,
         )
         message = (
             f"Shipgate config not found at {_display_path(config_path, git_root)}. "
@@ -279,6 +290,15 @@ def run_verify(
             trigger=trigger,
             base_status="not_requested",
             base_tree=None,
+            diff_status=VerifierDiffStatus(
+                completeness="unavailable",
+                reason="not_attempted",
+                detail="verify stopped at the missing manifest.",
+                remediation=(
+                    "Point --config at the manifest, or initialize Shipgate, "
+                    "then rerun."
+                ),
+            ),
             base_report=None,
             base_notes=[],
             report=None,
@@ -326,7 +346,8 @@ def run_verify(
     base_capability_lock: CapabilityLockFileV1 | None = None
     base_notes: list[str] = []
     diff_unavailable = False
-    diff_failure_action: HumanControlAction | None = None
+    diff_input: DiffContext | None = None
+    diff_failure_action: AgentControlAction | None = None
 
     head_exists = ref_exists(git_root, head)
     if not head_exists:
@@ -335,6 +356,7 @@ def run_verify(
             diff_text="",
             manifest_present=True,
             user_requested=True,
+            input_status=INPUT_UNAVAILABLE,
         )
         message = f"Head ref does not exist locally: {head}"
         verifier = _build_verifier(
@@ -347,6 +369,15 @@ def run_verify(
             trigger=trigger,
             base_status="ref_missing",
             base_tree=None,
+            diff_status=VerifierDiffStatus(
+                completeness="unavailable",
+                reason="refs_missing",
+                detail=message,
+                remediation=(
+                    "Fetch the head ref locally, then rerun verify."
+                ),
+                fetch_repairable=True,
+            ),
             base_report=None,
             base_notes=[message],
             report=None,
@@ -420,24 +451,32 @@ def run_verify(
     if base:
         base_exists = ref_exists(git_root, base)
         if base_exists:
-            try:
-                changed_files, diff_text = diff_context(git_root, base, head)
-            except Exception as exc:  # noqa: BLE001 - diff context degrades only.
+            collected = _collect_diff(git_root, base, head)
+            changed_files = list(collected.changed_files)
+            diff_text = collected.diff_text
+            if collected.completeness != "complete":
+                # The refs resolved, so the shortfall is about history depth,
+                # object availability, or Git itself — each of which has a
+                # different repair. Report which one instead of a single
+                # "could not be read".
                 diff_unavailable = True
+                diff_input = collected
                 base_status = "archive_failed"
-                detail = f"Could not collect diff for {base}...{head}: {exc}"
-                base_notes.append(detail)
-                diff_failure_action = HumanControlAction(
-                    kind="review",
-                    why=(
-                        f"{detail}. The refs are present; fetching cannot repair "
-                        "this deterministic input failure. Inspect the reported "
-                        "Git configuration/resource issue before rerunning."
-                    ),
+                base_notes.append(
+                    f"Could not collect the {base}...{head} diff in full. "
+                    f"{collected.note}"
+                )
+                diff_failure_action = _diff_failure_action(
+                    collected, expects=f"{base}...{head}"
                 )
         else:
             diff_unavailable = True
             base_status = "ref_missing"
+            diff_input = DiffContext(
+                completeness="unavailable",
+                reason="refs_missing",
+                detail=f"Base ref {base!r} is not available locally.",
+            )
             base_notes.append(
                 f"Base ref {base!r} is not available locally; run with fetch-depth: 0 "
                 "or fetch the base before verify."
@@ -461,14 +500,17 @@ def run_verify(
             )
         except Exception as exc:  # noqa: BLE001 - local context degrades only.
             diff_unavailable = True
-            detail = f"Could not collect working-tree diff context: {exc}"
-            base_notes.append(detail)
-            diff_failure_action = HumanControlAction(
-                kind="review",
-                why=(
-                    f"{detail}. Inspect the deterministic worktree-input "
-                    "failure before rerunning; fetching refs cannot repair it."
-                ),
+            worktree_failure = _as_diff_context(exc)
+            # A worktree shortfall is never softened by a committed-ref diff
+            # that did read cleanly: the two are unioned into one change set,
+            # so the union is only as complete as its weakest half.
+            diff_input = _least_complete(diff_input, worktree_failure)
+            base_notes.append(
+                f"Could not collect working-tree diff context. "
+                f"{worktree_failure.note}"
+            )
+            diff_failure_action = diff_failure_action or _diff_failure_action(
+                worktree_failure, expects=head
             )
 
     trigger = evaluate(
@@ -479,6 +521,7 @@ def run_verify(
         # trigger stop-conditions from treating the canonical PR command as
         # passive repo discovery.
         user_requested=True,
+        input_status=_trigger_input_status(diff_input),
     )
     verifier = _build_verifier(
         git_root=git_root,
@@ -490,6 +533,7 @@ def run_verify(
         trigger=trigger,
         base_status=base_status,
         base_tree=base_tree,
+        diff_status=_diff_status_artifact(diff_input),
         base_report=base_report,
         base_notes=base_notes,
         report=None,
@@ -512,6 +556,7 @@ def run_verify(
             trigger=trigger,
             base_status=base_status,
             base_tree=base_tree,
+            diff_status=_diff_status_artifact(diff_input),
             base_report=base_report,
             base_notes=base_notes,
             report=None,
@@ -554,6 +599,7 @@ def run_verify(
                 trigger=trigger,
                 base_status=base_status,
                 base_tree=base_tree,
+                diff_status=_diff_status_artifact(diff_input),
                 base_report=base_report,
                 base_notes=base_notes,
                 report=None,
@@ -795,6 +841,7 @@ def run_verify(
             trigger=trigger,
             base_status=base_status,
             base_tree=base_tree,
+            diff_status=_diff_status_artifact(diff_input),
             head_tree=head_tree,
             base_report=base_report,
             base_notes=base_notes,
@@ -1740,6 +1787,87 @@ def _derive_verifier_control(
     )
 
 
+_TRIGGER_INPUT_STATUS: dict[str, str] = {
+    "complete": INPUT_COMPLETE,
+    "partial": INPUT_PARTIAL,
+    "unavailable": INPUT_UNAVAILABLE,
+}
+
+
+def _collect_diff(git_root: Path, base: str, head: str) -> DiffContext:
+    """Collect a committed-ref diff, turning any surprise into a typed state."""
+
+    try:
+        return collect_diff_context(git_root, base, head)
+    except Exception as exc:  # noqa: BLE001 - diff context degrades only.
+        return _as_diff_context(exc)
+
+
+def _as_diff_context(exc: Exception) -> DiffContext:
+    """Represent an unexpected collection failure in the same typed vocabulary."""
+
+    if isinstance(exc, DiffInputError):
+        return exc.context
+    return DiffContext(
+        completeness="unavailable",
+        reason="git_failed",
+        detail=str(exc) or exc.__class__.__name__,
+    )
+
+
+_DIFF_COMPLETENESS_ORDER = {"complete": 0, "partial": 1, "unavailable": 2}
+
+
+def _least_complete(*contexts: DiffContext | None) -> DiffContext:
+    """Return the weakest input among several halves of one change set."""
+
+    present = [context for context in contexts if context is not None]
+    if not present:
+        return DiffContext()
+    return max(
+        present, key=lambda context: _DIFF_COMPLETENESS_ORDER[context.completeness]
+    )
+
+
+def _diff_status_artifact(context: DiffContext | None) -> VerifierDiffStatus:
+    """Project one diff-acquisition attempt onto the verifier artifact."""
+
+    context = context or DiffContext()
+    return VerifierDiffStatus(
+        completeness=context.completeness,
+        reason=context.reason,
+        detail=context.detail or None,
+        remediation=context.remediation or None,
+        fetch_repairable=context.fetch_repairable,
+    )
+
+
+def _trigger_input_status(context: DiffContext | None) -> str:
+    if context is None:
+        return INPUT_COMPLETE
+    return _TRIGGER_INPUT_STATUS[context.completeness]
+
+
+def _diff_failure_action(
+    context: DiffContext, *, expects: str
+) -> AgentControlAction:
+    """Route a diff-input failure to the action that can actually repair it.
+
+    A missing merge base or an unfetched partial-clone object is repaired by
+    making history available locally — that is agent work, not review work.
+    Everything else is a deterministic failure that fetching cannot touch, so
+    it goes to a human with the Git diagnostic attached.
+    """
+
+    if context.fetch_repairable:
+        return CodingAgentFetchBaseAction(
+            kind="fetch_base",
+            expects=expects,
+            why=context.note,
+        )
+    return HumanControlAction(kind="review", why=context.note)
+
+
 def _build_verifier(
     *,
     git_root: Path,
@@ -1751,6 +1879,7 @@ def _build_verifier(
     trigger: dict[str, Any],
     base_status: VerifierBaseStatus,
     base_tree: str | None,
+    diff_status: VerifierDiffStatus | None = None,
     head_tree: str | None = None,
     base_report: Path | None,
     base_notes: list[str],
@@ -1857,6 +1986,7 @@ def _build_verifier(
         head_ref=head,
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
+        diff_status=diff_status or VerifierDiffStatus(),
         trigger=trigger,
         base_status=base_status,
         base_tree_sha=base_tree,
@@ -3126,30 +3256,25 @@ def run_preview(
     changed_files: list[str] = []
     diff_text = ""
     notes: list[str] = []
-    diff_unavailable = False
-    diff_failure_requires_review = False
-    if base or head:
+    diff_input: DiffContext | None = None
+    if base:
         try:
             git_root = ensure_git_workspace(root)
-            head_ref = head or "HEAD"
-            if base:
-                if ref_exists(git_root, base) and ref_exists(git_root, head_ref):
-                    changed_files, diff_text = diff_context(git_root, base, head_ref)
-                else:
-                    diff_unavailable = True
-                    notes.append(
-                        "Preview diff unavailable: base/head ref is not available locally."
-                    )
+            collected = _collect_diff(git_root, base, head or "HEAD")
         except Exception as exc:  # noqa: BLE001 - preview must never crash.
-            diff_unavailable = True
-            diff_failure_requires_review = True
-            notes.append(f"Preview diff unavailable: {exc}")
+            collected = _as_diff_context(exc)
+        changed_files = list(collected.changed_files)
+        diff_text = collected.diff_text
+        if collected.completeness != "complete":
+            diff_input = collected
+            notes.append(f"Preview diff unavailable: {collected.note}")
 
     trigger = evaluate(
         paths=changed_files,
         diff_text=diff_text,
         manifest_present=manifest_present,
         user_requested=True,
+        input_status=_trigger_input_status(diff_input),
     )
 
     # Trigger previews may recommend detect/init as a generic recovery path.
@@ -3167,24 +3292,29 @@ def run_preview(
         pr_comment_style=pr_comment_style,
     )
 
-    if diff_unavailable and manifest_present and diff_failure_requires_review:
-        why = (
-            "Preview could not collect the requested deterministic diff even "
-            "though ref availability was not the problem. Inspect the reported "
-            "Git configuration/resource failure before rerunning."
-        )
-        next_action = HumanControlAction(kind="review", why=why)
-        headline = "Shipgate preview could not safely inspect the requested PR diff."
-    elif diff_unavailable and manifest_present:
-        next_action: AgentControlAction = CodingAgentFetchBaseAction(
-            kind="fetch_base",
-            expects=base or head or "the requested base and head refs",
-            why=(
-                "Preview could not inspect the requested PR diff; make the base "
-                "and head refs available locally, then rerun preview or verify."
+    # A diff Shipgate could not read outranks every adoption route below it,
+    # whether or not this workspace has a manifest. Falling through to "Shipgate
+    # is not configured here" would answer a question nobody asked and bury the
+    # fact that the PR was never inspected — and an unadopted repo reached over a
+    # shallow or blobless clone is exactly where this failure lands.
+    if diff_input is not None:
+        next_action: AgentControlAction = _diff_failure_action(
+            diff_input,
+            expects=(
+                f"{base}...{head or 'HEAD'}"
+                if base
+                else (head or "the requested base and head refs")
             ),
         )
-        headline = "Shipgate preview could not inspect the requested PR diff."
+        read = (
+            "could only partly read"
+            if diff_input.completeness == "partial"
+            else "could not read"
+        )
+        headline = (
+            f"Shipgate preview {read} the requested PR diff "
+            f"({diff_input.reason}); no relevance verdict was reached."
+        )
     elif manifest_present:
         next_action = CodingAgentCommandAction(
             kind="verify",
@@ -3238,6 +3368,7 @@ def run_preview(
         head_ref=head or "HEAD",
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
+        diff_status=_diff_status_artifact(diff_input),
         trigger=trigger,
         base_status="not_requested",
         base_notes=notes,

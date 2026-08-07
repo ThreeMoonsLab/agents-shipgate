@@ -45,7 +45,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "58ea3b6bba89078ec54d6b5493ffebf9250d9619fbacef5090285b009e58cdcd"
+        "2604f471fc3b58af33be847c57ebf36ea917c6278c209fa8077907bf9f477dae"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         # Renders {{ shipgate_version }}; changes on every version bump.
@@ -55,7 +55,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "53296f41b7c2bc8538555a4361707de8b990748b7a5d80ae4ce066af83af8fa7"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "370a81cf1c35212584702ca89c5476f3cd6c19aaaf8b4bb9f57c18476f0d13ef"
+        "86ecaf15d22f9c144e4e9e92e2899356d5cbd16daa504fa7b7e898befa825094"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -169,7 +169,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.6"
+    assert payload["verifier_schema_version"] == "0.7"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v3"
     assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v6"
     assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v6.json"
@@ -187,7 +187,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["host_grants_inventory_schema_version"] == "0.2"
     assert payload["host_grants_baseline_schema_version"] == "0.2"
     assert payload["host_grants_drift_schema_version"] == "0.2"
-    assert payload["trigger_catalog_schema_version"] == "0.2"
+    assert payload["trigger_catalog_schema_version"] == "0.3"
     assert payload["agent_result_control_fields"] == [
         "decision",
         "control",

@@ -108,7 +108,9 @@
   ],
   "source_artifacts": {},
   "trigger": {
-    "schema_version": "0.2",
+    "schema_version": "0.3",
+    "input_status": "complete",
+    "evaluation_status": "evaluated",
     "should_run": true,
     "run_shipgate": true,
     "skip": false,

@@ -315,7 +315,7 @@ agents-shipgate trigger --base origin/main --head HEAD --json
 agents-shipgate trigger --list-rules --json
 ```
 
-The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`), `force_run`, `dry_run_recommended`, `skip_reason`, `matched_rules`, `changed_files`, and `diff_tokens`. The developer entry point `python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md` is preserved.
+The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`), `force_run`, `dry_run_recommended`, `skip_reason`, `matched_rules`, `changed_files`, `diff_tokens`, plus `input_status` and `evaluation_status` (catalog schema `0.3`). When the diff could not be read in full, `evaluation_status` is `not_evaluated` and `should_run`/`run_shipgate`/`skip`/`skip_reason` are `null` — an unread diff is never reported as `no_match`. The developer entry point `python -m agents_shipgate.triggers shipgate.yaml prompts/refund.md` is preserved.
 
 **Stop conditions.** Stop and do not run `init` only when **all** of these hold:
 

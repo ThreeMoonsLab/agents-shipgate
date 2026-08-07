@@ -112,7 +112,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["verifier_read_order"][-2:] == ["request_id", "decision_id"]
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.6"
+    assert payload["verifier_schema_version"] == "0.7"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v3"
     assert payload["human_authorization_request_schema_version"] == (
         "shipgate.human_authorization_request/v1"
@@ -146,7 +146,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["host_grants_inventory_schema_version"] == "0.2"
     assert payload["host_grants_baseline_schema_version"] == "0.2"
     assert payload["host_grants_drift_schema_version"] == "0.2"
-    assert payload["trigger_catalog_schema_version"] == "0.2"
+    assert payload["trigger_catalog_schema_version"] == "0.3"
     assert payload["agent_result_schema_version"] == "agent_result_v2"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v2.json"
     assert payload["agent_result_control_fields"] == [

@@ -151,7 +151,7 @@ def _authorized_verifier_payload() -> dict:
     release["decision"] = "review_required"
     release["reason"] = "A protected workflow change requires human review."
     release["review_items"] = release.pop("blockers")
-    payload["verifier_schema_version"] = "0.6"
+    payload["verifier_schema_version"] = "0.7"
     payload["decision"] = "review_required"
     payload["merge_verdict"] = "human_review_required"
     payload["control"] = derive_agent_control(

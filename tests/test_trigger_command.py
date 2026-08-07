@@ -12,6 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.triggers import (
     SURFACE_CLASS_CAPABILITY,
     SURFACE_CLASS_HOST_BOUNDARY,
@@ -118,7 +119,7 @@ def test_trigger_subcommand_json_shape(tmp_path):
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert M1_KEYS <= set(payload)
-    assert payload["schema_version"] == "0.2"
+    assert payload["schema_version"] == "0.3"
     assert payload["should_run"] is True
     assert payload["force_run"] is True  # shipgate.yaml present in workspace
     assert payload["skip_reason"] is None
@@ -159,7 +160,7 @@ def test_trigger_subcommand_list_rules_json():
     result = runner.invoke(app, ["trigger", "--list-rules", "--json"])
     assert result.exit_code == 0
     catalog = json.loads(result.stdout)
-    assert catalog["schema_version"] == "0.2"
+    assert catalog["schema_version"] == "0.3"
     rule_ids = {r["id"] for r in catalog["rules"]}
     assert "TRIGGER-N8N-WORKFLOW-CHANGED" in rule_ids
 
@@ -453,3 +454,66 @@ def test_unknown_action_falls_through_to_no_match():
     res = evaluate(paths=["a.py"], triggers=cat)
     assert res["should_run"] is False
     assert {m["id"] for m in res["matched_rules"]} == {"R"}
+
+
+# --- input completeness: a verdict may not outrun its evidence -------------
+
+
+def test_complete_inputs_keep_the_evaluated_no_match_verdict():
+    result = evaluate(paths=["src/internal/util.py"], input_status="complete")
+    assert result["input_status"] == "complete"
+    assert result["evaluation_status"] == "evaluated"
+    assert result["should_run"] is False
+    assert result["skip_reason"] == "no_match"
+
+
+@pytest.mark.parametrize("status", ["partial", "unavailable"])
+def test_incomplete_inputs_withhold_the_skip_verdict(status):
+    """`no_match` is a claim about a diff. Without the diff there is no claim."""
+
+    result = evaluate(paths=[], diff_text="", input_status=status)
+    assert result["evaluation_status"] == "not_evaluated"
+    assert result["should_run"] is None
+    assert result["run_shipgate"] is None
+    assert result["skip"] is None
+    assert result["skip_reason"] is None
+    assert result["next_action"]["kind"] == "input_required"
+    assert result["next_action"]["command"] is None
+    assert "not evidence" in result["rationale"]
+
+
+def test_incomplete_inputs_still_publish_a_run_verdict():
+    """Rule matching is monotone: more evidence only adds matches.
+
+    A run reached from partial evidence therefore stays sound, and suppressing
+    it would turn a fail-closed gap into a missed gate.
+    """
+
+    result = evaluate(
+        paths=["shipgate.yaml"],
+        diff_text="",
+        manifest_present=True,
+        input_status="partial",
+    )
+    assert result["evaluation_status"] == "evaluated"
+    assert result["should_run"] is True
+    assert result["input_status"] == "partial"
+    assert result["next_action"]["kind"] == "command"
+
+
+def test_incomplete_inputs_cannot_fire_stop_conditions():
+    """The stop block reasons over the very path evidence that is missing."""
+
+    result = evaluate(
+        paths=[],
+        detect_result={"is_agent_project": False, "suggested_sources": []},
+        input_status="unavailable",
+    )
+    assert result["stop_conditions_evaluated"] is False
+    assert result["stop_conditions_fired"] is False
+    assert result["evaluation_status"] == "not_evaluated"
+
+
+def test_unknown_input_status_is_rejected():
+    with pytest.raises(ConfigError):
+        evaluate(paths=[], input_status="mostly")

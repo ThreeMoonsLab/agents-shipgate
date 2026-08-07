@@ -11,11 +11,16 @@ def render_file() -> str:
     return render_local_agent_contract()
 
 
-# Exact render shipped by local contract schema v6. Keeping this hash lets
-# first-adoption reruns upgrade an untouched managed file to v7 without
-# overwriting user-authored JSON.
+# Exact renders shipped by earlier releases. Keeping these hashes lets a rerun
+# upgrade an untouched managed file in place without overwriting user-authored
+# JSON. The file body changes whenever any advertised sub-schema version moves,
+# so every outgoing render is appended here — not only schema-version bumps of
+# the contract file itself.
 PRIOR_RENDER_SHA256: tuple[str, ...] = (
+    # local contract schema v6
     "85d33d005d35f933b72e32c2d370efc2680e09d2ebe0c9997931c8ab4f352738",
+    # v7 before verifier 0.6 -> 0.7 and trigger catalog 0.2 -> 0.3
+    "6041d5fc42ee4be37596c9c13b9752a8a511bb18bc987b32b0ffb49160ee6d93",
 )
 
 

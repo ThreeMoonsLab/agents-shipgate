@@ -34,6 +34,7 @@ from agents_shipgate.core.bounded_io import (
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.triggers import (
     _git_diff_context,
+    _verdict_label,
     evaluate,
     load_triggers,
 )
@@ -202,7 +203,7 @@ def trigger(
         typer.echo(json.dumps(result, indent=2))
         return
 
-    verdict = "RUN" if result["should_run"] else "SKIP"
+    verdict = _verdict_label(result)
     typer.echo(f"Verdict: {verdict}")
     typer.echo(f"Rationale: {result['rationale']}")
     if result["dry_run_recommended"]:

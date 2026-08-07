@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "name": "agents-shipgate-triggers",
   "description": "Machine-readable trigger catalog for Agents Shipgate. Mirrors the AGENTS.md trigger table — a coding agent can fetch this and apply the rules to a PR diff or repo state to decide whether to run `agents-shipgate verify --preview --json` or the full verifier. Stable for 0.x: rule IDs, predicate vocabulary, and action enum will not change in minor versions.",
   "source_of_truth": "AGENTS.md#should-i-run-shipgate-on-this-pr",

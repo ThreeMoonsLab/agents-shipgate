@@ -53,6 +53,26 @@ VALID_ACTIONS = frozenset(
     {ACTION_FORCE_RUN, ACTION_RUN, ACTION_SKIP, ACTION_DRY_RUN}
 )
 
+# How complete the diff evidence handed to the evaluator is. Mirrors
+# ``BoundaryChangeSet.completeness`` and ``DiffContext.completeness`` so every
+# input path in the product describes a partially-read diff the same way.
+#
+#   complete    — every changed path and the full diff body were read
+#   partial     — some evidence is missing (typically: paths but no body)
+#   unavailable — nothing about the change set was established
+#
+# Rule matching is monotone in path and diff evidence: adding evidence can only
+# add matches. So a *run* verdict reached from incomplete evidence stays sound,
+# while any *skip* verdict does not — the missing bytes are exactly what would
+# have flipped it. That asymmetry is what ``evaluation_status`` reports.
+INPUT_COMPLETE = "complete"
+INPUT_PARTIAL = "partial"
+INPUT_UNAVAILABLE = "unavailable"
+VALID_INPUT_STATUSES = frozenset({INPUT_COMPLETE, INPUT_PARTIAL, INPUT_UNAVAILABLE})
+
+EVALUATION_EVALUATED = "evaluated"
+EVALUATION_NOT_EVALUATED = "not_evaluated"
+
 # Semantic class of the surface a rule describes. Rule IDs are stable audit
 # labels, not a type system: consumers must switch on ``surface_class`` instead
 # of maintaining ID allow-lists that silently miss newly-added adapters.
@@ -166,7 +186,7 @@ def _contains_detect_returns(pred: Any) -> bool:
 
 def _next_action(
     *,
-    run: bool,
+    run: bool | None,
     dry_run_recommended: bool,
     skip_reason: str | None,
     manifest_present: bool,
@@ -183,6 +203,11 @@ def _next_action(
     coding agent can route setup. ``command`` is ``None`` when no action
     is warranted.
     """
+    if run is None:
+        # The verdict was withheld because the diff was never read. The only
+        # honest next step is to repair the input, and the caller that failed
+        # to read it is the one that knows how — so no command is invented here.
+        return {"kind": "input_required", "command": None, "why": rationale}
     if run:
         if manifest_present:
             return {
@@ -321,32 +346,53 @@ def evaluate(
     detect_result: dict[str, Any] | None = None,
     user_requested: bool = False,
     triggers: dict[str, Any] | None = None,
+    input_status: str = INPUT_COMPLETE,
 ) -> dict[str, Any]:
     """Evaluate the trigger catalog against a snapshot of repo state.
+
+    ``input_status`` declares how complete that snapshot is (see
+    ``INPUT_COMPLETE`` / ``INPUT_PARTIAL`` / ``INPUT_UNAVAILABLE``). A caller
+    that could not read the PR diff must say so: without it the evaluator sees
+    an empty path list and an empty diff body, which are indistinguishable from
+    a PR that genuinely changed nothing relevant, and it would report
+    ``skip_reason: "no_match"`` — "nothing in this PR signals a tool-surface
+    change" — about a PR it never read.
 
     Returns a dict with:
 
     - ``schema_version`` (str) — the trigger catalog's schema version.
-    - ``should_run`` (bool) — friendly alias of ``run_shipgate`` (same
-      value); kept so consumers reading either field agree.
-    - ``run_shipgate`` (bool) — final verdict.
+    - ``input_status`` (str) — echoed back: ``complete``, ``partial`` or
+      ``unavailable``.
+    - ``evaluation_status`` (str) — ``evaluated`` when the verdict is
+      supported by the evidence that was actually read, otherwise
+      ``not_evaluated``. It is ``not_evaluated`` exactly when the inputs
+      were incomplete *and* the rules that did run produced no reason to
+      run: that combination proves nothing, so no verdict is published.
+    - ``should_run`` (bool|None) — friendly alias of ``run_shipgate`` (same
+      value); kept so consumers reading either field agree. ``None`` when
+      ``evaluation_status`` is ``not_evaluated``.
+    - ``run_shipgate`` (bool|None) — final verdict; ``None`` when not
+      evaluated.
     - ``force_run`` (bool) — a ``force_run`` rule matched and was not
       overridden by the stop block (opted-in repo → run on every PR).
     - ``dry_run_recommended`` (bool) — true when a ``dry_run`` rule
       fired and no ``run_shipgate``/``force_run``/``skip_shipgate``
       rule did. Callers that want to be helpful can propose a
       non-mutating ``scan`` even though ``run_shipgate`` is false.
-    - ``skip`` (bool) — inverse of ``should_run``; convenience for
-      consumers that branch on the skip case.
-    - ``skip_reason`` (str|None) — ``None`` when running; otherwise a
-      stable token: ``stop_conditions``, ``skip_rule``, ``dry_run_only``
-      or ``no_match``.
+    - ``skip`` (bool|None) — inverse of ``should_run``; convenience for
+      consumers that branch on the skip case. ``None`` when not evaluated.
+    - ``skip_reason`` (str|None) — ``None`` when running *and* when the
+      verdict was withheld; otherwise a stable token: ``stop_conditions``,
+      ``skip_rule``, ``dry_run_only`` or ``no_match``. ``no_match`` is
+      never emitted for inputs that were not fully read.
     - ``stop_conditions_fired`` (bool) — whether the explicit stop
       block held; this beats every rule action.
     - ``stop_conditions_evaluated`` (bool) — whether the stop block
       could be fully evaluated. ``False`` when the block references
-      ``detect_returns`` but no ``detect_result`` was supplied; in that
-      case the evaluator never stops (``stop_conditions_fired`` stays
+      ``detect_returns`` but no ``detect_result`` was supplied, and
+      ``False`` whenever ``input_status`` is not ``complete`` because the
+      block reasons over the very path evidence that is missing. In those
+      cases the evaluator never stops (``stop_conditions_fired`` stays
       ``False``) and the caller knows the stop verdict is unknown rather
       than "evaluated and did not hold".
     - ``rationale`` (str) — single-sentence explanation.
@@ -356,16 +402,24 @@ def evaluate(
       are present in ``diff_text`` (sorted, de-duplicated).
     - ``next_action`` (dict) — the single recommended next step as
       ``{kind, command, why}`` (``kind`` is ``command``/``stop``/
-      ``none``); a deterministic projection of the verdict.
+      ``none``/``input_required``); a deterministic projection of the
+      verdict.
 
     Action precedence (highest first): ``stop_conditions`` → skip;
     ``force_run`` → run (overrides skip; used by manifest-present);
     ``skip_shipgate`` → skip (beats ``run_shipgate``); ``run_shipgate``
-    → run; ``dry_run`` → skip + ``dry_run_recommended``.
+    → run; ``dry_run`` → skip + ``dry_run_recommended``. Incomplete input
+    then withholds any resulting skip.
     """
     if triggers is None:
         triggers = load_triggers()
+    if input_status not in VALID_INPUT_STATUSES:
+        raise ConfigError(
+            f"Unknown trigger input_status {input_status!r}; expected one of "
+            f"{sorted(VALID_INPUT_STATUSES)}."
+        )
     paths = paths or []
+    inputs_complete = input_status == INPUT_COMPLETE
 
     matched: list[dict[str, Any]] = []
     for rule in triggers.get("rules", []):
@@ -395,8 +449,12 @@ def evaluate(
     # cannot conclude "non-agent project" — so we never stop on it, and we
     # report stop_conditions_evaluated=False so consumers can tell the
     # difference between "evaluated, did not hold" and "could not evaluate".
-    stop_conditions_evaluated = bool(stop_payload) and (
-        detect_result is not None or not _contains_detect_returns(stop_payload)
+    stop_conditions_evaluated = (
+        bool(stop_payload)
+        and inputs_complete
+        and (
+            detect_result is not None or not _contains_detect_returns(stop_payload)
+        )
     )
     stop_fired = stop_conditions_evaluated and _eval_predicate(
         stop_payload,
@@ -457,10 +515,37 @@ def evaluate(
             "No rules matched; nothing in this PR signals a tool-surface change."
         )
 
+    verdict: bool | None = run
+    evaluation_status = EVALUATION_EVALUATED
+    if not inputs_complete and not run:
+        # Everything below the run verdicts rests on evidence that was never
+        # read. "No rules matched" and "only docs changed" are claims about a
+        # diff; without the diff they are claims about nothing. Withhold the
+        # verdict rather than publish an unfalsifiable skip.
+        verdict = None
+        skip_reason = None
+        # The advisory dry-run recommendation is derived from the same withheld
+        # skip, so it is suppressed too. Nothing is lost: the rule that fired
+        # is still listed in ``matched_rules``.
+        dry_run_recommended = False
+        evaluation_status = EVALUATION_NOT_EVALUATED
+        missing = (
+            "the change set could not be read, so there was no path or diff "
+            "evidence to match against"
+            if input_status == INPUT_UNAVAILABLE
+            else "the change set was read only in part, so every rule that "
+            "depends on the missing evidence could not fire"
+        )
+        rationale = (
+            f"Trigger rules were not evaluated: {missing}. That is not "
+            "evidence the PR is unrelated to agent capabilities — repair the "
+            "diff input and re-evaluate."
+        )
+
     # ``should_run`` is a friendlier alias of ``run_shipgate`` (identical
     # value); both are kept so 0.x consumers reading either field agree.
     next_action = _next_action(
-        run=run,
+        run=verdict,
         dry_run_recommended=dry_run_recommended,
         skip_reason=skip_reason,
         manifest_present=manifest_present,
@@ -472,9 +557,11 @@ def evaluate(
     )
     return {
         "schema_version": triggers.get("schema_version"),
-        "should_run": run,
-        "run_shipgate": run,
-        "skip": not run,
+        "input_status": input_status,
+        "evaluation_status": evaluation_status,
+        "should_run": verdict,
+        "run_shipgate": verdict,
+        "skip": None if verdict is None else not verdict,
         "force_run": has_force_run and not stop_fired,
         "dry_run_recommended": dry_run_recommended,
         "skip_reason": skip_reason,
@@ -486,6 +573,14 @@ def evaluate(
         "diff_tokens": _matched_diff_tokens(triggers, diff_text),
         "next_action": next_action,
     }
+
+
+def _verdict_label(result: dict[str, Any]) -> str:
+    """Render the run/skip/withheld verdict for human output."""
+
+    if result.get("evaluation_status") == EVALUATION_NOT_EVALUATED:
+        return "NOT EVALUATED"
+    return "RUN" if result.get("run_shipgate") else "SKIP"
 
 
 def _git_diff_context(
@@ -661,7 +756,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0
 
-    verdict = "RUN" if result["run_shipgate"] else "SKIP"
+    verdict = _verdict_label(result)
     print(f"Verdict: {verdict}")
     print(f"Rationale: {result['rationale']}")
     if result["matched_rules"]:
