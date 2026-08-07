@@ -124,10 +124,16 @@
   the plan from two different instants: a file rewritten in between is attested
   at its new content while `tool_sources` still lists what the old content
   pointed at, so the receipt describes bytes the scan never evaluated. Plan
-  construction now runs under the finalized snapshot on both paths, and the
-  changed files are bound into it as well — `_blobs` skips a path the snapshot
-  contains but never read, so a changed file no adapter opens would otherwise
-  have dropped out of `changed_files`.
+  construction now runs under the finalized snapshot on both paths. That makes
+  binding an obligation rather than an optimization: under an active snapshot
+  both `_blobs` and `_optional_blob` read a path that is *contained but never
+  read* as absent, so an input nobody bound does not merely go unhashed — it
+  disappears from the plan. Every input the plan hashes is therefore bound
+  before the snapshot is sealed: the adapters' own reads, the changed files (a
+  README no adapter opens would otherwise vanish from `changed_files`), and the
+  explicit `--baseline`, `--diff-from`, and policy packs, with the comparison
+  report bound as an external input on a committed-tree preparation because it
+  is never mapped into the evaluated tree.
   A committed-tree run therefore has two snapshots alive, and each external
   input must belong to exactly one of them: the worktree snapshot binds the
   baseline, policy packs, and comparison report *before* the archived scan

@@ -201,6 +201,11 @@ def _build_plan(
             policy_pack_paths=policy_paths,
             plugins_enabled=False if no_plugins else None,
             changed_files=changed,
+            plan_inputs=[
+                path
+                for path in (baseline_path, diff_from_path, *policy_paths)
+                if path is not None
+            ],
         ) as captured:
             return build_verification_plan(
                 git_root=root,
@@ -226,13 +231,26 @@ def _build_plan(
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
         snapshot = Path(tmp) / "snapshot"
         archive_tree(root, head_ref, snapshot)
+        # Resolve once the tree exists. The snapshot matches paths lexically, and
+        # on macOS the temporary directory is reached through /var while every
+        # path derived below resolves to /private/var — leaving them in two
+        # spellings makes `contains()` false for inputs that are plainly inside.
+        snapshot = snapshot.resolve()
         mapped_policy_paths = [_map(snapshot, root, path) for path in policy_paths]
+        mapped_baseline_path = _map(snapshot, root, baseline_path)
         with _captured_inputs(
             config_path=snapshot / config_relative,
             input_root=snapshot,
             policy_pack_paths=mapped_policy_paths,
             plugins_enabled=False if no_plugins else None,
             changed_files=changed,
+            # The comparison report is never mapped into the tree, so it stays
+            # outside the evaluated root and must be bound as an external input.
+            plan_inputs=[
+                path
+                for path in (mapped_baseline_path, diff_from_path, *mapped_policy_paths)
+                if path is not None
+            ],
         ) as captured:
             return build_verification_plan(
                 git_root=root,
@@ -246,7 +264,7 @@ def _build_plan(
                 **git_identity,
                 changed_files=changed,
                 diff_text=diff_text,
-                baseline_path=_map(snapshot, root, baseline_path),
+                baseline_path=mapped_baseline_path,
                 diff_from_path=diff_from_path,
                 policy_pack_paths=mapped_policy_paths,
                 evaluation_date=resolved_date,
@@ -264,6 +282,7 @@ def _captured_inputs(
     policy_pack_paths: list[Path],
     plugins_enabled: bool | None,
     changed_files: list[str],
+    plan_inputs: list[Path],
 ) -> Iterator[list[Path]]:
     """Yield the paths the adapters opened, with their bytes still bound.
 
@@ -281,6 +300,13 @@ def _captured_inputs(
     would be attested at its new content while the path list still describes
     what the old content pointed at.
 
+    That makes binding an obligation rather than an optimization. Under an
+    active snapshot both ``_blobs`` and ``_optional_blob`` read a path that is
+    *contained but never read* as absent, so every input the plan will hash has
+    to be bound here — ``plan_inputs`` (the baseline, comparison report, and
+    policy packs) and the changed files as well as whatever the adapters open.
+    Miss one and it does not merely go unbound: it disappears from the plan.
+
     ``prepare`` still evaluates no policy: source loading is static, local,
     network-free, and decision-free, and the scan phases after it make no
     further declared-input reads. It does mean ``prepare`` now fails on a
@@ -292,7 +318,17 @@ def _captured_inputs(
     from agents_shipgate.cli.scan.prepare import _prepare_scan
 
     resolved_root = input_root.resolve()
-    snapshot = StaticInputSnapshot(resolved_root)
+    # A plan input outside the evaluated root — the comparison report on a
+    # committed-tree preparation — has to be declared external or the snapshot
+    # refuses to read it at all.
+    snapshot = StaticInputSnapshot(
+        resolved_root,
+        external_paths=[
+            path
+            for path in plan_inputs
+            if resolved_root not in path.resolve().parents
+        ],
+    )
     token = activate_static_input_snapshot(snapshot)
     try:
         try:
@@ -314,13 +350,16 @@ def _captured_inputs(
                 verbose=False,
                 plugins_enabled=plugins_enabled,
             )
-            # Bind changed files too: plan construction runs under this
-            # snapshot, and ``_blobs`` drops a path it contains but never read,
-            # so a changed file no adapter opens would vanish from
-            # ``changed_files``.
-            for relative in changed_files:
-                candidate = resolved_root / relative
-                if candidate.is_file() and not candidate.is_symlink():
+            for candidate in (
+                *plan_inputs,
+                *(resolved_root / relative for relative in changed_files),
+            ):
+                if (
+                    candidate.is_file()
+                    and not candidate.is_symlink()
+                    and snapshot.contains(candidate)
+                    and not snapshot.has(candidate)
+                ):
                     snapshot.read_bytes(candidate, max_bytes=_MAX_CHANGED_FILE_BYTES)
             snapshot.finish()
         except (OSError, ValueError) as exc:

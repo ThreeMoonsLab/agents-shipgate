@@ -449,6 +449,64 @@ def test_committed_tree_verify_hashes_the_captured_bytes_not_a_later_rewrite(
     assert "note.txt" in {item["path"] for item in plan["inputs"]["changed_files"]}
 
 
+@pytest.mark.parametrize("committed", [False, True], ids=["worktree", "committed_tree"])
+def test_prepare_binds_the_explicit_baseline_and_comparison_report(
+    tmp_path: Path,
+    committed: bool,
+) -> None:
+    """Explicit ``--baseline`` / ``--diff-from`` are inputs like any other.
+
+    Running plan construction under the snapshot made this a trap: both
+    ``_blobs`` and ``_optional_blob`` read a path that is contained but never
+    read as *absent*, so an input nobody bound does not merely go unhashed — it
+    vanishes from the plan. Two preparations of one tree with different
+    baselines and comparison reports shared an ``input_set_id``.
+    """
+
+    repo = _sample_repo(tmp_path, "google_adk_agent")
+    for name, body in (
+        ("baseline-a.json", '{"source_report_run_id": "A", "findings": []}\n'),
+        ("baseline-b.json", '{"source_report_run_id": "B", "findings": []}\n'),
+        ("comparison-a.json", '{"comparison": "A"}\n'),
+        ("comparison-b.json", '{"comparison": "B"}\n'),
+    ):
+        (repo / name).write_text(body, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "add baselines and comparison reports")
+
+    plans = []
+    for variant in ("a", "b"):
+        # The output must land outside the repo, or the first run's artifacts
+        # become untracked changed files and move identity on their own.
+        out = tmp_path / f"out-{variant}" / "verification-plan.json"
+        result = runner.invoke(
+            app,
+            [
+                "verification",
+                "prepare",
+                "--workspace",
+                str(repo),
+                *(["--base", "HEAD", "--head", "HEAD"] if committed else []),
+                "--baseline",
+                f"baseline-{variant}.json",
+                "--diff-from",
+                f"comparison-{variant}.json",
+                "--out",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        plans.append(json.loads(out.read_text(encoding="utf-8")))
+
+    for plan, variant in zip(plans, ("a", "b"), strict=True):
+        assert plan["inputs"]["baseline"] is not None
+        assert plan["inputs"]["baseline"]["path"] == f"baseline-{variant}.json"
+        assert plan["inputs"]["diff_from"] is not None
+        assert plan["inputs"]["diff_from"]["path"] == f"comparison-{variant}.json"
+
+    assert plans[0]["inputs"]["input_set_id"] != plans[1]["inputs"]["input_set_id"]
+
+
 def test_prepare_input_error_carries_the_agent_mode_envelope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
