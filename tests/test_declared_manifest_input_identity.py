@@ -6,14 +6,19 @@ and attestations all rest on. If a path an adapter is configured to read never
 becomes a plan blob, two runs that read different bytes claim the same input
 set — a reproducibility hole, not just a caching one.
 
-Two producers had that hole:
+Three producers had that hole:
 
 - the manifest-derived branch of ``build_verification_plan`` walked only
   ``tool_sources``, so ``openai_api.prompt_files`` and every other framework
-  block stayed out of the plan; and
+  block stayed out of the plan;
 - ``verify --base X --head Y`` evaluates an archived tree while the
   static-input snapshot is bound to the worktree, so it observed no adapter
-  reads at all and emitted ``tool_sources: []``.
+  reads at all and emitted ``tool_sources: []``; and
+- neither of those reaches an input the manifest never names — a Google ADK
+  ``McpToolset`` inventory, an OpenAPI spec referenced from Python. Only the
+  read boundary sees those, so both remaining producers now observe it: the
+  committed-tree scan is snapshotted against the archived tree, and ``prepare``
+  loads sources (statically, deciding nothing) to record what they open.
 
 The ``verify`` worktree path was already covered by read-boundary capture, so
 these tests deliberately drive the other entry points.
@@ -30,6 +35,7 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.verification_identity import build_verification_plan
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
@@ -223,15 +229,15 @@ def test_committed_tree_identity_moves_for_an_input_outside_the_diff(
     assert plans[0].inputs.input_set_id != plans[1].inputs.input_set_id
 
 
-def test_a_declared_input_outside_the_root_fails_closed_and_routes(
+def test_a_declared_input_outside_the_root_fails_the_fallback_closed(
     tmp_path: Path,
 ) -> None:
-    """An input that cannot be hashed portably must not be silently dropped.
+    """The declared fallback cannot hash an out-of-root path, so it refuses.
 
-    ``agent.sdk.entrypoint`` is only resolved when an ``openai_agents_sdk`` tool
-    source omits its own path, so a manifest without one reaches plan
-    construction with a declaration the scan never checked. Routed as an input
-    error (exit 3) — the manifest is what has to change, not the engine.
+    Only the fallback is affected. When the read boundary was observed, a
+    declaration nothing opens is simply not an input — which is why
+    ``prepare`` (below) accepts the same manifest rather than rejecting a path
+    no adapter would ever read.
     """
 
     repo = _sample_repo(tmp_path, "simple_openai_api_agent")
@@ -245,8 +251,116 @@ def test_a_declared_input_outside_the_root_fails_closed_and_routes(
         ),
         encoding="utf-8",
     )
+
+    with pytest.raises(InputParseError, match="outside the verification input root"):
+        build_verification_plan(
+            git_root=repo,
+            input_root=repo,
+            config_path=repo / "shipgate.yaml",
+            config_logical_path="shipgate.yaml",
+            base_ref=None,
+            head_ref="HEAD",
+            archived_head=False,
+            repository_id="https://example.test/org/repo.git",
+            base_commit_sha=None,
+            base_tree_sha=None,
+            head_commit_sha="c" * 40,
+            head_tree_sha="d" * 40,
+            merge_base_sha=None,
+            changed_files=[],
+            diff_text="",
+            baseline_path=None,
+            diff_from_path=None,
+            policy_pack_paths=[],
+            evaluation_date="2026-08-06",
+            options={"ci_mode": "advisory"},
+            plugins_enabled=False,
+            captured_input_paths=None,
+        )
+
+
+def test_prepare_binds_a_transitively_referenced_input(tmp_path: Path) -> None:
+    """An input the manifest never names still has to move ``input_set_id``.
+
+    ``agent.py`` constructs ``McpToolset(inventory_path="inventories/mcp-tools.json")``.
+    Nothing in ``shipgate.yaml`` mentions that file, so enumerating declarations
+    cannot reach it — only the read boundary can. Prepared plans bound
+    `agent.py`, the eval set, and the function inventory but not this one, so
+    two trees whose MCP inventories differed shared an ``input_set_id``.
+    """
+
+    repo = _sample_repo(tmp_path, "google_adk_agent")
+    before = _prepared_plan(repo, "before")
+    bound = {blob["path"] for blob in before["inputs"]["tool_sources"]}
+
+    assert "inventories/mcp-tools.json" in bound
+    # Reached only through the OpenAPI toolset built inside agent.py.
+    assert "specs/support.openapi.yaml" in bound
+
+    inventory = repo / "inventories" / "mcp-tools.json"
+    inventory.write_text(inventory.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     _git(repo, "add", "-A")
-    _git(repo, "commit", "-q", "-m", "declare an out-of-root entrypoint")
+    _git(repo, "commit", "-q", "-m", "touch the transitive inventory")
+    after = _prepared_plan(repo, "after")
+
+    assert after["inputs"]["input_set_id"] != before["inputs"]["input_set_id"]
+
+
+def test_committed_tree_verify_agrees_with_the_worktree_on_the_input_set(
+    tmp_path: Path,
+) -> None:
+    """Both modes observe the same read boundary, so both bind the same set.
+
+    This is the invariant the two fixes exist to establish: a committed-tree run
+    is snapshotted against the archived tree it scans, so an input discovered
+    while parsing an entrypoint reaches the receipt on the CI path exactly as it
+    already did for a worktree run.
+    """
+
+    repo = _sample_repo(tmp_path, "google_adk_agent")
+    _git(repo, "branch", "base", "HEAD")
+    (repo / "note.txt").write_text("unrelated\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "unrelated change")
+
+    bound: dict[str, set[str]] = {}
+    for name, extra in (("worktree", []), ("committed", ["--head", "HEAD"])):
+        result = runner.invoke(
+            app,
+            [
+                "verify",
+                "--workspace",
+                str(repo),
+                "--base",
+                "base",
+                *extra,
+                "--out",
+                str(repo / name / "verifier.json"),
+            ],
+        )
+        assert result.exit_code in {0, 1}, result.output
+        plan = json.loads(
+            (repo / name / "verifier.json" / "verification-plan.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        bound[name] = {blob["path"] for blob in plan["inputs"]["tool_sources"]}
+
+    assert "inventories/mcp-tools.json" in bound["committed"]
+    assert bound["committed"] == bound["worktree"]
+
+
+def test_prepare_input_error_carries_the_agent_mode_envelope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``docs/errors.json`` requires both ``next_action`` and ``next_actions``."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = _sample_repo(tmp_path, "simple_openai_api_agent")
+    (repo / "prompts" / "support_refund.md").unlink()
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "drop a declared prompt file")
 
     result = runner.invoke(
         app,
@@ -260,9 +374,15 @@ def test_a_declared_input_outside_the_root_fails_closed_and_routes(
         ],
     )
 
-    assert result.exit_code == 3, result.output
-    assert "outside the verification input root" in result.output
-    assert not (repo / "out" / "verification-plan.json").exists()
+    assert result.exit_code in {2, 3}, result.output
+    payload = json.loads(
+        [line for line in result.output.splitlines() if line.startswith("{")][-1]
+    )
+    assert payload["error"] in {"config_error", "input_parse_error"}
+    assert payload["exit_code"] == result.exit_code
+    assert payload["next_action"]
+    assert payload["next_actions"]
+    assert payload["next_actions"][0]["kind"] in {"edit", "review"}
 
 
 def test_an_unparseable_manifest_still_yields_a_plan(tmp_path: Path) -> None:

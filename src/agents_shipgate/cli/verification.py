@@ -9,6 +9,7 @@ from typing import Any
 
 import typer
 
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.cli.verify.git import (
     archive_tree,
     commit_date,
@@ -25,6 +26,11 @@ from agents_shipgate.cli.verify.git import (
 )
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.static_inputs import (
+    StaticInputSnapshot,
+    activate_static_input_snapshot,
+    reset_static_input_snapshot,
+)
 from agents_shipgate.core.verification_identity import (
     build_executor,
     build_terminal_receipt,
@@ -37,6 +43,7 @@ from agents_shipgate.core.verification_identity import (
 )
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification_identity import (
     VerificationPlan,
@@ -89,9 +96,9 @@ def prepare(
     diff_from_path = _under(root, diff_from) if diff_from is not None else None
     git_identity = _git_identity(root, base, head_ref)
 
-    # A manifest that declares an input the plan cannot bind is the caller's to
-    # fix, so route it as an input failure instead of surfacing a traceback out
-    # of the identity builder.
+    # A manifest whose inputs cannot be read, or that declares one the plan
+    # cannot bind, is the caller's to fix — route it like every other input
+    # failure instead of surfacing a traceback out of the identity builder.
     try:
         plan = _build_plan(
             root=root,
@@ -112,7 +119,36 @@ def prepare(
         )
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
+        emit_agent_mode_error_action(
+            "input_parse_error",
+            message=exc,
+            exit_code=3,
+            action=NextAction(
+                kind="review",
+                why=(
+                    "Inspect the file referenced in the error; ensure it exists, "
+                    "is valid, and resolves under the manifest directory."
+                ),
+                expects=(
+                    "Referenced file is present, parseable, and inside the manifest directory."
+                ),
+            ),
+        )
         raise typer.Exit(3) from exc
+    except ConfigError as exc:
+        typer.echo(f"Config error: {exc}", err=True)
+        emit_agent_mode_error_action(
+            "config_error",
+            message=exc,
+            exit_code=2,
+            action=NextAction(
+                kind="edit",
+                path=str(config_relative),
+                why=f"Loader rejected {config_relative.as_posix()}: {exc}",
+                expects="agents-shipgate doctor -c <path> --json runs without raising ConfigError.",
+            ),
+        )
+        raise typer.Exit(2) from exc
     diff_path = out.with_name("verification-input.diff")
     diff_path.parent.mkdir(parents=True, exist_ok=True)
     diff_path.write_text(diff_text, encoding="utf-8")
@@ -172,6 +208,12 @@ def _build_plan(
             evaluation_date=resolved_date,
             options=options,
             plugins_enabled=False if no_plugins else None,
+            captured_input_paths=_captured_input_paths(
+                config_path=root / config_relative,
+                input_root=root,
+                policy_pack_paths=policy_paths,
+                plugins_enabled=False if no_plugins else None,
+            ),
         )
     source_identity = resolve_source_head_identity(root, head_ref=head_ref)
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
@@ -194,8 +236,75 @@ def _build_plan(
             policy_pack_paths=[_map(snapshot, root, path) for path in policy_paths],
             evaluation_date=resolved_date,
             options=options,
+            captured_input_paths=_captured_input_paths(
+                config_path=snapshot / config_relative,
+                input_root=snapshot,
+                policy_pack_paths=[_map(snapshot, root, path) for path in policy_paths],
+                plugins_enabled=False if no_plugins else None,
+            ),
             plugins_enabled=False if no_plugins else None,
         )
+
+
+def _captured_input_paths(
+    *,
+    config_path: Path,
+    input_root: Path,
+    policy_pack_paths: list[Path],
+    plugins_enabled: bool | None,
+) -> list[Path]:
+    """Record which files the adapters actually open for this manifest.
+
+    Enumerating the manifest reaches only what it names. An input discovered
+    while parsing something the manifest names — a Google ADK ``McpToolset``
+    inventory, an OpenAPI spec referenced from Python, a sub-agent config —
+    is invisible to that walk, so a plan built from declarations alone can be
+    byte-identical across two trees whose adapters read different bytes.
+    Only the read boundary sees those, and it is the same boundary ``verify``
+    binds its receipt to.
+
+    ``prepare`` still evaluates no policy: source loading is static, local,
+    network-free, and decision-free, and the scan phases after it make no
+    further declared-input reads. It does mean ``prepare`` now fails on a
+    manifest whose inputs cannot be loaded — which is exactly when it cannot
+    honestly claim an input set, and when ``verify`` would fail too.
+    """
+
+    from agents_shipgate.cli.scan.inputs import _load_inputs
+    from agents_shipgate.cli.scan.prepare import _prepare_scan
+
+    resolved_root = input_root.resolve()
+    snapshot = StaticInputSnapshot(resolved_root)
+    token = activate_static_input_snapshot(snapshot)
+    try:
+        resolved = _prepare_scan(
+            config_path=config_path,
+            ci_mode=None,
+            fail_on=None,
+            output_dir=None,
+            formats=None,
+            packet_enabled=None,
+            packet_formats=None,
+            baseline_mode="new-findings",
+        )
+        _load_inputs(
+            manifest=resolved.manifest,
+            base_dir=resolved.base_dir,
+            config_path=config_path,
+            policy_pack_paths=policy_pack_paths,
+            verbose=False,
+            plugins_enabled=plugins_enabled,
+        )
+        snapshot.finish()
+    except (OSError, ValueError) as exc:
+        raise InputParseError(
+            f"Verification inputs changed while they were being read: {exc}"
+        ) from exc
+    finally:
+        reset_static_input_snapshot(token)
+    # Blob paths are logical and relative to the input root, so a read outside
+    # it cannot become one.
+    return [path for path in snapshot.paths() if resolved_root in path.parents]
 
 
 @verification_app.command("worker")

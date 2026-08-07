@@ -10,6 +10,7 @@ import shutil
 import stat
 import tempfile
 from collections import Counter
+from contextvars import Token
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -662,6 +663,8 @@ def run_verify(
     head_baseline_path = baseline_path
     head_policy_pack_paths = policy_pack_paths
     head_tree: str | None = None
+    head_snapshot: StaticInputSnapshot | None = None
+    head_snapshot_token: Token[StaticInputSnapshot | None] | None = None
     head_capability_lock: CapabilityLockFileV1 | None = None
     capability_lock_diff: CapabilityLockDiffV1 | None = None
 
@@ -785,34 +788,75 @@ def run_verify(
                 tree_dir=head_tree_dir,
                 path=baseline_path,
             )
-        with use_evaluation_date(date.fromisoformat(verification_date)):
-            report, head_exit_code = run_scan(
-                config_path=head_config_path,
-                output_dir=out_dir,
-                formats=HEAD_FORMATS,
-                ci_mode=ci_mode,
-                fail_on=fail_on,
-                baseline_path=head_baseline_path,
-                diff_from_path=base_report,
-                baseline_mode=baseline_mode,
-                policy_pack_paths=head_policy_pack_paths,
-                plugins_enabled=plugins_enabled,
-                verbose=verbose,
-                suggest_patches=suggest_patches,
-                packet_enabled=True,
-                packet_formats=HEAD_PACKET_FORMATS,
-                no_heuristics=no_heuristics,
-                verification_context=VerificationContext(
-                    changed_files=changed_files,
-                    diff_text=diff_text,
-                    diff_text_available=bool(diff_text),
-                    trigger_result=trigger,
-                    configured_manifest_path=config_relative.as_posix(),
-                    manifest_introduced=manifest_introduced,
-                ),
-                capability_lock_callback=capture_capability_lock,
-                manifest_text=worktree_manifest_text if not archive_head else None,
+            # The outer snapshot is bound to the worktree and cannot observe a
+            # read under the archived tree, so a committed-tree scan would
+            # otherwise record no adapter reads at all. Capture against the tree
+            # actually being evaluated, so an input discovered while parsing an
+            # entrypoint — an ADK McpToolset inventory, an OpenAPI spec named
+            # only from Python — reaches `input_set_id` here exactly as it
+            # already does for a worktree run. Resolve the root: on macOS the
+            # temporary directory is reached through /var, and every adapter
+            # resolves its base directory, so an unresolved root would make
+            # `contains()` false for every path under it.
+            head_snapshot = StaticInputSnapshot(
+                head_tree_dir.resolve(),
+                excluded_paths=[out_dir],
             )
+            # Externally supplied inputs keep their worktree location even for a
+            # committed-tree run — `_map_optional_tree_path` only rewrites paths
+            # under the repository — so the scan below reads them from outside
+            # the tree this snapshot watches. Bind their bytes to the worktree
+            # snapshot now, before the scan can observe them, so exactly one
+            # snapshot owns each external input for the whole run: two watchers
+            # would both have to re-validate the same directory, and the second
+            # would fail on any change the first legitimately allowed.
+            for path in external_snapshot_paths:
+                if (
+                    path.is_file()
+                    and static_snapshot.contains(path)
+                    and not static_snapshot.has(path)
+                ):
+                    static_snapshot.read_bytes(path, max_bytes=64 * 1024 * 1024)
+        with use_evaluation_date(date.fromisoformat(verification_date)):
+            head_snapshot_token = (
+                activate_static_input_snapshot(head_snapshot)
+                if head_snapshot is not None
+                else None
+            )
+            try:
+                report, head_exit_code = run_scan(
+                    config_path=head_config_path,
+                    output_dir=out_dir,
+                    formats=HEAD_FORMATS,
+                    ci_mode=ci_mode,
+                    fail_on=fail_on,
+                    baseline_path=head_baseline_path,
+                    diff_from_path=base_report,
+                    baseline_mode=baseline_mode,
+                    policy_pack_paths=head_policy_pack_paths,
+                    plugins_enabled=plugins_enabled,
+                    verbose=verbose,
+                    suggest_patches=suggest_patches,
+                    packet_enabled=True,
+                    packet_formats=HEAD_PACKET_FORMATS,
+                    no_heuristics=no_heuristics,
+                    verification_context=VerificationContext(
+                        changed_files=changed_files,
+                        diff_text=diff_text,
+                        diff_text_available=bool(diff_text),
+                        trigger_result=trigger,
+                        configured_manifest_path=config_relative.as_posix(),
+                        manifest_introduced=manifest_introduced,
+                    ),
+                    capability_lock_callback=capture_capability_lock,
+                    manifest_text=worktree_manifest_text if not archive_head else None,
+                )
+            finally:
+                # Plan construction hashes the archived files directly, so the
+                # snapshot is not left active past the scan; it is the record of
+                # which paths were read, not the reader for the receipt.
+                if head_snapshot_token is not None:
+                    reset_static_input_snapshot(head_snapshot_token)
         head_exit_code = _apply_strict_plugins(
             report, head_exit_code, strict_plugins=strict_plugins
         )
@@ -897,6 +941,7 @@ def run_verify(
                     pr_comment_style=pr_comment_style,
                     capability_lock_diff=capability_lock_diff,
                     input_root=head_input_root,
+                    input_snapshot=head_snapshot,
                     diff_text=diff_text,
                     diff_from_path=base_report,
                     authorization_path=authorization,
@@ -2375,6 +2420,7 @@ def _write_artifacts(
     pr_comment_style: str,
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
     input_root: Path | None = None,
+    input_snapshot: StaticInputSnapshot | None = None,
     diff_text: str = "",
     diff_from_path: Path | None = None,
     authorization_path: Path | None = None,
@@ -2441,42 +2487,51 @@ def _write_artifacts(
         *([baseline_path] if baseline_path is not None else []),
         *([diff_from_path] if diff_from_path is not None else []),
     ]
-    if active_snapshot is not None:
+    def _finalize(snapshot: StaticInputSnapshot | None) -> None:
+        """Seal one snapshot, rejecting any input that moved under it."""
+
+        if snapshot is None:
+            return
         try:
             # Base-report enrichment can be generated after the snapshot was
             # activated. Capture it now, before finalizing directory identity,
             # so plan construction and the receipt consume exactly these bytes.
             for path in original_paths:
-                if (
-                    path.is_file()
-                    and active_snapshot.contains(path)
-                    and not active_snapshot.has(path)
-                ):
-                    active_snapshot.read_bytes(path, max_bytes=64 * 1024 * 1024)
-            active_snapshot.finish()
+                if path.is_file() and snapshot.contains(path) and not snapshot.has(path):
+                    snapshot.read_bytes(path, max_bytes=64 * 1024 * 1024)
+            snapshot.finish()
         except (OSError, ValueError) as exc:
             raise InputParseError(
                 f"Verification inputs changed while they were being evaluated: {exc}"
             ) from exc
+
+    _finalize(active_snapshot)
     original_static_inputs = {
         Path(os.path.abspath(os.path.normpath(os.fspath(path))))
         for path in original_paths
     }
-    # The static-input snapshot is bound to the worktree. A committed-tree run
-    # evaluates an archived copy outside that root, so the snapshot observes
-    # none of the adapter reads and offering its (empty) path set as the
-    # captured input set would silently drop every declared tool source and
-    # framework input from ``input_set_id``. Hand plan construction ``None``
-    # there so it enumerates the manifest's declared inputs against the tree it
-    # actually scanned (issue #299).
+    # Identity must rest on what the adapters actually read, which is the only
+    # account that reaches an input discovered while parsing an entrypoint
+    # rather than named in the manifest. Two snapshots observe two roots: the
+    # outer one is bound to the worktree, and a committed-tree run is observed
+    # by ``input_snapshot``, bound to the archived tree it scanned. Pick the one
+    # that watched the evaluated root; fall back to the manifest's declared
+    # inputs only when neither did (issue #299).
     archived_head = resolved_input_root != git_root.resolve()
+    evaluated_snapshot = input_snapshot if archived_head else active_snapshot
+    if evaluated_snapshot is not active_snapshot:
+        _finalize(evaluated_snapshot)
     captured_input_paths = (
         [
             path
-            for path in active_snapshot.paths()
+            for path in evaluated_snapshot.paths()
+            # Blob paths are logical and relative to the evaluated input root,
+            # so a read outside it cannot become one. In practice this only
+            # drops the externally supplied inputs already bound by name.
             if path not in original_static_inputs
+            and (resolved_input_root in path.parents)
         ]
-        if active_snapshot is not None and not archived_head
+        if evaluated_snapshot is not None
         else None
     )
     external_input_root = verifier_path.parent
