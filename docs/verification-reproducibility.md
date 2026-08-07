@@ -29,13 +29,25 @@ binds:
 
 - resolved base, head, tree, merge-base, and source/evaluated commit facts;
 - an exact committed tree or a hashed working-tree overlay;
-- the manifest, tool sources, policy packs, baseline, comparison report,
-  changed-file content, diff content, evaluation date, and behavior-affecting
-  options;
+- the manifest, every input an adapter is configured to read, policy packs,
+  baseline, comparison report, changed-file content, diff content, evaluation
+  date, and behavior-affecting options;
 - the Agents Shipgate version and installed package-content digest,
   Python/runtime requirements, installed dependency RECORD closure, adapter
   set, plugin distribution set, and policy catalog; and
 - the normalized task list.
+
+"Every input an adapter is configured to read" is `plan.inputs.tool_sources`,
+and it covers more than the `tool_sources` manifest block: `prompt_files`, the
+framework blocks (`openai_api`, `anthropic`, `google_adk`, `langchain`,
+`crewai`, `n8n`, `codex_plugins`), `validation.evidence`,
+`checks.policy_packs`, and `agent.sdk.entrypoint` are all adapter inputs and
+all become blobs. A worktree run records them at the read boundary, so a path
+an adapter discovers is bound even when the manifest does not name it directly.
+A committed-tree run and an unevaluated `verification prepare` plan enumerate
+what the manifest declares instead, resolved against the tree being evaluated.
+Report output directories, `organization.audit.registry` (existence-tested,
+never read), and `baseline.audit_log` are deliberately not inputs.
 
 Committed snapshots are materialized from Git objects with `git ls-tree` and
 `git cat-file`. They do not use `git archive`, so `.gitattributes`

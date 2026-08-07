@@ -89,8 +89,72 @@ def prepare(
     diff_from_path = _under(root, diff_from) if diff_from is not None else None
     git_identity = _git_identity(root, base, head_ref)
 
+    # A manifest that declares an input the plan cannot bind is the caller's to
+    # fix, so route it as an input failure instead of surfacing a traceback out
+    # of the identity builder.
+    try:
+        plan = _build_plan(
+            root=root,
+            head=head,
+            head_ref=head_ref,
+            base=base,
+            config_relative=config_relative,
+            baseline_path=baseline_path,
+            diff_from_path=diff_from_path,
+            policy_paths=policy_paths,
+            changed=changed,
+            diff_text=diff_text,
+            resolved_date=resolved_date,
+            git_identity=git_identity,
+            ci_mode=ci_mode,
+            no_plugins=no_plugins,
+            no_heuristics=no_heuristics,
+        )
+    except InputParseError as exc:
+        typer.echo(f"Input parsing error: {exc}", err=True)
+        raise typer.Exit(3) from exc
+    diff_path = out.with_name("verification-input.diff")
+    diff_path.parent.mkdir(parents=True, exist_ok=True)
+    diff_path.write_text(diff_text, encoding="utf-8")
+    _write_model(out, plan)
+    typer.echo(
+        json.dumps(
+            {
+                "request_id": plan.request_id,
+                "plan": str(out),
+                "diff": str(diff_path),
+            }
+        )
+    )
+
+
+def _build_plan(
+    *,
+    root: Path,
+    head: str | None,
+    head_ref: str,
+    base: str | None,
+    config_relative: Path,
+    baseline_path: Path | None,
+    diff_from_path: Path | None,
+    policy_paths: list[Path],
+    changed: list[str],
+    diff_text: str,
+    resolved_date: str,
+    git_identity: dict[str, str | None],
+    ci_mode: str,
+    no_plugins: bool,
+    no_heuristics: bool,
+) -> VerificationPlan:
+    """Build the worktree or committed-tree plan for ``prepare``."""
+
+    options = {
+        "ci_mode": ci_mode,
+        "no_heuristics": no_heuristics,
+        "plugins_enabled": not no_plugins,
+    }
     if head is None:
-        plan = build_verification_plan(
+        return build_verification_plan(
             git_root=root,
             input_root=root,
             config_path=root / config_relative,
@@ -106,57 +170,32 @@ def prepare(
             diff_from_path=diff_from_path,
             policy_pack_paths=policy_paths,
             evaluation_date=resolved_date,
-            options={
-                "ci_mode": ci_mode,
-                "no_heuristics": no_heuristics,
-                "plugins_enabled": not no_plugins,
-            },
+            options=options,
             plugins_enabled=False if no_plugins else None,
         )
-    else:
-        source_identity = resolve_source_head_identity(
-            root,
+    source_identity = resolve_source_head_identity(root, head_ref=head_ref)
+    with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
+        snapshot = Path(tmp) / "snapshot"
+        archive_tree(root, head_ref, snapshot)
+        return build_verification_plan(
+            git_root=root,
+            input_root=snapshot,
+            config_path=snapshot / config_relative,
+            config_logical_path=config_relative.as_posix(),
+            base_ref=base,
             head_ref=head_ref,
+            archived_head=True,
+            source_head_commit_sha=source_identity.source_head_commit_sha,
+            **git_identity,
+            changed_files=changed,
+            diff_text=diff_text,
+            baseline_path=_map(snapshot, root, baseline_path),
+            diff_from_path=diff_from_path,
+            policy_pack_paths=[_map(snapshot, root, path) for path in policy_paths],
+            evaluation_date=resolved_date,
+            options=options,
+            plugins_enabled=False if no_plugins else None,
         )
-        with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
-            snapshot = Path(tmp) / "snapshot"
-            archive_tree(root, head_ref, snapshot)
-            plan = build_verification_plan(
-                git_root=root,
-                input_root=snapshot,
-                config_path=snapshot / config_relative,
-                config_logical_path=config_relative.as_posix(),
-                base_ref=base,
-                head_ref=head_ref,
-                archived_head=True,
-                source_head_commit_sha=source_identity.source_head_commit_sha,
-                **git_identity,
-                changed_files=changed,
-                diff_text=diff_text,
-                baseline_path=_map(snapshot, root, baseline_path),
-                diff_from_path=diff_from_path,
-                policy_pack_paths=[_map(snapshot, root, path) for path in policy_paths],
-                evaluation_date=resolved_date,
-                options={
-                    "ci_mode": ci_mode,
-                    "no_heuristics": no_heuristics,
-                    "plugins_enabled": not no_plugins,
-                },
-                plugins_enabled=False if no_plugins else None,
-            )
-    diff_path = out.with_name("verification-input.diff")
-    diff_path.parent.mkdir(parents=True, exist_ok=True)
-    diff_path.write_text(diff_text, encoding="utf-8")
-    _write_model(out, plan)
-    typer.echo(
-        json.dumps(
-            {
-                "request_id": plan.request_id,
-                "plan": str(out),
-                "diff": str(diff_path),
-            }
-        )
-    )
 
 
 @verification_app.command("worker")

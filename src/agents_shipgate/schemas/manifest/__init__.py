@@ -13,6 +13,11 @@ If you are adding a new manifest section:
 3. Re-export the new models below (under the alphabetised section block).
 4. Regenerate ``docs/manifest-v0.1.json`` via
    ``python scripts/generate_schemas.py``.
+5. If the section names a file an adapter reads, type the field as
+   ``ArtifactPathConfig`` and ``declared_paths`` picks it up automatically.
+   A plain ``str`` path field does not derive — register it in
+   ``declared_paths._UNTYPED_PATH_FIELDS`` or it will never reach
+   ``input_set_id`` (see issue #299).
 
 Schema layering (enforced by ``tests/test_schema_boundaries.py``):
 modules in this package may import from ``schemas.common`` and from

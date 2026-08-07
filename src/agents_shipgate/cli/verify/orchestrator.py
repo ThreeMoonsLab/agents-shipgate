@@ -2462,13 +2462,21 @@ def _write_artifacts(
         Path(os.path.abspath(os.path.normpath(os.fspath(path))))
         for path in original_paths
     }
+    # The static-input snapshot is bound to the worktree. A committed-tree run
+    # evaluates an archived copy outside that root, so the snapshot observes
+    # none of the adapter reads and offering its (empty) path set as the
+    # captured input set would silently drop every declared tool source and
+    # framework input from ``input_set_id``. Hand plan construction ``None``
+    # there so it enumerates the manifest's declared inputs against the tree it
+    # actually scanned (issue #299).
+    archived_head = resolved_input_root != git_root.resolve()
     captured_input_paths = (
         [
             path
             for path in active_snapshot.paths()
             if path not in original_static_inputs
         ]
-        if active_snapshot is not None
+        if active_snapshot is not None and not archived_head
         else None
     )
     external_input_root = verifier_path.parent
@@ -2505,7 +2513,6 @@ def _write_artifacts(
     resolved_date = evaluation_date or commit_date(git_root, verifier.head_ref)
     base_commit = commit_sha(git_root, verifier.base_ref) if verifier.base_ref else None
     head_commit = commit_sha(git_root, verifier.head_ref)
-    archived_head = resolved_input_root != git_root.resolve()
     resolved_options = dict(verification_options or {})
     evaluated_hint = resolved_options.pop("evaluated_head_commit_sha", None)
     github_actions = resolved_options.pop("github_actions", False)
