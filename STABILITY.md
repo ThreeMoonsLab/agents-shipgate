@@ -1658,7 +1658,7 @@ These are not stable — assume they may grow but not shrink:
 
 - **Risk-tag taxonomy.** New tags may appear (e.g. `infrastructure_change`, `code_execution`). Existing tags' meanings will not change.
 - **`capability_facts[].capability` vocabulary.** Values are an open vocabulary seeded from risk tags plus review sentinels such as `wildcard_tool_surface` and `unknown`.
-- **Report `frameworks.{name}` blocks.** New framework summaries (e.g. `frameworks.langchain`) may appear.
+- **Report `frameworks.{name}` blocks.** New framework summaries (e.g. `frameworks.langchain`) may appear, and new count keys may be added to an existing summary (e.g. `frameworks.google_adk.tool_binding_count`). Tool counts such as `function_tool_count` count tool *definitions*: one tool bound to three agents is one tool and three bindings, and only the binding count moves with the wiring.
 - **Manifest fields.** New optional fields under existing sections.
 - **Check default severities.** May tighten over time. To pin a severity for your repo, use `checks.severity_overrides`.
 - **`release_decision.decision` enum values.** New states (e.g., `insufficient_evidence` added at `report_schema_version` 0.14) may be added. Consumers that switch on the enum MUST fall back to `review_required` for unrecognized values — that is the safe default. Existing values' meanings will not change. New states do not change CI exit codes (exit 20 still requires a `fail_on` match on actual findings).

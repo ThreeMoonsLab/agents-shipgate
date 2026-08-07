@@ -1,10 +1,79 @@
 import json
 
+import pytest
+
 from agents_shipgate.checks.adk import _has_long_running_contract
 from agents_shipgate.cli.scan import inspect_sources, run_scan
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
 from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+# A shared mapping tool bound to a coordinator and two sub-agents: the
+# canonical Google ADK multi-agent shape (see google/adk-samples). The
+# module-level raise proves the extractor never imports the file.
+SHARED_TOOL_AGENT_SOURCE = '''
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
+
+raise RuntimeError("this file must never be imported")
+
+
+def map_salesforce_account_to_sap_bp(account_id: str) -> dict:
+    """Map a Salesforce account to an SAP business partner."""
+    return {"business_partner": account_id}
+
+
+def map_salesforce_product_to_sap_material(product_id: str) -> dict:
+    """Map a Salesforce product to an SAP material."""
+    return {"material": product_id}
+
+
+tool_map_account = FunctionTool(func=map_salesforce_account_to_sap_bp)
+tool_map_product = FunctionTool(func=map_salesforce_product_to_sap_material)
+
+salesforce_agent = LlmAgent(
+    name="salesforce_agent",
+    instruction="Read Salesforce records.",
+    tools=[tool_map_account, tool_map_product],
+)
+
+sap_agent = LlmAgent(
+    name="sap_agent",
+    instruction="Read SAP records.",
+    tools=[tool_map_account, tool_map_product],
+)
+
+root_agent = LlmAgent(
+    name="smart_closer",
+    instruction="Coordinate Salesforce and SAP mapping.",
+    tools=[tool_map_account, tool_map_product],
+    sub_agents=[salesforce_agent, sap_agent],
+)
+'''
+
+SHARED_TOOL_MANIFEST = """
+version: "0.1"
+project:
+  name: adk-shared-function-tool
+agent:
+  name: smart_closer
+  declared_purpose:
+    - map salesforce records onto sap records
+environment:
+  target: local
+tool_sources:
+  - id: adk_smart_closer
+    type: google_adk
+    path: agent.py
+"""
+
+
+def _shared_tool_project(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(SHARED_TOOL_AGENT_SOURCE, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(SHARED_TOOL_MANIFEST, encoding="utf-8")
+    return project
 
 
 def test_google_adk_python_static_extraction_without_importing_user_code(tmp_path):
@@ -128,6 +197,250 @@ policies:
     assert "SHIP-ADK-LONGRUNNING-CONTRACT-MISSING" in {
         finding.check_id for finding in report.findings
     }
+
+
+def test_google_adk_shared_function_tool_is_one_capability_with_three_bindings(tmp_path):
+    """Regression for #321.
+
+    Binding one ``FunctionTool`` to a coordinator and two sub-agents used to
+    emit one tool observation per binding; the second collided on
+    ``(source_type, source_id, native_locator)`` and aborted the scan with
+    ``InputParseError`` before any finding or release decision existed.
+
+    The function is one action, so it must enter the catalog exactly once
+    while every agent that can call it keeps a first-class binding edge.
+    """
+    project = _shared_tool_project(tmp_path)
+
+    report, exit_code = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    # A decision exists at all: the input no longer fails to parse.
+    assert exit_code == 0
+    assert report.release_decision is not None
+
+    # One canonical observation per function definition, not per binding.
+    catalog = {entry["name"]: entry for entry in report.tool_catalog}
+    assert set(catalog) == {
+        "map_salesforce_account_to_sap_bp",
+        "map_salesforce_product_to_sap_material",
+    }
+    for entry in catalog.values():
+        assert len(entry["observation_ids"]) == 1
+
+    # Every binding survives, and all three agents reach both tools.
+    graph = report.binding_surface_facts
+    agents = {agent.name: agent.agent_id for agent in graph.agents}
+    assert set(agents) == {"smart_closer", "salesforce_agent", "sap_agent"}
+    bound = {(edge.agent_id, edge.tool_id) for edge in graph.tool_edges}
+    assert bound == {
+        (agent_id, entry["tool_id"])
+        for agent_id in agents.values()
+        for entry in catalog.values()
+    }
+    assert graph.root_agent_id == agents["smart_closer"]
+    assert sorted(graph.reachable_tool_ids) == sorted(
+        entry["tool_id"] for entry in catalog.values()
+    )
+    assert graph.possible_tool_ids == []
+    assert graph.issues == []
+
+    # Reviewer evidence names every binding agent, not just the first one.
+    for entry in catalog.values():
+        claims = entry["binding_assessment"]["claims"]
+        assert {claim["value"].split("->")[0] for claim in claims} == set(agents.values())
+
+    # Unique tools and bindings stay separately countable.
+    surface = report.frameworks["google_adk"]
+    assert surface["agent_count"] == 3
+    assert surface["function_tool_count"] == 2
+    assert surface["tool_binding_count"] == 6
+    assert surface["warnings"] == []
+
+
+def test_google_adk_shared_toolset_variable_is_loaded_once(tmp_path):
+    """One toolset construction shared by two agents is one tool surface.
+
+    Re-loading it per binding would inflate the catalog with duplicate
+    observations of the same MCP inventory under different source ids.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "mcp.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "support.search",
+                        "description": "Search support records.",
+                        "annotations": {"readOnlyHint": True},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project / "agent.py").write_text(
+        """
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset
+
+raise RuntimeError("this file must never be imported")
+
+shared_toolset = McpToolset(tool_filter=["support.search"], inventory_path="mcp.json")
+
+reader_agent = LlmAgent(name="reader_agent", tools=[shared_toolset])
+root_agent = LlmAgent(
+    name="root_agent",
+    tools=[shared_toolset],
+    sub_agents=[reader_agent],
+)
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: adk-shared-toolset
+agent:
+  name: root-agent
+  declared_purpose:
+    - search support records
+environment:
+  target: local
+tool_sources:
+  - id: adk_shared_toolset
+    type: google_adk
+    path: agent.py
+""",
+        encoding="utf-8",
+    )
+
+    report, exit_code = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert exit_code == 0
+    catalog = [entry for entry in report.tool_catalog if entry["name"] == "support.search"]
+    assert len(catalog) == 1
+    graph = report.binding_surface_facts
+    agents = {agent.name: agent.agent_id for agent in graph.agents}
+    assert {(edge.agent_id, edge.tool_id) for edge in graph.tool_edges} == {
+        (agents["root_agent"], catalog[0]["tool_id"]),
+        (agents["reader_agent"], catalog[0]["tool_id"]),
+    }
+    assert report.frameworks["google_adk"]["toolset_count"] == 1
+    assert report.frameworks["google_adk"]["tool_binding_count"] == 2
+
+
+def test_google_adk_conflicting_long_running_bindings_route_to_review(tmp_path):
+    """One function bound as both long-running and standard is contradictory.
+
+    Collapsing to one observation must not let binding order pick the
+    contract: keep the stricter one and surface the conflict.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        """
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool, LongRunningFunctionTool
+
+raise RuntimeError("this file must never be imported")
+
+
+def start_migration(tenant_id: str) -> dict:
+    \"\"\"Start a tenant migration.\"\"\"
+    return {"status": "pending"}
+
+
+fast = FunctionTool(func=start_migration)
+slow = LongRunningFunctionTool(func=start_migration)
+
+worker_agent = LlmAgent(name="worker_agent", tools=[fast])
+root_agent = LlmAgent(name="root_agent", tools=[slow], sub_agents=[worker_agent])
+""",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: adk-long-running-conflict
+agent:
+  name: root-agent
+  declared_purpose:
+    - migrate tenants
+environment:
+  target: local
+tool_sources:
+  - id: adk_conflict
+    type: google_adk
+    path: agent.py
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    surface = report.frameworks["google_adk"]
+    assert surface["function_tool_count"] == 1
+    assert surface["tool_binding_count"] == 2
+    assert any("long-running" in warning for warning in surface["warnings"])
+    assert "SHIP-ADK-LONGRUNNING-CONTRACT-MISSING" in {
+        finding.check_id for finding in report.findings
+    }
+
+
+def test_google_adk_true_duplicate_source_still_fails_closed(tmp_path):
+    """Sharing a tool is not the same as declaring one twice.
+
+    The observation-identity guard exists to reject a genuinely duplicated
+    declaration within one source; collapsing shared bindings must not
+    weaken it into "same locator is always fine".
+    """
+    project = _shared_tool_project(tmp_path)
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: adk-duplicate-entrypoint
+agent:
+  name: smart_closer
+  declared_purpose:
+    - map salesforce records onto sap records
+environment:
+  target: local
+google_adk:
+  python_entrypoints:
+    - agent.py
+    - agent.py
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InputParseError) as excinfo:
+        run_scan(
+            config_path=project / "shipgate.yaml",
+            output_dir=tmp_path / "reports",
+            formats=["json"],
+            ci_mode="advisory",
+        )
+
+    assert "Duplicate tool observation identity" in str(excinfo.value)
 
 
 def test_google_adk_agent_config_dynamic_toolset_findings(tmp_path):

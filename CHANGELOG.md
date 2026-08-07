@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- **Google ADK repositories that share one tool between agents can be scanned
+  again.** Binding the same `FunctionTool` to a coordinator and its sub-agents
+  is the canonical ADK multi-agent shape — it is what `google/adk-samples`
+  demonstrates — and it aborted the scan with `Duplicate tool observation
+  identity` before any finding or `release_decision` existed. That is worse
+  than an abstention: `insufficient_evidence` at least routes a human, while a
+  hard input failure produces nothing to act on, so on real multi-agent ADK
+  repositories the supported adapter returned no gate at all. The extractor
+  emitted one `Tool` per *agent binding*, and catalog observation identity is
+  `(source_type, source_id, native_locator)` where the locator is the file plus
+  function name — so the second binding of one function collided with the
+  first. The fix is not to widen that identity with the agent name: one
+  function is one action, and minting a capability per binding would inflate
+  every count derived from the catalog and quietly change what "unique tools"
+  means. The function is now observed once, and the many-to-many binding
+  relation travels as framework-owned `AgentBindingObservation` records — the
+  same surface the OpenAI Agents SDK adapter already uses — so all three
+  bindings survive as first-class edges in the binding graph, in
+  root-reachability, and in each tool's `binding_assessment.claims[]`, each
+  claim pointing at its own `LlmAgent(...)` call site. Sharing a tool is still
+  distinguished from declaring one twice: the observation-identity guard is
+  untouched, and a source that genuinely repeats a declaration still fails
+  closed. A toolset assigned to a variable and shared between agents is
+  likewise loaded once rather than once per binding, and a function bound as
+  both `FunctionTool` and `LongRunningFunctionTool` keeps the stricter
+  long-running contract and raises a warning instead of letting binding order
+  decide. Two consequences worth knowing when upgrading: ADK Python tools no
+  longer carry the single-valued `adk_agent_name` annotation (bindings can no
+  longer be read off a tool, which was only ever able to name one of N
+  agents), so the first scan after upgrade may report a metadata-only
+  annotation-hash change for ADK tools — tool identities, fingerprints,
+  baselines, and decisions are unaffected; and `frameworks.google_adk` gains
+  `tool_binding_count` alongside `function_tool_count`, which now counts tool
+  *definitions*, so a function shared by three agents reads as one tool and
+  three bindings. `tool_binding_count` is additive and not yet listed in the
+  published report schema's `required` set; `report_schema_version` stays at
+  `0.34`.
+
 - **`SHIP-VERIFY-POLICY-WEAKENED` can now actually see a weakened CI gate.**
   The `effective_policy` snapshot was built from the manifest *after* CLI
   overrides were folded into it, so it described the invocation rather than
