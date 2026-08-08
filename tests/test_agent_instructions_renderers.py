@@ -45,7 +45,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "f6771ad16589854d51604cf35af0d78022b6a28e5ffa97a1d0c429ee6b6107da"
+        "b17090f755e07c3bbd07d7c3ebc90a54391ead51495ac09e6f0072332632d48f"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         # Renders {{ shipgate_version }}; changes on every version bump.
@@ -81,7 +81,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "e543320aadab74777133ca591be72dcc910c90c2f881c135ec32c97864276ec9"
+        "d401e1f688c0fcd6ddfa3367251ed3e37f147643b8fb1c109e9df64f0365473d"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -90,7 +90,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "89580914407edd5516db10c8d7725f22c1a919e827e9b820115007a7a6caab31"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "936119b52f9de3afbde869a06727f3175e3b3bd25defd6a2c593697fd01de3ca"
+        "533cf729416bb46a43501962f75a46ed3f3d337d9b082a7fb1ed44118be06203"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
         "3a0670d76c15702f4460f13ed4531dd471d1cbf6b5ca559bd3af75ece34ac1f4"
@@ -137,7 +137,7 @@ def test_agent_instruction_surfaces_name_phase1_control_fields() -> None:
     }.items():
         for token in (
             "shipgate check",
-            "shipgate.agent_boundary_result/v1",
+            "shipgate.agent_boundary_result/v2",
             "control.state",
             "decision",
             "control.next_action",
@@ -161,7 +161,7 @@ def test_committed_claude_command_matches_renderer() -> None:
 
 def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "7"
+    assert payload["schema_version"] == "8"
     assert payload["agents_shipgate_version"]
     assert payload["contract_version"] == "20"
     assert payload["minimum_control_contract_version"] == "20"
@@ -169,18 +169,18 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.7"
-    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v3"
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v6"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v6.json"
+    assert payload["verifier_schema_version"] == "0.8"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v4"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v7"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v7.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
-    assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v1")
+    assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v2")
     assert payload["agent_boundary_result_schema_path"] == (
-        "docs/agent-boundary-result-schema.v1.json"
+        "docs/agent-boundary-result-schema.v2.json"
     )
-    assert payload["agent_result_schema_version"] == "agent_result_v2"
-    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v2.json"
+    assert payload["agent_result_schema_version"] == "agent_result_v3"
+    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v3.json"
     assert payload["attestation_schema_version"] == "0.5"
     assert payload["registry_schema_version"] == "0.4"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
@@ -360,7 +360,7 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "install or upgrade `agents-shipgate`" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
     assert "minimum_control_contract_version: 20" in recipes
-    assert "shipgate.agent_boundary_result/v1" in recipes
+    assert "shipgate.agent_boundary_result/v2" in recipes
 
 
 def test_pr_template_uses_conditional_wording() -> None:

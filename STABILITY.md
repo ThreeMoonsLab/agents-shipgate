@@ -40,12 +40,9 @@ evidence.** Two additive changes carry that:
   (`fetch_base`, `install`) authorizes only its own `next_action`, because
   Shipgate has no assessment to stand behind yet.
 
-  It is required only on `review_publishable`. The three states a
-  pre-contract-20 emitter could produce leave it optional, so artifacts already
-  emitted under verifier `0.7`, handoff `v6`, verify-run `v3`, agent-result
-  `v2`, agent-boundary `v1`, and preflight `0.3` keep validating against those
-  same identifiers. Readers reconstruct an absent vector from the state and
-  route; it is never defaulted to "publication allowed".
+  It is required only on `review_publishable`, so a pre-contract-20 payload
+  still parses; readers reconstruct an absent vector as *nothing authorized*
+  rather than defaulting it to "publication allowed".
 - `control.state: "review_publishable"` — a fourth state meaning "a human must
   approve the merge, and the agent may still publish the change for that
   review". `completion_allowed: false`, `must_stop: false`,
@@ -87,6 +84,37 @@ Migration:
   stays off that format. Use `--format agent-boundary-json` for the current
   contract.
 - `agents-shipgate contract --json` gains `agent_control_permissions[]`.
+
+**Every schema that carries a control advances, and the prior file is frozen.**
+`control.permissions` is a new property and the published variants are
+`additionalProperties: false`, so a payload emitted by this release does not
+validate against the schema published under the previous identifier. Adding the
+field without moving the identifier would have made one version name mean two
+incompatible shapes, so:
+
+| Schema | Was | Now |
+|---|---|---|
+| verifier | `0.7` | `0.8` |
+| agent handoff | `shipgate.agent_handoff/v6` | `shipgate.agent_handoff/v7` |
+| verify-run | `shipgate.verify_run/v3` | `shipgate.verify_run/v4` |
+| shared agent result | `agent_result_v2` | `agent_result_v3` |
+| agent boundary result | `shipgate.agent_boundary_result/v1` | `shipgate.agent_boundary_result/v2` |
+| preflight | `0.3` | `0.4` |
+| downstream local contract | `7` | `8` |
+
+Each previous `docs/*-schema.*.json` is unchanged and remains a frozen
+reference; artifacts emitted under those identifiers still parse. `verify --format
+agent-boundary-json` and `shipgate check` keep their flag spellings — only the
+`schema_version` string moved.
+
+`shipgate.codex_boundary_result/v2` is deliberately **not** in that table. It is
+a frozen deprecated contract and now has its own snapshotted control union
+rather than inheriting the live one, so it publishes exactly what it always did.
+
+Audit ids do not rotate. `audit_id` identifies the assessment, so the schema
+token it hashes is pinned to the value established ids were issued under
+instead of tracking the live wire version — a stored id survives an additive
+schema bump.
 
 ---
 

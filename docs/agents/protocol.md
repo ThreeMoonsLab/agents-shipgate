@@ -14,12 +14,12 @@ This value identifies the calling agent and changes only actor/rerun metadata;
 it never selects or disables host coverage. Every recognized changed boundary
 surface is evaluated on every invocation.
 The command writes no repo artifacts by default. It prints one JSON object to
-stdout: `shipgate.agent_boundary_result/v1`.
+stdout: `shipgate.agent_boundary_result/v2`.
 
 `agents-shipgate verify` and `agents-shipgate-reports/report.json` remain the
 full CI and reviewer substrate. Coding agents should use them for committed PR
 verification and reviewer evidence, but their local control loop is
-`shipgate check` plus `shipgate.agent_boundary_result/v1`.
+`shipgate check` plus `shipgate.agent_boundary_result/v2`.
 
 ## Command
 
@@ -59,7 +59,7 @@ for local work or provide both for committed refs. Shipgate never fetches refs.
 
 The stdout object has:
 
-- `schema_version: "shipgate.agent_boundary_result/v1"`
+- `schema_version: "shipgate.agent_boundary_result/v2"`
 - `actor: "codex" | "claude-code" | "cursor"`
 - `input_mode` and `scope`
 - `input_coverage`
@@ -97,7 +97,7 @@ The stdout object has:
 - `audit_id`
 
 Consumers must make decisions from JSON fields, never from prose or Markdown.
-The stable schema is `docs/agent-boundary-result-schema.v1.json`. Operational
+The stable schema is `docs/agent-boundary-result-schema.v2.json`. Operational
 consumers switch only on `control.state`; `decision` is diagnostic context.
 `control.completion_allowed` is true exactly for `complete`, and
 `control.must_stop` is true
@@ -265,7 +265,7 @@ look like:
 
 ```json
 {
-  "schema_version": "shipgate.agent_boundary_result/v1",
+  "schema_version": "shipgate.agent_boundary_result/v2",
   "decision": "block",
   "control": {
     "state": "agent_action_required",
@@ -287,7 +287,7 @@ Shipgate JSON rather than agent-authored prose.
 
 ## Stale Install
 
-A binary that is present but older than runtime contract 15 is the other
+A binary that is present but older than runtime contract 20 is the other
 fail-safe case: a stale copy lingering on `PATH` can emit an outdated schema or
 lack the command this protocol expects (a plain `pipx install` is a no-op over
 an already-installed older build). Confirm the version first with
@@ -297,7 +297,7 @@ Surface a schema-valid boundary-result object that routes to an upgrade:
 
 ```json
 {
-  "schema_version": "shipgate.agent_boundary_result/v1",
+  "schema_version": "shipgate.agent_boundary_result/v2",
   "decision": "block",
   "control": {
     "state": "agent_action_required",
@@ -356,7 +356,7 @@ Input:
 }
 ```
 
-`shipgate.check` output is exactly `shipgate.agent_boundary_result/v1`.
+`shipgate.check` output is exactly `shipgate.agent_boundary_result/v2`.
 
 `shipgate.preflight` returns `PreflightResultV3`; prefer the `plan` argument
 with a `PreflightPlanV1` object for protected-surface routing, high-risk
@@ -364,7 +364,7 @@ capability evidence requests, and host/MCP permission review. `shipgate.explain`
 deterministic check/finding explanation JSON. `shipgate.capabilities` returns
 capability lock or capability lock diff JSON. `shipgate.handoff` reads existing
 `verifier.json` / `report.json` / `verify-run.json` artifacts and returns exact
-`shipgate.agent_handoff/v6`. These are projections only; the
+`shipgate.agent_handoff/v7`. These are projections only; the
 release gate remains `report.json.release_decision.decision`.
 
 The MCP server is a static adapter only. It exposes no scan, verify,

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-PREFLIGHT_SCHEMA_VERSION = "0.3"
+PREFLIGHT_SCHEMA_VERSION = "0.4"
 MAX_PREFLIGHT_DIFF_BYTES = 32 * 1024 * 1024
 
 PreflightActor = Literal["coding_agent", "human"]

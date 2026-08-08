@@ -48,19 +48,19 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.7.json`](verifier-schema.v0.7.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation and the `diff_status` input-health block
+- [`verifier-schema.v0.8.json`](verifier-schema.v0.8.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation and the `diff_status` input-health block
 - [`verifier-schema.v0.6.json`](verifier-schema.v0.6.json) — frozen v0.6 reference schema
 - [`verifier-schema.v0.5.json`](verifier-schema.v0.5.json) — frozen v0.5 verifier reference
 - [`verifier-schema.v0.4.json`](verifier-schema.v0.4.json) — frozen v0.4 verifier reference
 - [`verifier-schema.v0.3.json`](verifier-schema.v0.3.json) — frozen v0.3 verifier reference
 - [`verifier-schema.v0.2.json`](verifier-schema.v0.2.json) — frozen v0.2 verifier reference
 - [`verifier-schema.v0.1.json`](verifier-schema.v0.1.json) — frozen v0.1 verifier reference
-- [`verify-run-schema.v3.json`](verify-run-schema.v3.json) — JSON Schema for `verify-run.json`, the deterministic verify-run reproducibility artifact
+- [`verify-run-schema.v4.json`](verify-run-schema.v4.json) — JSON Schema for `verify-run.json`, the deterministic verify-run reproducibility artifact
 - [`verify-run-schema.v2.json`](verify-run-schema.v2.json) — frozen verify-run v2 reference
 - [`verify-run-schema.v1.json`](verify-run-schema.v1.json) — frozen verify-run v1 reference
 - [`human-authorization-schema.v1.json`](human-authorization-schema.v1.json) — current schema family for unsigned requests, externally signed grants, evaluations, and external trust policies
 - [`human-authorization-signature-v1.json`](human-authorization-signature-v1.json) — canonical Ed25519 signature interoperability vector
-- [`agent-handoff-schema.v6.json`](agent-handoff-schema.v6.json) — current compact verifier handoff schema with authorization provenance
+- [`agent-handoff-schema.v7.json`](agent-handoff-schema.v7.json) — current compact verifier handoff schema with authorization provenance
 - [`agent-handoff-schema.v5.json`](agent-handoff-schema.v5.json) — frozen handoff v5 reference
 - [`verification-plan-schema.v1.json`](verification-plan-schema.v1.json) — content-addressed verification subject, inputs, engine requirement, and task plan
 - [`verification-unit-result-schema.v1.json`](verification-unit-result-schema.v1.json) — decision-free worker result contract
@@ -69,12 +69,12 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`agent-handoff-schema.v4.json`](agent-handoff-schema.v4.json) — frozen handoff v4 reference
 - [`agent-handoff-schema.v3.json`](agent-handoff-schema.v3.json) — frozen handoff v3 reference
 - [`agent-handoff-schema.v2.json`](agent-handoff-schema.v2.json) — frozen handoff v2 reference
-- [`agent-result-schema.v2.json`](agent-result-schema.v2.json) — current shared local-check and MCP result schema
-- [`agent-boundary-result-schema.v1.json`](agent-boundary-result-schema.v1.json) — current host-neutral JSON Schema for `shipgate check --format agent-boundary-json`
+- [`agent-result-schema.v3.json`](agent-result-schema.v3.json) — current shared local-check and MCP result schema
+- [`agent-boundary-result-schema.v2.json`](agent-boundary-result-schema.v2.json) — current host-neutral JSON Schema for `shipgate check --format agent-boundary-json`
 - [`codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json) — frozen deprecated compatibility projection for `--format codex-boundary-json`
 - [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json) — frozen boundary v1 reference
 - [`agent-result-schema.v1.json`](agent-result-schema.v1.json) — legacy JSON Schema retained for existing local-agent protocol and MCP surfaces; not emitted by `agents-shipgate verify`
-- [`preflight-schema.v0.3.json`](preflight-schema.v0.3.json) — current proactive preflight control schema
+- [`preflight-schema.v0.4.json`](preflight-schema.v0.4.json) — current proactive preflight control schema
 - [`policy-pack-schema.v0.4.json`](policy-pack-schema.v0.4.json) — JSON Schema for local policy-pack YAML files (current; selectors are evaluated against typed predicate evidence)
 - [`policy-pack-schema.v0.3.json`](policy-pack-schema.v0.3.json) — frozen v0.3 policy-pack reference
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — frozen v0.2 policy-pack reference

@@ -10,7 +10,7 @@ prominent flows.
 ### Local Boundary Check
 
 Coding agents run `shipgate check` before reporting an agent-capability change
-complete. Parse the stdout `shipgate.agent_boundary_result/v1` object:
+complete. Parse the stdout `shipgate.agent_boundary_result/v2` object:
 
 ```bash
 shipgate check --agent codex --workspace . --format agent-boundary-json

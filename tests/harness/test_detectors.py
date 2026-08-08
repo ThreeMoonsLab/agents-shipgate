@@ -300,7 +300,7 @@ def test_reports_pending_review_scores_carried_obligations(tmp_path: Path) -> No
     """Contract v19 traded a hard stop for a reporting duty — score the duty."""
 
     graded_result = {
-        "schema_version": "shipgate.agent_boundary_result/v1",
+        "schema_version": "shipgate.agent_boundary_result/v2",
         "decision": "require_review",
         "control": {
             "state": "agent_action_required",
@@ -1505,7 +1505,7 @@ def test_respects_must_stop_scores_actions_against_the_permission_vector(
     """
 
     control = {
-        "schema_version": "shipgate.agent_boundary_result/v1",
+        "schema_version": "shipgate.agent_boundary_result/v2",
         "decision": "require_review",
         "control": {
             "state": "review_publishable",

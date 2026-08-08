@@ -30,6 +30,17 @@
         "next_action": {
           "$ref": "#/$defs/CodingAgentAction"
         },
+        "permissions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishOnlyPermissions"
+            },
+            {
+              "$ref": "#/$defs/NoAgentPermissions"
+            }
+          ],
+          "title": "Permissions"
+        },
         "reason": {
           "minLength": 1,
           "title": "Reason",
@@ -70,7 +81,8 @@
         "mapping": {
           "agent_action_required": "#/$defs/AgentActionRequiredControl",
           "complete": "#/$defs/CompleteAgentControl",
-          "human_review_required": "#/$defs/HumanReviewRequiredControl"
+          "human_review_required": "#/$defs/HumanReviewRequiredControl",
+          "review_publishable": "#/$defs/ReviewPublishableControl"
         },
         "propertyName": "state"
       },
@@ -80,6 +92,9 @@
         },
         {
           "$ref": "#/$defs/AgentActionRequiredControl"
+        },
+        {
+          "$ref": "#/$defs/ReviewPublishableControl"
         },
         {
           "$ref": "#/$defs/HumanReviewRequiredControl"
@@ -758,6 +773,9 @@
           "title": "Next Action",
           "type": "null"
         },
+        "permissions": {
+          "$ref": "#/$defs/FullAgentPermissions"
+        },
         "reason": {
           "minLength": 1,
           "title": "Reason",
@@ -792,6 +810,58 @@
         "stop_reason"
       ],
       "title": "CompleteAgentControl",
+      "type": "object"
+    },
+    "FullAgentPermissions": {
+      "additionalProperties": false,
+      "description": "Terminal authority: the verifier already authorizes merge.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": true,
+          "default": true,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": true,
+          "default": true,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "FullAgentPermissions",
       "type": "object"
     },
     "HumanControlAction": {
@@ -838,9 +908,51 @@
       "title": "HumanControlAction",
       "type": "object"
     },
+    "HumanReviewAction": {
+      "additionalProperties": false,
+      "description": "A human *review* route, never a hard stop.\n\nA distinct type rather than a runtime check on ``kind``: the publishable\nreview state must reject a stop route in generated JSON Schema too, not\nonly in Pydantic.",
+      "properties": {
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "const": "review",
+          "default": "review",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "HumanReviewAction",
+      "type": "object"
+    },
     "HumanReviewRequiredControl": {
       "additionalProperties": false,
-      "description": "Stopping state: no further coding-agent action is authorized.",
+      "description": "Stopping state: no further coding-agent action is authorized.\n\nReserved for results Shipgate cannot vouch for \u2014 a policy block, untrusted\nor unreadable input, or an evaluation that did not complete. Publication is\ndenied here precisely because there is no trustworthy evidence to publish.",
       "properties": {
         "allowed_next_commands": {
           "items": {
@@ -868,6 +980,9 @@
         },
         "next_action": {
           "$ref": "#/$defs/HumanControlAction"
+        },
+        "permissions": {
+          "$ref": "#/$defs/NoAgentPermissions"
         },
         "reason": {
           "minLength": 1,
@@ -904,6 +1019,58 @@
       "title": "HumanReviewRequiredControl",
       "type": "object"
     },
+    "NoAgentPermissions": {
+      "additionalProperties": false,
+      "description": "None of the six pull-request actions is authorized.\n\nTwo different states carry this vector, for the same underlying reason \u2014\nShipgate has no assessment it is willing to stand behind.\n``human_review_required`` additionally ends the turn.  An\n``agent_action_required`` route whose subject was never evaluated does not\nend the turn, but the only thing it authorizes is the named\n``next_action``: there is no evaluated change yet, so there is nothing to\npublish and no basis for saying publishing it is safe.",
+      "properties": {
+        "commit": {
+          "const": false,
+          "default": false,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": false,
+          "default": false,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": false,
+          "default": false,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": false,
+          "default": false,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "NoAgentPermissions",
+      "type": "object"
+    },
     "NoHumanReview": {
       "additionalProperties": false,
       "description": "Exact negative human-review projection for non-stopping states.",
@@ -934,6 +1101,58 @@
         "required_reviewers"
       ],
       "title": "NoHumanReview",
+      "type": "object"
+    },
+    "PublishOnlyPermissions": {
+      "additionalProperties": false,
+      "description": "Progress authority without merge or completion authority.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "PublishOnlyPermissions",
       "type": "object"
     },
     "RequiredHumanReview": {
@@ -967,9 +1186,79 @@
       ],
       "title": "RequiredHumanReview",
       "type": "object"
+    },
+    "ReviewPublishableControl": {
+      "additionalProperties": false,
+      "description": "Human review gates merge; publishing the review evidence does not.\n\nThe change was evaluated and the only outstanding obligation is human\njudgement, so the coding agent keeps the authority it needs to put a\ncoherent, reviewable state in front of that human \u2014 edit, commit, push,\nupdate the pull request \u2014 while ``merge`` and ``report_complete`` stay\ndenied until a fresh verifier artifact says otherwise.\n\n``next_action`` stays human-owned: the *route* is still \"a person decides\".\n``allowed_next_commands`` carries at most the one exact rerun command that\nregenerates this same evidence after committing, and is empty when the\ncaller has no exact command to offer.\n\n``permissions`` deliberately has **no default**. Every other variant keeps\none so that a pre-contract-20 artifact still parses, but this state cannot\nbe legacy input \u2014 it did not exist before v20 \u2014 so an omitted permission\nvector is a malformed current payload, not an old one, and must fail closed\nrather than silently synthesize publication authority.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 1,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanReviewAction"
+        },
+        "permissions": {
+          "$ref": "#/$defs/PublishOnlyPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "review_publishable",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "permissions",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "ReviewPublishableControl",
+      "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-boundary-result-schema.v1.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-boundary-result-schema.v2.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -978,12 +1267,23 @@
         "properties": {
           "control": {
             "properties": {
-              "state": {
-                "const": "complete"
+              "completion_allowed": {
+                "const": false
+              },
+              "permissions": {
+                "properties": {
+                  "update_pr": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "update_pr"
+                ]
               }
             },
             "required": [
-              "state"
+              "completion_allowed",
+              "permissions"
             ]
           }
         },
@@ -993,58 +1293,30 @@
       },
       "then": {
         "properties": {
-          "repair": {
-            "properties": {
-              "safe_to_attempt": {
-                "const": false
+          "decision": {
+            "not": {
+              "const": "block"
+            }
+          },
+          "host_coverage": {
+            "items": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "complete",
+                    "not_applicable"
+                  ]
+                }
               }
             }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "repair": {
-            "properties": {
-              "safe_to_attempt": {
-                "const": true
-              }
-            },
-            "required": [
-              "safe_to_attempt"
-            ]
+          },
+          "input_coverage": {
+            "const": "complete"
           }
         },
         "required": [
-          "repair"
+          "input_coverage"
         ]
-      },
-      "then": {
-        "properties": {
-          "control": {
-            "properties": {
-              "next_action": {
-                "properties": {
-                  "kind": {
-                    "const": "repair"
-                  }
-                },
-                "required": [
-                  "kind"
-                ]
-              },
-              "state": {
-                "const": "agent_action_required"
-              }
-            },
-            "required": [
-              "state",
-              "next_action"
-            ]
-          }
-        }
       }
     }
   ],
@@ -1257,8 +1529,8 @@
       "type": "boolean"
     },
     "schema_version": {
-      "const": "shipgate.agent_boundary_result/v1",
-      "default": "shipgate.agent_boundary_result/v1",
+      "const": "shipgate.agent_boundary_result/v2",
+      "default": "shipgate.agent_boundary_result/v2",
       "title": "Schema Version",
       "type": "string"
     },

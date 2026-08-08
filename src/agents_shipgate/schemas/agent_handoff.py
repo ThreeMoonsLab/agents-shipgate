@@ -11,8 +11,8 @@ from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 from agents_shipgate.schemas.verifier import Applicability, MergeVerdict, map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v6"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v6.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v7"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v7.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -302,7 +302,7 @@ class AgentHandoffArtifact(BaseModel):
         },
     )
 
-    schema_version: Literal["shipgate.agent_handoff/v6"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v7"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation

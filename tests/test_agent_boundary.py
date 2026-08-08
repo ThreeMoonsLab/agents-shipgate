@@ -1558,13 +1558,16 @@ def test_agent_boundary_audit_ids_bind_actor_and_input_subject(tmp_path: Path) -
     # here from the shape that shipped before actor detection existed.
     import hashlib
 
-    from agents_shipgate.core.agent_boundary import _agent_boundary_audit_id
-    from agents_shipgate.schemas.agent_boundary import (
-        AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+    from agents_shipgate.core.agent_boundary import (
+        _AUDIT_IDENTITY_SCHEMA_TOKEN,
+        _agent_boundary_audit_id,
     )
 
+    # The identity token is pinned rather than read from the live schema
+    # version: an established audit id must survive an additive wire-schema
+    # bump, or every stored id rotates for a payload whose bytes did not change.
     legacy_payload = {
-        "schema": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        "schema": _AUDIT_IDENTITY_SCHEMA_TOKEN,
         "changed_files": ["x"],
         "fingerprints": ["fp"],
         "policy_set_sha256": "d",

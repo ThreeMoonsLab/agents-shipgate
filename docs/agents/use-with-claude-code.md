@@ -8,7 +8,7 @@ the normative agent protocol, use [claude-code.md](claude-code.md) and
 shipgate check --agent claude-code --workspace . --format agent-boundary-json
 ```
 
-Parse stdout as `shipgate.agent_boundary_result/v1`, switch on
+Parse stdout as `shipgate.agent_boundary_result/v2`, switch on
 `control.state`, and follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
 as diagnostic context only; do not infer local control from prose.
@@ -51,7 +51,7 @@ update` instead of re-running `init`:
 Plugin commands are namespaced: the command installs as
 `/agents-shipgate:shipgate` (the committed-kit path keeps plain `/shipgate`).
 The plugin does not ship hooks or the scanner — install the CLI (`pipx
-install agents-shipgate`, runtime contract 15) and add hooks explicitly
+install agents-shipgate`, runtime contract 20) and add hooks explicitly
 with `agents-shipgate install-hooks --target claude-code --write`. To
 pre-provision the marketplace for a whole team, add it to
 `.claude/settings.json` under `extraKnownMarketplaces` and enable

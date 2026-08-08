@@ -27,10 +27,18 @@
   consumers that switch on `control.state` must add a `review_publishable`
   branch and keep failing closed on unrecognized states, while consumers that
   read only `must_stop` and `completion_allowed` need no change and lose no
-  safety. `permissions` is required only on the new state, so artifacts already
-  emitted under verifier `0.7`, handoff `v6`, verify-run `v3`, agent-result
-  `v2`, agent-boundary `v1`, and preflight `0.3` keep validating against those
-  same identifiers. Publication additionally requires a replayable subject,
+  safety. Every schema that carries a control advances its identifier and
+  freezes the prior file — verifier `0.7 → 0.8`, handoff `v6 → v7`, verify-run
+  `v3 → v4`, shared agent result `agent_result_v2 → v3`, agent boundary result
+  `v1 → v2`, preflight `0.3 → 0.4`, downstream local contract `7 → 8` — because
+  `permissions` is a new property on variants published as
+  `additionalProperties: false`, and leaving the identifier in place would have
+  made one version name mean two incompatible shapes. CLI flag spellings are
+  unchanged, and `audit_id` does not rotate: the schema token it hashes is
+  pinned to the value established ids were issued under.
+  `shipgate.codex_boundary_result/v2` stays frozen and now carries its own
+  snapshotted control union instead of inheriting the live one.
+  Publication additionally requires a replayable subject,
   fully-read input, and a succeeded non-blocked release decision — enforced in
   Pydantic and in generated JSON Schema — so a detached diff, a partially
   unparsed MCP audit, or a failed run can never authorize it. Legacy artifacts and the frozen

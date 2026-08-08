@@ -26,7 +26,7 @@ pipx upgrade agents-shipgate
 ```
 
 Do not report the task complete until the CLI exists and reports runtime
-contract 20. Local boundary checks emit `shipgate.agent_boundary_result/v1`;
+contract 20. Local boundary checks emit `shipgate.agent_boundary_result/v2`;
 legacy v1 fixtures are retained only for older protocol integrations.
 
 ## Local Agent Check

@@ -31,7 +31,7 @@ shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
-`shipgate.agent_boundary_result/v1`; switch on `control.state`, then follow
+`shipgate.agent_boundary_result/v2`; switch on `control.state`, then follow
 `control.next_action`, `control.allowed_next_commands`, and
 `control.human_review`. Treat `decision` as diagnostic context, not as the
 operational control signal.

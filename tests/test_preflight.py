@@ -1355,7 +1355,7 @@ def test_preflight_legacy_projection_cannot_contradict_control_in_model_or_schem
     with pytest.raises(ValidationError):
         PreflightResultV3.model_validate(payload)
     schema = json.loads(
-        (Path(__file__).resolve().parent.parent / "docs/preflight-schema.v0.3.json").read_text(
+        (Path(__file__).resolve().parent.parent / "docs/preflight-schema.v0.4.json").read_text(
             encoding="utf-8"
         )
     )

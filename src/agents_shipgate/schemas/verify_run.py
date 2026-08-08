@@ -16,7 +16,7 @@ from agents_shipgate.schemas.verification_identity import (
     content_id,
 )
 
-VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v3"
+VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v4"
 
 
 class VerifyRunTool(BaseModel):
@@ -291,7 +291,7 @@ class VerifyRunArtifact(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.verify_run/v3"] = VERIFY_RUN_SCHEMA_VERSION
+    schema_version: Literal["shipgate.verify_run/v4"] = VERIFY_RUN_SCHEMA_VERSION
     request_id: str = Field(pattern=CONTENT_ID_PATTERN)
     # Deprecated for one compatibility cycle; it is an exact alias, never a
     # separately-computed identity.

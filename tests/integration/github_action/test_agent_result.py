@@ -64,13 +64,13 @@ def test_blocked_mcp_expansion_writes_agent_result_and_can_fail_required_check(t
     write_agent_result(result, tmp_path / "agent-result.json")
     reread = json.loads((tmp_path / "agent-result.json").read_text(encoding="utf-8"))
     schema = json.loads(
-        (Path(__file__).resolve().parents[3] / "docs/agent-result-schema.v2.json").read_text(
+        (Path(__file__).resolve().parents[3] / "docs/agent-result-schema.v3.json").read_text(
             encoding="utf-8"
         )
     )
 
     Draft202012Validator(schema).validate(reread)
-    assert reread["schema_version"] == "agent_result_v2"
+    assert reread["schema_version"] == "agent_result_v3"
     assert reread["control"]["state"] == "human_review_required"
     assert reread["agent"] == "codex"
     assert reread["decision"] == "block"
@@ -173,7 +173,7 @@ def test_complete_result_cannot_advertise_pending_safe_repair_in_model_or_schema
     with pytest.raises(ValidationError):
         AgentResultV2.model_validate(payload)
     schema = json.loads(
-        (Path(__file__).resolve().parents[3] / "docs/agent-result-schema.v2.json").read_text(
+        (Path(__file__).resolve().parents[3] / "docs/agent-result-schema.v3.json").read_text(
             encoding="utf-8"
         )
     )

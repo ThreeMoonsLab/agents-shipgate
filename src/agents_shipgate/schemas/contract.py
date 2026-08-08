@@ -57,12 +57,12 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 CONTRACT_VERSION: Literal["20"] = "20"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["20"] = "20"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
-AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v2"] = "agent_result_v2"
-AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v2.json"] = (
-    "docs/agent-result-schema.v2.json"
+AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"
+AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v3.json"] = (
+    "docs/agent-result-schema.v3.json"
 )
-AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal["docs/agent-boundary-result-schema.v1.json"] = (
-    "docs/agent-boundary-result-schema.v1.json"
+AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal["docs/agent-boundary-result-schema.v2.json"] = (
+    "docs/agent-boundary-result-schema.v2.json"
 )
 TRIGGER_CATALOG_SCHEMA_VERSION: Literal["0.3"] = "0.3"
 # Fields of the SHARED agent result (``agent_result_schema_path``). The graded

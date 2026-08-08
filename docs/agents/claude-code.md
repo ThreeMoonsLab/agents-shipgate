@@ -6,7 +6,7 @@ Claude Code uses the shared agent-native protocol:
 shipgate check --agent claude-code --workspace . --format agent-boundary-json
 ```
 
-Parse stdout as `shipgate.agent_boundary_result/v1`. Switch only on
+Parse stdout as `shipgate.agent_boundary_result/v2`. Switch only on
 `control.state`; follow `control.next_action`, `control.allowed_next_commands`,
 and `control.human_review`. Treat `decision` as diagnostic context only.
 `--agent claude-code` labels the caller; it does not limit the check to Claude

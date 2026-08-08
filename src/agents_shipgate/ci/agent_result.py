@@ -23,7 +23,7 @@ from agents_shipgate.schemas.agent_result_v1 import (
 from agents_shipgate.schemas.report import Finding, ReadinessReport, ReleaseDecisionItem
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
-AGENT_RESULT_SCHEMA_VERSION = "agent_result_v2"
+AGENT_RESULT_SCHEMA_VERSION = "agent_result_v3"
 AgentResultFile = AgentResultAffectedFile
 AgentResultRule = AgentResultViolatedRule
 _REVIEW_TOKEN_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")

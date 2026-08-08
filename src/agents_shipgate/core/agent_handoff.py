@@ -12,7 +12,7 @@ from agents_shipgate.schemas.agent_handoff import (
 )
 from agents_shipgate.schemas.contract import CONTRACT_VERSION
 from agents_shipgate.schemas.verifier import VerifierArtifact
-from agents_shipgate.schemas.verify_run import VerifyRunArtifact
+from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION, VerifyRunArtifact
 
 
 def build_agent_handoff(
@@ -35,7 +35,7 @@ def build_agent_handoff(
     verify_run_payload = _model_payload(verify_run) if verify_run is not None else {}
     verify_run_model = (
         VerifyRunArtifact.model_validate(verify_run_payload)
-        if verify_run_payload.get("schema_version") == "shipgate.verify_run/v3"
+        if verify_run_payload.get("schema_version") == VERIFY_RUN_SCHEMA_VERSION
         else None
     )
     if verify_run_model is not None:

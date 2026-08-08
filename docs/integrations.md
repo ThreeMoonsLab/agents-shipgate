@@ -92,7 +92,7 @@ Action outputs:
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
 | `verifier_json` | Path to `verifier.json`. |
-| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v3.json`](verify-run-schema.v3.json). |
+| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v4.json`](verify-run-schema.v4.json). |
 | `run_id` | Stable verify-run input identity from `verify-run.json.run_id`. |
 | `pr_comment_markdown` | Path to `pr-comment.md`. |
 | `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |
@@ -267,7 +267,7 @@ pip install 'agents-shipgate[mcp]'
 ```
 
 Tools: `shipgate.check` (caller-provided diff to
-`shipgate.agent_boundary_result/v1`),
+`shipgate.agent_boundary_result/v2`),
 `shipgate.preflight` (protected surfaces, required evidence, and policy/trust
 root hashes), `shipgate.explain` (check id or `fp_...` fingerprint), and
 `shipgate.capabilities` (capability lock export or diff). The server is

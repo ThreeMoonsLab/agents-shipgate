@@ -55,7 +55,7 @@ from agents_shipgate.schemas.contract import (
 )
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
-LOCAL_CONTRACT_SCHEMA_VERSION = "7"
+LOCAL_CONTRACT_SCHEMA_VERSION = "8"
 LOCAL_CONTRACT_RELATIVE_PATH = ".shipgate/agent-contract.json"
 
 

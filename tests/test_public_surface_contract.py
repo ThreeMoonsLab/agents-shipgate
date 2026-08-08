@@ -522,7 +522,7 @@ def test_well_known_metadata_lists_packet_outputs():
         ".well-known schemas.governance_benchmark_result must point to the "
         f"current result schema; got {benchmark_result_url!r}."
     )
-    assert "verify_run" in schemas and "verify-run-schema.v3.json" in schemas["verify_run"]
+    assert "verify_run" in schemas and "verify-run-schema.v4.json" in schemas["verify_run"]
     assert "verification_plan" in schemas
     assert "verification-plan-schema.v1.json" in schemas["verification_plan"]
     assert "verification_unit_result" in schemas
@@ -535,7 +535,7 @@ def test_well_known_metadata_lists_packet_outputs():
     assert "verification-receipt-schema.v1.json" in schemas["verification_receipt"]
     assert "human_authorization" in schemas
     assert "human-authorization-schema.v1.json" in schemas["human_authorization"]
-    assert "agent_handoff" in schemas and "agent-handoff-schema.v6.json" in schemas["agent_handoff"]
+    assert "agent_handoff" in schemas and "agent-handoff-schema.v7.json" in schemas["agent_handoff"]
     assert (
         "codex_boundary_result" in schemas
         and "codex-boundary-result-schema.v2.json" in schemas["codex_boundary_result"]

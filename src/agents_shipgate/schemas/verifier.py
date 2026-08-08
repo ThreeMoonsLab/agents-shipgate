@@ -614,7 +614,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.7"] = "0.7"
+    verifier_schema_version: Literal["0.8"] = "0.8"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -673,14 +673,14 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
-        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6"}
+        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"}
         if not legacy:
-            # Current v0.7 artifacts must already carry the authoritative
-            # control union.  Silently synthesizing a missing or malformed
-            # current control would turn an internal consistency failure into
-            # a trusted handoff.  Only frozen prior readers are normalized.
+            # Current artifacts must already carry the authoritative control
+            # union.  Silently synthesizing a missing or malformed current
+            # control would turn an internal consistency failure into a trusted
+            # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.7"
+        normalized["verifier_schema_version"] = "0.8"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.

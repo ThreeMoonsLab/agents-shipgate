@@ -90,6 +90,11 @@ from typing import Any, get_args
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
+# Filenames follow the schema identifiers, so a version bump cannot leave a
+# generated file sitting under the previous version's name.
+_AGENT_RESULT_SUFFIX = "v3"
+_BOUNDARY_SUFFIX = "v2"
+_VERIFY_RUN_SUFFIX = "v4"
 SRC = REPO_ROOT / "src"
 
 # Allow `python scripts/generate_schemas.py` from a checkout without install.
@@ -1316,7 +1321,7 @@ def build_agent_result_schema() -> tuple[Path, str]:
     schema = AgentResultV2.model_json_schema()
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-        "main/docs/agent-result-schema.v2.json"
+        f"main/docs/agent-result-schema.{_AGENT_RESULT_SUFFIX}.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["title"] = "Agents Shipgate Agent Result v2"
@@ -1324,7 +1329,7 @@ def build_agent_result_schema() -> tuple[Path, str]:
         "JSON Schema for the compact local/MCP control projection. Generated "
         "from agents_shipgate.schemas.agent_result.AgentResultV2. Do not edit by hand."
     )
-    target = DOCS / "agent-result-schema.v2.json"
+    target = DOCS / f"agent-result-schema.{_AGENT_RESULT_SUFFIX}.json"
     return target, _canonical_json(schema)
 
 
@@ -1358,7 +1363,7 @@ def build_agent_boundary_result_schema() -> tuple[Path, str]:
     schema = AgentBoundaryResultV1.model_json_schema()
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-        "main/docs/agent-boundary-result-schema.v1.json"
+        f"main/docs/agent-boundary-result-schema.{_BOUNDARY_SUFFIX}.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["title"] = "Agents Shipgate Agent Boundary Result v1"
@@ -1367,7 +1372,7 @@ def build_agent_boundary_result_schema() -> tuple[Path, str]:
         "Generated from agents_shipgate.schemas.agent_boundary. "
         "control.state is authoritative; the result is static and scope-bound."
     )
-    target = DOCS / "agent-boundary-result-schema.v1.json"
+    target = DOCS / f"agent-boundary-result-schema.{_BOUNDARY_SUFFIX}.json"
     return target, _canonical_json(schema)
 
 
@@ -1379,7 +1384,7 @@ def build_verify_run_schema() -> tuple[Path, str]:
     schema = VerifyRunArtifact.model_json_schema()
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
-        "main/docs/verify-run-schema.v3.json"
+        f"main/docs/verify-run-schema.{_VERIFY_RUN_SUFFIX}.json"
     )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["title"] = "Agents Shipgate Verify Run v3"
@@ -1388,7 +1393,7 @@ def build_verify_run_schema() -> tuple[Path, str]:
         "from agents_shipgate.schemas.verify_run.VerifyRunArtifact. Do not "
         "edit by hand."
     )
-    target = DOCS / "verify-run-schema.v3.json"
+    target = DOCS / f"verify-run-schema.{_VERIFY_RUN_SUFFIX}.json"
     return target, _canonical_json(schema)
 
 

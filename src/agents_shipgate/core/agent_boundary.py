@@ -83,6 +83,9 @@ from agents_shipgate.schemas.agent_result_v1 import (
 
 # The actor every pre-detection audit id implicitly described.
 _LEGACY_AUDIT_ACTOR = "codex"
+# The schema token every established audit id was issued under. Frozen so the
+# identity contract is versioned independently of the wire schema.
+_AUDIT_IDENTITY_SCHEMA_TOKEN = "shipgate.agent_boundary_result/v1"
 
 UNIFIED_POLICY_PATH = Path("policies/agent-boundary.shipgate.yaml")
 LEGACY_CODEX_POLICY_PATH = Path("policies/codex-boundary.shipgate.yaml")
@@ -772,7 +775,13 @@ def _agent_boundary_audit_id(
 
     legacy_subject = input_mode == "provided_diff" and verification_replayable
     payload = {
-        "schema": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        # Pinned, not the live constant. This id identifies the *assessment*,
+        # and the comment below is the contract: rotating an established id
+        # breaks anyone who stored one. Hashing the live schema version rotated
+        # every id on every additive schema bump — including the ids of the
+        # frozen codex projection, whose own contract had not changed at all.
+        # The wire version travels in the payload's own ``schema_version``.
+        "schema": _AUDIT_IDENTITY_SCHEMA_TOKEN,
         # Added only for a non-default actor, so every id issued before actor
         # detection existed keeps its value. Rotating established codex ids
         # would break anyone who stored one, and the identity contract is not

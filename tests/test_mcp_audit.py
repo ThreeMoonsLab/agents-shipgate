@@ -11,7 +11,7 @@ from agents_shipgate.schemas.agent_result import AgentResultV2
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus" / "mcp_permission_expansion"
-AGENT_RESULT_SCHEMA = ROOT / "docs" / "agent-result-schema.v2.json"
+AGENT_RESULT_SCHEMA = ROOT / "docs" / "agent-result-schema.v3.json"
 runner = CliRunner()
 
 
@@ -69,7 +69,7 @@ def test_mcp_audit_agent_json(tmp_path: Path) -> None:
         payload
     )
     AgentResultV2.model_validate(payload)
-    assert payload["schema_version"] == "agent_result_v2"
+    assert payload["schema_version"] == "agent_result_v3"
     assert payload["decision"] == "require_review"
     # The audit completed; only human judgement is outstanding, so the agent
     # keeps publish authority and loses merge/completion authority.

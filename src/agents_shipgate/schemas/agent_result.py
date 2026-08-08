@@ -25,7 +25,7 @@ from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultViolatedRule,
 )
 
-AGENT_RESULT_SCHEMA_VERSION = "agent_result_v2"
+AGENT_RESULT_SCHEMA_VERSION = "agent_result_v3"
 
 
 class AgentResultPendingReviewItem(BaseModel):
@@ -126,7 +126,7 @@ class AgentResultV2(BaseModel):
         },
     )
 
-    schema_version: Literal["agent_result_v2"] = AGENT_RESULT_SCHEMA_VERSION
+    schema_version: Literal["agent_result_v3"] = AGENT_RESULT_SCHEMA_VERSION
     agent: AgentResultAgent = "codex"
     tool: AgentResultTool = Field(default_factory=AgentResultTool)
     subject: AgentResultSubject = Field(default_factory=AgentResultSubject)

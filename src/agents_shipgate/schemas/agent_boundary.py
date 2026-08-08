@@ -16,7 +16,7 @@ from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultViolatedRule,
 )
 
-AGENT_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.agent_boundary_result/v1"
+AGENT_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.agent_boundary_result/v2"
 
 
 class BoundaryHostCoverage(BaseModel):
@@ -76,7 +76,7 @@ class AgentBoundaryResultV1(AgentResultV2):
         },
     )
 
-    schema_version: Literal["shipgate.agent_boundary_result/v1"] = (
+    schema_version: Literal["shipgate.agent_boundary_result/v2"] = (
         AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
     )
     actor: AgentResultAgent
