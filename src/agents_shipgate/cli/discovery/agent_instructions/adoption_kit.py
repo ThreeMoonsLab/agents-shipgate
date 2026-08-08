@@ -13,6 +13,7 @@ from typing import Any, Literal
 import yaml
 
 from agents_shipgate import __version__
+from agents_shipgate.schemas.contract import MINIMUM_CONTROL_CONTRACT_VERSION
 
 DEFAULT_CONFIG_RELATIVE_PATH = ".agents-shipgate/adoption-kit.yaml"
 KIT_METADATA_FILENAME = ".agents-shipgate-kit-metadata.json"
@@ -446,7 +447,15 @@ def _read_metadata(spec: KitTarget) -> dict[str, Any]:
 
 
 def _render_template(text: str) -> str:
-    context = {"shipgate_version": __version__}
+    # Rendered, never hand-written. The runner pin and the contract floor a
+    # prompt demands have to come from the same build that emitted the prompt,
+    # or they drift apart: the kits shipped a floor of 14/15 against a pinned
+    # runner that reports contract 10, so an agent following them literally
+    # could never satisfy the check it was told to gate on.
+    context = {
+        "shipgate_version": __version__,
+        "minimum_control_contract_version": MINIMUM_CONTROL_CONTRACT_VERSION,
+    }
 
     def replace(match: re.Match[str]) -> str:
         return context.get(match.group(1), match.group(0))

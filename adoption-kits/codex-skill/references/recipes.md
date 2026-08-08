@@ -17,7 +17,7 @@ agents-shipgate contract --json
 ```
 
 Require `agents-shipgate contract --json` to report
-`minimum_control_contract_version: 20`. If it is missing or stale, ask the
+`minimum_control_contract_version: {{ minimum_control_contract_version }}`. If it is missing or stale, ask the
 user to install or upgrade:
 
 ```bash
@@ -26,7 +26,7 @@ pipx upgrade agents-shipgate
 ```
 
 Do not report the task complete until the CLI exists and reports runtime
-contract 20. Local boundary checks emit `shipgate.agent_boundary_result/v2`;
+contract {{ minimum_control_contract_version }}. Local boundary checks emit `shipgate.agent_boundary_result/v2`;
 legacy v1 fixtures are retained only for older protocol integrations.
 
 ## Local Agent Check
