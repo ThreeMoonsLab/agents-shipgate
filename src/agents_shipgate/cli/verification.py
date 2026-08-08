@@ -156,10 +156,17 @@ def prepare(
         # guess, so a missing manifest gets the setup route, an unparseable one
         # gets the edit route, and an unresolved adapter gets its own — exactly
         # as `scan` and `doctor` already answer.
+        #
+        # Diagnose the exact manifest this invocation asked for. Passing a
+        # workspace instead makes the catalog discover every `shipgate.yaml`
+        # beneath it and describe the first one that happens to parse, so a
+        # monorepo — or any `--config` naming a file that is not there — would
+        # be told to edit an unrelated, perfectly valid manifest. `prepare`
+        # always resolves one exact path, so there is nothing to discover.
         actions = top_next_actions(
             _diagnose_config_error(
-                config=str(config),
-                workspace=workspace,
+                config=str(root / config_relative),
+                workspace=None,
                 exc=exc,
                 plugins_enabled=False if no_plugins else None,
             )

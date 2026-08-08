@@ -685,6 +685,56 @@ def test_prepare_keeps_the_missing_manifest_setup_route(
     assert "--preview" in first["command"]
 
 
+def test_prepare_diagnoses_the_requested_config_not_a_discovered_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing ``--config`` must not route the caller at someone else's manifest.
+
+    Handing the diagnostic catalog a workspace makes it discover every
+    ``shipgate.yaml`` beneath it and describe the first one that parses. In a
+    monorepo — or any tree with a nested fixture manifest — that told the caller
+    to *edit* an unrelated, perfectly valid file while the message named the one
+    that was actually absent.
+    """
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = _sample_repo(tmp_path, "google_adk_agent")
+    nested = repo / "packages" / "other"
+    nested.mkdir(parents=True)
+    (nested / "shipgate.yaml").write_text(
+        (repo / "shipgate.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "add a second, valid manifest")
+
+    result = runner.invoke(
+        app,
+        [
+            "verification",
+            "prepare",
+            "--workspace",
+            str(repo),
+            "--config",
+            "absent-manifest.yaml",
+            "--out",
+            str(tmp_path / "out" / "verification-plan.json"),
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(
+        [line for line in result.output.splitlines() if line.startswith("{")][-1]
+    )
+    assert payload["error"] == "config_error"
+    assert "absent-manifest.yaml" in payload["message"]
+    # The requested manifest is absent, so the answer is setup — never "edit"
+    # some other file that happens to exist.
+    serialized = json.dumps(payload["next_actions"])
+    assert "packages/other/shipgate.yaml" not in serialized
+    assert payload["next_actions"][0]["kind"] == "command"
+
+
 def test_prepare_routes_an_unparseable_manifest_to_the_edit_action(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
