@@ -87,6 +87,83 @@
   its supporting scan in a temporary directory, preserving both the current
   report and forensic verifier evidence.
 
+- **`input_set_id` now covers every input the adapters actually read.**
+  ([#299](https://github.com/ThreeMoonsLab/agents-shipgate/issues/299))
+  `input_set_id` is the identity `verification-plan.json`,
+  `verification-unit-result.json`, `verify-run.json`, the terminal receipt, and
+  attestations all rest on, and its whole claim is that two runs sharing it read
+  the same bytes. Three things broke that claim. The manifest-derived branch of
+  `build_verification_plan` walked only `tool_sources`, so
+  `openai_api.prompt_files` — and every other framework block that names paths:
+  `anthropic`, `google_adk`, `langchain`, `crewai`, `n8n`, `codex_plugins`,
+  `validation.evidence`, `checks.policy_packs`, `agent.sdk.entrypoint` — never
+  became a plan blob. Rewriting a prompt to say refunds need no approval left
+  `input_set_id` byte-identical. Worse, the *observed* branch was inert on the
+  committed-tree path: `verify --base X --head Y` evaluates an archived copy of
+  the head tree, while the static-input snapshot that records adapter reads is
+  bound to the worktree, so it captured nothing and the run emitted
+  `tool_sources: []`. On the CI path — where the receipt is the artifact anyone
+  downstream actually trusts — *no* input reached the request identity at all.
+  And enumerating the manifest, however completely, can never reach an input the
+  manifest does not name: a Google ADK `McpToolset` inventory or an OpenAPI spec
+  constructed inside `agent.py` is discovered while parsing, not declared. Two
+  trees whose MCP inventories differed by a trailing newline produced the same
+  prepared `input_set_id`.
+  Identity is therefore taken at the read boundary, not from declarations. Each
+  producer snapshots the tree it evaluates and records what the adapters open: a
+  committed-tree run is now snapshotted against the archived tree it scans
+  (previously impossible — the snapshot watched the worktree), and
+  `verification prepare` loads sources to record their reads. Committed-tree and
+  worktree runs of the same tree now bind the same set, asserted as an invariant
+  in the suite. Enumerating declared paths survives only as the fallback for a
+  plan built with no snapshot at all; that table is derived from the manifest
+  models rather than hand-kept, so a new artifact list — or a whole new framework
+  block — is covered without editing it.
+  Capture also has to supply the *bytes*, not just the path list. Recording what
+  was read and then reopening those files to hash them takes the two halves of
+  the plan from two different instants: a file rewritten in between is attested
+  at its new content while `tool_sources` still lists what the old content
+  pointed at, so the receipt describes bytes the scan never evaluated. Plan
+  construction now runs under the finalized snapshot on both paths. That makes
+  binding an obligation rather than an optimization: under an active snapshot
+  both `_blobs` and `_optional_blob` read a path that is *contained but never
+  read* as absent, so an input nobody bound does not merely go unhashed — it
+  disappears from the plan. Every input the plan hashes is therefore bound
+  before the snapshot is sealed: the adapters' own reads, the changed files (a
+  README no adapter opens would otherwise vanish from `changed_files`), and the
+  explicit `--baseline`, `--diff-from`, and policy packs, with the comparison
+  report bound as an external input on a committed-tree preparation because it
+  is never mapped into the evaluated tree.
+  The manifest itself is now read once, through the snapshot, and parsed from
+  those bytes. `load_manifest_with_positions` otherwise reads it twice — a
+  direct `Path.read_text` for the model, then the snapshot for positions — so a
+  rewrite between the two let the adapters follow one manifest while the plan's
+  config blob attested to another: a receipt could name an entrypoint the scan
+  never opened. The worktree path always passed its captured text for this
+  reason; the committed-tree path and `verification prepare` passed none.
+  A committed-tree run therefore has two snapshots alive, and each external
+  input must belong to exactly one of them: the worktree snapshot binds the
+  baseline, policy packs, and comparison report *before* the archived scan
+  starts, so its tamper check still covers them — and covers a wider window than
+  before, since it now begins before the scan rather than at the scan's first
+  read. Letting both snapshots watch the same external directory instead makes
+  the second re-validation fail on a change the first legitimately allowed.
+  Two behavior changes worth knowing. `verification prepare` reads inputs now,
+  so it fails on a manifest whose inputs cannot be loaded; that is the same
+  condition under which `verify` fails, and exactly when a prepared plan could
+  not honestly claim an input set. It also routes its errors instead of printing
+  a traceback, through the shared diagnostic catalog rather than a local guess:
+  an absent manifest gets the setup route (`config_error`, exit 2, the same
+  answer `scan` gives), an unparseable one gets the edit route, and an input
+  that moved mid-run gets `input_parse_error`, exit 3 — the distinction matters
+  because agents branch on it. And the declared-path fallback rejects a path
+  resolving outside the verification input root, since it cannot be hashed
+  portably.
+  No schema changes: `plan.inputs.tool_sources` gains entries, not fields.
+  Existing `input_set_id` and `request_id` values do move — which is the point,
+  and means a receipt minted before this change cannot be compared by ID against
+  one minted after.
+
 - **`SHIP-VERIFY-POLICY-WEAKENED` can now actually see a weakened CI gate.**
   The `effective_policy` snapshot was built from the manifest *after* CLI
   overrides were folded into it, so it described the invocation rather than

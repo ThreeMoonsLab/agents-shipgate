@@ -10,6 +10,7 @@ import shutil
 import stat
 import tempfile
 from collections import Counter
+from contextvars import Token
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -662,6 +663,9 @@ def run_verify(
     head_baseline_path = baseline_path
     head_policy_pack_paths = policy_pack_paths
     head_tree: str | None = None
+    head_snapshot: StaticInputSnapshot | None = None
+    head_snapshot_token: Token[StaticInputSnapshot | None] | None = None
+    head_manifest_text: str | None = None
     head_capability_lock: CapabilityLockFileV1 | None = None
     capability_lock_diff: CapabilityLockDiffV1 | None = None
 
@@ -689,32 +693,11 @@ def run_verify(
             config_path,
             worktree_manifest_text.encode("utf-8"),
         )
-        for relative in changed_files:
-            candidate = Path(
-                os.path.abspath(
-                    os.path.normpath(os.fspath(git_root / relative))
-                )
-            )
-            try:
-                metadata = candidate.lstat()
-            except FileNotFoundError:
-                continue
-            except OSError as exc:
-                raise ConfigError(
-                    f"Changed worktree input {relative!r} could not be inspected: {exc}"
-                ) from exc
-            if not stat.S_ISREG(metadata.st_mode):
-                continue
-            try:
-                static_snapshot.read_bytes(
-                    candidate,
-                    max_bytes=MAX_WORKTREE_CHANGED_FILE_BYTES,
-                )
-            except (OSError, ValueError) as exc:
-                raise ConfigError(
-                    f"Changed worktree input {relative!r} could not be captured "
-                    f"for verification: {exc}"
-                ) from exc
+        _bind_changed_files(
+            static_snapshot,
+            root=git_root,
+            relative_paths=changed_files,
+        )
     static_snapshot_token = activate_static_input_snapshot(static_snapshot)
 
     try:
@@ -762,6 +745,11 @@ def run_verify(
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
             archive_tree(git_root, head, head_tree_dir)
+            # Resolve once the tree exists. The snapshot matches paths lexically,
+            # and on macOS the temporary directory is reached through /var while
+            # every adapter resolves its base directory to /private/var — two
+            # spellings make `contains()` false for paths plainly inside it.
+            head_tree_dir = head_tree_dir.resolve()
             head_input_root = head_tree_dir
             head_tree = tree_sha(git_root, head)
             head_config_path = head_tree_dir / config_relative
@@ -785,34 +773,102 @@ def run_verify(
                 tree_dir=head_tree_dir,
                 path=baseline_path,
             )
-        with use_evaluation_date(date.fromisoformat(verification_date)):
-            report, head_exit_code = run_scan(
-                config_path=head_config_path,
-                output_dir=out_dir,
-                formats=HEAD_FORMATS,
-                ci_mode=ci_mode,
-                fail_on=fail_on,
-                baseline_path=head_baseline_path,
-                diff_from_path=base_report,
-                baseline_mode=baseline_mode,
-                policy_pack_paths=head_policy_pack_paths,
-                plugins_enabled=plugins_enabled,
-                verbose=verbose,
-                suggest_patches=suggest_patches,
-                packet_enabled=True,
-                packet_formats=HEAD_PACKET_FORMATS,
-                no_heuristics=no_heuristics,
-                verification_context=VerificationContext(
-                    changed_files=changed_files,
-                    diff_text=diff_text,
-                    diff_text_available=bool(diff_text),
-                    trigger_result=trigger,
-                    configured_manifest_path=config_relative.as_posix(),
-                    manifest_introduced=manifest_introduced,
-                ),
-                capability_lock_callback=capture_capability_lock,
-                manifest_text=worktree_manifest_text if not archive_head else None,
+            # The outer snapshot is bound to the worktree and cannot observe a
+            # read under the archived tree, so a committed-tree scan would
+            # otherwise record no adapter reads at all. Capture against the tree
+            # actually being evaluated, so an input discovered while parsing an
+            # entrypoint — an ADK McpToolset inventory, an OpenAPI spec named
+            # only from Python — reaches `input_set_id` here exactly as it
+            # already does for a worktree run.
+            head_snapshot = StaticInputSnapshot(
+                head_tree_dir,
+                excluded_paths=[out_dir],
             )
+            # Read the manifest once, here, and hand those exact bytes to the
+            # scan. `load_manifest_with_positions` otherwise parses it twice —
+            # first through a direct `Path.read_text`, only then through the
+            # snapshot for positions — so a rewrite between the two would let
+            # the scan follow one manifest while the plan hashes the other.
+            # The worktree path has always passed its captured text for this
+            # reason; the archived path passed None.
+            try:
+                head_manifest_text = head_snapshot.read_bytes(
+                    head_config_path,
+                    max_bytes=MAX_WORKTREE_CHANGED_FILE_BYTES,
+                ).decode("utf-8")
+            except (OSError, ValueError, UnicodeDecodeError) as exc:
+                raise ConfigError(
+                    f"Head manifest {config_relative.as_posix()} could not be "
+                    f"captured for verification: {exc}"
+                ) from exc
+            # Externally supplied inputs keep their worktree location even for a
+            # committed-tree run — `_map_optional_tree_path` only rewrites paths
+            # under the repository — so the scan below reads them from outside
+            # the tree this snapshot watches. Bind their bytes to the worktree
+            # snapshot now, before the scan can observe them, so exactly one
+            # snapshot owns each external input for the whole run: two watchers
+            # would both have to re-validate the same directory, and the second
+            # would fail on any change the first legitimately allowed.
+            for path in external_snapshot_paths:
+                if (
+                    path.is_file()
+                    and static_snapshot.contains(path)
+                    and not static_snapshot.has(path)
+                ):
+                    static_snapshot.read_bytes(path, max_bytes=64 * 1024 * 1024)
+            # Bind the changed files too. Plan construction runs under this
+            # snapshot, and ``_blobs`` drops a path it contains but never read —
+            # so a changed file the adapters do not open (a README, an unrelated
+            # module) would silently vanish from ``changed_files``. Mirrors the
+            # worktree preload above.
+            _bind_changed_files(
+                head_snapshot,
+                root=head_tree_dir,
+                relative_paths=changed_files,
+            )
+        with use_evaluation_date(date.fromisoformat(verification_date)):
+            head_snapshot_token = (
+                activate_static_input_snapshot(head_snapshot)
+                if head_snapshot is not None
+                else None
+            )
+            try:
+                report, head_exit_code = run_scan(
+                    config_path=head_config_path,
+                    output_dir=out_dir,
+                    formats=HEAD_FORMATS,
+                    ci_mode=ci_mode,
+                    fail_on=fail_on,
+                    baseline_path=head_baseline_path,
+                    diff_from_path=base_report,
+                    baseline_mode=baseline_mode,
+                    policy_pack_paths=head_policy_pack_paths,
+                    plugins_enabled=plugins_enabled,
+                    verbose=verbose,
+                    suggest_patches=suggest_patches,
+                    packet_enabled=True,
+                    packet_formats=HEAD_PACKET_FORMATS,
+                    no_heuristics=no_heuristics,
+                    verification_context=VerificationContext(
+                        changed_files=changed_files,
+                        diff_text=diff_text,
+                        diff_text_available=bool(diff_text),
+                        trigger_result=trigger,
+                        configured_manifest_path=config_relative.as_posix(),
+                        manifest_introduced=manifest_introduced,
+                    ),
+                    capability_lock_callback=capture_capability_lock,
+                    manifest_text=(
+                        head_manifest_text if archive_head else worktree_manifest_text
+                    ),
+                )
+            finally:
+                # Deactivated for the rest of the run so the worktree snapshot
+                # is restored for the externally supplied inputs it owns. It is
+                # re-activated for plan construction, which must hash the bytes
+                # captured here rather than reopen the files.
+                if head_snapshot_token is not None:
+                    reset_static_input_snapshot(head_snapshot_token)
         head_exit_code = _apply_strict_plugins(
             report, head_exit_code, strict_plugins=strict_plugins
         )
@@ -897,6 +953,7 @@ def run_verify(
                     pr_comment_style=pr_comment_style,
                     capability_lock_diff=capability_lock_diff,
                     input_root=head_input_root,
+                    input_snapshot=head_snapshot,
                     diff_text=diff_text,
                     diff_from_path=base_report,
                     authorization_path=authorization,
@@ -1231,6 +1288,40 @@ def _safe_mtime(path: Path) -> float:
         return path.stat().st_mtime
     except OSError:
         return 0.0
+
+
+def _bind_changed_files(
+    snapshot: StaticInputSnapshot,
+    *,
+    root: Path,
+    relative_paths: list[str],
+) -> None:
+    """Bind every changed file's bytes to ``snapshot`` before it is sealed.
+
+    Plan construction runs under the snapshot, and ``_blobs`` skips a path the
+    snapshot contains but never read. Without this a changed file no adapter
+    opens would drop out of ``changed_files`` entirely.
+    """
+
+    for relative in relative_paths:
+        candidate = Path(os.path.abspath(os.path.normpath(os.fspath(root / relative))))
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise ConfigError(
+                f"Changed worktree input {relative!r} could not be inspected: {exc}"
+            ) from exc
+        if not stat.S_ISREG(metadata.st_mode):
+            continue
+        try:
+            snapshot.read_bytes(candidate, max_bytes=MAX_WORKTREE_CHANGED_FILE_BYTES)
+        except (OSError, ValueError) as exc:
+            raise ConfigError(
+                f"Changed worktree input {relative!r} could not be captured "
+                f"for verification: {exc}"
+            ) from exc
 
 
 def _map_policy_packs(
@@ -2375,6 +2466,7 @@ def _write_artifacts(
     pr_comment_style: str,
     capability_lock_diff: CapabilityLockDiffV1 | None = None,
     input_root: Path | None = None,
+    input_snapshot: StaticInputSnapshot | None = None,
     diff_text: str = "",
     diff_from_path: Path | None = None,
     authorization_path: Path | None = None,
@@ -2441,34 +2533,51 @@ def _write_artifacts(
         *([baseline_path] if baseline_path is not None else []),
         *([diff_from_path] if diff_from_path is not None else []),
     ]
-    if active_snapshot is not None:
+    def _finalize(snapshot: StaticInputSnapshot | None) -> None:
+        """Seal one snapshot, rejecting any input that moved under it."""
+
+        if snapshot is None:
+            return
         try:
             # Base-report enrichment can be generated after the snapshot was
             # activated. Capture it now, before finalizing directory identity,
             # so plan construction and the receipt consume exactly these bytes.
             for path in original_paths:
-                if (
-                    path.is_file()
-                    and active_snapshot.contains(path)
-                    and not active_snapshot.has(path)
-                ):
-                    active_snapshot.read_bytes(path, max_bytes=64 * 1024 * 1024)
-            active_snapshot.finish()
+                if path.is_file() and snapshot.contains(path) and not snapshot.has(path):
+                    snapshot.read_bytes(path, max_bytes=64 * 1024 * 1024)
+            snapshot.finish()
         except (OSError, ValueError) as exc:
             raise InputParseError(
                 f"Verification inputs changed while they were being evaluated: {exc}"
             ) from exc
+
+    _finalize(active_snapshot)
     original_static_inputs = {
         Path(os.path.abspath(os.path.normpath(os.fspath(path))))
         for path in original_paths
     }
+    # Identity must rest on what the adapters actually read, which is the only
+    # account that reaches an input discovered while parsing an entrypoint
+    # rather than named in the manifest. Two snapshots observe two roots: the
+    # outer one is bound to the worktree, and a committed-tree run is observed
+    # by ``input_snapshot``, bound to the archived tree it scanned. Pick the one
+    # that watched the evaluated root; fall back to the manifest's declared
+    # inputs only when neither did (issue #299).
+    archived_head = resolved_input_root != git_root.resolve()
+    evaluated_snapshot = input_snapshot if archived_head else active_snapshot
+    if evaluated_snapshot is not active_snapshot:
+        _finalize(evaluated_snapshot)
     captured_input_paths = (
         [
             path
-            for path in active_snapshot.paths()
+            for path in evaluated_snapshot.paths()
+            # Blob paths are logical and relative to the evaluated input root,
+            # so a read outside it cannot become one. In practice this only
+            # drops the externally supplied inputs already bound by name.
             if path not in original_static_inputs
+            and (resolved_input_root in path.parents)
         ]
-        if active_snapshot is not None
+        if evaluated_snapshot is not None
         else None
     )
     external_input_root = verifier_path.parent
@@ -2505,7 +2614,6 @@ def _write_artifacts(
     resolved_date = evaluation_date or commit_date(git_root, verifier.head_ref)
     base_commit = commit_sha(git_root, verifier.base_ref) if verifier.base_ref else None
     head_commit = commit_sha(git_root, verifier.head_ref)
-    archived_head = resolved_input_root != git_root.resolve()
     resolved_options = dict(verification_options or {})
     evaluated_hint = resolved_options.pop("evaluated_head_commit_sha", None)
     github_actions = resolved_options.pop("github_actions", False)
@@ -2534,44 +2642,60 @@ def _write_artifacts(
                 "source_head_relation": source_identity.relation,
             }
         )
-    plan = build_verification_plan(
-        git_root=git_root,
-        input_root=resolved_input_root,
-        config_path=config_path,
-        config_logical_path=logical_config,
-        base_ref=verifier.base_ref,
-        head_ref=verifier.head_ref,
-        archived_head=archived_head,
-        repository_id=repository_identity(git_root),
-        base_commit_sha=base_commit,
-        base_tree_sha=(
-            tree_sha(git_root, verifier.base_ref) if verifier.base_ref and base_commit else None
-        ),
-        source_head_commit_sha=source_head_commit,
-        head_commit_sha=head_commit,
-        head_tree_sha=(tree_sha(git_root, verifier.head_ref) if head_commit else None),
-        merge_base_sha=(
-            merge_base_sha(git_root, verifier.base_ref, verifier.head_ref)
-            if verifier.base_ref and base_commit
-            else None
-        ),
-        changed_files=verifier.changed_files,
-        diff_text=diff_text,
-        baseline_path=portable_baseline_path,
-        diff_from_path=portable_diff_from_path,
-        policy_pack_paths=portable_policy_pack_paths,
-        evaluation_date=resolved_date,
-        options={
-            "ci_mode": verifier.mode,
-            "fail_on": sorted(fail_on or []),
-            "no_heuristics": no_heuristics,
-            "plugins_enabled": plugins_enabled is not False,
-            **resolved_options,
-        },
-        plugins_enabled=plugins_enabled,
-        external_input_root=external_input_root,
-        captured_input_paths=captured_input_paths,
+    # Hash the bytes the adapters read, not whatever is on disk now. Without
+    # this the plan's path list and its blob hashes come from two different
+    # instants, so a file rewritten after the scan is attested at its new
+    # content while ``tool_sources`` still lists what the old content pointed
+    # at — a receipt for bytes the report never evaluated.
+    plan_snapshot_token = (
+        activate_static_input_snapshot(evaluated_snapshot)
+        if evaluated_snapshot is not None and evaluated_snapshot is not active_snapshot
+        else None
     )
+    try:
+        plan = build_verification_plan(
+            git_root=git_root,
+            input_root=resolved_input_root,
+            config_path=config_path,
+            config_logical_path=logical_config,
+            base_ref=verifier.base_ref,
+            head_ref=verifier.head_ref,
+            archived_head=archived_head,
+            repository_id=repository_identity(git_root),
+            base_commit_sha=base_commit,
+            base_tree_sha=(
+                tree_sha(git_root, verifier.base_ref)
+                if verifier.base_ref and base_commit
+                else None
+            ),
+            source_head_commit_sha=source_head_commit,
+            head_commit_sha=head_commit,
+            head_tree_sha=(tree_sha(git_root, verifier.head_ref) if head_commit else None),
+            merge_base_sha=(
+                merge_base_sha(git_root, verifier.base_ref, verifier.head_ref)
+                if verifier.base_ref and base_commit
+                else None
+            ),
+            changed_files=verifier.changed_files,
+            diff_text=diff_text,
+            baseline_path=portable_baseline_path,
+            diff_from_path=portable_diff_from_path,
+            policy_pack_paths=portable_policy_pack_paths,
+            evaluation_date=resolved_date,
+            options={
+                "ci_mode": verifier.mode,
+                "fail_on": sorted(fail_on or []),
+                "no_heuristics": no_heuristics,
+                "plugins_enabled": plugins_enabled is not False,
+                **resolved_options,
+            },
+            plugins_enabled=plugins_enabled,
+            external_input_root=external_input_root,
+            captured_input_paths=captured_input_paths,
+        )
+    finally:
+        if plan_snapshot_token is not None:
+            reset_static_input_snapshot(plan_snapshot_token)
     plan_path = verifier_path.with_name("verification-plan.json")
     diff_input_path = verifier_path.with_name("verification-input.diff")
     diff_input_path.write_text(diff_text, encoding="utf-8")
