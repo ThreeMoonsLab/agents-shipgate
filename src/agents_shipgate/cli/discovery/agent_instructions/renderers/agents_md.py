@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from agents_shipgate.cli.discovery.agent_instructions.renderers._shared import (
     CI_POINTER_PARAGRAPH,
+    CURRENT_CONTROL_PARAGRAPH,
 )
 
 
@@ -68,6 +69,8 @@ then read `agents-shipgate-reports/agent-handoff.json` for
 release gate.
 Legacy `agent-result.json` surfaces, where present, are supporting/provisional
 projections and not the CI gate.
+
+{CURRENT_CONTROL_PARAGRAPH}
 
 For coding-agent host grants, run `shipgate audit --host` and read the emitted
 host-grants inventory before changing MCP servers, permission rules, hooks, or

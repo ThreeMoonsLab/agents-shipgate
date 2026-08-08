@@ -10,7 +10,21 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-Runtime contract v20 separates publish authority from merge authority.
+Runtime contract v20 adds `agents-shipgate-reports/current-control.json`,
+the one atomic entry point that says which control identity is current. It is a
+pointer, not a second decision: it binds identities and hashes the receipt,
+handoff, verifier, and report already published. Every run replaces it with a
+non-terminal `unavailable` marker before touching any other artifact, and
+publishes the terminal pointer atomically, last. Consumers must re-read it at
+every boundary in `agent_refresh_triggers` — after any human or external-tool
+action, after any worktree change, after any command returns, before enforcing a
+cached `must_stop`, before commit/push/PR update, before merge, and before
+declaring the task complete. A control state remembered from earlier in a
+conversation never outranks the pointer, in either direction: it can neither
+keep blocking after a newer complete run exists, nor authorize action after the
+workspace moved.
+
+Runtime contract v21 separates publish authority from merge authority.
 `control.permissions` is a required object on every state with the exact
 booleans `edit`, `commit`, `push`, `update_pr`, `merge`, `report_complete`,
 fixed by the state and never set independently, and the new
@@ -87,19 +101,20 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `20` (minimum control contract: `20`)
+- Runtime contract: `21` (minimum control contract: `21`)
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
 - Current verifier schema: `0.7` — [`docs/verifier-schema.v0.8.json`](verifier-schema.v0.8.json)
 - Current verify-run schema: `shipgate.verify_run/v4` — [`docs/verify-run-schema.v4.json`](verify-run-schema.v4.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
+- Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
 - Current human-authorization schemas: request, signed grant, verifier evaluation, and external trust policy v1 — [`docs/human-authorization-schema.v1.json`](human-authorization-schema.v1.json)
 - Current agent handoff schema: `shipgate.agent_handoff/v7` — [`docs/agent-handoff-schema.v7.json`](agent-handoff-schema.v7.json)
 - Current agent boundary result schema: `shipgate.agent_boundary_result/v2` — [`docs/agent-boundary-result-schema.v2.json`](agent-boundary-result-schema.v2.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
-- Current preflight schema: `0.3` — [`docs/preflight-schema.v0.4.json`](preflight-schema.v0.4.json)
-- Current downstream local agent contract schema: `7`
+- Current preflight schema: `0.4` — [`docs/preflight-schema.v0.4.json`](preflight-schema.v0.4.json)
+- Current downstream local agent contract schema: `9`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.6` — [`docs/capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json)
 - Current capability lock diff schema: `0.7` — [`docs/capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json)
@@ -118,9 +133,53 @@ Downstream repos generated with
 
 ## Two read entry points
 
-There are two correct "read first" paths; which one applies depends on who is
-reading. They are not two decisions — they are two entry points into the same
-one decision engine.
+Both start at `agents-shipgate-reports/current-control.json` (`agents-shipgate
+agent control --workspace .`), which names the run that is current. Everything
+below it describes *a* run; only the pointer says *which* run. A non-zero exit
+from the reader means no control identity is current here and the caller holds
+no authority — not that the previous answer still stands.
+
+Byte consistency is not generation consistency. A pointer whose artifacts all
+still hash correctly can describe a workspace that one commit has moved past, so
+the reader compares the bound `workspace_identity` against the live repository —
+repository, HEAD commit, and HEAD tree — and refuses on any drift. Completion
+authority is never returned without that comparison: a reader that cannot
+resolve the workspace reports it as unverified rather than passing.
+
+When the decision named a base, that base is compared too. A decision about
+`base...HEAD` is a decision about that range, and advancing the base — a merge,
+or a fetch moving `origin/main` — can empty the range without touching HEAD or
+the working tree, leaving every HEAD-based check satisfied while the evidence
+underneath has gone. The pointer therefore carries `base_ref`,
+`base_commit_sha`, and `merge_base_sha`, and the reader resolves the ref live.
+
+Uncommitted work is checked according to what the decision actually covered:
+
+- A **worktree** decision (`snapshot_kind: "worktree_overlay"`) is re-checked
+  two ways. Every path it covered must still hash to the overlay it committed
+  to, and no path *outside* that set may differ from HEAD now — anything outside
+  it was identical to HEAD when the decision was made, so a live change the plan
+  never recorded is evidence the decision never saw. That second test is a
+  subset test, not equality: `plan.inputs.changed_paths` is the union of
+  `base...HEAD` and the worktree, not the uncommitted set, so requiring equality
+  would refuse a clean workspace the moment the run that produced it finished.
+- A **committed-tree** decision (`snapshot_kind: "committed_tree"`) stops at
+  HEAD, so any uncommitted change appearing afterwards invalidates it — in both
+  directions. A stale `complete` must not authorize work the decision never
+  covered, and a stale `human_review_required` must not keep enforcing a
+  pre-change stop. Re-running the same archived `--head` verification cannot
+  clear that, so the refusal routes to a worktree verification instead.
+
+An overlay row carries content *and* the two metadata axes Git itself tracks:
+entry kind and the executable bit. Content alone is not the capability —
+flipping a tool script from `100755` to `100644` changes no bytes, and swapping
+a regular file for a symlink to an identical in-repo file changes no bytes
+either. Full mode is deliberately not recorded: it varies with umask and would
+make the identity depend on noise Git does not track.
+
+Given a current pointer, there are two correct "read first" paths; which one
+applies depends on who is reading. They are not two decisions — they are two
+entry points into the same one decision engine.
 
 - **PR / controller flow** — an autonomous coding agent deciding *continue,
   repair, or stop*. Prefer
@@ -154,6 +213,23 @@ filenames already present in the output directory:
   `agent-handoff.json` and the supporting verifier artifacts in the order
   above. The receipt and handoff retain the content-addressed identity of that
   exact verify run.
+
+`current-control.json` records which of those two just happened in its
+`operation` field, so the choice does not have to be inferred from filenames at
+all. Only an `operation: "verify"` pointer can carry `control.state:
+"complete"`, and only when it also binds a `verification_receipt` whose
+`request_id` and `decision_id` are the ones the pointer records — the assembler
+accepts any `--out` name under its artifacts root, so an older canonical receipt
+must not be mistaken for the one a run just closed. A `scan` or `preview`
+pointer is structurally incapable of authorizing completion or merge, and each
+binds only the artifacts it actually wrote: a `scan --format markdown` after a
+verify does not claim that verifier's `report.json`. While a run is in flight the pointer reads
+`lifecycle_state: "in_progress"` with `control.state: "unavailable"`,
+`must_stop: true`, so an interrupted or crashed run leaves a directory that
+denies cached control rather than one that still authorizes it. Consumers built
+before the pointer existed fall back through
+`current_control_fallback_read_order`; the pointer's absence is evidence of an
+older producer, never permission.
 
 When standalone `scan` replaces a report set in the same output directory, it
 removes the complete prior verifier route and its identity support:

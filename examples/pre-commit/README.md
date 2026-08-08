@@ -75,10 +75,11 @@ The `files:` regex in [`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml) 
 
 ### What the hook can't catch
 
-pre-commit's `files:` regex is purely path-based; it cannot inspect diff content. Two triggers in `docs/triggers.json` are diff-only and therefore **not** covered by this hook:
+pre-commit's `files:` regex is purely path-based; it cannot inspect diff content. Several triggers in `docs/triggers.json` need the diff body and are therefore **not** covered by this hook:
 
 - `TRIGGER-FUNCTION-TOOL-DECORATOR` — fires when `@function_tool`, `@tool`, or `FunctionTool(` is added to a diff.
-- `TRIGGER-FRAMEWORK-VERSION-BUMP` — fires when `openai-agents`, `langchain`, `crewai`, or `google-adk` appears in a dependency-change diff.
+- `TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED` — fires when a `google.adk` module path, an `Agent(`/`LlmAgent(` construction, and a `tools=[...]` argument all appear in a diff.
+- `TRIGGER-FRAMEWORK-VERSION-BUMP` — fires when `openai-agents`, `langchain`, `crewai`, `google-adk`, or `conductor-oss` appears in the diff **and** a dependency manifest (`pyproject.toml`, `requirements*.txt`, `package.json`, a lockfile, …) is among the changed files. The path leg alone can't decide it, so the regex can't either.
 - `TRIGGER-SHIPGATE-CI-WORKFLOW` also has a diff-only leg (`ThreeMoonsLab/agents-shipgate` string match) that this hook doesn't see.
 
 For full trigger coverage on PRs, rely on the GitHub Action — it runs `agents-shipgate verify` on the configured event and evaluates the full trigger catalog (including the diff-only legs) itself, so diff content doesn't gate discovery the way the path-based `files:` regex does. For local diff-aware checks, `python -m agents_shipgate.triggers --git-diff HEAD` (or `--diff-text "..."`) evaluates the full catalog against any file set or diff payload.

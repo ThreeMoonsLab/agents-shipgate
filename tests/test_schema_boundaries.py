@@ -398,6 +398,11 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             "shipgate.verification_artifact_manifest/v1"
         ),
         verification_receipt_schema_version="shipgate.verification_receipt/v1",
+        current_control_schema_version="shipgate.current_control/v1",
+        current_control_schema_path="docs/current-control-schema.v1.json",
+        current_control_artifact="agents-shipgate-reports/current-control.json",
+        agent_refresh_triggers=["before declaring the task complete"],
+        current_control_fallback_read_order=["current-control.json"],
         human_authorization_request_schema_version=(
             "shipgate.human_authorization_request/v1"
         ),
@@ -477,6 +482,11 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
             "shipgate.verification_artifact_manifest/v1"
         ),
         "verification_receipt_schema_version": "shipgate.verification_receipt/v1",
+        "current_control_schema_version": "shipgate.current_control/v1",
+        "current_control_schema_path": "docs/current-control-schema.v1.json",
+        "current_control_artifact": "agents-shipgate-reports/current-control.json",
+        "agent_refresh_triggers": ["before declaring the task complete"],
+        "current_control_fallback_read_order": ["current-control.json"],
         "human_authorization_request_schema_version": (
             "shipgate.human_authorization_request/v1"
         ),

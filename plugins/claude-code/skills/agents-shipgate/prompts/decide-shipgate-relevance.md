@@ -86,7 +86,7 @@ the rules to the changed file list.
      `pipx run agents-shipgate==0.16.0b7 ...`). Only fall back to a bare
      `agents-shipgate verify --preview --json` once
      `agents-shipgate contract --json` confirms
-     `minimum_control_contract_version: 20` (0.16.0b7 or newer; `--version`
+     `minimum_control_contract_version: 21` (0.16.0b7 or newer; `--version`
      reports the CLI version, not the contract floor). Then follow
      [`prompts/add-shipgate-to-repo.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/prompts/add-shipgate-to-repo.md)
      for the first-adoption helper flow, or point the user at the GitHub

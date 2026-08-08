@@ -11,10 +11,14 @@ A user-edited file the CLI has never produced is left alone with status
 
 from __future__ import annotations
 
+from agents_shipgate.cli.discovery.agent_instructions.renderers._shared import (
+    CURRENT_CONTROL_PARAGRAPH,
+)
+
 
 def render_file() -> str:
     """Return the full file body for ``.cursor/rules/agents-shipgate.mdc``."""
-    return """---
+    return f"""---
 description: Run Agents Shipgate as the deterministic merge gate for AI-generated agent capability changes.
 globs:
   - "shipgate.yaml"
@@ -89,6 +93,8 @@ release gate.
 Legacy `agent-result.json` surfaces, where present, are supporting/provisional
 projections and not the CI gate.
 
+{CURRENT_CONTROL_PARAGRAPH}
+
 For coding-agent host grants, run:
 
   shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
@@ -144,4 +150,9 @@ References:
 # and the rendered content changes, the previous current-render hash moves into
 # this tuple so the next CLI run can safely overwrite v(N-1) files. Leave the
 # tuple empty when there is no prior shipped version (v=1 is the initial).
-PRIOR_RENDER_SHA256: tuple[str, ...] = ()
+PRIOR_RENDER_SHA256: tuple[str, ...] = (
+    # Before contract v20 added the current-control refresh rule. Without the
+    # outgoing hash here, a repo that already ran `init --write` would be read
+    # as user-modified and would never receive the new rule.
+    "b0c14c1d9eecebf177a8231eb017593ad09984592cd0aa717d87ef216aa8ca18",
+)

@@ -66,6 +66,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`verification-unit-result-schema.v1.json`](verification-unit-result-schema.v1.json) — decision-free worker result contract
 - [`verification-artifact-manifest-schema.v1.json`](verification-artifact-manifest-schema.v1.json) — content-addressed terminal artifact set
 - [`verification-receipt-schema.v1.json`](verification-receipt-schema.v1.json) — terminal request, decision, executor, and artifact closure
+- [`current-control-schema.v1.json`](current-control-schema.v1.json) — the atomic pointer naming which control identity is current
 - [`agent-handoff-schema.v4.json`](agent-handoff-schema.v4.json) — frozen handoff v4 reference
 - [`agent-handoff-schema.v3.json`](agent-handoff-schema.v3.json) — frozen handoff v3 reference
 - [`agent-handoff-schema.v2.json`](agent-handoff-schema.v2.json) — frozen handoff v2 reference

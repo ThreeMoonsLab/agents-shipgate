@@ -21,7 +21,10 @@ def render_file() -> str:
     return (repo_root / ".claude/commands/shipgate.md").read_text(encoding="utf-8")
 
 
-PRIOR_RENDER_SHA256: tuple[str, ...] = ()
+PRIOR_RENDER_SHA256: tuple[str, ...] = (
+    # Before contract v20 added the current-control refresh rule.
+    "199ad507acde2c3fed69abf0f54891d8f9b2fd9a218b5fd9999f4329461ed871",
+)
 
 
 __all__ = ["PRIOR_RENDER_SHA256", "render_file"]

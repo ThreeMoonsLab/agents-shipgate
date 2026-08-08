@@ -17,9 +17,13 @@ for reproducible CI.
 
 ## Migration Note: unreleased — publish authority is not merge authority
 
-Runtime contract `19 → 20`, and `minimum_control_contract_version` moves
-`14 → 20` because the discriminated `AgentControl` union itself changes. No CLI
-surface changed; no other schema version moved.
+Runtime contract `20 → 21`, and `minimum_control_contract_version` moves
+`14 → 21` because the discriminated `AgentControl` union itself changes. No CLI
+surface changed. Contract v20 published the current-control pointer and the
+refresh protocol; this note is v21, and the two are independent — a consumer
+reading `current-control.json` gets the same `permissions` vector described
+here, on every state, so the one atomic read answers "what may I do now?"
+rather than only "which run is current?".
 
 Under contract v14–v19 a human route was one universal stop:
 `control.state: "human_review_required"` with `must_stop: true` and
@@ -763,7 +767,19 @@ Stable JSON fields:
 - `agent_handoff_artifact` — default emitted handoff artifact path.
 - `codex_boundary_result_schema_version` — schema version emitted by
   `shipgate check --format codex-boundary-json`.
+- `current_control_schema_version` / `current_control_schema_path` /
+  `current_control_artifact` — schema version, checked-in JSON Schema path, and
+  default artifact path for `agents-shipgate-reports/current-control.json`, the
+  one atomic entry point naming the control identity that is current.
+- `agent_refresh_triggers[]` — the boundaries at which a consumer must re-read
+  `current_control_artifact` before acting. A control state cached across any of
+  them is not authority.
+- `current_control_fallback_read_order[]` — documented read order for consumers
+  built before the pointer existed. Its absence is evidence of an older
+  producer, never permission to act on a cached decision.
 - `agent_read_order[]` — cross-artifact machine read order for coding agents:
+  `current-control.json` first (`current_control_id`, `lifecycle_state`,
+  `control.state`), then `verification-receipt.json`,
   `agent-handoff.json.control.state`, then `verifier.json.control.state`,
   `verify-run.json`, then
   `report.json.release_decision.decision`.

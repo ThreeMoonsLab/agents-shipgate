@@ -20,8 +20,12 @@ from packaging.requirements import Requirement
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import _plugins_enabled, check_catalog
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.protocol import REGISTRY
+from agents_shipgate.schemas.manifest.declared_paths import (
+    declared_manifest_input_paths,
+)
 from agents_shipgate.schemas.verification_identity import (
     VerificationArtifactManifest,
     VerificationArtifactRef,
@@ -224,33 +228,38 @@ def build_verification_plan(
         size_bytes=len(diff_bytes),
         source="generated",
     )
-    if captured_input_paths is None:
-        tool_sources = _manifest_tool_source_blobs(
-            config_path=config_path,
-            input_root=input_root,
-            source="git_blob" if archived_head else "worktree",
-        )
-    else:
-        excluded_paths = {
-            Path(os.path.abspath(os.path.normpath(os.fspath(path))))
-            for path in [
-                config_path,
-                *policy_pack_paths,
-                *([baseline_path] if baseline_path is not None else []),
-                *([diff_from_path] if diff_from_path is not None else []),
-                *(git_root / path for path in changed_files),
-            ]
-        }
-        tool_sources = _blobs(
-            [
-                path
-                for path in captured_input_paths
-                if Path(os.path.abspath(os.path.normpath(os.fspath(path))))
-                not in excluded_paths
-            ],
-            root=input_root,
-            source="worktree",
-        )
+    # Changed files are hashed under the root the scan actually read: the
+    # archived tree for a committed snapshot, the worktree otherwise.
+    changed_root = input_root if archived_head else git_root
+    excluded_paths = {
+        _lexical_path(path)
+        for path in [
+            config_path,
+            *policy_pack_paths,
+            *([baseline_path] if baseline_path is not None else []),
+            *([diff_from_path] if diff_from_path is not None else []),
+            *(changed_root / path for path in changed_files),
+        ]
+    }
+    # Prefer what the adapters actually read. Fall back to what the manifest
+    # declares they will read when no read boundary was observed — an unevaluated
+    # plan, or a committed-tree scan the worktree snapshot cannot see. Both
+    # branches must reach every adapter input: a path that lands in neither can
+    # change bytes while ``input_set_id`` stays byte-identical.
+    candidate_input_paths = (
+        _manifest_declared_input_paths(config_path=config_path, input_root=input_root)
+        if captured_input_paths is None
+        else list(captured_input_paths)
+    )
+    tool_sources = _blobs(
+        [
+            path
+            for path in candidate_input_paths
+            if _lexical_path(path) not in excluded_paths
+        ],
+        root=input_root,
+        source="git_blob" if archived_head else "worktree",
+    )
     bundle_root = external_input_root or input_root
     policy_blobs = _blobs(
         policy_pack_paths,
@@ -668,10 +677,24 @@ def load_validated_receipt_artifacts(
     return receipt, artifacts
 
 
-def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) -> bytes:
+def read_regular_file_beneath(
+    root: Path,
+    logical_path: str,
+    *,
+    max_size: int,
+    label: str = "receipt artifact",
+) -> bytes:
+    """Read one regular file strictly beneath ``root``.
+
+    Every path component is opened with ``O_NOFOLLOW`` against the parent
+    descriptor, so a symlink planted anywhere along the way fails instead of
+    escaping.  The stat identity is compared before and after the read so a
+    file swapped mid-read is rejected rather than hashed as two generations.
+    """
+
     parts = Path(logical_path).parts
     if not parts or Path(logical_path).is_absolute() or any(part in {"", ".", ".."} for part in parts):
-        raise ValueError(f"receipt artifact path is not portable: {logical_path!r}")
+        raise ValueError(f"{label} path is not portable: {logical_path!r}")
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     descriptors: list[int] = []
@@ -685,9 +708,9 @@ def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) 
         descriptors.append(file_descriptor)
         before = os.fstat(file_descriptor)
         if not stat.S_ISREG(before.st_mode):
-            raise ValueError(f"receipt artifact is not a regular file: {logical_path}")
+            raise ValueError(f"{label} is not a regular file: {logical_path}")
         if before.st_size > max_size:
-            raise ValueError(f"receipt artifact exceeds its size limit: {logical_path}")
+            raise ValueError(f"{label} exceeds its size limit: {logical_path}")
         chunks: list[bytes] = []
         remaining = max_size + 1
         while remaining:
@@ -709,16 +732,21 @@ def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) 
             after.st_size,
             after.st_mtime_ns,
         ):
-            raise ValueError(f"receipt artifact changed while it was read: {logical_path}")
+            raise ValueError(f"{label} changed while it was read: {logical_path}")
         if len(data) > max_size:
-            raise ValueError(f"receipt artifact exceeds its size limit: {logical_path}")
+            raise ValueError(f"{label} exceeds its size limit: {logical_path}")
         return data
     except OSError as exc:
-        raise ValueError(f"could not safely read receipt artifact {logical_path!r}: {exc}") from exc
+        raise ValueError(f"could not safely read {label} {logical_path!r}: {exc}") from exc
     finally:
         for descriptor in reversed(descriptors):
             with contextlib.suppress(OSError):
                 os.close(descriptor)
+
+
+
+
+_read_regular_file_beneath = read_regular_file_beneath
 
 
 def _json_object_bytes(data: bytes, label: str) -> dict[str, Any]:
@@ -852,9 +880,15 @@ def validate_plan_inputs(
         raise ValueError("plan diff input size does not match")
 
 
-def _manifest_tool_source_blobs(
-    *, config_path: Path, input_root: Path, source: str
-) -> list[VerificationBlob]:
+def _manifest_declared_input_paths(*, config_path: Path, input_root: Path) -> list[Path]:
+    """Expand every adapter input path the manifest declares, under ``input_root``.
+
+    Covers the framework blocks as well as ``tool_sources`` — ``prompt_files``
+    and the rest of the declared artifact paths are adapter inputs exactly like
+    an MCP export is, and omitting them let a prompt edit leave ``input_set_id``
+    unchanged (issue #299).
+    """
+
     snapshot = active_static_input_snapshot()
     config_text = (
         snapshot.read_bytes(
@@ -864,15 +898,26 @@ def _manifest_tool_source_blobs(
         if snapshot is not None and snapshot.contains(config_path)
         else config_path.read_text(encoding="utf-8")
     )
-    raw = yaml.safe_load(config_text) or {}
-    rows = raw.get("tool_sources") if isinstance(raw, dict) else []
+    try:
+        raw = yaml.safe_load(config_text)
+    except yaml.YAMLError:
+        # An unparseable manifest cannot declare inputs. It fails visibly in
+        # the loader; identity construction must not raise a second, worse
+        # error over the same bytes, which are already hashed as the config blob.
+        return []
+    resolved_root = input_root.resolve()
     paths: list[Path] = []
-    for row in rows or []:
-        if not isinstance(row, dict) or not isinstance(row.get("path"), str):
-            continue
-        candidate = (config_path.parent / row["path"]).resolve()
-        if input_root.resolve() not in candidate.parents and candidate != input_root.resolve():
-            raise ValueError(f"tool source escapes verification input root: {row['path']}")
+    for declared in declared_manifest_input_paths(raw):
+        candidate = (config_path.parent / declared).resolve()
+        if candidate != resolved_root and resolved_root not in candidate.parents:
+            # Fail closed rather than drop it: an input outside the root cannot
+            # be hashed portably, and silently skipping it is the hole this
+            # enumeration exists to close. Routed as an input error because the
+            # manifest is what has to change — `resolve_input_path` rejects the
+            # same declaration the moment an adapter actually reads it.
+            raise InputParseError(
+                f"Declared input resolves outside the verification input root: {declared}"
+            )
         if snapshot is not None and snapshot.contains(candidate):
             if snapshot.has(candidate):
                 paths.append(candidate)
@@ -880,7 +925,11 @@ def _manifest_tool_source_blobs(
                 paths.extend(snapshot.paths_under(candidate))
         else:
             paths.extend(_expand_path(candidate))
-    return _blobs(paths, root=input_root, source=source)
+    return paths
+
+
+def _lexical_path(path: Path) -> Path:
+    return Path(os.path.abspath(os.path.normpath(os.fspath(path))))
 
 
 def _expand_path(path: Path) -> list[Path]:
@@ -896,9 +945,7 @@ def _blobs(paths: list[Path], *, root: Path, source: str) -> list[VerificationBl
     snapshot = active_static_input_snapshot()
     candidates: set[Path] = set()
     for candidate in paths:
-        lexical = Path(
-            os.path.abspath(os.path.normpath(os.fspath(candidate)))
-        )
+        lexical = _lexical_path(candidate)
         if snapshot is not None and snapshot.contains(lexical):
             if snapshot.has(lexical):
                 candidates.add(lexical)
@@ -932,26 +979,74 @@ def _existing_changed_blobs(paths: list[str], *, root: Path, source: str) -> lis
     return _blobs(candidates, root=root, source=source)
 
 
+def worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
+    """Return the normalized rows a worktree decision commits to.
+
+    The same function builds the overlay a plan commits to and the overlay a
+    later reader recomputes, so worktree drift cannot hide behind two slightly
+    different normalizations.
+
+    A row carries content *and* the two metadata axes Git itself tracks: entry
+    kind and the executable bit.  Content alone is not the capability: flipping
+    a tool script from ``100755`` to ``100644`` changes no bytes, and swapping a
+    regular file for a symlink pointing at an identical in-repo file changes no
+    bytes either.  Both are changes a decision must not survive.  Full mode is
+    deliberately not recorded — it varies with umask and would make the identity
+    depend on noise Git does not track.
+    """
+
+    return _worktree_overlay(root, paths)
+
+
 def _worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     snapshot = active_static_input_snapshot()
+    root_resolved = root.resolve()
     for relative in sorted(set(paths)):
-        candidate = (root / relative).resolve()
-        if root.resolve() not in candidate.parents:
+        lexical = root / relative
+        candidate = lexical.resolve()
+        if root_resolved not in candidate.parents:
             raise ValueError(f"worktree path escapes repository: {relative}")
-        present = (
-            snapshot.has(candidate)
-            if snapshot is not None and snapshot.contains(candidate)
-            else candidate.is_file()
-        )
-        rows.append(
-            {
-                "path": relative,
-                "status": "present" if present else "deleted",
-                "sha256": sha256_file(candidate) if present else None,
-            }
-        )
+        rows.append({"path": relative, **_overlay_entry(lexical, candidate, snapshot)})
     return rows
+
+
+def _absent_overlay_entry() -> dict[str, Any]:
+    return {"status": "deleted", "kind": None, "executable": None, "sha256": None}
+
+
+def _overlay_entry(lexical: Path, candidate: Path, snapshot: Any) -> dict[str, Any]:
+    try:
+        info = os.lstat(lexical)
+    except OSError:
+        return _absent_overlay_entry()
+    if stat.S_ISLNK(info.st_mode):
+        # Hash the link target, never what it points at. Following it here is
+        # what let a regular file and a symlink to an identical file produce the
+        # same row.
+        try:
+            target = os.readlink(lexical)
+        except OSError:
+            return _absent_overlay_entry()
+        return {
+            "status": "present",
+            "kind": "symlink",
+            "executable": False,
+            "sha256": sha256_bytes(target.encode("utf-8")),
+        }
+    present = (
+        snapshot.has(candidate)
+        if snapshot is not None and snapshot.contains(candidate)
+        else candidate.is_file()
+    )
+    if not present:
+        return _absent_overlay_entry()
+    return {
+        "status": "present",
+        "kind": "file",
+        "executable": bool(info.st_mode & 0o111),
+        "sha256": sha256_file(candidate),
+    }
 
 
 def _media_type(path: Path) -> str:
@@ -1170,6 +1265,8 @@ def _normalized_distribution_name(value: str) -> str:
 
 __all__ = [
     "build_engine_requirement",
+    "read_regular_file_beneath",
+    "worktree_overlay",
     "build_executor",
     "build_terminal_receipt",
     "build_unit_result",

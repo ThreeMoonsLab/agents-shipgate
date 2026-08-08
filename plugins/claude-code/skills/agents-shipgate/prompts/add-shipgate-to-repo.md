@@ -9,7 +9,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the permission-scoped multi-host boundary contract and requires **runtime contract 20** (`agents-shipgate` 0.16.0b7 or newer); an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
+1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the permission-scoped multi-host boundary contract and requires **runtime contract 21** (`agents-shipgate` 0.16.0b7 or newer); an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
    ```bash
    SG="uvx agents-shipgate@0.16.0b7"    # uv: ephemeral, pinned to this exact build
    # or: SG="pipx run agents-shipgate==0.16.0b7"
@@ -20,8 +20,8 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    If you would rather install onto `PATH`, pin the floor and **fail loudly when it resolves older** — a plain `pipx install agents-shipgate` is a no-op when an older build already exists — then set `SG=agents-shipgate`:
    ```bash
    python -m pip install -U --pre agents-shipgate
-   agents-shipgate contract --json   # STOP unless minimum_control_contract_version is 20
-   SG=agents-shipgate                # only after the line above confirms contract 20
+   agents-shipgate contract --json   # STOP unless minimum_control_contract_version is 21
+   SG=agents-shipgate                # only after the line above confirms contract 21
    ```
 
 2. **Sanity-check the install** before touching the user's code:

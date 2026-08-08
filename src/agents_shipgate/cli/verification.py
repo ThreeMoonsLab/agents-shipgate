@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import typer
 
+from agents_shipgate.cli._helpers import (
+    _diagnose_config_error,
+    _echo_next_action_hint,
+)
+from agents_shipgate.cli.agent_mode import (
+    emit_agent_mode_error,
+    emit_agent_mode_error_action,
+)
+from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.verify.git import (
     archive_tree,
     commit_date,
@@ -23,8 +34,21 @@ from agents_shipgate.cli.verify.git import (
     validate_source_head_identity,
     working_tree_context,
 )
+from agents_shipgate.config.loader import load_yaml_file
 from agents_shipgate.core.agent_handoff import build_agent_handoff
+from agents_shipgate.core.current_control import (
+    begin_current_control,
+    project_agent_control,
+    publish_current_control,
+    workspace_identity_from_plan,
+)
 from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.static_inputs import (
+    StaticInputSnapshot,
+    activate_static_input_snapshot,
+    read_static_input_text,
+    reset_static_input_snapshot,
+)
 from agents_shipgate.core.verification_identity import (
     build_executor,
     build_terminal_receipt,
@@ -37,6 +61,8 @@ from agents_shipgate.core.verification_identity import (
 )
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.current_control import RECEIPT_ARTIFACT_KEY
+from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification_identity import (
     VerificationPlan,
@@ -52,6 +78,9 @@ from agents_shipgate.schemas.verify_run import (
 )
 
 verification_app = typer.Typer(no_args_is_help=True)
+
+#: Matches the verifier's worktree changed-file ceiling.
+_MAX_CHANGED_FILE_BYTES = 64 * 1024 * 1024
 
 
 @verification_app.command("prepare")
@@ -77,6 +106,24 @@ def prepare(
     head_ref = head or "HEAD"
     if not ref_exists(root, head_ref):
         raise typer.BadParameter(f"head ref is unavailable locally: {head_ref}")
+    # Invalidate before reading a single input. Preparing a portable plan starts
+    # a new verification lifecycle in this directory, so whatever was current
+    # describes the previous request and stops being current here;
+    # `verification assemble` publishes the next terminal pointer. Doing this
+    # first also keeps the pointer out of the window in which the plan hashes
+    # its inputs, so a worktree plan cannot capture one pointer generation and
+    # then be replayed against another.
+    out.parent.mkdir(parents=True, exist_ok=True)
+    begin_current_control(
+        out.parent,
+        operation="verify",
+        reason=(
+            "A portable verification run was prepared; no decision in this "
+            "directory is current until `agents-shipgate verification assemble` "
+            "closes it."
+        ),
+        repository=repository_identity(root),
+    )
     changed, diff_text = (
         diff_context(root, base, head_ref)
         if base
@@ -89,61 +136,75 @@ def prepare(
     diff_from_path = _under(root, diff_from) if diff_from is not None else None
     git_identity = _git_identity(root, base, head_ref)
 
-    if head is None:
-        plan = build_verification_plan(
-            git_root=root,
-            input_root=root,
-            config_path=root / config_relative,
-            config_logical_path=config_relative.as_posix(),
-            base_ref=base,
+    # A manifest whose inputs cannot be read, or that declares one the plan
+    # cannot bind, is the caller's to fix — route it like every other input
+    # failure instead of surfacing a traceback out of the identity builder.
+    try:
+        plan = _build_plan(
+            root=root,
+            head=head,
             head_ref=head_ref,
-            archived_head=False,
-            source_head_commit_sha=None,
-            **git_identity,
-            changed_files=changed,
-            diff_text=diff_text,
+            base=base,
+            config_relative=config_relative,
             baseline_path=baseline_path,
             diff_from_path=diff_from_path,
-            policy_pack_paths=policy_paths,
-            evaluation_date=resolved_date,
-            options={
-                "ci_mode": ci_mode,
-                "no_heuristics": no_heuristics,
-                "plugins_enabled": not no_plugins,
-            },
-            plugins_enabled=False if no_plugins else None,
+            policy_paths=policy_paths,
+            changed=changed,
+            diff_text=diff_text,
+            resolved_date=resolved_date,
+            git_identity=git_identity,
+            ci_mode=ci_mode,
+            no_plugins=no_plugins,
+            no_heuristics=no_heuristics,
         )
-    else:
-        source_identity = resolve_source_head_identity(
-            root,
-            head_ref=head_ref,
+    except InputParseError as exc:
+        typer.echo(f"Input parsing error: {exc}", err=True)
+        emit_agent_mode_error_action(
+            "input_parse_error",
+            message=exc,
+            exit_code=3,
+            action=NextAction(
+                kind="review",
+                why=(
+                    "Inspect the file referenced in the error; ensure it exists, "
+                    "is valid, and resolves under the manifest directory."
+                ),
+                expects=(
+                    "Referenced file is present, parseable, and inside the manifest directory."
+                ),
+            ),
         )
-        with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
-            snapshot = Path(tmp) / "snapshot"
-            archive_tree(root, head_ref, snapshot)
-            plan = build_verification_plan(
-                git_root=root,
-                input_root=snapshot,
-                config_path=snapshot / config_relative,
-                config_logical_path=config_relative.as_posix(),
-                base_ref=base,
-                head_ref=head_ref,
-                archived_head=True,
-                source_head_commit_sha=source_identity.source_head_commit_sha,
-                **git_identity,
-                changed_files=changed,
-                diff_text=diff_text,
-                baseline_path=_map(snapshot, root, baseline_path),
-                diff_from_path=diff_from_path,
-                policy_pack_paths=[_map(snapshot, root, path) for path in policy_paths],
-                evaluation_date=resolved_date,
-                options={
-                    "ci_mode": ci_mode,
-                    "no_heuristics": no_heuristics,
-                    "plugins_enabled": not no_plugins,
-                },
+        raise typer.Exit(3) from exc
+    except ConfigError as exc:
+        typer.echo(f"Config error: {exc}", err=True)
+        # Route through the shared diagnostic catalog rather than a local
+        # guess, so a missing manifest gets the setup route, an unparseable one
+        # gets the edit route, and an unresolved adapter gets its own — exactly
+        # as `scan` and `doctor` already answer.
+        #
+        # Diagnose the exact manifest this invocation asked for. Passing a
+        # workspace instead makes the catalog discover every `shipgate.yaml`
+        # beneath it and describe the first one that happens to parse, so a
+        # monorepo — or any `--config` naming a file that is not there — would
+        # be told to edit an unrelated, perfectly valid manifest. `prepare`
+        # always resolves one exact path, so there is nothing to discover.
+        actions = top_next_actions(
+            _diagnose_config_error(
+                config=str(root / config_relative),
+                workspace=None,
+                exc=exc,
                 plugins_enabled=False if no_plugins else None,
             )
+        )
+        _echo_next_action_hint(actions)
+        emit_agent_mode_error(
+            "config_error",
+            message=str(exc),
+            exit_code=2,
+            next_action=actions[0].to_legacy_string(),
+            next_actions=[action.model_dump(mode="json") for action in actions],
+        )
+        raise typer.Exit(2) from exc
     diff_path = out.with_name("verification-input.diff")
     diff_path.parent.mkdir(parents=True, exist_ok=True)
     diff_path.write_text(diff_text, encoding="utf-8")
@@ -157,6 +218,227 @@ def prepare(
             }
         )
     )
+
+
+def _build_plan(
+    *,
+    root: Path,
+    head: str | None,
+    head_ref: str,
+    base: str | None,
+    config_relative: Path,
+    baseline_path: Path | None,
+    diff_from_path: Path | None,
+    policy_paths: list[Path],
+    changed: list[str],
+    diff_text: str,
+    resolved_date: str,
+    git_identity: dict[str, str | None],
+    ci_mode: str,
+    no_plugins: bool,
+    no_heuristics: bool,
+) -> VerificationPlan:
+    """Build the worktree or committed-tree plan for ``prepare``."""
+
+    options = {
+        "ci_mode": ci_mode,
+        "no_heuristics": no_heuristics,
+        "plugins_enabled": not no_plugins,
+    }
+    if head is None:
+        with _captured_inputs(
+            config_path=root / config_relative,
+            input_root=root,
+            policy_pack_paths=policy_paths,
+            plugins_enabled=False if no_plugins else None,
+            changed_files=changed,
+            plan_inputs=[
+                path
+                for path in (baseline_path, diff_from_path, *policy_paths)
+                if path is not None
+            ],
+        ) as captured:
+            return build_verification_plan(
+                git_root=root,
+                input_root=root,
+                config_path=root / config_relative,
+                config_logical_path=config_relative.as_posix(),
+                base_ref=base,
+                head_ref=head_ref,
+                archived_head=False,
+                source_head_commit_sha=None,
+                **git_identity,
+                changed_files=changed,
+                diff_text=diff_text,
+                baseline_path=baseline_path,
+                diff_from_path=diff_from_path,
+                policy_pack_paths=policy_paths,
+                evaluation_date=resolved_date,
+                options=options,
+                plugins_enabled=False if no_plugins else None,
+                captured_input_paths=captured,
+            )
+    source_identity = resolve_source_head_identity(root, head_ref=head_ref)
+    with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
+        snapshot = Path(tmp) / "snapshot"
+        archive_tree(root, head_ref, snapshot)
+        # Resolve once the tree exists. The snapshot matches paths lexically, and
+        # on macOS the temporary directory is reached through /var while every
+        # path derived below resolves to /private/var — leaving them in two
+        # spellings makes `contains()` false for inputs that are plainly inside.
+        snapshot = snapshot.resolve()
+        mapped_policy_paths = [_map(snapshot, root, path) for path in policy_paths]
+        mapped_baseline_path = _map(snapshot, root, baseline_path)
+        with _captured_inputs(
+            config_path=snapshot / config_relative,
+            input_root=snapshot,
+            policy_pack_paths=mapped_policy_paths,
+            plugins_enabled=False if no_plugins else None,
+            changed_files=changed,
+            # The comparison report is never mapped into the tree, so it stays
+            # outside the evaluated root and must be bound as an external input.
+            plan_inputs=[
+                path
+                for path in (mapped_baseline_path, diff_from_path, *mapped_policy_paths)
+                if path is not None
+            ],
+        ) as captured:
+            return build_verification_plan(
+                git_root=root,
+                input_root=snapshot,
+                config_path=snapshot / config_relative,
+                config_logical_path=config_relative.as_posix(),
+                base_ref=base,
+                head_ref=head_ref,
+                archived_head=True,
+                source_head_commit_sha=source_identity.source_head_commit_sha,
+                **git_identity,
+                changed_files=changed,
+                diff_text=diff_text,
+                baseline_path=mapped_baseline_path,
+                diff_from_path=diff_from_path,
+                policy_pack_paths=mapped_policy_paths,
+                evaluation_date=resolved_date,
+                options=options,
+                captured_input_paths=captured,
+                plugins_enabled=False if no_plugins else None,
+            )
+
+
+@contextlib.contextmanager
+def _captured_inputs(
+    *,
+    config_path: Path,
+    input_root: Path,
+    policy_pack_paths: list[Path],
+    plugins_enabled: bool | None,
+    changed_files: list[str],
+    plan_inputs: list[Path],
+) -> Iterator[list[Path]]:
+    """Yield the paths the adapters opened, with their bytes still bound.
+
+    Enumerating the manifest reaches only what it names. An input discovered
+    while parsing something the manifest names — a Google ADK ``McpToolset``
+    inventory, an OpenAPI spec referenced from Python, a sub-agent config —
+    is invisible to that walk, so a plan built from declarations alone can be
+    byte-identical across two trees whose adapters read different bytes.
+    Only the read boundary sees those, and it is the same boundary ``verify``
+    binds its receipt to.
+
+    The snapshot stays active for the caller's plan construction. Handing back
+    a path list and letting the builder reopen the files would take the paths
+    and their hashes from two different instants: a file rewritten in between
+    would be attested at its new content while the path list still describes
+    what the old content pointed at.
+
+    That makes binding an obligation rather than an optimization. Under an
+    active snapshot both ``_blobs`` and ``_optional_blob`` read a path that is
+    *contained but never read* as absent, so every input the plan will hash has
+    to be bound here — ``plan_inputs`` (the baseline, comparison report, and
+    policy packs) and the changed files as well as whatever the adapters open.
+    Miss one and it does not merely go unbound: it disappears from the plan.
+
+    ``prepare`` still evaluates no policy: source loading is static, local,
+    network-free, and decision-free, and the scan phases after it make no
+    further declared-input reads. It does mean ``prepare`` now fails on a
+    manifest whose inputs cannot be loaded — which is exactly when it cannot
+    honestly claim an input set, and when ``verify`` would fail too.
+    """
+
+    from agents_shipgate.cli.scan.inputs import _load_inputs
+    from agents_shipgate.cli.scan.prepare import _prepare_scan
+
+    if not config_path.exists():
+        # A manifest that is not there is a configuration problem with its own
+        # published route, not an input that moved mid-run. Resolve it before
+        # the capture below, which would otherwise recast the
+        # FileNotFoundError as "inputs changed while they were being read" and
+        # send an agent to the wrong recovery. Delegating to the loader keeps
+        # the message and its `init` hint in one place.
+        load_yaml_file(config_path)
+    resolved_root = input_root.resolve()
+    # A plan input outside the evaluated root — the comparison report on a
+    # committed-tree preparation — has to be declared external or the snapshot
+    # refuses to read it at all.
+    snapshot = StaticInputSnapshot(
+        resolved_root,
+        external_paths=[
+            path
+            for path in plan_inputs
+            if resolved_root not in path.resolve().parents
+        ],
+    )
+    token = activate_static_input_snapshot(snapshot)
+    try:
+        try:
+            # Read the manifest once, through the snapshot, and parse from those
+            # exact bytes. `load_manifest_with_positions` otherwise reads it
+            # twice — a direct `Path.read_text` for the model, then the snapshot
+            # for positions — so a rewrite between the two would let the
+            # adapters follow one manifest while the plan hashes the other.
+            resolved = _prepare_scan(
+                config_path=config_path,
+                ci_mode=None,
+                fail_on=None,
+                output_dir=None,
+                formats=None,
+                packet_enabled=None,
+                packet_formats=None,
+                baseline_mode="new-findings",
+                manifest_text=read_static_input_text(
+                    config_path,
+                    max_bytes=_MAX_CHANGED_FILE_BYTES,
+                ),
+            )
+            _load_inputs(
+                manifest=resolved.manifest,
+                base_dir=resolved.base_dir,
+                config_path=config_path,
+                policy_pack_paths=policy_pack_paths,
+                verbose=False,
+                plugins_enabled=plugins_enabled,
+            )
+            for candidate in (
+                *plan_inputs,
+                *(resolved_root / relative for relative in changed_files),
+            ):
+                if (
+                    candidate.is_file()
+                    and not candidate.is_symlink()
+                    and snapshot.contains(candidate)
+                    and not snapshot.has(candidate)
+                ):
+                    snapshot.read_bytes(candidate, max_bytes=_MAX_CHANGED_FILE_BYTES)
+            snapshot.finish()
+        except (OSError, ValueError) as exc:
+            raise InputParseError(
+                f"Verification inputs changed while they were being read: {exc}"
+            ) from exc
+        # Blob paths are logical and relative to the input root, so a read
+        # outside it cannot become one.
+        yield [path for path in snapshot.paths() if resolved_root in path.parents]
+    finally:
+        reset_static_input_snapshot(token)
 
 
 @verification_app.command("worker")
@@ -389,6 +671,28 @@ def assemble(
         raise InputParseError("receipt output must remain under --artifacts-root")
     _write_model(resolved_artifact_root / "verification-artifacts.json", manifest)
     _write_model(out, receipt)
+    # The pointer is the last file the assembler makes visible, for the same
+    # reason it is last in `verify`: every artifact it binds now exists and has
+    # been hashed in its final form.
+    #
+    # `--out` accepts any name beneath the artifacts root, so the receipt this
+    # run closed is not necessarily at the canonical path. Bind the one that was
+    # actually emitted: binding the canonical path instead would either miss
+    # this run's receipt entirely or bind an older run's.
+    receipt_path = out.resolve().relative_to(resolved_artifact_root).as_posix()
+    publish_current_control(
+        resolved_artifact_root,
+        operation="verify",
+        control=project_agent_control(
+            verifier.control,
+            operation="verify",
+            receipt_bound=out.is_file(),
+        ),
+        request_id=plan.request_id,
+        decision_id=expected_decision_id,
+        workspace_identity=workspace_identity_from_plan(plan),
+        artifact_paths={RECEIPT_ARTIFACT_KEY: receipt_path},
+    )
     typer.echo(json.dumps({"receipt_id": receipt.receipt_id, "receipt": str(out)}))
 
 

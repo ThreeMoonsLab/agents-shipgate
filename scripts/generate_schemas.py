@@ -25,6 +25,7 @@ Writes / verifies:
 - docs/verification-unit-result-schema.v1.json
 - docs/verification-artifact-manifest-schema.v1.json
 - docs/verification-receipt-schema.v1.json
+- docs/current-control-schema.v1.json
                                 (from agents_shipgate.schemas.verification_identity)
 - docs/human-authorization-schema.v1.json
                                 (authorization request, signed grant,
@@ -1454,6 +1455,23 @@ def build_verification_receipt_schema() -> tuple[Path, str]:
     )
 
 
+def build_current_control_schema() -> tuple[Path, str]:
+    from agents_shipgate.schemas.current_control import CurrentControlPointer
+
+    return _verification_identity_schema(
+        model=CurrentControlPointer,
+        filename="current-control-schema.v1.json",
+        title="Agents Shipgate Current Control Pointer v1",
+        description=(
+            "JSON Schema for agents-shipgate-reports/current-control.json, the "
+            "one atomic entry point naming the control identity that is current "
+            "now. Generated from "
+            "agents_shipgate.schemas.current_control.CurrentControlPointer. Do "
+            "not edit by hand."
+        ),
+    )
+
+
 def build_human_authorization_schema() -> tuple[Path, str]:
     """Generate the signed authorization protocol schema family."""
 
@@ -1852,6 +1870,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("verification_unit_result", build_verification_unit_result_schema),
     ("verification_artifact_manifest", build_verification_artifact_manifest_schema),
     ("verification_receipt", build_verification_receipt_schema),
+    ("current_control", build_current_control_schema),
     ("human_authorization", build_human_authorization_schema),
     ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),

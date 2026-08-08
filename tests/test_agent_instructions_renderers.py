@@ -45,17 +45,17 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "b17090f755e07c3bbd07d7c3ebc90a54391ead51495ac09e6f0072332632d48f"
+        "cc468647434d12be45819de4db6ece8a860010b44c31ba3586038067eb3357af"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         # Renders {{ shipgate_version }}; changes on every version bump.
         "1f6ef3e51a09e824a98d6e5b33f2bf61282c62e2ae859e234da9f56161fa4a87"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "514d8312f6edeed5007179bf6e7173da74cf526171da9ccf090fac9bb8f8f447"
+        "44606ff86cc48c6532b5503a479a8a821874246b47b7abd54a23ffd280e0caba"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "b75525aad36ac1bfeb500f826dd0b35a8ab5859d814e860b85f3cffaafdd5e80"
+        "341253ed61e5ce9e4f42fc7d1ab0c4c72edd32aacf941cb8d08e49d95493c59d"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
@@ -81,7 +81,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "d401e1f688c0fcd6ddfa3367251ed3e37f147643b8fb1c109e9df64f0365473d"
+        "8d56a0a026f1ba0b29ead84a660a4a1274757e13f04ecd2ce2069580b4b5e461"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -90,10 +90,10 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "89580914407edd5516db10c8d7725f22c1a919e827e9b820115007a7a6caab31"
     ),
     ".agents/skills/agents-shipgate/references/recipes.md": (
-        "533cf729416bb46a43501962f75a46ed3f3d337d9b082a7fb1ed44118be06203"
+        "49f71ac4f5b6c83f34caa1e5a7126cf4550d95188725ce37d93b558c6bfae17a"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "3a0670d76c15702f4460f13ed4531dd471d1cbf6b5ca559bd3af75ece34ac1f4"
+        "2cdd6d8c7468e7aa7cfaa91160b10f543bd61d5893a6e5a71f84ace667a4b1ec"
     ),
 }
 
@@ -161,10 +161,10 @@ def test_committed_claude_command_matches_renderer() -> None:
 
 def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "8"
+    assert payload["schema_version"] == "9"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "20"
-    assert payload["minimum_control_contract_version"] == "20"
+    assert payload["contract_version"] == "21"
+    assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
@@ -209,7 +209,25 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["default_paths"]["local_contract"] == ".shipgate/agent-contract.json"
     assert payload["artifacts"]["verifier"] == "agents-shipgate-reports/verifier.json"
     assert payload["artifacts"]["verify_run"] == "agents-shipgate-reports/verify-run.json"
+    assert payload["current_control_schema_version"] == "shipgate.current_control/v1"
+    assert payload["current_control_schema_path"] == "docs/current-control-schema.v1.json"
+    assert payload["current_control_artifact"] == (
+        "agents-shipgate-reports/current-control.json"
+    )
+    assert payload["artifacts"]["current_control"] == (
+        "agents-shipgate-reports/current-control.json"
+    )
+    assert payload["commands"]["agent_control"].startswith("agents-shipgate agent control")
+    # The refresh obligation is contract data, not prose: a consumer must be
+    # able to enumerate the boundaries at which a cached control state expires.
+    assert "before enforcing a cached must_stop" in payload["agent_refresh_triggers"]
+    assert "before declaring the task complete" in payload["agent_refresh_triggers"]
+    assert payload["current_control_fallback_read_order"][0] == "current-control.json"
     assert payload["agent_read_order"] == [
+        "current-control.json",
+        "current-control.json.current_control_id",
+        "current-control.json.lifecycle_state",
+        "current-control.json.control.state",
         "verification-receipt.json",
         "verification-receipt.json.request_id",
         "verification-receipt.json.receipt_id",
@@ -359,7 +377,7 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "agents-shipgate contract --json" in skill
     assert "install or upgrade `agents-shipgate`" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
-    assert "minimum_control_contract_version: 20" in recipes
+    assert "minimum_control_contract_version: 21" in recipes
     assert "shipgate.agent_boundary_result/v2" in recipes
 
 

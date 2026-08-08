@@ -196,6 +196,9 @@
   "verification_unit_result_schema_version": "shipgate.verification_unit_result/v1",
   "verification_artifact_manifest_schema_version": "shipgate.verification_artifact_manifest/v1",
   "verification_receipt_schema_version": "shipgate.verification_receipt/v1",
+  "current_control_schema_version": "shipgate.current_control/v1",
+  "current_control_schema_path": "docs/current-control-schema.v1.json",
+  "current_control_artifact": "agents-shipgate-reports/current-control.json",
   "human_authorization_request_schema_version": "shipgate.human_authorization_request/v1",
   "human_authorization_schema_version": "shipgate.human_authorization/v1",
   "human_authorization_evaluation_schema_version": "shipgate.human_authorization_evaluation/v1",
@@ -205,9 +208,9 @@
   "agent_handoff_schema_version": "shipgate.agent_handoff/v7",
   "agent_handoff_schema_path": "docs/agent-handoff-schema.v7.json",
   "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
-  "contract_version": "20",
-  "minimum_control_contract_version": "20",
-  "local_agent_contract_schema_version": "8",
+  "contract_version": "21",
+  "minimum_control_contract_version": "21",
+  "local_agent_contract_schema_version": "9",
   "inputs": [
     "mcp",
     "openapi",
@@ -223,6 +226,7 @@
     "conductor"
   ],
   "outputs": [
+    "current_control_json",
     "markdown",
     "json",
     "sarif",
@@ -253,6 +257,7 @@
     "governance_benchmark_result_json"
   ],
   "artifacts": {
+    "current_control": "agents-shipgate-reports/current-control.json",
     "verifier": "agents-shipgate-reports/verifier.json",
     "verify_run": "agents-shipgate-reports/verify-run.json",
     "agent_handoff": "agents-shipgate-reports/agent-handoff.json",
@@ -305,6 +310,7 @@
     "skill_review"
   ],
   "external_integration_surfaces": [
+    "current_control",
     "agent_handoff",
     "preflight",
     "capability_lock",
@@ -415,6 +421,10 @@
     "decision_id"
   ],
   "agent_read_order": [
+    "current-control.json",
+    "current-control.json.current_control_id",
+    "current-control.json.lifecycle_state",
+    "current-control.json.control.state",
     "verification-receipt.json",
     "verification-receipt.json.request_id",
     "verification-receipt.json.receipt_id",
@@ -424,6 +434,23 @@
     "verifier.json.control.state",
     "verify-run.json",
     "report.json.release_decision.decision"
+  ],
+  "agent_refresh_triggers": [
+    "after any human action or external tool action",
+    "after commit, rebase, checkout, pull, or any other worktree mutation",
+    "after any agents-shipgate command returns",
+    "before enforcing a cached must_stop",
+    "before commit, push, or PR update when permission depends on Shipgate",
+    "before merge or release",
+    "before declaring the task complete",
+    "whenever the observed request_id, HEAD, worktree identity, or current_control_id changes"
+  ],
+  "current_control_fallback_read_order": [
+    "current-control.json",
+    "verification-receipt.json",
+    "agent-handoff.json",
+    "verifier.json",
+    "report.json"
   ],
   "do_not_auto_assert": [
     "action_effect",
@@ -447,6 +474,7 @@
   "runtime_behavior_verified": false,
   "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
   "schemas": {
+    "current_control": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/current-control-schema.v1.json",
     "manifest": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/manifest-v0.1.json",
     "report": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/report-schema.v0.34.json",
     "agent_result": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-result-schema.v3.json",
