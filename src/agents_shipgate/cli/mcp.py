@@ -10,6 +10,7 @@ from typing import Any
 import typer
 import yaml
 
+from agents_shipgate.cli.agent_result import agent_result_json_payload
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.capability_delta import diff_capability_fact_sets
@@ -627,22 +628,29 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
         ],
     )
     summary = audit["summary"]
-    control = (
-        derive_agent_control(
+    if decision == "block":
+        control = derive_agent_control(
             reason=summary,
-            next_action=HumanControlAction(
-                kind="stop" if decision == "block" else "review",
-                why=human_review.why or summary,
-            ),
+            next_action=HumanControlAction(kind="stop", why=human_review.why or summary),
             human_review_required=True,
-            unsafe_block=decision == "block",
+            unsafe_block=True,
             human_review_why=human_review.why or summary,
             required_reviewers=human_review.required_reviewers,
             stop_reason=human_review.why or summary,
         )
-        if decision in {"block", "require_review"}
-        else derive_agent_control(reason=summary)
-    )
+    elif decision == "require_review":
+        # The audit completed; only human judgement is outstanding, so the
+        # agent may still publish the change for that review.
+        control = derive_agent_control(
+            reason=summary,
+            next_action=HumanControlAction(kind="review", why=human_review.why or summary),
+            human_review_required=True,
+            publication_allowed=True,
+            human_review_why=human_review.why or summary,
+            required_reviewers=human_review.required_reviewers,
+        )
+    else:
+        control = derive_agent_control(reason=summary)
     return AgentResultV2(
         decision=decision,  # type: ignore[arg-type]
         risk_level=audit["risk_level"],
@@ -803,9 +811,9 @@ def _dedupe_violations(violations: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _agent_result_json(result: AgentResultV2) -> str:
-    payload = result.model_dump(mode="json", exclude_none=True)
-    payload["control"] = result.control.model_dump(mode="json")
-    return json.dumps(payload, indent=2)
+    # One serializer for every emitted agent result, so the frozen
+    # codex-boundary projection cannot be bypassed by a second code path.
+    return json.dumps(agent_result_json_payload(result), indent=2)
 
 
 __all__ = ["build_mcp_audit", "mcp_app"]

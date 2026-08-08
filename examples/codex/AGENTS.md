@@ -14,6 +14,9 @@ Read stdout as `shipgate.agent_boundary_result/v1` JSON only. Switch on
 
 - `complete`: continue and report the diagnostic decision.
 - `agent_action_required`: perform only `control.next_action`, then rerun.
+- `review_publishable`: a human must approve the merge. Do not merge or claim
+  completion; you may still commit, push, and update the pull request so that
+  review can happen.
 - `human_review_required`: stop and surface `control.next_action.why` to a human.
 
 Do not weaken `shipgate.yaml`, the Shipgate workflow, AGENTS.md, skills, hooks,

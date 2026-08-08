@@ -501,6 +501,7 @@ class VerifierArtifact(BaseModel):
                                     "state": {
                                         "enum": [
                                             "agent_action_required",
+                                            "review_publishable",
                                             "human_review_required",
                                         ]
                                     }
@@ -888,9 +889,22 @@ class VerifierArtifact(BaseModel):
                     "a non-passing release decision can route to an agent only through "
                     "an evidence-backed repair task"
                 )
-        elif self.control.state == "human_review_required" and self.fix_task is not None:
-            if self.fix_task.actor != "human" or self.fix_task.safe_to_attempt:
+        elif self.control.state in {"human_review_required", "review_publishable"}:
+            if self.fix_task is not None and (
+                self.fix_task.actor != "human" or self.fix_task.safe_to_attempt
+            ):
                 raise ValueError("human control requires a human-owned, non-safe fix task")
+            if self.control.state == "review_publishable":
+                # Publishing evidence is authority over the pull request, not
+                # over Shipgate: the only command a review route may authorize
+                # is the exact rerun that regenerates this same evidence.
+                rerun = self.fix_task.verification_command if self.fix_task is not None else None
+                permitted = {rerun} if rerun else set()
+                if not set(self.control.allowed_next_commands) <= permitted:
+                    raise ValueError(
+                        "a publishable review may authorize only the exact fix-task "
+                        "rerun command"
+                    )
         self._assert_passed_substrate_is_consistent()
         return self
 

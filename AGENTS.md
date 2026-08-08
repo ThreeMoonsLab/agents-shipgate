@@ -95,9 +95,14 @@ infer control from Markdown, PR comments, or prose. If
 `control.state=complete`, summarize the result and finish. If
 `control.state=agent_action_required`, perform only the exact coding-agent
 action authorized by `control.next_action`, then rerun the command. If
-`control.state=human_review_required`, stop and surface the JSON result to a
-human. Conversation-level acknowledgement never changes control state; only a
-new verifier artifact can clear it.
+`control.state=review_publishable`, a human must approve the merge — surface
+the JSON result, and note that you may still commit, push, and update the pull
+request so that review can happen. If `control.state=human_review_required`,
+stop and surface the JSON result to a human. `control.permissions` states the
+authority exactly: updating a PR is never merging it, and
+`permissions.merge`/`permissions.report_complete` are false on every state but
+`complete`. Conversation-level acknowledgement never changes control state;
+only a new verifier artifact can clear it.
 
 **Before editing a protected release surface** — ask the proactive static
 planner first:
@@ -141,8 +146,9 @@ older than v6. Then read
 `agents-shipgate-reports/report.json.release_decision.decision`
 (`blocked | review_required | insufficient_evidence | passed`), which remains
 the release gate. Do not report completion unless `control.state` is
-`complete`. A human-review route remains stopping until a new verifier artifact
-changes the control state; conversation-level acceptance is not a gate
+`complete`. A human-review route keeps merge and completion denied until a new
+verifier artifact changes the control state; conversation-level acceptance is
+not a gate
 override.
 
 Do not bypass the verifier by suppressing findings, lowering severity,

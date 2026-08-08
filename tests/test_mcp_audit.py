@@ -71,8 +71,13 @@ def test_mcp_audit_agent_json(tmp_path: Path) -> None:
     AgentResultV2.model_validate(payload)
     assert payload["schema_version"] == "agent_result_v2"
     assert payload["decision"] == "require_review"
-    assert payload["control"]["state"] == "human_review_required"
-    assert payload["control"]["must_stop"] is True
+    # The audit completed; only human judgement is outstanding, so the agent
+    # keeps publish authority and loses merge/completion authority.
+    assert payload["control"]["state"] == "review_publishable"
+    assert payload["control"]["must_stop"] is False
+    assert payload["control"]["permissions"]["update_pr"] is True
+    assert payload["control"]["permissions"]["merge"] is False
+    assert payload["control"]["permissions"]["report_complete"] is False
     assert payload["control"]["next_action"]["kind"] == "review"
     assert payload["control"]["human_review"]["required"] is True
     for retired in (

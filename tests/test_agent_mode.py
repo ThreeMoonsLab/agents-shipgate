@@ -229,7 +229,10 @@ def test_verify_json_shortcut_prints_verifier_artifact(tmp_path: Path) -> None:
     assert payload["verifier_schema_version"] == "0.7"
     assert payload["merge_verdict"] == "insufficient_evidence"
     assert payload["can_merge_without_human"] is False
-    assert payload["control"]["state"] == "human_review_required"
+    # The run completed and produced a release decision; the outstanding
+    # obligation is human judgement, so the agent may still publish the change.
+    assert payload["control"]["state"] == "review_publishable"
+    assert payload["control"]["permissions"]["merge"] is False
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
     assert (repo / "agents-shipgate-reports" / "verify-run.json").is_file()

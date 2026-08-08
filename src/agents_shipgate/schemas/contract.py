@@ -54,8 +54,8 @@ from agents_shipgate.schemas.verification_identity import (
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["19"] = "19"
-MINIMUM_CONTROL_CONTRACT_VERSION: Literal["14"] = "14"
+CONTRACT_VERSION: Literal["20"] = "20"
+MINIMUM_CONTROL_CONTRACT_VERSION: Literal["20"] = "20"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v2"] = "agent_result_v2"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v2.json"] = (
@@ -84,12 +84,25 @@ AGENT_CONTROL_FIELDS: tuple[str, ...] = (
     "verify_required",
     "next_action",
     "allowed_next_commands",
+    "permissions",
     "human_review",
     "stop_reason",
+)
+# Action-scoped authority (contract v20). ``merge`` and ``report_complete``
+# are the terminal pair and track ``completion_allowed``; the rest are the
+# progress actions a change needs in order to become reviewable at all.
+AGENT_CONTROL_PERMISSIONS: tuple[str, ...] = (
+    "edit",
+    "commit",
+    "push",
+    "update_pr",
+    "merge",
+    "report_complete",
 )
 AGENT_CONTROL_STATES: tuple[str, ...] = (
     "complete",
     "agent_action_required",
+    "review_publishable",
     "human_review_required",
 )
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
@@ -405,6 +418,7 @@ class ContractPayload(BaseModel):
     agent_result_schema_path: str
     agent_result_control_fields: list[str]
     agent_control_fields: list[str]
+    agent_control_permissions: list[str]
     agent_control_states: list[str]
     manual_review_signals: list[str]
     agent_interface_operations: list[str]
@@ -485,6 +499,7 @@ def build_contract_payload() -> ContractPayload:
         agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
         agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
         agent_control_fields=list(AGENT_CONTROL_FIELDS),
+        agent_control_permissions=list(AGENT_CONTROL_PERMISSIONS),
         agent_control_states=list(AGENT_CONTROL_STATES),
         manual_review_signals=list(MANUAL_REVIEW_SIGNALS),
         agent_interface_operations=list(AGENT_INTERFACE_OPERATIONS),
@@ -506,6 +521,7 @@ __all__ = [
     "CONTRACT_VERSION",
     "MINIMUM_CONTROL_CONTRACT_VERSION",
     "AGENT_CONTROL_FIELDS",
+    "AGENT_CONTROL_PERMISSIONS",
     "AGENT_CONTROL_STATES",
     "AGENT_BOUNDARY_RESULT_SCHEMA_PATH",
     "AGENT_BOUNDARY_RESULT_SCHEMA_VERSION",

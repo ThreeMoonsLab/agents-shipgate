@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Human review now blocks merge and completion, not publication of the
+  evidence a human needs in order to review.** A human route was one universal
+  stop: `control.state: "human_review_required"` with `must_stop: true` and
+  `allowed_next_commands: []`. For an agent working on a pull request that
+  denied commit, push, and PR updates — the exact actions required to produce a
+  reviewable diff — so the workflow was circular: review was required, and the
+  agent could not publish the state to be reviewed. Two additive changes fix
+  it. `control.permissions` is now a required object on every state carrying
+  the exact booleans `edit`, `commit`, `push`, `update_pr`, `merge`,
+  `report_complete`; it is fixed by the state, never set independently, and
+  `merge`/`report_complete` always equal `completion_allowed`, so human review
+  never becomes self-approvable. A fourth state, `review_publishable`, means "a
+  human must approve the merge, and the agent may still publish the change for
+  that review": `must_stop: false`, a human `next_action`, and at most the one
+  exact rerun command that regenerates the same evidence against the committed
+  refs. `human_review_required` keeps its exact old meaning and is now reserved
+  for results Shipgate cannot vouch for — a blocked release decision, a `block`
+  boundary decision, a run whose execution failed, unreadable or unbindable
+  diff input, an undeclared capability surface with no discovery route,
+  preflight protected-surface touches, and MCP audit blocks. Runtime contract
+  advances `19 → 20` and `minimum_control_contract_version` `14 → 20`;
+  consumers that switch on `control.state` must add a `review_publishable`
+  branch and keep failing closed on unrecognized states, while consumers that
+  read only `must_stop` and `completion_allowed` need no change and lose no
+  safety. Legacy artifacts and the frozen
+  `shipgate.codex_boundary_result/v2` projection are unaffected: pre-v20
+  payloads normalize to `human_review_required`, and the frozen format omits
+  `control.permissions` and renders the new state as `human_review_required`
+  with `must_stop: true`. The installed Claude Code Stop hook now says, on a
+  publishable review, that commit/push/PR-update remain authorized and names
+  the rerun command. ([#335](https://github.com/ThreeMoonsLab/agents-shipgate/issues/335))
 - **An unreadable PR diff is no longer reported as "nothing here is
   agent-related."** `verify --preview` collapsed every diff-acquisition failure
   into one message, then evaluated the trigger catalog against the empty inputs

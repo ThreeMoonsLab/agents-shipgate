@@ -68,6 +68,9 @@ def register(app: typer.Typer) -> None:
         typer.echo("Agent control fields:")
         for field in payload.agent_control_fields:
             typer.echo(f"  {field}")
+        typer.echo("Agent control permissions:")
+        for permission in payload.agent_control_permissions:
+            typer.echo(f"  {permission}")
         typer.echo("Manual review signals:")
         for signal in payload.manual_review_signals:
             typer.echo(f"  {signal}")

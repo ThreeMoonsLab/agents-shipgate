@@ -71,7 +71,7 @@ Action outputs:
 | `decision` | Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14. **Use this as the CI gating signal.** Switch on the value with a `review_required` fallback for unknown future values. |
 | `merge_verdict` | PR/control projection of `decision` (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Used by `fail_on_merge_verdicts` when configured; this is an explanatory projection, not a second release gate. |
 | `can_merge_without_human` | `true` only for a verified `passed` result or a completed deterministic `not_applicable` skip. |
-| `agent_control_state` | Authoritative operational state from `verifier.json.control.state`: `complete`, `agent_action_required`, or `human_review_required`. |
+| `agent_control_state` | Authoritative operational state from `verifier.json.control.state`: `complete`, `agent_action_required`, `review_publishable`, or `human_review_required`. `review_publishable` authorizes commit/push/PR updates and denies merge and completion. |
 | `agent_control_reason` | Deterministic reason from `verifier.json.control.reason`. |
 | `agent_controller_must_stop` | One-cycle compatibility mirror of `verifier.json.control.must_stop`. |
 | `agent_controller_stop_reason` | One-cycle compatibility mirror of `verifier.json.control.stop_reason`. |

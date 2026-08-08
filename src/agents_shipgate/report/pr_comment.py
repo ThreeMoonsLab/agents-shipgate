@@ -87,6 +87,12 @@ def _human_summary_lines(
     lines.append(f"- Can merge without human: `{str(verifier.can_merge_without_human).lower()}`")
     lines.append(f"- Agent control state: `{verifier.control.state}`")
     lines.append(f"- Agent must stop: `{str(verifier.control.must_stop).lower()}`")
+    # Publishing this pull request and merging it are separate authorities.
+    # Say so on the surface a reviewer actually reads, so "the agent updated
+    # the PR" is never mistaken for "the gate let it through".
+    permissions = verifier.control.permissions
+    lines.append(f"- Agent may update this PR: `{str(permissions.update_pr).lower()}`")
+    lines.append(f"- Agent may merge: `{str(permissions.merge).lower()}`")
     if verifier.control.stop_reason:
         lines.append(f"- Agent stop reason: `{verifier.control.stop_reason}`")
 

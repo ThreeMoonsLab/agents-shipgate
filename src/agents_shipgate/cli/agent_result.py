@@ -36,8 +36,12 @@ from agents_shipgate.core.trust_roots import (
 )
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
+from agents_shipgate.schemas.agent_control import project_legacy_agent_control
 from agents_shipgate.schemas.agent_result import AgentResultV2
-from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
+from agents_shipgate.schemas.codex_boundary_result import (
+    CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
+    CodexBoundaryResultV2,
+)
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.triggers import (
     SURFACE_CLASS_CAPABILITY,
@@ -658,7 +662,15 @@ def _bind_worktree_config_to_head(
 
 def agent_result_json_payload(result: AgentResultV2) -> dict[str, Any]:
     payload = result.model_dump(mode="json", exclude_none=True)
-    payload["control"] = result.control.model_dump(mode="json")
+    # ``shipgate.codex_boundary_result/v2`` is a frozen deprecated projection:
+    # its published schema forbids unknown properties and knows only the three
+    # pre-contract-20 states. Emit the legacy control shape there so the
+    # promise holds, exactly as ``pending_review[]`` stays off this format.
+    payload["control"] = (
+        project_legacy_agent_control(result.control)
+        if result.schema_version == CODEX_BOUNDARY_RESULT_SCHEMA_VERSION
+        else result.control.model_dump(mode="json")
+    )
     return payload
 
 

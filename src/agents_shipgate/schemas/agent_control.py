@@ -1,9 +1,18 @@
 """Authoritative operational control contract for coding agents.
 
 ``AgentControl`` is deliberately a discriminated union instead of a model with
-independent booleans.  The state tag fixes the completion, stop, routing, and
-human-review fields, so contradictory instructions are rejected by both
-Pydantic and generated JSON Schema validators.
+independent booleans.  The state tag fixes the completion, stop, routing,
+permission, and human-review fields, so contradictory instructions are rejected
+by both Pydantic and generated JSON Schema validators.
+
+Human review gates *merge and completion*, not *publication of the evidence a
+human needs in order to review*.  ``permissions`` therefore separates the two
+authorities an agent working on a pull request actually needs to distinguish:
+progress actions (``edit`` / ``commit`` / ``push`` / ``update_pr``) and
+terminal actions (``merge`` / ``report_complete``).  ``review_publishable``
+is the state where the first group is authorized and the second is not.
+``human_review_required`` remains the fail-closed stop for untrusted input and
+policy blocks, where Shipgate authorizes nothing at all.
 """
 
 from __future__ import annotations
@@ -24,6 +33,7 @@ from pydantic import (
 AgentControlState = Literal[
     "complete",
     "agent_action_required",
+    "review_publishable",
     "human_review_required",
 ]
 AgentActionKind = Literal[
@@ -139,6 +149,77 @@ class RequiredHumanReview(BaseModel):
         return self
 
 
+_PERMISSION_FIELDS = (
+    "edit",
+    "commit",
+    "push",
+    "update_pr",
+    "merge",
+    "report_complete",
+)
+
+
+class _AgentPermissionsBase(BaseModel):
+    """Action-scoped authority, fixed by the control state that carries it.
+
+    ``edit``/``commit``/``push``/``update_pr`` are *progress* actions: they
+    publish the change so a human can review it.  ``merge`` and
+    ``report_complete`` are *terminal* actions: they assert the change is done.
+    Only the terminal pair is tied to ``completion_allowed``.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"required": list(_PERMISSION_FIELDS)},
+    )
+
+    edit: bool
+    commit: bool
+    push: bool
+    update_pr: bool
+    merge: bool
+    report_complete: bool
+
+    @property
+    def publishes(self) -> bool:
+        """True when any progress action is authorized."""
+
+        return self.edit or self.commit or self.push or self.update_pr
+
+
+class FullAgentPermissions(_AgentPermissionsBase):
+    """Terminal authority: the verifier already authorizes merge."""
+
+    edit: Literal[True] = True
+    commit: Literal[True] = True
+    push: Literal[True] = True
+    update_pr: Literal[True] = True
+    merge: Literal[True] = True
+    report_complete: Literal[True] = True
+
+
+class PublishOnlyPermissions(_AgentPermissionsBase):
+    """Progress authority without merge or completion authority."""
+
+    edit: Literal[True] = True
+    commit: Literal[True] = True
+    push: Literal[True] = True
+    update_pr: Literal[True] = True
+    merge: Literal[False] = False
+    report_complete: Literal[False] = False
+
+
+class NoAgentPermissions(_AgentPermissionsBase):
+    """No authorized coding-agent action; the turn must end."""
+
+    edit: Literal[False] = False
+    commit: Literal[False] = False
+    push: Literal[False] = False
+    update_pr: Literal[False] = False
+    merge: Literal[False] = False
+    report_complete: Literal[False] = False
+
+
 class _AgentControlBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -151,6 +232,7 @@ class _AgentControlBase(BaseModel):
                 "verify_required",
                 "next_action",
                 "allowed_next_commands",
+                "permissions",
                 "human_review",
                 "stop_reason",
             ]
@@ -164,6 +246,7 @@ class _AgentControlBase(BaseModel):
     verify_required: bool
     next_action: AgentControlAction | None
     allowed_next_commands: list[ExactCommand]
+    permissions: FullAgentPermissions | PublishOnlyPermissions | NoAgentPermissions
     human_review: NoHumanReview | RequiredHumanReview
     # ``reason`` explains every state.  ``stop_reason`` is present only when
     # execution must stop, preserving the existing controller affordance while
@@ -176,6 +259,25 @@ class _AgentControlBase(BaseModel):
             raise ValueError("allowed_next_commands must not contain duplicates")
         return self
 
+    @model_validator(mode="after")
+    def _permissions_project_the_state(self) -> _AgentControlBase:
+        """Keep the coarse booleans exact projections of ``permissions``.
+
+        ``must_stop`` is retained for pre-contract-20 consumers, so it must
+        keep meaning what it always meant — *nothing is authorized* — rather
+        than silently erasing the progress actions a reviewable change needs.
+        """
+
+        if self.permissions.report_complete != self.completion_allowed:
+            raise ValueError("permissions.report_complete must equal completion_allowed")
+        if self.permissions.merge != self.completion_allowed:
+            raise ValueError("permissions.merge must equal completion_allowed")
+        if self.must_stop == self.permissions.publishes:
+            raise ValueError(
+                "must_stop must be true exactly when no progress action is authorized"
+            )
+        return self
+
 
 class CompleteAgentControl(_AgentControlBase):
     """Terminal state: the coding agent may report the task complete."""
@@ -186,6 +288,7 @@ class CompleteAgentControl(_AgentControlBase):
     verify_required: Literal[False] = False
     next_action: None = None
     allowed_next_commands: list[ExactCommand] = Field(default_factory=list, max_length=0)
+    permissions: FullAgentPermissions = Field(default_factory=FullAgentPermissions)
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
     stop_reason: None = None
 
@@ -199,6 +302,7 @@ class AgentActionRequiredControl(_AgentControlBase):
     verify_required: bool = False
     next_action: CodingAgentAction
     allowed_next_commands: list[ExactCommand] = Field(default_factory=list)
+    permissions: PublishOnlyPermissions = Field(default_factory=PublishOnlyPermissions)
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
     stop_reason: None = None
 
@@ -226,8 +330,49 @@ class AgentActionRequiredControl(_AgentControlBase):
         return self
 
 
+class ReviewPublishableControl(_AgentControlBase):
+    """Human review gates merge; publishing the review evidence does not.
+
+    The change was evaluated and the only outstanding obligation is human
+    judgement, so the coding agent keeps the authority it needs to put a
+    coherent, reviewable state in front of that human — edit, commit, push,
+    update the pull request — while ``merge`` and ``report_complete`` stay
+    denied until a fresh verifier artifact says otherwise.
+
+    ``next_action`` stays human-owned: the *route* is still "a person decides".
+    ``allowed_next_commands`` carries the exact Shipgate commands the agent may
+    run to republish evidence after committing, and is empty when the caller
+    has no exact command to offer.
+    """
+
+    state: Literal["review_publishable"]
+    completion_allowed: Literal[False] = False
+    must_stop: Literal[False] = False
+    verify_required: bool = False
+    next_action: HumanControlAction
+    allowed_next_commands: list[ExactCommand] = Field(default_factory=list)
+    permissions: PublishOnlyPermissions = Field(default_factory=PublishOnlyPermissions)
+    human_review: RequiredHumanReview
+    stop_reason: None = None
+
+    @model_validator(mode="after")
+    def _route_is_a_review_not_a_stop(self) -> ReviewPublishableControl:
+        if self.next_action.kind != "review":
+            raise ValueError(
+                "review_publishable requires a human review route; a stop route "
+                "must use human_review_required"
+            )
+        self.allowed_next_commands = sorted(self.allowed_next_commands)
+        return self
+
+
 class HumanReviewRequiredControl(_AgentControlBase):
-    """Stopping state: no further coding-agent action is authorized."""
+    """Stopping state: no further coding-agent action is authorized.
+
+    Reserved for results Shipgate cannot vouch for — a policy block, untrusted
+    or unreadable input, or an evaluation that did not complete. Publication is
+    denied here precisely because there is no trustworthy evidence to publish.
+    """
 
     state: Literal["human_review_required"]
     completion_allowed: Literal[False] = False
@@ -235,12 +380,16 @@ class HumanReviewRequiredControl(_AgentControlBase):
     verify_required: bool = False
     next_action: HumanControlAction
     allowed_next_commands: list[ExactCommand] = Field(default_factory=list, max_length=0)
+    permissions: NoAgentPermissions = Field(default_factory=NoAgentPermissions)
     human_review: RequiredHumanReview
     stop_reason: NonEmptyText
 
 
 type AgentControl = Annotated[
-    CompleteAgentControl | AgentActionRequiredControl | HumanReviewRequiredControl,
+    CompleteAgentControl
+    | AgentActionRequiredControl
+    | ReviewPublishableControl
+    | HumanReviewRequiredControl,
     Field(discriminator="state"),
 ]
 
@@ -258,7 +407,13 @@ def normalize_legacy_agent_control(
     *,
     verification_command: str | None = None,
 ) -> AgentControl:
-    """Read v1 control fields fail-closed into the canonical union."""
+    """Read v1 control fields fail-closed into the canonical union.
+
+    A pre-contract-20 payload carried one universal ``must_stop`` with no way
+    to say whether publication was safe, so every human route it describes
+    normalizes to ``human_review_required``.  ``review_publishable`` is only
+    ever produced by a current emitter that asserted the publication fact.
+    """
 
     existing = payload.get("control")
     if existing is not None:
@@ -365,6 +520,38 @@ def normalize_legacy_agent_control(
     return _legacy_human_fallback("Legacy control is contradictory or cannot be resolved safely.")
 
 
+def project_legacy_agent_control(control: AgentControl) -> dict[str, Any]:
+    """Render a control object in the pre-contract-20 shape.
+
+    Frozen compatibility surfaces — currently the deprecated
+    ``shipgate.codex_boundary_result/v2`` projection, whose published JSON
+    Schema forbids unknown properties and knows only three states — must keep
+    receiving exactly the fields and states they were promised.
+
+    The projection is deliberately *restrictive*: ``permissions`` is dropped,
+    and ``review_publishable`` collapses back onto ``human_review_required``
+    with the universal stop. A consumer that has not been taught the
+    publication/merge split therefore keeps the conservative reading it always
+    had, and can never mistake the absence of ``permissions`` for permission.
+    """
+
+    payload = control.model_dump(mode="json")
+    payload.pop("permissions", None)
+    if payload.get("state") != "review_publishable":
+        return payload
+    review = control.human_review
+    stop_reason = getattr(review, "why", None) or control.reason
+    payload.update(
+        {
+            "state": "human_review_required",
+            "must_stop": True,
+            "allowed_next_commands": [],
+            "stop_reason": stop_reason,
+        }
+    )
+    return payload
+
+
 def _legacy_human_fallback(reason: str) -> HumanReviewRequiredControl:
     return HumanReviewRequiredControl(
         state="human_review_required",
@@ -411,11 +598,16 @@ __all__ = [
     "CodingAgentCommandAction",
     "CodingAgentFetchBaseAction",
     "CompleteAgentControl",
+    "FullAgentPermissions",
     "HumanActionKind",
     "HumanControlAction",
     "HumanReviewRequiredControl",
+    "NoAgentPermissions",
     "NoHumanReview",
+    "PublishOnlyPermissions",
     "RequiredHumanReview",
+    "ReviewPublishableControl",
     "normalize_legacy_agent_control",
+    "project_legacy_agent_control",
     "validate_agent_control",
 ]

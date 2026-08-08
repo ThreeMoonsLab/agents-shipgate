@@ -23,7 +23,9 @@ from agents_shipgate.schemas.agent_control import (
     HumanReviewRequiredControl,
     NoHumanReview,
     RequiredHumanReview,
+    ReviewPublishableControl,
     normalize_legacy_agent_control,
+    project_legacy_agent_control,
 )
 
 
@@ -38,6 +40,7 @@ def derive_agent_control(
     verify_required: bool = False,
     human_review_required: bool = False,
     unsafe_block: bool = False,
+    publication_allowed: bool = False,
     allowed_next_commands: Sequence[str] = (),
     human_review_why: str | None = None,
     required_reviewers: Sequence[str] = (),
@@ -46,16 +49,31 @@ def derive_agent_control(
     """Project normalized obligations onto exactly one control state.
 
     Precedence is intentionally explicit: human-only review or an unsafe block
-    stops; otherwise an exact coding-agent route remains actionable; otherwise
-    pending verification without a route is an internal consistency error; and
-    only an obligation-free result is complete.
+    routes to a human; otherwise an exact coding-agent route remains
+    actionable; otherwise pending verification without a route is an internal
+    consistency error; and only an obligation-free result is complete.
 
-    ``completion_allowed`` and ``must_stop`` are not inputs.  They are fixed by
-    the selected union variant and therefore cannot drift across projections.
+    A human route then splits on one further fact.  ``publication_allowed``
+    asserts that Shipgate *evaluated* the change and the sole outstanding
+    obligation is human judgement, so the agent may still publish the evidence
+    that judgement needs (``review_publishable``).  It defaults to ``False``,
+    which keeps the fail-closed stop for the cases that motivate one — a policy
+    block, unreadable or unbindable input, or an evaluation that did not
+    complete — because nothing trustworthy exists to publish.
+
+    ``completion_allowed``, ``must_stop``, and ``permissions`` are not inputs.
+    They are fixed by the selected union variant and therefore cannot drift
+    across projections.
     """
 
     action = _validate_action(next_action)
     needs_human = human_review_required or unsafe_block or isinstance(action, HumanControlAction)
+
+    if publication_allowed and not needs_human:
+        raise AgentControlConsistencyError(
+            "publication_allowed describes a human review route and cannot be "
+            "asserted for a coding-agent or complete result"
+        )
 
     if needs_human:
         if action is not None and not isinstance(action, HumanControlAction):
@@ -67,6 +85,30 @@ def derive_agent_control(
             kind="stop" if unsafe_block else "review",
             why=review_why,
         )
+        if publication_allowed:
+            if unsafe_block or human_action.kind == "stop":
+                raise AgentControlConsistencyError(
+                    "an unsafe block cannot also authorize publishing the change"
+                )
+            if stop_reason:
+                raise AgentControlConsistencyError(
+                    "a publishable review does not stop, so it cannot carry a stop reason"
+                )
+            return ReviewPublishableControl(
+                state="review_publishable",
+                reason=reason,
+                verify_required=verify_required,
+                next_action=human_action,
+                allowed_next_commands=list(dict.fromkeys(allowed_next_commands)),
+                human_review=RequiredHumanReview(
+                    why=review_why,
+                    required_reviewers=list(required_reviewers),
+                ),
+            )
+        if allowed_next_commands:
+            raise AgentControlConsistencyError(
+                "a stopping result cannot expose allowed next commands"
+            )
         return HumanReviewRequiredControl(
             state="human_review_required",
             reason=reason,
@@ -136,4 +178,5 @@ __all__ = [
     "AgentControlConsistencyError",
     "derive_agent_control",
     "normalize_legacy_agent_control",
+    "project_legacy_agent_control",
 ]

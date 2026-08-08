@@ -691,6 +691,44 @@ def test_stop_hook_hands_off_instead_of_blocking_on_human_review(tmp_path: Path)
     assert rerun.stdout == ""
 
 
+def test_stop_hook_says_publishing_is_still_authorized_on_review_publishable(
+    tmp_path: Path,
+) -> None:
+    # Contract v20: a human gates the merge, not the pull request. The turn
+    # still ends — the agent has no Shipgate work left — but the notice must
+    # not read as "stop everything", or the workflow deadlocks on a change
+    # that was never published for the human to look at.
+    _stop_hook_workspace(tmp_path)
+    payload = json.dumps(
+        {
+            "release_decision": {
+                "decision": "review_required",
+                "blockers": [],
+                "review_items": [{}],
+            },
+            "control": {
+                "state": "review_publishable",
+                "reason": "capability change requires a reviewer",
+                "must_stop": False,
+                "allowed_next_commands": ["agents-shipgate verify --json"],
+                "human_review": {
+                    "required": True,
+                    "why": "a reviewer must approve the new tool authority",
+                },
+            },
+        }
+    )
+    result = _run_stop_hook(tmp_path, verify_payload=payload)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert "decision" not in out
+    message = out["systemMessage"]
+    assert "A human must review" in message
+    assert "commit, push, and update the pull request" in message
+    assert "may not merge it or report the task complete" in message
+    assert "agents-shipgate verify --json" in message
+
+
 def test_stop_hook_surfaces_fetch_base_without_inventing_a_command(
     tmp_path: Path,
 ) -> None:

@@ -11,6 +11,7 @@ from agents_shipgate.schemas.contract import (
     AGENT_BOUNDARY_RESULT_SCHEMA_PATH,
     AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
     AGENT_CONTROL_FIELDS,
+    AGENT_CONTROL_PERMISSIONS,
     AGENT_CONTROL_STATES,
     AGENT_HANDOFF_SCHEMA_PATH,
     AGENT_HANDOFF_SCHEMA_VERSION,
@@ -103,6 +104,7 @@ class LocalAgentContract(BaseModel):
     agent_result_schema_path: str
     agent_result_control_fields: list[str]
     agent_control_fields: list[str]
+    agent_control_permissions: list[str]
     agent_control_states: list[str]
     agent_interface_operations: list[str]
     exit_code_policy: dict[str, str]
@@ -168,6 +170,7 @@ def build_local_agent_contract() -> LocalAgentContract:
         agent_result_schema_path=AGENT_RESULT_SCHEMA_PATH,
         agent_result_control_fields=list(AGENT_RESULT_CONTROL_FIELDS),
         agent_control_fields=list(AGENT_CONTROL_FIELDS),
+        agent_control_permissions=list(AGENT_CONTROL_PERMISSIONS),
         agent_control_states=list(AGENT_CONTROL_STATES),
         agent_interface_operations=list(AGENT_INTERFACE_OPERATIONS),
         exit_code_policy=dict(EXIT_CODE_POLICY),

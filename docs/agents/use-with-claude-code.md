@@ -240,7 +240,8 @@ Three hooks are installed:
   `agent_action_required` blocks the stop once and names the one exact
   remaining command (a Stop-hook block forces the agent to keep working,
   so it is only ever used when a coding-agent action actually remains);
-  `human_review_required` lets the turn end and prints a hand-off notice —
+  `review_publishable` and `human_review_required` let the turn end and print a
+  hand-off notice —
   `must_stop` means "stop and hand off to a human", which a forced
   continuation would contradict. Unparseable or unrecognized verifier
   output warns loudly, is never cached, and is never treated as passing.

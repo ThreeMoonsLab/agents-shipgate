@@ -412,7 +412,10 @@ class PreflightResultV3(PreflightResultV2):
     @model_validator(mode="after")
     def _legacy_fields_project_control(self) -> PreflightResultV3:
         control = self.control
-        expected_human = control.state == "human_review_required"
+        # Preflight's only human route is a protected-surface stop, so it never
+        # emits ``review_publishable``. Project from the whole human family
+        # anyway: a future publishable route must not read as "no human needed".
+        expected_human = control.state in {"human_review_required", "review_publishable"}
         if self.requires_human_review != expected_human:
             raise ValueError("requires_human_review must exactly project control.state")
         if self.requires_verify != control.verify_required:

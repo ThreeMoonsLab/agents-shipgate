@@ -7,7 +7,7 @@ and `agents-shipgate-reports/report.json` for findings. Do not scrape Markdown.
 
 ## Order
 
-1. `agent-handoff.json.control.state`: `complete`, `agent_action_required`, or `human_review_required`.
+1. `agent-handoff.json.control.state`: `complete`, `agent_action_required`, `review_publishable`, or `human_review_required`. `review_publishable` means a human must approve the merge and you may still commit, push, and update the pull request so that review can happen; `control.permissions` says exactly which actions are authorized, and updating a PR is never merging it.
 2. `agent-handoff.json.capability_review.top_changes[]`: the highest-signal tool/action or trust-root changes.
 3. `agent-handoff.json.next_action` / `control.next_action` / `fix_task`: who acts next and whether a coding agent may safely attempt the fix.
 4. `report.json.release_decision.decision`: `blocked`, `review_required`, `insufficient_evidence`, or `passed`; this is the release gate.

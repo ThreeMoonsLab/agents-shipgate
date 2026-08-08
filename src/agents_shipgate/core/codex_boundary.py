@@ -781,6 +781,39 @@ def violations_within_agent_actionable_band(
     return True
 
 
+def boundary_assessment_is_evidence_backed(
+    violations: Sequence[AgentResultViolatedRule],
+) -> bool:
+    """Whether the boundary result rests on input the evaluator actually read.
+
+    This is the fact that decides whether a human route may still authorize
+    publishing the change (contract v20's ``review_publishable``).  It is a
+    strictly weaker question than
+    :func:`violations_within_agent_actionable_band`: a critical grant expansion
+    or a gate-governing trust-root edit is out of band — the agent may not
+    finish the turn locally — but it *was* evaluated, so pushing it onto a pull
+    request is exactly how a person gets to review it, and merge stays denied.
+
+    What disqualifies publication is not severity but epistemic state:
+    incomplete input, content that could not be parsed or resolved, and
+    experimental adapters whose classification confidence is low.  In those
+    cases there is no trustworthy assessment to publish, so the result keeps
+    the universal stop.
+    """
+
+    for item in violations:
+        if item.id == "BOUNDARY-INPUT-INCOMPLETE":
+            return False
+        if (
+            item.id in _PARSE_FAILURE_RULE_IDS
+            and item.evidence.get("kind") not in _PARSEABLE_EVIDENCE_KINDS
+        ):
+            return False
+        if item.path and _touches_experimental_surface(item.path):
+            return False
+    return True
+
+
 def _touches_experimental_surface(path: str) -> bool:
     return any(
         adapter.experimental and adapter.matches(path) for adapter in BOUNDARY_ADAPTERS
@@ -860,6 +893,11 @@ def _control_for_result(
     verify_command = verify_command or _VERIFY_COMMAND
     detect_command = detect_command or _DETECT_COMMAND
 
+    # The three routes below share one property: Shipgate could not bind the
+    # subject it was asked about — an unreplayable ref range, a detached diff,
+    # an undeclared surface with no discovery route. There is no trustworthy
+    # assessment of the change to publish, so none of them authorizes
+    # publication; they keep the universal stop.
     if (
         undeclared_gap
         and first_next_action.command == detect_command
@@ -952,6 +990,23 @@ def _control_for_result(
 
     if decision in {"require_review", "block"} and not repair.safe_to_attempt:
         why = human_review.why or first_next_action.why or summary
+        if decision == "require_review" and boundary_assessment_is_evidence_backed(violations):
+            # The boundary was evaluated against a replayable subject and the
+            # only obligation left is human judgement, so the agent keeps the
+            # authority to put a reviewable change in front of that human.
+            return derive_agent_control(
+                reason=summary,
+                next_action=HumanControlAction(kind="review", why=why),
+                verify_required=verify_required,
+                human_review_required=True,
+                publication_allowed=True,
+                allowed_next_commands=[verify_command],
+                human_review_why=why,
+                required_reviewers=human_review.required_reviewers,
+            )
+        # Either a policy block, or a review whose evidence the evaluator could
+        # not read. Both keep the universal stop, and both keep the human
+        # action kind they always had.
         return derive_agent_control(
             reason=summary,
             next_action=HumanControlAction(

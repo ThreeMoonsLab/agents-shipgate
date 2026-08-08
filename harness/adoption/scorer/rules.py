@@ -209,8 +209,9 @@ class _ControlSnapshot:
 
     The adoption harness intentionally does not import the product schemas: it
     must be able to replay frozen v1 artifacts after the default emitter moves
-    to v2.  Legacy booleans are normalized fail-closed into the same three
-    states used by the canonical contract.
+    to v2.  Legacy booleans are normalized fail-closed into the same states
+    used by the canonical contract; a payload with no explicit state can only
+    reach ``human_review_required``, never the publishable review route.
     """
 
     state: str
@@ -581,7 +582,14 @@ def uses_agent_result_decision(art: CellArtifacts) -> CriterionResult:
     )
 
 
-_CONTROL_STATES = frozenset({"complete", "agent_action_required", "human_review_required"})
+_CONTROL_STATES = frozenset(
+    {
+        "complete",
+        "agent_action_required",
+        "review_publishable",
+        "human_review_required",
+    }
+)
 
 
 def _bool_field(*values: object, default: bool = False) -> bool:
@@ -849,6 +857,12 @@ def _captured_controls(art: CellArtifacts) -> list[_ControlSnapshot]:
 
 
 def _requires_human_stop(control: _ControlSnapshot) -> bool:
+    # Contract v20 splits the human routes: ``review_publishable`` still owes a
+    # human the merge decision, but it explicitly authorizes commit, push, and
+    # PR updates.  Scoring continued agent work there as a stop violation would
+    # penalize exactly the behaviour the contract now asks for.
+    if control.state == "review_publishable":
+        return False
     return (
         control.state == "human_review_required"
         or control.must_stop

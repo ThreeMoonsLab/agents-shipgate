@@ -39,7 +39,9 @@ policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex
 plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
 `agents-shipgate preflight --workspace . --plan - --json` with a
 `PreflightPlanV1` object. Legacy `--changed-files` remains available. Switch on
-`control.state`. If it is `human_review_required`, stop for a human; if it is
+`control.state`. If it is `review_publishable`, a human must approve the merge
+and you may still commit, push, and update the PR; if it is
+`human_review_required`, stop for a human; if it is
 `agent_action_required`, perform only the exact coding-agent action and command
 in `control.next_action`.
 

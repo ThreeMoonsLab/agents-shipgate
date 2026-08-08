@@ -104,7 +104,8 @@ protected* — never a new way to decide.
   cannot be synthesized by the change under review.
 - **Implements it:** `human_ack` (report.json declared state) plus the
   self-approval prohibition surfaced as
-  `control.state="human_review_required"` and `control.reason`.
+  `control.state="review_publishable"` (publish for review, merge denied) or
+  `control.state="human_review_required"` (stop outright), and `control.reason`.
 - **Agent reads:** `control.state`, `control.human_review`, and
   `control.next_action`.
 - **Prevents:** a PR that adds its own `human_ack` (or weakens the policy) and
@@ -156,7 +157,9 @@ verdict.
 1. `state="complete"` → the capability-change task is done; merge.
 2. `state="agent_action_required"` → perform only `next_action`, then rerun and
    read the fresh artifact.
-3. `state="human_review_required"` → stop and surface `reason` plus the human
+3. `state="review_publishable"` → do not merge or claim completion; publish the
+   change for review and surface `human_review.why`.
+4. `state="human_review_required"` → stop and surface `reason` plus the human
    action; **do not** edit anything in `forbidden_file_edits` or take any
    `forbidden_actions` to get past the gate.
 

@@ -238,7 +238,7 @@ For PR verification, validate `verification-receipt.json`, then read
 |---|---|---|
 | `blocked` | Active, unaccepted blockers exist. | Fix blockers or remove the risky capability. |
 | `insufficient_evidence` | Static evidence is too weak to gate release confidently. | Add better sources and rerun; do not auto-merge. |
-| `human_review_required` | A person must review accepted debt, trust-root changes, or authority-bearing gaps. | Surface the required review; a coding agent must not self-approve it. |
+| `human_review_required` | A person must review accepted debt, trust-root changes, or authority-bearing gaps. | Surface the required review; a coding agent must not self-approve it. It may still commit, push, and update the PR so the review can happen — `control.state` is `review_publishable` and `control.permissions.merge` is false. |
 | `mergeable` | No active blocker or review signal was found. | Keep verifier/report artifacts with the PR record. |
 | `unknown` | Verify could not produce a reliable head scan or diff context. | Fix setup, fetch the base ref, or rerun with usable inputs. |
 
@@ -257,8 +257,11 @@ trust-root changes such as weakened CI or manifest policy.
 
 ### Authorize one exact coding-agent action
 
-A `human_review_required` result normally stops the coding agent. Runtime
-contract v18 adds one narrow continuation path for a trusted host: after a
+A human-review route denies merge and completion. Runtime contract v20 keeps
+publishing the change for that review authorized (`control.state:
+"review_publishable"`), and reserves the total stop
+(`control.state: "human_review_required"`) for blocks and input Shipgate cannot
+bind. Runtime contract v18 adds one narrow continuation path for a trusted host: after a
 person reviews a host-attested receipt and its complete review set, the host can
 sign an exact authorization request with Ed25519. The private key, human
 authentication, and signing operation stay outside Agents Shipgate and outside
@@ -413,7 +416,9 @@ make the base ref available first because `verify` never fetches. Validate
 `control`, `can_merge_without_human`, `control.next_action`,
 `fix_task`), then supporting/provisional `capability_review.top_changes` and
 `agents-shipgate-reports/report.json` for `release_decision.decision`. Do not
-claim completion unless `control.state` is `complete`. Conversation-level
+claim completion unless `control.state` is `complete`. `control.permissions`
+says exactly which actions are authorized; updating a pull request is not
+merging it. Conversation-level
 acknowledgement never clears a human-review route. A trusted host may provide a
 signed external authorization for one exact command; only a new verifier
 artifact that validates that grant can change control state. Do not
@@ -522,7 +527,7 @@ Install alternatives (your agent project does **not** need Python 3.12 — insta
 ```bash
 python -m pip install -U --pre agents-shipgate       # global pip
 uv tool install --upgrade agents-shipgate            # via uv
-agents-shipgate contract --json                      # require contract_version >= 14
+agents-shipgate contract --json                      # require contract_version >= 20
 ```
 
 ## Adopt in one turn (scan helper)
@@ -684,7 +689,7 @@ Agents Shipgate is designed to be agent-friendly. If you're a coding agent (Clau
 - **[`.well-known/agents-shipgate.json`](.well-known/agents-shipgate.json)** — discovery metadata (tagline, install commands, schema URLs, gating signal, exit codes, trigger-catalog URL).
 - **[`docs/triggers.json`](docs/triggers.json)** — machine-readable mirror of the AGENTS.md trigger table. Apply the rules to a PR diff to decide whether to run `agents-shipgate verify --preview --json` or the full verifier. Schema is stable for `0.x`.
 - **[`tools/shipgate-detect.py`](tools/shipgate-detect.py)** — zero-install, stdlib-only detector. `curl … | python3 - --workspace . --json` returns the same structural verdict as `agents-shipgate detect --json`. Pinned to the canonical CLI by [`tests/test_zero_install_detector.py`](tests/test_zero_install_detector.py). See [`docs/zero-install.md`](docs/zero-install.md).
-- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions; the unified agent-control model requires `minimum_control_contract_version: "14"`.
+- **`agents-shipgate contract --json`** — verify the installed CLI's local contract before relying on hard-coded schema or gating assumptions; the permission-scoped agent-control model requires `minimum_control_contract_version: "20"`.
 - **[`docs/agent-contract-current.md`](docs/agent-contract-current.md)** — single source of truth for the current schema versions and which JSON fields to read. Updated whenever the contract bumps; other agent-facing surfaces link here instead of restating the contract.
 - **[`docs/agent-native-merge-contract.md`](docs/agent-native-merge-contract.md)** — the agent-native protocol map: the eight contracts (trigger, capability change, merge verdict, repair, forbidden action, human authority, trust root, attestation) each mapped to the artifact that implements it.
 - **[`docs/capability-standard.md`](docs/capability-standard.md)** — stable non-gating capability lock/diff standard for external integrations and research tooling.

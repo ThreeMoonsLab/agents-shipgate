@@ -8,6 +8,7 @@ import pytest
 from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
+from agents_shipgate.cli.agent_result import agent_result_json_payload
 from agents_shipgate.cli.agent_result import (
     build_codex_agent_result as _build_codex_agent_result,
 )
@@ -214,7 +215,7 @@ def test_declared_tool_surface_change_warns_and_routes_to_verify(tmp_path: Path)
         agent="claude-code",
         capability_surfaces_changed=["mcp-tools.json"],
     )
-    payload = result.model_dump(mode="json")
+    payload = agent_result_json_payload(result)
     _validate(payload)
     # Was a bare allow before the fix; now a warn that defers to verify.
     assert payload["decision"] == "warn"
@@ -829,7 +830,7 @@ def test_undeclared_surface_warns_and_routes_to_detect_when_manifest_present(
         undeclared_capability_surfaces=["mcp-tools.json"],
         manifest_present=True,
     )
-    payload = result.model_dump(mode="json")
+    payload = agent_result_json_payload(result)
     _validate(payload)
     # Was a bare allow before the fix; now a warn that routes to detect so the
     # agent gets suggested_sources before editing shipgate.yaml.
@@ -971,7 +972,7 @@ def test_manifest_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None
         policy=None,
     )
     assert result.decision == "require_review"
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
     assert [item.check_id for item in result.violated_rules] == [
         "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
     ]

@@ -30,6 +30,9 @@
         "next_action": {
           "$ref": "#/$defs/CodingAgentAction"
         },
+        "permissions": {
+          "$ref": "#/$defs/PublishOnlyPermissions"
+        },
         "reason": {
           "minLength": 1,
           "title": "Reason",
@@ -59,6 +62,7 @@
         "verify_required",
         "next_action",
         "allowed_next_commands",
+        "permissions",
         "human_review",
         "stop_reason"
       ],
@@ -70,7 +74,8 @@
         "mapping": {
           "agent_action_required": "#/$defs/AgentActionRequiredControl",
           "complete": "#/$defs/CompleteAgentControl",
-          "human_review_required": "#/$defs/HumanReviewRequiredControl"
+          "human_review_required": "#/$defs/HumanReviewRequiredControl",
+          "review_publishable": "#/$defs/ReviewPublishableControl"
         },
         "propertyName": "state"
       },
@@ -80,6 +85,9 @@
         },
         {
           "$ref": "#/$defs/AgentActionRequiredControl"
+        },
+        {
+          "$ref": "#/$defs/ReviewPublishableControl"
         },
         {
           "$ref": "#/$defs/HumanReviewRequiredControl"
@@ -758,6 +766,9 @@
           "title": "Next Action",
           "type": "null"
         },
+        "permissions": {
+          "$ref": "#/$defs/FullAgentPermissions"
+        },
         "reason": {
           "minLength": 1,
           "title": "Reason",
@@ -788,10 +799,63 @@
         "verify_required",
         "next_action",
         "allowed_next_commands",
+        "permissions",
         "human_review",
         "stop_reason"
       ],
       "title": "CompleteAgentControl",
+      "type": "object"
+    },
+    "FullAgentPermissions": {
+      "additionalProperties": false,
+      "description": "Terminal authority: the verifier already authorizes merge.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": true,
+          "default": true,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": true,
+          "default": true,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "FullAgentPermissions",
       "type": "object"
     },
     "HumanControlAction": {
@@ -840,7 +904,7 @@
     },
     "HumanReviewRequiredControl": {
       "additionalProperties": false,
-      "description": "Stopping state: no further coding-agent action is authorized.",
+      "description": "Stopping state: no further coding-agent action is authorized.\n\nReserved for results Shipgate cannot vouch for \u2014 a policy block, untrusted\nor unreadable input, or an evaluation that did not complete. Publication is\ndenied here precisely because there is no trustworthy evidence to publish.",
       "properties": {
         "allowed_next_commands": {
           "items": {
@@ -868,6 +932,9 @@
         },
         "next_action": {
           "$ref": "#/$defs/HumanControlAction"
+        },
+        "permissions": {
+          "$ref": "#/$defs/NoAgentPermissions"
         },
         "reason": {
           "minLength": 1,
@@ -898,10 +965,63 @@
         "verify_required",
         "next_action",
         "allowed_next_commands",
+        "permissions",
         "human_review",
         "stop_reason"
       ],
       "title": "HumanReviewRequiredControl",
+      "type": "object"
+    },
+    "NoAgentPermissions": {
+      "additionalProperties": false,
+      "description": "No authorized coding-agent action; the turn must end.",
+      "properties": {
+        "commit": {
+          "const": false,
+          "default": false,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": false,
+          "default": false,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": false,
+          "default": false,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": false,
+          "default": false,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "NoAgentPermissions",
       "type": "object"
     },
     "NoHumanReview": {
@@ -936,6 +1056,58 @@
       "title": "NoHumanReview",
       "type": "object"
     },
+    "PublishOnlyPermissions": {
+      "additionalProperties": false,
+      "description": "Progress authority without merge or completion authority.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "PublishOnlyPermissions",
+      "type": "object"
+    },
     "RequiredHumanReview": {
       "additionalProperties": false,
       "description": "Human-review evidence carried by the stopping state.",
@@ -966,6 +1138,75 @@
         "required_reviewers"
       ],
       "title": "RequiredHumanReview",
+      "type": "object"
+    },
+    "ReviewPublishableControl": {
+      "additionalProperties": false,
+      "description": "Human review gates merge; publishing the review evidence does not.\n\nThe change was evaluated and the only outstanding obligation is human\njudgement, so the coding agent keeps the authority it needs to put a\ncoherent, reviewable state in front of that human \u2014 edit, commit, push,\nupdate the pull request \u2014 while ``merge`` and ``report_complete`` stay\ndenied until a fresh verifier artifact says otherwise.\n\n``next_action`` stays human-owned: the *route* is still \"a person decides\".\n``allowed_next_commands`` carries the exact Shipgate commands the agent may\nrun to republish evidence after committing, and is empty when the caller\nhas no exact command to offer.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanControlAction"
+        },
+        "permissions": {
+          "$ref": "#/$defs/PublishOnlyPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "review_publishable",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "permissions",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "ReviewPublishableControl",
       "type": "object"
     }
   },

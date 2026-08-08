@@ -56,6 +56,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "agent_result_schema_path",
         "agent_result_control_fields",
         "agent_control_fields",
+        "agent_control_permissions",
         "agent_control_states",
         "agent_interface_operations",
         "exit_code_policy",
@@ -66,8 +67,8 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "7"
     assert payload["agents_shipgate_version"] == __version__
-    assert payload["contract_version"] == CONTRACT_VERSION == "19"
-    assert payload["minimum_control_contract_version"] == "14"
+    assert payload["contract_version"] == CONTRACT_VERSION == "20"
+    assert payload["minimum_control_contract_version"] == "20"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
     assert set(payload["primary_commands"]) == {
@@ -158,9 +159,19 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["agent_control_states"] == [
         "complete",
         "agent_action_required",
+        "review_publishable",
         "human_review_required",
     ]
     assert "stop_reason" in payload["agent_control_fields"]
+    assert "permissions" in payload["agent_control_fields"]
+    assert payload["agent_control_permissions"] == [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete",
+    ]
     assert payload["agent_interface_operations"] == [
         "verify_pr",
         "verify_local",

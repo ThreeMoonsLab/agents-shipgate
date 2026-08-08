@@ -1797,6 +1797,28 @@ def _derive_verifier_control(
             or reason
         )
     unsafe_block = bool(release_decision is not None and release_decision.decision == "blocked")
+    # Publication is authorized only when Shipgate actually *evaluated* the
+    # change and the sole outstanding obligation is human judgement. A blocked
+    # release decision, or a run that never produced one, has no trustworthy
+    # review evidence to publish, so those keep the universal stop.
+    publication_allowed = (
+        execution == "succeeded" and release_decision is not None and not unsafe_block
+    )
+    if publication_allowed:
+        # The exact command that regenerates this evidence against the
+        # committed refs, so the agent can commit, push, and republish without
+        # inventing a rerun. ``fix_task`` is present on every non-mergeable
+        # verdict; an absent one simply offers no command.
+        rerun = fix_task.verification_command if fix_task is not None else None
+        return derive_agent_control(
+            reason=reason,
+            next_action=HumanControlAction(kind="review", why=review_reason),
+            verify_required=True,
+            human_review_required=True,
+            publication_allowed=True,
+            allowed_next_commands=[rerun] if rerun else [],
+            human_review_why=review_reason,
+        )
     return derive_agent_control(
         reason=reason,
         next_action=HumanControlAction(

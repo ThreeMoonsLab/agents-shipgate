@@ -25,7 +25,9 @@ Switch on `control.state`; follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
 as diagnostic context only, and do not infer control from prose. Only
 `control.state=complete` permits task completion; `agent_action_required`
-authorizes only the stated coding-agent route, and `human_review_required`
+authorizes only the stated coding-agent route, `review_publishable` keeps
+commit/push/PR updates authorized while denying merge and completion, and
+`human_review_required`
 requires the agent to stop.
 
 When `check` discovers an undeclared deployed tool surface, a coding agent may
@@ -152,7 +154,7 @@ For PR verification, read `agent-handoff.json.gate.merge_verdict` first:
 | --- | --- | --- |
 | `blocked` | Active, unaccepted blockers exist. | Fix blockers or remove the risky capability. |
 | `insufficient_evidence` | Static evidence is too weak to gate release confidently. | Add better sources and rerun; do not auto-merge. |
-| `human_review_required` | A person must review accepted debt, trust-root changes, or authority-bearing gaps. | Surface the required review; a coding agent must not self-approve it. |
+| `human_review_required` | A person must review accepted debt, trust-root changes, or authority-bearing gaps. | Surface the required review; a coding agent must not self-approve it. It may still commit, push, and update the PR — `control.state` is `review_publishable` and `control.permissions.merge` is false. |
 | `mergeable` | No active blocker or review signal was found. | Keep verifier/report artifacts with the PR record. |
 | `unknown` | Verify could not produce a reliable head scan or diff context. | Fix the setup, fetch the base ref, or rerun with usable inputs. |
 

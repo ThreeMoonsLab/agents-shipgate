@@ -78,7 +78,7 @@ codex plugin add agents-shipgate@agents-shipgate
 
 The Codex plugin supplies workflow instructions, not the scanner binary. Before
 asking Codex to scan or verify a repo, make sure the CLI is available and
-`agents-shipgate contract --json` reports `minimum_control_contract_version: 14`:
+`agents-shipgate contract --json` reports `minimum_control_contract_version: 20`:
 
 ```bash
 pipx install agents-shipgate
@@ -87,7 +87,7 @@ agents-shipgate --version
 agents-shipgate contract --json
 ```
 
-When `$agents-shipgate` runs and the CLI is missing or older than runtime contract 15,
+When `$agents-shipgate` runs and the CLI is missing or older than runtime contract 20,
 Codex should ask for an install or upgrade instead of continuing to `detect`,
 `init`, `scan`, or `verify`.
 
@@ -109,7 +109,7 @@ Passing evidence:
 
 - `plugin list` shows `agents-shipgate@agents-shipgate`.
 - `plugin add` reports the plugin was added from `agents-shipgate`.
-- `agents-shipgate contract --json` reports `minimum_control_contract_version: 14`.
+- `agents-shipgate contract --json` reports `minimum_control_contract_version: 20`.
 - the installed plugin cache contains `skills/agents-shipgate/SKILL.md`.
 - the `codex exec` response is `LOADED agents-shipgate`.
 

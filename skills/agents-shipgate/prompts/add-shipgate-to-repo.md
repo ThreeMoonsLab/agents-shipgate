@@ -21,7 +21,7 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    ```bash
    python -m pip install -U --pre agents-shipgate
    agents-shipgate contract --json   # STOP unless minimum_control_contract_version is 14
-   SG=agents-shipgate                # only after the line above confirms contract 14
+   SG=agents-shipgate                # only after the line above confirms contract 20
    ```
 
 2. **Sanity-check the install** before touching the user's code:

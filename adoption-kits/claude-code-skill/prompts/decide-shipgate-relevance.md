@@ -85,7 +85,7 @@ the rules to the changed file list.
      `uvx agents-shipgate@0.15.0 verify --preview --json` (or
      `pipx run agents-shipgate==0.15.0 ...`). Only fall back to a bare
      `agents-shipgate verify --preview --json` once `agents-shipgate --version`
-     confirms `minimum_control_contract_version: 14`. Then follow
+     confirms `minimum_control_contract_version: 20`. Then follow
      [`prompts/add-shipgate-to-repo.md`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/prompts/add-shipgate-to-repo.md)
      for the first-adoption helper flow, or point the user at the GitHub
      Action (`ThreeMoonsLab/agents-shipgate@v0.15.0`) if they prefer CI.

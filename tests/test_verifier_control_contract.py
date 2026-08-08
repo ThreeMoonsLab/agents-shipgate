@@ -21,6 +21,8 @@ from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierDiffStatus,
+    VerifierFixTask,
+    VerifierRepair,
     map_merge_verdict,
 )
 from agents_shipgate.schemas.verify_run import VerifyRunOutcome, build_verify_run_artifact
@@ -369,3 +371,82 @@ def test_passed_wrapper_contradictions_fail_pydantic_and_generated_schema(
         VerifierArtifact.model_validate(payload)
     schema = json.loads((ROOT / "docs/verifier-schema.v0.7.json").read_text())
     assert list(Draft202012Validator(schema).iter_errors(payload))
+
+
+# --- Contract v20: a review route publishes evidence, it does not merge ----
+
+_RERUN = "agents-shipgate verify --config shipgate.yaml --head HEAD --json"
+
+
+def _human_fix_task() -> VerifierFixTask:
+    return VerifierFixTask(
+        actor="human",
+        safe_to_attempt=False,
+        instructions=["A reviewer must approve the new tool authority."],
+        allowed_repairs=[
+            VerifierRepair(
+                id="review_capability_change",
+                actor="human",
+                kind="investigate",
+                target="agents-shipgate-reports",
+                reason="A capability change needs a reviewer.",
+            )
+        ],
+        forbidden_repairs=[],
+        forbidden_shortcuts=["Do not suppress the finding to pass."],
+        verification_command=_RERUN,
+    )
+
+
+def _review_publishable_verifier(commands: list[str]) -> VerifierArtifact:
+    why = "A reviewer must approve the new tool authority."
+    return VerifierArtifact(
+        workspace="/tmp/repo",
+        diff_status=VerifierDiffStatus(),
+        config="shipgate.yaml",
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=_release_decision("review_required"),
+        decision="review_required",
+        merge_verdict="human_review_required",
+        applicability="verified",
+        can_merge_without_human=False,
+        control=derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(kind="review", why=why),
+            verify_required=True,
+            human_review_required=True,
+            publication_allowed=True,
+            allowed_next_commands=commands,
+            human_review_why=why,
+        ),
+        authorization=AuthorizationEvaluationV1.not_requested(),
+        fix_task=_human_fix_task(),
+    )
+
+
+def test_review_publishable_verifier_denies_merge_and_authorizes_the_rerun() -> None:
+    verifier = _review_publishable_verifier([_RERUN])
+
+    assert verifier.control.state == "review_publishable"
+    assert verifier.can_merge_without_human is False
+    assert verifier.control.completion_allowed is False
+    assert verifier.control.permissions.merge is False
+    assert verifier.control.permissions.report_complete is False
+    assert verifier.control.permissions.commit is True
+    assert verifier.control.permissions.push is True
+    assert verifier.control.permissions.update_pr is True
+    assert verifier.control.allowed_next_commands == [_RERUN]
+    assert verifier.control.next_action.actor == "human"
+
+    schema = json.loads(
+        (ROOT / "docs" / "verifier-schema.v0.7.json").read_text(encoding="utf-8")
+    )
+    Draft202012Validator(schema).validate(verifier.model_dump(mode="json"))
+
+
+def test_review_publishable_verifier_cannot_authorize_an_unrelated_command() -> None:
+    """Publishing evidence is authority over the PR, never over Shipgate."""
+
+    with pytest.raises(ValidationError):
+        _review_publishable_verifier([AUTHORIZED_COMMAND])

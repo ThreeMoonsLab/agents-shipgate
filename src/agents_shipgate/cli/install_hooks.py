@@ -977,9 +977,11 @@ def _route_verify_result(
     # The hook mirrors the operational control contract: ``control.state`` is
     # authoritative and ``decision`` is diagnostic.  A Claude Code Stop-hook
     # "block" forces the agent to KEEP WORKING, so it is only ever correct
-    # when an exact coding-agent action remains.  ``human_review_required``
-    # (``must_stop=true``) is the opposite situation — the turn must be
-    # allowed to end so a human can take over.
+    # when an exact coding-agent action remains.  Both human routes are the
+    # opposite situation — the turn must be allowed to end so a person can
+    # take over — but they differ in what stays authorized meanwhile:
+    # ``review_publishable`` keeps commit/push/update-PR, and
+    # ``human_review_required`` (``must_stop=true``) keeps nothing.
     if state == "complete":
         _write_verified_signature(root, signature)
         if base_note:
@@ -1023,6 +1025,36 @@ def _route_verify_result(
             f"{why} "
             "Do not bypass the verifier by suppressing findings, lowering severity, "
             "expanding baselines/waivers, removing Shipgate CI, or weakening agent instructions."
+        )
+    if state == "review_publishable":
+        # Human review gates the merge, not the pull request. Ending the turn
+        # is still correct — the agent has no Shipgate work left — but say
+        # plainly that committing, pushing, and updating the PR remain
+        # authorized, because the whole point of this state is that a human
+        # cannot review what was never published.
+        _write_verified_signature(root, signature)
+        human_review = control.get("human_review")
+        why = (
+            (human_review.get("why") if isinstance(human_review, dict) else None)
+            or control.get("reason")
+            or ""
+        )
+        commands = control.get("allowed_next_commands")
+        publish = (
+            commands[0]
+            if isinstance(commands, list) and commands and isinstance(commands[0], str)
+            else None
+        )
+        return _emit_context(
+            "Stop",
+            f"Agents Shipgate verify ran before completion: {summary}.{base_note} "
+            "A human must review this change before it can merge"
+            f"{': ' + why if why else ''}. "
+            "Publishing the change for that review is still authorized: you may "
+            "commit, push, and update the pull request. You may not merge it or "
+            "report the task complete."
+            + (f" After publishing, rerun `{publish}` to refresh the evidence." if publish else "")
+            + " Details: `agents-shipgate-reports/report.json`.",
         )
     if state == "human_review_required":
         _write_verified_signature(root, signature)

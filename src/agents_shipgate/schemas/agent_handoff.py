@@ -206,6 +206,7 @@ class AgentHandoffArtifact(BaseModel):
                                     "state": {
                                         "enum": [
                                             "agent_action_required",
+                                            "review_publishable",
                                             "human_review_required",
                                         ]
                                     }

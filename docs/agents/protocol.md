@@ -76,13 +76,16 @@ The stdout object has:
   `agent_action_required`; each entry has `check_id`, `rule_id`, `path`,
   `risk_level`, `title`, `reviewers`, and `note`. Report these items when
   summarizing the change; PR-time verify routes them to a human reviewer.
-- `control.state: "complete" | "agent_action_required" | "human_review_required"`
+- `control.state: "complete" | "agent_action_required" | "review_publishable" | "human_review_required"`
 - `control.reason`
 - `control.completion_allowed`
 - `control.must_stop`
 - `control.verify_required`
 - `control.next_action`
 - `control.allowed_next_commands`
+- `control.permissions` — the exact booleans `edit`, `commit`, `push`,
+  `update_pr`, `merge`, `report_complete`. Fixed by `control.state`; never an
+  independent switch. Updating a pull request is not merging it.
 - `control.human_review`
 - `repair`
 - `policies[]`
@@ -94,7 +97,10 @@ The stable schema is `docs/agent-boundary-result-schema.v1.json`. Operational
 consumers switch only on `control.state`; `decision` is diagnostic context.
 `control.completion_allowed` is true exactly for `complete`, and
 `control.must_stop` is true
-exactly for `human_review_required`. `risk_level` remains explanatory.
+exactly for `human_review_required`. `control.permissions.merge` and
+`control.permissions.report_complete` always equal
+`control.completion_allowed`; `control.must_stop` is true exactly when no
+progress action is authorized. `risk_level` remains explanatory.
 
 With `--format agent-boundary-json`, schema-valid results exit `0`; wrappers
 must switch on `control.state`, not `$?`. A missing ref may return an
@@ -111,10 +117,19 @@ object exists.
 |---|---|
 | `complete` | Completion is allowed. Summarize warnings, if any. No mandatory action remains. |
 | `agent_action_required` | Do not claim completion. Perform only the exact coding-agent route in `control.next_action`, then rerun. If `pending_review[]` is non-empty, also name those items when you summarize the change — the obligation travels with the PR, not with the turn. |
+| `review_publishable` | Do not merge and do not claim completion. A human must approve the merge, and you may still publish the change for that review: commit, push, and update the pull request. Surface `control.human_review.why` and, if `allowed_next_commands` names one, rerun it after publishing so the evidence matches the committed refs. |
 | `human_review_required` | Stop all coding-agent action and surface `control.reason` plus the human next action. |
 
-`control.must_stop=true` is reserved for a human route. Installation, repair,
-discovery, configuration, fetch-base, rerun, and graded review (a
+`review_publishable` and `human_review_required` both require a person. They
+differ only in what stays authorized meanwhile, which `control.permissions`
+states exactly. `human_review_required` is reserved for results Shipgate cannot
+vouch for — a `block` decision, unreadable or unbindable diff input, an
+undeclared surface with no discovery route — where there is no trustworthy
+evidence to publish.
+
+`control.must_stop=true` is reserved for the stopping human route.
+Installation, repair, discovery, configuration, fetch-base, rerun, and graded
+review (a
 `require_review` set that is entirely low/medium risk, routed to verify with
 its obligations in `pending_review[]`) are `agent_action_required`, never stop
 states. Graded review is the one `agent_action_required` shape that carries an
@@ -147,7 +162,10 @@ allowed only after a rerun returns `control.state="complete"`.
 Human-only authority gaps are never agent-repairable. Approval, confirmation,
 idempotency, broad-scope, prohibited-action, waiver, baseline, suppression,
 severity downgrade, policy-pack, trace-evidence, and release-policy decisions
-must set `control.state="human_review_required"` and stop the agent.
+route to a person: `control.state="review_publishable"` when the boundary was
+evaluated and only judgement is outstanding, `control.state="human_review_required"`
+for a `block` decision or input Shipgate could not bind. Neither authorizes
+merge or completion, and neither is agent-repairable.
 
 `repair.forbidden_shortcuts` is present on every result, including `complete`, so
 agents have the same trust-root boundary even when no finding fires.
@@ -184,10 +202,15 @@ capability change it did not evaluate. In an adopted repository,
 
 The human approval boundary is explicit:
 
-- `control.state="human_review_required"` means a person must decide.
+- `control.next_action.actor="human"` means a person must decide.
 - `required_reviewers[]` names reviewer roles.
-- `control.next_action.actor="human"` means the coding agent must stop.
+- `control.state="review_publishable"` means that person decides the *merge*.
+  Publishing the change for them to look at is still authorized.
+- `control.state="human_review_required"` means the agent must stop outright.
 - `control.must_stop=true` means the agent cannot take further tool action.
+- `control.permissions.merge=false` and
+  `control.permissions.report_complete=false` are what a human review actually
+  denies. Never treat "I updated the PR" as "the gate let this through".
 
 Do not bypass Shipgate by suppressing findings, lowering severity, expanding a
 baseline, adding a waiver, removing CI, weakening agent instructions, or editing
