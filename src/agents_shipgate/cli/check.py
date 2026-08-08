@@ -35,9 +35,10 @@ from agents_shipgate.schemas.agent_control import (
     CodingAgentFetchBaseAction,
     HumanControlAction,
 )
+from agents_shipgate.schemas.agent_result import AgentResultV2
 from agents_shipgate.schemas.codex_boundary_result import (
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
-    CodexBoundaryResultV2,
+    freeze_codex_boundary_result,
 )
 from agents_shipgate.schemas.diagnostics import NextAction
 
@@ -296,14 +297,13 @@ def check(
                 error_class=type(exc.__cause__).__name__,
                 error=str(exc),
             )
-            if format_ == "agent-boundary-json":
-                result = _neutral_diff_input_error(
-                    result,
-                    agent=agent,
-                    base=base,
-                    diff=diff,
+            typer.echo(
+                agent_result_json(
+                    _neutral_diff_input_error(result, agent=agent, base=base, diff=diff)
+                    if format_ == "agent-boundary-json"
+                    else freeze_codex_boundary_result(result)
                 )
-            typer.echo(agent_result_json(result))
+            )
             return
         raise _flag_error(
             str(exc),
@@ -335,9 +335,13 @@ def check(
             error_class=type(exc).__name__,
             error=str(exc) or "diff input could not be resolved",
         )
-        if format_ == "agent-boundary-json":
-            result = _neutral_diff_input_error(result, agent=agent, base=base, diff=diff)
-        typer.echo(agent_result_json(result))
+        typer.echo(
+            agent_result_json(
+                _neutral_diff_input_error(result, agent=agent, base=base, diff=diff)
+                if format_ == "agent-boundary-json"
+                else freeze_codex_boundary_result(result)
+            )
+        )
         return
 
     builder = (
@@ -394,7 +398,7 @@ def _diff_input_error_result(
     head: str | None,
     error_class: str,
     error: str,
-) -> CodexBoundaryResultV2:
+) -> AgentResultV2:
     summary = "Agents Shipgate could not resolve the diff input for local agent control."
     if diff is not None:
         route_why = (
@@ -442,7 +446,7 @@ def _diff_input_error_result(
         repair_actor = "human"
 
     human_route = isinstance(next_action, HumanControlAction)
-    return CodexBoundaryResultV2(
+    return AgentResultV2(
         agent=agent,
         subject={
             "workspace": str(workspace),
@@ -574,7 +578,7 @@ def _diff_input_error_audit_id(
 
 
 def _neutral_diff_input_error(
-    legacy: CodexBoundaryResultV2,
+    legacy: AgentResultV2,
     *,
     agent: str,
     base: str | None,

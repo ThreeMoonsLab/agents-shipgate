@@ -62,7 +62,7 @@ from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
 )
-from agents_shipgate.schemas.agent_result import AgentResultPendingReviewItem
+from agents_shipgate.schemas.agent_result import AgentResultPendingReviewItem, AgentResultV2
 from agents_shipgate.schemas.codex_boundary_result import (
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
 )
@@ -83,9 +83,6 @@ from agents_shipgate.schemas.codex_boundary_result import (
 )
 from agents_shipgate.schemas.codex_boundary_result import (
     CodexBoundaryRepair as AgentResultRepair,
-)
-from agents_shipgate.schemas.codex_boundary_result import (
-    CodexBoundaryResultV2 as AgentResultV2,
 )
 from agents_shipgate.schemas.codex_boundary_result import (
     CodexBoundaryRiskLevel as AgentResultRiskLevel,
@@ -893,6 +890,13 @@ def _control_for_result(
     verify_command = verify_command or _VERIFY_COMMAND
     detect_command = detect_command or _DETECT_COMMAND
 
+    # One fact for every route below. The boundary read a real diff, but that
+    # only counts as an evaluated subject when it is bound to a checkout verify
+    # can reconstruct and the evaluator resolved everything it looked at.
+    subject_evaluated = verification_replayable and boundary_assessment_is_evidence_backed(
+        violations
+    )
+
     # The three routes below share one property: Shipgate could not bind the
     # subject it was asked about — an unreplayable ref range, a detached diff,
     # an undeclared surface with no discovery route. There is no trustworthy
@@ -965,6 +969,7 @@ def _control_for_result(
                 ),
             ),
             verify_required=True,
+            publication_allowed=subject_evaluated,
             allowed_next_commands=[command],
         )
 
@@ -985,6 +990,7 @@ def _control_for_result(
                 ),
             ),
             verify_required=True,
+            publication_allowed=subject_evaluated,
             allowed_next_commands=[verify_command],
         )
 
@@ -996,11 +1002,7 @@ def _control_for_result(
         # ``require_review`` owes none. Without it a caller-supplied diff — the
         # MCP entrypoint marks every one unreplayable — would be handed publish
         # authority plus a rerun command that cannot reconstruct its subject.
-        if (
-            decision == "require_review"
-            and verification_replayable
-            and boundary_assessment_is_evidence_backed(violations)
-        ):
+        if decision == "require_review" and subject_evaluated:
             return derive_agent_control(
                 reason=summary,
                 next_action=HumanControlAction(kind="review", why=why),
@@ -1040,6 +1042,7 @@ def _control_for_result(
                 why=first_next_action.why or summary,
             ),
             verify_required=True,
+            publication_allowed=subject_evaluated,
             allowed_next_commands=[command],
         )
 
@@ -1068,6 +1071,7 @@ def _control_for_result(
                 why=why,
             ),
             verify_required=True,
+            publication_allowed=subject_evaluated,
             allowed_next_commands=[command],
         )
 

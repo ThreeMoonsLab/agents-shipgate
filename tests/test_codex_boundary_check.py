@@ -6,9 +6,10 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
+from pydantic import TypeAdapter
 from typer.testing import CliRunner
 
-from agents_shipgate.cli.agent_result import agent_result_json_payload
+from agents_shipgate.cli.agent_result import agent_result_json_payload, build_agent_boundary_result
 from agents_shipgate.cli.agent_result import (
     build_codex_agent_result as _build_codex_agent_result,
 )
@@ -17,6 +18,11 @@ from agents_shipgate.core.codex_boundary import (
     evaluate_codex_boundary_result as _evaluate_codex_boundary_result,
 )
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
+from agents_shipgate.schemas.agent_result import AgentResultV2
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryResultV2,
+    freeze_codex_boundary_result,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus" / "codex_boundary"
@@ -215,7 +221,7 @@ def test_declared_tool_surface_change_warns_and_routes_to_verify(tmp_path: Path)
         agent="claude-code",
         capability_surfaces_changed=["mcp-tools.json"],
     )
-    payload = agent_result_json_payload(result)
+    payload = agent_result_json_payload(freeze_codex_boundary_result(result))
     _validate(payload)
     # Was a bare allow before the fix; now a warn that defers to verify.
     assert payload["decision"] == "warn"
@@ -830,7 +836,7 @@ def test_undeclared_surface_warns_and_routes_to_detect_when_manifest_present(
         undeclared_capability_surfaces=["mcp-tools.json"],
         manifest_present=True,
     )
-    payload = agent_result_json_payload(result)
+    payload = agent_result_json_payload(freeze_codex_boundary_result(result))
     _validate(payload)
     # Was a bare allow before the fix; now a warn that routes to detect so the
     # agent gets suggested_sources before editing shipgate.yaml.
@@ -972,7 +978,20 @@ def test_manifest_edit_is_not_an_undeclared_tool_surface(tmp_path: Path) -> None
         policy=None,
     )
     assert result.decision == "require_review"
-    assert result.control.state == "review_publishable"
+    # The frozen contract renders the publishable review as the total stop it
+    # published before contract 20; the current format keeps the real state.
+    assert result.control.state == "human_review_required"
+    assert (
+        build_agent_boundary_result(
+            agent="claude-code",
+            workspace=tmp_path,
+            diff_text=diff,
+            config=Path("shipgate.yaml"),
+            policy=None,
+            input_mode="worktree",
+        ).control.state
+        == "review_publishable"
+    )
     assert [item.check_id for item in result.violated_rules] == [
         "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
     ]
@@ -1643,7 +1662,7 @@ def test_frozen_v2_shape_holds_on_every_serialization_path(tmp_path: Path) -> No
         "--- a/.codex/config.toml\n+++ b/.codex/config.toml\n"
         "@@ -1,1 +1,2 @@\n model = \"safe\"\n+sandbox_mode = \"danger-full-access\"\n"
     )
-    result = build_codex_agent_result(
+    kwargs = dict(
         agent="codex",
         workspace=tmp_path,
         diff_text=diff,
@@ -1652,12 +1671,19 @@ def test_frozen_v2_shape_holds_on_every_serialization_path(tmp_path: Path) -> No
         verification_replayable=True,
     )
     # The evaluated, bound subject really is publishable on the current format.
-    assert result.control.state == "review_publishable"
+    current = build_agent_boundary_result(**kwargs)  # type: ignore[arg-type]
+    assert current.control.state == "review_publishable"
+    assert current.control.permissions.update_pr is True
 
+    frozen = build_codex_agent_result(**kwargs)  # type: ignore[arg-type]
+    # A base-typed dump cannot reach the current union either: the frozen model
+    # does not inherit from it, so there is no subclass to serialize through.
+    assert not isinstance(frozen, AgentResultV2)
     for payload in (
-        json.loads(result.model_dump_json()),
-        result.model_dump(mode="json"),
-        agent_result_json_payload(result),
+        json.loads(frozen.model_dump_json()),
+        frozen.model_dump(mode="json"),
+        TypeAdapter(CodexBoundaryResultV2).dump_python(frozen, mode="json"),
+        agent_result_json_payload(frozen),
     ):
         _validate(payload)
         control = payload["control"]

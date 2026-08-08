@@ -495,7 +495,7 @@
     },
     "NoAgentPermissions": {
       "additionalProperties": false,
-      "description": "None of the six pull-request actions is authorized.\n\nTwo different states carry this vector, for the same underlying reason \u2014\nShipgate has no assessment it is willing to stand behind.\n``human_review_required`` additionally ends the turn.  An\n``agent_action_required`` route whose subject was never evaluated\n(``fetch_base``, ``install``) does not end the turn, but the only thing it\nauthorizes is the named ``next_action``: there is no diff yet, so there is\nnothing to publish and no basis for saying publishing it is safe.",
+      "description": "None of the six pull-request actions is authorized.\n\nTwo different states carry this vector, for the same underlying reason \u2014\nShipgate has no assessment it is willing to stand behind.\n``human_review_required`` additionally ends the turn.  An\n``agent_action_required`` route whose subject was never evaluated does not\nend the turn, but the only thing it authorizes is the named\n``next_action``: there is no evaluated change yet, so there is nothing to\npublish and no basis for saying publishing it is safe.",
       "properties": {
         "commit": {
           "const": false,
@@ -1139,6 +1139,29 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
+    {
+      "properties": {
+        "control": {
+          "properties": {
+            "permissions": {
+              "properties": {
+                "update_pr": {
+                  "const": false
+                }
+              },
+              "required": [
+                "update_pr"
+              ]
+            },
+            "state": {
+              "not": {
+                "const": "review_publishable"
+              }
+            }
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {

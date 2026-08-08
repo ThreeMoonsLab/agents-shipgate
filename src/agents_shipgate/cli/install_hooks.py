@@ -957,6 +957,23 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
     )
 
 
+_PUBLISH_ONLY_PERMISSIONS: dict[str, bool] = {
+    "edit": True,
+    "commit": True,
+    "push": True,
+    "update_pr": True,
+    "merge": False,
+    "report_complete": False,
+}
+
+
+def _authorizes_publication(control: dict[str, Any]) -> bool:
+    """Exact-match the publish-only vector; anything else authorizes nothing."""
+
+    permissions = control.get("permissions")
+    return isinstance(permissions, dict) and permissions == _PUBLISH_ONLY_PERMISSIONS
+
+
 def _route_verify_result(
     verifier: dict[str, Any],
     *,
@@ -1032,6 +1049,21 @@ def _route_verify_result(
         # plainly that committing, pushing, and updating the PR remain
         # authorized, because the whole point of this state is that a human
         # cannot review what was never published.
+        #
+        # The state alone is not enough to say that. This is a raw-JSON
+        # consumer, so a malformed payload could carry the state with no
+        # permission vector at all; announcing publication off the tag would
+        # hand out authority the producer never granted. Require the exact
+        # publish-only six before caching or saying anything.
+        if not _authorizes_publication(control):
+            return _emit_context(
+                "Stop",
+                "Agents Shipgate verify returned control.state='review_publishable' "
+                "without the exact publish-only permission vector. Do not treat "
+                "this as authorization to commit, push, or update the pull "
+                "request; read `agents-shipgate-reports/report.json` and treat "
+                "the malformed result as requiring human review.",
+            )
         _write_verified_signature(root, signature)
         human_review = control.get("human_review")
         why = (

@@ -512,23 +512,40 @@ class VerifierArtifact(BaseModel):
                     },
                 },
                 {
+                    # Keyed on the permission vector, not on the state: an
+                    # agent repair route asserts exactly the same thing about
+                    # the change as a publishable review does. The four
+                    # progress booleans are Literal-pinned to move together, so
+                    # testing one is testing all four.
                     "if": {
                         "properties": {
                             "control": {
-                                "properties": {"state": {"const": "review_publishable"}},
-                                "required": ["state"],
+                                "properties": {
+                                    "completion_allowed": {"const": False},
+                                    "permissions": {
+                                        "properties": {"update_pr": {"const": True}},
+                                        "required": ["update_pr"],
+                                    },
+                                },
+                                "required": ["completion_allowed", "permissions"],
                             }
                         },
                         "required": ["control"],
                     },
                     "then": {
-                        "required": ["execution", "release_decision", "decision"],
+                        "required": ["execution", "diff_status", "release_decision"],
                         "properties": {
                             "execution": {"const": "succeeded"},
-                            "release_decision": {"type": "object"},
-                            "decision": {
-                                "type": "string",
-                                "not": {"const": "blocked"},
+                            "diff_status": {
+                                "properties": {"completeness": {"const": "complete"}},
+                                "required": ["completeness"],
+                            },
+                            "release_decision": {
+                                "type": "object",
+                                "properties": {
+                                    "decision": {"type": "string", "not": {"const": "blocked"}}
+                                },
+                                "required": ["decision"],
                             },
                         },
                     },
@@ -917,20 +934,6 @@ class VerifierArtifact(BaseModel):
             ):
                 raise ValueError("human control requires a human-owned, non-safe fix task")
             if self.control.state == "review_publishable":
-                # Publication is a claim about an evaluated change. The control
-                # variant alone cannot check that, so bind it to the substrate
-                # here: a run that did not complete, produced no release
-                # decision, or was blocked has nothing reviewable to publish.
-                if self.execution != "succeeded":
-                    raise ValueError(
-                        "a publishable review requires execution='succeeded'"
-                    )
-                if self.release_decision is None:
-                    raise ValueError(
-                        "a publishable review requires a release decision substrate"
-                    )
-                if self.release_decision.decision == "blocked":
-                    raise ValueError("a blocked release decision cannot authorize publication")
                 # Publishing evidence is authority over the pull request, not
                 # over Shipgate: the only command a review route may authorize
                 # is the exact rerun that regenerates this same evidence.
@@ -941,8 +944,38 @@ class VerifierArtifact(BaseModel):
                         "a publishable review may authorize only the exact fix-task "
                         "rerun command"
                     )
+        self._assert_publication_rests_on_an_evaluated_change()
         self._assert_passed_substrate_is_consistent()
         return self
+
+    def _assert_publication_rests_on_an_evaluated_change(self) -> None:
+        """Bind progress authority to the substrate, on every state.
+
+        The control variant cannot see ``execution``, ``diff_status``, or the
+        release decision, so this is the only layer that can tell whether the
+        change being published was read at all. Keyed on ``permissions``, not
+        on ``state``: an ``agent_action_required`` repair route asserts exactly
+        the same thing about the change as a publishable review does.
+
+        ``complete`` is excluded because it is governed by the stricter
+        ``can_merge_without_human`` projection above — that is the one state
+        where a deterministic *not-applicable* skip legitimately authorizes
+        everything without a release decision.
+        """
+
+        if self.control.completion_allowed or not self.control.permissions.publishes:
+            return
+        if self.execution != "succeeded":
+            raise ValueError("publication authority requires execution='succeeded'")
+        if self.diff_status.completeness != "complete":
+            raise ValueError(
+                "publication authority requires a completely read diff "
+                f"(diff_status.completeness={self.diff_status.completeness!r})"
+            )
+        if self.release_decision is None:
+            raise ValueError("publication authority requires a release decision substrate")
+        if self.release_decision.decision == "blocked":
+            raise ValueError("a blocked release decision cannot authorize publication")
 
     def _assert_passed_substrate_is_consistent(self) -> None:
         if self.decision != "passed" or self.release_decision is None:

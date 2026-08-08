@@ -16,7 +16,7 @@ from agents_shipgate.cli.verify.orchestrator import (
     _self_approval_note,
     _verifier_headline,
 )
-from agents_shipgate.schemas.verifier import VerifierCapabilityReview
+from agents_shipgate.schemas.verifier import VerifierCapabilityReview, VerifierDiffStatus
 
 
 def _cr(**kwargs) -> VerifierCapabilityReview:
@@ -65,6 +65,7 @@ def test_human_review_why_leads_with_self_approval_note() -> None:
         first_next_action_override=None,
         base_status="not_requested",
         base_ref=None,
+        diff_status=VerifierDiffStatus(completeness="complete"),
     )
     assert control.state == "human_review_required"
     assert control.human_review.required is True
@@ -134,6 +135,7 @@ def test_clean_mergeable_still_merges_and_keeps_safe_action() -> None:
         first_next_action_override=None,
         base_status="skipped",
         base_ref=None,
+        diff_status=VerifierDiffStatus(completeness="complete"),
     )
     assert control.state == "complete"
     assert control.next_action is None

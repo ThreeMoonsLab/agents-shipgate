@@ -73,13 +73,13 @@ from agents_shipgate.schemas.agent_boundary import (
     AgentBoundaryResultV1,
     BoundaryHostCoverage,
 )
+from agents_shipgate.schemas.agent_result import AgentResultV2
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
     AgentResultPolicy,
     AgentResultTraceEvent,
     AgentResultViolatedRule,
 )
-from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
 # The actor every pre-detection audit id implicitly described.
 _LEGACY_AUDIT_ACTOR = "codex"
@@ -104,7 +104,7 @@ class AgentBoundaryAssessment:
     issues: tuple[str, ...]
     completion_eligible: bool
     host_snapshot: HostBoundarySnapshot
-    legacy_result: CodexBoundaryResultV2
+    legacy_result: AgentResultV2
 
 
 @dataclass(frozen=True)
@@ -605,7 +605,7 @@ def _scan_workspace(*, config_path: Path, configured_manifest: Path) -> Path:
 
 def _project_legacy(
     *,
-    legacy: CodexBoundaryResultV2,
+    legacy: AgentResultV2,
     violations: list[AgentResultViolatedRule],
     diagnostics: list[AgentResultDiagnostic],
     policy_set: _PolicySet,
@@ -616,7 +616,7 @@ def _project_legacy(
     verification_replayable: bool = True,
     discovery_replayable: bool = True,
     diff_text: str = "",
-) -> CodexBoundaryResultV2:
+) -> AgentResultV2:
     needs_reprojection = violations != legacy.violated_rules or bool(policy_set.issues)
     if needs_reprojection:
         decision = _decision_for(violations, release_decision=release_decision)

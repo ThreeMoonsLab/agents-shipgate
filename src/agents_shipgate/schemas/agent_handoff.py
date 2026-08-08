@@ -220,8 +220,14 @@ class AgentHandoffArtifact(BaseModel):
                     "if": {
                         "properties": {
                             "control": {
-                                "properties": {"state": {"const": "review_publishable"}},
-                                "required": ["state"],
+                                "properties": {
+                                    "completion_allowed": {"const": False},
+                                    "permissions": {
+                                        "properties": {"update_pr": {"const": True}},
+                                        "required": ["update_pr"],
+                                    },
+                                },
+                                "required": ["completion_allowed", "permissions"],
                             }
                         },
                         "required": ["control"],
@@ -336,12 +342,13 @@ class AgentHandoffArtifact(BaseModel):
             raise ValueError("handoff control must exactly project gate merge authority")
         if self.control.state == "complete" and self.fix_task is not None:
             raise ValueError("complete handoff control cannot carry a pending fix task")
-        if self.control.state == "review_publishable":
-            # Same substrate binding as verifier and verify-run: publication is
-            # a claim about an evaluated, non-blocked change.
+        if not self.control.completion_allowed and self.control.permissions.publishes:
+            # Same substrate binding as verifier and verify-run, keyed on the
+            # permission vector: publication is a claim about an evaluated,
+            # non-blocked change whatever route carries it.
             if self.gate.applicability != "verified" or self.gate.decision is None:
                 raise ValueError(
-                    "a publishable review requires a verified handoff gate with a decision"
+                    "publication authority requires a verified handoff gate with a decision"
                 )
             if self.gate.decision == "blocked":
                 raise ValueError("a blocked handoff gate cannot authorize publication")

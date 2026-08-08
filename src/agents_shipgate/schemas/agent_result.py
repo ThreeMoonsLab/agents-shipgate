@@ -80,6 +80,26 @@ class AgentResultV2(BaseModel):
                 {
                     "if": {
                         "properties": {
+                            "control": {
+                                "properties": {
+                                    "completion_allowed": {"const": False},
+                                    "permissions": {
+                                        "properties": {"update_pr": {"const": True}},
+                                        "required": ["update_pr"],
+                                    },
+                                },
+                                "required": ["completion_allowed", "permissions"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "properties": {"decision": {"not": {"const": "block"}}},
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
                             "repair": {
                                 "properties": {"safe_to_attempt": {"const": True}},
                                 "required": ["safe_to_attempt"],
@@ -147,6 +167,16 @@ class AgentResultV2(BaseModel):
                 "an agent-safe repair requires control.state='agent_action_required' "
                 "with next_action.kind='repair'"
             )
+        # Publishing asserts something about an evaluated change, so the
+        # aggregate decision has to be one Shipgate can stand behind. Keyed on
+        # the permission vector rather than the state: an agent repair route
+        # makes the same claim a publishable review does.
+        if (
+            not self.control.completion_allowed
+            and self.control.permissions.publishes
+            and self.decision == "block"
+        ):
+            raise ValueError("a blocked result cannot authorize publication")
         return self
 
 

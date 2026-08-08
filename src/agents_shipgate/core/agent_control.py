@@ -22,6 +22,7 @@ from agents_shipgate.schemas.agent_control import (
     HumanControlAction,
     HumanReviewAction,
     HumanReviewRequiredControl,
+    NoAgentPermissions,
     NoHumanReview,
     PublishOnlyPermissions,
     RequiredHumanReview,
@@ -55,13 +56,18 @@ def derive_agent_control(
     actionable; otherwise pending verification without a route is an internal
     consistency error; and only an obligation-free result is complete.
 
-    A human route then splits on one further fact.  ``publication_allowed``
-    asserts that Shipgate *evaluated* the change and the sole outstanding
-    obligation is human judgement, so the agent may still publish the evidence
-    that judgement needs (``review_publishable``).  It defaults to ``False``,
-    which keeps the fail-closed stop for the cases that motivate one — a policy
-    block, unreadable or unbindable input, or an evaluation that did not
-    complete — because nothing trustworthy exists to publish.
+``publication_allowed`` is one fact, asserted by the caller, meaning "this
+    result rests on a change Shipgate actually read and can stand behind".  It
+    governs the ``permissions`` vector on *every* route, not only human ones,
+    and it defaults to ``False`` so a caller that has not thought about it
+    authorizes nothing.
+
+    It is deliberately not inferred from ``next_action.kind``.  A kind
+    allowlist is a heuristic, and a wrong one grants publication for a change
+    that was never read: ``verify`` stopping at a missing manifest emits a
+    ``configure`` route with ``execution=failed`` and no diff, which any
+    plausible allowlist would have treated as evaluated.  On a human route the
+    same fact additionally selects ``review_publishable`` over the total stop.
 
     ``completion_allowed``, ``must_stop``, and ``permissions`` are not inputs.
     They are fixed by the selected union variant and therefore cannot drift
@@ -70,12 +76,6 @@ def derive_agent_control(
 
     action = _validate_action(next_action)
     needs_human = human_review_required or unsafe_block or isinstance(action, HumanControlAction)
-
-    if publication_allowed and not needs_human:
-        raise AgentControlConsistencyError(
-            "publication_allowed describes a human review route and cannot be "
-            "asserted for a coding-agent or complete result"
-        )
 
     if needs_human:
         if action is not None and not isinstance(action, HumanControlAction):
@@ -143,9 +143,9 @@ def derive_agent_control(
             verify_required=verify_required or action_requires_verify,
             next_action=action,
             allowed_next_commands=commands,
-            # ``permissions`` is derived from the route by the variant itself:
-            # a ``fetch_base`` or ``install`` step runs before any diff was
-            # read, so it authorizes only its own next action.
+            permissions=(
+                PublishOnlyPermissions() if publication_allowed else NoAgentPermissions()
+            ),
             human_review=NoHumanReview(),
         )
 

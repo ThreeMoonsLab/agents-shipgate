@@ -44,6 +44,20 @@ DEFAULT_MCP_POLICY_PATH = Path("policies/mcp-permissions.shipgate.yaml")
 
 mcp_app = typer.Typer(help="Audit MCP capability and permission changes.")
 
+# Warnings that do not mean unread input. Everything else — a surface that
+# would not parse, a requested policy that is missing or unloadable, a changed
+# source the run could not resolve — leaves part of the audited subject
+# unknown, so it is an allowlist rather than a denylist: a warning code added
+# later defaults to "the audit did not read everything".
+_COMPLETE_INPUT_DIAGNOSTICS: frozenset[str] = frozenset(
+    {
+        # The policy parsed; one field was out of range and the documented
+        # fallback applied, with every other rule intact.
+        "mcp_policy_unknown_rule",
+        "mcp_policy_invalid_action",
+        "mcp_policy_invalid_risk_level",
+    }
+)
 _DECISION_RANK = {"allow": 0, "warn": 1, "require_review": 2, "block": 3}
 _RISK_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 _RULES: dict[str, dict[str, str]] = {
@@ -365,6 +379,14 @@ def build_mcp_audit(
         "violated_rules": violations,
         "diagnostics": [diag.model_dump(mode="json", exclude_none=True) for diag in diagnostics],
     }
+    # A first-class result, not a denylist over diagnostic codes: whether the
+    # audit read everything it was pointed at is a property of the run, and a
+    # code-matching heuristic silently reopens every time a new warning is
+    # added. Any unresolved source or policy makes the assessment partial.
+    payload["input_complete"] = not any(
+        diag.level in {"warning", "error"} and diag.code not in _COMPLETE_INPUT_DIAGNOSTICS
+        for diag in diagnostics
+    )
     return payload
 
 
@@ -615,32 +637,10 @@ def _violation(
     }
 
 
-# Diagnostics that mean the audit did not actually read what it was asked to
-# judge: an audited MCP surface that would not parse, or an explicit policy the
-# run could not load at all and silently replaced with packaged defaults.
-# ``mcp_policy_missing`` is deliberately absent — no explicit policy is the
-# ordinary zero-config path, not unread input — as are the field-level
-# "ignoring invalid X" codes, where the policy parsed and every other rule
-# applied.
-_MCP_UNREAD_INPUT_CODES: frozenset[str] = frozenset(
-    {
-        "mcp_toml_parse_failed",
-        "mcp_json_parse_failed",
-        "mcp_policy_parse_failed",
-    }
-)
-
-
 def _mcp_audit_read_every_input(audit: dict[str, Any]) -> bool:
     """Whether the audit parsed every surface and policy it was pointed at."""
 
-    diagnostics = audit.get("diagnostics")
-    if not isinstance(diagnostics, list):
-        return False
-    return not any(
-        isinstance(item, dict) and item.get("code") in _MCP_UNREAD_INPUT_CODES
-        for item in diagnostics
-    )
+    return audit.get("input_complete") is True
 
 
 def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:

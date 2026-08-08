@@ -1370,7 +1370,7 @@
     },
     "NoAgentPermissions": {
       "additionalProperties": false,
-      "description": "None of the six pull-request actions is authorized.\n\nTwo different states carry this vector, for the same underlying reason \u2014\nShipgate has no assessment it is willing to stand behind.\n``human_review_required`` additionally ends the turn.  An\n``agent_action_required`` route whose subject was never evaluated\n(``fetch_base``, ``install``) does not end the turn, but the only thing it\nauthorizes is the named ``next_action``: there is no diff yet, so there is\nnothing to publish and no basis for saying publishing it is safe.",
+      "description": "None of the six pull-request actions is authorized.\n\nTwo different states carry this vector, for the same underlying reason \u2014\nShipgate has no assessment it is willing to stand behind.\n``human_review_required`` additionally ends the turn.  An\n``agent_action_required`` route whose subject was never evaluated does not\nend the turn, but the only thing it authorizes is the named\n``next_action``: there is no evaluated change yet, so there is nothing to\npublish and no basis for saying publishing it is safe.",
       "properties": {
         "commit": {
           "const": false,
@@ -2618,12 +2618,23 @@
         "properties": {
           "control": {
             "properties": {
-              "state": {
-                "const": "review_publishable"
+              "completion_allowed": {
+                "const": false
+              },
+              "permissions": {
+                "properties": {
+                  "update_pr": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "update_pr"
+                ]
               }
             },
             "required": [
-              "state"
+              "completion_allowed",
+              "permissions"
             ]
           }
         },
@@ -2633,23 +2644,38 @@
       },
       "then": {
         "properties": {
-          "decision": {
-            "not": {
-              "const": "blocked"
+          "diff_status": {
+            "properties": {
+              "completeness": {
+                "const": "complete"
+              }
             },
-            "type": "string"
+            "required": [
+              "completeness"
+            ]
           },
           "execution": {
             "const": "succeeded"
           },
           "release_decision": {
+            "properties": {
+              "decision": {
+                "not": {
+                  "const": "blocked"
+                },
+                "type": "string"
+              }
+            },
+            "required": [
+              "decision"
+            ],
             "type": "object"
           }
         },
         "required": [
           "execution",
-          "release_decision",
-          "decision"
+          "diff_status",
+          "release_decision"
         ]
       }
     },

@@ -35,6 +35,7 @@ from agents_shipgate.schemas.report import (
 )
 from agents_shipgate.schemas.verifier import (
     VerifierCapabilityReview,
+    VerifierDiffStatus,
     VerifierFixTask,
     map_merge_verdict,
 )
@@ -174,6 +175,7 @@ def _control_for_task(task: VerifierFixTask, *, merge_verdict: str):
         first_next_action_override=None,
         base_status="succeeded",
         base_ref="origin/main",
+        diff_status=VerifierDiffStatus(completeness="complete"),
     )
 
 

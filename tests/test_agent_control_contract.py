@@ -40,6 +40,21 @@ def _agent_action() -> dict[str, object]:
             why="Verify the current diff.",
         ),
         verify_required=True,
+        publication_allowed=True,
+    ).model_dump(mode="json")
+
+
+def _unevaluated_agent_action() -> dict[str, object]:
+    """An agent route whose caller did not assert an evaluated subject."""
+
+    return derive_agent_control(
+        reason="Shipgate stopped before reading a diff.",
+        next_action=CodingAgentCommandAction(
+            kind="configure",
+            command=VERIFY,
+            why="Point --config at the intended manifest, then rerun.",
+        ),
+        verify_required=True,
     ).model_dump(mode="json")
 
 
@@ -444,7 +459,11 @@ def test_permissions_are_fixed_by_the_state_not_set_independently() -> None:
     }
     assert _agent_action()["permissions"] == progress
     assert _review_publishable()["permissions"] == progress
-    assert _human()["permissions"] == dict.fromkeys(progress, False)
+    none_of_it = dict.fromkeys(progress, False)
+    assert _human()["permissions"] == none_of_it
+    # An agent route whose subject was never evaluated authorizes only its own
+    # next action, so it carries the same vector without stopping the turn.
+    assert _unevaluated_agent_action()["permissions"] == none_of_it
 
 
 @pytest.mark.parametrize(
@@ -513,9 +532,7 @@ def test_the_four_transitions_are_distinct_control_states() -> None:
     assert repair.next_action.actor == "coding_agent"
 
 
-def test_publication_requires_an_evaluated_human_route() -> None:
-    with pytest.raises(AgentControlConsistencyError):
-        derive_agent_control(reason="Nothing to review.", publication_allowed=True)
+def test_publication_cannot_be_asserted_alongside_an_unsafe_block() -> None:
     with pytest.raises(AgentControlConsistencyError):
         derive_agent_control(
             reason="Blocked.",
@@ -612,8 +629,28 @@ def test_published_vocabulary_matches_the_model() -> None:
 # --- Review findings: publication needs an evaluated, bound subject ---------
 
 
-def test_unevaluated_agent_routes_never_advertise_publication() -> None:
-    """`fetch_base` / `install` run before any diff was read."""
+def test_publication_is_an_asserted_fact_not_an_inferred_action_kind() -> None:
+    """A kind allowlist is a heuristic, and a wrong one grants publication.
+
+    `verify` stopping at a missing manifest emits a `configure` route with
+    `execution=failed` and no diff read at all — a shape any plausible
+    allowlist would have called evaluated. Callers assert the fact instead, and
+    the default is that they have not.
+    """
+
+    for kind in ("configure", "verify", "repair", "discover", "rerun", "install"):
+        unasserted = derive_agent_control(
+            reason="Shipgate has not read a diff.",
+            next_action=CodingAgentCommandAction(kind=kind, command=VERIFY, why="w"),
+        )
+        assert unasserted.permissions.publishes is False, kind
+        asserted = derive_agent_control(
+            reason="The change was evaluated.",
+            next_action=CodingAgentCommandAction(kind=kind, command=VERIFY, why="w"),
+            publication_allowed=True,
+        )
+        assert asserted.permissions.publishes is True, kind
+        assert asserted.permissions.merge is False, kind
 
     fetch = derive_agent_control(
         reason="The requested base ref is unavailable.",
@@ -622,42 +659,8 @@ def test_unevaluated_agent_routes_never_advertise_publication() -> None:
         ),
         verify_required=True,
     )
-    assert fetch.state == "agent_action_required"
+    assert fetch.permissions.publishes is False
     assert fetch.must_stop is False
-    assert fetch.permissions.model_dump() == dict.fromkeys(
-        ("edit", "commit", "push", "update_pr", "merge", "report_complete"), False
-    )
-
-    install = derive_agent_control(
-        reason="The Shipgate CLI is missing.",
-        next_action=CodingAgentCommandAction(
-            kind="install", command="pipx install agents-shipgate", why="Restore the gate."
-        ),
-    )
-    assert install.permissions.publishes is False
-
-    # An evaluated route keeps the progress authority its instruction needs.
-    assert validate_agent_control(_agent_action()).permissions.publishes is True
-
-
-def test_an_unevaluated_route_cannot_be_handed_publication_authority() -> None:
-    payload = derive_agent_control(
-        reason="The requested base ref is unavailable.",
-        next_action=CodingAgentFetchBaseAction(
-            kind="fetch_base", expects="origin/main", why="Make the base available."
-        ),
-        verify_required=True,
-    ).model_dump(mode="json")
-    payload["permissions"] = {
-        "edit": True,
-        "commit": True,
-        "push": True,
-        "update_pr": True,
-        "merge": False,
-        "report_complete": False,
-    }
-    with pytest.raises(ValidationError):
-        AGENT_CONTROL_ADAPTER.validate_python(payload)
 
 
 def test_must_stop_implies_nothing_is_authorized() -> None:
