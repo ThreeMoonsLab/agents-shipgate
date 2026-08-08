@@ -61,6 +61,7 @@ from agents_shipgate.core.verification_identity import (
 )
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.current_control import RECEIPT_ARTIFACT_KEY
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification_identity import (
@@ -673,17 +674,24 @@ def assemble(
     # The pointer is the last file the assembler makes visible, for the same
     # reason it is last in `verify`: every artifact it binds now exists and has
     # been hashed in its final form.
+    #
+    # `--out` accepts any name beneath the artifacts root, so the receipt this
+    # run closed is not necessarily at the canonical path. Bind the one that was
+    # actually emitted: binding the canonical path instead would either miss
+    # this run's receipt entirely or bind an older run's.
+    receipt_path = out.resolve().relative_to(resolved_artifact_root).as_posix()
     publish_current_control(
         resolved_artifact_root,
         operation="verify",
         control=project_agent_control(
             verifier.control,
             operation="verify",
-            receipt_bound=(resolved_artifact_root / "verification-receipt.json").is_file(),
+            receipt_bound=out.is_file(),
         ),
         request_id=plan.request_id,
         decision_id=expected_decision_id,
         workspace_identity=workspace_identity_from_plan(plan),
+        artifact_paths={RECEIPT_ARTIFACT_KEY: receipt_path},
     )
     typer.echo(json.dumps({"receipt_id": receipt.receipt_id, "receipt": str(out)}))
 

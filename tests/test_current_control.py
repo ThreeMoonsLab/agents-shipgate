@@ -224,6 +224,57 @@ def test_completion_is_refused_when_the_workspace_cannot_be_checked(repo: Path) 
     assert raised.value.reason == "workspace_unverified"
 
 
+def test_a_local_run_with_a_base_stays_current_on_a_clean_tree(repo: Path) -> None:
+    """Stale denial: the canonical local flow must not refuse itself.
+
+    `verify` without `--head` carries the union of `base...HEAD` and the
+    worktree in `plan.inputs.changed_paths`, so that set is not the uncommitted
+    set. Comparing them for equality refused a clean workspace the instant the
+    run that produced it finished -- the exact failure direction this pointer
+    exists to prevent.
+    """
+
+    _git(repo, "checkout", "-b", "feature")
+    tools = repo / "tools.json"
+    tools.write_text(tools.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "a committed change on the branch")
+
+    _verify(repo, base="main", archive_head=False)
+    reports = repo / "agents-shipgate-reports"
+    plan = json.loads((reports / "verification-plan.json").read_text(encoding="utf-8"))
+    # The committed change is in the plan's set; the working tree is clean.
+    assert plan["subject"]["git"]["snapshot_kind"] == "worktree_overlay"
+    assert plan["inputs"]["changed_paths"]
+    live = _live(repo)
+    assert live.changed_paths == ()
+
+    assert read_current_control(reports, live=live).pointer.lifecycle_state == "terminal"
+
+
+def test_committed_tree_completion_cannot_survive_a_new_uncommitted_file(
+    repo: Path,
+) -> None:
+    """A committed-tree decision stops at HEAD; later working changes are new.
+
+    An untracked tool file added beside a clean `complete` is exactly the
+    capability change an archived-commit run could not have covered.
+    """
+
+    completed, _, _ = _verify(repo)
+    assert completed.control.state == "complete"
+    reports = repo / "agents-shipgate-reports"
+    pointer = read_current_control(reports, live=_live(repo)).pointer
+    assert pointer.workspace_identity.snapshot_kind == "committed_tree"
+    assert pointer.control.completion_allowed is True
+
+    (repo / "extra-tools.json").write_text('{"tools": []}\n', encoding="utf-8")
+
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=_live(repo))
+    assert raised.value.reason == "workspace_changed"
+
+
 def test_an_interrupted_run_leaves_no_decision_current(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -321,11 +372,13 @@ def test_a_scan_binds_only_the_formats_it_wrote(repo: Path) -> None:
     assert current.request_id is None
 
 
-def test_assembly_refuses_completion_when_it_binds_another_request(repo: Path) -> None:
-    """`assemble --out` accepts any name, so the canonical receipt may be stale.
+def test_assembly_binds_the_receipt_it_emitted(repo: Path) -> None:
+    """`assemble --out` accepts any name, so the canonical path may be stale.
 
-    The bound receipt has to close the same request and decision the pointer
-    records, or completion authority is refused.
+    The pointer has to bind the receipt this run actually closed. Binding the
+    canonical path instead would either miss it entirely -- leaving a valid
+    custom-output run unable to publish its own completion -- or bind an older
+    run's receipt beside a newer decision.
     """
 
     _verify(repo)
@@ -350,7 +403,7 @@ def test_assembly_refuses_completion_when_it_binds_another_request(repo: Path) -
         diff_path=reports / "verification-input.diff",
         out=unit,
     )
-    # The stale canonical receipt is what `publish_current_control` will bind.
+    # The canonical path now holds the previous run's receipt.
     (reports / "verification-receipt.json").write_text(stale_receipt, encoding="utf-8")
     assemble(
         plan_path=reports / "verification-plan.json",
@@ -362,9 +415,33 @@ def test_assembly_refuses_completion_when_it_binds_another_request(repo: Path) -
 
     published = _pointer(repo)
     assert published["request_id"] == fresh_request
-    assert published["control"]["state"] == "human_review_required"
-    assert published["control"]["completion_allowed"] is False
-    assert "different request" in published["control"]["reason"]
+    assert published["artifacts"]["verification_receipt"]["path"] == "custom-receipt.json"
+    assert published["control"]["state"] == "complete"
+    assert published["control"]["completion_allowed"] is True
+    assert json.loads((reports / "verification-receipt.json").read_text())["request_id"] == (
+        stale_request
+    )
+
+
+def test_completion_is_refused_when_the_bound_receipt_closes_another_request(
+    repo: Path,
+) -> None:
+    """The cross-check stands on its own, for producers that get it wrong."""
+
+    _verify(repo)
+    reports = repo / "agents-shipgate-reports"
+    receipt = json.loads((reports / "verification-receipt.json").read_text(encoding="utf-8"))
+
+    published = publish_current_control(
+        reports,
+        operation="verify",
+        control=CompleteCurrentControl(state="complete", reason="Release ready."),
+        request_id="sha256:" + "1" * 64,
+        decision_id=receipt["decision_id"],
+    )
+
+    assert published.control.state == "human_review_required"
+    assert "different request" in published.control.reason
 
 
 def test_a_preview_neither_completes_nor_binds_an_older_report(repo: Path) -> None:

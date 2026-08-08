@@ -31,11 +31,13 @@
   generation's pointer beside another's artifacts. And because byte consistency
   is not generation consistency — every bound artifact still hashes correctly
   one unrelated commit later — the read also compares the pointer's
-  `workspace_identity` against the live repository: repository, HEAD commit,
-  HEAD tree, and, for a worktree run, both the recomputed overlay and the
-  current set of uncommitted paths, since a file edited *after* the decision
-  appears in neither HEAD nor that overlay. Completion authority is never
-  returned without that comparison. Two invariants are structural rather than
+  `workspace_identity` against the live repository: repository, HEAD commit, and
+  HEAD tree. Uncommitted work is checked against what the decision actually
+  covered — a worktree decision must still hash to the overlay it committed to
+  *and* see no live change outside the set it recorded, while a committed-tree
+  decision, which stops at HEAD, has completion blocked by any uncommitted
+  change that appeared afterwards. Completion authority is never returned
+  without that comparison. Two invariants are structural rather than
   advisory: only an `operation: "verify"` pointer can carry
   `control.state: "complete"`, and only when it also binds a
   `verification_receipt` whose request and decision are the ones the pointer

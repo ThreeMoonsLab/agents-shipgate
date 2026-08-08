@@ -30,7 +30,7 @@ import hashlib
 import json
 import os
 import tempfile
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -61,6 +61,7 @@ from agents_shipgate.schemas.verification_identity import (
     VerificationPlan,
     VerificationReceipt,
     content_id,
+    validate_portable_path,
 )
 
 MAX_CURRENT_CONTROL_BYTES = 1024 * 1024
@@ -206,6 +207,7 @@ def publish_current_control(
     decision_id: str | None = None,
     workspace_identity: CurrentControlWorkspaceIdentity | None = None,
     artifact_keys: Collection[str] | None = None,
+    artifact_paths: Mapping[str, str] | None = None,
 ) -> CurrentControlPointer:
     """Bind the artifacts now on disk and publish the terminal pointer.
 
@@ -213,9 +215,16 @@ def publish_current_control(
     have produced.  Leaving it open would let a command bind a file an earlier,
     different run wrote, which is the mixed artifact set the pointer exists to
     make detectable.
+
+    ``artifact_paths`` overrides where a key lives, for producers that do not
+    write to the canonical filename — ``verification assemble --out`` accepts any
+    name beneath its artifacts root, and the pointer has to bind the receipt
+    that run actually emitted rather than whatever occupies the canonical path.
     """
 
-    artifacts = bind_current_control_artifacts(out_dir, artifact_keys=artifact_keys)
+    artifacts = bind_current_control_artifacts(
+        out_dir, artifact_keys=artifact_keys, artifact_paths=artifact_paths
+    )
     if control.state == "complete":
         # Defence in depth: the schema rejects a receipt-less completion too,
         # but downgrading here keeps a caller with an inconsistent view from
@@ -291,17 +300,26 @@ def bind_current_control_artifacts(
     out_dir: Path,
     *,
     artifact_keys: Collection[str] | None = None,
+    artifact_paths: Mapping[str, str] | None = None,
 ) -> dict[str, CurrentControlArtifactRef]:
     """Hash every selected artifact that exists as a regular file in ``out_dir``."""
 
+    filenames = dict(CURRENT_CONTROL_ARTIFACT_FILENAMES)
+    for key, filename in (artifact_paths or {}).items():
+        # A producer may relocate an artifact, never invent a new kind of one,
+        # and never point outside the directory the pointer describes.
+        if key not in filenames:
+            raise CurrentControlPublishError(
+                out_dir, f"unknown current control artifact key: {key!r}"
+            )
+        try:
+            filenames[key] = validate_portable_path(filename)
+        except ValueError as exc:
+            raise CurrentControlPublishError(out_dir / filename, str(exc)) from exc
     selected = (
-        CURRENT_CONTROL_ARTIFACT_FILENAMES
+        filenames
         if artifact_keys is None
-        else {
-            key: filename
-            for key, filename in CURRENT_CONTROL_ARTIFACT_FILENAMES.items()
-            if key in artifact_keys
-        }
+        else {key: filename for key, filename in filenames.items() if key in artifact_keys}
     )
     refs: dict[str, CurrentControlArtifactRef] = {}
     for key, filename in selected.items():
@@ -573,22 +591,34 @@ def _validate_control_currency(
             path=out_dir,
         )
     if identity.snapshot_kind == "worktree_overlay":
-        _validate_worktree_overlay(out_dir, pointer, live, required=grants_authority)
+        _validate_worktree_currency(out_dir, pointer, live, required=grants_authority)
+    elif grants_authority and identity.snapshot_kind == "committed_tree":
+        _require_clean_worktree(out_dir, live)
 
 
-def _validate_worktree_overlay(
+def _validate_worktree_currency(
     out_dir: Path,
     pointer: CurrentControlPointer,
     live: LiveWorkspace,
     *,
     required: bool,
 ) -> None:
-    """Recompute the overlay a worktree decision committed to.
+    """Confirm the working tree is still the one a worktree decision saw.
 
-    A worktree run's evidence is the uncommitted content of its changed files,
-    which HEAD says nothing about — editing one of them leaves both commit and
-    tree identical.  The overlay is recomputed from the same changed-path set
-    the plan recorded, using the same normalization the plan used.
+    Two things have to hold, and neither implies the other:
+
+    * every path the decision covered still has the content it had — recomputed
+      with the same normalization the plan used, because editing one of those
+      files leaves HEAD and its tree byte-identical; and
+    * nothing *outside* that set differs from HEAD now.  Everything outside it
+      was identical to HEAD when the decision was made — that is why it was not
+      in the change set — so a live path the plan never recorded is new
+      evidence the decision never saw.
+
+    The second is a subset test, not equality.  ``plan.inputs.changed_paths`` is
+    not the uncommitted set: a local run with a base carries the union of
+    ``base...HEAD`` and the worktree, so requiring equality would refuse a clean
+    workspace the instant the run that produced it finished.
     """
 
     ref = pointer.artifacts.get("verification_plan")
@@ -631,9 +661,6 @@ def _validate_worktree_overlay(
             ),
             path=out_dir,
         )
-    # The overlay only covers the paths that already differed from HEAD when the
-    # decision was made. A file edited afterwards leaves HEAD, the tree, and
-    # that overlay all identical, so the change *set* has to be compared too.
     if live.changed_paths is None:
         if required:
             raise CurrentControlUnavailable(
@@ -646,15 +673,56 @@ def _validate_worktree_overlay(
                 path=out_dir,
             )
         return
-    if set(live.changed_paths) != set(decided_paths):
+    unseen = sorted(set(live.changed_paths) - set(decided_paths))
+    if unseen:
         raise CurrentControlUnavailable(
             "workspace_changed",
+            _unseen_change_detail(unseen, "this decision never saw"),
+            path=out_dir,
+        )
+
+
+def _require_clean_worktree(out_dir: Path, live: LiveWorkspace) -> None:
+    """A committed-tree decision says nothing about uncommitted work.
+
+    ``verify --head <ref>`` evaluates an archived commit, so its evidence stops
+    at HEAD.  Completion authority from such a run must not survive uncommitted
+    changes that appeared afterwards — a new tool file added next to a clean
+    ``complete`` is exactly the capability change the decision could not have
+    covered.  Only completion is gated: a non-authorizing committed-tree pointer
+    stays readable, because re-running the same committed verification would
+    reproduce it and refusing would leave the caller with no route at all.
+    """
+
+    if live.changed_paths is None:
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
             (
-                "The set of uncommitted changes is no longer the one this "
-                "decision was made against. Re-run verification."
+                "This pointer authorizes completion of a committed-tree "
+                "verification, but the current set of uncommitted changes could "
+                "not be determined."
             ),
             path=out_dir,
         )
+    if live.changed_paths:
+        raise CurrentControlUnavailable(
+            "workspace_changed",
+            _unseen_change_detail(
+                sorted(live.changed_paths),
+                "this committed-tree decision could not have covered",
+            ),
+            path=out_dir,
+        )
+
+
+def _unseen_change_detail(paths: list[str], clause: str) -> str:
+    shown = ", ".join(paths[:3])
+    if len(paths) > 3:
+        shown += f", and {len(paths) - 3} more"
+    return (
+        f"The working tree carries {len(paths)} uncommitted change(s) {clause} "
+        f"({shown}). Re-run verification."
+    )
 
 
 def _validate_bound_artifacts(out_dir: Path, pointer: CurrentControlPointer) -> None:

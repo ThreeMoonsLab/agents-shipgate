@@ -128,10 +128,25 @@ no authority — not that the previous answer still stands.
 Byte consistency is not generation consistency. A pointer whose artifacts all
 still hash correctly can describe a workspace that one commit has moved past, so
 the reader compares the bound `workspace_identity` against the live repository —
-repository, HEAD commit, HEAD tree, and, for a worktree run, both the recomputed
-overlay and the current set of uncommitted paths — and refuses on any drift.
-Completion authority is never returned without that comparison: a reader that
-cannot resolve the workspace reports it as unverified rather than passing.
+repository, HEAD commit, and HEAD tree — and refuses on any drift. Completion
+authority is never returned without that comparison: a reader that cannot
+resolve the workspace reports it as unverified rather than passing.
+
+Uncommitted work is checked according to what the decision actually covered:
+
+- A **worktree** decision (`snapshot_kind: "worktree_overlay"`) is re-checked
+  two ways. Every path it covered must still hash to the overlay it committed
+  to, and no path *outside* that set may differ from HEAD now — anything outside
+  it was identical to HEAD when the decision was made, so a live change the plan
+  never recorded is evidence the decision never saw. That second test is a
+  subset test, not equality: `plan.inputs.changed_paths` is the union of
+  `base...HEAD` and the worktree, not the uncommitted set, so requiring equality
+  would refuse a clean workspace the moment the run that produced it finished.
+- A **committed-tree** decision (`snapshot_kind: "committed_tree"`) stops at
+  HEAD. Uncommitted changes appearing afterwards therefore block *completion*
+  but do not make the pointer unreadable — re-running the same committed
+  verification would reproduce it, so refusing the read outright would leave the
+  caller with no route at all.
 
 Given a current pointer, there are two correct "read first" paths; which one
 applies depends on who is reading. They are not two decisions — they are two
