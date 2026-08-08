@@ -146,6 +146,61 @@
   exact artifact path and recovery action in agent mode. `baseline save` keeps
   its supporting scan in a temporary directory, preserving both the current
   report and forensic verifier evidence.
+- **The trigger catalog now recognizes a Google ADK `tools=[...]` list, and
+  stops calling a bare package token a version bump.** A PR adding an ADK
+  sample whose root agent is `LlmAgent(name="support_agent", tools=[
+  lookup_account, delete_account])` — two directly reachable tools, one of
+  them destructive — routed as `skip_reason: "dry_run_only"`. The only rule
+  that fired was `TRIGGER-FRAMEWORK-VERSION-BUMP`, on a raw `google-adk`
+  string somewhere in the diff, and it reported the result as a framework
+  upgrade. Two separate defects sat behind that. The first was catalog
+  drift, not a missing capability: detection
+  (`GOOGLE_ADK_AGENT_CLASSES = {"Agent", "LlmAgent"}`), the ADK adapter, and
+  the binding graph all resolve this exact shape, and the same sample
+  reports every catalog tool reachable — `docs/triggers.json` was the one
+  component carrying no ADK rule at all. Plain functions handed to
+  `tools=[...]` carry no decorator, so `@function_tool` / `FunctionTool(`
+  never sees them, and the framework's most common agent spelling had no
+  positive route. `TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED` closes that: a
+  `tools=[...]` argument alongside either `LlmAgent(` — a class name no other
+  supported framework exports, so it identifies ADK by itself — or a
+  `google.adk` module path plus an `Agent(` construction. Both legs are
+  needed, and for a reason that is easy to get wrong: requiring the import
+  covers only whole-file additions, because the ordinary edit that adds one
+  tool to an existing agent shows the constructor and the list but leaves the
+  import far outside the hunk. `Agent(` stays gated behind the ADK token
+  because CrewAI builds `Agent(..., tools=[...])` too, and routing that under
+  a rule ID naming Google ADK would repeat the defect below. The residual
+  gap is a *modified* list on the `Agent` alias, which diff text alone cannot
+  attribute; it is documented in the rule and in AGENTS.md. The second defect
+  is the more general one
+  — the rule stated a conclusion its evidence could not support. Nothing
+  about the string `google-adk` establishes that a dependency version moved;
+  it comes just as easily from install prose or a sample import, which is
+  why a docs-only change could be classified as a framework upgrade.
+  `TRIGGER-FRAMEWORK-VERSION-BUMP` now requires both halves of its claim —
+  the package token *and* a changed dependency manifest — and its rationale
+  says what it observed (a co-occurrence) rather than what it inferred (an
+  upgrade). What is gone is the route where a README mentioning a framework
+  was reported as one. The manifest set is **not** a hand-written list in the
+  catalog: a first cut of this change was one, and it silently dropped
+  advisory coverage for every pip-tools repository, which authors a bump in
+  `requirements.in` and compiles it to `requirements.txt` — a real
+  `google-adk` bump in a `.in` file went from `dry_run_recommended: true` to
+  `no_match`. The set now lives in `DEPENDENCY_MANIFEST_GLOBS`
+  (`agents_shipgate.core.dependency_manifests`), covers both halves of the
+  pip-tools pair plus the modern lockfiles (`pdm.lock`, PEP 751
+  `pylock*.toml`, bun, conda) across Python, Node, and the JVM, and is
+  projected into `docs/triggers.json` under a contract test that fails when
+  the two drift — the same guard `boundary_adapters` already had. On net,
+  real-bump coverage is wider than before this change, not merely preserved.
+  The rule ID
+  and the catalog `schema_version` (`0.3`) are unchanged: rule IDs are
+  stable for `0.x`, and this is rule precision inside the existing schema,
+  so an external agent that pre-fetched the catalog keeps working. Both
+  rules are diff-only, so the path-based pre-commit `files:` pre-gate still
+  cannot decide them; that caveat is now stated for the dependency rule too,
+  which had grown a path leg.
 
 - **`input_set_id` now covers every input the adapters actually read.**
   ([#299](https://github.com/ThreeMoonsLab/agents-shipgate/issues/299))

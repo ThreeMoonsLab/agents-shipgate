@@ -342,6 +342,7 @@ Do NOT use it for:
 | Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
+| Adds/changes a Google ADK `Agent`/`LlmAgent` `tools=[...]` list | Yes |
 | Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |
 | Adds/changes Conductor OSS workflow JSON with AI/MCP tasks | Yes |
 | Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml` | Yes |
@@ -349,10 +350,12 @@ Do NOT use it for:
 | Pure read-only doc/test changes with no manifest impact | Skip |
 | Refactor with no behavior change to tools or policies | Skip (or dry-run only) |
 
+One known gap in the Google ADK row: an edit that *modifies* a tools list on the `Agent` alias (rather than `LlmAgent`) is not matched, because a bare `Agent(..., tools=[...])` hunk with no ADK import in it cannot be distinguished from CrewAI's by diff text alone. `LlmAgent` changes and whole-file additions in either spelling are covered.
+
 Two implicit triggers also fire even when no row above matches:
 
 - **Repo already opted in (shipgate.yaml present in the workspace)** — run on every PR; the manifest's existence is the opt-in.
-- **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, `google-adk`, or `conductor-oss` can change static extraction even without app-code edits.
+- **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, `google-adk`, or `conductor-oss` can change static extraction even without app-code edits. The rule needs both halves of that evidence: the package token **and** a changed dependency manifest. A bare token — a README that mentions `google-adk`, a sample that imports it — is not a version bump and no longer routes as one. The manifest set is `DEPENDENCY_MANIFEST_GLOBS` (`agents_shipgate.core.dependency_manifests`), projected into `triggers.json` and pinned by the contract test; it covers Python (`pyproject.toml`, `requirements*.{txt,in}`, `constraints*.{txt,in}`, `poetry.lock`, `uv.lock`, `pdm.lock`, `pylock*.toml`, `Pipfile*`, conda), Node (`package.json`, npm/pnpm/yarn/bun locks), and the JVM (`pom.xml`, Gradle build files and version catalogs).
 
 A machine-readable mirror of these triggers lives at [`docs/triggers.json`](docs/triggers.json). Coding agents that have not yet adopted Shipgate can fetch the file (raw URL: `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`), apply the rules to a PR diff, and decide whether to propose `agents-shipgate detect`. The catalog is stable for `0.x` and pinned by the public-surface contract test against this prose table — if you change a row above, update `triggers.json` in the same commit. To evaluate a diff locally, use the first-class `trigger` subcommand:
 
