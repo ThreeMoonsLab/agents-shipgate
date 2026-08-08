@@ -22,6 +22,7 @@ from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.agent_controls import git_root_for
+from agents_shipgate.core.current_control import CurrentControlPublishError
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
@@ -511,6 +512,34 @@ def register(app: typer.Typer) -> None:
                     expects=(
                         "The stale verifier artifact is absent, then scan writes "
                         "one current report set."
+                    ),
+                )
+            ]
+            _echo_next_action_hint(actions)
+            _emit_agent_mode_error(
+                "other_error",
+                message=str(exc),
+                next_action=guidance,
+                next_actions=[action.model_dump(mode="json") for action in actions],
+            )
+            raise typer.Exit(4) from exc
+        except CurrentControlPublishError as exc:
+            # Fail closed: the pointer stayed non-terminal, so nothing in the
+            # directory is current even though report artifacts were written.
+            typer.echo(f"Agents Shipgate error: {exc}", err=True)
+            guidance = (
+                f"Make {exc.path} writable, then re-run scan. Until the "
+                "control pointer publishes, no decision in this directory is "
+                "current and no cached control state may be acted on."
+            )
+            actions = [
+                NextAction(
+                    kind="edit",
+                    path=str(exc.path),
+                    why=guidance,
+                    expects=(
+                        "current-control.json publishes, naming the control "
+                        "identity that is current."
                     ),
                 )
             ]

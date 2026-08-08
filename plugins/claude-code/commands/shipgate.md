@@ -48,7 +48,8 @@ Required behavior (do not skip):
 
 1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` for every CLI call so errors emit a `next_action` JSON line on stderr.
 2. Run `agents-shipgate contract --json` when available and use it to verify the installed CLI's schema versions and gating signal.
-3. For verifier runs, validate `agents-shipgate-reports/verification-receipt.json` first,
+3. For verifier runs, read `agents-shipgate-reports/current-control.json` first,
+   then validate the `agents-shipgate-reports/verification-receipt.json` it binds,
    then parse `agents-shipgate-reports/agent-handoff.json`,
    then `verifier.json`, `verify-run.json`, and
    `report.json.release_decision.decision` as the release gate.
@@ -78,7 +79,8 @@ permissions, policies, CI gates, or `shipgate.yaml`, run the verifier:
 agents-shipgate verify --base origin/main --head HEAD --json
 ```
 
-Validate `agents-shipgate-reports/verification-receipt.json` first, then read
+Read `agents-shipgate-reports/current-control.json` first, then validate the
+`agents-shipgate-reports/verification-receipt.json` it binds, then read
 `agents-shipgate-reports/agent-handoff.json` and lead with
 `gate.merge_verdict` (a deterministic projection of `release_decision.decision`,
 which remains the gate in `report.json`), then the authoritative substrate

@@ -2,6 +2,66 @@
 
 ## Unreleased
 
+- **A coding agent can no longer enforce a verifier result the workspace has
+  outgrown.** The reported failure ran forward: a worktree verify returned
+  `human_review_required`, a human committed the reviewed change, a fresh
+  committed-ref run produced a `complete` receipt for the same request — and the
+  agent kept enforcing the older `must_stop`, asking for the commit that had
+  already happened. It runs backward just as easily: a `complete` remembered
+  from earlier in a conversation is not evidence about a workspace that has
+  since been rebased, checked out, or reconfigured. The content-addressed
+  receipt already prevented an old decision from *authorizing a different
+  request*; what was missing was one atomic place to ask "what is current now?",
+  and any obligation to ask it. Both are now present.
+  `agents-shipgate-reports/current-control.json`
+  (`shipgate.current_control/v1`) is that entry point. It is a pointer, not a
+  second decision engine: it binds identities and hashes of the receipt,
+  handoff, verifier, and report those commands already publish. Its lifecycle is
+  what makes it trustworthy. `verify`, `verify --preview`, `scan`, and
+  `verification prepare` each replace it with a non-terminal `unavailable`
+  marker *before* touching any other artifact, so a run that crashes leaves a
+  directory that denies cached control instead of one that still advertises the
+  previous verdict for a workspace that has moved; the terminal pointer is
+  written last, after every artifact it references exists and has been hashed,
+  and published by same-directory `os.replace` so no reader can observe a
+  half-written one. Readers use the generation-safe protocol in `agents-shipgate
+  agent control`: validate the pointer, validate every artifact hash it binds,
+  re-read the pointer, and continue only if `current_control_id` is unchanged —
+  a run that republishes mid-read makes the read fail rather than return one
+  generation's pointer beside another's artifacts. And because byte consistency
+  is not generation consistency — every bound artifact still hashes correctly
+  one unrelated commit later — the read also compares the pointer's
+  `workspace_identity` against the live repository: repository, HEAD commit, and
+  HEAD tree, plus the base revision when the decision named one — advancing a
+  base until `base...HEAD` is empty changes the evidence completely while
+  leaving HEAD and the working tree untouched. Uncommitted work is checked
+  against what the decision actually covered: a worktree decision must still
+  hash to the overlay it committed to *and* see no live change outside the set
+  it recorded, while a committed-tree decision, whose evidence stops at HEAD, is
+  invalidated by any uncommitted change that appeared afterwards. Overlay rows
+  bind entry kind and the executable bit alongside content, so a `100755` →
+  `100644` flip or a regular-file-to-symlink swap with identical bytes cannot
+  pass as unchanged. Completion authority is never returned without that
+  comparison. Two invariants are structural rather than
+  advisory: only an `operation: "verify"` pointer can carry
+  `control.state: "complete"`, and only when it also binds a
+  `verification_receipt` whose request and decision are the ones the pointer
+  records — the assembler accepts any `--out` name under its artifacts root, so
+  an older canonical receipt cannot be mistaken for the one a run just closed.
+  A scan or a preview cannot represent completion authority at all, and each
+  pointer binds only the artifacts its own run wrote: a `scan --format markdown`
+  after a verify no longer claims that verifier's `report.json`.
+  Supporting scans stay isolated —
+  `verify`'s internal head scan does not take over the PR's control identity,
+  and `baseline save` already scanned into a temporary directory. Contract
+  `19 → 20` adds `current_control_schema_version`, `current_control_artifact`,
+  the `agent_refresh_triggers[]` list of boundaries at which a cached control
+  state expires, and `current_control_fallback_read_order[]` for consumers built
+  before the pointer existed; `agent_read_order[]` now starts at the pointer,
+  and the local downstream contract moves `7 → 8`. Generated agent instructions
+  and both adoption kits now require the refresh. No report, packet, verifier,
+  handoff, or receipt schema changed. ([#339](https://github.com/ThreeMoonsLab/agents-shipgate/issues/339))
+
 - **An unreadable PR diff is no longer reported as "nothing here is
   agent-related."** `verify --preview` collapsed every diff-acquisition failure
   into one message, then evaluated the trigger catalog against the empty inputs

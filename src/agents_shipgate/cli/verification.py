@@ -36,6 +36,12 @@ from agents_shipgate.cli.verify.git import (
 )
 from agents_shipgate.config.loader import load_yaml_file
 from agents_shipgate.core.agent_handoff import build_agent_handoff
+from agents_shipgate.core.current_control import (
+    begin_current_control,
+    project_agent_control,
+    publish_current_control,
+    workspace_identity_from_plan,
+)
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
@@ -55,6 +61,7 @@ from agents_shipgate.core.verification_identity import (
 )
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.current_control import RECEIPT_ARTIFACT_KEY
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification_identity import (
@@ -99,6 +106,24 @@ def prepare(
     head_ref = head or "HEAD"
     if not ref_exists(root, head_ref):
         raise typer.BadParameter(f"head ref is unavailable locally: {head_ref}")
+    # Invalidate before reading a single input. Preparing a portable plan starts
+    # a new verification lifecycle in this directory, so whatever was current
+    # describes the previous request and stops being current here;
+    # `verification assemble` publishes the next terminal pointer. Doing this
+    # first also keeps the pointer out of the window in which the plan hashes
+    # its inputs, so a worktree plan cannot capture one pointer generation and
+    # then be replayed against another.
+    out.parent.mkdir(parents=True, exist_ok=True)
+    begin_current_control(
+        out.parent,
+        operation="verify",
+        reason=(
+            "A portable verification run was prepared; no decision in this "
+            "directory is current until `agents-shipgate verification assemble` "
+            "closes it."
+        ),
+        repository=repository_identity(root),
+    )
     changed, diff_text = (
         diff_context(root, base, head_ref)
         if base
@@ -646,6 +671,28 @@ def assemble(
         raise InputParseError("receipt output must remain under --artifacts-root")
     _write_model(resolved_artifact_root / "verification-artifacts.json", manifest)
     _write_model(out, receipt)
+    # The pointer is the last file the assembler makes visible, for the same
+    # reason it is last in `verify`: every artifact it binds now exists and has
+    # been hashed in its final form.
+    #
+    # `--out` accepts any name beneath the artifacts root, so the receipt this
+    # run closed is not necessarily at the canonical path. Bind the one that was
+    # actually emitted: binding the canonical path instead would either miss
+    # this run's receipt entirely or bind an older run's.
+    receipt_path = out.resolve().relative_to(resolved_artifact_root).as_posix()
+    publish_current_control(
+        resolved_artifact_root,
+        operation="verify",
+        control=project_agent_control(
+            verifier.control,
+            operation="verify",
+            receipt_bound=out.is_file(),
+        ),
+        request_id=plan.request_id,
+        decision_id=expected_decision_id,
+        workspace_identity=workspace_identity_from_plan(plan),
+        artifact_paths={RECEIPT_ARTIFACT_KEY: receipt_path},
+    )
     typer.echo(json.dumps({"receipt_id": receipt.receipt_id, "receipt": str(out)}))
 
 

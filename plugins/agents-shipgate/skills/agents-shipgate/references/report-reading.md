@@ -1,12 +1,17 @@
 # Reading Agents Shipgate Reports
 
-For verify runs, validate `agents-shipgate-reports/verification-receipt.json`
-first. Then read `agents-shipgate-reports/agent-handoff.json`. After that,
+For verify runs, read `agents-shipgate-reports/current-control.json` first —
+via `agents-shipgate agent control --workspace .` — because it names which run
+is current, checks it against the repository as it stands right now, and a
+non-zero exit means none is. Then validate the
+`agents-shipgate-reports/verification-receipt.json` it binds. Then read
+`agents-shipgate-reports/agent-handoff.json`. After that,
 read `agents-shipgate-reports/verifier.json` for detailed control context
 and `agents-shipgate-reports/report.json` for findings. Do not scrape Markdown.
 
 ## Order
 
+0. `current-control.json.current_control_id` / `lifecycle_state` / `control.state`: which run is current, and whether any decision is. Re-read this before enforcing a cached `must_stop`, before commit/push/PR update, before merge, and before declaring the task complete; if the id changed, discard cached control state and start again from the new identity.
 1. `agent-handoff.json.control.state`: `complete`, `agent_action_required`, or `human_review_required`.
 2. `agent-handoff.json.capability_review.top_changes[]`: the highest-signal tool/action or trust-root changes.
 3. `agent-handoff.json.next_action` / `control.next_action` / `fix_task`: who acts next and whether a coding agent may safely attempt the fix.

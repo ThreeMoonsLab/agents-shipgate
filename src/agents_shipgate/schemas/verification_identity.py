@@ -49,7 +49,14 @@ def _identity_payload(model: BaseModel, identity_field: str) -> dict[str, Any]:
     )
 
 
-def _validate_portable_path(value: str) -> str:
+def validate_portable_path(value: str) -> str:
+    """Reject absolute, escaping, or non-normalized artifact/input paths.
+
+    Every artifact reference that a consumer may resolve beneath a root goes
+    through this one check, so containment cannot drift between the receipt,
+    the artifact manifest, and the current-control pointer.
+    """
+
     path = PurePosixPath(value)
     if (
         not value
@@ -60,6 +67,9 @@ def _validate_portable_path(value: str) -> str:
     ):
         raise ValueError("artifact and input paths must be normalized portable relative paths")
     return value
+
+
+_validate_portable_path = validate_portable_path
 
 
 class VerificationBlob(BaseModel):
@@ -404,4 +414,5 @@ __all__ = [
     "VerificationUnitResult",
     "canonical_json",
     "content_id",
+    "validate_portable_path",
 ]
