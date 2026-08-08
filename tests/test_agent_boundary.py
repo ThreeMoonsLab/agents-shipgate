@@ -192,6 +192,37 @@ def test_contradictory_new_file_headers_fail_closed(
     )
 
 
+def test_duplicate_diff_records_are_aggregated_as_one_structural_root_cause(
+    tmp_path: Path,
+) -> None:
+    diff = "".join(
+        [
+            _change_diff("AGENTS.md", "base", "first"),
+            _change_diff("AGENTS.md", "first", "second"),
+            _change_diff(".codex/config.toml", "model = 'a'", "model = 'b'"),
+            _change_diff(".codex/config.toml", "model = 'b'", "model = 'c'"),
+        ]
+    )
+
+    result = _build(tmp_path, diff)
+
+    structural = [
+        item
+        for item in result.violated_rules
+        if item.evidence.get("kind") == "boundary_input_unresolved"
+        and item.evidence.get("code") == "boundary_diff_shape_invalid"
+    ]
+    assert len(structural) == 1
+    assert structural[0].path == "<diff>"
+    structural_diagnostics = [
+        item
+        for item in result.diagnostics
+        if item.code == "boundary_diff_shape_invalid"
+    ]
+    assert len(structural_diagnostics) == 1
+    assert "2 path(s)" in structural_diagnostics[0].message
+
+
 def test_safe_untracked_boundary_file_is_read_and_evaluated(tmp_path: Path) -> None:
     _init_repo(tmp_path)
     target = tmp_path / ".claude" / "settings.json"

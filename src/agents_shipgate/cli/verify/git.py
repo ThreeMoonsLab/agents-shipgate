@@ -225,6 +225,11 @@ _SAFE_DIFF_CONFIG = [
     "-c",
     "diff.renameLimit=32767",
 ]
+# Tree-to-worktree comparisons must retain Git's executable-bit semantics.
+# The generic config disables file-mode reads for portable committed-tree
+# comparisons; the later override is intentional and scoped to local overlay
+# collection, whose exact mode is receipt-bound.
+_SAFE_WORKTREE_DIFF_CONFIG = [*_SAFE_DIFF_CONFIG, "-c", "core.fileMode=true"]
 _DETERMINISTIC_DIFF_OPTIONS = [
     "--no-ext-diff",
     "--no-textconv",
@@ -514,6 +519,59 @@ def merge_base_sha(workspace: Path, base: str, head: str) -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
+
+
+def require_merge_base_sha(workspace: Path, base: str, head: str) -> str:
+    """Resolve one merge base or raise a typed diff-input failure.
+
+    Worktree verification needs only this ancestry identity before comparing
+    the merge-base tree directly with the effective worktree. Reading the
+    intermediate committed diff would make canceled or superseded branch
+    content an accidental input again.
+    """
+
+    base_commit = commit_sha(workspace, base)
+    head_commit = commit_sha(workspace, head)
+    if base_commit is None or head_commit is None:
+        missing = base if base_commit is None else head
+        raise DiffInputError(
+            DiffContext(
+                completeness="unavailable",
+                reason="refs_missing",
+                detail=f"Git ref {missing!r} is not available locally.",
+            )
+        )
+    result = _run_git(
+        workspace,
+        ["merge-base", "--", base_commit, head_commit],
+        check=False,
+    )
+    resolved = result.stdout.strip()
+    if result.returncode == 0 and _GIT_OBJECT_RE.fullmatch(resolved):
+        return resolved
+    detail = _redact_local_paths(result.stderr.strip(), workspace)
+    if result.returncode == 1:
+        truncated = _history_is_truncated(workspace)
+        reason: DiffInputReason = (
+            "merge_base_missing"
+            if truncated is True
+            else "unrelated_histories"
+            if truncated is False
+            else "git_failed"
+        )
+    else:
+        reason, detail = _classify_diff_failure(
+            _BoundedGitResult(payload=None, stderr=detail),
+            limit_reason="metadata_limit_exceeded",
+            workspace=workspace,
+        )
+    raise DiffInputError(
+        DiffContext(
+            completeness="unavailable",
+            reason=reason,
+            detail=detail or "Git could not resolve one merge base.",
+        )
+    )
 
 
 def commit_date(workspace: Path, ref: str) -> str:
@@ -1092,28 +1150,141 @@ def removes_a_yaml_file(workspace: Path, base: str | None, head: str) -> bool | 
 def working_tree_context(
     workspace: Path,
     *,
+    comparison_ref: str = "HEAD",
     exclude: Path | None = None,
     reject_index_hidden: bool = False,
 ) -> tuple[list[str], str]:
-    """Return uncommitted changed paths and tracked-file diff text.
+    """Return effective changed paths and tracked-file diff text.
 
-    ``git diff HEAD`` includes staged and unstaged tracked changes. Untracked
-    file paths are included for trigger/check context, but their contents are
-    intentionally not read into the diff body.
+    ``git diff <comparison_ref>`` compares one committed tree with the current
+    index/worktree, so staged and unstaged tracked changes are represented in
+    one record per effective path. Untracked file paths are included for
+    trigger/check context, but their contents are intentionally not read into
+    the diff body.
+
+    The verifier passes the merge-base commit as ``comparison_ref`` when a
+    worktree sits on top of committed branch changes. This is deliberately one
+    comparison, rather than concatenating ``base...HEAD`` and ``HEAD`` diffs:
+    concatenation makes a valid overlapping edit look structurally ambiguous.
     """
 
     _reject_unbound_diff_configuration(workspace)
     _reject_executable_worktree_filters(workspace)
+    comparison_commit = commit_sha(workspace, comparison_ref)
+    if comparison_commit is None:
+        raise DiffInputError(
+            DiffContext(
+                completeness="unavailable",
+                reason="refs_missing",
+                detail=f"Git ref {comparison_ref!r} is not available locally.",
+            )
+        )
     pathspec = _worktree_pathspec(workspace, exclude)
     if reject_index_hidden:
         _reject_index_hidden_capability_paths(workspace, pathspec=pathspec)
+    paths = _working_tree_paths(
+        workspace,
+        comparison_commit=comparison_commit,
+        pathspec=pathspec,
+    )
+    body = _run_git_bounded_result(
+        workspace,
+        [
+            *_SAFE_WORKTREE_DIFF_CONFIG,
+            "diff",
+            *_DETERMINISTIC_DIFF_OPTIONS,
+            comparison_commit,
+            "--",
+            *pathspec,
+        ],
+        max_output_bytes=_DIFF_BODY_LIMIT,
+    )
+    if body.payload is None:
+        reason, detail = _classify_diff_failure(
+            body, limit_reason="body_limit_exceeded", workspace=workspace
+        )
+        raise DiffInputError(
+            DiffContext(
+                changed_files=tuple(paths),
+                completeness="partial",
+                reason=reason,
+                detail=detail,
+            )
+        )
+    diff_text = _decode_diff_body(body.payload)
+    try:
+        _reject_binary_capability_paths(
+            workspace,
+            comparison_commit,
+            pathspec=pathspec,
+        )
+    except BinaryCapabilityDiffError as exc:
+        exc.changed_paths = tuple(paths)
+        exc.diff_text = diff_text
+        raise
+    except DiffInputError as exc:
+        # The binary-hiding guard could not run, so the body is not proven to
+        # cover every capability path. Carry what was read: a caller that can
+        # act on partial evidence should not have to re-collect it.
+        raise DiffInputError(
+            DiffContext(
+                changed_files=tuple(paths),
+                diff_text=diff_text,
+                completeness="partial",
+                reason=exc.context.reason,
+                detail=exc.context.detail,
+            )
+        ) from exc
+    return paths, diff_text
+
+
+def working_tree_paths(
+    workspace: Path,
+    *,
+    comparison_ref: str = "HEAD",
+    exclude: Path | None = None,
+    reject_index_hidden: bool = False,
+) -> list[str]:
+    """Return the bounded path inventory for one worktree comparison.
+
+    This metadata-only form is used to bind the HEAD-relative overlay identity
+    independently from the merge-base-relative diff evaluated by policy.
+    """
+
+    _reject_unbound_diff_configuration(workspace)
+    _reject_executable_worktree_filters(workspace)
+    comparison_commit = commit_sha(workspace, comparison_ref)
+    if comparison_commit is None:
+        raise DiffInputError(
+            DiffContext(
+                completeness="unavailable",
+                reason="refs_missing",
+                detail=f"Git ref {comparison_ref!r} is not available locally.",
+            )
+        )
+    pathspec = _worktree_pathspec(workspace, exclude)
+    if reject_index_hidden:
+        _reject_index_hidden_capability_paths(workspace, pathspec=pathspec)
+    return _working_tree_paths(
+        workspace,
+        comparison_commit=comparison_commit,
+        pathspec=pathspec,
+    )
+
+
+def _working_tree_paths(
+    workspace: Path,
+    *,
+    comparison_commit: str,
+    pathspec: list[str],
+) -> list[str]:
     names = _run_git_bounded_result(
         workspace,
         [
-            *_SAFE_DIFF_CONFIG,
+            *_SAFE_WORKTREE_DIFF_CONFIG,
             "diff",
             *_DETERMINISTIC_DIFF_OPTIONS,
-            "HEAD",
+            comparison_commit,
             "--name-status",
             "-z",
             "--",
@@ -1156,51 +1327,7 @@ def working_tree_context(
         path = os.fsdecode(raw_path)
         if path not in paths:
             paths.append(path)
-    body = _run_git_bounded_result(
-        workspace,
-        [
-            *_SAFE_DIFF_CONFIG,
-            "diff",
-            *_DETERMINISTIC_DIFF_OPTIONS,
-            "HEAD",
-            "--",
-            *pathspec,
-        ],
-        max_output_bytes=_DIFF_BODY_LIMIT,
-    )
-    if body.payload is None:
-        reason, detail = _classify_diff_failure(
-            body, limit_reason="body_limit_exceeded", workspace=workspace
-        )
-        raise DiffInputError(
-            DiffContext(
-                changed_files=tuple(paths),
-                completeness="partial",
-                reason=reason,
-                detail=detail,
-            )
-        )
-    diff_text = _decode_diff_body(body.payload)
-    try:
-        _reject_binary_capability_paths(workspace, "HEAD", pathspec=pathspec)
-    except BinaryCapabilityDiffError as exc:
-        exc.changed_paths = tuple(paths)
-        exc.diff_text = diff_text
-        raise
-    except DiffInputError as exc:
-        # The binary-hiding guard could not run, so the body is not proven to
-        # cover every capability path. Carry what was read: a caller that can
-        # act on partial evidence should not have to re-collect it.
-        raise DiffInputError(
-            DiffContext(
-                changed_files=tuple(paths),
-                diff_text=diff_text,
-                completeness="partial",
-                reason=exc.context.reason,
-                detail=exc.context.detail,
-            )
-        ) from exc
-    return paths, diff_text
+    return sorted(paths)
 
 
 def _worktree_pathspec(workspace: Path, exclude: Path | None) -> list[str]:
@@ -1989,6 +2116,7 @@ __all__ = [
     "merge_base_sha",
     "read_file_at_ref",
     "repository_identity",
+    "require_merge_base_sha",
     "resolve_tree_path_identity",
     "resolve_git_push_endpoint",
     "resolve_source_head_identity",
@@ -1998,4 +2126,5 @@ __all__ = [
     "tree_sha",
     "validate_source_head_identity",
     "working_tree_context",
+    "working_tree_paths",
 ]

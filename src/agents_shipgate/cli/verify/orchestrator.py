@@ -124,10 +124,12 @@ from .git import (
     ref_exists,
     removes_a_yaml_file,
     repository_identity,
+    require_merge_base_sha,
     resolve_source_head_identity,
     resolve_tree_path_identity,
     tree_sha,
     working_tree_context,
+    working_tree_paths,
 )
 
 HEAD_FORMATS = ["markdown", "json", "sarif"]
@@ -343,6 +345,7 @@ def run_verify(
         return verifier, None, 2
 
     changed_files: list[str] = []
+    worktree_overlay_paths: list[str] = []
     diff_text = ""
     base_status: VerifierBaseStatus = "not_requested"
     base_tree: str | None = None
@@ -455,24 +458,43 @@ def run_verify(
             )
 
     base_exists = False
+    effective_worktree_ref = head
+    committed_diff_complete = False
     if base:
         base_exists = ref_exists(git_root, base)
         if base_exists:
-            collected = _collect_diff(git_root, base, head)
-            changed_files = list(collected.changed_files)
-            diff_text = collected.diff_text
-            if collected.completeness != "complete":
-                # The refs resolved, so the shortfall is about history depth,
-                # object availability, or Git itself — each of which has a
-                # different repair. Report which one instead of a single
-                # "could not be read".
-                diff_unavailable = True
-                base_status = "archive_failed"
-                diff_failures.append((collected, f"{base}...{head}"))
-                base_notes.append(
-                    f"Could not collect the {base}...{head} diff in full. "
-                    f"{collected.note}"
-                )
+            if archive_head:
+                collected = _collect_diff(git_root, base, head)
+                changed_files = list(collected.changed_files)
+                diff_text = collected.diff_text
+                if collected.completeness != "complete":
+                    # The refs resolved, so the shortfall is about history depth,
+                    # object availability, or Git itself — each of which has a
+                    # different repair. Report which one instead of a single
+                    # "could not be read".
+                    diff_unavailable = True
+                    base_status = "archive_failed"
+                    diff_failures.append((collected, f"{base}...{head}"))
+                    base_notes.append(
+                        f"Could not collect the {base}...{head} diff in full. "
+                        f"{collected.note}"
+                    )
+            else:
+                try:
+                    effective_worktree_ref = require_merge_base_sha(
+                        git_root,
+                        base,
+                        head,
+                    )
+                    committed_diff_complete = True
+                except DiffInputError as exc:
+                    diff_unavailable = True
+                    base_status = "archive_failed"
+                    diff_failures.append((exc.context, f"{base}...{head}"))
+                    base_notes.append(
+                        "Could not resolve the merge base needed for one "
+                        f"effective-head diff. {exc.context.note}"
+                    )
         else:
             diff_unavailable = True
             base_status = "ref_missing"
@@ -495,17 +517,45 @@ def run_verify(
         try:
             worktree_paths, worktree_diff = working_tree_context(
                 git_root,
+                comparison_ref=effective_worktree_ref,
                 exclude=out_dir,
                 reject_index_hidden=True,
             )
-            changed_files = _dedupe_paths([*changed_files, *worktree_paths])
-            diff_text = _join_diff_text(diff_text, worktree_diff)
+            if committed_diff_complete:
+                # This is the single merge-base-to-effective-worktree diff.
+                # Do not append the committed range: overlapping paths must be
+                # represented exactly once at their effective content.
+                changed_files = worktree_paths
+                diff_text = worktree_diff
+            else:
+                # The committed side was unavailable or partial. Preserve all
+                # evidence collected before the mandatory fail-closed exit.
+                changed_files = _dedupe_paths([*changed_files, *worktree_paths])
+                diff_text = _join_diff_text(diff_text, worktree_diff)
+            head_commit = commit_sha(git_root, head)
+            worktree_overlay_paths = (
+                worktree_paths
+                if head_commit == commit_sha(git_root, effective_worktree_ref)
+                else working_tree_paths(
+                    git_root,
+                    comparison_ref=head,
+                    exclude=out_dir,
+                    reject_index_hidden=True,
+                )
+            )
             changed_files = _bind_worktree_config_to_head(
                 git_root=git_root,
                 head=head,
                 config_relative=config_relative,
                 worktree_text=worktree_manifest_text,
                 changed_files=changed_files,
+            )
+            worktree_overlay_paths = _bind_worktree_config_to_head(
+                git_root=git_root,
+                head=head,
+                config_relative=config_relative,
+                worktree_text=worktree_manifest_text,
+                changed_files=worktree_overlay_paths,
             )
         except Exception as exc:  # noqa: BLE001 - local context degrades only.
             diff_unavailable = True
@@ -689,7 +739,7 @@ def run_verify(
             config_path,
             worktree_manifest_text.encode("utf-8"),
         )
-        for relative in changed_files:
+        for relative in _dedupe_paths([*changed_files, *worktree_overlay_paths]):
             candidate = Path(
                 os.path.abspath(
                     os.path.normpath(os.fspath(git_root / relative))
@@ -911,6 +961,7 @@ def run_verify(
                             os.getenv("EVENT_NAME") or os.getenv("GITHUB_EVENT_NAME") or None
                         ),
                     },
+                    worktree_overlay_paths=worktree_overlay_paths,
                     evaluation_date=verification_date,
                 )
             except Exception:
@@ -2379,6 +2430,7 @@ def _write_artifacts(
     diff_from_path: Path | None = None,
     authorization_path: Path | None = None,
     verification_options: dict[str, Any] | None = None,
+    worktree_overlay_paths: list[str] | None = None,
     evaluation_date: str | None = None,
 ) -> None:
     verifier_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2569,6 +2621,7 @@ def _write_artifacts(
             **resolved_options,
         },
         plugins_enabled=plugins_enabled,
+        worktree_overlay_paths=worktree_overlay_paths,
         external_input_root=external_input_root,
         captured_input_paths=captured_input_paths,
     )

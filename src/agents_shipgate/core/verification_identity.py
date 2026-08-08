@@ -180,6 +180,7 @@ def build_verification_plan(
     evaluation_date: str,
     options: dict[str, Any],
     plugins_enabled: bool | None,
+    worktree_overlay_paths: list[str] | None = None,
     diff_logical_path: str = "verification-input.diff",
     external_input_root: Path | None = None,
     captured_input_paths: list[Path] | None = None,
@@ -187,7 +188,17 @@ def build_verification_plan(
     effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     normalized_options = dict(options)
     normalized_options["plugins_enabled"] = effective_plugins_enabled
-    overlay = _worktree_overlay(git_root, changed_files) if not archived_head else []
+    overlay_paths = sorted(
+        set(changed_files if worktree_overlay_paths is None else worktree_overlay_paths)
+    )
+    if not archived_head:
+        # The evaluated change set is merge-base-relative, while the overlay is
+        # HEAD-relative. Keeping the latter path set inside the content-
+        # addressed inputs makes cancellations and overlapping edits
+        # reproducible without polluting policy evaluation with non-effective
+        # paths.
+        normalized_options["worktree_overlay_paths"] = overlay_paths
+    overlay = _worktree_overlay(git_root, overlay_paths) if not archived_head else []
     overlay_hash = content_id(overlay) if overlay else None
     if not archived_head and source_head_commit_sha is not None:
         raise ValueError("worktree-overlay plans cannot declare a source head commit")
@@ -944,11 +955,25 @@ def _worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
             if snapshot is not None and snapshot.contains(candidate)
             else candidate.is_file()
         )
+        captured_mode = (
+            snapshot.mode(candidate)
+            if present and snapshot is not None and snapshot.contains(candidate)
+            else stat.S_IMODE(candidate.stat().st_mode)
+            if present
+            else None
+        )
         rows.append(
             {
                 "path": relative,
                 "status": "present" if present else "deleted",
                 "sha256": sha256_file(candidate) if present else None,
+                "git_mode": (
+                    "100755"
+                    if captured_mode is not None and captured_mode & 0o111
+                    else "100644"
+                    if present
+                    else None
+                ),
             }
         )
     return rows

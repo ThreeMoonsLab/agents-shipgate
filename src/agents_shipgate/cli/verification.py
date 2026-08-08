@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from agents_shipgate.cli.verify.git import (
     merge_base_sha,
     ref_exists,
     repository_identity,
+    require_merge_base_sha,
     resolve_source_head_identity,
     tree_sha,
     validate_source_head_identity,
@@ -77,11 +79,23 @@ def prepare(
     head_ref = head or "HEAD"
     if not ref_exists(root, head_ref):
         raise typer.BadParameter(f"head ref is unavailable locally: {head_ref}")
-    changed, diff_text = (
-        diff_context(root, base, head_ref)
-        if base
-        else working_tree_context(root, reject_index_hidden=True)
-    )
+    worktree_overlay_paths: list[str] | None = None
+    if head is not None:
+        changed, diff_text = diff_context(root, base, head_ref)
+    else:
+        worktree_overlay_paths, overlay_diff = working_tree_context(
+            root,
+            reject_index_hidden=True,
+        )
+        if base:
+            effective_base = require_merge_base_sha(root, base, head_ref)
+            changed, diff_text = working_tree_context(
+                root,
+                comparison_ref=effective_base,
+                reject_index_hidden=True,
+            )
+        else:
+            changed, diff_text = worktree_overlay_paths, overlay_diff
     resolved_date = evaluation_date or commit_date(root, head_ref)
     config_relative = _under(root, config).relative_to(root)
     policy_paths = [_under(root, path) for path in policy_packs or []]
@@ -112,6 +126,7 @@ def prepare(
                 "plugins_enabled": not no_plugins,
             },
             plugins_enabled=False if no_plugins else None,
+            worktree_overlay_paths=worktree_overlay_paths,
         )
     else:
         source_identity = resolve_source_head_identity(
@@ -512,16 +527,37 @@ def _validate_git_subject(plan: VerificationPlan, workspace: Path) -> None:
             raise ValueError("worktree-overlay plan cannot carry source-head authority")
         if commit_sha(root, "HEAD") != subject.head_commit_sha:
             raise ValueError("worker HEAD does not match the worktree-overlay plan")
+        declared_overlay_paths = plan.inputs.options.get("worktree_overlay_paths")
+        if declared_overlay_paths is None:
+            # Compatibility reader for plans produced before issue #336 split
+            # effective paths from HEAD-relative overlay paths.
+            overlay_paths = plan.inputs.changed_paths
+        elif not isinstance(declared_overlay_paths, list) or not all(
+            isinstance(path, str) for path in declared_overlay_paths
+        ):
+            raise ValueError("plan worktree_overlay_paths must be a string list")
+        elif declared_overlay_paths != sorted(set(declared_overlay_paths)):
+            raise ValueError("plan worktree_overlay_paths must be sorted and unique")
+        else:
+            overlay_paths = declared_overlay_paths
         rows: list[dict[str, Any]] = []
-        for relative in plan.inputs.changed_paths:
+        for relative in overlay_paths:
             candidate = (root / relative).resolve()
             if candidate != root and root not in candidate.parents:
                 raise ValueError(f"plan changed path escapes workspace: {relative}")
+            present = candidate.is_file()
             rows.append(
                 {
                     "path": relative,
-                    "status": "present" if candidate.is_file() else "deleted",
-                    "sha256": sha256_file(candidate) if candidate.is_file() else None,
+                    "status": "present" if present else "deleted",
+                    "sha256": sha256_file(candidate) if present else None,
+                    "git_mode": (
+                        "100755"
+                        if present and stat.S_IMODE(candidate.stat().st_mode) & 0o111
+                        else "100644"
+                        if present
+                        else None
+                    ),
                 }
             )
         actual_overlay = content_id(rows) if rows else None
