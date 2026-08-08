@@ -87,7 +87,9 @@ projections and not the CI gate.
 
 `agents-shipgate-reports/current-control.json` is the one entry point that
 says which control identity is current. Read it with `agents-shipgate agent
-control`; a non-zero exit means nothing is current here and you hold no
+control --workspace .`, which checks the pointer against the repository as it
+stands right now — a moved HEAD, a changed tree, or an edited working file
+refuses the read. A non-zero exit means nothing is current here and you hold no
 authority. Re-read it after any human or external-tool action, after commit,
 rebase, checkout, pull, or any worktree change, after any agents-shipgate
 command returns, before enforcing a cached `must_stop`, before commit/push/PR
@@ -206,7 +208,9 @@ projections and not the CI gate.
 
 `agents-shipgate-reports/current-control.json` is the one entry point that
 says which control identity is current. Read it with `agents-shipgate agent
-control`; a non-zero exit means nothing is current here and you hold no
+control --workspace .`, which checks the pointer against the repository as it
+stands right now — a moved HEAD, a changed tree, or an edited working file
+refuses the read. A non-zero exit means nothing is current here and you hold no
 authority. Re-read it after any human or external-tool action, after commit,
 rebase, checkout, pull, or any worktree change, after any agents-shipgate
 command returns, before enforcing a cached `must_stop`, before commit/push/PR
@@ -303,7 +307,9 @@ projections and not the CI gate.
 
 `agents-shipgate-reports/current-control.json` is the one entry point that
 says which control identity is current. Read it with `agents-shipgate agent
-control`; a non-zero exit means nothing is current here and you hold no
+control --workspace .`, which checks the pointer against the repository as it
+stands right now — a moved HEAD, a changed tree, or an edited working file
+refuses the read. A non-zero exit means nothing is current here and you hold no
 authority. Re-read it after any human or external-tool action, after commit,
 rebase, checkout, pull, or any worktree change, after any agents-shipgate
 command returns, before enforcing a cached `must_stop`, before commit/push/PR

@@ -194,7 +194,12 @@ class CurrentControlPointer(BaseModel):
         else:
             if self.control.state == "unavailable":
                 raise ValueError("a terminal pointer must project a settled control state")
-            if not self.artifacts:
+            if not self.artifacts and self.operation != "scan":
+                # Verify and preview always write at least a verifier artifact,
+                # so an empty binding there means the run lost its evidence. A
+                # scan configured to emit no report format genuinely produces
+                # nothing, and saying so is more honest than binding a file
+                # some earlier run left behind.
                 raise ValueError("a terminal pointer must bind at least one artifact")
         if self.operation != "verify" and self.control.state == "complete":
             # Only the verifier decides merge authority.  A scan or a preview

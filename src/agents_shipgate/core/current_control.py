@@ -38,7 +38,10 @@ from pathlib import Path
 from typing import ParamSpec, TypeVar
 
 from agents_shipgate.core.errors import AgentsShipgateError
-from agents_shipgate.core.verification_identity import read_regular_file_beneath
+from agents_shipgate.core.verification_identity import (
+    read_regular_file_beneath,
+    worktree_overlay,
+)
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
@@ -54,7 +57,11 @@ from agents_shipgate.schemas.current_control import (
     UnavailableCurrentControl,
     current_control_identity_payload,
 )
-from agents_shipgate.schemas.verification_identity import VerificationPlan, content_id
+from agents_shipgate.schemas.verification_identity import (
+    VerificationPlan,
+    VerificationReceipt,
+    content_id,
+)
 
 MAX_CURRENT_CONTROL_BYTES = 1024 * 1024
 MAX_BOUND_ARTIFACT_BYTES = 256 * 1024 * 1024
@@ -71,16 +78,31 @@ CURRENT_CONTROL_ARTIFACT_FILENAMES: dict[str, str] = {
     "verify_run": "verify-run.json",
     "human_authorization": "human-authorization.json",
     "report": "report.json",
+    "report_markdown": "report.md",
+    "report_sarif": "report.sarif",
     "packet": "packet.json",
     "pr_comment": "pr-comment.md",
 }
 
-# ``report.json`` and ``packet.json`` come from a scan.  A command that never
-# runs one — preview — must not bind whatever an earlier run left in the
-# directory, or the pointer would advertise two generations as one current set.
-VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS: frozenset[str] = frozenset(
-    key for key in CURRENT_CONTROL_ARTIFACT_FILENAMES if key not in {"report", "packet"}
+# Artifacts a scan produces, and only in the formats that scan was configured to
+# emit.  A run must never bind one of these unless it wrote it: `scan --format
+# markdown` after a verify leaves the verifier's `report.json` untouched, and
+# binding it would advertise two generations as one current set.
+SCAN_CONTROL_ARTIFACT_KEYS: frozenset[str] = frozenset(
+    {"report", "report_markdown", "report_sarif", "packet"}
 )
+# The complement: what a verifier route writes.  `preview` runs no scan at all,
+# so it binds only these.
+VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS: frozenset[str] = frozenset(
+    key for key in CURRENT_CONTROL_ARTIFACT_FILENAMES if key not in SCAN_CONTROL_ARTIFACT_KEYS
+)
+# Scan output format name (``_OutputPlan.generated_paths`` key) -> artifact key.
+SCAN_FORMAT_ARTIFACT_KEYS: dict[str, str] = {
+    "markdown": "report_markdown",
+    "json": "report",
+    "sarif": "report_sarif",
+    "packet_json": "packet",
+}
 
 _LIFECYCLE_OWNER: ContextVar[str | None] = ContextVar(
     "agents_shipgate_current_control_owner", default=None
@@ -194,16 +216,23 @@ def publish_current_control(
     """
 
     artifacts = bind_current_control_artifacts(out_dir, artifact_keys=artifact_keys)
-    if RECEIPT_ARTIFACT_KEY not in artifacts and control.state == "complete":
-        # Defence in depth: the schema rejects this too, but downgrading here
-        # keeps a caller with an inconsistent view from losing the run.
-        control = HumanReviewRequiredCurrentControl(
-            state="human_review_required",
-            reason=(
-                "The run reported completion but published no terminal receipt, "
-                "so completion authority cannot be established."
-            ),
+    if control.state == "complete":
+        # Defence in depth: the schema rejects a receipt-less completion too,
+        # but downgrading here keeps a caller with an inconsistent view from
+        # losing the run. The identity check matters independently — a producer
+        # may write its receipt somewhere other than the canonical path (the
+        # assembler's `--out` accepts any name under its artifacts root), which
+        # leaves an older canonical receipt to be bound beside a newer decision.
+        refusal = _receipt_binding_refusal(
+            out_dir,
+            artifacts,
+            request_id=request_id,
+            decision_id=decision_id,
         )
+        if refusal is not None:
+            control = HumanReviewRequiredCurrentControl(
+                state="human_review_required", reason=refusal
+            )
     pointer = _finalize(
         operation=operation,
         lifecycle_state="terminal",
@@ -216,6 +245,46 @@ def publish_current_control(
     )
     _publish(out_dir, pointer)
     return pointer
+
+
+def _receipt_binding_refusal(
+    out_dir: Path,
+    artifacts: dict[str, CurrentControlArtifactRef],
+    *,
+    request_id: str | None,
+    decision_id: str | None,
+) -> str | None:
+    """Return why completion must be refused, or ``None`` when it may stand."""
+
+    ref = artifacts.get(RECEIPT_ARTIFACT_KEY)
+    if ref is None:
+        return (
+            "The run reported completion but published no terminal receipt, "
+            "so completion authority cannot be established."
+        )
+    try:
+        receipt = _load_receipt(out_dir, ref)
+    except ValueError as exc:
+        return f"The bound terminal receipt could not be read: {exc}"
+    if receipt.request_id != request_id or receipt.decision_id != decision_id:
+        return (
+            "The bound terminal receipt closes a different request than the one "
+            "this run decided, so completion authority cannot be established."
+        )
+    return None
+
+
+def _load_receipt(out_dir: Path, ref: CurrentControlArtifactRef) -> VerificationReceipt:
+    data = read_regular_file_beneath(
+        out_dir,
+        ref.path,
+        max_size=MAX_BOUND_ARTIFACT_BYTES,
+        label="current control receipt",
+    )
+    try:
+        return VerificationReceipt.model_validate_json(data)
+    except Exception as exc:  # pydantic ValidationError and friends
+        raise ValueError(str(exc)) from exc
 
 
 def bind_current_control_artifacts(
@@ -314,6 +383,23 @@ def workspace_identity_from_plan(plan: VerificationPlan) -> CurrentControlWorksp
 
 
 @dataclass(frozen=True)
+class LiveWorkspace:
+    """The repository as it stands right now, for comparison with the pointer.
+
+    Resolved by the caller because the Git helpers live in the CLI layer.
+    ``root`` is the repository root, used to recompute a worktree overlay.
+    """
+
+    root: Path
+    repository: str | None = None
+    head_commit_sha: str | None = None
+    head_tree_sha: str | None = None
+    # The paths that differ from HEAD right now. ``None`` means the caller could
+    # not determine them, which is treated as unverified rather than unchanged.
+    changed_paths: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
 class CurrentControlRead:
     """A pointer that was validated against the artifacts it binds."""
 
@@ -321,7 +407,12 @@ class CurrentControlRead:
     path: Path
 
 
-def read_current_control(out_dir: Path, *, attempts: int = 3) -> CurrentControlRead:
+def read_current_control(
+    out_dir: Path,
+    *,
+    live: LiveWorkspace | None = None,
+    attempts: int = 3,
+) -> CurrentControlRead:
     """Read the current control identity, or refuse.
 
     Implements the generation-safe protocol: read and validate the pointer,
@@ -329,6 +420,13 @@ def read_current_control(out_dir: Path, *, attempts: int = 3) -> CurrentControlR
     only when ``current_control_id`` is unchanged.  A run that republishes
     while this read is in flight makes the read fail rather than return a
     pointer describing one generation and artifacts from another.
+
+    Byte consistency is not generation consistency.  A pointer whose artifacts
+    all still hash correctly can still describe a workspace that has since
+    moved — one commit is enough — so ``live`` is compared against the bound
+    ``workspace_identity`` and any drift refuses the read.  Completion
+    authority is never returned without that comparison: passing ``live=None``
+    means "not verified", which downgrades to a refusal rather than a pass.
     """
 
     path = current_control_path(out_dir)
@@ -353,6 +451,7 @@ def read_current_control(out_dir: Path, *, attempts: int = 3) -> CurrentControlR
                 raise
             last = mismatch
             continue
+        _validate_control_currency(out_dir, pointer, live)
         confirmation = _load_pointer(out_dir, path)
         if confirmation.current_control_id == pointer.current_control_id:
             return CurrentControlRead(pointer=pointer, path=path)
@@ -412,6 +511,150 @@ def _load_pointer(out_dir: Path, path: Path) -> CurrentControlPointer:
             f"{CURRENT_CONTROL_ARTIFACT_NAME} is not a valid control pointer: {exc}",
             path=path,
         ) from exc
+
+
+def _validate_control_currency(
+    out_dir: Path,
+    pointer: CurrentControlPointer,
+    live: LiveWorkspace | None,
+) -> None:
+    """Refuse a pointer whose evidence no longer describes this workspace."""
+
+    grants_authority = pointer.control.state == "complete"
+    if grants_authority:
+        refusal = _receipt_binding_refusal(
+            out_dir,
+            pointer.artifacts,
+            request_id=pointer.request_id,
+            decision_id=pointer.decision_id,
+        )
+        if refusal is not None:
+            raise CurrentControlUnavailable("receipt_mismatch", refusal, path=out_dir)
+
+    identity = pointer.workspace_identity
+    if live is None:
+        if grants_authority:
+            raise CurrentControlUnavailable(
+                "workspace_unverified",
+                (
+                    "This pointer authorizes completion, but the live workspace "
+                    "was not supplied, so it could not be confirmed that the "
+                    "decision still describes it."
+                ),
+                path=out_dir,
+            )
+        return
+
+    for field, observed in (
+        ("repository", live.repository),
+        ("head_commit_sha", live.head_commit_sha),
+        ("head_tree_sha", live.head_tree_sha),
+    ):
+        expected = getattr(identity, field)
+        if expected is not None and observed != expected:
+            raise CurrentControlUnavailable(
+                "workspace_changed",
+                (
+                    f"The workspace moved since this decision was made: "
+                    f"{field} is {observed!r}, but the pointer was published "
+                    f"against {expected!r}. Re-run verification."
+                ),
+                path=out_dir,
+            )
+    if grants_authority and (
+        identity.head_commit_sha is None or identity.head_tree_sha is None
+    ):
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            (
+                "This pointer authorizes completion but binds no HEAD identity, "
+                "so it cannot be confirmed against the live workspace."
+            ),
+            path=out_dir,
+        )
+    if identity.snapshot_kind == "worktree_overlay":
+        _validate_worktree_overlay(out_dir, pointer, live, required=grants_authority)
+
+
+def _validate_worktree_overlay(
+    out_dir: Path,
+    pointer: CurrentControlPointer,
+    live: LiveWorkspace,
+    *,
+    required: bool,
+) -> None:
+    """Recompute the overlay a worktree decision committed to.
+
+    A worktree run's evidence is the uncommitted content of its changed files,
+    which HEAD says nothing about — editing one of them leaves both commit and
+    tree identical.  The overlay is recomputed from the same changed-path set
+    the plan recorded, using the same normalization the plan used.
+    """
+
+    ref = pointer.artifacts.get("verification_plan")
+    if ref is None:
+        if required:
+            raise CurrentControlUnavailable(
+                "workspace_unverifiable",
+                (
+                    "This pointer authorizes completion of a worktree "
+                    "verification but binds no plan, so the overlay it decided "
+                    "on cannot be recomputed."
+                ),
+                path=out_dir,
+            )
+        return
+    try:
+        data = read_regular_file_beneath(
+            out_dir,
+            ref.path,
+            max_size=MAX_BOUND_ARTIFACT_BYTES,
+            label="current control plan",
+        )
+        plan = VerificationPlan.model_validate_json(data)
+        decided_paths = list(plan.inputs.changed_paths)
+        rows = worktree_overlay(live.root, decided_paths)
+    except (ValueError, OSError) as exc:
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            f"The worktree overlay this decision committed to could not be recomputed: {exc}",
+            path=out_dir,
+        ) from exc
+    observed = content_id(rows) if rows else None
+    if observed != pointer.workspace_identity.worktree_overlay_sha256:
+        raise CurrentControlUnavailable(
+            "workspace_changed",
+            (
+                "The working tree changed since this decision was made: the "
+                "recomputed overlay does not match the one the pointer was "
+                "published against. Re-run verification."
+            ),
+            path=out_dir,
+        )
+    # The overlay only covers the paths that already differed from HEAD when the
+    # decision was made. A file edited afterwards leaves HEAD, the tree, and
+    # that overlay all identical, so the change *set* has to be compared too.
+    if live.changed_paths is None:
+        if required:
+            raise CurrentControlUnavailable(
+                "workspace_unverifiable",
+                (
+                    "This pointer authorizes completion of a worktree "
+                    "verification, but the current set of uncommitted changes "
+                    "could not be determined."
+                ),
+                path=out_dir,
+            )
+        return
+    if set(live.changed_paths) != set(decided_paths):
+        raise CurrentControlUnavailable(
+            "workspace_changed",
+            (
+                "The set of uncommitted changes is no longer the one this "
+                "decision was made against. Re-run verification."
+            ),
+            path=out_dir,
+        )
 
 
 def _validate_bound_artifacts(out_dir: Path, pointer: CurrentControlPointer) -> None:
@@ -546,10 +789,13 @@ def _sha256_bytes(value: bytes) -> str:
 __all__ = [
     "CURRENT_CONTROL_ARTIFACT_FILENAMES",
     "MAX_BOUND_ARTIFACT_BYTES",
+    "SCAN_CONTROL_ARTIFACT_KEYS",
+    "SCAN_FORMAT_ARTIFACT_KEYS",
     "VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS",
     "MAX_CURRENT_CONTROL_BYTES",
     "CurrentControlPublishError",
     "CurrentControlRead",
+    "LiveWorkspace",
     "CurrentControlUnavailable",
     "begin_current_control",
     "bind_current_control_artifacts",

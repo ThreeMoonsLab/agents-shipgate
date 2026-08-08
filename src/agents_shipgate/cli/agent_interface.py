@@ -7,9 +7,17 @@ from typing import Any
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.verify.git import (
+    commit_sha,
+    ensure_git_workspace,
+    repository_identity,
+    tree_sha,
+    working_tree_context,
+)
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.current_control import (
     CurrentControlUnavailable,
+    LiveWorkspace,
     read_current_control,
 )
 from agents_shipgate.core.errors import InputParseError
@@ -21,6 +29,23 @@ agent_app = typer.Typer(
     help="Agent-native projection commands.",
     no_args_is_help=True,
 )
+
+# Refusal reason -> (agent-mode error kind, exit code). Reasons about the
+# artifact set itself map to the missing/parse family; reasons about currency
+# map to "other". Anything unlisted falls through to the conservative 4.
+_UNAVAILABLE_EXIT: dict[str, tuple[str, int]] = {
+    "missing": ("input_parse_error", 3),
+    "unreadable": ("input_parse_error", 3),
+    "invalid_schema": ("input_parse_error", 3),
+    "unsafe_pointer": ("input_parse_error", 3),
+    "artifact_unreadable": ("input_parse_error", 3),
+    "artifact_mismatch": ("input_parse_error", 3),
+    "generation_changed": ("other_error", 4),
+    "workspace_changed": ("other_error", 4),
+    "workspace_unverified": ("other_error", 4),
+    "workspace_unverifiable": ("other_error", 4),
+    "receipt_mismatch": ("other_error", 4),
+}
 
 
 @agent_app.command("handoff")
@@ -91,6 +116,14 @@ def handoff(
 
 @agent_app.command("control")
 def control(
+    workspace: Path = typer.Option(
+        Path("."),
+        "--workspace",
+        help=(
+            "Repository the pointer must still describe. Drift in HEAD, the "
+            "tree, or the worktree overlay refuses the read."
+        ),
+    ),
     reports_dir: Path = typer.Option(
         Path(DEFAULT_PATHS["reports_dir"]),
         "--reports-dir",
@@ -100,14 +133,16 @@ def control(
     """Read the current control identity using the generation-safe protocol.
 
     This is the one refresh entry point.  A zero exit means the printed pointer
-    was validated against every artifact it binds and did not move while it was
-    read.  A non-zero exit means no control identity is current here: the caller
-    holds no authority and must not fall back on a control state it cached
-    earlier in the conversation.
+    was validated against every artifact it binds, still describes ``--workspace``
+    as it stands right now, and did not move while it was read.  A non-zero exit
+    means no control identity is current here: the caller holds no authority and
+    must not fall back on a control state it cached earlier in the conversation.
     """
 
     try:
-        result = read_current_control(reports_dir)
+        result = read_current_control(
+            reports_dir, live=_live_workspace(workspace, reports_dir)
+        )
     except CurrentControlUnavailable as exc:
         guidance = (
             "Re-run `agents-shipgate verify` and read "
@@ -115,11 +150,17 @@ def control(
             "reads cleanly, treat completion, merge, and any cached must_stop "
             "as unavailable rather than acting on a remembered result."
         )
+        # Two different failures, two different exit codes: the artifact set is
+        # unreadable or inconsistent (3, the missing/parse family), or it reads
+        # fine but no longer describes anything current (4). Both deny
+        # authority; the split tells a caller whether to repair a directory or
+        # simply re-verify.
+        kind, exit_code = _UNAVAILABLE_EXIT.get(exc.reason, ("other_error", 4))
         typer.echo(f"Current control is unavailable ({exc.reason}): {exc}", err=True)
         emit_agent_mode_error(
-            "input_parse_error" if exc.reason != "generation_changed" else "other_error",
+            kind,
             message=str(exc),
-            exit_code=3 if exc.reason != "generation_changed" else 4,
+            exit_code=exit_code,
             next_action=guidance,
             next_actions=[
                 NextAction(
@@ -127,17 +168,49 @@ def control(
                     command=COMMANDS["verify_pr"],
                     why=guidance,
                     expects=(
-                        "current-control.json is present, valid, and every "
-                        "artifact it binds matches its recorded hash."
+                        "current-control.json is present, valid, every artifact "
+                        "it binds matches its recorded hash, and it still "
+                        "describes this workspace."
                     ),
                 ).model_dump(mode="json")
             ],
         )
-        raise typer.Exit(3 if exc.reason != "generation_changed" else 4) from exc
+        raise typer.Exit(exit_code) from exc
 
     typer.echo(
         json.dumps(result.pointer.model_dump(mode="json"), indent=2, sort_keys=True)
     )
+
+
+def _live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
+    """Resolve the repository as it stands now, or ``None`` outside Git.
+
+    ``None`` is not "no drift" — it means the comparison could not be made, and
+    the reader refuses completion authority on that basis rather than assuming
+    the pointer still holds.
+
+    The reports directory is excluded from the change set for the same reason
+    ``verify`` excludes it when building the plan: the run's own output is not
+    part of the change it evaluated, and including it here would make every
+    refresh disagree with the decision it is checking.
+    """
+
+    try:
+        root = ensure_git_workspace(workspace.resolve())
+        try:
+            changed, _ = working_tree_context(root, exclude=reports_dir)
+            changed_paths: tuple[str, ...] | None = tuple(changed)
+        except Exception:  # noqa: BLE001 - an unreadable worktree is "unverified".
+            changed_paths = None
+        return LiveWorkspace(
+            root=root,
+            repository=repository_identity(root),
+            head_commit_sha=commit_sha(root, "HEAD"),
+            head_tree_sha=tree_sha(root, "HEAD"),
+            changed_paths=changed_paths,
+        )
+    except Exception:  # noqa: BLE001 - an unresolvable workspace is "unverified".
+        return None
 
 
 def _load_required_json(path: Path, label: str) -> dict[str, Any]:

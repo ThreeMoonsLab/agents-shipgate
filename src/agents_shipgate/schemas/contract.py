@@ -278,7 +278,8 @@ COMMANDS: dict[str, str] = {
         "agents-shipgate-reports"
     ),
     "agent_control": (
-        "agents-shipgate agent control --reports-dir agents-shipgate-reports"
+        "agents-shipgate agent control --workspace . "
+        "--reports-dir agents-shipgate-reports"
     ),
     "agent_handoff": (
         "agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json"

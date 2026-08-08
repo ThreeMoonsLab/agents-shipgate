@@ -979,6 +979,17 @@ def _existing_changed_blobs(paths: list[str], *, root: Path, source: str) -> lis
     return _blobs(candidates, root=root, source=source)
 
 
+def worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
+    """Return the normalized present/deleted+hash rows for ``paths`` under ``root``.
+
+    The same function builds the overlay a plan commits to and the overlay a
+    later reader recomputes, so worktree drift cannot hide behind two slightly
+    different normalizations.
+    """
+
+    return _worktree_overlay(root, paths)
+
+
 def _worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     snapshot = active_static_input_snapshot()
@@ -1217,6 +1228,8 @@ def _normalized_distribution_name(value: str) -> str:
 
 __all__ = [
     "build_engine_requirement",
+    "read_regular_file_beneath",
+    "worktree_overlay",
     "build_executor",
     "build_terminal_receipt",
     "build_unit_result",

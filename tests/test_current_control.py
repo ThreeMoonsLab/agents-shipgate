@@ -24,10 +24,17 @@ from agents_shipgate.cli.scan import writing as scan_writing
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.verification import assemble, prepare, worker
 from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
+from agents_shipgate.cli.verify.git import (
+    commit_sha,
+    repository_identity,
+    tree_sha,
+    working_tree_context,
+)
 from agents_shipgate.cli.verify.orchestrator import run_preview, run_verify
 from agents_shipgate.core import current_control as current_control_module
 from agents_shipgate.core.current_control import (
     CurrentControlUnavailable,
+    LiveWorkspace,
     begin_current_control,
     current_control_path,
     publish_current_control,
@@ -96,6 +103,19 @@ def _verify(repo: Path, **overrides: object) -> tuple[object, object, int]:
     return run_verify(**options)  # type: ignore[arg-type]
 
 
+def _live(repo: Path) -> LiveWorkspace:
+    """The live workspace, resolved the way `agents-shipgate agent control` does."""
+
+    changed, _ = working_tree_context(repo, exclude=repo / "agents-shipgate-reports")
+    return LiveWorkspace(
+        root=repo,
+        repository=repository_identity(repo),
+        head_commit_sha=commit_sha(repo, "HEAD"),
+        head_tree_sha=tree_sha(repo, "HEAD"),
+        changed_paths=tuple(changed),
+    )
+
+
 def _pointer(repo: Path) -> dict[str, object]:
     path = repo / "agents-shipgate-reports" / CURRENT_CONTROL_ARTIFACT_NAME
     return json.loads(path.read_text(encoding="utf-8"))
@@ -129,7 +149,9 @@ def test_cached_stop_is_superseded_after_the_human_commits(repo: Path) -> None:
     completed, _, _ = _verify(repo)
     assert completed.control.state == "complete"
 
-    refreshed = read_current_control(repo / "agents-shipgate-reports").pointer
+    refreshed = read_current_control(
+        repo / "agents-shipgate-reports", live=_live(repo)
+    ).pointer
     assert refreshed.current_control_id != cached["current_control_id"]
     assert refreshed.control.state == "complete"
     assert refreshed.control.completion_allowed is True
@@ -140,50 +162,66 @@ def test_cached_stop_is_superseded_after_the_human_commits(repo: Path) -> None:
     assert refreshed.request_id is not None and refreshed.decision_id is not None
 
 
-def test_cached_completion_cannot_survive_a_workspace_mutation(repo: Path) -> None:
+def test_cached_completion_cannot_survive_a_committed_change(repo: Path) -> None:
     """Reverse regression: a remembered `complete` is not authority later.
 
-    The pointer binds the workspace the decision was made against, so a
-    consumer can see that HEAD moved out from under a cached completion
-    without re-running anything — and the rerun then replaces the identity.
+    Byte consistency is not generation consistency. Every bound artifact still
+    hashes correctly after an unrelated commit, so the read has to compare the
+    pointer's workspace identity against the live repository or it hands back
+    completion authority for a workspace that has moved on.
     """
 
     completed, _, _ = _verify(repo)
     assert completed.control.state == "complete"
-    authorized = _pointer(repo)
-    assert authorized["control"]["completion_allowed"] is True
     reports = repo / "agents-shipgate-reports"
+    authorized = read_current_control(reports, live=_live(repo)).pointer
+    assert authorized.control.completion_allowed is True
 
-    tools = repo / "tools.json"
-    payload = json.loads(tools.read_text(encoding="utf-8"))
-    payload["tools"].append(
-        {
-            "name": "docs.publish",
-            "description": "Publish an article to the public documentation site.",
-            "inputSchema": {"type": "object", "properties": {}},
-        }
-    )
-    tools.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    _git(repo, "add", ".")
-    _git(repo, "commit", "-m", "agent adds a write tool")
+    _git(repo, "commit", "--allow-empty", "-m", "an unrelated commit")
 
-    # Nothing has re-run yet, so the pointer still reads `complete` — but it
-    # says which tree it was computed from, and that tree is no longer HEAD.
-    head_tree = subprocess.run(
-        ["git", "rev-parse", "HEAD^{tree}"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    cached = read_current_control(reports).pointer
-    assert cached.control.completion_allowed is True
-    assert cached.workspace_identity.head_tree_sha != head_tree
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=_live(repo))
+    assert raised.value.reason == "workspace_changed"
 
     _verify(repo)
-    current = read_current_control(reports).pointer
-    assert current.current_control_id != authorized["current_control_id"]
-    assert current.workspace_identity.head_tree_sha == head_tree
+    current = read_current_control(reports, live=_live(repo)).pointer
+    assert current.current_control_id != authorized.current_control_id
+    assert current.control.completion_allowed is True
+
+
+def test_cached_completion_cannot_survive_an_uncommitted_edit(repo: Path) -> None:
+    """A worktree decision is about working-tree content, which HEAD hides.
+
+    Editing a file leaves HEAD and its tree byte-identical, so the overlay the
+    decision committed to has to be recomputed -- both its content and the set
+    of paths it covered, since a file changed *after* the decision appears in
+    neither.
+    """
+
+    completed, _, _ = _verify(repo, archive_head=False)
+    assert completed.control.state == "complete"
+    reports = repo / "agents-shipgate-reports"
+    assert read_current_control(reports, live=_live(repo)).pointer.control.completion_allowed
+
+    head_before = commit_sha(repo, "HEAD")
+    tools = repo / "tools.json"
+    tools.write_text(tools.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    assert commit_sha(repo, "HEAD") == head_before
+
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=_live(repo))
+    assert raised.value.reason == "workspace_changed"
+
+
+def test_completion_is_refused_when_the_workspace_cannot_be_checked(repo: Path) -> None:
+    """`live=None` means "not compared", which is never a pass for completion."""
+
+    completed, _, _ = _verify(repo)
+    assert completed.control.state == "complete"
+
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(repo / "agents-shipgate-reports")
+    assert raised.value.reason == "workspace_unverified"
 
 
 def test_an_interrupted_run_leaves_no_decision_current(
@@ -249,6 +287,84 @@ def test_a_standalone_scan_never_retains_merge_authorization(repo: Path) -> None
     assert current.control.state == "agent_action_required"
     assert current.control.completion_allowed is False
     assert "verification_receipt" not in current.artifacts
+
+
+def test_a_scan_binds_only_the_formats_it_wrote(repo: Path) -> None:
+    """`scan --format markdown` must not claim an earlier run's JSON report.
+
+    A scan only replaces the formats it emits, so a verifier's `report.json`
+    survives a markdown-only scan. Binding it would present the previous run's
+    decision ids as part of the current set.
+    """
+
+    _verify(repo)
+    reports = repo / "agents-shipgate-reports"
+    stale_report = json.loads((reports / "report.json").read_text(encoding="utf-8"))
+    assert stale_report["request_id"]
+
+    run_scan(
+        config_path=repo / "shipgate.yaml",
+        output_dir=reports,
+        formats=["markdown"],
+        ci_mode="advisory",
+        plugins_enabled=False,
+        packet_enabled=False,
+    )
+
+    current = read_current_control(reports, live=_live(repo)).pointer
+    assert current.operation == "scan"
+    assert "report" not in current.artifacts
+    assert "packet" not in current.artifacts
+    assert current.artifacts["report_markdown"].path == "report.md"
+    # The stale JSON report is still on disk; it is simply no longer current.
+    assert (reports / "report.json").is_file()
+    assert current.request_id is None
+
+
+def test_assembly_refuses_completion_when_it_binds_another_request(repo: Path) -> None:
+    """`assemble --out` accepts any name, so the canonical receipt may be stale.
+
+    The bound receipt has to close the same request and decision the pointer
+    records, or completion authority is refused.
+    """
+
+    _verify(repo)
+    reports = repo / "agents-shipgate-reports"
+    stale_receipt = (reports / "verification-receipt.json").read_text(encoding="utf-8")
+    stale_request = json.loads(stale_receipt)["request_id"]
+
+    # A second run against a different tree produces a different request.
+    (repo / "notes.txt").write_text("notes\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "unrelated file")
+    _verify(repo)
+    fresh_request = json.loads(
+        (reports / "verification-receipt.json").read_text(encoding="utf-8")
+    )["request_id"]
+    assert fresh_request != stale_request
+
+    unit = reports / "distributed-unit.json"
+    worker(
+        plan_path=reports / "verification-plan.json",
+        workspace=repo,
+        diff_path=reports / "verification-input.diff",
+        out=unit,
+    )
+    # The stale canonical receipt is what `publish_current_control` will bind.
+    (reports / "verification-receipt.json").write_text(stale_receipt, encoding="utf-8")
+    assemble(
+        plan_path=reports / "verification-plan.json",
+        unit_paths=[unit],
+        verifier_path=reports / "verifier.json",
+        artifacts_root=reports,
+        out=reports / "custom-receipt.json",
+    )
+
+    published = _pointer(repo)
+    assert published["request_id"] == fresh_request
+    assert published["control"]["state"] == "human_review_required"
+    assert published["control"]["completion_allowed"] is False
+    assert "different request" in published["control"]["reason"]
 
 
 def test_a_preview_neither_completes_nor_binds_an_older_report(repo: Path) -> None:
@@ -392,7 +508,7 @@ def test_the_assembler_publishes_the_terminal_pointer(repo: Path) -> None:
         out=reports / "verification-receipt.json",
     )
 
-    closed = read_current_control(reports).pointer
+    closed = read_current_control(reports, live=_live(repo)).pointer
     assert closed.operation == "verify"
     assert closed.lifecycle_state == "terminal"
     assert closed.control.state == "complete"
@@ -437,7 +553,7 @@ def test_reader_rejects_a_generation_change_underneath_it(
         current_control_module, "_validate_bound_artifacts", republish_then_validate
     )
     with pytest.raises(CurrentControlUnavailable) as raised:
-        read_current_control(reports, attempts=1)
+        read_current_control(reports, live=_live(repo), attempts=1)
     assert raised.value.reason == "generation_changed"
 
 
@@ -612,13 +728,56 @@ def test_agent_control_command_prints_the_validated_pointer(repo: Path) -> None:
     _verify(repo)
     result = runner.invoke(
         app,
-        ["agent", "control", "--reports-dir", str(repo / "agents-shipgate-reports")],
+        [
+            "agent",
+            "control",
+            "--workspace",
+            str(repo),
+            "--reports-dir",
+            str(repo / "agents-shipgate-reports"),
+        ],
     )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["schema_version"] == "shipgate.current_control/v1"
     assert payload["control"]["state"] == "complete"
+
+
+def test_agent_control_ignores_its_own_output_directory(tmp_path: Path) -> None:
+    """The run's own artifacts are not part of the change it evaluated.
+
+    A workspace that does not gitignore the reports directory would otherwise
+    report every generated file as an uncommitted change the decision never saw,
+    and every refresh would refuse.
+    """
+
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    for name in ("shipgate.yaml", "tools.json"):
+        shutil.copy(SAMPLE / name, workspace / name)
+    _git(workspace, "init")
+    _git(workspace, "config", "user.email", "test@example.test")
+    _git(workspace, "config", "user.name", "Test User")
+    _git(workspace, "add", ".")
+    _git(workspace, "commit", "-m", "fixture without a reports gitignore")
+
+    _verify(workspace, archive_head=False)
+    assert not (workspace / ".gitignore").exists()
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "control",
+            "--workspace",
+            str(workspace),
+            "--reports-dir",
+            str(workspace / "agents-shipgate-reports"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
 
 
 def test_agent_control_command_fails_closed_when_nothing_is_current(tmp_path: Path) -> None:
@@ -628,6 +787,28 @@ def test_agent_control_command_fails_closed_when_nothing_is_current(tmp_path: Pa
 
     assert result.exit_code == 3
     assert "unavailable" in result.output
+
+
+def test_agent_control_command_fails_closed_on_workspace_drift(repo: Path) -> None:
+    """Drift is a currency failure, not a parse failure, so it exits 4."""
+
+    _verify(repo)
+    _git(repo, "commit", "--allow-empty", "-m", "an unrelated commit")
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "control",
+            "--workspace",
+            str(repo),
+            "--reports-dir",
+            str(repo / "agents-shipgate-reports"),
+        ],
+    )
+
+    assert result.exit_code == 4
+    assert "workspace_changed" in result.output
 
 
 def test_scan_publishes_its_own_pointer_only_when_it_owns_the_lifecycle(

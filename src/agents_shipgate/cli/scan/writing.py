@@ -11,6 +11,7 @@ from agents_shipgate.ci.release_decision import (
 )
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.core.current_control import (
+    SCAN_FORMAT_ARTIFACT_KEYS,
     begin_current_control,
     current_control_lifecycle_owner,
     publish_current_control,
@@ -114,6 +115,11 @@ def _write_outputs(
         # look, so a verifier route from an earlier run cannot be mistaken for
         # the current permission to finish.  A scan builds no verification
         # plan, so the only identity it can bind is the manifest it read.
+        #
+        # The binding is restricted to the formats this scan actually wrote.
+        # `scan --format markdown` after a verify leaves that verifier's
+        # `report.json` in place, and binding it would present the previous
+        # run's JSON report as part of the current set.
         publish_current_control(
             plan.out_dir,
             operation="scan",
@@ -128,6 +134,11 @@ def _write_outputs(
             workspace_identity=CurrentControlWorkspaceIdentity(
                 policy_snapshot_sha256=_manifest_snapshot_sha256(config_path),
             ),
+            artifact_keys={
+                SCAN_FORMAT_ARTIFACT_KEYS[name]
+                for name in plan.generated_paths
+                if name in SCAN_FORMAT_ARTIFACT_KEYS
+            },
         )
 
 

@@ -120,10 +120,18 @@ Downstream repos generated with
 ## Two read entry points
 
 Both start at `agents-shipgate-reports/current-control.json` (`agents-shipgate
-agent control`), which names the run that is current. Everything below it
-describes *a* run; only the pointer says *which* run. A non-zero exit from the
-reader means no control identity is current here and the caller holds no
-authority — not that the previous answer still stands.
+agent control --workspace .`), which names the run that is current. Everything
+below it describes *a* run; only the pointer says *which* run. A non-zero exit
+from the reader means no control identity is current here and the caller holds
+no authority — not that the previous answer still stands.
+
+Byte consistency is not generation consistency. A pointer whose artifacts all
+still hash correctly can describe a workspace that one commit has moved past, so
+the reader compares the bound `workspace_identity` against the live repository —
+repository, HEAD commit, HEAD tree, and, for a worktree run, both the recomputed
+overlay and the current set of uncommitted paths — and refuses on any drift.
+Completion authority is never returned without that comparison: a reader that
+cannot resolve the workspace reports it as unverified rather than passing.
 
 Given a current pointer, there are two correct "read first" paths; which one
 applies depends on who is reading. They are not two decisions — they are two
@@ -165,9 +173,13 @@ filenames already present in the output directory:
 `current-control.json` records which of those two just happened in its
 `operation` field, so the choice does not have to be inferred from filenames at
 all. Only an `operation: "verify"` pointer can carry `control.state:
-"complete"`, and only when it also binds a `verification_receipt` for that exact
-request; a `scan` or `preview` pointer is structurally incapable of authorizing
-completion or merge. While a run is in flight the pointer reads
+"complete"`, and only when it also binds a `verification_receipt` whose
+`request_id` and `decision_id` are the ones the pointer records — the assembler
+accepts any `--out` name under its artifacts root, so an older canonical receipt
+must not be mistaken for the one a run just closed. A `scan` or `preview`
+pointer is structurally incapable of authorizing completion or merge, and each
+binds only the artifacts it actually wrote: a `scan --format markdown` after a
+verify does not claim that verifier's `report.json`. While a run is in flight the pointer reads
 `lifecycle_state: "in_progress"` with `control.state: "unavailable"`,
 `must_stop: true`, so an interrupted or crashed run leaves a directory that
 denies cached control rather than one that still authorizes it. Consumers built

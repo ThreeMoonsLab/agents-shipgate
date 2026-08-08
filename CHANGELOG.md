@@ -28,11 +28,23 @@
   agent control`: validate the pointer, validate every artifact hash it binds,
   re-read the pointer, and continue only if `current_control_id` is unchanged —
   a run that republishes mid-read makes the read fail rather than return one
-  generation's pointer beside another's artifacts. Two invariants are structural
-  rather than advisory: only an `operation: "verify"` pointer can carry
+  generation's pointer beside another's artifacts. And because byte consistency
+  is not generation consistency — every bound artifact still hashes correctly
+  one unrelated commit later — the read also compares the pointer's
+  `workspace_identity` against the live repository: repository, HEAD commit,
+  HEAD tree, and, for a worktree run, both the recomputed overlay and the
+  current set of uncommitted paths, since a file edited *after* the decision
+  appears in neither HEAD nor that overlay. Completion authority is never
+  returned without that comparison. Two invariants are structural rather than
+  advisory: only an `operation: "verify"` pointer can carry
   `control.state: "complete"`, and only when it also binds a
-  `verification_receipt` for that exact request, so a scan or a preview cannot
-  represent completion authority at all. Supporting scans stay isolated —
+  `verification_receipt` whose request and decision are the ones the pointer
+  records — the assembler accepts any `--out` name under its artifacts root, so
+  an older canonical receipt cannot be mistaken for the one a run just closed.
+  A scan or a preview cannot represent completion authority at all, and each
+  pointer binds only the artifacts its own run wrote: a `scan --format markdown`
+  after a verify no longer claims that verifier's `report.json`.
+  Supporting scans stay isolated —
   `verify`'s internal head scan does not take over the PR's control identity,
   and `baseline save` already scanned into a temporary directory. Contract
   `19 → 20` adds `current_control_schema_version`, `current_control_artifact`,

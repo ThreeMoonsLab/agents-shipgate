@@ -150,12 +150,16 @@ override.
 Read the pointer with:
 
 ```bash
-agents-shipgate agent control --reports-dir agents-shipgate-reports
+agents-shipgate agent control --workspace . --reports-dir agents-shipgate-reports
 ```
 
 A zero exit means the printed pointer was validated against every artifact it
-binds and did not move while it was read. A non-zero exit means no control
-identity is current here — you hold no authority, and a remembered result does
+binds, still describes the repository as it stands right now, and did not move
+while it was read. Byte consistency is not generation consistency: one commit
+is enough to make an intact artifact set describe a workspace that has moved,
+so the read compares the pointer's HEAD, tree, and worktree overlay against the
+live repository and refuses on drift. A non-zero exit means no control identity
+is current here — you hold no authority, and a remembered result does
 not substitute for one. Re-read it after any human or external-tool action,
 after commit, rebase, checkout, pull, or any worktree change, after any
 agents-shipgate command returns, before enforcing a cached `must_stop`, before

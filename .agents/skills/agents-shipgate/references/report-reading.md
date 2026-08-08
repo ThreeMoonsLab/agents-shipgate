@@ -1,8 +1,9 @@
 # Reading Agents Shipgate Reports
 
 For verify runs, read `agents-shipgate-reports/current-control.json` first —
-via `agents-shipgate agent control` — because it names which run is current and
-a non-zero exit means none is. Then validate the
+via `agents-shipgate agent control --workspace .` — because it names which run
+is current, checks it against the repository as it stands right now, and a
+non-zero exit means none is. Then validate the
 `agents-shipgate-reports/verification-receipt.json` it binds. Then read
 `agents-shipgate-reports/agent-handoff.json`. After that,
 read `agents-shipgate-reports/verifier.json` for detailed control context

@@ -212,8 +212,9 @@ The PR/control surface is `agents-shipgate-reports/verifier.json` →
 `merge_verdict` (`mergeable | human_review_required | insufficient_evidence |
 blocked | unknown`), a deterministic projection of the release decision.
 Read `agents-shipgate-reports/current-control.json` first — it names which run
-is current, and `agents-shipgate agent control` validates it against every
-artifact it binds. Then validate the `verification-receipt.json` it binds; then
+is current, and `agents-shipgate agent control --workspace .` validates it
+against every artifact it binds and against the live repository, refusing the
+read when HEAD or the working tree has moved since the decision. Then validate the `verification-receipt.json` it binds; then
 read `agent-handoff.json`
 (`control.state`, then `gate.merge_verdict`), followed by the
 authoritative control substrate `verifier.json` for `control`, `merge_verdict`,
