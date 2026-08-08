@@ -23,6 +23,10 @@ from agents_shipgate.schemas.capabilities import (
 from agents_shipgate.schemas.codex_boundary_result import (
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.current_control import (
+    CURRENT_CONTROL_SCHEMA_PATH,
+    CURRENT_CONTROL_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.governance_benchmark import (
     GOVERNANCE_BENCHMARK_CATALOG_SCHEMA_VERSION,
     GOVERNANCE_BENCHMARK_RESULT_SCHEMA_VERSION,
@@ -54,7 +58,7 @@ from agents_shipgate.schemas.verification_identity import (
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
-CONTRACT_VERSION: Literal["19"] = "19"
+CONTRACT_VERSION: Literal["20"] = "20"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["14"] = "14"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v2"] = "agent_result_v2"
@@ -92,7 +96,35 @@ AGENT_CONTROL_STATES: tuple[str, ...] = (
     "agent_action_required",
     "human_review_required",
 )
+# v20: the boundaries at which a coding agent must re-read
+# ``current_control_artifact`` before it acts.  A control state remembered from
+# earlier in a conversation is never authority: the pointer is.  These are
+# obligations on the consumer, so they are published as contract data rather
+# than left to prose in the generated instructions.
+AGENT_REFRESH_TRIGGERS: tuple[str, ...] = (
+    "after any human action or external tool action",
+    "after commit, rebase, checkout, pull, or any other worktree mutation",
+    "after any agents-shipgate command returns",
+    "before enforcing a cached must_stop",
+    "before commit, push, or PR update when permission depends on Shipgate",
+    "before merge or release",
+    "before declaring the task complete",
+    "whenever the observed request_id, HEAD, worktree identity, or "
+    "current_control_id changes",
+)
+# The fallback order for a consumer built before ``current-control.json``
+# existed, or reading a directory produced by an older release.  Absence of the
+# pointer is not permission: such a consumer must treat the artifacts below as
+# evidence of some run, never as evidence that the run is current.
+CURRENT_CONTROL_FALLBACK_READ_ORDER: tuple[str, ...] = (
+    "current-control.json",
+    "verification-receipt.json",
+    "agent-handoff.json",
+    "verifier.json",
+    "report.json",
+)
 EXTERNAL_INTEGRATION_SURFACES: tuple[str, ...] = (
+    "current_control",
     "agent_handoff",
     "preflight",
     "capability_lock",
@@ -245,6 +277,9 @@ COMMANDS: dict[str, str] = {
         "agents-shipgate-reports/verification-receipt.json --artifacts-root "
         "agents-shipgate-reports"
     ),
+    "agent_control": (
+        "agents-shipgate agent control --reports-dir agents-shipgate-reports"
+    ),
     "agent_handoff": (
         "agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json"
     ),
@@ -276,6 +311,7 @@ PRIMARY_COMMANDS: dict[str, str] = {
     "host_audit": ("shipgate audit --host --json --out agents-shipgate-reports/host-grants.json"),
 }
 ARTIFACTS: dict[str, str] = {
+    "current_control": "agents-shipgate-reports/current-control.json",
     "verifier": "agents-shipgate-reports/verifier.json",
     "verify_run": "agents-shipgate-reports/verify-run.json",
     "agent_handoff": "agents-shipgate-reports/agent-handoff.json",
@@ -297,6 +333,13 @@ ARTIFACTS: dict[str, str] = {
     "registry": ".agents-shipgate/registry.jsonl",
 }
 AGENT_READ_ORDER: tuple[str, ...] = (
+    # v20: the pointer is read first and re-read at every decision boundary in
+    # AGENT_REFRESH_TRIGGERS. Everything below it describes a run; only the
+    # pointer says which run is current.
+    "current-control.json",
+    "current-control.json.current_control_id",
+    "current-control.json.lifecycle_state",
+    "current-control.json.control.state",
     "verification-receipt.json",
     "verification-receipt.json.request_id",
     "verification-receipt.json.receipt_id",
@@ -373,6 +416,11 @@ class ContractPayload(BaseModel):
     verification_unit_result_schema_version: str
     verification_artifact_manifest_schema_version: str
     verification_receipt_schema_version: str
+    current_control_schema_version: str
+    current_control_schema_path: str
+    current_control_artifact: str
+    agent_refresh_triggers: list[str]
+    current_control_fallback_read_order: list[str]
     human_authorization_request_schema_version: str
     human_authorization_schema_version: str
     human_authorization_evaluation_schema_version: str
@@ -441,6 +489,11 @@ def build_contract_payload() -> ContractPayload:
             VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION
         ),
         verification_receipt_schema_version=VERIFICATION_RECEIPT_SCHEMA_VERSION,
+        current_control_schema_version=CURRENT_CONTROL_SCHEMA_VERSION,
+        current_control_schema_path=CURRENT_CONTROL_SCHEMA_PATH,
+        current_control_artifact=ARTIFACTS["current_control"],
+        agent_refresh_triggers=list(AGENT_REFRESH_TRIGGERS),
+        current_control_fallback_read_order=list(CURRENT_CONTROL_FALLBACK_READ_ORDER),
         human_authorization_request_schema_version=(
             HUMAN_AUTHORIZATION_REQUEST_SCHEMA_VERSION
         ),
@@ -513,6 +566,10 @@ __all__ = [
     "AGENT_RESULT_SCHEMA_PATH",
     "AGENT_RESULT_SCHEMA_VERSION",
     "AGENT_READ_ORDER",
+    "AGENT_REFRESH_TRIGGERS",
+    "CURRENT_CONTROL_FALLBACK_READ_ORDER",
+    "CURRENT_CONTROL_SCHEMA_PATH",
+    "CURRENT_CONTROL_SCHEMA_VERSION",
     "AGENT_HANDOFF_SCHEMA_PATH",
     "AGENT_HANDOFF_SCHEMA_VERSION",
     "AGENT_INTERFACE_OPERATIONS",

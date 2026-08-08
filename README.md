@@ -211,7 +211,10 @@ The release gate is `agents-shipgate-reports/report.json` →
 The PR/control surface is `agents-shipgate-reports/verifier.json` →
 `merge_verdict` (`mergeable | human_review_required | insufficient_evidence |
 blocked | unknown`), a deterministic projection of the release decision.
-Validate `verification-receipt.json` first; then read `agent-handoff.json`
+Read `agents-shipgate-reports/current-control.json` first — it names which run
+is current, and `agents-shipgate agent control` validates it against every
+artifact it binds. Then validate the `verification-receipt.json` it binds; then
+read `agent-handoff.json`
 (`control.state`, then `gate.merge_verdict`), followed by the
 authoritative control substrate `verifier.json` for `control`, `merge_verdict`,
 `applicability`, `can_merge_without_human`,

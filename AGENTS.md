@@ -130,8 +130,10 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 For local uncommitted verifier work, omit `--base`/`--head` so the working tree
-is scanned. Validate `agents-shipgate-reports/verification-receipt.json`
-first, then read `agents-shipgate-reports/agent-handoff.json` and lead
+is scanned. Read `agents-shipgate-reports/current-control.json`
+first — it names which run is current — then validate the
+`verification-receipt.json` it binds, then read
+`agents-shipgate-reports/agent-handoff.json` and lead
 with `control.state`, then `gate.merge_verdict`
 (`mergeable | human_review_required | insufficient_evidence | blocked |
 unknown`), `gate.can_merge_without_human`, `next_action`,
@@ -144,6 +146,24 @@ the release gate. Do not report completion unless `control.state` is
 `complete`. A human-review route remains stopping until a new verifier artifact
 changes the control state; conversation-level acceptance is not a gate
 override.
+
+Read the pointer with:
+
+```bash
+agents-shipgate agent control --reports-dir agents-shipgate-reports
+```
+
+A zero exit means the printed pointer was validated against every artifact it
+binds and did not move while it was read. A non-zero exit means no control
+identity is current here — you hold no authority, and a remembered result does
+not substitute for one. Re-read it after any human or external-tool action,
+after commit, rebase, checkout, pull, or any worktree change, after any
+agents-shipgate command returns, before enforcing a cached `must_stop`, before
+commit/push/PR update, before merge or release, and before declaring the task
+complete. If `current_control_id` changed, discard every cached control state
+and restart from the new identity. This runs in both directions: a cached stop
+must not survive a newer complete run, and a cached completion must not survive
+a changed workspace.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent

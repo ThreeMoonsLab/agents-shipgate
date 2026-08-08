@@ -85,6 +85,17 @@ release gate.
 Legacy `agent-result.json` surfaces, where present, are supporting/provisional
 projections and not the CI gate.
 
+`agents-shipgate-reports/current-control.json` is the one entry point that
+says which control identity is current. Read it with `agents-shipgate agent
+control`; a non-zero exit means nothing is current here and you hold no
+authority. Re-read it after any human or external-tool action, after commit,
+rebase, checkout, pull, or any worktree change, after any agents-shipgate
+command returns, before enforcing a cached `must_stop`, before commit/push/PR
+update, before merge or release, and before declaring the task complete. If
+`current_control_id` changed, discard every cached control state and restart
+from the new identity. A result you remember from earlier in this conversation
+never outranks the current pointer — in either direction.
+
 For coding-agent host grants, run `shipgate audit --host` and read the emitted
 host-grants inventory before changing MCP servers, permission rules, hooks, or
 workflow scopes.
@@ -193,6 +204,17 @@ release gate.
 Legacy `agent-result.json` surfaces, where present, are supporting/provisional
 projections and not the CI gate.
 
+`agents-shipgate-reports/current-control.json` is the one entry point that
+says which control identity is current. Read it with `agents-shipgate agent
+control`; a non-zero exit means nothing is current here and you hold no
+authority. Re-read it after any human or external-tool action, after commit,
+rebase, checkout, pull, or any worktree change, after any agents-shipgate
+command returns, before enforcing a cached `must_stop`, before commit/push/PR
+update, before merge or release, and before declaring the task complete. If
+`current_control_id` changed, discard every cached control state and restart
+from the new identity. A result you remember from earlier in this conversation
+never outranks the current pointer — in either direction.
+
 For coding-agent host grants, run `shipgate audit --host` and read the emitted
 host-grants inventory before changing MCP servers, permission rules, hooks, or
 workflow scopes.
@@ -278,6 +300,17 @@ then read `agents-shipgate-reports/agent-handoff.json` for
 release gate.
 Legacy `agent-result.json` surfaces, where present, are supporting/provisional
 projections and not the CI gate.
+
+`agents-shipgate-reports/current-control.json` is the one entry point that
+says which control identity is current. Read it with `agents-shipgate agent
+control`; a non-zero exit means nothing is current here and you hold no
+authority. Re-read it after any human or external-tool action, after commit,
+rebase, checkout, pull, or any worktree change, after any agents-shipgate
+command returns, before enforcing a cached `must_stop`, before commit/push/PR
+update, before merge or release, and before declaring the task complete. If
+`current_control_id` changed, discard every cached control state and restart
+from the new identity. A result you remember from earlier in this conversation
+never outranks the current pointer — in either direction.
 
 For coding-agent host grants, run:
 

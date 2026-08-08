@@ -16,6 +16,7 @@ from agents_shipgate.schemas.contract import (
     AGENT_HANDOFF_SCHEMA_VERSION,
     AGENT_INTERFACE_OPERATIONS,
     AGENT_READ_ORDER,
+    AGENT_REFRESH_TRIGGERS,
     AGENT_RESULT_CONTROL_FIELDS,
     AGENT_RESULT_SCHEMA_PATH,
     AGENT_RESULT_SCHEMA_VERSION,
@@ -24,6 +25,9 @@ from agents_shipgate.schemas.contract import (
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
     COMMANDS,
     CONTRACT_VERSION,
+    CURRENT_CONTROL_FALLBACK_READ_ORDER,
+    CURRENT_CONTROL_SCHEMA_PATH,
+    CURRENT_CONTROL_SCHEMA_VERSION,
     DEFAULT_PATHS,
     DO_NOT_AUTO_ASSERT,
     EXIT_CODE_POLICY,
@@ -54,7 +58,7 @@ from agents_shipgate.schemas.contract import (
 )
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
-LOCAL_CONTRACT_SCHEMA_VERSION = "7"
+LOCAL_CONTRACT_SCHEMA_VERSION = "8"
 LOCAL_CONTRACT_RELATIVE_PATH = ".shipgate/agent-contract.json"
 
 
@@ -80,6 +84,11 @@ class LocalAgentContract(BaseModel):
     verification_unit_result_schema_version: str
     verification_artifact_manifest_schema_version: str
     verification_receipt_schema_version: str
+    current_control_schema_version: str
+    current_control_schema_path: str
+    current_control_artifact: str
+    agent_refresh_triggers: list[str]
+    current_control_fallback_read_order: list[str]
     human_authorization_request_schema_version: str
     human_authorization_schema_version: str
     human_authorization_evaluation_schema_version: str
@@ -137,6 +146,11 @@ def build_local_agent_contract() -> LocalAgentContract:
             VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION
         ),
         verification_receipt_schema_version=VERIFICATION_RECEIPT_SCHEMA_VERSION,
+        current_control_schema_version=CURRENT_CONTROL_SCHEMA_VERSION,
+        current_control_schema_path=CURRENT_CONTROL_SCHEMA_PATH,
+        current_control_artifact=ARTIFACTS["current_control"],
+        agent_refresh_triggers=list(AGENT_REFRESH_TRIGGERS),
+        current_control_fallback_read_order=list(CURRENT_CONTROL_FALLBACK_READ_ORDER),
         human_authorization_request_schema_version=(
             HUMAN_AUTHORIZATION_REQUEST_SCHEMA_VERSION
         ),

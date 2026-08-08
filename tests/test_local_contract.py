@@ -33,6 +33,11 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "verification_unit_result_schema_version",
         "verification_artifact_manifest_schema_version",
         "verification_receipt_schema_version",
+        "current_control_schema_version",
+        "current_control_schema_path",
+        "current_control_artifact",
+        "agent_refresh_triggers",
+        "current_control_fallback_read_order",
         "human_authorization_request_schema_version",
         "human_authorization_schema_version",
         "human_authorization_evaluation_schema_version",
@@ -64,9 +69,9 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "release_decisions",
         "do_not_auto_assert",
     ]
-    assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "7"
+    assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "8"
     assert payload["agents_shipgate_version"] == __version__
-    assert payload["contract_version"] == CONTRACT_VERSION == "19"
+    assert payload["contract_version"] == CONTRACT_VERSION == "20"
     assert payload["minimum_control_contract_version"] == "14"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
@@ -95,6 +100,10 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["artifacts"]["verify_run"] == "agents-shipgate-reports/verify-run.json"
     assert payload["artifacts"]["agent_handoff"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["agent_read_order"] == [
+        "current-control.json",
+        "current-control.json.current_control_id",
+        "current-control.json.lifecycle_state",
+        "current-control.json.control.state",
         "verification-receipt.json",
         "verification-receipt.json.request_id",
         "verification-receipt.json.receipt_id",

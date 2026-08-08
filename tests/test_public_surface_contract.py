@@ -2547,7 +2547,8 @@ READ_FIRST_SURFACES = (
 def test_read_first_instructions_match_contract_agent_read_order(relpath):
     """Every 'Read `<artifact>` first' instruction must name the first
     artifact in the runtime contract's agent_read_order
-    (verification-receipt.json since contract v17), optionally with a
+    (current-control.json since contract v20; verification-receipt.json in
+    v17-v19), optionally with a
     reports-dir prefix or a field path suffix. README shipped contradictory
     first-artifact instructions before this invariant; this
     pins the prose surfaces to the contract so the contradiction cannot
@@ -2555,7 +2556,7 @@ def test_read_first_instructions_match_contract_agent_read_order(relpath):
     mentioning it is fine, telling an agent to read it *first* is not."""
     contract = build_contract_payload().model_dump(mode="json")
     first_artifact = contract["agent_read_order"][0]
-    assert first_artifact == "verification-receipt.json", (
+    assert first_artifact == "current-control.json", (
         "contract agent_read_order[0] changed; sweep the read-first "
         "prose on READ_FIRST_SURFACES, then update this pin."
     )

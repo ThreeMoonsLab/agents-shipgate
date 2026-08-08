@@ -677,10 +677,24 @@ def load_validated_receipt_artifacts(
     return receipt, artifacts
 
 
-def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) -> bytes:
+def read_regular_file_beneath(
+    root: Path,
+    logical_path: str,
+    *,
+    max_size: int,
+    label: str = "receipt artifact",
+) -> bytes:
+    """Read one regular file strictly beneath ``root``.
+
+    Every path component is opened with ``O_NOFOLLOW`` against the parent
+    descriptor, so a symlink planted anywhere along the way fails instead of
+    escaping.  The stat identity is compared before and after the read so a
+    file swapped mid-read is rejected rather than hashed as two generations.
+    """
+
     parts = Path(logical_path).parts
     if not parts or Path(logical_path).is_absolute() or any(part in {"", ".", ".."} for part in parts):
-        raise ValueError(f"receipt artifact path is not portable: {logical_path!r}")
+        raise ValueError(f"{label} path is not portable: {logical_path!r}")
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     descriptors: list[int] = []
@@ -694,9 +708,9 @@ def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) 
         descriptors.append(file_descriptor)
         before = os.fstat(file_descriptor)
         if not stat.S_ISREG(before.st_mode):
-            raise ValueError(f"receipt artifact is not a regular file: {logical_path}")
+            raise ValueError(f"{label} is not a regular file: {logical_path}")
         if before.st_size > max_size:
-            raise ValueError(f"receipt artifact exceeds its size limit: {logical_path}")
+            raise ValueError(f"{label} exceeds its size limit: {logical_path}")
         chunks: list[bytes] = []
         remaining = max_size + 1
         while remaining:
@@ -718,16 +732,21 @@ def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) 
             after.st_size,
             after.st_mtime_ns,
         ):
-            raise ValueError(f"receipt artifact changed while it was read: {logical_path}")
+            raise ValueError(f"{label} changed while it was read: {logical_path}")
         if len(data) > max_size:
-            raise ValueError(f"receipt artifact exceeds its size limit: {logical_path}")
+            raise ValueError(f"{label} exceeds its size limit: {logical_path}")
         return data
     except OSError as exc:
-        raise ValueError(f"could not safely read receipt artifact {logical_path!r}: {exc}") from exc
+        raise ValueError(f"could not safely read {label} {logical_path!r}: {exc}") from exc
     finally:
         for descriptor in reversed(descriptors):
             with contextlib.suppress(OSError):
                 os.close(descriptor)
+
+
+
+
+_read_regular_file_beneath = read_regular_file_beneath
 
 
 def _json_object_bytes(data: bytes, label: str) -> dict[str, Any]:

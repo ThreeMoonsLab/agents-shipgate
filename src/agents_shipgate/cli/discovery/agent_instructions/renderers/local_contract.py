@@ -21,6 +21,8 @@ PRIOR_RENDER_SHA256: tuple[str, ...] = (
     "85d33d005d35f933b72e32c2d370efc2680e09d2ebe0c9997931c8ab4f352738",
     # v7 before verifier 0.6 -> 0.7 and trigger catalog 0.2 -> 0.3
     "6041d5fc42ee4be37596c9c13b9752a8a511bb18bc987b32b0ffb49160ee6d93",
+    # v7 final, before local contract v8 added the current-control pointer
+    "e20840ce698c5bd81289de04f79674e4cac9dc670ae41d6e2580f13a38897b69",
 )
 
 

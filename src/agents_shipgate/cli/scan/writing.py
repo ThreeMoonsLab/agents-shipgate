@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -9,9 +10,18 @@ from agents_shipgate.ci.release_decision import (
     SUGGESTED_INVENTORY_FILENAME,
 )
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
+from agents_shipgate.core.current_control import (
+    begin_current_control,
+    current_control_lifecycle_owner,
+    publish_current_control,
+)
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.packet.builder import build_packet
+from agents_shipgate.schemas.current_control import (
+    AgentActionRequiredCurrentControl,
+    CurrentControlWorkspaceIdentity,
+)
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import ReadinessReport
 
@@ -41,6 +51,21 @@ def _write_outputs(
     # A standalone scan supersedes the report set in this directory.  Verify
     # also calls run_scan internally, but writes its fresh route/identity
     # artifacts only after this phase completes.
+    #
+    # ``owns_current_control`` is what tells the two apart.  A supporting scan
+    # inside verify or preview must not take over the control identity for the
+    # PR: the enclosing command already invalidated the pointer and will
+    # publish the terminal one itself.
+    owns_control = current_control_lifecycle_owner() is None
+    if owns_control:
+        begin_current_control(
+            plan.out_dir,
+            operation="scan",
+            reason=(
+                "A scan is in progress; no decision in this directory is "
+                "current until it publishes one."
+            ),
+        )
     clear_verifier_route_artifacts(plan.out_dir)
     _write_reports(
         public_report,
@@ -83,6 +108,35 @@ def _write_outputs(
             plan.generated_paths,
             plan.packet_format_set,
         )
+    if owns_control:
+        # A scan inventories a workspace; it never establishes merge authority.
+        # The pointer says so in the one place a coding agent is required to
+        # look, so a verifier route from an earlier run cannot be mistaken for
+        # the current permission to finish.  A scan builds no verification
+        # plan, so the only identity it can bind is the manifest it read.
+        publish_current_control(
+            plan.out_dir,
+            operation="scan",
+            control=AgentActionRequiredCurrentControl(
+                state="agent_action_required",
+                reason=(
+                    "A standalone scan produced the current report set. A scan "
+                    "does not authorize completion or merge; run "
+                    "`agents-shipgate verify` to obtain a merge decision."
+                ),
+            ),
+            workspace_identity=CurrentControlWorkspaceIdentity(
+                policy_snapshot_sha256=_manifest_snapshot_sha256(config_path),
+            ),
+        )
+
+
+def _manifest_snapshot_sha256(config_path: Path) -> str | None:
+    try:
+        data = config_path.read_bytes()
+    except OSError:
+        return None
+    return f"sha256:{hashlib.sha256(data).hexdigest()}"
 
 
 def _write_suggested_declarations(

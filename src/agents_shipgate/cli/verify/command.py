@@ -15,6 +15,7 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
+from agents_shipgate.core.current_control import CurrentControlPublishError
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
@@ -350,6 +351,34 @@ def verify(
                     expects=(
                         "The stale verifier artifact is absent, then verify "
                         "writes one content-addressed artifact set."
+                    ),
+                ).model_dump(mode="json")
+            ],
+        )
+        raise typer.Exit(4) from exc
+    except CurrentControlPublishError as exc:
+        # The pointer stays non-terminal, so nothing in the directory is
+        # current. Say so plainly rather than letting the caller assume the
+        # artifacts that were written are usable.
+        typer.echo(f"Agents Shipgate error: {exc}", err=True)
+        guidance = (
+            f"Make {exc.path} writable, then re-run verify. Until the control "
+            "pointer publishes, no decision in this directory is current and "
+            "no cached control state may be acted on."
+        )
+        emit_agent_mode_error(
+            "other_error",
+            message=str(exc),
+            exit_code=4,
+            next_action=guidance,
+            next_actions=[
+                NextAction(
+                    kind="edit",
+                    path=str(exc.path),
+                    why=guidance,
+                    expects=(
+                        "current-control.json publishes, naming the control "
+                        "identity that is current."
                     ),
                 ).model_dump(mode="json")
             ],
