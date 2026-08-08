@@ -28,6 +28,10 @@ import pytest
 
 from agents_shipgate import __version__
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+from agents_shipgate.core.dependency_manifests import (
+    DEPENDENCY_MANIFEST_GLOBS,
+    is_dependency_manifest,
+)
 from agents_shipgate.packet.disclaimer import PACKET_NON_PROOF_HEADLINE
 from agents_shipgate.report.markdown import DISCLAIMER
 from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
@@ -1406,6 +1410,54 @@ _ADK_AGENT_ALIAS_DIFF = """\
 +root_agent = Agent(name="weather_agent", tools=[get_weather, refund_order])
 """
 
+# The ordinary case: one tool added to an agent that already exists. `git
+# diff` gives three lines of context, so the constructor and the list are in
+# the hunk but the import — declared dozens of lines earlier — is not. A rule
+# that demands the import in the diff covers only whole-file additions and
+# misses every subsequent edit to the same tool list.
+_ADK_MODIFIED_TOOLS_LIST_DIFF = """\
+@@ -28,7 +28,7 @@ def delete_account(user_id: str) -> dict:
+ root_agent = LlmAgent(
+     name="support_agent",
+     description="A customer-support agent.",
+-    tools=[lookup_account],
++    tools=[lookup_account, delete_account],
+ )
+"""
+
+
+def test_triggers_google_adk_modified_tools_list_routes_run():
+    """Adding a tool to an *existing* `LlmAgent(..., tools=[...])` must route
+    the same as adding the agent outright — the AGENTS.md row says
+    "Adds/**changes**".
+
+    Regression for the PR #349 review: the first version of this rule
+    required a `google.adk` token in the diff, which a modified list does not
+    carry, so the common edit returned `no_match`. `LlmAgent(` identifies ADK
+    on its own; no other supported framework exports that name."""
+    result = evaluate(paths=["agent.py"], diff_text=_ADK_MODIFIED_TOOLS_LIST_DIFF)
+    assert result["run_shipgate"] is True, (
+        "An edit adding a tool to an existing ADK tools list must route "
+        f"run_shipgate; got {result!r}."
+    )
+    assert "TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED" in {
+        m["id"] for m in result["matched_rules"]
+    }, f"Expected the ADK rule to carry the modified-list case; got {result!r}."
+
+
+def test_triggers_bare_agent_call_without_adk_context_does_not_claim_adk():
+    """The `Agent` leg stays gated behind an ADK module token. CrewAI also
+    constructs `Agent(..., tools=[...])`, and routing that under a rule ID
+    naming Google ADK would be the same defect this catalog is fixing: a rule
+    reporting a conclusion its evidence does not support."""
+    result = evaluate(
+        paths=["crew.py"],
+        diff_text="+from crewai import Agent\n+researcher = Agent(role='r', tools=[search])\n",
+    )
+    assert "TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED" not in {
+        m["id"] for m in result["matched_rules"]
+    }, f"A CrewAI `Agent(tools=[...])` must not match the ADK rule; got {result!r}."
+
 
 def test_triggers_google_adk_agent_tools_list_routes_run():
     """A Google ADK `LlmAgent(..., tools=[...])` addition is a tool-surface
@@ -1505,6 +1557,49 @@ def test_triggers_docs_mentioning_google_adk_is_not_a_framework_version_bump():
     )
 
 
+# One representative path per entry in DEPENDENCY_MANIFEST_GLOBS, plus nested
+# spellings. `requirements.in` / `constraints.in` and the modern lockfiles are
+# here because the PR #349 review caught them dropping out of advisory
+# coverage: narrowing the rule to a hand-written allowlist silently regressed
+# every pip-tools repo, which authors bumps in `.in` and compiles to `.txt`.
+_DEPENDENCY_MANIFEST_SAMPLE_PATHS = (
+    "pyproject.toml",
+    "services/api/pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "requirements.in",
+    "requirements-dev.in",
+    "requirements/base.txt",
+    "requirements/base.in",
+    "constraints.txt",
+    "constraints.in",
+    "Pipfile",
+    "Pipfile.lock",
+    "poetry.lock",
+    "uv.lock",
+    "pdm.lock",
+    "pylock.toml",
+    "pylock.dev.toml",
+    "environment.yml",
+    "environment.yaml",
+    "conda-lock.yml",
+    "conda-lock.yaml",
+    "package.json",
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lock",
+    "bun.lockb",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "gradle/libs.versions.toml",
+)
+
+
 def test_triggers_framework_version_bump_requires_a_dependency_manifest():
     """The dependency rule must observe both halves of its claim: a
     framework package token AND a changed dependency manifest. A source-only
@@ -1517,12 +1612,7 @@ def test_triggers_framework_version_bump_requires_a_dependency_manifest():
         m["id"] for m in source_only["matched_rules"]
     }, f"Token without a dependency manifest must not match; got {source_only!r}."
 
-    for manifest in (
-        "pyproject.toml",
-        "requirements-dev.txt",
-        "services/api/package.json",
-        "uv.lock",
-    ):
+    for manifest in _DEPENDENCY_MANIFEST_SAMPLE_PATHS:
         bumped = evaluate(
             paths=[manifest],
             diff_text='-"langchain==0.2.0"\n+"langchain==0.3.0"\n',
@@ -1531,6 +1621,57 @@ def test_triggers_framework_version_bump_requires_a_dependency_manifest():
             f"A real bump in {manifest!r} must still recommend a dry run; "
             f"got {bumped!r}."
         )
+
+
+def test_dependency_manifest_projection_matches_runtime_set():
+    """`TRIGGER-FRAMEWORK-VERSION-BUMP`'s path leg is a projection of
+    `DEPENDENCY_MANIFEST_GLOBS`, the one place that answers "is this a file
+    where a dependency version is declared or locked?". Pin the projection so
+    the catalog cannot drift from the runtime set — the same guard
+    `boundary_adapters` already gets."""
+    triggers = _load_triggers_json()
+    rule = next(
+        r for r in triggers["rules"] if r["id"] == "TRIGGER-FRAMEWORK-VERSION-BUMP"
+    )
+    path_leg = next(
+        leg
+        for leg in rule["when"]["all_of"]
+        if any("glob" in nested for nested in leg.get("any_of", []))
+    )
+    projected = [nested["glob"] for nested in path_leg["any_of"]]
+    assert projected == list(DEPENDENCY_MANIFEST_GLOBS), (
+        "docs/triggers.json's dependency-manifest globs drifted from "
+        "agents_shipgate.core.dependency_manifests.DEPENDENCY_MANIFEST_GLOBS. "
+        "Update the catalog in the same commit as the constant."
+    )
+
+
+@pytest.mark.parametrize("path", _DEPENDENCY_MANIFEST_SAMPLE_PATHS)
+def test_dependency_manifest_samples_are_recognized_by_both(path):
+    """Every sample path must be recognized by the runtime helper AND route
+    through the catalog rule. Catches a glob that reads plausibly but matches
+    nothing — a silent hole in exactly the direction the review found."""
+    assert is_dependency_manifest(path), (
+        f"{path!r} is a dependency manifest but DEPENDENCY_MANIFEST_GLOBS "
+        "does not match it."
+    )
+    result = evaluate(paths=[path], diff_text="-crewai==0.1.0\n+crewai==0.2.0\n")
+    assert result["dry_run_recommended"] is True, (
+        f"A framework bump in {path!r} must recommend a dry run; got {result!r}."
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["README.md", "docs/install.md", "Dockerfile", "src/agent.py", "notes.txt"],
+)
+def test_non_manifest_paths_are_not_dependency_manifests(path):
+    """The negative control. A file that merely *mentions* a package cannot
+    support the claim that a dependency changed, so it must stay outside the
+    set however plausibly a bump might be written in it."""
+    assert not is_dependency_manifest(path), (
+        f"{path!r} must not count as a dependency manifest."
+    )
 
 
 def test_framework_version_bump_rule_cannot_fire_on_a_token_alone():

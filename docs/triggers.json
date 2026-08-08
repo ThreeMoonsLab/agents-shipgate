@@ -220,19 +220,21 @@
       "agents_md_row": "Adds/changes a Google ADK `Agent`/`LlmAgent` `tools=[...]` list",
       "when": {
         "all_of": [
-          {"any_of": [
-            {"diff_contains": "google.adk"},
-            {"diff_contains": "google-adk"}
-          ]},
+          {"diff_contains": "tools=["},
           {"any_of": [
             {"diff_contains": "LlmAgent("},
-            {"diff_contains": "Agent("}
-          ]},
-          {"diff_contains": "tools=["}
+            {"all_of": [
+              {"any_of": [
+                {"diff_contains": "google.adk"},
+                {"diff_contains": "google-adk"}
+              ]},
+              {"diff_contains": "Agent("}
+            ]}
+          ]}
         ]
       },
       "action": "run_shipgate",
-      "rationale": "Three structural signals co-occur in this diff: a Google ADK module path (`google.adk`) or package name, an `Agent(` / `LlmAgent(` construction, and a `tools=[...]` argument. Plain functions passed to `tools=[...]` carry no decorator, so TRIGGER-FUNCTION-TOOL-DECORATOR never sees them — this rule is what routes an ADK agent's directly reachable tool list. The spaced form `tools = [` is deliberately not matched: it is TOML array syntax as often as it is Python, and a token that broad is what this catalog is trying to stop reporting as structure.",
+      "rationale": "A `tools=[...]` argument appears in this diff together with either `LlmAgent(` — a class name no other supported framework uses, so it identifies Google ADK on its own — or a `google.adk` module path alongside an `Agent(` construction. The two legs exist because an edit that adds one tool to an existing agent shows only the constructor and the list; the import sits outside the hunk, so requiring it would miss every modified list and cover only whole-file additions. Plain functions passed to `tools=[...]` carry no decorator, so TRIGGER-FUNCTION-TOOL-DECORATOR never sees them — this rule is what routes an ADK agent's directly reachable tool list. Two forms are deliberately NOT matched. The spaced `tools = [` is TOML array syntax as often as it is Python (it also swallows `enabled_tools = [...]`), and a token that broad is what this catalog is trying to stop reporting as structure. A bare `Agent(` with no ADK token cannot be told apart from CrewAI's `Agent(tools=[...])` by diff text alone, so a *modified* list on the `Agent` alias is out of reach here; closing it needs a signal read from the head file rather than the diff.",
       "command": "agents-shipgate verify --preview --json"
     },
     {
@@ -296,20 +298,33 @@
             {"glob": "**/setup.py"},
             {"glob": "**/setup.cfg"},
             {"glob": "**/requirements*.txt"},
+            {"glob": "**/requirements*.in"},
             {"glob": "**/requirements/*.txt"},
+            {"glob": "**/requirements/*.in"},
             {"glob": "**/constraints*.txt"},
+            {"glob": "**/constraints*.in"},
             {"glob": "**/Pipfile"},
             {"glob": "**/Pipfile.lock"},
             {"glob": "**/poetry.lock"},
             {"glob": "**/uv.lock"},
+            {"glob": "**/pdm.lock"},
+            {"glob": "**/pylock.toml"},
+            {"glob": "**/pylock.*.toml"},
             {"glob": "**/environment.yml"},
+            {"glob": "**/environment.yaml"},
+            {"glob": "**/conda-lock.yml"},
+            {"glob": "**/conda-lock.yaml"},
             {"glob": "**/package.json"},
             {"glob": "**/package-lock.json"},
+            {"glob": "**/npm-shrinkwrap.json"},
             {"glob": "**/pnpm-lock.yaml"},
             {"glob": "**/yarn.lock"},
+            {"glob": "**/bun.lock"},
+            {"glob": "**/bun.lockb"},
             {"glob": "**/pom.xml"},
             {"glob": "**/build.gradle"},
-            {"glob": "**/build.gradle.kts"}
+            {"glob": "**/build.gradle.kts"},
+            {"glob": "**/gradle/libs.versions.toml"}
           ]}
         ]
       },
