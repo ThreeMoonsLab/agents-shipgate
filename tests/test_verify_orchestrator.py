@@ -699,6 +699,69 @@ def test_worktree_overlay_identity_preserves_an_effectively_cancelled_path(
         _validate_git_subject(legacy_plan, repo)
 
 
+def test_worktree_overlay_binds_a_cancelled_path_that_is_still_present(
+    tmp_path: Path,
+) -> None:
+    """A canceled path leaves the policy diff but stays bound at its real bytes.
+
+    The overlay set is HEAD-relative while the change set is merge-base-
+    relative, so a canceled path exists only in the former. Plan construction
+    runs under the static input snapshot, which reports a path it contains but
+    never read as absent — binding only the change set would attest a present
+    file as ``deleted`` and make the worker reject the plan the producer just
+    wrote. The sibling test above cancels by deleting, which cannot catch this.
+    """
+
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+    cancelled = repo / "KEEP.md"
+    cancelled.write_text("original\n", encoding="utf-8")
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base")
+
+    cancelled.write_text("committed change\n", encoding="utf-8")
+    _git(repo, "add", "KEEP.md")
+    _git(repo, "commit", "-m", "change keep")
+    cancelled.write_text("original\n", encoding="utf-8")
+
+    out_dir = repo / "agents-shipgate-reports"
+    verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=False,
+        out=out_dir,
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert verifier.changed_files == []
+    plan = VerificationPlan.model_validate_json(
+        (out_dir / "verification-plan.json").read_text(encoding="utf-8")
+    )
+    assert plan.inputs.changed_paths == []
+    assert plan.inputs.options["worktree_overlay_paths"] == ["KEEP.md"]
+    # Raises unless the producer recorded the still-present canceled file at its
+    # real content, exactly as the worker recomputes it from the filesystem.
+    _validate_git_subject(plan, repo)
+
+
 def test_verify_fail_closes_on_merge_base_relative_untracked_trust_root(
     tmp_path: Path,
 ) -> None:
