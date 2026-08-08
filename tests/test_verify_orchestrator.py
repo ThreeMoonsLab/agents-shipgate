@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.cli.scan import writing as scan_writing
-from agents_shipgate.cli.verification import assemble, worker
+from agents_shipgate.cli.verification import _validate_git_subject, assemble, worker
 from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 from agents_shipgate.cli.verify.git import commit_date
 from agents_shipgate.cli.verify.orchestrator import run_verify
@@ -683,6 +683,67 @@ def test_worktree_overlay_identity_preserves_an_effectively_cancelled_path(
     assert plan.inputs.changed_paths == []
     assert plan.inputs.options["worktree_overlay_paths"] == ["CLAUDE.md"]
     assert plan.subject.git.worktree_overlay_sha256 is not None
+    assert any(
+        "1 committed change is canceled by uncommitted worktree edits" in note
+        for note in verifier.base_notes
+    )
+
+    legacy_options = dict(plan.inputs.options)
+    legacy_options.pop("worktree_overlay_paths")
+    legacy_plan = plan.model_copy(
+        update={
+            "inputs": plan.inputs.model_copy(update={"options": legacy_options})
+        }
+    )
+    with pytest.raises(ValueError, match="predates overlay mode binding"):
+        _validate_git_subject(legacy_plan, repo)
+
+
+def test_verify_fail_closes_on_merge_base_relative_untracked_trust_root(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base")
+
+    (repo / "notes.txt").write_text("committed branch change\n", encoding="utf-8")
+    _git(repo, "add", "notes.txt")
+    _git(repo, "commit", "-m", "branch change")
+    (repo / "AGENTS.md").write_text("untracked instructions\n", encoding="utf-8")
+
+    verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=False,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert "AGENTS.md" in verifier.changed_files
+    assert any(
+        finding.check_id == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
+        and finding.evidence.get("changed_file") == "AGENTS.md"
+        for finding in report.findings
+    )
 
 
 def test_verify_fails_closed_when_worktree_diff_cannot_be_collected(monkeypatch, tmp_path):

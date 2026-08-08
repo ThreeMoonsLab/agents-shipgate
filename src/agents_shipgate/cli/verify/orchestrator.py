@@ -543,6 +543,18 @@ def run_verify(
                     reject_index_hidden=True,
                 )
             )
+            if committed_diff_complete:
+                cancelled_committed_paths = sorted(
+                    set(worktree_overlay_paths) - set(worktree_paths)
+                )
+                if cancelled_committed_paths:
+                    count = len(cancelled_committed_paths)
+                    noun = "change" if count == 1 else "changes"
+                    verb = "is" if count == 1 else "are"
+                    base_notes.append(
+                        f"{count} committed {noun} {verb} canceled by uncommitted "
+                        "worktree edits; the committed branch has not been verified."
+                    )
             changed_files = _bind_worktree_config_to_head(
                 git_root=git_root,
                 head=head,

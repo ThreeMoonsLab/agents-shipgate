@@ -24,6 +24,7 @@ from agents_shipgate.cli.verify.git import (
     tree_sha,
     validate_source_head_identity,
     working_tree_context,
+    working_tree_paths,
 )
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.errors import ConfigError, InputParseError
@@ -82,20 +83,20 @@ def prepare(
     worktree_overlay_paths: list[str] | None = None
     if head is not None:
         changed, diff_text = diff_context(root, base, head_ref)
+    elif base:
+        worktree_overlay_paths = working_tree_paths(root)
+        effective_base = require_merge_base_sha(root, base, head_ref)
+        changed, diff_text = working_tree_context(
+            root,
+            comparison_ref=effective_base,
+            reject_index_hidden=True,
+        )
     else:
         worktree_overlay_paths, overlay_diff = working_tree_context(
             root,
             reject_index_hidden=True,
         )
-        if base:
-            effective_base = require_merge_base_sha(root, base, head_ref)
-            changed, diff_text = working_tree_context(
-                root,
-                comparison_ref=effective_base,
-                reject_index_hidden=True,
-            )
-        else:
-            changed, diff_text = worktree_overlay_paths, overlay_diff
+        changed, diff_text = worktree_overlay_paths, overlay_diff
     resolved_date = evaluation_date or commit_date(root, head_ref)
     config_relative = _under(root, config).relative_to(root)
     policy_paths = [_under(root, path) for path in policy_packs or []]
@@ -529,9 +530,10 @@ def _validate_git_subject(plan: VerificationPlan, workspace: Path) -> None:
             raise ValueError("worker HEAD does not match the worktree-overlay plan")
         declared_overlay_paths = plan.inputs.options.get("worktree_overlay_paths")
         if declared_overlay_paths is None:
-            # Compatibility reader for plans produced before issue #336 split
-            # effective paths from HEAD-relative overlay paths.
-            overlay_paths = plan.inputs.changed_paths
+            raise ValueError(
+                "worktree-overlay plan predates overlay mode binding; "
+                "re-run `agents-shipgate verification prepare`"
+            )
         elif not isinstance(declared_overlay_paths, list) or not all(
             isinstance(path, str) for path in declared_overlay_paths
         ):
@@ -553,7 +555,8 @@ def _validate_git_subject(plan: VerificationPlan, workspace: Path) -> None:
                     "sha256": sha256_file(candidate) if present else None,
                     "git_mode": (
                         "100755"
-                        if present and stat.S_IMODE(candidate.stat().st_mode) & 0o111
+                        if present
+                        and stat.S_IMODE(candidate.stat().st_mode) & stat.S_IXUSR
                         else "100644"
                         if present
                         else None

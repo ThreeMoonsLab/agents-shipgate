@@ -13,6 +13,7 @@ from agents_shipgate.cli.verify.git import (
     working_tree_context,
 )
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.verification_identity import _worktree_overlay
 
 
 def _git(root: Path, *args: str) -> None:
@@ -184,3 +185,74 @@ def test_effective_worktree_diff_preserves_rename_and_mode_semantics(
     assert "rename to CLAUDE.md" in diff_text
     assert "old mode 100644" in diff_text
     assert "new mode 100755" in diff_text
+
+
+def test_effective_worktree_diff_honors_repository_filemode_false(
+    tmp_path: Path,
+) -> None:
+    root = _repo(tmp_path)
+    target = root / "lib" / "util.py"
+    target.parent.mkdir()
+    target.write_text("base\n", encoding="utf-8")
+    manifest = root / "shipgate.yaml"
+    manifest.write_text("version: '0.1'\n", encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+
+    _git(root, "config", "core.fileMode", "false")
+    target.write_text("committed change\n", encoding="utf-8")
+    _git(root, "add", "lib/util.py")
+    _git(root, "commit", "-m", "change utility")
+    target.chmod(0o755)
+    manifest.chmod(0o755)
+
+    changed, diff_text = working_tree_context(
+        root,
+        comparison_ref="HEAD~1",
+        reject_index_hidden=True,
+    )
+
+    assert changed == ["lib/util.py"]
+    assert "shipgate.yaml" not in diff_text
+    assert "old mode 100644" not in diff_text
+    assert "new mode 100755" not in diff_text
+
+
+def test_effective_worktree_diff_retains_merge_base_relative_untracked_paths(
+    tmp_path: Path,
+) -> None:
+    root = _repo(tmp_path)
+    tracked = root / "agent.py"
+    tracked.write_text("base\n", encoding="utf-8")
+    _git(root, "add", "agent.py")
+    _git(root, "commit", "-m", "base")
+
+    tracked.write_text("committed\n", encoding="utf-8")
+    _git(root, "add", "agent.py")
+    _git(root, "commit", "-m", "change agent")
+    untracked = root / "new_agent.py"
+    untracked.write_text("untracked capability\n", encoding="utf-8")
+
+    changed, diff_text = working_tree_context(
+        root,
+        comparison_ref="HEAD~1",
+        reject_index_hidden=True,
+    )
+
+    assert changed == ["agent.py", "new_agent.py"]
+    assert "diff --git a/agent.py b/agent.py" in diff_text
+    assert "new_agent.py" not in diff_text
+
+
+def test_worktree_overlay_mode_uses_git_owner_execute_semantics(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    target = root / "agent.py"
+    target.write_text("capability\n", encoding="utf-8")
+    target.chmod(0o654)
+
+    [group_executable] = _worktree_overlay(root, ["agent.py"])
+    assert group_executable["git_mode"] == "100644"
+
+    target.chmod(0o754)
+    [owner_executable] = _worktree_overlay(root, ["agent.py"])
+    assert owner_executable["git_mode"] == "100755"

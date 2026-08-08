@@ -969,7 +969,7 @@ def _worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
                 "sha256": sha256_file(candidate) if present else None,
                 "git_mode": (
                     "100755"
-                    if captured_mode is not None and captured_mode & 0o111
+                    if captured_mode is not None and captured_mode & stat.S_IXUSR
                     else "100644"
                     if present
                     else None

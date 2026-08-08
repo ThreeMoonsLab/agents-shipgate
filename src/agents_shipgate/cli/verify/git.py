@@ -197,39 +197,33 @@ class _UnavailableRevisionError(ConfigError):
     """A revision expression that names refs this checkout does not have."""
 
 
-_SAFE_DIFF_CONFIG = [
-    "-c",
+_SAFE_DIFF_SETTINGS = [
     "core.fsmonitor=false",
-    "-c",
     "core.autocrlf=false",
-    "-c",
     "core.safecrlf=false",
-    "-c",
     "core.eol=lf",
-    "-c",
     "core.bigFileThreshold=32m",
-    "-c",
     "core.fileMode=false",
-    "-c",
     "core.precomposeUnicode=false",
-    "-c",
     "submodule.recurse=false",
-    "-c",
     "core.quotePath=false",
-    "-c",
     f"core.attributesFile={os.devnull}",
-    "-c",
     f"diff.orderFile={os.devnull}",
-    "-c",
     "diff.suppressBlankEmpty=false",
-    "-c",
     "diff.renameLimit=32767",
 ]
-# Tree-to-worktree comparisons must retain Git's executable-bit semantics.
-# The generic config disables file-mode reads for portable committed-tree
-# comparisons; the later override is intentional and scoped to local overlay
-# collection, whose exact mode is receipt-bound.
-_SAFE_WORKTREE_DIFF_CONFIG = [*_SAFE_DIFF_CONFIG, "-c", "core.fileMode=true"]
+_SAFE_DIFF_CONFIG = [
+    argument for setting in _SAFE_DIFF_SETTINGS for argument in ("-c", setting)
+]
+# Worktree comparisons honor the repository's effective core.fileMode setting.
+# Git writes it as false on filesystems that cannot preserve executable bits;
+# forcing true there turns ordinary checkouts into whole-repository mode diffs.
+_SAFE_WORKTREE_DIFF_CONFIG = [
+    argument
+    for setting in _SAFE_DIFF_SETTINGS
+    if not setting.casefold().startswith("core.filemode=")
+    for argument in ("-c", setting)
+]
 _DETERMINISTIC_DIFF_OPTIONS = [
     "--no-ext-diff",
     "--no-textconv",
@@ -811,13 +805,15 @@ def _reject_binary_capability_paths(
     revspec: str,
     *,
     pathspec: list[str] | None = None,
+    diff_config: list[str] | None = None,
 ) -> None:
     """Fail closed when a source-like path is hidden behind a binary marker."""
 
+    effective_config = _SAFE_DIFF_CONFIG if diff_config is None else diff_config
     result = _run_git_bounded_result(
         workspace,
         [
-            *_SAFE_DIFF_CONFIG,
+            *effective_config,
             "diff",
             *_DETERMINISTIC_DIFF_OPTIONS,
             "--no-renames",
@@ -1217,6 +1213,7 @@ def working_tree_context(
             workspace,
             comparison_commit,
             pathspec=pathspec,
+            diff_config=_SAFE_WORKTREE_DIFF_CONFIG,
         )
     except BinaryCapabilityDiffError as exc:
         exc.changed_paths = tuple(paths)

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Local verification now evaluates committed and uncommitted edits as one
+  effective worktree diff.** When a branch change and a review follow-up touch
+  the same path, `verify` compares the merge base directly with the current
+  worktree instead of concatenating overlapping diff records. The verification
+  plan separately binds the exact HEAD-relative overlay paths together with
+  their presence, content hashes, and Git file modes, so cancellations remain
+  reproducible even when they disappear from policy evaluation. Canceled
+  committed changes are called out in `base_notes`, worktree mode handling
+  honors repositories that set `core.fileMode=false`, and legacy plans that
+  predate mode-bound overlay identity fail with an explicit re-prepare action.
+
 - **An unreadable PR diff is no longer reported as "nothing here is
   agent-related."** `verify --preview` collapsed every diff-acquisition failure
   into one message, then evaluated the trigger catalog against the empty inputs
