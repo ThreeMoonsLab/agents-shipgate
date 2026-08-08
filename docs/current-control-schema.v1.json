@@ -1,0 +1,433 @@
+{
+  "$defs": {
+    "AgentActionRequiredCurrentControl": {
+      "additionalProperties": false,
+      "description": "The referenced run leaves one coding-agent-owned step outstanding.",
+      "properties": {
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "agent_action_required",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop"
+      ],
+      "title": "AgentActionRequiredCurrentControl",
+      "type": "object"
+    },
+    "CompleteCurrentControl": {
+      "additionalProperties": false,
+      "description": "The referenced run authorizes reporting the task complete.",
+      "properties": {
+        "completion_allowed": {
+          "const": true,
+          "default": true,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "complete",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop"
+      ],
+      "title": "CompleteCurrentControl",
+      "type": "object"
+    },
+    "CurrentControlArtifactRef": {
+      "additionalProperties": false,
+      "description": "A hash-bound reference to one artifact beside the pointer.",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "CurrentControlArtifactRef",
+      "type": "object"
+    },
+    "CurrentControlProjection": {
+      "discriminator": {
+        "mapping": {
+          "agent_action_required": "#/$defs/AgentActionRequiredCurrentControl",
+          "complete": "#/$defs/CompleteCurrentControl",
+          "human_review_required": "#/$defs/HumanReviewRequiredCurrentControl",
+          "unavailable": "#/$defs/UnavailableCurrentControl"
+        },
+        "propertyName": "state"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/UnavailableCurrentControl"
+        },
+        {
+          "$ref": "#/$defs/CompleteCurrentControl"
+        },
+        {
+          "$ref": "#/$defs/AgentActionRequiredCurrentControl"
+        },
+        {
+          "$ref": "#/$defs/HumanReviewRequiredCurrentControl"
+        }
+      ]
+    },
+    "CurrentControlWorkspaceIdentity": {
+      "additionalProperties": false,
+      "description": "What the pointer was published against.\n\nEvery field is nullable because the pointer is published by commands that\nresolve different amounts of identity \u2014 an in-progress marker knows only\nthe repository, a preview outside Git knows nothing.  A consumer treats a\n``null`` as \"not bound\", never as \"unchanged\".",
+      "properties": {
+        "base_commit_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Commit Sha"
+        },
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "head_commit_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Commit Sha"
+        },
+        "head_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Ref"
+        },
+        "head_tree_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Tree Sha"
+        },
+        "merge_base_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merge Base Sha"
+        },
+        "policy_snapshot_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Snapshot Sha256"
+        },
+        "repository": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repository"
+        },
+        "snapshot_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "committed_tree",
+                "worktree_overlay"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Kind"
+        },
+        "worktree_overlay_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Worktree Overlay Sha256"
+        }
+      },
+      "title": "CurrentControlWorkspaceIdentity",
+      "type": "object"
+    },
+    "HumanReviewRequiredCurrentControl": {
+      "additionalProperties": false,
+      "description": "The referenced run stops the coding agent pending human review.",
+      "properties": {
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "must_stop": {
+          "const": true,
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "human_review_required",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop"
+      ],
+      "title": "HumanReviewRequiredCurrentControl",
+      "type": "object"
+    },
+    "UnavailableCurrentControl": {
+      "additionalProperties": false,
+      "description": "A lifecycle run is in flight; no decision in this directory is current.",
+      "properties": {
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "must_stop": {
+          "const": true,
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "unavailable",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop"
+      ],
+      "title": "UnavailableCurrentControl",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/current-control-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for agents-shipgate-reports/current-control.json, the one atomic entry point naming the control identity that is current now. Generated from agents_shipgate.schemas.current_control.CurrentControlPointer. Do not edit by hand.",
+  "properties": {
+    "artifacts": {
+      "additionalProperties": {
+        "$ref": "#/$defs/CurrentControlArtifactRef"
+      },
+      "title": "Artifacts",
+      "type": "object"
+    },
+    "control": {
+      "$ref": "#/$defs/CurrentControlProjection"
+    },
+    "current_control_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Current Control Id",
+      "type": "string"
+    },
+    "decision_id": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision Id"
+    },
+    "lifecycle_state": {
+      "enum": [
+        "in_progress",
+        "terminal"
+      ],
+      "title": "Lifecycle State",
+      "type": "string"
+    },
+    "operation": {
+      "enum": [
+        "verify",
+        "preview",
+        "scan"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    },
+    "schema_version": {
+      "const": "shipgate.current_control/v1",
+      "default": "shipgate.current_control/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "supersedes": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Supersedes"
+    },
+    "workspace_identity": {
+      "$ref": "#/$defs/CurrentControlWorkspaceIdentity"
+    }
+  },
+  "required": [
+    "current_control_id",
+    "operation",
+    "lifecycle_state",
+    "workspace_identity",
+    "control"
+  ],
+  "title": "Agents Shipgate Current Control Pointer v1",
+  "type": "object"
+}

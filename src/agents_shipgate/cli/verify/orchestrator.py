@@ -34,6 +34,14 @@ from agents_shipgate.core.capability_lock import (
     render_capability_lock_diff_json,
     render_capability_lock_json,
 )
+from agents_shipgate.core.current_control import (
+    VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS,
+    begin_current_control,
+    owns_current_control,
+    project_agent_control,
+    publish_current_control,
+    workspace_identity_from_plan,
+)
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.evaluation_clock import use_evaluation_date
 from agents_shipgate.core.human_authorization import (
@@ -72,6 +80,10 @@ from agents_shipgate.schemas.agent_control import (
     HumanControlAction,
 )
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1, CapabilityLockFileV1
+from agents_shipgate.schemas.current_control import (
+    CurrentControlOperation,
+    CurrentControlWorkspaceIdentity,
+)
 from agents_shipgate.schemas.human_authorization import (
     AuthorizationEvaluationV1,
     HumanAuthorizationV1,
@@ -164,6 +176,7 @@ MAX_WORKTREE_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
 
 
+@owns_current_control("verify")
 def run_verify(
     *,
     workspace: Path,
@@ -239,6 +252,19 @@ def run_verify(
         ],
     )
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Invalidate before anything else moves. A prior terminal pointer must not
+    # stay current for one instant of a run that is about to replace the
+    # artifacts it references, and a crash from here on must leave a directory
+    # that denies cached control rather than one that still authorizes it.
+    begin_current_control(
+        out_dir,
+        operation="verify",
+        reason=(
+            "A verification run is in progress; no decision in this directory "
+            "is current until it publishes one."
+        ),
+        repository=_safe_repository_identity(git_root),
+    )
     clear_verifier_route_artifacts(out_dir)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
@@ -2523,6 +2549,7 @@ def _write_artifacts(
     *,
     report: ReadinessReport | None,
     git_root: Path,
+    operation: CurrentControlOperation = "verify",
     config_path: Path,
     config_logical_path: str | None = None,
     baseline_path: Path | None,
@@ -2593,6 +2620,12 @@ def _write_artifacts(
     # identity.  Error artifacts remain useful diagnostics, but they are not a
     # trusted receipt and downstream consumers must reject their absence.
     if not config_path.is_file() or not ref_exists(git_root, verifier.head_ref):
+        _publish_run_control(
+            verifier=verifier,
+            out_dir=verifier_path.parent,
+            git_root=git_root,
+            operation=operation,
+        )
         return
     resolved_input_root = (input_root or git_root).resolve()
     active_snapshot = active_static_input_snapshot()
@@ -2892,6 +2925,12 @@ def _write_artifacts(
         # Failed executions retain their plan, failed unit IR, verifier,
         # verify-run, and actionable handoff, but never receive a terminal
         # success receipt.
+        _publish_run_control(
+            verifier=verifier,
+            out_dir=verifier_path.parent,
+            git_root=git_root,
+            operation=operation,
+        )
         return
     identity_names = {
         "verification_plan_json",
@@ -2929,13 +2968,98 @@ def _write_artifacts(
         json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    # Terminal receipt is written last. Its presence means every referenced
-    # artifact existed and was hashed after final serialization.
+    # Terminal receipt is written last of the evidence artifacts. Its presence
+    # means every referenced artifact existed and was hashed after final
+    # serialization.
     receipt_path = verifier_path.with_name("verification-receipt.json")
     receipt_path.write_text(
         json.dumps(receipt.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    _publish_run_control(
+        verifier=verifier,
+        out_dir=verifier_path.parent,
+        git_root=git_root,
+        operation=operation,
+    )
+
+
+def _publish_run_control(
+    *,
+    verifier: VerifierArtifact,
+    out_dir: Path,
+    git_root: Path,
+    operation: CurrentControlOperation,
+) -> None:
+    """Publish the control pointer as the last visible file of a run.
+
+    Called at every exit of :func:`_write_artifacts`, including the ones that
+    never reach a terminal receipt: an in-progress marker that is never
+    replaced would keep an otherwise usable diagnostic run looking like a crash.
+    Anything that raises before this point deliberately leaves the in-progress
+    marker current, which denies every cached decision.
+    """
+
+    publish_current_control(
+        out_dir,
+        operation=operation,
+        control=project_agent_control(
+            verifier.control,
+            operation=operation,
+            receipt_bound=(out_dir / "verification-receipt.json").is_file(),
+        ),
+        request_id=verifier.request_id,
+        decision_id=verifier.decision_id,
+        workspace_identity=_current_control_workspace_identity(
+            out_dir=out_dir,
+            git_root=git_root,
+            verifier=verifier,
+        ),
+        # A preview never runs a scan, so report.json and packet.json in this
+        # directory belong to some earlier run.  Binding them would present two
+        # generations as one current artifact set.
+        artifact_keys=(
+            VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS if operation == "preview" else None
+        ),
+    )
+
+
+def _current_control_workspace_identity(
+    *,
+    out_dir: Path,
+    git_root: Path,
+    verifier: VerifierArtifact,
+) -> CurrentControlWorkspaceIdentity:
+    """Bind what this run was evaluated against.
+
+    The verification plan is the authoritative source when the run produced
+    one, because that is the same subject the receipt closes over.  Runs that
+    stopped before plan construction fall back to the verifier's coarser view,
+    which is enough for a consumer to notice that HEAD moved.
+    """
+
+    plan_path = out_dir / "verification-plan.json"
+    if plan_path.is_file() and not plan_path.is_symlink():
+        try:
+            plan = VerificationPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            plan = None
+        if plan is not None:
+            return workspace_identity_from_plan(plan)
+    return CurrentControlWorkspaceIdentity(
+        repository=_safe_repository_identity(git_root),
+        head_ref=verifier.head_ref,
+        head_tree_sha=verifier.head_tree_sha,
+    )
+
+
+def _safe_repository_identity(workspace: Path) -> str | None:
+    """Resolve the credential-free repository locator, or ``None`` outside Git."""
+
+    try:
+        return repository_identity(workspace)
+    except Exception:  # noqa: BLE001 - identity is advisory on this surface.
+        return None
 
 
 def _write_verify_run_artifact(
@@ -3466,6 +3590,7 @@ def _without_github_step_summary():
             os.environ["GITHUB_STEP_SUMMARY"] = prior
 
 
+@owns_current_control("preview")
 def run_preview(
     *,
     workspace: Path,
@@ -3496,6 +3621,17 @@ def run_preview(
         inputs=[("config", config_path)],
     )
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Preview is a non-terminal operation, so it starts by denying whatever a
+    # previous run left behind rather than leaving it current beside a preview.
+    begin_current_control(
+        out_dir,
+        operation="preview",
+        reason=(
+            "A verification preview is in progress; no decision in this "
+            "directory is current until it publishes one."
+        ),
+        repository=_safe_repository_identity(root),
+    )
     clear_verifier_route_artifacts(out_dir)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
@@ -3670,6 +3806,10 @@ def run_preview(
         pr_comment_path,
         report=None,
         git_root=root,
+        # A preview is never a merge decision.  Scoping the pointer to the
+        # preview operation makes "complete" unrepresentable for this run, so
+        # an agent cannot read a preview as authorization to finish.
+        operation="preview",
         config_path=config_path,
         config_logical_path=config_relative.as_posix(),
         baseline_path=None,

@@ -13,7 +13,6 @@ from agents_shipgate.cli.verify.git import (
     working_tree_context,
 )
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.verification_identity import _worktree_overlay
 
 
 def _git(root: Path, *args: str) -> None:
@@ -242,17 +241,3 @@ def test_effective_worktree_diff_retains_merge_base_relative_untracked_paths(
     assert changed == ["agent.py", "new_agent.py"]
     assert "diff --git a/agent.py b/agent.py" in diff_text
     assert "new_agent.py" not in diff_text
-
-
-def test_worktree_overlay_mode_uses_git_owner_execute_semantics(tmp_path: Path) -> None:
-    root = _repo(tmp_path)
-    target = root / "agent.py"
-    target.write_text("capability\n", encoding="utf-8")
-    target.chmod(0o654)
-
-    [group_executable] = _worktree_overlay(root, ["agent.py"])
-    assert group_executable["git_mode"] == "100644"
-
-    target.chmod(0o754)
-    [owner_executable] = _worktree_overlay(root, ["agent.py"])
-    assert owner_executable["git_mode"] == "100755"

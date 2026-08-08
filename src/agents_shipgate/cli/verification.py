@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import stat
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -39,6 +38,12 @@ from agents_shipgate.cli.verify.git import (
 )
 from agents_shipgate.config.loader import load_yaml_file
 from agents_shipgate.core.agent_handoff import build_agent_handoff
+from agents_shipgate.core.current_control import (
+    begin_current_control,
+    project_agent_control,
+    publish_current_control,
+    workspace_identity_from_plan,
+)
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
@@ -51,13 +56,15 @@ from agents_shipgate.core.verification_identity import (
     build_terminal_receipt,
     build_unit_result,
     build_verification_plan,
-    sha256_file,
+    plan_worktree_overlay_paths,
     validate_engine_requirement,
     validate_plan_inputs,
     validate_receipt_artifacts,
+    worktree_overlay,
 )
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.current_control import RECEIPT_ARTIFACT_KEY
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification_identity import (
@@ -102,6 +109,24 @@ def prepare(
     head_ref = head or "HEAD"
     if not ref_exists(root, head_ref):
         raise typer.BadParameter(f"head ref is unavailable locally: {head_ref}")
+    # Invalidate before reading a single input. Preparing a portable plan starts
+    # a new verification lifecycle in this directory, so whatever was current
+    # describes the previous request and stops being current here;
+    # `verification assemble` publishes the next terminal pointer. Doing this
+    # first also keeps the pointer out of the window in which the plan hashes
+    # its inputs, so a worktree plan cannot capture one pointer generation and
+    # then be replayed against another.
+    out.parent.mkdir(parents=True, exist_ok=True)
+    begin_current_control(
+        out.parent,
+        operation="verify",
+        reason=(
+            "A portable verification run was prepared; no decision in this "
+            "directory is current until `agents-shipgate verification assemble` "
+            "closes it."
+        ),
+        repository=repository_identity(root),
+    )
     worktree_overlay_paths: list[str] | None = None
     if head is not None:
         changed, diff_text = diff_context(root, base, head_ref)
@@ -668,6 +693,28 @@ def assemble(
         raise InputParseError("receipt output must remain under --artifacts-root")
     _write_model(resolved_artifact_root / "verification-artifacts.json", manifest)
     _write_model(out, receipt)
+    # The pointer is the last file the assembler makes visible, for the same
+    # reason it is last in `verify`: every artifact it binds now exists and has
+    # been hashed in its final form.
+    #
+    # `--out` accepts any name beneath the artifacts root, so the receipt this
+    # run closed is not necessarily at the canonical path. Bind the one that was
+    # actually emitted: binding the canonical path instead would either miss
+    # this run's receipt entirely or bind an older run's.
+    receipt_path = out.resolve().relative_to(resolved_artifact_root).as_posix()
+    publish_current_control(
+        resolved_artifact_root,
+        operation="verify",
+        control=project_agent_control(
+            verifier.control,
+            operation="verify",
+            receipt_bound=out.is_file(),
+        ),
+        request_id=plan.request_id,
+        decision_id=expected_decision_id,
+        workspace_identity=workspace_identity_from_plan(plan),
+        artifact_paths={RECEIPT_ARTIFACT_KEY: receipt_path},
+    )
     typer.echo(json.dumps({"receipt_id": receipt.receipt_id, "receipt": str(out)}))
 
 
@@ -791,41 +838,14 @@ def _validate_git_subject(plan: VerificationPlan, workspace: Path) -> None:
             raise ValueError("worktree-overlay plan cannot carry source-head authority")
         if commit_sha(root, "HEAD") != subject.head_commit_sha:
             raise ValueError("worker HEAD does not match the worktree-overlay plan")
-        declared_overlay_paths = plan.inputs.options.get("worktree_overlay_paths")
-        if declared_overlay_paths is None:
-            raise ValueError(
-                "worktree-overlay plan predates overlay mode binding; "
-                "re-run `agents-shipgate verification prepare`"
-            )
-        elif not isinstance(declared_overlay_paths, list) or not all(
-            isinstance(path, str) for path in declared_overlay_paths
-        ):
-            raise ValueError("plan worktree_overlay_paths must be a string list")
-        elif declared_overlay_paths != sorted(set(declared_overlay_paths)):
-            raise ValueError("plan worktree_overlay_paths must be sorted and unique")
-        else:
-            overlay_paths = declared_overlay_paths
-        rows: list[dict[str, Any]] = []
-        for relative in overlay_paths:
-            candidate = (root / relative).resolve()
-            if candidate != root and root not in candidate.parents:
-                raise ValueError(f"plan changed path escapes workspace: {relative}")
-            present = candidate.is_file()
-            rows.append(
-                {
-                    "path": relative,
-                    "status": "present" if present else "deleted",
-                    "sha256": sha256_file(candidate) if present else None,
-                    "git_mode": (
-                        "100755"
-                        if present
-                        and stat.S_IMODE(candidate.stat().st_mode) & stat.S_IXUSR
-                        else "100644"
-                        if present
-                        else None
-                    ),
-                }
-            )
+        overlay_paths = plan_worktree_overlay_paths(plan)
+        # Recompute through the same builder the plan committed to. #347 added
+        # `kind` and `executable` to the producer's rows and exposed
+        # `worktree_overlay` so "the same function builds the overlay a plan
+        # commits to and the overlay a later reader recomputes", but this reader
+        # was still hand-rolling the older row shape — so the two normalizations
+        # disagreed and every non-empty worktree overlay failed here.
+        rows = worktree_overlay(root, overlay_paths)
         actual_overlay = content_id(rows) if rows else None
         if actual_overlay != subject.worktree_overlay_sha256:
             raise ValueError("worker worktree overlay does not match the plan")

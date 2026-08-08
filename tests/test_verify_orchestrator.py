@@ -695,7 +695,7 @@ def test_worktree_overlay_identity_preserves_an_effectively_cancelled_path(
             "inputs": plan.inputs.model_copy(update={"options": legacy_options})
         }
     )
-    with pytest.raises(ValueError, match="predates overlay mode binding"):
+    with pytest.raises(ValueError, match="predates overlay path binding"):
         _validate_git_subject(legacy_plan, repo)
 
 

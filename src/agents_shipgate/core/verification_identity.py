@@ -688,10 +688,24 @@ def load_validated_receipt_artifacts(
     return receipt, artifacts
 
 
-def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) -> bytes:
+def read_regular_file_beneath(
+    root: Path,
+    logical_path: str,
+    *,
+    max_size: int,
+    label: str = "receipt artifact",
+) -> bytes:
+    """Read one regular file strictly beneath ``root``.
+
+    Every path component is opened with ``O_NOFOLLOW`` against the parent
+    descriptor, so a symlink planted anywhere along the way fails instead of
+    escaping.  The stat identity is compared before and after the read so a
+    file swapped mid-read is rejected rather than hashed as two generations.
+    """
+
     parts = Path(logical_path).parts
     if not parts or Path(logical_path).is_absolute() or any(part in {"", ".", ".."} for part in parts):
-        raise ValueError(f"receipt artifact path is not portable: {logical_path!r}")
+        raise ValueError(f"{label} path is not portable: {logical_path!r}")
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     descriptors: list[int] = []
@@ -705,9 +719,9 @@ def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) 
         descriptors.append(file_descriptor)
         before = os.fstat(file_descriptor)
         if not stat.S_ISREG(before.st_mode):
-            raise ValueError(f"receipt artifact is not a regular file: {logical_path}")
+            raise ValueError(f"{label} is not a regular file: {logical_path}")
         if before.st_size > max_size:
-            raise ValueError(f"receipt artifact exceeds its size limit: {logical_path}")
+            raise ValueError(f"{label} exceeds its size limit: {logical_path}")
         chunks: list[bytes] = []
         remaining = max_size + 1
         while remaining:
@@ -729,16 +743,21 @@ def _read_regular_file_beneath(root: Path, logical_path: str, *, max_size: int) 
             after.st_size,
             after.st_mtime_ns,
         ):
-            raise ValueError(f"receipt artifact changed while it was read: {logical_path}")
+            raise ValueError(f"{label} changed while it was read: {logical_path}")
         if len(data) > max_size:
-            raise ValueError(f"receipt artifact exceeds its size limit: {logical_path}")
+            raise ValueError(f"{label} exceeds its size limit: {logical_path}")
         return data
     except OSError as exc:
-        raise ValueError(f"could not safely read receipt artifact {logical_path!r}: {exc}") from exc
+        raise ValueError(f"could not safely read {label} {logical_path!r}: {exc}") from exc
     finally:
         for descriptor in reversed(descriptors):
             with contextlib.suppress(OSError):
                 os.close(descriptor)
+
+
+
+
+_read_regular_file_beneath = read_regular_file_beneath
 
 
 def _json_object_bytes(data: bytes, label: str) -> dict[str, Any]:
@@ -971,40 +990,101 @@ def _existing_changed_blobs(paths: list[str], *, root: Path, source: str) -> lis
     return _blobs(candidates, root=root, source=source)
 
 
+def plan_worktree_overlay_paths(plan: VerificationPlan) -> list[str]:
+    """Return the HEAD-relative overlay path set a worktree plan committed to.
+
+    Since #336 this is *not* ``inputs.changed_paths``: the evaluated change set
+    is merge-base-relative while the overlay is HEAD-relative, so a path a
+    worktree edit cancels appears only here. Every recomputation of
+    ``worktree_overlay_sha256`` — the worker, the current-control reader — must
+    take the set from one place, or it recomputes a different overlay than the
+    plan committed to and reports drift that never happened.
+    """
+
+    declared = plan.inputs.options.get("worktree_overlay_paths")
+    if declared is None:
+        raise ValueError(
+            "worktree-overlay plan predates overlay path binding; "
+            "re-run `agents-shipgate verification prepare`"
+        )
+    if not isinstance(declared, list) or not all(isinstance(path, str) for path in declared):
+        raise ValueError("plan worktree_overlay_paths must be a string list")
+    if declared != sorted(set(declared)):
+        raise ValueError("plan worktree_overlay_paths must be sorted and unique")
+    return declared
+
+
+def worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
+    """Return the normalized rows a worktree decision commits to.
+
+    The same function builds the overlay a plan commits to and the overlay a
+    later reader recomputes, so worktree drift cannot hide behind two slightly
+    different normalizations.
+
+    A row carries content *and* the two metadata axes Git itself tracks: entry
+    kind and the executable bit.  Content alone is not the capability: flipping
+    a tool script from ``100755`` to ``100644`` changes no bytes, and swapping a
+    regular file for a symlink pointing at an identical in-repo file changes no
+    bytes either.  Both are changes a decision must not survive.  Full mode is
+    deliberately not recorded — it varies with umask and would make the identity
+    depend on noise Git does not track.
+    """
+
+    return _worktree_overlay(root, paths)
+
+
 def _worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     snapshot = active_static_input_snapshot()
+    root_resolved = root.resolve()
     for relative in sorted(set(paths)):
-        candidate = (root / relative).resolve()
-        if root.resolve() not in candidate.parents:
+        lexical = root / relative
+        candidate = lexical.resolve()
+        if root_resolved not in candidate.parents:
             raise ValueError(f"worktree path escapes repository: {relative}")
-        present = (
-            snapshot.has(candidate)
-            if snapshot is not None and snapshot.contains(candidate)
-            else candidate.is_file()
-        )
-        captured_mode = (
-            snapshot.mode(candidate)
-            if present and snapshot is not None and snapshot.contains(candidate)
-            else stat.S_IMODE(candidate.stat().st_mode)
-            if present
-            else None
-        )
-        rows.append(
-            {
-                "path": relative,
-                "status": "present" if present else "deleted",
-                "sha256": sha256_file(candidate) if present else None,
-                "git_mode": (
-                    "100755"
-                    if captured_mode is not None and captured_mode & stat.S_IXUSR
-                    else "100644"
-                    if present
-                    else None
-                ),
-            }
-        )
+        # ``_overlay_entry`` (#347) supersedes this branch's ``git_mode``: it
+        # binds the executable bit as well, and additionally records ``kind``
+        # and hashes a symlink's target rather than following it.
+        rows.append({"path": relative, **_overlay_entry(lexical, candidate, snapshot)})
     return rows
+
+
+def _absent_overlay_entry() -> dict[str, Any]:
+    return {"status": "deleted", "kind": None, "executable": None, "sha256": None}
+
+
+def _overlay_entry(lexical: Path, candidate: Path, snapshot: Any) -> dict[str, Any]:
+    try:
+        info = os.lstat(lexical)
+    except OSError:
+        return _absent_overlay_entry()
+    if stat.S_ISLNK(info.st_mode):
+        # Hash the link target, never what it points at. Following it here is
+        # what let a regular file and a symlink to an identical file produce the
+        # same row.
+        try:
+            target = os.readlink(lexical)
+        except OSError:
+            return _absent_overlay_entry()
+        return {
+            "status": "present",
+            "kind": "symlink",
+            "executable": False,
+            "sha256": sha256_bytes(target.encode("utf-8")),
+        }
+    present = (
+        snapshot.has(candidate)
+        if snapshot is not None and snapshot.contains(candidate)
+        else candidate.is_file()
+    )
+    if not present:
+        return _absent_overlay_entry()
+    return {
+        "status": "present",
+        "kind": "file",
+        "executable": bool(info.st_mode & 0o111),
+        "sha256": sha256_file(candidate),
+    }
 
 
 def _media_type(path: Path) -> str:
@@ -1223,6 +1303,9 @@ def _normalized_distribution_name(value: str) -> str:
 
 __all__ = [
     "build_engine_requirement",
+    "read_regular_file_beneath",
+    "worktree_overlay",
+    "plan_worktree_overlay_paths",
     "build_executor",
     "build_terminal_receipt",
     "build_unit_result",

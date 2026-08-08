@@ -215,6 +215,29 @@
       "rationale": "`@function_tool` / `@tool` (LangChain, CrewAI, OpenAI Agents SDK) and ADK `FunctionTool(...)` add or modify the tools the agent can call."
     },
     {
+      "id": "TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED",
+      "surface_class": "capability",
+      "agents_md_row": "Adds/changes a Google ADK `Agent`/`LlmAgent` `tools=[...]` list",
+      "when": {
+        "all_of": [
+          {"diff_contains": "tools=["},
+          {"any_of": [
+            {"diff_contains": "LlmAgent("},
+            {"all_of": [
+              {"any_of": [
+                {"diff_contains": "google.adk"},
+                {"diff_contains": "google-adk"}
+              ]},
+              {"diff_contains": "Agent("}
+            ]}
+          ]}
+        ]
+      },
+      "action": "run_shipgate",
+      "rationale": "A `tools=[...]` argument appears in this diff together with either `LlmAgent(` — a class name no other supported framework uses, so it identifies Google ADK on its own — or a `google.adk` module path alongside an `Agent(` construction. The two legs exist because an edit that adds one tool to an existing agent shows only the constructor and the list; the import sits outside the hunk, so requiring it would miss every modified list and cover only whole-file additions. Plain functions passed to `tools=[...]` carry no decorator, so TRIGGER-FUNCTION-TOOL-DECORATOR never sees them — this rule is what routes an ADK agent's directly reachable tool list. Two forms are deliberately NOT matched. The spaced `tools = [` is TOML array syntax as often as it is Python (it also swallows `enabled_tools = [...]`), and a token that broad is what this catalog is trying to stop reporting as structure. A bare `Agent(` with no ADK token cannot be told apart from CrewAI's `Agent(tools=[...])` by diff text alone, so a *modified* list on the `Agent` alias is out of reach here; closing it needs a signal read from the head file rather than the diff.",
+      "command": "agents-shipgate verify --preview --json"
+    },
+    {
       "id": "TRIGGER-PROMPTS-OR-POLICIES",
       "surface_class": "governance",
       "agents_md_row": "Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml`",
@@ -262,16 +285,51 @@
       "surface_class": "dependency",
       "agents_md_row": "(Optional) Refactor or framework upgrade that may shift the extracted tool surface",
       "when": {
-        "any_of": [
-          {"diff_contains": "openai-agents"},
-          {"diff_contains": "langchain"},
-          {"diff_contains": "crewai"},
-          {"diff_contains": "google-adk"},
-          {"diff_contains": "conductor-oss"}
+        "all_of": [
+          {"any_of": [
+            {"diff_contains": "openai-agents"},
+            {"diff_contains": "langchain"},
+            {"diff_contains": "crewai"},
+            {"diff_contains": "google-adk"},
+            {"diff_contains": "conductor-oss"}
+          ]},
+          {"any_of": [
+            {"glob": "**/pyproject.toml"},
+            {"glob": "**/setup.py"},
+            {"glob": "**/setup.cfg"},
+            {"glob": "**/requirements*.txt"},
+            {"glob": "**/requirements*.in"},
+            {"glob": "**/requirements/*.txt"},
+            {"glob": "**/requirements/*.in"},
+            {"glob": "**/constraints*.txt"},
+            {"glob": "**/constraints*.in"},
+            {"glob": "**/Pipfile"},
+            {"glob": "**/Pipfile.lock"},
+            {"glob": "**/poetry.lock"},
+            {"glob": "**/uv.lock"},
+            {"glob": "**/pdm.lock"},
+            {"glob": "**/pylock.toml"},
+            {"glob": "**/pylock.*.toml"},
+            {"glob": "**/environment.yml"},
+            {"glob": "**/environment.yaml"},
+            {"glob": "**/conda-lock.yml"},
+            {"glob": "**/conda-lock.yaml"},
+            {"glob": "**/package.json"},
+            {"glob": "**/package-lock.json"},
+            {"glob": "**/npm-shrinkwrap.json"},
+            {"glob": "**/pnpm-lock.yaml"},
+            {"glob": "**/yarn.lock"},
+            {"glob": "**/bun.lock"},
+            {"glob": "**/bun.lockb"},
+            {"glob": "**/pom.xml"},
+            {"glob": "**/build.gradle"},
+            {"glob": "**/build.gradle.kts"},
+            {"glob": "**/gradle/libs.versions.toml"}
+          ]}
         ]
       },
       "action": "dry_run",
-      "rationale": "Framework dependency bumps can shift the extracted tool surface; dry-run is a defensive no-cost check."
+      "rationale": "Two signals co-occur: a supported-framework package token appears somewhere in this diff, AND a dependency manifest is among the changed files. That co-occurrence is the whole of the evidence — the rule does not confirm that any version moved, and a bare token in prose or sample code no longer matches on its own. A framework upgrade can shift the statically extracted tool surface, so an advisory dry-run is a no-cost defensive check. (The rule ID is retained for 0.x compatibility; read this rationale, not the ID, for what was observed.)"
     },
     {
       "id": "TRIGGER-DOCS-ONLY-NEGATIVE",

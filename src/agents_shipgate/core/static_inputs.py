@@ -46,7 +46,6 @@ class StaticInputSnapshot:
             for path in excluded_paths
         }
         self._entries: dict[Path, bytes] = {}
-        self._modes: dict[Path, int] = {}
         self._total_bytes = 0
         self._budget = IdentityReadBudget(
             max_entries=max_files * 32,
@@ -94,13 +93,6 @@ class StaticInputSnapshot:
         raw = path if path.is_absolute() else self.root / path
         key = Path(os.path.abspath(os.path.normpath(os.fspath(raw))))
         return key in self._entries
-
-    def mode(self, path: Path) -> int | None:
-        """Return the captured permission bits for one snapshotted file."""
-
-        raw = path if path.is_absolute() else self.root / path
-        key = Path(os.path.abspath(os.path.normpath(os.fspath(raw))))
-        return self._modes.get(key)
 
     def paths_under(self, path: Path) -> list[Path]:
         raw = path if path.is_absolute() else self.root / path
@@ -203,7 +195,6 @@ class StaticInputSnapshot:
         if not stat.S_ISREG(metadata.st_mode):
             raise ValueError(f"static input is not a regular file: {key}")
         self._entries[key] = data
-        self._modes[key] = stat.S_IMODE(metadata.st_mode)
         self._total_bytes = next_total
 
 

@@ -130,8 +130,10 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 For local uncommitted verifier work, omit `--base`/`--head` so the working tree
-is scanned. Validate `agents-shipgate-reports/verification-receipt.json`
-first, then read `agents-shipgate-reports/agent-handoff.json` and lead
+is scanned. Read `agents-shipgate-reports/current-control.json`
+first — it names which run is current — then validate the
+`verification-receipt.json` it binds, then read
+`agents-shipgate-reports/agent-handoff.json` and lead
 with `control.state`, then `gate.merge_verdict`
 (`mergeable | human_review_required | insufficient_evidence | blocked |
 unknown`), `gate.can_merge_without_human`, `next_action`,
@@ -144,6 +146,28 @@ the release gate. Do not report completion unless `control.state` is
 `complete`. A human-review route remains stopping until a new verifier artifact
 changes the control state; conversation-level acceptance is not a gate
 override.
+
+Read the pointer with:
+
+```bash
+agents-shipgate agent control --workspace . --reports-dir agents-shipgate-reports
+```
+
+A zero exit means the printed pointer was validated against every artifact it
+binds, still describes the repository as it stands right now, and did not move
+while it was read. Byte consistency is not generation consistency: one commit
+is enough to make an intact artifact set describe a workspace that has moved,
+so the read compares the pointer's HEAD, tree, and worktree overlay against the
+live repository and refuses on drift. A non-zero exit means no control identity
+is current here — you hold no authority, and a remembered result does
+not substitute for one. Re-read it after any human or external-tool action,
+after commit, rebase, checkout, pull, or any worktree change, after any
+agents-shipgate command returns, before enforcing a cached `must_stop`, before
+commit/push/PR update, before merge or release, and before declaring the task
+complete. If `current_control_id` changed, discard every cached control state
+and restart from the new identity. This runs in both directions: a cached stop
+must not survive a newer complete run, and a cached completion must not survive
+a changed workspace.
 
 Do not bypass the verifier by suppressing findings, lowering severity,
 expanding baselines or waivers, removing Shipgate CI, or weakening agent
@@ -293,6 +317,7 @@ Do NOT use it for:
 | Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows | Yes |
 | Adds/changes Codex plugin manifests, marketplace files, `.app.json`, `.mcp.json`, or `SKILL.md` files | Yes |
 | Adds/changes `@function_tool`/`@tool` decorators (LangChain, CrewAI, OpenAI Agents SDK) | Yes |
+| Adds/changes a Google ADK `Agent`/`LlmAgent` `tools=[...]` list | Yes |
 | Adds/changes n8n workflow JSON, credential stubs, or n8n tool inventories | Yes |
 | Adds/changes Conductor OSS workflow JSON with AI/MCP tasks | Yes |
 | Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml` | Yes |
@@ -300,10 +325,12 @@ Do NOT use it for:
 | Pure read-only doc/test changes with no manifest impact | Skip |
 | Refactor with no behavior change to tools or policies | Skip (or dry-run only) |
 
+One known gap in the Google ADK row: an edit that *modifies* a tools list on the `Agent` alias (rather than `LlmAgent`) is not matched, because a bare `Agent(..., tools=[...])` hunk with no ADK import in it cannot be distinguished from CrewAI's by diff text alone. `LlmAgent` changes and whole-file additions in either spelling are covered.
+
 Two implicit triggers also fire even when no row above matches:
 
 - **Repo already opted in (shipgate.yaml present in the workspace)** — run on every PR; the manifest's existence is the opt-in.
-- **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, `google-adk`, or `conductor-oss` can change static extraction even without app-code edits.
+- **(Optional) Refactor or framework upgrade that may shift the extracted tool surface** — dry-run only; bumping `openai-agents`, `langchain`, `crewai`, `google-adk`, or `conductor-oss` can change static extraction even without app-code edits. The rule needs both halves of that evidence: the package token **and** a changed dependency manifest. A bare token — a README that mentions `google-adk`, a sample that imports it — is not a version bump and no longer routes as one. The manifest set is `DEPENDENCY_MANIFEST_GLOBS` (`agents_shipgate.core.dependency_manifests`), projected into `triggers.json` and pinned by the contract test; it covers Python (`pyproject.toml`, `requirements*.{txt,in}`, `constraints*.{txt,in}`, `poetry.lock`, `uv.lock`, `pdm.lock`, `pylock*.toml`, `Pipfile*`, conda), Node (`package.json`, npm/pnpm/yarn/bun locks), and the JVM (`pom.xml`, Gradle build files and version catalogs).
 
 A machine-readable mirror of these triggers lives at [`docs/triggers.json`](docs/triggers.json). Coding agents that have not yet adopted Shipgate can fetch the file (raw URL: `https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json`), apply the rules to a PR diff, and decide whether to propose `agents-shipgate detect`. The catalog is stable for `0.x` and pinned by the public-surface contract test against this prose table — if you change a row above, update `triggers.json` in the same commit. To evaluate a diff locally, use the first-class `trigger` subcommand:
 
