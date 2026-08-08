@@ -109,6 +109,29 @@ class VerifyRunOutcome(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         json_schema_extra={
+            # A second, independent conditional: `if/then/else` above pins the
+            # merge-authority projection; this one pins publication to an
+            # evaluated, non-blocked outcome.
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "control": {
+                                "properties": {"state": {"const": "review_publishable"}},
+                                "required": ["state"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "required": ["execution", "decision"],
+                        "properties": {
+                            "execution": {"const": "succeeded"},
+                            "decision": {"type": "string", "not": {"const": "blocked"}},
+                        },
+                    },
+                }
+            ],
             "if": {
                 "properties": {"can_merge_without_human": {"const": True}},
                 "required": ["can_merge_without_human"],
@@ -200,6 +223,16 @@ class VerifyRunOutcome(BaseModel):
             raise ValueError("verify-run merge authority must project from the outcome")
         if self.control.completion_allowed != expected:
             raise ValueError("verify-run control must exactly project merge authority")
+        if self.control.state == "review_publishable":
+            # Publication asserts an evaluated change. Bind it to the same
+            # substrate the verifier does, so a failed or blocked run cannot
+            # hand a coding agent publish authority through this projection.
+            if self.execution != "succeeded" or self.decision is None:
+                raise ValueError(
+                    "a publishable review requires a succeeded verify-run with a decision"
+                )
+            if self.decision == "blocked":
+                raise ValueError("a blocked verify-run cannot authorize publication")
         return self
 
 

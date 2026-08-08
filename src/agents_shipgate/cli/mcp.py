@@ -615,6 +615,34 @@ def _violation(
     }
 
 
+# Diagnostics that mean the audit did not actually read what it was asked to
+# judge: an audited MCP surface that would not parse, or an explicit policy the
+# run could not load at all and silently replaced with packaged defaults.
+# ``mcp_policy_missing`` is deliberately absent — no explicit policy is the
+# ordinary zero-config path, not unread input — as are the field-level
+# "ignoring invalid X" codes, where the policy parsed and every other rule
+# applied.
+_MCP_UNREAD_INPUT_CODES: frozenset[str] = frozenset(
+    {
+        "mcp_toml_parse_failed",
+        "mcp_json_parse_failed",
+        "mcp_policy_parse_failed",
+    }
+)
+
+
+def _mcp_audit_read_every_input(audit: dict[str, Any]) -> bool:
+    """Whether the audit parsed every surface and policy it was pointed at."""
+
+    diagnostics = audit.get("diagnostics")
+    if not isinstance(diagnostics, list):
+        return False
+    return not any(
+        isinstance(item, dict) and item.get("code") in _MCP_UNREAD_INPUT_CODES
+        for item in diagnostics
+    )
+
+
 def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
     decision = audit["decision"]
     human_review = _human_review(decision, audit["violated_rules"])
@@ -638,9 +666,9 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
             required_reviewers=human_review.required_reviewers,
             stop_reason=human_review.why or summary,
         )
-    elif decision == "require_review":
-        # The audit completed; only human judgement is outstanding, so the
-        # agent may still publish the change for that review.
+    elif decision == "require_review" and _mcp_audit_read_every_input(audit):
+        # The audit completed over fully-readable input; only human judgement
+        # is outstanding, so the agent may still publish for that review.
         control = derive_agent_control(
             reason=summary,
             next_action=HumanControlAction(kind="review", why=human_review.why or summary),
@@ -648,6 +676,19 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
             publication_allowed=True,
             human_review_why=human_review.why or summary,
             required_reviewers=human_review.required_reviewers,
+        )
+    elif decision == "require_review":
+        # A partially unreadable audit is not a reviewable assessment, whatever
+        # the aggregate decision says: some of the surface was never parsed, so
+        # there is nothing trustworthy to publish.
+        why = human_review.why or summary
+        control = derive_agent_control(
+            reason=summary,
+            next_action=HumanControlAction(kind="review", why=why),
+            human_review_required=True,
+            human_review_why=why,
+            required_reviewers=human_review.required_reviewers,
+            stop_reason=why,
         )
     else:
         control = derive_agent_control(reason=summary)

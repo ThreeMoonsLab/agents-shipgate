@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
+from pydantic import SerializerFunctionWrapHandler, model_serializer
+
+from agents_shipgate.schemas.agent_control import project_legacy_agent_control
 from agents_shipgate.schemas.agent_result import AgentResult, AgentResultV2
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultActor,
@@ -67,11 +70,30 @@ class CodexBoundaryResultV1(AgentResultV1):
 
 
 class CodexBoundaryResultV2(AgentResultV2):
-    """Current local boundary contract with one authoritative control state."""
+    """Frozen, deprecated local boundary contract.
+
+    Its published schema is ``additionalProperties: false`` with a three-state
+    control discriminator, and it shares ``control`` with the current
+    ``AgentControl`` union — so the freeze has to hold at serialization, not
+    just at one emit site. Every dump of this model therefore renders the
+    pre-contract-20 control shape.
+
+    The two places that copy fields *out* of this model into the current
+    ``shipgate.agent_boundary_result/v1`` pass ``control`` explicitly instead of
+    taking it from the dump, so the downgrade cannot leak into the format that
+    is supposed to carry the new state.
+    """
 
     schema_version: Literal["shipgate.codex_boundary_result/v2"] = (
         CODEX_BOUNDARY_RESULT_SCHEMA_VERSION
     )
+
+    @model_serializer(mode="wrap")
+    def _freeze_control(self, handler: SerializerFunctionWrapHandler) -> Any:
+        data = handler(self)
+        if isinstance(data, dict) and "control" in data:
+            data["control"] = project_legacy_agent_control(self.control)
+        return data
 
 
 CodexBoundaryResult = CodexBoundaryResultV2

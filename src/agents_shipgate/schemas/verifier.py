@@ -514,6 +514,28 @@ class VerifierArtifact(BaseModel):
                 {
                     "if": {
                         "properties": {
+                            "control": {
+                                "properties": {"state": {"const": "review_publishable"}},
+                                "required": ["state"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "required": ["execution", "release_decision", "decision"],
+                        "properties": {
+                            "execution": {"const": "succeeded"},
+                            "release_decision": {"type": "object"},
+                            "decision": {
+                                "type": "string",
+                                "not": {"const": "blocked"},
+                            },
+                        },
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
                             "authorization": {
                                 "properties": {"status": {"const": "accepted"}},
                                 "required": ["status"],
@@ -895,6 +917,20 @@ class VerifierArtifact(BaseModel):
             ):
                 raise ValueError("human control requires a human-owned, non-safe fix task")
             if self.control.state == "review_publishable":
+                # Publication is a claim about an evaluated change. The control
+                # variant alone cannot check that, so bind it to the substrate
+                # here: a run that did not complete, produced no release
+                # decision, or was blocked has nothing reviewable to publish.
+                if self.execution != "succeeded":
+                    raise ValueError(
+                        "a publishable review requires execution='succeeded'"
+                    )
+                if self.release_decision is None:
+                    raise ValueError(
+                        "a publishable review requires a release decision substrate"
+                    )
+                if self.release_decision.decision == "blocked":
+                    raise ValueError("a blocked release decision cannot authorize publication")
                 # Publishing evidence is authority over the pull request, not
                 # over Shipgate: the only command a review route may authorize
                 # is the exact rerun that regenerates this same evidence.

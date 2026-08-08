@@ -103,7 +103,6 @@ def test_generated_schema_is_a_state_discriminated_one_of() -> None:
         "verify_required",
         "next_action",
         "allowed_next_commands",
-        "permissions",
         "human_review",
         "stop_reason",
     ],
@@ -113,6 +112,32 @@ def test_generated_schema_requires_every_published_control_field(field: str) -> 
     payload.pop(field)
     errors = Draft202012Validator(AGENT_CONTROL_ADAPTER.json_schema()).iter_errors(payload)
     assert list(errors)
+
+
+def test_permissions_is_required_only_where_it_cannot_be_legacy() -> None:
+    """Backward-valid for pre-v20 payloads; fail-closed on the new state.
+
+    A contract-19 artifact has no ``permissions`` at all and must keep
+    validating against the same schema identifiers it was emitted under, so the
+    three states an old emitter could produce leave it optional. The
+    publishable review did not exist then, so an omitted vector there is a
+    malformed *current* payload silently granting publication.
+    """
+
+    validator = Draft202012Validator(AGENT_CONTROL_ADAPTER.json_schema())
+    for legacy_reachable in (_complete(), _agent_action(), _human()):
+        legacy_reachable.pop("permissions")
+        assert not list(validator.iter_errors(legacy_reachable))
+        # Pydantic reconstructs the vector rather than defaulting it to publish.
+        assert validate_agent_control(legacy_reachable).permissions.merge is (
+            legacy_reachable["state"] == "complete"
+        )
+
+    publishable = _review_publishable()
+    publishable.pop("permissions")
+    assert list(validator.iter_errors(publishable))
+    with pytest.raises(ValidationError):
+        AGENT_CONTROL_ADAPTER.validate_python(publishable)
 
 
 def test_generated_schema_requires_explicit_action_actor() -> None:
@@ -449,20 +474,6 @@ def test_review_publishable_contradictions_fail_pydantic(mutate: object) -> None
         AGENT_CONTROL_ADAPTER.validate_python(payload)
 
 
-def test_must_stop_never_erases_authorized_progress_actions() -> None:
-    """The compatibility boolean stays an exact projection of ``permissions``."""
-
-    for payload in (_complete(), _agent_action(), _review_publishable(), _human()):
-        control = validate_agent_control(payload)
-        authorized = any(
-            (control.permissions.edit, control.permissions.commit,
-             control.permissions.push, control.permissions.update_pr)
-        )
-        assert control.must_stop is not authorized
-        assert control.permissions.merge is control.completion_allowed
-        assert control.permissions.report_complete is control.completion_allowed
-
-
 def test_the_four_transitions_are_distinct_control_states() -> None:
     """Repair, review publication, approval, and merge are separate steps."""
 
@@ -596,3 +607,67 @@ def test_published_vocabulary_matches_the_model() -> None:
     assert set(AGENT_CONTROL_STATES) == set(
         AGENT_CONTROL_ADAPTER.json_schema()["discriminator"]["mapping"]
     )
+
+
+# --- Review findings: publication needs an evaluated, bound subject ---------
+
+
+def test_unevaluated_agent_routes_never_advertise_publication() -> None:
+    """`fetch_base` / `install` run before any diff was read."""
+
+    fetch = derive_agent_control(
+        reason="The requested base ref is unavailable.",
+        next_action=CodingAgentFetchBaseAction(
+            kind="fetch_base", expects="origin/main", why="Make the base available."
+        ),
+        verify_required=True,
+    )
+    assert fetch.state == "agent_action_required"
+    assert fetch.must_stop is False
+    assert fetch.permissions.model_dump() == dict.fromkeys(
+        ("edit", "commit", "push", "update_pr", "merge", "report_complete"), False
+    )
+
+    install = derive_agent_control(
+        reason="The Shipgate CLI is missing.",
+        next_action=CodingAgentCommandAction(
+            kind="install", command="pipx install agents-shipgate", why="Restore the gate."
+        ),
+    )
+    assert install.permissions.publishes is False
+
+    # An evaluated route keeps the progress authority its instruction needs.
+    assert validate_agent_control(_agent_action()).permissions.publishes is True
+
+
+def test_an_unevaluated_route_cannot_be_handed_publication_authority() -> None:
+    payload = derive_agent_control(
+        reason="The requested base ref is unavailable.",
+        next_action=CodingAgentFetchBaseAction(
+            kind="fetch_base", expects="origin/main", why="Make the base available."
+        ),
+        verify_required=True,
+    ).model_dump(mode="json")
+    payload["permissions"] = {
+        "edit": True,
+        "commit": True,
+        "push": True,
+        "update_pr": True,
+        "merge": False,
+        "report_complete": False,
+    }
+    with pytest.raises(ValidationError):
+        AGENT_CONTROL_ADAPTER.validate_python(payload)
+
+
+def test_must_stop_implies_nothing_is_authorized() -> None:
+    """One-directional on purpose: `must_stop=false` is not a publish promise."""
+
+    for payload in (_complete(), _agent_action(), _review_publishable(), _human()):
+        control = validate_agent_control(payload)
+        if control.must_stop:
+            assert control.permissions.authorizes_anything is False
+        assert control.permissions.merge is control.completion_allowed
+        assert control.permissions.report_complete is control.completion_allowed
+    # The state this whole change exists for still authorizes progress.
+    assert validate_agent_control(_review_publishable()).permissions.publishes is True

@@ -46,6 +46,10 @@ AgentActionKind = Literal[
     "rerun",
 ]
 HumanActionKind = Literal["review", "stop"]
+# Coding-agent routes that run *before* Shipgate has read a diff at all: the
+# requested refs are unavailable, or the gate binary itself is missing. They
+# authorize their own ``next_action`` and nothing else.
+UNEVALUATED_ACTION_KINDS: frozenset[str] = frozenset({"fetch_base", "install"})
 
 NonEmptyText = Annotated[
     str,
@@ -104,6 +108,17 @@ class HumanControlAction(BaseModel):
     command: None = None
     expects: None = None
     why: NonEmptyText
+
+
+class HumanReviewAction(HumanControlAction):
+    """A human *review* route, never a hard stop.
+
+    A distinct type rather than a runtime check on ``kind``: the publishable
+    review state must reject a stop route in generated JSON Schema too, not
+    only in Pydantic.
+    """
+
+    kind: Literal["review"] = "review"
 
 
 type CodingAgentAction = Annotated[
@@ -186,6 +201,12 @@ class _AgentPermissionsBase(BaseModel):
 
         return self.edit or self.commit or self.push or self.update_pr
 
+    @property
+    def authorizes_anything(self) -> bool:
+        """True when any of the six actions is authorized."""
+
+        return self.publishes or self.merge or self.report_complete
+
 
 class FullAgentPermissions(_AgentPermissionsBase):
     """Terminal authority: the verifier already authorizes merge."""
@@ -210,7 +231,16 @@ class PublishOnlyPermissions(_AgentPermissionsBase):
 
 
 class NoAgentPermissions(_AgentPermissionsBase):
-    """No authorized coding-agent action; the turn must end."""
+    """None of the six pull-request actions is authorized.
+
+    Two different states carry this vector, for the same underlying reason —
+    Shipgate has no assessment it is willing to stand behind.
+    ``human_review_required`` additionally ends the turn.  An
+    ``agent_action_required`` route whose subject was never evaluated
+    (``fetch_base``, ``install``) does not end the turn, but the only thing it
+    authorizes is the named ``next_action``: there is no diff yet, so there is
+    nothing to publish and no basis for saying publishing it is safe.
+    """
 
     edit: Literal[False] = False
     commit: Literal[False] = False
@@ -232,7 +262,6 @@ class _AgentControlBase(BaseModel):
                 "verify_required",
                 "next_action",
                 "allowed_next_commands",
-                "permissions",
                 "human_review",
                 "stop_reason",
             ]
@@ -261,21 +290,23 @@ class _AgentControlBase(BaseModel):
 
     @model_validator(mode="after")
     def _permissions_project_the_state(self) -> _AgentControlBase:
-        """Keep the coarse booleans exact projections of ``permissions``.
+        """Bind the coarse booleans to ``permissions`` in the fail-closed direction.
 
-        ``must_stop`` is retained for pre-contract-20 consumers, so it must
-        keep meaning what it always meant — *nothing is authorized* — rather
-        than silently erasing the progress actions a reviewable change needs.
+        ``must_stop`` is retained for pre-contract-20 consumers and keeps its
+        v14 meaning exactly — it is true precisely for
+        ``human_review_required``, which is pinned by the variant Literals.
+        The implication enforced here is one-directional on purpose:
+        ``must_stop`` authorizes nothing, but ``must_stop=false`` does *not*
+        promise publication, because an agent route whose subject was never
+        evaluated authorizes only its own ``next_action``.
         """
 
         if self.permissions.report_complete != self.completion_allowed:
             raise ValueError("permissions.report_complete must equal completion_allowed")
         if self.permissions.merge != self.completion_allowed:
             raise ValueError("permissions.merge must equal completion_allowed")
-        if self.must_stop == self.permissions.publishes:
-            raise ValueError(
-                "must_stop must be true exactly when no progress action is authorized"
-            )
+        if self.must_stop and self.permissions.authorizes_anything:
+            raise ValueError("a stopping result cannot authorize any action")
         return self
 
 
@@ -302,9 +333,58 @@ class AgentActionRequiredControl(_AgentControlBase):
     verify_required: bool = False
     next_action: CodingAgentAction
     allowed_next_commands: list[ExactCommand] = Field(default_factory=list)
-    permissions: PublishOnlyPermissions = Field(default_factory=PublishOnlyPermissions)
+    permissions: PublishOnlyPermissions | NoAgentPermissions
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
     stop_reason: None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _absent_permissions_follow_the_route(cls, data: Any) -> Any:
+        """Derive an omitted vector rather than defaulting it to publish.
+
+        A pre-contract-20 artifact has no ``permissions`` at all, and must keep
+        parsing. Reading it off the route it already carries is the only
+        reconstruction that cannot invent authority: an ``install`` or
+        ``fetch_base`` artifact never had an evaluated subject, whatever
+        version wrote it.
+        """
+
+        if not isinstance(data, Mapping) or "permissions" in data:
+            return data
+        action = data.get("next_action")
+        kind = action.get("kind") if isinstance(action, Mapping) else getattr(action, "kind", None)
+        return {
+            **data,
+            "permissions": (
+                NoAgentPermissions()
+                if kind in UNEVALUATED_ACTION_KINDS
+                else PublishOnlyPermissions()
+            ),
+        }
+
+    @model_validator(mode="after")
+    def _permissions_match_the_route(self) -> AgentActionRequiredControl:
+        """Publication authority follows the evaluated subject, not the state.
+
+        ``fetch_base`` and ``install`` mean Shipgate never saw a diff — the
+        refs are unavailable, or the gate itself is missing. Claiming
+        commit/push/PR-update authority there would assert something about a
+        change that was never read, and would contradict "perform only
+        ``next_action``".
+        """
+
+        unevaluated = self.next_action.kind in UNEVALUATED_ACTION_KINDS
+        if unevaluated and self.permissions.publishes:
+            raise ValueError(
+                f"a {self.next_action.kind!r} route has no evaluated subject and "
+                "cannot authorize publication"
+            )
+        if not unevaluated and not self.permissions.publishes:
+            raise ValueError(
+                f"an evaluated {self.next_action.kind!r} route must authorize the "
+                "progress actions its own instruction requires"
+            )
+        return self
 
     @model_validator(mode="after")
     def _action_is_an_allowed_route(self) -> AgentActionRequiredControl:
@@ -340,30 +420,50 @@ class ReviewPublishableControl(_AgentControlBase):
     denied until a fresh verifier artifact says otherwise.
 
     ``next_action`` stays human-owned: the *route* is still "a person decides".
-    ``allowed_next_commands`` carries the exact Shipgate commands the agent may
-    run to republish evidence after committing, and is empty when the caller
-    has no exact command to offer.
+    ``allowed_next_commands`` carries at most the one exact rerun command that
+    regenerates this same evidence after committing, and is empty when the
+    caller has no exact command to offer.
+
+    ``permissions`` deliberately has **no default**. Every other variant keeps
+    one so that a pre-contract-20 artifact still parses, but this state cannot
+    be legacy input — it did not exist before v20 — so an omitted permission
+    vector is a malformed current payload, not an old one, and must fail closed
+    rather than silently synthesize publication authority.
     """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "required": [
+                "state",
+                "reason",
+                "completion_allowed",
+                "must_stop",
+                "verify_required",
+                "next_action",
+                "allowed_next_commands",
+                # Required *only* here. Every other variant leaves it optional
+                # so a pre-contract-20 artifact — which has no vector at all —
+                # keeps validating against the same schema identifiers it was
+                # emitted under. This state did not exist then, so requiring it
+                # cannot break an old payload, and omitting it on a new one is
+                # a malformed grant of publication authority.
+                "permissions",
+                "human_review",
+                "stop_reason",
+            ]
+        },
+    )
 
     state: Literal["review_publishable"]
     completion_allowed: Literal[False] = False
     must_stop: Literal[False] = False
     verify_required: bool = False
-    next_action: HumanControlAction
-    allowed_next_commands: list[ExactCommand] = Field(default_factory=list)
-    permissions: PublishOnlyPermissions = Field(default_factory=PublishOnlyPermissions)
+    next_action: HumanReviewAction
+    allowed_next_commands: list[ExactCommand] = Field(default_factory=list, max_length=1)
+    permissions: PublishOnlyPermissions
     human_review: RequiredHumanReview
     stop_reason: None = None
-
-    @model_validator(mode="after")
-    def _route_is_a_review_not_a_stop(self) -> ReviewPublishableControl:
-        if self.next_action.kind != "review":
-            raise ValueError(
-                "review_publishable requires a human review route; a stop route "
-                "must use human_review_required"
-            )
-        self.allowed_next_commands = sorted(self.allowed_next_commands)
-        return self
 
 
 class HumanReviewRequiredControl(_AgentControlBase):
@@ -510,6 +610,11 @@ def normalize_legacy_agent_control(
                 verify_required=verify_required or mapped_kind == "verify",
                 next_action=next_action,
                 allowed_next_commands=_commands_with(payload.get("allowed_next_commands"), command),
+                permissions=(
+                    NoAgentPermissions()
+                    if mapped_kind in UNEVALUATED_ACTION_KINDS
+                    else PublishOnlyPermissions()
+                ),
                 human_review=NoHumanReview(),
             )
         except ValidationError:
@@ -599,8 +704,10 @@ __all__ = [
     "CodingAgentFetchBaseAction",
     "CompleteAgentControl",
     "FullAgentPermissions",
+    "UNEVALUATED_ACTION_KINDS",
     "HumanActionKind",
     "HumanControlAction",
+    "HumanReviewAction",
     "HumanReviewRequiredControl",
     "NoAgentPermissions",
     "NoHumanReview",

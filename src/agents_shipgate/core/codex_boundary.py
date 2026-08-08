@@ -990,10 +990,17 @@ def _control_for_result(
 
     if decision in {"require_review", "block"} and not repair.safe_to_attempt:
         why = human_review.why or first_next_action.why or summary
-        if decision == "require_review" and boundary_assessment_is_evidence_backed(violations):
-            # The boundary was evaluated against a replayable subject and the
-            # only obligation left is human judgement, so the agent keeps the
-            # authority to put a reviewable change in front of that human.
+        # Publication needs BOTH facts. ``verification_replayable`` is not
+        # implied by reaching this branch: the unbound-subject guard above only
+        # fires when something owes a command, and a non-graded
+        # ``require_review`` owes none. Without it a caller-supplied diff — the
+        # MCP entrypoint marks every one unreplayable — would be handed publish
+        # authority plus a rerun command that cannot reconstruct its subject.
+        if (
+            decision == "require_review"
+            and verification_replayable
+            and boundary_assessment_is_evidence_backed(violations)
+        ):
             return derive_agent_control(
                 reason=summary,
                 next_action=HumanControlAction(kind="review", why=why),

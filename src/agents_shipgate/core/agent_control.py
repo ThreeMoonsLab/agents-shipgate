@@ -20,8 +20,10 @@ from agents_shipgate.schemas.agent_control import (
     CodingAgentFetchBaseAction,
     CompleteAgentControl,
     HumanControlAction,
+    HumanReviewAction,
     HumanReviewRequiredControl,
     NoHumanReview,
+    PublishOnlyPermissions,
     RequiredHumanReview,
     ReviewPublishableControl,
     normalize_legacy_agent_control,
@@ -94,12 +96,18 @@ def derive_agent_control(
                 raise AgentControlConsistencyError(
                     "a publishable review does not stop, so it cannot carry a stop reason"
                 )
+            commands = list(dict.fromkeys(allowed_next_commands))
+            if len(commands) > 1:
+                raise AgentControlConsistencyError(
+                    "a publishable review may offer at most one exact rerun command"
+                )
             return ReviewPublishableControl(
                 state="review_publishable",
                 reason=reason,
                 verify_required=verify_required,
-                next_action=human_action,
-                allowed_next_commands=list(dict.fromkeys(allowed_next_commands)),
+                next_action=HumanReviewAction(why=human_action.why),
+                allowed_next_commands=commands,
+                permissions=PublishOnlyPermissions(),
                 human_review=RequiredHumanReview(
                     why=review_why,
                     required_reviewers=list(required_reviewers),
@@ -135,6 +143,9 @@ def derive_agent_control(
             verify_required=verify_required or action_requires_verify,
             next_action=action,
             allowed_next_commands=commands,
+            # ``permissions`` is derived from the route by the variant itself:
+            # a ``fetch_base`` or ``install`` step runs before any diff was
+            # read, so it authorizes only its own next action.
             human_review=NoHumanReview(),
         )
 

@@ -1624,3 +1624,44 @@ def test_codex_boundary_result_never_contradicts_release_decision(tmp_path: Path
     assert result.decision == "block"
     assert result.control.state == "human_review_required"
     assert result.control.next_action.kind == "stop"
+
+
+def test_frozen_v2_shape_holds_on_every_serialization_path(tmp_path: Path) -> None:
+    """The freeze is a property of the model, not of one emit site.
+
+    ``CodexBoundaryResultV2`` shares ``control`` with the current union, so a
+    helper applied at a single serializer would leave ``model_dump_json()``
+    exposing the new state and the ``permissions`` object its published schema
+    forbids.
+    """
+
+    target = tmp_path / ".codex"
+    target.mkdir()
+    (target / "config.toml").write_text('model = "safe"\n', encoding="utf-8")
+    diff = (
+        "diff --git a/.codex/config.toml b/.codex/config.toml\n"
+        "--- a/.codex/config.toml\n+++ b/.codex/config.toml\n"
+        "@@ -1,1 +1,2 @@\n model = \"safe\"\n+sandbox_mode = \"danger-full-access\"\n"
+    )
+    result = build_codex_agent_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+        verification_replayable=True,
+    )
+    # The evaluated, bound subject really is publishable on the current format.
+    assert result.control.state == "review_publishable"
+
+    for payload in (
+        json.loads(result.model_dump_json()),
+        result.model_dump(mode="json"),
+        agent_result_json_payload(result),
+    ):
+        _validate(payload)
+        control = payload["control"]
+        assert control["state"] == "human_review_required"
+        assert control["must_stop"] is True
+        assert control["allowed_next_commands"] == []
+        assert "permissions" not in control

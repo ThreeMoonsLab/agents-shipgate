@@ -450,3 +450,72 @@ def test_review_publishable_verifier_cannot_authorize_an_unrelated_command() -> 
 
     with pytest.raises(ValidationError):
         _review_publishable_verifier([AUTHORIZED_COMMAND])
+
+
+@pytest.mark.parametrize(
+    ("execution", "decision", "applicability", "verdict"),
+    [
+        ("failed", None, "failed", "unknown"),
+        ("skipped", None, "not_applicable", "mergeable"),
+    ],
+)
+def test_publication_requires_a_completed_release_decision(
+    execution: str, decision: str | None, applicability: str, verdict: str
+) -> None:
+    """A run with no decision has nothing reviewable to publish.
+
+    The control variant alone cannot see the substrate, so without this
+    container invariant a hand-built artifact could pair `review_publishable`
+    with a failed run and keep every publication permission.
+    """
+
+    why = "A reviewer must approve this."
+    control = derive_agent_control(
+        reason=why,
+        next_action=HumanControlAction(kind="review", why=why),
+        human_review_required=True,
+        publication_allowed=True,
+        human_review_why=why,
+    )
+    with pytest.raises(ValidationError):
+        VerifierArtifact(
+            workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
+            config="shipgate.yaml",
+            execution=execution,  # type: ignore[arg-type]
+            head_status=execution,  # type: ignore[arg-type]
+            release_decision=None,
+            decision=decision,
+            merge_verdict=verdict,  # type: ignore[arg-type]
+            applicability=applicability,  # type: ignore[arg-type]
+            can_merge_without_human=execution == "skipped",
+            control=control,
+            authorization=AuthorizationEvaluationV1.not_requested(),
+        )
+
+
+def test_a_blocked_release_decision_cannot_authorize_publication() -> None:
+    why = "A reviewer must approve this."
+    control = derive_agent_control(
+        reason=why,
+        next_action=HumanControlAction(kind="review", why=why),
+        human_review_required=True,
+        publication_allowed=True,
+        human_review_why=why,
+    )
+    with pytest.raises(ValidationError):
+        VerifierArtifact(
+            workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
+            config="shipgate.yaml",
+            execution="succeeded",
+            head_status="succeeded",
+            release_decision=_release_decision("blocked"),
+            decision="blocked",
+            merge_verdict="blocked",
+            applicability="verified",
+            can_merge_without_human=False,
+            control=control,
+            authorization=AuthorizationEvaluationV1.not_requested(),
+            fix_task=_human_fix_task(),
+        )

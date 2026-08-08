@@ -9,11 +9,12 @@
   denied commit, push, and PR updates — the exact actions required to produce a
   reviewable diff — so the workflow was circular: review was required, and the
   agent could not publish the state to be reviewed. Two additive changes fix
-  it. `control.permissions` is now a required object on every state carrying
-  the exact booleans `edit`, `commit`, `push`, `update_pr`, `merge`,
-  `report_complete`; it is fixed by the state, never set independently, and
+  it. `control.permissions` is a new object carrying the exact booleans
+  `edit`, `commit`, `push`, `update_pr`, `merge`, `report_complete`; it is
+  fixed by the state and the route, never set independently, and
   `merge`/`report_complete` always equal `completion_allowed`, so human review
-  never becomes self-approvable. A fourth state, `review_publishable`, means "a
+  never becomes self-approvable. A route that runs before any diff was read
+  (`fetch_base`, `install`) authorizes none of the six. A fourth state, `review_publishable`, means "a
   human must approve the merge, and the agent may still publish the change for
   that review": `must_stop: false`, a human `next_action`, and at most the one
   exact rerun command that regenerates the same evidence against the committed
@@ -26,7 +27,13 @@
   consumers that switch on `control.state` must add a `review_publishable`
   branch and keep failing closed on unrecognized states, while consumers that
   read only `must_stop` and `completion_allowed` need no change and lose no
-  safety. Legacy artifacts and the frozen
+  safety. `permissions` is required only on the new state, so artifacts already
+  emitted under verifier `0.7`, handoff `v6`, verify-run `v3`, agent-result
+  `v2`, agent-boundary `v1`, and preflight `0.3` keep validating against those
+  same identifiers. Publication additionally requires a replayable subject,
+  fully-read input, and a succeeded non-blocked release decision — enforced in
+  Pydantic and in generated JSON Schema — so a detached diff, a partially
+  unparsed MCP audit, or a failed run can never authorize it. Legacy artifacts and the frozen
   `shipgate.codex_boundary_result/v2` projection are unaffected: pre-v20
   payloads normalize to `human_review_required`, and the frozen format omits
   `control.permissions` and renders the new state as `human_review_required`

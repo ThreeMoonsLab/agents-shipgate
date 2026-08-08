@@ -500,7 +500,13 @@ def build_agent_boundary_result(assessment: AgentBoundaryAssessment) -> AgentBou
         else []
     )
     return AgentBoundaryResultV1(
-        **legacy.model_dump(mode="python", exclude={"schema_version", "policy"}),
+        **{
+            **legacy.model_dump(mode="python", exclude={"schema_version", "policy"}),
+            # The codex v2 model serializes its control in the frozen
+            # pre-v20 shape. This result is the CURRENT contract, so take the
+            # real control object rather than that downgrade.
+            "control": legacy.control,
+        },
         pending_review=pending_review,
         actor=assessment.actor,  # type: ignore[arg-type]
         input_mode=assessment.input_mode,
@@ -692,7 +698,11 @@ def _project_legacy(
         input_mode=input_mode,
         verification_replayable=verification_replayable,
         trigger=legacy.trigger,
-        control=control.model_dump(mode="json", exclude_none=True),
+        # ``permissions`` is excluded on purpose: it is a pure projection of
+        # ``state`` and ``next_action.kind``, both already hashed here, so
+        # including it adds no distinguishing information and would rotate the
+        # identity of payloads whose every emitted byte is unchanged.
+        control=control.model_dump(mode="json", exclude_none=True, exclude={"permissions"}),
         diff_text=diff_text,
         legacy_audit_id=legacy.audit_id,
     )

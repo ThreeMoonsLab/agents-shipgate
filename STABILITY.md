@@ -31,17 +31,35 @@ workflow was circular.
 **Human review now gates merge and completion, not publication of review
 evidence.** Two additive changes carry that:
 
-- `control.permissions` — a required object on every state, with the exact
-  booleans `edit`, `commit`, `push`, `update_pr`, `merge`, `report_complete`.
-  It is fixed by the state, never set independently. `merge` and
-  `report_complete` always equal `completion_allowed`; `must_stop` is true
-  exactly when *no* progress action is authorized.
+- `control.permissions` — an object with the exact booleans `edit`,
+  `commit`, `push`, `update_pr`, `merge`, `report_complete`. It is fixed by the
+  state *and the route*, never set independently. `merge` and
+  `report_complete` always equal `completion_allowed`, and `must_stop=true`
+  authorizes nothing at all. The converse does not hold: an
+  `agent_action_required` route that runs *before* any diff was read
+  (`fetch_base`, `install`) authorizes only its own `next_action`, because
+  Shipgate has no assessment to stand behind yet.
+
+  It is required only on `review_publishable`. The three states a
+  pre-contract-20 emitter could produce leave it optional, so artifacts already
+  emitted under verifier `0.7`, handoff `v6`, verify-run `v3`, agent-result
+  `v2`, agent-boundary `v1`, and preflight `0.3` keep validating against those
+  same identifiers. Readers reconstruct an absent vector from the state and
+  route; it is never defaulted to "publication allowed".
 - `control.state: "review_publishable"` — a fourth state meaning "a human must
   approve the merge, and the agent may still publish the change for that
   review". `completion_allowed: false`, `must_stop: false`,
-  `stop_reason: null`, a human `next_action` with `kind: "review"`, and
-  `allowed_next_commands` carrying at most the exact rerun command that
-  regenerates the same evidence against the committed refs.
+  `stop_reason: null`, a human `next_action` pinned to `kind: "review"`, and
+  `allowed_next_commands` carrying **at most one** command: the exact rerun
+  that regenerates the same evidence against the committed refs. Both
+  constraints hold in generated JSON Schema, not only in Pydantic.
+
+  Publication is a claim about an evaluated, bound change, so it additionally
+  requires all of: a subject `verify` can replay (a caller-supplied diff never
+  qualifies), input the evaluator actually read in full, and — on verifier,
+  handoff, and verify-run — a succeeded run carrying a non-blocked release
+  decision. Those are container-level invariants, enforced in both Pydantic and
+  JSON Schema, because the control variant alone cannot see the substrate.
 
 `human_review_required` keeps its exact old meaning and is now reserved for
 results Shipgate cannot vouch for: a `blocked` release decision, a `block`

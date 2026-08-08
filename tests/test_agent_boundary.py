@@ -1678,3 +1678,42 @@ def test_worktree_audit_id_binds_resolved_workspace_content(
         )
 
     assert results[0].audit_id != results[1].audit_id
+
+
+def test_a_detached_diff_never_authorizes_publication(tmp_path: Path) -> None:
+    """A caller-supplied diff is not bound to a checkout verify can replay.
+
+    The unbound-subject guard only fires for routes that owe a command, and a
+    non-graded ``require_review`` owes none — so publication has to check
+    replayability itself. Without that, the MCP entrypoint (which marks every
+    caller-supplied diff unreplayable) hands out commit/push/update-PR
+    authority plus a rerun command that cannot reconstruct its own subject.
+    """
+
+    target = tmp_path / ".codex"
+    target.mkdir()
+    (target / "config.toml").write_text('model = "safe"\n', encoding="utf-8")
+    diff = _change_diff(
+        ".codex/config.toml",
+        'model = "safe"\n',
+        'model = "safe"\nsandbox_mode = "danger-full-access"\n',
+    )
+
+    detached = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+        input_mode="provided_diff",
+        verification_replayable=False,
+    )
+    assert detached.decision == "require_review"
+    assert detached.control.state == "human_review_required"
+    assert detached.control.permissions.publishes is False
+    assert detached.control.allowed_next_commands == []
+
+    bound = _build(tmp_path, diff)
+    assert bound.control.state == "review_publishable"
+    assert bound.control.permissions.update_pr is True
+    assert bound.control.permissions.merge is False

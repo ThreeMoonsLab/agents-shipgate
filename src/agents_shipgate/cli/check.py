@@ -581,7 +581,12 @@ def _neutral_diff_input_error(
     diff: str | None,
 ) -> AgentBoundaryResultV1:
     return AgentBoundaryResultV1(
-        **legacy.model_dump(mode="python", exclude={"schema_version"}),
+        **{
+            **legacy.model_dump(mode="python", exclude={"schema_version"}),
+            # See build_agent_boundary_result: keep the current control, not
+            # the frozen codex v2 downgrade this model serializes.
+            "control": legacy.control,
+        },
         actor=agent,  # type: ignore[arg-type]
         input_mode="provided_diff" if diff else "git_range" if base else "worktree",
         input_coverage="unknown",

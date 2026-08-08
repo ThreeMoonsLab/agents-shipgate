@@ -10,7 +10,7 @@
   },
   "decision": "require_review",
   "risk_level": "high",
-  "audit_id": "agent_boundary_97fbe34832fca3c24349dfa8",
+  "audit_id": "agent_boundary_81171befe09a848fcb17dbb3",
   "policy_version": "1",
   "summary": "1 coding-agent boundary change(s) require human review.",
   "changed_files": [

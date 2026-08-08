@@ -52,10 +52,10 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
         "1f6ef3e51a09e824a98d6e5b33f2bf61282c62e2ae859e234da9f56161fa4a87"
     ),
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "9283c716f2aaa551ac2d3abeecd000c196c381bc8329493857988a7a6a92fc03"
+        "63dfb5f850c23009d5059a909bdd88bf35c57a77ab21a75aaa010f382945ef34"
     ),
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "acbbc068f270a901f364c8ae55a18ffe6b642b95a3dc0ac4d59f93e5630e42ae"
+        "310e254f2873129355eec23d954c802590115215195d1f3c00348bc10958cc97"
     ),
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
         "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"

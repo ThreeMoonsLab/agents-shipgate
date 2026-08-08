@@ -84,8 +84,12 @@ The stdout object has:
 - `control.next_action`
 - `control.allowed_next_commands`
 - `control.permissions` — the exact booleans `edit`, `commit`, `push`,
-  `update_pr`, `merge`, `report_complete`. Fixed by `control.state`; never an
-  independent switch. Updating a pull request is not merging it.
+  `update_pr`, `merge`, `report_complete`. Fixed by `control.state` and by the
+  route in `control.next_action`; never an independent switch. Updating a pull
+  request is not merging it. A `fetch_base` or `install` route authorizes none
+  of the six: nothing has been evaluated yet, so only `next_action` is
+  authorized. Absent on a pre-contract-20 artifact — reconstruct it from the
+  state and route, never assume publication.
 - `control.human_review`
 - `repair`
 - `policies[]`
@@ -99,8 +103,9 @@ consumers switch only on `control.state`; `decision` is diagnostic context.
 `control.must_stop` is true
 exactly for `human_review_required`. `control.permissions.merge` and
 `control.permissions.report_complete` always equal
-`control.completion_allowed`; `control.must_stop` is true exactly when no
-progress action is authorized. `risk_level` remains explanatory.
+`control.completion_allowed`, and `control.must_stop=true` authorizes nothing
+at all. The converse does not hold: `must_stop=false` is not a promise that
+publication is authorized — read `control.permissions`. `risk_level` remains explanatory.
 
 With `--format agent-boundary-json`, schema-valid results exit `0`; wrappers
 must switch on `control.state`, not `$?`. A missing ref may return an
@@ -123,9 +128,15 @@ object exists.
 `review_publishable` and `human_review_required` both require a person. They
 differ only in what stays authorized meanwhile, which `control.permissions`
 states exactly. `human_review_required` is reserved for results Shipgate cannot
-vouch for — a `block` decision, unreadable or unbindable diff input, an
-undeclared surface with no discovery route — where there is no trustworthy
-evidence to publish.
+vouch for, and publication requires *every* one of these to hold:
+
+- a subject `verify` can replay — a diff supplied through `--diff`, stdin, or
+  the MCP tool is detached from checkout bytes and never qualifies;
+- input the evaluator read in full — `BOUNDARY-INPUT-INCOMPLETE`, unresolved
+  parse failures, and experimental adapters all deny it;
+- a decision that is not `block`.
+
+Anything else keeps the total stop.
 
 `control.must_stop=true` is reserved for the stopping human route.
 Installation, repair, discovery, configuration, fetch-base, rerun, and graded
