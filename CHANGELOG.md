@@ -32,12 +32,17 @@
   is not generation consistency — every bound artifact still hashes correctly
   one unrelated commit later — the read also compares the pointer's
   `workspace_identity` against the live repository: repository, HEAD commit, and
-  HEAD tree. Uncommitted work is checked against what the decision actually
-  covered — a worktree decision must still hash to the overlay it committed to
-  *and* see no live change outside the set it recorded, while a committed-tree
-  decision, which stops at HEAD, has completion blocked by any uncommitted
-  change that appeared afterwards. Completion authority is never returned
-  without that comparison. Two invariants are structural rather than
+  HEAD tree, plus the base revision when the decision named one — advancing a
+  base until `base...HEAD` is empty changes the evidence completely while
+  leaving HEAD and the working tree untouched. Uncommitted work is checked
+  against what the decision actually covered: a worktree decision must still
+  hash to the overlay it committed to *and* see no live change outside the set
+  it recorded, while a committed-tree decision, whose evidence stops at HEAD, is
+  invalidated by any uncommitted change that appeared afterwards. Overlay rows
+  bind entry kind and the executable bit alongside content, so a `100755` →
+  `100644` flip or a regular-file-to-symlink swap with identical bytes cannot
+  pass as unchanged. Completion authority is never returned without that
+  comparison. Two invariants are structural rather than
   advisory: only an `operation: "verify"` pointer can carry
   `control.state: "complete"`, and only when it also binds a
   `verification_receipt` whose request and decision are the ones the pointer

@@ -92,6 +92,12 @@ class CurrentControlWorkspaceIdentity(BaseModel):
     head_ref: str | None = None
     head_commit_sha: str | None = Field(default=None, pattern=GIT_OBJECT_PATTERN)
     head_tree_sha: str | None = Field(default=None, pattern=GIT_OBJECT_PATTERN)
+    # The other end of the range. A decision about `base...HEAD` is only about
+    # that range: advancing the base until the range is empty changes the
+    # evidence completely while leaving HEAD and the working tree untouched.
+    base_ref: str | None = None
+    base_commit_sha: str | None = Field(default=None, pattern=GIT_OBJECT_PATTERN)
+    merge_base_sha: str | None = Field(default=None, pattern=GIT_OBJECT_PATTERN)
     worktree_overlay_sha256: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     policy_snapshot_sha256: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     snapshot_kind: Literal["committed_tree", "worktree_overlay"] | None = None

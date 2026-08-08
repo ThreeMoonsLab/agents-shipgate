@@ -10,6 +10,7 @@ from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.verify.git import (
     commit_sha,
     ensure_git_workspace,
+    merge_base_sha,
     repository_identity,
     tree_sha,
     working_tree_context,
@@ -208,8 +209,31 @@ def _live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
             head_commit_sha=commit_sha(root, "HEAD"),
             head_tree_sha=tree_sha(root, "HEAD"),
             changed_paths=changed_paths,
+            resolve_commit=lambda ref: _safe_commit_sha(root, ref),
+            resolve_merge_base=lambda base, head: _safe_merge_base(root, base, head),
         )
     except Exception:  # noqa: BLE001 - an unresolvable workspace is "unverified".
+        return None
+
+
+def _safe_commit_sha(root: Path, ref: str) -> str | None:
+    """Resolve a ref recorded in a pointer; ``None`` when it no longer exists.
+
+    A base ref that has been deleted is drift, not a crash — and it is drift the
+    caller must see, so a failure here resolves to ``None`` and compares unequal
+    rather than propagating.
+    """
+
+    try:
+        return commit_sha(root, ref)
+    except Exception:  # noqa: BLE001 - an unresolvable ref is drift.
+        return None
+
+
+def _safe_merge_base(root: Path, base: str, head: str) -> str | None:
+    try:
+        return merge_base_sha(root, base, head)
+    except Exception:  # noqa: BLE001 - an unresolvable range is drift.
         return None
 
 

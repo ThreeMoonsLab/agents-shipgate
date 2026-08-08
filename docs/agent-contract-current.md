@@ -132,6 +132,13 @@ repository, HEAD commit, and HEAD tree — and refuses on any drift. Completion
 authority is never returned without that comparison: a reader that cannot
 resolve the workspace reports it as unverified rather than passing.
 
+When the decision named a base, that base is compared too. A decision about
+`base...HEAD` is a decision about that range, and advancing the base — a merge,
+or a fetch moving `origin/main` — can empty the range without touching HEAD or
+the working tree, leaving every HEAD-based check satisfied while the evidence
+underneath has gone. The pointer therefore carries `base_ref`,
+`base_commit_sha`, and `merge_base_sha`, and the reader resolves the ref live.
+
 Uncommitted work is checked according to what the decision actually covered:
 
 - A **worktree** decision (`snapshot_kind: "worktree_overlay"`) is re-checked
@@ -143,10 +150,18 @@ Uncommitted work is checked according to what the decision actually covered:
   `base...HEAD` and the worktree, not the uncommitted set, so requiring equality
   would refuse a clean workspace the moment the run that produced it finished.
 - A **committed-tree** decision (`snapshot_kind: "committed_tree"`) stops at
-  HEAD. Uncommitted changes appearing afterwards therefore block *completion*
-  but do not make the pointer unreadable — re-running the same committed
-  verification would reproduce it, so refusing the read outright would leave the
-  caller with no route at all.
+  HEAD, so any uncommitted change appearing afterwards invalidates it — in both
+  directions. A stale `complete` must not authorize work the decision never
+  covered, and a stale `human_review_required` must not keep enforcing a
+  pre-change stop. Re-running the same archived `--head` verification cannot
+  clear that, so the refusal routes to a worktree verification instead.
+
+An overlay row carries content *and* the two metadata axes Git itself tracks:
+entry kind and the executable bit. Content alone is not the capability —
+flipping a tool script from `100755` to `100644` changes no bytes, and swapping
+a regular file for a symlink to an identical in-repo file changes no bytes
+either. Full mode is deliberately not recorded: it varies with umask and would
+make the identity depend on noise Git does not track.
 
 Given a current pointer, there are two correct "read first" paths; which one
 applies depends on who is reading. They are not two decisions — they are two

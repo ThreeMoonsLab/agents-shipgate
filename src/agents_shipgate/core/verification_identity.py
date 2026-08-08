@@ -980,11 +980,19 @@ def _existing_changed_blobs(paths: list[str], *, root: Path, source: str) -> lis
 
 
 def worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
-    """Return the normalized present/deleted+hash rows for ``paths`` under ``root``.
+    """Return the normalized rows a worktree decision commits to.
 
     The same function builds the overlay a plan commits to and the overlay a
     later reader recomputes, so worktree drift cannot hide behind two slightly
     different normalizations.
+
+    A row carries content *and* the two metadata axes Git itself tracks: entry
+    kind and the executable bit.  Content alone is not the capability: flipping
+    a tool script from ``100755`` to ``100644`` changes no bytes, and swapping a
+    regular file for a symlink pointing at an identical in-repo file changes no
+    bytes either.  Both are changes a decision must not survive.  Full mode is
+    deliberately not recorded — it varies with umask and would make the identity
+    depend on noise Git does not track.
     """
 
     return _worktree_overlay(root, paths)
@@ -993,23 +1001,52 @@ def worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
 def _worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     snapshot = active_static_input_snapshot()
+    root_resolved = root.resolve()
     for relative in sorted(set(paths)):
-        candidate = (root / relative).resolve()
-        if root.resolve() not in candidate.parents:
+        lexical = root / relative
+        candidate = lexical.resolve()
+        if root_resolved not in candidate.parents:
             raise ValueError(f"worktree path escapes repository: {relative}")
-        present = (
-            snapshot.has(candidate)
-            if snapshot is not None and snapshot.contains(candidate)
-            else candidate.is_file()
-        )
-        rows.append(
-            {
-                "path": relative,
-                "status": "present" if present else "deleted",
-                "sha256": sha256_file(candidate) if present else None,
-            }
-        )
+        rows.append({"path": relative, **_overlay_entry(lexical, candidate, snapshot)})
     return rows
+
+
+def _absent_overlay_entry() -> dict[str, Any]:
+    return {"status": "deleted", "kind": None, "executable": None, "sha256": None}
+
+
+def _overlay_entry(lexical: Path, candidate: Path, snapshot: Any) -> dict[str, Any]:
+    try:
+        info = os.lstat(lexical)
+    except OSError:
+        return _absent_overlay_entry()
+    if stat.S_ISLNK(info.st_mode):
+        # Hash the link target, never what it points at. Following it here is
+        # what let a regular file and a symlink to an identical file produce the
+        # same row.
+        try:
+            target = os.readlink(lexical)
+        except OSError:
+            return _absent_overlay_entry()
+        return {
+            "status": "present",
+            "kind": "symlink",
+            "executable": False,
+            "sha256": sha256_bytes(target.encode("utf-8")),
+        }
+    present = (
+        snapshot.has(candidate)
+        if snapshot is not None and snapshot.contains(candidate)
+        else candidate.is_file()
+    )
+    if not present:
+        return _absent_overlay_entry()
+    return {
+        "status": "present",
+        "kind": "file",
+        "executable": bool(info.st_mode & 0o111),
+        "sha256": sha256_file(candidate),
+    }
 
 
 def _media_type(path: Path) -> str:

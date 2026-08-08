@@ -128,6 +128,31 @@
       "additionalProperties": false,
       "description": "What the pointer was published against.\n\nEvery field is nullable because the pointer is published by commands that\nresolve different amounts of identity \u2014 an in-progress marker knows only\nthe repository, a preview outside Git knows nothing.  A consumer treats a\n``null`` as \"not bound\", never as \"unchanged\".",
       "properties": {
+        "base_commit_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Commit Sha"
+        },
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
         "head_commit_sha": {
           "anyOf": [
             {
@@ -165,6 +190,19 @@
           ],
           "default": null,
           "title": "Head Tree Sha"
+        },
+        "merge_base_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merge Base Sha"
         },
         "policy_snapshot_sha256": {
           "anyOf": [

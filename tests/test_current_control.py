@@ -26,6 +26,7 @@ from agents_shipgate.cli.verification import assemble, prepare, worker
 from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 from agents_shipgate.cli.verify.git import (
     commit_sha,
+    merge_base_sha,
     repository_identity,
     tree_sha,
     working_tree_context,
@@ -107,12 +108,27 @@ def _live(repo: Path) -> LiveWorkspace:
     """The live workspace, resolved the way `agents-shipgate agent control` does."""
 
     changed, _ = working_tree_context(repo, exclude=repo / "agents-shipgate-reports")
+
+    def resolve_commit(ref: str) -> str | None:
+        try:
+            return commit_sha(repo, ref)
+        except Exception:  # noqa: BLE001 - an unresolvable ref is drift.
+            return None
+
+    def resolve_merge_base(base: str, head: str) -> str | None:
+        try:
+            return merge_base_sha(repo, base, head)
+        except Exception:  # noqa: BLE001 - an unresolvable range is drift.
+            return None
+
     return LiveWorkspace(
         root=repo,
         repository=repository_identity(repo),
         head_commit_sha=commit_sha(repo, "HEAD"),
         head_tree_sha=tree_sha(repo, "HEAD"),
         changed_paths=tuple(changed),
+        resolve_commit=resolve_commit,
+        resolve_merge_base=resolve_merge_base,
     )
 
 
@@ -211,6 +227,98 @@ def test_cached_completion_cannot_survive_an_uncommitted_edit(repo: Path) -> Non
     with pytest.raises(CurrentControlUnavailable) as raised:
         read_current_control(reports, live=_live(repo))
     assert raised.value.reason == "workspace_changed"
+
+
+def test_a_committed_tree_stop_does_not_survive_a_worktree_edit(repo: Path) -> None:
+    """Stale denial: a pre-change stop must not be enforced after the change.
+
+    The archived run cannot clear itself -- re-running the same `--head`
+    verification reproduces the same decision -- so the refusal has to route the
+    caller to a worktree verification instead of leaving the old stop standing.
+    """
+
+    _git(repo, "checkout", "-b", "feature")
+    manifest = repo / "shipgate.yaml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "\n# reviewed\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "a trust-root edit a human must review")
+    stopped, _, _ = _verify(repo, base="main")
+    assert stopped.control.state == "human_review_required"
+    reports = repo / "agents-shipgate-reports"
+    pointer = read_current_control(reports, live=_live(repo)).pointer
+    assert pointer.workspace_identity.snapshot_kind == "committed_tree"
+    assert pointer.control.must_stop is True
+
+    (repo / "scratch.py").write_text("# a human edited the worktree\n", encoding="utf-8")
+
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=_live(repo))
+    assert raised.value.reason == "workspace_changed"
+    assert "omit --head" in str(raised.value)
+
+
+@pytest.mark.parametrize("mutation", ["chmod", "symlink"])
+def test_metadata_only_changes_invalidate_a_worktree_decision(
+    repo: Path, mutation: str
+) -> None:
+    """Content is not the whole capability.
+
+    Flipping a tool file's executable bit changes no bytes, and swapping it for
+    a symlink to an identical in-repo file changes no bytes either. Both are
+    changes the decision must not survive, and both leave HEAD, the tree, and a
+    content-only overlay row identical.
+    """
+
+    tools = repo / "tools.json"
+    tools.write_text(tools.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    _verify(repo, archive_head=False)
+    reports = repo / "agents-shipgate-reports"
+    plan = json.loads((reports / "verification-plan.json").read_text(encoding="utf-8"))
+    assert "tools.json" in plan["inputs"]["changed_paths"]
+    assert read_current_control(reports, live=_live(repo)).pointer.lifecycle_state == "terminal"
+
+    if mutation == "chmod":
+        tools.chmod(0o755)
+    else:
+        twin = repo / "twin.json"
+        twin.write_bytes(tools.read_bytes())
+        tools.unlink()
+        tools.symlink_to("twin.json")
+
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=_live(repo))
+    assert raised.value.reason == "workspace_changed"
+
+
+def test_advancing_the_base_invalidates_a_decision_about_the_range(repo: Path) -> None:
+    """A decision about `base...HEAD` is a decision about that range.
+
+    Advancing the base can empty the range without touching HEAD or the working
+    tree, which leaves every HEAD-based check satisfied while the evidence the
+    decision rested on is gone.
+    """
+
+    _git(repo, "checkout", "-b", "feature")
+    tools = repo / "tools.json"
+    tools.write_text(tools.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "feature work")
+
+    _verify(repo, base="main")
+    reports = repo / "agents-shipgate-reports"
+    pointer = read_current_control(reports, live=_live(repo)).pointer
+    assert pointer.workspace_identity.base_ref == "main"
+    assert pointer.workspace_identity.base_commit_sha
+    head_before = commit_sha(repo, "HEAD")
+
+    # Advance the base only. HEAD and the working tree are untouched.
+    _git(repo, "branch", "-f", "main", "HEAD")
+    assert commit_sha(repo, "HEAD") == head_before
+
+    with pytest.raises(CurrentControlUnavailable) as raised:
+        read_current_control(reports, live=_live(repo))
+    assert raised.value.reason == "workspace_changed"
+    assert "base this decision was made against moved" in str(raised.value)
 
 
 def test_completion_is_refused_when_the_workspace_cannot_be_checked(repo: Path) -> None:

@@ -388,6 +388,9 @@ def workspace_identity_from_plan(plan: VerificationPlan) -> CurrentControlWorksp
         head_ref=git.head_ref,
         head_commit_sha=git.head_commit_sha,
         head_tree_sha=git.head_tree_sha,
+        base_ref=git.base_ref,
+        base_commit_sha=git.base_commit_sha,
+        merge_base_sha=git.merge_base_sha,
         worktree_overlay_sha256=git.worktree_overlay_sha256,
         policy_snapshot_sha256=content_id(
             {
@@ -415,6 +418,10 @@ class LiveWorkspace:
     # The paths that differ from HEAD right now. ``None`` means the caller could
     # not determine them, which is treated as unverified rather than unchanged.
     changed_paths: tuple[str, ...] | None = None
+    # Ref resolvers, supplied by the CLI because the Git helpers live there. The
+    # pointer names its own base, so it cannot be resolved before the read.
+    resolve_commit: Callable[[str], str | None] | None = None
+    resolve_merge_base: Callable[[str, str], str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -590,10 +597,11 @@ def _validate_control_currency(
             ),
             path=out_dir,
         )
+    _validate_base_currency(out_dir, identity, live, required=grants_authority)
     if identity.snapshot_kind == "worktree_overlay":
         _validate_worktree_currency(out_dir, pointer, live, required=grants_authority)
-    elif grants_authority and identity.snapshot_kind == "committed_tree":
-        _require_clean_worktree(out_dir, live)
+    elif identity.snapshot_kind == "committed_tree":
+        _require_clean_worktree(out_dir, live, required=grants_authority)
 
 
 def _validate_worktree_currency(
@@ -682,37 +690,101 @@ def _validate_worktree_currency(
         )
 
 
-def _require_clean_worktree(out_dir: Path, live: LiveWorkspace) -> None:
+def _require_clean_worktree(out_dir: Path, live: LiveWorkspace, *, required: bool) -> None:
     """A committed-tree decision says nothing about uncommitted work.
 
     ``verify --head <ref>`` evaluates an archived commit, so its evidence stops
-    at HEAD.  Completion authority from such a run must not survive uncommitted
-    changes that appeared afterwards — a new tool file added next to a clean
-    ``complete`` is exactly the capability change the decision could not have
-    covered.  Only completion is gated: a non-authorizing committed-tree pointer
-    stays readable, because re-running the same committed verification would
-    reproduce it and refusing would leave the caller with no route at all.
+    at HEAD.  Uncommitted changes appearing afterwards invalidate the pointer in
+    *both* directions, so this is not scoped to completion: a stale
+    ``human_review_required`` kept enforcing a pre-change stop against a
+    workspace a human had since edited, and the archived run has no route that
+    can clear it — the clearing route is a local worktree verification, which is
+    what the refusal has to say.
+
+    ``required`` narrows only the *undeterminable* case: a change set we could
+    not read is unknown rather than known-drifted, so it blocks authority but
+    does not deny a caller its route.
     """
 
     if live.changed_paths is None:
-        raise CurrentControlUnavailable(
-            "workspace_unverifiable",
-            (
-                "This pointer authorizes completion of a committed-tree "
-                "verification, but the current set of uncommitted changes could "
-                "not be determined."
-            ),
-            path=out_dir,
-        )
+        if required:
+            raise CurrentControlUnavailable(
+                "workspace_unverifiable",
+                (
+                    "This pointer authorizes completion of a committed-tree "
+                    "verification, but the current set of uncommitted changes "
+                    "could not be determined."
+                ),
+                path=out_dir,
+            )
+        return
     if live.changed_paths:
         raise CurrentControlUnavailable(
             "workspace_changed",
             _unseen_change_detail(
                 sorted(live.changed_paths),
                 "this committed-tree decision could not have covered",
+            )
+            + " Re-run verification over the working tree (omit --head) to"
+            " decide on the workspace as it stands.",
+            path=out_dir,
+        )
+
+
+def _validate_base_currency(
+    out_dir: Path,
+    identity: CurrentControlWorkspaceIdentity,
+    live: LiveWorkspace,
+    *,
+    required: bool,
+) -> None:
+    """Confirm the other end of the range still resolves where it did.
+
+    A decision about ``base...HEAD`` is a decision about that range.  Advancing
+    the base — a merge, or a fetch moving ``origin/main`` — can empty the range
+    entirely without touching HEAD or the working tree, which leaves every
+    HEAD-based check satisfied while the evidence underneath has gone.
+    """
+
+    if identity.base_ref is None or identity.base_commit_sha is None:
+        return
+    if live.resolve_commit is None:
+        if required:
+            raise CurrentControlUnavailable(
+                "workspace_unverifiable",
+                (
+                    "This pointer authorizes completion of a verification "
+                    f"against {identity.base_ref!r}, but that ref could not be "
+                    "resolved to compare against."
+                ),
+                path=out_dir,
+            )
+        return
+    observed = live.resolve_commit(identity.base_ref)
+    if observed != identity.base_commit_sha:
+        raise CurrentControlUnavailable(
+            "workspace_changed",
+            (
+                f"The base this decision was made against moved: {identity.base_ref!r} "
+                f"is now {observed!r}, but the pointer was published against "
+                f"{identity.base_commit_sha!r}. Re-run verification."
             ),
             path=out_dir,
         )
+    if identity.merge_base_sha is not None and live.resolve_merge_base is not None:
+        observed_merge_base = live.resolve_merge_base(
+            identity.base_ref, identity.head_ref or "HEAD"
+        )
+        if observed_merge_base != identity.merge_base_sha:
+            raise CurrentControlUnavailable(
+                "workspace_changed",
+                (
+                    "The merge base this decision was made against moved: it is "
+                    f"now {observed_merge_base!r}, but the pointer was published "
+                    f"against {identity.merge_base_sha!r}. Re-run verification."
+                ),
+                path=out_dir,
+            )
 
 
 def _unseen_change_detail(paths: list[str], clause: str) -> str:
