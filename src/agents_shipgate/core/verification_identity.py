@@ -20,8 +20,12 @@ from packaging.requirements import Requirement
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import _plugins_enabled, check_catalog
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.protocol import REGISTRY
+from agents_shipgate.schemas.manifest.declared_paths import (
+    declared_manifest_input_paths,
+)
 from agents_shipgate.schemas.verification_identity import (
     VerificationArtifactManifest,
     VerificationArtifactRef,
@@ -235,33 +239,38 @@ def build_verification_plan(
         size_bytes=len(diff_bytes),
         source="generated",
     )
-    if captured_input_paths is None:
-        tool_sources = _manifest_tool_source_blobs(
-            config_path=config_path,
-            input_root=input_root,
-            source="git_blob" if archived_head else "worktree",
-        )
-    else:
-        excluded_paths = {
-            Path(os.path.abspath(os.path.normpath(os.fspath(path))))
-            for path in [
-                config_path,
-                *policy_pack_paths,
-                *([baseline_path] if baseline_path is not None else []),
-                *([diff_from_path] if diff_from_path is not None else []),
-                *(git_root / path for path in changed_files),
-            ]
-        }
-        tool_sources = _blobs(
-            [
-                path
-                for path in captured_input_paths
-                if Path(os.path.abspath(os.path.normpath(os.fspath(path))))
-                not in excluded_paths
-            ],
-            root=input_root,
-            source="worktree",
-        )
+    # Changed files are hashed under the root the scan actually read: the
+    # archived tree for a committed snapshot, the worktree otherwise.
+    changed_root = input_root if archived_head else git_root
+    excluded_paths = {
+        _lexical_path(path)
+        for path in [
+            config_path,
+            *policy_pack_paths,
+            *([baseline_path] if baseline_path is not None else []),
+            *([diff_from_path] if diff_from_path is not None else []),
+            *(changed_root / path for path in changed_files),
+        ]
+    }
+    # Prefer what the adapters actually read. Fall back to what the manifest
+    # declares they will read when no read boundary was observed — an unevaluated
+    # plan, or a committed-tree scan the worktree snapshot cannot see. Both
+    # branches must reach every adapter input: a path that lands in neither can
+    # change bytes while ``input_set_id`` stays byte-identical.
+    candidate_input_paths = (
+        _manifest_declared_input_paths(config_path=config_path, input_root=input_root)
+        if captured_input_paths is None
+        else list(captured_input_paths)
+    )
+    tool_sources = _blobs(
+        [
+            path
+            for path in candidate_input_paths
+            if _lexical_path(path) not in excluded_paths
+        ],
+        root=input_root,
+        source="git_blob" if archived_head else "worktree",
+    )
     bundle_root = external_input_root or input_root
     policy_blobs = _blobs(
         policy_pack_paths,
@@ -863,9 +872,15 @@ def validate_plan_inputs(
         raise ValueError("plan diff input size does not match")
 
 
-def _manifest_tool_source_blobs(
-    *, config_path: Path, input_root: Path, source: str
-) -> list[VerificationBlob]:
+def _manifest_declared_input_paths(*, config_path: Path, input_root: Path) -> list[Path]:
+    """Expand every adapter input path the manifest declares, under ``input_root``.
+
+    Covers the framework blocks as well as ``tool_sources`` — ``prompt_files``
+    and the rest of the declared artifact paths are adapter inputs exactly like
+    an MCP export is, and omitting them let a prompt edit leave ``input_set_id``
+    unchanged (issue #299).
+    """
+
     snapshot = active_static_input_snapshot()
     config_text = (
         snapshot.read_bytes(
@@ -875,15 +890,26 @@ def _manifest_tool_source_blobs(
         if snapshot is not None and snapshot.contains(config_path)
         else config_path.read_text(encoding="utf-8")
     )
-    raw = yaml.safe_load(config_text) or {}
-    rows = raw.get("tool_sources") if isinstance(raw, dict) else []
+    try:
+        raw = yaml.safe_load(config_text)
+    except yaml.YAMLError:
+        # An unparseable manifest cannot declare inputs. It fails visibly in
+        # the loader; identity construction must not raise a second, worse
+        # error over the same bytes, which are already hashed as the config blob.
+        return []
+    resolved_root = input_root.resolve()
     paths: list[Path] = []
-    for row in rows or []:
-        if not isinstance(row, dict) or not isinstance(row.get("path"), str):
-            continue
-        candidate = (config_path.parent / row["path"]).resolve()
-        if input_root.resolve() not in candidate.parents and candidate != input_root.resolve():
-            raise ValueError(f"tool source escapes verification input root: {row['path']}")
+    for declared in declared_manifest_input_paths(raw):
+        candidate = (config_path.parent / declared).resolve()
+        if candidate != resolved_root and resolved_root not in candidate.parents:
+            # Fail closed rather than drop it: an input outside the root cannot
+            # be hashed portably, and silently skipping it is the hole this
+            # enumeration exists to close. Routed as an input error because the
+            # manifest is what has to change — `resolve_input_path` rejects the
+            # same declaration the moment an adapter actually reads it.
+            raise InputParseError(
+                f"Declared input resolves outside the verification input root: {declared}"
+            )
         if snapshot is not None and snapshot.contains(candidate):
             if snapshot.has(candidate):
                 paths.append(candidate)
@@ -891,7 +917,11 @@ def _manifest_tool_source_blobs(
                 paths.extend(snapshot.paths_under(candidate))
         else:
             paths.extend(_expand_path(candidate))
-    return _blobs(paths, root=input_root, source=source)
+    return paths
+
+
+def _lexical_path(path: Path) -> Path:
+    return Path(os.path.abspath(os.path.normpath(os.fspath(path))))
 
 
 def _expand_path(path: Path) -> list[Path]:
@@ -907,9 +937,7 @@ def _blobs(paths: list[Path], *, root: Path, source: str) -> list[VerificationBl
     snapshot = active_static_input_snapshot()
     candidates: set[Path] = set()
     for candidate in paths:
-        lexical = Path(
-            os.path.abspath(os.path.normpath(os.fspath(candidate)))
-        )
+        lexical = _lexical_path(candidate)
         if snapshot is not None and snapshot.contains(lexical):
             if snapshot.has(lexical):
                 candidates.add(lexical)
