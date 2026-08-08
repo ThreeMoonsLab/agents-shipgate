@@ -11,7 +11,15 @@ from typing import Any
 
 import typer
 
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
+from agents_shipgate.cli._helpers import (
+    _diagnose_config_error,
+    _echo_next_action_hint,
+)
+from agents_shipgate.cli.agent_mode import (
+    emit_agent_mode_error,
+    emit_agent_mode_error_action,
+)
+from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.verify.git import (
     archive_tree,
     commit_date,
@@ -26,6 +34,7 @@ from agents_shipgate.cli.verify.git import (
     validate_source_head_identity,
     working_tree_context,
 )
+from agents_shipgate.config.loader import load_yaml_file
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.static_inputs import (
@@ -143,16 +152,25 @@ def prepare(
         raise typer.Exit(3) from exc
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        emit_agent_mode_error_action(
+        # Route through the shared diagnostic catalog rather than a local
+        # guess, so a missing manifest gets the setup route, an unparseable one
+        # gets the edit route, and an unresolved adapter gets its own — exactly
+        # as `scan` and `doctor` already answer.
+        actions = top_next_actions(
+            _diagnose_config_error(
+                config=str(config),
+                workspace=workspace,
+                exc=exc,
+                plugins_enabled=False if no_plugins else None,
+            )
+        )
+        _echo_next_action_hint(actions)
+        emit_agent_mode_error(
             "config_error",
-            message=exc,
+            message=str(exc),
             exit_code=2,
-            action=NextAction(
-                kind="edit",
-                path=str(config_relative),
-                why=f"Loader rejected {config_relative.as_posix()}: {exc}",
-                expects="agents-shipgate doctor -c <path> --json runs without raising ConfigError.",
-            ),
+            next_action=actions[0].to_legacy_string(),
+            next_actions=[action.model_dump(mode="json") for action in actions],
         )
         raise typer.Exit(2) from exc
     diff_path = out.with_name("verification-input.diff")
@@ -318,6 +336,14 @@ def _captured_inputs(
     from agents_shipgate.cli.scan.inputs import _load_inputs
     from agents_shipgate.cli.scan.prepare import _prepare_scan
 
+    if not config_path.exists():
+        # A manifest that is not there is a configuration problem with its own
+        # published route, not an input that moved mid-run. Resolve it before
+        # the capture below, which would otherwise recast the
+        # FileNotFoundError as "inputs changed while they were being read" and
+        # send an agent to the wrong recovery. Delegating to the loader keeps
+        # the message and its `init` hint in one place.
+        load_yaml_file(config_path)
     resolved_root = input_root.resolve()
     # A plan input outside the evaluated root — the comparison report on a
     # committed-tree preparation — has to be declared external or the snapshot

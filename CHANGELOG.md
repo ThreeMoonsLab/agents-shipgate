@@ -151,10 +151,14 @@
   Two behavior changes worth knowing. `verification prepare` reads inputs now,
   so it fails on a manifest whose inputs cannot be loaded; that is the same
   condition under which `verify` fails, and exactly when a prepared plan could
-  not honestly claim an input set. It also routes its errors (exit 2/3, with the
-  agent-mode `next_action`/`next_actions` envelope) instead of printing a
-  traceback. And the declared-path fallback rejects a path resolving outside the
-  verification input root, since it cannot be hashed portably.
+  not honestly claim an input set. It also routes its errors instead of printing
+  a traceback, through the shared diagnostic catalog rather than a local guess:
+  an absent manifest gets the setup route (`config_error`, exit 2, the same
+  answer `scan` gives), an unparseable one gets the edit route, and an input
+  that moved mid-run gets `input_parse_error`, exit 3 — the distinction matters
+  because agents branch on it. And the declared-path fallback rejects a path
+  resolving outside the verification input root, since it cannot be hashed
+  portably.
   No schema changes: `plan.inputs.tool_sources` gains entries, not fields.
   Existing `input_set_id` and `request_id` values do move — which is the point,
   and means a receipt minted before this change cannot be compared by ID against

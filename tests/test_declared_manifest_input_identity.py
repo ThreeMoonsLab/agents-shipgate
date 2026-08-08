@@ -637,6 +637,87 @@ def test_the_scan_and_the_plan_agree_on_one_manifest(
     assert "agent-two.py" not in bound
 
 
+def test_prepare_keeps_the_missing_manifest_setup_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A manifest that is absent is a setup problem, not an input that moved.
+
+    Reading the manifest through the snapshot puts its ``FileNotFoundError``
+    inside the capture block, where a broad ``except (OSError, ValueError)``
+    recast it as ``input_parse_error``/exit 3 with generic review advice —
+    stranding an agent that branches on the published contract. The absent case
+    is resolved before capture, and the route comes from the shared diagnostic
+    catalog so it matches what ``scan`` answers.
+    """
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "tests@example.com")
+    _git(repo, "config", "user.name", "Shipgate Tests")
+    (repo / "a.txt").write_text("hi\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "no manifest here")
+
+    result = runner.invoke(
+        app,
+        [
+            "verification",
+            "prepare",
+            "--workspace",
+            str(repo),
+            "--out",
+            str(tmp_path / "out" / "verification-plan.json"),
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(
+        [line for line in result.output.splitlines() if line.startswith("{")][-1]
+    )
+    assert payload["error"] == "config_error"
+    assert payload["exit_code"] == 2
+    assert "Run `agents-shipgate init" in payload["message"]
+    first = payload["next_actions"][0]
+    assert first["kind"] == "command"
+    assert "--preview" in first["command"]
+
+
+def test_prepare_routes_an_unparseable_manifest_to_the_edit_action(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared catalog still separates 'absent' from 'present but rejected'."""
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo = _sample_repo(tmp_path, "google_adk_agent")
+    (repo / "shipgate.yaml").write_text('version: "0.1"\nproject: [oops\n', encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "break the manifest")
+
+    result = runner.invoke(
+        app,
+        [
+            "verification",
+            "prepare",
+            "--workspace",
+            str(repo),
+            "--out",
+            str(tmp_path / "out" / "verification-plan.json"),
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(
+        [line for line in result.output.splitlines() if line.startswith("{")][-1]
+    )
+    assert payload["error"] == "config_error"
+    assert payload["next_actions"][0]["kind"] == "edit"
+    assert payload["next_actions"][0]["path"].endswith("shipgate.yaml")
+
+
 def test_prepare_input_error_carries_the_agent_mode_envelope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
