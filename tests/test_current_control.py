@@ -71,7 +71,7 @@ def repo(tmp_path: Path) -> Path:
     # inputs, which is a separate pre-existing hazard this fixture should not
     # simulate.
     (workspace / ".gitignore").write_text("agents-shipgate-reports/\n", encoding="utf-8")
-    _git(workspace, "init")
+    _git(workspace, "init", "-q", "-b", "main")
     _git(workspace, "config", "user.email", "test@example.test")
     _git(workspace, "config", "user.name", "Test User")
     _git(workspace, "add", ".")
@@ -243,9 +243,11 @@ def test_a_local_run_with_a_base_stays_current_on_a_clean_tree(repo: Path) -> No
     _verify(repo, base="main", archive_head=False)
     reports = repo / "agents-shipgate-reports"
     plan = json.loads((reports / "verification-plan.json").read_text(encoding="utf-8"))
-    # The committed change is in the plan's set; the working tree is clean.
+    # The committed change is in the plan's set; the working tree is clean. A
+    # base that did not resolve would leave changed_paths empty and quietly stop
+    # this test exercising the union set it exists to cover.
     assert plan["subject"]["git"]["snapshot_kind"] == "worktree_overlay"
-    assert plan["inputs"]["changed_paths"]
+    assert plan["inputs"]["changed_paths"] == ["tools.json"]
     live = _live(repo)
     assert live.changed_paths == ()
 
@@ -833,7 +835,7 @@ def test_agent_control_ignores_its_own_output_directory(tmp_path: Path) -> None:
     workspace.mkdir()
     for name in ("shipgate.yaml", "tools.json"):
         shutil.copy(SAMPLE / name, workspace / name)
-    _git(workspace, "init")
+    _git(workspace, "init", "-q", "-b", "main")
     _git(workspace, "config", "user.email", "test@example.test")
     _git(workspace, "config", "user.name", "Test User")
     _git(workspace, "add", ".")
