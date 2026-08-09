@@ -99,7 +99,7 @@ dev = [
   "pytest>=9.1.1,<10",
   "pytest-cov>=7.1.0,<8",
   "pytest-xdist>=3.8,<4",
-  "ruff>=0.15.22,<1",
+  "ruff>=0.16.1,<1",
   "sigstore>=4.5.0,<5",
   "twine>=7.0.0,<8",
 ]
