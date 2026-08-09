@@ -43,6 +43,11 @@ from pydantic import (
     model_validator,
 )
 
+from agents_shipgate.schemas.agent_control import (
+    FullAgentPermissions,
+    NoAgentPermissions,
+    PublishOnlyPermissions,
+)
 from agents_shipgate.schemas.verification_identity import (
     CONTENT_ID_PATTERN,
     GIT_OBJECT_PATTERN,
@@ -108,13 +113,14 @@ class UnavailableCurrentControl(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"required": ["state", "reason", "completion_allowed", "must_stop"]},
+        json_schema_extra={"required": ["state", "reason", "completion_allowed", "must_stop", "permissions"]},
     )
 
     state: Literal["unavailable"]
     reason: NonEmptyText
     completion_allowed: Literal[False] = False
     must_stop: Literal[True] = True
+    permissions: NoAgentPermissions = Field(default_factory=NoAgentPermissions)
 
 
 class CompleteCurrentControl(BaseModel):
@@ -122,13 +128,14 @@ class CompleteCurrentControl(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"required": ["state", "reason", "completion_allowed", "must_stop"]},
+        json_schema_extra={"required": ["state", "reason", "completion_allowed", "must_stop", "permissions"]},
     )
 
     state: Literal["complete"]
     reason: NonEmptyText
     completion_allowed: Literal[True] = True
     must_stop: Literal[False] = False
+    permissions: FullAgentPermissions = Field(default_factory=FullAgentPermissions)
 
 
 class AgentActionRequiredCurrentControl(BaseModel):
@@ -136,13 +143,40 @@ class AgentActionRequiredCurrentControl(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"required": ["state", "reason", "completion_allowed", "must_stop"]},
+        json_schema_extra={"required": ["state", "reason", "completion_allowed", "must_stop", "permissions"]},
     )
 
     state: Literal["agent_action_required"]
     reason: NonEmptyText
     completion_allowed: Literal[False] = False
     must_stop: Literal[False] = False
+    permissions: PublishOnlyPermissions | NoAgentPermissions = Field(
+        default_factory=NoAgentPermissions
+    )
+
+
+class ReviewPublishableCurrentControl(BaseModel):
+    """A human gates the merge; the agent may still publish for that review.
+
+    The pointer carries ``permissions`` because this is the one read a consumer
+    is obliged to make before acting, and ``must_stop`` alone cannot answer the
+    question it is asked here: `false` distinguishes this state from a total
+    stop but says nothing about which actions the run authorized. Every variant
+    carries the vector so that answer never depends on the state tag.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "required": ["state", "reason", "completion_allowed", "must_stop", "permissions"]
+        },
+    )
+
+    state: Literal["review_publishable"]
+    reason: NonEmptyText
+    completion_allowed: Literal[False] = False
+    must_stop: Literal[False] = False
+    permissions: PublishOnlyPermissions
 
 
 class HumanReviewRequiredCurrentControl(BaseModel):
@@ -150,19 +184,21 @@ class HumanReviewRequiredCurrentControl(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"required": ["state", "reason", "completion_allowed", "must_stop"]},
+        json_schema_extra={"required": ["state", "reason", "completion_allowed", "must_stop", "permissions"]},
     )
 
     state: Literal["human_review_required"]
     reason: NonEmptyText
     completion_allowed: Literal[False] = False
     must_stop: Literal[True] = True
+    permissions: NoAgentPermissions = Field(default_factory=NoAgentPermissions)
 
 
 type CurrentControlProjection = Annotated[
     UnavailableCurrentControl
     | CompleteCurrentControl
     | AgentActionRequiredCurrentControl
+    | ReviewPublishableCurrentControl
     | HumanReviewRequiredCurrentControl,
     Field(discriminator="state"),
 ]

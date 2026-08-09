@@ -18,7 +18,7 @@ report = json.loads(open("agents-shipgate-reports/report.json").read())
 gate = report["release_decision"]["decision"]   # blocked | review_required | insufficient_evidence | passed
 ```
 
-The CLI's stable contract names this signal explicitly: run `agents-shipgate contract --json` and inspect `gating_signal` — it is always `release_decision.decision` in runtime contract v19 (see [`STABILITY.md`](../STABILITY.md) §"Runtime contract JSON").
+The CLI's stable contract names this signal explicitly: run `agents-shipgate contract --json` and inspect `gating_signal` — it is always `release_decision.decision` in runtime contract v20 (see [`STABILITY.md`](../STABILITY.md) §"Runtime contract JSON").
 
 ---
 
@@ -39,7 +39,7 @@ Precedence (highest first): `blocked` → `review_required` (active high/critica
 
 The decision is **baseline-aware**: a baseline-matched critical surfaces in `release_decision.review_items` (accepted debt), not in `release_decision.blockers`. Compare with the legacy `summary.status` field, which is *baseline-blind* — see Anti-patterns below.
 
-Runtime contract v19 can attach an externally signed authorization to a new
+Runtime contract v20 can attach an externally signed authorization to a new
 verifier artifact and route one exact guarded operation, but it never rewrites
 this report verdict. The report remains `review_required`; autonomous agents
 must read `agent-handoff.json.control.state` to distinguish a human stop from

@@ -13,12 +13,122 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-publish-vs-merge"></a>
+
+## Migration Note: unreleased — publish authority is not merge authority
+
+Runtime contract `20 → 21`, and `minimum_control_contract_version` moves
+`14 → 21` because the discriminated `AgentControl` union itself changes. No CLI
+surface changed. Contract v20 published the current-control pointer and the
+refresh protocol; this note is v21, and the two are independent — a consumer
+reading `current-control.json` gets the same `permissions` vector described
+here, on every state, so the one atomic read answers "what may I do now?"
+rather than only "which run is current?".
+
+Under contract v14–v19 a human route was one universal stop:
+`control.state: "human_review_required"` with `must_stop: true` and
+`allowed_next_commands: []`. For an agent working on a pull request that
+denied commit, push, and PR updates — the very actions needed to produce the
+evidence a human was being asked to review. The gate was correct and the
+workflow was circular.
+
+**Human review now gates merge and completion, not publication of review
+evidence.** Two additive changes carry that:
+
+- `control.permissions` — an object with the exact booleans `edit`,
+  `commit`, `push`, `update_pr`, `merge`, `report_complete`. It is fixed by the
+  state *and the route*, never set independently. `merge` and
+  `report_complete` always equal `completion_allowed`, and `must_stop=true`
+  authorizes nothing at all. The converse does not hold: an
+  `agent_action_required` route that runs *before* any diff was read
+  (`fetch_base`, `install`) authorizes only its own `next_action`, because
+  Shipgate has no assessment to stand behind yet.
+
+  It is required only on `review_publishable`, so a pre-contract-20 payload
+  still parses; readers reconstruct an absent vector as *nothing authorized*
+  rather than defaulting it to "publication allowed".
+- `control.state: "review_publishable"` — a fourth state meaning "a human must
+  approve the merge, and the agent may still publish the change for that
+  review". `completion_allowed: false`, `must_stop: false`,
+  `stop_reason: null`, a human `next_action` pinned to `kind: "review"`, and
+  `allowed_next_commands` carrying **at most one** command: the exact rerun
+  that regenerates the same evidence against the committed refs. Both
+  constraints hold in generated JSON Schema, not only in Pydantic.
+
+  Publication is a claim about an evaluated, bound change, so it additionally
+  requires all of: a subject `verify` can replay (a caller-supplied diff never
+  qualifies), input the evaluator actually read in full, and — on verifier,
+  handoff, and verify-run — a succeeded run carrying a non-blocked release
+  decision. Those are container-level invariants, enforced in both Pydantic and
+  JSON Schema, because the control variant alone cannot see the substrate.
+
+`human_review_required` keeps its exact old meaning and is now reserved for
+results Shipgate cannot vouch for: a `blocked` release decision, a `block`
+boundary decision, a run whose execution failed, unreadable or unbindable diff
+input, an undeclared capability surface with no discovery route, preflight
+protected-surface touches, and MCP audit blocks. Those still authorize nothing.
+
+Migration:
+
+- Consumers that switch on `control.state` **must** add a `review_publishable`
+  branch. Unrecognized states must continue to fail closed — treat them as
+  requiring human review. The installed Claude Code Stop hook does this: it
+  ends the turn on `review_publishable`, states that commit/push/PR-update
+  remain authorized, and names the rerun command.
+- Consumers that read only `must_stop` and `completion_allowed` need no change
+  and lose no safety. `completion_allowed` is still false, so "may I report
+  this done?" is unchanged; `must_stop: false` now means what it always said —
+  some agent action is authorized.
+- Legacy artifacts are unaffected. A payload without `control`, or a
+  pre-v20 payload, normalizes to `human_review_required`. `review_publishable`
+  is only ever produced by an emitter that asserted the publication fact.
+- The deprecated `shipgate.codex_boundary_result/v2` projection stays byte-
+  frozen: it omits `control.permissions` and renders `review_publishable` as
+  `human_review_required` with `must_stop: true`, exactly as `pending_review[]`
+  stays off that format. Use `--format agent-boundary-json` for the current
+  contract.
+- `agents-shipgate contract --json` gains `agent_control_permissions[]`.
+
+**Every schema that carries a control advances, and the prior file is frozen.**
+`control.permissions` is a new property and the published variants are
+`additionalProperties: false`, so a payload emitted by this release does not
+validate against the schema published under the previous identifier. Adding the
+field without moving the identifier would have made one version name mean two
+incompatible shapes, so:
+
+| Schema | Was | Now |
+|---|---|---|
+| verifier | `0.7` | `0.8` |
+| agent handoff | `shipgate.agent_handoff/v6` | `shipgate.agent_handoff/v7` |
+| verify-run | `shipgate.verify_run/v3` | `shipgate.verify_run/v4` |
+| shared agent result | `agent_result_v2` | `agent_result_v3` |
+| agent boundary result | `shipgate.agent_boundary_result/v1` | `shipgate.agent_boundary_result/v2` |
+| preflight | `0.3` | `0.4` |
+| downstream local contract | `7` | `8` |
+
+Each previous `docs/*-schema.*.json` is unchanged and remains a frozen
+reference; artifacts emitted under those identifiers still parse. `verify --format
+agent-boundary-json` and `shipgate check` keep their flag spellings — only the
+`schema_version` string moved.
+
+`shipgate.codex_boundary_result/v2` is deliberately **not** in that table. It is
+a frozen deprecated contract and now has its own snapshotted control union
+rather than inheriting the live one, so it publishes exactly what it always did.
+
+Audit ids do not rotate. `audit_id` identifies the assessment, so the schema
+token it hashes is pinned to the value established ids were issued under
+instead of tracking the live wire version — a stored id survives an additive
+schema bump.
+
+---
+
 <a id="migration-note-unreleased-diff-status"></a>
 
 ## Migration Note: unreleased — diff input health
 
-Verifier schema `0.6 → 0.7` and trigger catalog `0.2 → 0.3`. `contract_version`
-stays at `19`; no CLI surface changed.
+Verifier schema `0.6 → 0.7` and trigger catalog `0.2 → 0.3`. That change did
+not move `contract_version` (see the note above, which does); no CLI surface
+changed.
 
 `verifier.json` gains a top-level `diff_status` block that reports whether the
 compared change set was actually read: `completeness` (`complete` / `partial` /
@@ -274,7 +384,9 @@ verification, and human-review booleans with one discriminated `AgentControl`
 state shared by check, preflight, verify, handoff, MCP, verify-run, and GitHub
 Action projections. Current consumers require
 `minimum_control_contract_version: "14"` and switch on `control.state`:
-`complete`, `agent_action_required`, or `human_review_required`.
+`complete`, `agent_action_required`, or `human_review_required`. (Contract v20
+adds `review_publishable` and raises that floor — see the migration note at the
+top of this file.)
 
 Boundary result advances to `shipgate.codex_boundary_result/v2`, verifier to
 `0.3`, agent handoff to `shipgate.agent_handoff/v3`, preflight to `0.3`,
@@ -601,7 +713,7 @@ Stable JSON fields:
 
 - `contract_version` — version of the contract-command payload shape.
 - `minimum_control_contract_version` — minimum contract version whose
-  `AgentControl` state is authoritative; currently `"14"`.
+  `AgentControl` state is authoritative; currently `"20"`.
 - `cli_version` — installed Agents Shipgate version.
 - `report_schema_version` — current report schema version from
   `ReadinessReport`.
@@ -627,7 +739,8 @@ Stable JSON fields:
   legacy control object.
 - `agent_result_control_fields[]` — ordered fields coding agents must switch on
   when reading the frozen legacy local-agent protocol.
-- `agent_control_fields[]` and `agent_control_states[]` — current discriminated
+- `agent_control_fields[]`, `agent_control_permissions[]`, and
+  `agent_control_states[]` — current discriminated
   control contract vocabulary.
 - `verifier_schema_version` — schema version for
   `agents-shipgate-reports/verifier.json`.
@@ -1360,6 +1473,7 @@ cannot change them. Stable additive
 fields a consumer may read:
 
 - `control` — the schema-enforced `complete | agent_action_required |
+  review_publishable |
   human_review_required` operational projection. The same serialized object is
   emitted by verifier, handoff, and verify-run.
 - `execution` — `"not_run" | "succeeded" | "skipped" | "failed"`.

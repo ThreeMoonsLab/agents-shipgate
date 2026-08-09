@@ -1895,11 +1895,23 @@ def _derive_verifier_control(
     first_next_action_override: AgentControlAction | None,
     base_status: str,
     base_ref: str | None,
+    diff_status: VerifierDiffStatus,
     manifest_introduced: bool = False,
     pure_adoption_review: bool = False,
     configured_manifest: str | None = None,
 ) -> AgentControl:
     """Project verifier facts through the shared operational control engine."""
+
+    # One fact, computed once, for every route below: did this run actually
+    # read the change and reach a determination it can stand behind? Publishing
+    # asserts something about an evaluated change, so no route may claim it
+    # without all four parts — not the repair route, and not the human one.
+    subject_evaluated = bool(
+        execution == "succeeded"
+        and release_decision is not None
+        and release_decision.decision != "blocked"
+        and diff_status.completeness == "complete"
+    )
 
     reason = (
         headline
@@ -1925,6 +1937,7 @@ def _derive_verifier_control(
             reason=reason,
             next_action=first_next_action_override,
             verify_required=True,
+            publication_allowed=subject_evaluated,
             allowed_next_commands=[command] if command else [],
         )
 
@@ -1951,6 +1964,7 @@ def _derive_verifier_control(
                 why=fix_task.instructions[0] if fix_task.instructions else reason,
             ),
             verify_required=True,
+            publication_allowed=subject_evaluated,
             allowed_next_commands=commands,
         )
 
@@ -1981,6 +1995,21 @@ def _derive_verifier_control(
             or reason
         )
     unsafe_block = bool(release_decision is not None and release_decision.decision == "blocked")
+    if subject_evaluated:
+        # The exact command that regenerates this evidence against the
+        # committed refs, so the agent can commit, push, and republish without
+        # inventing a rerun. ``fix_task`` is present on every non-mergeable
+        # verdict; an absent one simply offers no command.
+        rerun = fix_task.verification_command if fix_task is not None else None
+        return derive_agent_control(
+            reason=reason,
+            next_action=HumanControlAction(kind="review", why=review_reason),
+            verify_required=True,
+            human_review_required=True,
+            publication_allowed=True,
+            allowed_next_commands=[rerun] if rerun else [],
+            human_review_why=review_reason,
+        )
     return derive_agent_control(
         reason=reason,
         next_action=HumanControlAction(
@@ -2210,6 +2239,7 @@ def _build_verifier(
         release_decision=release_decision_model,
         capability_review=capability_review,
     )
+    resolved_diff_status = diff_status or VerifierDiffStatus()
     headline = headline_override or _verifier_headline(
         report=report,
         merge_verdict=merge_verdict,
@@ -2233,6 +2263,7 @@ def _build_verifier(
         first_next_action_override=first_next_action_override,
         base_status=base_status,
         base_ref=base,
+        diff_status=resolved_diff_status,
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
         configured_manifest=_display_path(config_path, git_root),
@@ -2244,7 +2275,7 @@ def _build_verifier(
         head_ref=head,
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
-        diff_status=diff_status or VerifierDiffStatus(),
+        diff_status=resolved_diff_status,
         trigger=trigger,
         base_status=base_status,
         base_tree_sha=base_tree,
@@ -2404,6 +2435,9 @@ def _apply_authorization_overlay(
                         why=reason,
                     ),
                     verify_required=True,
+                    # Guarded above: this overlay only ever applies to a
+                    # succeeded review_required result, so the subject was read.
+                    publication_allowed=True,
                     allowed_next_commands=[command],
                 ).model_dump(mode="json"),
                 "fix_task": None,

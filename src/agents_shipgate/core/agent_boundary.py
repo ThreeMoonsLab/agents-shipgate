@@ -73,16 +73,19 @@ from agents_shipgate.schemas.agent_boundary import (
     AgentBoundaryResultV1,
     BoundaryHostCoverage,
 )
+from agents_shipgate.schemas.agent_result import AgentResultV2
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
     AgentResultPolicy,
     AgentResultTraceEvent,
     AgentResultViolatedRule,
 )
-from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
 
 # The actor every pre-detection audit id implicitly described.
 _LEGACY_AUDIT_ACTOR = "codex"
+# The schema token every established audit id was issued under. Frozen so the
+# identity contract is versioned independently of the wire schema.
+_AUDIT_IDENTITY_SCHEMA_TOKEN = "shipgate.agent_boundary_result/v1"
 
 UNIFIED_POLICY_PATH = Path("policies/agent-boundary.shipgate.yaml")
 LEGACY_CODEX_POLICY_PATH = Path("policies/codex-boundary.shipgate.yaml")
@@ -104,7 +107,7 @@ class AgentBoundaryAssessment:
     issues: tuple[str, ...]
     completion_eligible: bool
     host_snapshot: HostBoundarySnapshot
-    legacy_result: CodexBoundaryResultV2
+    legacy_result: AgentResultV2
 
 
 @dataclass(frozen=True)
@@ -500,7 +503,13 @@ def build_agent_boundary_result(assessment: AgentBoundaryAssessment) -> AgentBou
         else []
     )
     return AgentBoundaryResultV1(
-        **legacy.model_dump(mode="python", exclude={"schema_version", "policy"}),
+        **{
+            **legacy.model_dump(mode="python", exclude={"schema_version", "policy"}),
+            # The codex v2 model serializes its control in the frozen
+            # pre-v20 shape. This result is the CURRENT contract, so take the
+            # real control object rather than that downgrade.
+            "control": legacy.control,
+        },
         pending_review=pending_review,
         actor=assessment.actor,  # type: ignore[arg-type]
         input_mode=assessment.input_mode,
@@ -599,7 +608,7 @@ def _scan_workspace(*, config_path: Path, configured_manifest: Path) -> Path:
 
 def _project_legacy(
     *,
-    legacy: CodexBoundaryResultV2,
+    legacy: AgentResultV2,
     violations: list[AgentResultViolatedRule],
     diagnostics: list[AgentResultDiagnostic],
     policy_set: _PolicySet,
@@ -610,7 +619,7 @@ def _project_legacy(
     verification_replayable: bool = True,
     discovery_replayable: bool = True,
     diff_text: str = "",
-) -> CodexBoundaryResultV2:
+) -> AgentResultV2:
     needs_reprojection = violations != legacy.violated_rules or bool(policy_set.issues)
     if needs_reprojection:
         decision = _decision_for(violations, release_decision=release_decision)
@@ -692,7 +701,11 @@ def _project_legacy(
         input_mode=input_mode,
         verification_replayable=verification_replayable,
         trigger=legacy.trigger,
-        control=control.model_dump(mode="json", exclude_none=True),
+        # ``permissions`` is excluded on purpose: it is a pure projection of
+        # ``state`` and ``next_action.kind``, both already hashed here, so
+        # including it adds no distinguishing information and would rotate the
+        # identity of payloads whose every emitted byte is unchanged.
+        control=control.model_dump(mode="json", exclude_none=True, exclude={"permissions"}),
         diff_text=diff_text,
         legacy_audit_id=legacy.audit_id,
     )
@@ -762,7 +775,13 @@ def _agent_boundary_audit_id(
 
     legacy_subject = input_mode == "provided_diff" and verification_replayable
     payload = {
-        "schema": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        # Pinned, not the live constant. This id identifies the *assessment*,
+        # and the comment below is the contract: rotating an established id
+        # breaks anyone who stored one. Hashing the live schema version rotated
+        # every id on every additive schema bump — including the ids of the
+        # frozen codex projection, whose own contract had not changed at all.
+        # The wire version travels in the payload's own ``schema_version``.
+        "schema": _AUDIT_IDENTITY_SCHEMA_TOKEN,
         # Added only for a non-default actor, so every id issued before actor
         # detection existed keeps its value. Rotating established codex ids
         # would break anyone who stored one, and the identity contract is not

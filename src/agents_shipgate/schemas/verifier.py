@@ -501,6 +501,7 @@ class VerifierArtifact(BaseModel):
                                     "state": {
                                         "enum": [
                                             "agent_action_required",
+                                            "review_publishable",
                                             "human_review_required",
                                         ]
                                     }
@@ -508,6 +509,45 @@ class VerifierArtifact(BaseModel):
                                 "required": ["state"],
                             }
                         }
+                    },
+                },
+                {
+                    # Keyed on the permission vector, not on the state: an
+                    # agent repair route asserts exactly the same thing about
+                    # the change as a publishable review does. The four
+                    # progress booleans are Literal-pinned to move together, so
+                    # testing one is testing all four.
+                    "if": {
+                        "properties": {
+                            "control": {
+                                "properties": {
+                                    "completion_allowed": {"const": False},
+                                    "permissions": {
+                                        "properties": {"update_pr": {"const": True}},
+                                        "required": ["update_pr"],
+                                    },
+                                },
+                                "required": ["completion_allowed", "permissions"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "required": ["execution", "diff_status", "release_decision"],
+                        "properties": {
+                            "execution": {"const": "succeeded"},
+                            "diff_status": {
+                                "properties": {"completeness": {"const": "complete"}},
+                                "required": ["completeness"],
+                            },
+                            "release_decision": {
+                                "type": "object",
+                                "properties": {
+                                    "decision": {"type": "string", "not": {"const": "blocked"}}
+                                },
+                                "required": ["decision"],
+                            },
+                        },
                     },
                 },
                 {
@@ -574,7 +614,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.7"] = "0.7"
+    verifier_schema_version: Literal["0.8"] = "0.8"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -633,14 +673,14 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
-        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6"}
+        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"}
         if not legacy:
-            # Current v0.7 artifacts must already carry the authoritative
-            # control union.  Silently synthesizing a missing or malformed
-            # current control would turn an internal consistency failure into
-            # a trusted handoff.  Only frozen prior readers are normalized.
+            # Current artifacts must already carry the authoritative control
+            # union.  Silently synthesizing a missing or malformed current
+            # control would turn an internal consistency failure into a trusted
+            # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.7"
+        normalized["verifier_schema_version"] = "0.8"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.
@@ -888,11 +928,54 @@ class VerifierArtifact(BaseModel):
                     "a non-passing release decision can route to an agent only through "
                     "an evidence-backed repair task"
                 )
-        elif self.control.state == "human_review_required" and self.fix_task is not None:
-            if self.fix_task.actor != "human" or self.fix_task.safe_to_attempt:
+        elif self.control.state in {"human_review_required", "review_publishable"}:
+            if self.fix_task is not None and (
+                self.fix_task.actor != "human" or self.fix_task.safe_to_attempt
+            ):
                 raise ValueError("human control requires a human-owned, non-safe fix task")
+            if self.control.state == "review_publishable":
+                # Publishing evidence is authority over the pull request, not
+                # over Shipgate: the only command a review route may authorize
+                # is the exact rerun that regenerates this same evidence.
+                rerun = self.fix_task.verification_command if self.fix_task is not None else None
+                permitted = {rerun} if rerun else set()
+                if not set(self.control.allowed_next_commands) <= permitted:
+                    raise ValueError(
+                        "a publishable review may authorize only the exact fix-task "
+                        "rerun command"
+                    )
+        self._assert_publication_rests_on_an_evaluated_change()
         self._assert_passed_substrate_is_consistent()
         return self
+
+    def _assert_publication_rests_on_an_evaluated_change(self) -> None:
+        """Bind progress authority to the substrate, on every state.
+
+        The control variant cannot see ``execution``, ``diff_status``, or the
+        release decision, so this is the only layer that can tell whether the
+        change being published was read at all. Keyed on ``permissions``, not
+        on ``state``: an ``agent_action_required`` repair route asserts exactly
+        the same thing about the change as a publishable review does.
+
+        ``complete`` is excluded because it is governed by the stricter
+        ``can_merge_without_human`` projection above — that is the one state
+        where a deterministic *not-applicable* skip legitimately authorizes
+        everything without a release decision.
+        """
+
+        if self.control.completion_allowed or not self.control.permissions.publishes:
+            return
+        if self.execution != "succeeded":
+            raise ValueError("publication authority requires execution='succeeded'")
+        if self.diff_status.completeness != "complete":
+            raise ValueError(
+                "publication authority requires a completely read diff "
+                f"(diff_status.completeness={self.diff_status.completeness!r})"
+            )
+        if self.release_decision is None:
+            raise ValueError("publication authority requires a release decision substrate")
+        if self.release_decision.decision == "blocked":
+            raise ValueError("a blocked release decision cannot authorize publication")
 
     def _assert_passed_substrate_is_consistent(self) -> None:
         if self.decision != "passed" or self.release_decision is None:

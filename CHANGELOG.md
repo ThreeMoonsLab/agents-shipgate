@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+- **Human review now blocks merge and completion, not publication of the
+  evidence a human needs in order to review.** A human route was one universal
+  stop: `control.state: "human_review_required"` with `must_stop: true` and
+  `allowed_next_commands: []`. For an agent working on a pull request that
+  denied commit, push, and PR updates — the exact actions required to produce a
+  reviewable diff — so the workflow was circular: review was required, and the
+  agent could not publish the state to be reviewed. Two additive changes fix
+  it. `control.permissions` is a new object carrying the exact booleans
+  `edit`, `commit`, `push`, `update_pr`, `merge`, `report_complete`; it is
+  fixed by the state and the route, never set independently, and
+  `merge`/`report_complete` always equal `completion_allowed`, so human review
+  never becomes self-approvable. A route that runs before any diff was read
+  (`fetch_base`, `install`) authorizes none of the six. A fourth state, `review_publishable`, means "a
+  human must approve the merge, and the agent may still publish the change for
+  that review": `must_stop: false`, a human `next_action`, and at most the one
+  exact rerun command that regenerates the same evidence against the committed
+  refs. `human_review_required` keeps its exact old meaning and is now reserved
+  for results Shipgate cannot vouch for — a blocked release decision, a `block`
+  boundary decision, a run whose execution failed, unreadable or unbindable
+  diff input, an undeclared capability surface with no discovery route,
+  preflight protected-surface touches, and MCP audit blocks. Runtime contract
+  advances `20 → 21` and `minimum_control_contract_version` `14 → 21`;
+  consumers that switch on `control.state` must add a `review_publishable`
+  branch and keep failing closed on unrecognized states, while consumers that
+  read only `must_stop` and `completion_allowed` need no change and lose no
+  safety. Every schema that carries a control advances its identifier and
+  freezes the prior file — verifier `0.7 → 0.8`, handoff `v6 → v7`, verify-run
+  `v3 → v4`, shared agent result `agent_result_v2 → v3`, agent boundary result
+  `v1 → v2`, preflight `0.3 → 0.4`, downstream local contract `7 → 8` — because
+  `permissions` is a new property on variants published as
+  `additionalProperties: false`, and leaving the identifier in place would have
+  made one version name mean two incompatible shapes. CLI flag spellings are
+  unchanged, and `audit_id` does not rotate: the schema token it hashes is
+  pinned to the value established ids were issued under.
+  `shipgate.codex_boundary_result/v2` stays frozen and now carries its own
+  snapshotted control union instead of inheriting the live one.
+  Publication additionally requires a replayable subject,
+  fully-read input, and a succeeded non-blocked release decision — enforced in
+  Pydantic and in generated JSON Schema — so a detached diff, a partially
+  unparsed MCP audit, or a failed run can never authorize it. Legacy artifacts and the frozen
+  `shipgate.codex_boundary_result/v2` projection are unaffected: pre-v20
+  payloads normalize to `human_review_required`, and the frozen format omits
+  `control.permissions` and renders the new state as `human_review_required`
+  with `must_stop: true`. The installed Claude Code Stop hook now says, on a
+  publishable review, that commit/push/PR-update remain authorized and names
+  the rerun command. ([#335](https://github.com/ThreeMoonsLab/agents-shipgate/issues/335))
 - **Local verification now evaluates committed and uncommitted edits as one
   effective worktree diff.** When a branch change and a review follow-up touch
   the same path, `verify` compares the merge base directly with the current

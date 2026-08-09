@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agents_shipgate.schemas.agent_control import AgentControl
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-PREFLIGHT_SCHEMA_VERSION = "0.3"
+PREFLIGHT_SCHEMA_VERSION = "0.4"
 MAX_PREFLIGHT_DIFF_BYTES = 32 * 1024 * 1024
 
 PreflightActor = Literal["coding_agent", "human"]
@@ -359,6 +359,21 @@ class PreflightResultV3(PreflightResultV2):
         json_schema_extra={
             "allOf": [
                 {
+                    # Mirrors the Pydantic rule: the pre-edit surface never
+                    # carries publication authority.
+                    "properties": {
+                        "control": {
+                            "properties": {
+                                "state": {"not": {"const": "review_publishable"}},
+                                "permissions": {
+                                    "properties": {"update_pr": {"const": False}},
+                                    "required": ["update_pr"],
+                                },
+                            }
+                        }
+                    }
+                },
+                {
                     "if": {
                         "properties": {
                             "control": {
@@ -412,6 +427,17 @@ class PreflightResultV3(PreflightResultV2):
     @model_validator(mode="after")
     def _legacy_fields_project_control(self) -> PreflightResultV3:
         control = self.control
+        # Preflight runs *before* the change exists, so there is no evaluated
+        # subject and nothing to publish. Reject the publishable route outright
+        # rather than documenting that it never happens.
+        if control.state == "review_publishable":
+            raise ValueError(
+                "preflight evaluates a planned change, so it cannot authorize publication"
+            )
+        if control.permissions.publishes and not control.completion_allowed:
+            raise ValueError(
+                "preflight cannot grant progress authority for an unevaluated change"
+            )
         expected_human = control.state == "human_review_required"
         if self.requires_human_review != expected_human:
             raise ValueError("requires_human_review must exactly project control.state")

@@ -10,6 +10,7 @@ from typing import Any
 import typer
 import yaml
 
+from agents_shipgate.cli.agent_result import agent_result_json_payload
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.capability_delta import diff_capability_fact_sets
@@ -43,6 +44,20 @@ DEFAULT_MCP_POLICY_PATH = Path("policies/mcp-permissions.shipgate.yaml")
 
 mcp_app = typer.Typer(help="Audit MCP capability and permission changes.")
 
+# Warnings that do not mean unread input. Everything else — a surface that
+# would not parse, a requested policy that is missing or unloadable, a changed
+# source the run could not resolve — leaves part of the audited subject
+# unknown, so it is an allowlist rather than a denylist: a warning code added
+# later defaults to "the audit did not read everything".
+_COMPLETE_INPUT_DIAGNOSTICS: frozenset[str] = frozenset(
+    {
+        # The policy parsed; one field was out of range and the documented
+        # fallback applied, with every other rule intact.
+        "mcp_policy_unknown_rule",
+        "mcp_policy_invalid_action",
+        "mcp_policy_invalid_risk_level",
+    }
+)
 _DECISION_RANK = {"allow": 0, "warn": 1, "require_review": 2, "block": 3}
 _RISK_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 _RULES: dict[str, dict[str, str]] = {
@@ -364,6 +379,14 @@ def build_mcp_audit(
         "violated_rules": violations,
         "diagnostics": [diag.model_dump(mode="json", exclude_none=True) for diag in diagnostics],
     }
+    # A first-class result, not a denylist over diagnostic codes: whether the
+    # audit read everything it was pointed at is a property of the run, and a
+    # code-matching heuristic silently reopens every time a new warning is
+    # added. Any unresolved source or policy makes the assessment partial.
+    payload["input_complete"] = not any(
+        diag.level in {"warning", "error"} and diag.code not in _COMPLETE_INPUT_DIAGNOSTICS
+        for diag in diagnostics
+    )
     return payload
 
 
@@ -614,6 +637,12 @@ def _violation(
     }
 
 
+def _mcp_audit_read_every_input(audit: dict[str, Any]) -> bool:
+    """Whether the audit parsed every surface and policy it was pointed at."""
+
+    return audit.get("input_complete") is True
+
+
 def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
     decision = audit["decision"]
     human_review = _human_review(decision, audit["violated_rules"])
@@ -627,22 +656,42 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
         ],
     )
     summary = audit["summary"]
-    control = (
-        derive_agent_control(
+    if decision == "block":
+        control = derive_agent_control(
             reason=summary,
-            next_action=HumanControlAction(
-                kind="stop" if decision == "block" else "review",
-                why=human_review.why or summary,
-            ),
+            next_action=HumanControlAction(kind="stop", why=human_review.why or summary),
             human_review_required=True,
-            unsafe_block=decision == "block",
+            unsafe_block=True,
             human_review_why=human_review.why or summary,
             required_reviewers=human_review.required_reviewers,
             stop_reason=human_review.why or summary,
         )
-        if decision in {"block", "require_review"}
-        else derive_agent_control(reason=summary)
-    )
+    elif decision == "require_review" and _mcp_audit_read_every_input(audit):
+        # The audit completed over fully-readable input; only human judgement
+        # is outstanding, so the agent may still publish for that review.
+        control = derive_agent_control(
+            reason=summary,
+            next_action=HumanControlAction(kind="review", why=human_review.why or summary),
+            human_review_required=True,
+            publication_allowed=True,
+            human_review_why=human_review.why or summary,
+            required_reviewers=human_review.required_reviewers,
+        )
+    elif decision == "require_review":
+        # A partially unreadable audit is not a reviewable assessment, whatever
+        # the aggregate decision says: some of the surface was never parsed, so
+        # there is nothing trustworthy to publish.
+        why = human_review.why or summary
+        control = derive_agent_control(
+            reason=summary,
+            next_action=HumanControlAction(kind="review", why=why),
+            human_review_required=True,
+            human_review_why=why,
+            required_reviewers=human_review.required_reviewers,
+            stop_reason=why,
+        )
+    else:
+        control = derive_agent_control(reason=summary)
     return AgentResultV2(
         decision=decision,  # type: ignore[arg-type]
         risk_level=audit["risk_level"],
@@ -803,9 +852,9 @@ def _dedupe_violations(violations: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _agent_result_json(result: AgentResultV2) -> str:
-    payload = result.model_dump(mode="json", exclude_none=True)
-    payload["control"] = result.control.model_dump(mode="json")
-    return json.dumps(payload, indent=2)
+    # One serializer for every emitted agent result, so the frozen
+    # codex-boundary projection cannot be bypassed by a second code path.
+    return json.dumps(agent_result_json_payload(result), indent=2)
 
 
 __all__ = ["build_mcp_audit", "mcp_app"]

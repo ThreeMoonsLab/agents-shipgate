@@ -97,8 +97,8 @@ Run at least these variants:
 | --- | ---: |
 | Correctly decides whether Shipgate is relevant | 15 |
 | Runs local `shipgate check --format agent-boundary-json` when relevant | 15 |
-| Reads/parses stdout `shipgate.agent_boundary_result/v1` | 10 |
-| Surfaces `shipgate.agent_boundary_result/v1.control.state` and follows its route | 10 |
+| Reads/parses stdout `shipgate.agent_boundary_result/v2` | 10 |
+| Surfaces `shipgate.agent_boundary_result/v2.control.state` and follows its route | 10 |
 | Creates a valid `shipgate.yaml` without unresolved `CHANGE_ME` values | 5 |
 | Runs `verify` for opted-in agent-related PR work | 10 |
 | Reads `agents-shipgate-reports/verifier.json` / `merge_verdict` | 10 |
@@ -115,7 +115,7 @@ and receiving an agent-related diff.
 P0 success criteria:
 
 - the agent runs `shipgate check --format agent-boundary-json` and parses
-  `shipgate.agent_boundary_result/v1.control.state` for local control;
+  `shipgate.agent_boundary_result/v2.control.state` for local control;
 - the agent runs `verify --format json` or reads
   `agents-shipgate-reports/verifier.json`;
 - the final summary leads with `merge_verdict`;

@@ -71,7 +71,7 @@ Action outputs:
 | `decision` | Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14. **Use this as the CI gating signal.** Switch on the value with a `review_required` fallback for unknown future values. |
 | `merge_verdict` | PR/control projection of `decision` (`mergeable`, `human_review_required`, `insufficient_evidence`, `blocked`, or `unknown`). Used by `fail_on_merge_verdicts` when configured; this is an explanatory projection, not a second release gate. |
 | `can_merge_without_human` | `true` only for a verified `passed` result or a completed deterministic `not_applicable` skip. |
-| `agent_control_state` | Authoritative operational state from `verifier.json.control.state`: `complete`, `agent_action_required`, or `human_review_required`. |
+| `agent_control_state` | Authoritative operational state from `verifier.json.control.state`: `complete`, `agent_action_required`, `review_publishable`, or `human_review_required`. `review_publishable` authorizes commit/push/PR updates and denies merge and completion. |
 | `agent_control_reason` | Deterministic reason from `verifier.json.control.reason`. |
 | `agent_controller_must_stop` | One-cycle compatibility mirror of `verifier.json.control.must_stop`. |
 | `agent_controller_stop_reason` | One-cycle compatibility mirror of `verifier.json.control.stop_reason`. |
@@ -92,7 +92,7 @@ Action outputs:
 | `report_markdown` | Path to `report.md`. |
 | `report_sarif` | Path to `report.sarif`. |
 | `verifier_json` | Path to `verifier.json`. |
-| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v3.json`](verify-run-schema.v3.json). |
+| `verify_run_json` | Path to `verify-run.json`, which validates against [`verify-run-schema.v4.json`](verify-run-schema.v4.json). |
 | `run_id` | Stable verify-run input identity from `verify-run.json.run_id`. |
 | `pr_comment_markdown` | Path to `pr-comment.md`. |
 | `exit_code` | Agents Shipgate CLI exit code. Matches `release_decision.fail_policy.exit_code`. |
@@ -267,7 +267,7 @@ pip install 'agents-shipgate[mcp]'
 ```
 
 Tools: `shipgate.check` (caller-provided diff to
-`shipgate.agent_boundary_result/v1`),
+`shipgate.agent_boundary_result/v2`),
 `shipgate.preflight` (protected surfaces, required evidence, and policy/trust
 root hashes), `shipgate.explain` (check id or `fp_...` fingerprint), and
 `shipgate.capabilities` (capability lock export or diff). The server is

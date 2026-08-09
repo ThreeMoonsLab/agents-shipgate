@@ -37,7 +37,10 @@ from agents_shipgate.core.trust_roots import (
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
 from agents_shipgate.schemas.agent_result import AgentResultV2
-from agents_shipgate.schemas.codex_boundary_result import CodexBoundaryResultV2
+from agents_shipgate.schemas.codex_boundary_result import (
+    CodexBoundaryResultV2,
+    freeze_codex_boundary_result,
+)
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.triggers import (
     SURFACE_CLASS_CAPABILITY,
@@ -67,24 +70,30 @@ def build_codex_agent_result(
     changed_files_override: list[str] | None = None,
     manifest_text_snapshot: str | None | object = _MANIFEST_SNAPSHOT_UNSET,
 ) -> CodexBoundaryResultV2:
-    """Frozen v2 compatibility projection from the central assessment."""
+    """Frozen v2 compatibility projection from the central assessment.
 
-    return _assessment_for_diff(
-        agent=agent,
-        workspace=workspace,
-        diff_text=diff_text,
-        config=config,
-        policy=policy,
-        input_mode=input_mode,
-        input_issues=input_issues,
-        base=base,
-        head=head,
-        verification_replayable=verification_replayable,
-        base_manifest_absent=base_manifest_absent,
-        requested_workspace=requested_workspace,
-        changed_files_override=changed_files_override,
-        manifest_text_snapshot=manifest_text_snapshot,
-    ).legacy_result
+    The assessment carries the current control; the freeze happens here, at the
+    one boundary where this deprecated contract is produced.
+    """
+
+    return freeze_codex_boundary_result(
+        _assessment_for_diff(
+            agent=agent,
+            workspace=workspace,
+            diff_text=diff_text,
+            config=config,
+            policy=policy,
+            input_mode=input_mode,
+            input_issues=input_issues,
+            base=base,
+            head=head,
+            verification_replayable=verification_replayable,
+            base_manifest_absent=base_manifest_absent,
+            requested_workspace=requested_workspace,
+            changed_files_override=changed_files_override,
+            manifest_text_snapshot=manifest_text_snapshot,
+        ).legacy_result
+    )
 
 
 def build_agent_boundary_result(
@@ -656,13 +665,21 @@ def _bind_worktree_config_to_head(
     return sorted({*changed_paths, relative.as_posix()}), worktree_text
 
 
-def agent_result_json_payload(result: AgentResultV2) -> dict[str, Any]:
+def agent_result_json_payload(result: AgentResultV2 | CodexBoundaryResultV2) -> dict[str, Any]:
+    """Serialize any emitted agent result.
+
+    No format branch: ``CodexBoundaryResultV2`` is a genuinely frozen model
+    carrying the frozen control union, so dumping it already produces the
+    pre-contract-20 shape. ``control`` is re-dumped without ``exclude_none``
+    because the contract publishes its null fields explicitly.
+    """
+
     payload = result.model_dump(mode="json", exclude_none=True)
     payload["control"] = result.control.model_dump(mode="json")
     return payload
 
 
-def agent_result_json(result: AgentResultV2) -> str:
+def agent_result_json(result: AgentResultV2 | CodexBoundaryResultV2) -> str:
     return json.dumps(agent_result_json_payload(result), indent=2, sort_keys=False)
 
 

@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate import __version__
-from agents_shipgate.schemas.agent_control import AgentControl
+from agents_shipgate.schemas.agent_control import AgentControl, FrozenAgentControl
 from agents_shipgate.schemas.verification_identity import (
     CONTENT_ID_PATTERN,
     VerificationExecutor,
@@ -16,7 +16,7 @@ from agents_shipgate.schemas.verification_identity import (
     content_id,
 )
 
-VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v3"
+VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v4"
 
 
 class VerifyRunTool(BaseModel):
@@ -109,6 +109,35 @@ class VerifyRunOutcome(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         json_schema_extra={
+            # A second, independent conditional: `if/then/else` above pins the
+            # merge-authority projection; this one pins publication to an
+            # evaluated, non-blocked outcome.
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "control": {
+                                "properties": {
+                                    "completion_allowed": {"const": False},
+                                    "permissions": {
+                                        "properties": {"update_pr": {"const": True}},
+                                        "required": ["update_pr"],
+                                    },
+                                },
+                                "required": ["completion_allowed", "permissions"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "required": ["execution", "decision"],
+                        "properties": {
+                            "execution": {"const": "succeeded"},
+                            "decision": {"type": "string", "not": {"const": "blocked"}},
+                        },
+                    },
+                }
+            ],
             "if": {
                 "properties": {"can_merge_without_human": {"const": True}},
                 "required": ["can_merge_without_human"],
@@ -144,6 +173,7 @@ class VerifyRunOutcome(BaseModel):
                             "state": {
                                 "enum": [
                                     "agent_action_required",
+                                    "review_publishable",
                                     "human_review_required",
                                 ]
                             }
@@ -199,7 +229,38 @@ class VerifyRunOutcome(BaseModel):
             raise ValueError("verify-run merge authority must project from the outcome")
         if self.control.completion_allowed != expected:
             raise ValueError("verify-run control must exactly project merge authority")
+        if not self.control.completion_allowed and self.control.permissions.publishes:
+            # Publication asserts an evaluated change. Bind it to the same
+            # substrate the verifier does, keyed on the permission vector so an
+            # agent repair route is held to the identical standard.
+            if self.execution != "succeeded" or self.decision is None:
+                raise ValueError(
+                    "publication authority requires a succeeded verify-run with a decision"
+                )
+            if self.decision == "blocked":
+                raise ValueError("a blocked verify-run cannot authorize publication")
         return self
+
+
+class FrozenVerifyRunOutcome(BaseModel):
+    """The v2 outcome shape, snapshotted.
+
+    ``VerifyRunOutcome`` is the *current* model and keeps evolving with the
+    control union. Reusing it here made the frozen reader
+    serialization-unstable: reading a valid v2 payload and dumping it back out
+    added ``control.permissions`` and failed the unchanged v2 schema.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    exit_code: int
+    base_status: str
+    execution: Literal["not_run", "succeeded", "skipped", "failed"]
+    applicability: Literal["not_evaluated", "verified", "not_applicable", "failed"]
+    decision: str | None = None
+    merge_verdict: str
+    can_merge_without_human: bool = False
+    control: FrozenAgentControl
 
 
 class VerifyRunArtifactV2(BaseModel):
@@ -212,7 +273,7 @@ class VerifyRunArtifactV2(BaseModel):
     tool: VerifyRunTool
     subject: VerifyRunSubject
     inputs: VerifyRunInputs
-    outcome: VerifyRunOutcome
+    outcome: FrozenVerifyRunOutcome
     artifacts: dict[str, VerifyRunArtifactRef] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -230,7 +291,7 @@ class VerifyRunArtifact(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["shipgate.verify_run/v3"] = VERIFY_RUN_SCHEMA_VERSION
+    schema_version: Literal["shipgate.verify_run/v4"] = VERIFY_RUN_SCHEMA_VERSION
     request_id: str = Field(pattern=CONTENT_ID_PATTERN)
     # Deprecated for one compatibility cycle; it is an exact alias, never a
     # separately-computed identity.

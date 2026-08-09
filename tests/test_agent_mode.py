@@ -226,17 +226,20 @@ def test_verify_json_shortcut_prints_verifier_artifact(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.7"
+    assert payload["verifier_schema_version"] == "0.8"
     assert payload["merge_verdict"] == "insufficient_evidence"
     assert payload["can_merge_without_human"] is False
-    assert payload["control"]["state"] == "human_review_required"
+    # The run completed and produced a release decision; the outstanding
+    # obligation is human judgement, so the agent may still publish the change.
+    assert payload["control"]["state"] == "review_publishable"
+    assert payload["control"]["permissions"]["merge"] is False
     # Full artifacts still land on disk for the documented file contract.
     assert (repo / "agents-shipgate-reports" / "verifier.json").is_file()
     assert (repo / "agents-shipgate-reports" / "verify-run.json").is_file()
     handoff_path = repo / "agents-shipgate-reports" / "agent-handoff.json"
     assert handoff_path.is_file()
     handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
-    assert handoff["schema_version"] == "shipgate.agent_handoff/v6"
+    assert handoff["schema_version"] == "shipgate.agent_handoff/v7"
     assert handoff["operation"] == "verify_pr"
     assert not (repo / "agents-shipgate-reports" / "agent-result.json").exists()
 
@@ -259,7 +262,7 @@ def test_verify_preview_writes_agent_handoff(tmp_path: Path) -> None:
     handoff = json.loads(
         (repo / "agents-shipgate-reports" / "agent-handoff.json").read_text(encoding="utf-8")
     )
-    assert handoff["schema_version"] == "shipgate.agent_handoff/v6"
+    assert handoff["schema_version"] == "shipgate.agent_handoff/v7"
     assert handoff["operation"] == "verify_preview"
     assert handoff["gate"]["decision"] is None
     assert handoff["control"]["state"] == "agent_action_required"
@@ -275,7 +278,7 @@ def test_verify_format_json_still_prints_full_verifier_artifact(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.7"
+    assert payload["verifier_schema_version"] == "0.8"
     assert payload["execution"] == "succeeded"
     assert payload["head_status"] == "succeeded"
     assert payload["trigger"]["run_shipgate"] is True
@@ -292,7 +295,7 @@ def test_verify_agent_environment_defaults_to_verifier_json(
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.7"
+    assert payload["verifier_schema_version"] == "0.8"
     assert payload["merge_verdict"] == "insufficient_evidence"
 
 

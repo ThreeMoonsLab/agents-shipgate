@@ -11,8 +11,8 @@ from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 from agents_shipgate.schemas.verifier import Applicability, MergeVerdict, map_merge_verdict
 
-AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v6"
-AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v6.json"
+AGENT_HANDOFF_SCHEMA_VERSION = "shipgate.agent_handoff/v7"
+AGENT_HANDOFF_SCHEMA_PATH = "docs/agent-handoff-schema.v7.json"
 
 AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
@@ -206,6 +206,7 @@ class AgentHandoffArtifact(BaseModel):
                                     "state": {
                                         "enum": [
                                             "agent_action_required",
+                                            "review_publishable",
                                             "human_review_required",
                                         ]
                                     }
@@ -213,6 +214,38 @@ class AgentHandoffArtifact(BaseModel):
                                 "required": ["state"],
                             }
                         }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "control": {
+                                "properties": {
+                                    "completion_allowed": {"const": False},
+                                    "permissions": {
+                                        "properties": {"update_pr": {"const": True}},
+                                        "required": ["update_pr"],
+                                    },
+                                },
+                                "required": ["completion_allowed", "permissions"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "required": ["gate"],
+                        "properties": {
+                            "gate": {
+                                "properties": {
+                                    "applicability": {"const": "verified"},
+                                    "decision": {
+                                        "type": "string",
+                                        "not": {"const": "blocked"},
+                                    },
+                                },
+                                "required": ["applicability", "decision"],
+                            }
+                        },
                     },
                 },
                 {
@@ -269,7 +302,7 @@ class AgentHandoffArtifact(BaseModel):
         },
     )
 
-    schema_version: Literal["shipgate.agent_handoff/v6"] = AGENT_HANDOFF_SCHEMA_VERSION
+    schema_version: Literal["shipgate.agent_handoff/v7"] = AGENT_HANDOFF_SCHEMA_VERSION
     contract_version: str
     tool: AgentHandoffTool = Field(default_factory=AgentHandoffTool)
     operation: AgentHandoffOperation
@@ -309,6 +342,16 @@ class AgentHandoffArtifact(BaseModel):
             raise ValueError("handoff control must exactly project gate merge authority")
         if self.control.state == "complete" and self.fix_task is not None:
             raise ValueError("complete handoff control cannot carry a pending fix task")
+        if not self.control.completion_allowed and self.control.permissions.publishes:
+            # Same substrate binding as verifier and verify-run, keyed on the
+            # permission vector: publication is a claim about an evaluated,
+            # non-blocked change whatever route carries it.
+            if self.gate.applicability != "verified" or self.gate.decision is None:
+                raise ValueError(
+                    "publication authority requires a verified handoff gate with a decision"
+                )
+            if self.gate.decision == "blocked":
+                raise ValueError("a blocked handoff gate cannot authorize publication")
         if self.authorization.status == "accepted":
             if self.gate.decision != "review_required":
                 raise ValueError(

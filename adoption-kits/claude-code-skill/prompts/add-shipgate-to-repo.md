@@ -9,10 +9,10 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
 ## Your task
 
-1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the neutral multi-host boundary contract and requires **runtime contract 15**; an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
+1. **Install the tool - pin the version so a stale build can't shadow it.** This flow uses the permission-scoped multi-host boundary contract and requires **runtime contract {{ minimum_control_contract_version }}** (`agents-shipgate` {{ shipgate_version }} or newer); an older copy lingering on `PATH` may lack the command or schema fields this prompt expects. Prefer a **pinned, zero-install** runner that fetches the exact version every time instead of trusting whatever is already on `PATH`. **Pin it into one variable and use that for every step below**, so no single command can fall through to a stale binary:
    ```bash
-   SG="uvx agents-shipgate@0.15.0"         # uv: ephemeral, latest published build
-   # or: SG="pipx run agents-shipgate==0.15.0"
+   SG="uvx agents-shipgate@{{ shipgate_version }}"    # uv: ephemeral, pinned to this exact build
+   # or: SG="pipx run agents-shipgate=={{ shipgate_version }}"
    $SG --version                             # confirm the pinned runner resolves
    ```
    Every step below calls `$SG …`; e.g. `$SG verify --preview --json` runs the verify preview through the pinned runner, never a `PATH` copy.
@@ -20,8 +20,8 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    If you would rather install onto `PATH`, pin the floor and **fail loudly when it resolves older** — a plain `pipx install agents-shipgate` is a no-op when an older build already exists — then set `SG=agents-shipgate`:
    ```bash
    python -m pip install -U --pre agents-shipgate
-   agents-shipgate contract --json   # STOP unless minimum_control_contract_version is 14
-   SG=agents-shipgate                # only after the line above confirms contract 14
+   agents-shipgate contract --json   # STOP unless minimum_control_contract_version is {{ minimum_control_contract_version }}
+   SG=agents-shipgate                # only after the line above confirms contract {{ minimum_control_contract_version }}
    ```
 
 2. **Sanity-check the install** before touching the user's code:

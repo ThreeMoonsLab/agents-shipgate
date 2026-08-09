@@ -154,10 +154,13 @@ def test_cached_stop_is_superseded_after_the_human_commits(repo: Path) -> None:
     manifest.write_text(manifest.read_text(encoding="utf-8") + "\n# reviewed\n", encoding="utf-8")
 
     stopped, _, _ = _verify(repo, archive_head=False)
-    assert stopped.control.state == "human_review_required"
+    # A trust-root edit owes a human the merge decision, not the whole turn.
+    # The staleness this test is about is the pointer's, not the state's.
+    assert stopped.control.state == "review_publishable"
     cached = _pointer(repo)
-    assert cached["control"]["state"] == "human_review_required"
-    assert cached["control"]["must_stop"] is True
+    assert cached["control"]["state"] == "review_publishable"
+    assert cached["control"]["permissions"]["merge"] is False
+    assert cached["control"]["permissions"]["update_pr"] is True
 
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "human commits the reviewed change")
@@ -243,11 +246,14 @@ def test_a_committed_tree_stop_does_not_survive_a_worktree_edit(repo: Path) -> N
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "a trust-root edit a human must review")
     stopped, _, _ = _verify(repo, base="main")
-    assert stopped.control.state == "human_review_required"
+    # A trust-root edit is a human decision the agent may still publish for;
+    # what must not survive the worktree edit is the pointer, not the state.
+    assert stopped.control.state == "review_publishable"
     reports = repo / "agents-shipgate-reports"
     pointer = read_current_control(reports, live=_live(repo)).pointer
     assert pointer.workspace_identity.snapshot_kind == "committed_tree"
-    assert pointer.control.must_stop is True
+    assert pointer.control.completion_allowed is False
+    assert pointer.control.permissions.merge is False
 
     (repo / "scratch.py").write_text("# a human edited the worktree\n", encoding="utf-8")
 

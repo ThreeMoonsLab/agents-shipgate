@@ -61,6 +61,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "agent_result_schema_path",
         "agent_result_control_fields",
         "agent_control_fields",
+        "agent_control_permissions",
         "agent_control_states",
         "agent_interface_operations",
         "exit_code_policy",
@@ -69,10 +70,10 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "release_decisions",
         "do_not_auto_assert",
     ]
-    assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "8"
+    assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "9"
     assert payload["agents_shipgate_version"] == __version__
-    assert payload["contract_version"] == CONTRACT_VERSION == "20"
-    assert payload["minimum_control_contract_version"] == "14"
+    assert payload["contract_version"] == CONTRACT_VERSION == "21"
+    assert payload["minimum_control_contract_version"] == "21"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
     assert set(payload["primary_commands"]) == {
@@ -121,8 +122,8 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["verifier_read_order"][-2:] == ["request_id", "decision_id"]
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.7"
-    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v3"
+    assert payload["verifier_schema_version"] == "0.8"
+    assert payload["verify_run_schema_version"] == "shipgate.verify_run/v4"
     assert payload["human_authorization_request_schema_version"] == (
         "shipgate.human_authorization_request/v1"
     )
@@ -141,13 +142,13 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["human_authorization_schema_path"] == (
         "docs/human-authorization-schema.v1.json"
     )
-    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v6"
-    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v6.json"
+    assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v7"
+    assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v7.json"
     assert payload["agent_handoff_artifact"] == "agents-shipgate-reports/agent-handoff.json"
     assert payload["codex_boundary_result_schema_version"] == "shipgate.codex_boundary_result/v2"
-    assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v1")
+    assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v2")
     assert payload["agent_boundary_result_schema_path"] == (
-        "docs/agent-boundary-result-schema.v1.json"
+        "docs/agent-boundary-result-schema.v2.json"
     )
     assert payload["attestation_schema_version"] == "0.5"
     assert payload["registry_schema_version"] == "0.4"
@@ -156,8 +157,8 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["host_grants_baseline_schema_version"] == "0.2"
     assert payload["host_grants_drift_schema_version"] == "0.2"
     assert payload["trigger_catalog_schema_version"] == "0.3"
-    assert payload["agent_result_schema_version"] == "agent_result_v2"
-    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v2.json"
+    assert payload["agent_result_schema_version"] == "agent_result_v3"
+    assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v3.json"
     assert payload["agent_result_control_fields"] == [
         "decision",
         "control",
@@ -167,9 +168,19 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["agent_control_states"] == [
         "complete",
         "agent_action_required",
+        "review_publishable",
         "human_review_required",
     ]
     assert "stop_reason" in payload["agent_control_fields"]
+    assert "permissions" in payload["agent_control_fields"]
+    assert payload["agent_control_permissions"] == [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete",
+    ]
     assert payload["agent_interface_operations"] == [
         "verify_pr",
         "verify_local",

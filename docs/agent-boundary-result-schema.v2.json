@@ -1,0 +1,1627 @@
+{
+  "$defs": {
+    "AgentActionRequiredControl": {
+      "additionalProperties": false,
+      "description": "Non-terminal state with one exact coding-agent-owned next step.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/CodingAgentAction"
+        },
+        "permissions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishOnlyPermissions"
+            },
+            {
+              "$ref": "#/$defs/NoAgentPermissions"
+            }
+          ],
+          "title": "Permissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "agent_action_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "AgentActionRequiredControl",
+      "type": "object"
+    },
+    "AgentControl": {
+      "discriminator": {
+        "mapping": {
+          "agent_action_required": "#/$defs/AgentActionRequiredControl",
+          "complete": "#/$defs/CompleteAgentControl",
+          "human_review_required": "#/$defs/HumanReviewRequiredControl",
+          "review_publishable": "#/$defs/ReviewPublishableControl"
+        },
+        "propertyName": "state"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CompleteAgentControl"
+        },
+        {
+          "$ref": "#/$defs/AgentActionRequiredControl"
+        },
+        {
+          "$ref": "#/$defs/ReviewPublishableControl"
+        },
+        {
+          "$ref": "#/$defs/HumanReviewRequiredControl"
+        }
+      ]
+    },
+    "AgentResultAffectedFile": {
+      "additionalProperties": false,
+      "properties": {
+        "end_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Line"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pointer"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Type"
+        },
+        "start_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Line"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "AgentResultAffectedFile",
+      "type": "object"
+    },
+    "AgentResultDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        }
+      },
+      "required": [
+        "level",
+        "code",
+        "message"
+      ],
+      "title": "AgentResultDiagnostic",
+      "type": "object"
+    },
+    "AgentResultPendingReviewItem": {
+      "additionalProperties": false,
+      "description": "One finding that still owes human review while the agent may continue.\n\nEmitted when the local mapping routes a low/medium ``require_review``\nboundary change onto the coding-agent verify route instead of stopping the\nturn.  The obligation is not cleared: it is carried here so the agent can\nreport it, and PR-time verify still routes the same change to a human.\n``reviewers`` holds the reviewer set that a stop would have demanded \u2014\n``control.human_review`` cannot carry it outside a human route.",
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewers",
+          "type": "array"
+        },
+        "risk_level": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "rule_id",
+        "risk_level",
+        "title"
+      ],
+      "title": "AgentResultPendingReviewItem",
+      "type": "object"
+    },
+    "AgentResultPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "discovery": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Discovery",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "snapshot_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Sha256"
+        },
+        "source": {
+          "enum": [
+            "explicit",
+            "workspace",
+            "packaged_default",
+            "report_effective_policy",
+            "missing",
+            "invalid"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "source"
+      ],
+      "title": "AgentResultPolicy",
+      "type": "object"
+    },
+    "AgentResultRepair": {
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "safe_to_attempt": {
+            "const": true
+          }
+        },
+        "required": [
+          "safe_to_attempt"
+        ]
+      },
+      "properties": {
+        "actor": {
+          "default": "human",
+          "enum": [
+            "coding_agent",
+            "human"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "forbidden_shortcuts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Shortcuts",
+          "type": "array"
+        },
+        "instructions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Instructions",
+          "type": "array"
+        },
+        "safe_to_attempt": {
+          "default": false,
+          "title": "Safe To Attempt",
+          "type": "boolean"
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "const": "coding_agent"
+          },
+          "command": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "command"
+        ]
+      },
+      "title": "AgentResultRepair",
+      "type": "object"
+    },
+    "AgentResultSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent"
+        },
+        "base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base"
+        },
+        "diff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Diff"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head"
+        },
+        "workspace": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace"
+        }
+      },
+      "title": "AgentResultSubject",
+      "type": "object"
+    },
+    "AgentResultTool": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "agents-shipgate",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "default": "0.16.0b7",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "AgentResultTool",
+      "type": "object"
+    },
+    "AgentResultTraceEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "title": "Step",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step",
+        "summary"
+      ],
+      "title": "AgentResultTraceEvent",
+      "type": "object"
+    },
+    "AgentResultViolatedRule": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "allow",
+            "warn",
+            "require_review",
+            "block"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "evidence": {
+          "additionalProperties": true,
+          "title": "Evidence",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "recommendation": {
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "risk_level": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "check_id",
+        "action",
+        "risk_level",
+        "title",
+        "recommendation"
+      ],
+      "title": "AgentResultViolatedRule",
+      "type": "object"
+    },
+    "BoundaryHostCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "hosts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hosts",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "not_applicable",
+            "partial",
+            "experimental"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "hosts",
+        "status"
+      ],
+      "title": "BoundaryHostCoverage",
+      "type": "object"
+    },
+    "CodingAgentAction": {
+      "discriminator": {
+        "mapping": {
+          "configure": "#/$defs/CodingAgentCommandAction",
+          "discover": "#/$defs/CodingAgentCommandAction",
+          "fetch_base": "#/$defs/CodingAgentFetchBaseAction",
+          "initialize": "#/$defs/CodingAgentCommandAction",
+          "install": "#/$defs/CodingAgentCommandAction",
+          "repair": "#/$defs/CodingAgentCommandAction",
+          "rerun": "#/$defs/CodingAgentCommandAction",
+          "verify": "#/$defs/CodingAgentCommandAction"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CodingAgentCommandAction"
+        },
+        {
+          "$ref": "#/$defs/CodingAgentFetchBaseAction"
+        }
+      ]
+    },
+    "CodingAgentCommandAction": {
+      "additionalProperties": false,
+      "description": "An executable, exact next step owned by the coding agent.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "verify",
+            "discover",
+            "configure",
+            "initialize",
+            "repair",
+            "install",
+            "rerun"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentCommandAction",
+      "type": "object"
+    },
+    "CodingAgentFetchBaseAction": {
+      "additionalProperties": false,
+      "description": "A structured input request when an exact fetch command is unavailable.\n\nShipgate never fetches refs itself.  ``expects`` therefore names the exact\nref or artifact a caller must make available before rerunning verification.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "minLength": 1,
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "const": "fetch_base",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentFetchBaseAction",
+      "type": "object"
+    },
+    "CompleteAgentControl": {
+      "additionalProperties": false,
+      "description": "Terminal state: the coding agent may report the task complete.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": true,
+          "default": true,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/NoHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "default": null,
+          "title": "Next Action",
+          "type": "null"
+        },
+        "permissions": {
+          "$ref": "#/$defs/FullAgentPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "complete",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "const": false,
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "CompleteAgentControl",
+      "type": "object"
+    },
+    "FullAgentPermissions": {
+      "additionalProperties": false,
+      "description": "Terminal authority: the verifier already authorizes merge.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": true,
+          "default": true,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": true,
+          "default": true,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "FullAgentPermissions",
+      "type": "object"
+    },
+    "HumanControlAction": {
+      "additionalProperties": false,
+      "description": "A human-owned route.  Human actions never expose executable commands.",
+      "properties": {
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "enum": [
+            "review",
+            "stop"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "HumanControlAction",
+      "type": "object"
+    },
+    "HumanReviewAction": {
+      "additionalProperties": false,
+      "description": "A human *review* route, never a hard stop.\n\nA distinct type rather than a runtime check on ``kind``: the publishable\nreview state must reject a stop route in generated JSON Schema too, not\nonly in Pydantic.",
+      "properties": {
+        "actor": {
+          "const": "human",
+          "default": "human",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "default": null,
+          "title": "Expects",
+          "type": "null"
+        },
+        "kind": {
+          "const": "review",
+          "default": "review",
+          "title": "Kind",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "expects",
+        "why"
+      ],
+      "title": "HumanReviewAction",
+      "type": "object"
+    },
+    "HumanReviewRequiredControl": {
+      "additionalProperties": false,
+      "description": "Stopping state: no further coding-agent action is authorized.\n\nReserved for results Shipgate cannot vouch for \u2014 a policy block, untrusted\nor unreadable input, or an evaluation that did not complete. Publication is\ndenied here precisely because there is no trustworthy evidence to publish.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": true,
+          "default": true,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanControlAction"
+        },
+        "permissions": {
+          "$ref": "#/$defs/NoAgentPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "human_review_required",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "minLength": 1,
+          "title": "Stop Reason",
+          "type": "string"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "HumanReviewRequiredControl",
+      "type": "object"
+    },
+    "NoAgentPermissions": {
+      "additionalProperties": false,
+      "description": "None of the six pull-request actions is authorized.\n\nTwo different states carry this vector, for the same underlying reason \u2014\nShipgate has no assessment it is willing to stand behind.\n``human_review_required`` additionally ends the turn.  An\n``agent_action_required`` route whose subject was never evaluated does not\nend the turn, but the only thing it authorizes is the named\n``next_action``: there is no evaluated change yet, so there is nothing to\npublish and no basis for saying publishing it is safe.",
+      "properties": {
+        "commit": {
+          "const": false,
+          "default": false,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": false,
+          "default": false,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": false,
+          "default": false,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": false,
+          "default": false,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "NoAgentPermissions",
+      "type": "object"
+    },
+    "NoHumanReview": {
+      "additionalProperties": false,
+      "description": "Exact negative human-review projection for non-stopping states.",
+      "properties": {
+        "required": {
+          "const": false,
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "default": null,
+          "title": "Why",
+          "type": "null"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "NoHumanReview",
+      "type": "object"
+    },
+    "PublishOnlyPermissions": {
+      "additionalProperties": false,
+      "description": "Progress authority without merge or completion authority.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "PublishOnlyPermissions",
+      "type": "object"
+    },
+    "RequiredHumanReview": {
+      "additionalProperties": false,
+      "description": "Human-review evidence carried by the stopping state.",
+      "properties": {
+        "required": {
+          "const": true,
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_reviewers": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Required Reviewers",
+          "type": "array"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "required",
+        "why",
+        "required_reviewers"
+      ],
+      "title": "RequiredHumanReview",
+      "type": "object"
+    },
+    "ReviewPublishableControl": {
+      "additionalProperties": false,
+      "description": "Human review gates merge; publishing the review evidence does not.\n\nThe change was evaluated and the only outstanding obligation is human\njudgement, so the coding agent keeps the authority it needs to put a\ncoherent, reviewable state in front of that human \u2014 edit, commit, push,\nupdate the pull request \u2014 while ``merge`` and ``report_complete`` stay\ndenied until a fresh verifier artifact says otherwise.\n\n``next_action`` stays human-owned: the *route* is still \"a person decides\".\n``allowed_next_commands`` carries at most the one exact rerun command that\nregenerates this same evidence after committing, and is empty when the\ncaller has no exact command to offer.\n\n``permissions`` deliberately has **no default**. Every other variant keeps\none so that a pre-contract-20 artifact still parses, but this state cannot\nbe legacy input \u2014 it did not exist before v20 \u2014 so an omitted permission\nvector is a malformed current payload, not an old one, and must fail closed\nrather than silently synthesize publication authority.",
+      "properties": {
+        "allowed_next_commands": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 1,
+          "title": "Allowed Next Commands",
+          "type": "array"
+        },
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "human_review": {
+          "$ref": "#/$defs/RequiredHumanReview"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "next_action": {
+          "$ref": "#/$defs/HumanReviewAction"
+        },
+        "permissions": {
+          "$ref": "#/$defs/PublishOnlyPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "review_publishable",
+          "title": "State",
+          "type": "string"
+        },
+        "stop_reason": {
+          "default": null,
+          "title": "Stop Reason",
+          "type": "null"
+        },
+        "verify_required": {
+          "default": false,
+          "title": "Verify Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "verify_required",
+        "next_action",
+        "allowed_next_commands",
+        "permissions",
+        "human_review",
+        "stop_reason"
+      ],
+      "title": "ReviewPublishableControl",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-boundary-result-schema.v2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "control": {
+            "properties": {
+              "completion_allowed": {
+                "const": false
+              },
+              "permissions": {
+                "properties": {
+                  "update_pr": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "update_pr"
+                ]
+              }
+            },
+            "required": [
+              "completion_allowed",
+              "permissions"
+            ]
+          }
+        },
+        "required": [
+          "control"
+        ]
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "not": {
+              "const": "block"
+            }
+          },
+          "host_coverage": {
+            "items": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "complete",
+                    "not_applicable"
+                  ]
+                }
+              }
+            }
+          },
+          "input_coverage": {
+            "const": "complete"
+          }
+        },
+        "required": [
+          "input_coverage"
+        ]
+      }
+    }
+  ],
+  "description": "JSON Schema for shipgate check --format agent-boundary-json. Generated from agents_shipgate.schemas.agent_boundary. control.state is authoritative; the result is static and scope-bound.",
+  "properties": {
+    "actor": {
+      "enum": [
+        "codex",
+        "claude-code",
+        "cursor"
+      ],
+      "title": "Actor",
+      "type": "string"
+    },
+    "affected_files": {
+      "items": {
+        "$ref": "#/$defs/AgentResultAffectedFile"
+      },
+      "title": "Affected Files",
+      "type": "array"
+    },
+    "affected_hosts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Hosts",
+      "type": "array"
+    },
+    "agent": {
+      "default": "codex",
+      "enum": [
+        "codex",
+        "claude-code",
+        "cursor"
+      ],
+      "title": "Agent",
+      "type": "string"
+    },
+    "agent_repair_instructions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Agent Repair Instructions",
+      "type": "array"
+    },
+    "audit_id": {
+      "title": "Audit Id",
+      "type": "string"
+    },
+    "changed_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Files",
+      "type": "array"
+    },
+    "control": {
+      "$ref": "#/$defs/AgentControl"
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "warn",
+        "require_review",
+        "block"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/AgentResultDiagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "excluded_scopes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Excluded Scopes",
+      "type": "array"
+    },
+    "explanation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Explanation"
+    },
+    "finding_fingerprints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Finding Fingerprints",
+      "type": "array"
+    },
+    "host_coverage": {
+      "items": {
+        "$ref": "#/$defs/BoundaryHostCoverage"
+      },
+      "title": "Host Coverage",
+      "type": "array"
+    },
+    "input_coverage": {
+      "enum": [
+        "complete",
+        "partial",
+        "unknown"
+      ],
+      "title": "Input Coverage",
+      "type": "string"
+    },
+    "input_mode": {
+      "enum": [
+        "worktree",
+        "git_range",
+        "provided_diff"
+      ],
+      "title": "Input Mode",
+      "type": "string"
+    },
+    "issues": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "pending_review": {
+      "items": {
+        "$ref": "#/$defs/AgentResultPendingReviewItem"
+      },
+      "title": "Pending Review",
+      "type": "array"
+    },
+    "policies": {
+      "items": {
+        "$ref": "#/$defs/AgentResultPolicy"
+      },
+      "title": "Policies",
+      "type": "array"
+    },
+    "policy": {
+      "$ref": "#/$defs/AgentResultPolicy"
+    },
+    "policy_set_sha256": {
+      "title": "Policy Set Sha256",
+      "type": "string"
+    },
+    "policy_snapshot_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Snapshot Sha256"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "release_decision": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Release Decision"
+    },
+    "repair": {
+      "$ref": "#/$defs/AgentResultRepair"
+    },
+    "required_reviewers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Reviewers",
+      "type": "array"
+    },
+    "risk_level": {
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Risk Level",
+      "type": "string"
+    },
+    "runtime_session_verified": {
+      "const": false,
+      "default": false,
+      "title": "Runtime Session Verified",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "shipgate.agent_boundary_result/v2",
+      "default": "shipgate.agent_boundary_result/v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope": {
+      "const": "repository",
+      "default": "repository",
+      "title": "Scope",
+      "type": "string"
+    },
+    "source_artifacts": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Source Artifacts",
+      "type": "object"
+    },
+    "static_analysis_only": {
+      "const": true,
+      "default": true,
+      "title": "Static Analysis Only",
+      "type": "boolean"
+    },
+    "subject": {
+      "$ref": "#/$defs/AgentResultSubject"
+    },
+    "suggested_fixes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Suggested Fixes",
+      "type": "array"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "tool": {
+      "$ref": "#/$defs/AgentResultTool"
+    },
+    "trace": {
+      "items": {
+        "$ref": "#/$defs/AgentResultTraceEvent"
+      },
+      "title": "Trace",
+      "type": "array"
+    },
+    "trigger": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trigger"
+    },
+    "violated_rules": {
+      "items": {
+        "$ref": "#/$defs/AgentResultViolatedRule"
+      },
+      "title": "Violated Rules",
+      "type": "array"
+    },
+    "violations": {
+      "items": {
+        "$ref": "#/$defs/AgentResultViolatedRule"
+      },
+      "title": "Violations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "decision",
+    "risk_level",
+    "audit_id",
+    "policy_version",
+    "summary",
+    "control",
+    "policy",
+    "actor",
+    "input_mode",
+    "input_coverage",
+    "host_coverage",
+    "affected_hosts",
+    "policies",
+    "policy_set_sha256",
+    "violations"
+  ],
+  "title": "Agents Shipgate Agent Boundary Result v1",
+  "type": "object"
+}

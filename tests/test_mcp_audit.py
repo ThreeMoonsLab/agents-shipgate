@@ -11,7 +11,7 @@ from agents_shipgate.schemas.agent_result import AgentResultV2
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus" / "mcp_permission_expansion"
-AGENT_RESULT_SCHEMA = ROOT / "docs" / "agent-result-schema.v2.json"
+AGENT_RESULT_SCHEMA = ROOT / "docs" / "agent-result-schema.v3.json"
 runner = CliRunner()
 
 
@@ -69,10 +69,15 @@ def test_mcp_audit_agent_json(tmp_path: Path) -> None:
         payload
     )
     AgentResultV2.model_validate(payload)
-    assert payload["schema_version"] == "agent_result_v2"
+    assert payload["schema_version"] == "agent_result_v3"
     assert payload["decision"] == "require_review"
-    assert payload["control"]["state"] == "human_review_required"
-    assert payload["control"]["must_stop"] is True
+    # The audit completed; only human judgement is outstanding, so the agent
+    # keeps publish authority and loses merge/completion authority.
+    assert payload["control"]["state"] == "review_publishable"
+    assert payload["control"]["must_stop"] is False
+    assert payload["control"]["permissions"]["update_pr"] is True
+    assert payload["control"]["permissions"]["merge"] is False
+    assert payload["control"]["permissions"]["report_complete"] is False
     assert payload["control"]["next_action"]["kind"] == "review"
     assert payload["control"]["human_review"]["required"] is True
     for retired in (
@@ -448,3 +453,48 @@ rules:
     payload = json.loads(result.output)
     assert payload["policy_version"] == "workspace-policy"
     assert payload["decision"] == "block"
+
+
+def test_partially_unreadable_mcp_audit_never_publishes(tmp_path: Path) -> None:
+    """An aggregate ``require_review`` is not a reviewable assessment on its own.
+
+    A diff that combines a real permission expansion with an ``.mcp.json`` the
+    audit could not parse leaves part of the surface unread. The decision still
+    says ``require_review``, but there is no complete assessment to publish, so
+    the result must keep the total stop.
+    """
+
+    readable = (CORPUS / "auto_approve_write.diff").read_text(encoding="utf-8")
+    malformed = (
+        "diff --git a/other/.mcp.json b/other/.mcp.json\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/other/.mcp.json\n"
+        "@@ -0,0 +1,1 @@\n"
+        '+{"mcpServers": {\n'
+    )
+    combined = tmp_path / "combined.diff"
+    combined.write_text(readable + malformed, encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["mcp", "audit", "--workspace", str(tmp_path), "--diff", str(combined),
+         "--format", "agent-json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["decision"] == "require_review"
+    assert any(
+        item["code"] == "mcp_json_parse_failed" for item in payload["diagnostics"]
+    ), payload["diagnostics"]
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["must_stop"] is True
+    assert payload["control"]["permissions"] == {
+        "edit": False,
+        "commit": False,
+        "push": False,
+        "update_pr": False,
+        "merge": False,
+        "report_complete": False,
+    }

@@ -254,7 +254,7 @@ def test_codex_requirements_change_requires_human_review(tmp_path: Path) -> None
             'sandbox_mode = "danger-full-access"\napproval_policy = "never"',
         ),
     )
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
     assert result.affected_hosts == ["codex"]
 
 
@@ -263,8 +263,8 @@ def test_stored_lowercase_agent_instructions_keep_the_human_stop(
 ) -> None:
     result = _build(tmp_path, _new_file_diff("agents.md", "Run Shipgate."))
 
-    assert result.control.state == "human_review_required"
-    assert result.control.allowed_next_commands == []
+    assert result.control.state == "review_publishable"
+    assert result.control.permissions.merge is False
     assert any(item.path == "agents.md" for item in result.violations)
 
 
@@ -293,7 +293,7 @@ def test_untracked_unicode_agent_instructions_are_not_hidden_by_git_quoting(
     assert invoked.exit_code == 0, invoked.output
     payload = json.loads(invoked.output)
     assert "caf\u00e9/AGENTS.md" in payload["changed_files"]
-    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["state"] == "review_publishable"
     assert payload["input_coverage"] == "complete"
 
 
@@ -318,7 +318,7 @@ def test_codex_grant_expansion_never_completes(
     )
     if "danger-full-access" in config_text:
         # Critical grant expansion keeps the human stop.
-        assert result.control.state == "human_review_required"
+        assert result.control.state == "review_publishable"
     else:
         # Medium unknown-key rows ride the graded verify route; the review
         # obligation is carried in pending_review and re-asserted by verify.
@@ -339,7 +339,7 @@ def test_nested_codex_config_retains_structural_dangerous_grant_check(
         ),
     )
 
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
     assert "SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS" in {
         item.check_id for item in result.violated_rules
     }
@@ -350,7 +350,7 @@ def test_nested_codex_config_retains_structural_dangerous_grant_check(
     [
         ("sub/.mcp.json", "agent_action_required", "verify"),
         ("sub/.github/workflows/release.yml", "agent_action_required", "verify"),
-        ("claude.md", "human_review_required", "review"),
+        ("claude.md", "review_publishable", "review"),
     ],
 )
 def test_nested_and_case_variant_boundary_paths_never_complete(
@@ -367,7 +367,8 @@ def test_nested_and_case_variant_boundary_paths_never_complete(
     result = _build(tmp_path, _new_file_diff(path, content))
 
     # Nested copies remain verify-routed, while a case-variant root instruction
-    # file is a live gate-governing trust root and must stop for human review.
+    # file is a live gate-governing trust root that a human must approve before
+    # merge. Contract v20 keeps publishing it for that review authorized.
     assert result.control.state == expected_state
     assert result.control.next_action.kind == expected_action
     if expected_state == "agent_action_required":
@@ -386,7 +387,7 @@ def test_claude_nested_permission_expansion_is_not_ignored(tmp_path: Path) -> No
             json.dumps({"permissions": {"allowAllMcpServers": True}}),
         ),
     )
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
     assert any(
         item.evidence.get("kind") == "claude_permission_boundary_changed"
         for item in result.violated_rules
@@ -401,7 +402,7 @@ def test_claude_any_changed_permission_mode_requires_review(tmp_path: Path) -> N
             json.dumps({"permissions": {"defaultMode": "acceptEdits"}}),
         ),
     )
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
 
 
 @pytest.mark.parametrize(
@@ -419,7 +420,7 @@ def test_cursor_unclassified_grant_expansion_requires_review(
         tmp_path,
         _new_file_diff(".cursor/cli.json", json.dumps(payload)),
     )
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
 
 
 def test_mcp_authorization_header_change_is_redacted_and_reviewed(tmp_path: Path) -> None:
@@ -439,7 +440,7 @@ def test_mcp_authorization_header_change_is_redacted_and_reviewed(tmp_path: Path
     (tmp_path / ".mcp.json").write_text(old, encoding="utf-8")
     result = _build(tmp_path, _change_diff(".mcp.json", old, new))
     dumped = json.dumps(result.model_dump(mode="json"))
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
     assert "super-secret" not in dumped
     assert any(item.evidence.get("changed_keys") == ["headers"] for item in result.violated_rules)
 
@@ -458,7 +459,7 @@ def test_mcp_tool_restriction_change_requires_review(tmp_path: Path) -> None:
     )
     (tmp_path / ".mcp.json").write_text(old, encoding="utf-8")
     result = _build(tmp_path, _change_diff(".mcp.json", old, new))
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
     assert any(
         "includeTools" in item.evidence.get("changed_keys", [])
         for item in result.violated_rules
@@ -512,7 +513,7 @@ def test_instruction_trust_root_weakening_requires_review(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(old, encoding="utf-8")
     result = _build(tmp_path, _change_diff(path, old, new))
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
 
 
 def test_unclassified_workflow_behavior_change_requires_review(tmp_path: Path) -> None:
@@ -552,7 +553,7 @@ def test_explicit_custom_policy_is_a_protected_shared_boundary(
         verification_replayable=True,
     )
 
-    assert assessment.legacy_result.control.state == "human_review_required"
+    assert assessment.legacy_result.control.state == "review_publishable"
     assert assessment.affected_hosts == ("claude-code", "codex", "cursor")
     assert any(
         item.path == "custom-policy.yml"
@@ -594,7 +595,7 @@ def test_shared_trust_roots_never_complete_without_safe_receipt(
     if path.startswith(".agents-shipgate/"):
         # Gate-governing state (baselines, waivers) stays a human stop at any
         # scored risk — the graded band never covers the gate's own inputs.
-        assert result.control.state == "human_review_required"
+        assert result.control.state == "review_publishable"
     else:
         assert result.control.state == "agent_action_required"
         assert result.control.next_action.kind == "verify"
@@ -790,7 +791,7 @@ def test_deleted_boundary_file_never_completes(tmp_path: Path) -> None:
         + "\n"
     )
     result = _build(tmp_path, diff)
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
 
 
 @pytest.mark.parametrize("noise_count", [1, 10, 100])
@@ -924,10 +925,14 @@ def test_new_manifest_reads_as_adoption_not_an_unclassified_surface(
         base_manifest_absent=True,
     )
 
-    # Routing is untouched: adopting a gate is still a human decision.
+    # Routing is untouched: adopting a gate is still a human decision. Under
+    # contract v20 that decision gates the merge, not publishing the adoption
+    # PR the reviewer needs to look at.
     assert result.decision == "require_review"
-    assert result.control.state == "human_review_required"
-    assert result.control.must_stop is True
+    assert result.control.state == "review_publishable"
+    assert result.control.permissions.update_pr is True
+    assert result.control.permissions.merge is False
+    assert result.control.permissions.report_complete is False
     assert result.affected_hosts == ["claude-code", "codex", "cursor"]
     shared = next(item for item in result.host_coverage if item.adapter == "shared")
     assert shared.paths == ["shipgate.yaml"]
@@ -968,7 +973,7 @@ def test_composite_manifest_diff_never_reads_as_an_adoption(tmp_path: Path) -> N
     )
     result = _build(tmp_path, diff)
 
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
     assert all(
         row.evidence.get("kind") != "manifest_introduced"
         for row in result.violated_rules
@@ -996,10 +1001,12 @@ def test_a_custom_named_manifest_is_protected_by_check(tmp_path: Path) -> None:
     rows = [item for item in result.violated_rules if item.path == "new-gate.yml"]
     assert rows, result.violated_rules
     assert rows[0].evidence.get("trust_root_class") == "manifest"
-    # A gate-governing surface must not ride the graded agent route.
+    # A gate-governing surface must not ride the graded agent route: the
+    # next action stays human-owned and merge stays denied.
     assert result.decision == "require_review"
-    assert result.control.state == "human_review_required"
-    assert result.control.must_stop is True
+    assert result.control.state == "review_publishable"
+    assert result.control.next_action.actor == "human"
+    assert result.control.permissions.merge is False
 
 
 def test_check_accepts_absolute_config_under_external_workspace_alias(
@@ -1028,7 +1035,7 @@ def test_check_accepts_absolute_config_under_external_workspace_alias(
     rows = [item for item in result.violated_rules if item.path == target.name]
     assert rows
     assert rows[0].evidence.get("trust_root_class") == "manifest"
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
 
 
 def test_check_rejects_a_filesystem_resolved_custom_config_alias(
@@ -1139,7 +1146,7 @@ def test_check_matches_real_git_index_case_spelling_to_configured_manifest(
     rows = [item for item in result.violated_rules if item.path == indexed.name]
     assert rows
     assert rows[0].evidence.get("trust_root_class") == "manifest"
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
 
 
 def test_the_default_manifest_keeps_its_classification(tmp_path: Path) -> None:
@@ -1158,7 +1165,7 @@ def test_the_default_manifest_keeps_its_classification(tmp_path: Path) -> None:
 
     rows = [item for item in result.violated_rules if item.path == "shipgate.yaml"]
     assert rows
-    assert result.control.state == "human_review_required"
+    assert result.control.state == "review_publishable"
 
 
 def test_check_authorizes_a_verify_command_for_its_own_target(tmp_path: Path) -> None:
@@ -1450,7 +1457,7 @@ def test_check_binds_an_ignored_custom_manifest_to_head(tmp_path: Path) -> None:
     assert invoked.exit_code == 0, invoked.output
     payload = json.loads(invoked.output)
     assert "custom-gate.yml" in payload["changed_files"]
-    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["state"] == "review_publishable"
     assert any(
         item.get("evidence", {}).get("trust_root_class") == "manifest"
         for item in payload["violations"]
@@ -1582,13 +1589,16 @@ def test_agent_boundary_audit_ids_bind_actor_and_input_subject(tmp_path: Path) -
     # here from the shape that shipped before actor detection existed.
     import hashlib
 
-    from agents_shipgate.core.agent_boundary import _agent_boundary_audit_id
-    from agents_shipgate.schemas.agent_boundary import (
-        AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+    from agents_shipgate.core.agent_boundary import (
+        _AUDIT_IDENTITY_SCHEMA_TOKEN,
+        _agent_boundary_audit_id,
     )
 
+    # The identity token is pinned rather than read from the live schema
+    # version: an established audit id must survive an additive wire-schema
+    # bump, or every stored id rotates for a payload whose bytes did not change.
     legacy_payload = {
-        "schema": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+        "schema": _AUDIT_IDENTITY_SCHEMA_TOKEN,
         "changed_files": ["x"],
         "fingerprints": ["fp"],
         "policy_set_sha256": "d",
@@ -1702,3 +1712,42 @@ def test_worktree_audit_id_binds_resolved_workspace_content(
         )
 
     assert results[0].audit_id != results[1].audit_id
+
+
+def test_a_detached_diff_never_authorizes_publication(tmp_path: Path) -> None:
+    """A caller-supplied diff is not bound to a checkout verify can replay.
+
+    The unbound-subject guard only fires for routes that owe a command, and a
+    non-graded ``require_review`` owes none — so publication has to check
+    replayability itself. Without that, the MCP entrypoint (which marks every
+    caller-supplied diff unreplayable) hands out commit/push/update-PR
+    authority plus a rerun command that cannot reconstruct its own subject.
+    """
+
+    target = tmp_path / ".codex"
+    target.mkdir()
+    (target / "config.toml").write_text('model = "safe"\n', encoding="utf-8")
+    diff = _change_diff(
+        ".codex/config.toml",
+        'model = "safe"\n',
+        'model = "safe"\nsandbox_mode = "danger-full-access"\n',
+    )
+
+    detached = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+        input_mode="provided_diff",
+        verification_replayable=False,
+    )
+    assert detached.decision == "require_review"
+    assert detached.control.state == "human_review_required"
+    assert detached.control.permissions.publishes is False
+    assert detached.control.allowed_next_commands == []
+
+    bound = _build(tmp_path, diff)
+    assert bound.control.state == "review_publishable"
+    assert bound.control.permissions.update_pr is True
+    assert bound.control.permissions.merge is False

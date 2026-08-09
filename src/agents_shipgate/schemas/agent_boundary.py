@@ -16,7 +16,7 @@ from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultViolatedRule,
 )
 
-AGENT_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.agent_boundary_result/v1"
+AGENT_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.agent_boundary_result/v2"
 
 
 class BoundaryHostCoverage(BaseModel):
@@ -32,7 +32,51 @@ class BoundaryHostCoverage(BaseModel):
 class AgentBoundaryResultV1(AgentResultV2):
     """One operational result for Codex, Claude Code, and Cursor surfaces."""
 
-    schema_version: Literal["shipgate.agent_boundary_result/v1"] = (
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    # Mirrors the Pydantic rule below so an external validator
+                    # reaches the same verdict: incomplete input never carries
+                    # publication authority.
+                    "if": {
+                        "properties": {
+                            "control": {
+                                "properties": {
+                                    "completion_allowed": {"const": False},
+                                    "permissions": {
+                                        "properties": {"update_pr": {"const": True}},
+                                        "required": ["update_pr"],
+                                    },
+                                },
+                                "required": ["completion_allowed", "permissions"],
+                            }
+                        },
+                        "required": ["control"],
+                    },
+                    "then": {
+                        "required": ["input_coverage"],
+                        "properties": {
+                            "decision": {"not": {"const": "block"}},
+                            "input_coverage": {"const": "complete"},
+                            "host_coverage": {
+                                "items": {
+                                    "properties": {
+                                        "status": {
+                                            "enum": ["complete", "not_applicable"]
+                                        }
+                                    }
+                                }
+                            },
+                        },
+                    },
+                }
+            ]
+        },
+    )
+
+    schema_version: Literal["shipgate.agent_boundary_result/v2"] = (
         AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
     )
     actor: AgentResultAgent
@@ -71,6 +115,18 @@ class AgentBoundaryResultV1(AgentResultV2):
         # on a route rather than reading as finished.
         if self.pending_review and self.control.state == "complete":
             raise ValueError("a complete result cannot carry pending review items")
+        # Publication asserts an evaluated change. Incomplete host coverage
+        # means part of the surface was never read, which is the same epistemic
+        # state that already forbids completion.
+        if not self.control.completion_allowed and self.control.permissions.publishes:
+            if self.input_coverage != "complete":
+                raise ValueError(
+                    "publication authority requires complete boundary input coverage"
+                )
+            if any(item.status in {"partial", "experimental"} for item in self.host_coverage):
+                raise ValueError(
+                    "partial or experimental host coverage cannot authorize publication"
+                )
         return self
 
 

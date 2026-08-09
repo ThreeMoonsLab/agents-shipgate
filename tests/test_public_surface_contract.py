@@ -211,8 +211,20 @@ PUBLIC_SURFACES = (
 # launch copy is allowed to reference historic releases (e.g. v0.5.1).
 # Schema files (`docs/{report,packet}-schema.v0.X.json`) are excluded
 # because their `$id` necessarily names their own frozen version.
+# Prompts the adoption kits render. Their runner pin and contract floor come
+# from the same build, so they track that build rather than the latest
+# published release — a CI example, which installs from PyPI, still tracks the
+# release.
+RENDERED_PROMPT_PIN_FILES = (
+    "prompts/add-shipgate-to-repo.md",
+    "prompts/decide-shipgate-relevance.md",
+    "skills/agents-shipgate/prompts/add-shipgate-to-repo.md",
+    "skills/agents-shipgate/prompts/decide-shipgate-relevance.md",
+    "plugins/claude-code/skills/agents-shipgate/prompts/add-shipgate-to-repo.md",
+    "plugins/claude-code/skills/agents-shipgate/prompts/decide-shipgate-relevance.md",
+)
 ACTION_PIN_FILES = (
-    *PUBLIC_SURFACES,
+    *(s for s in PUBLIC_SURFACES if s not in RENDERED_PROMPT_PIN_FILES),
     "docs/integrations.md",
     "docs/quickstart.md",
     "docs/target-repo-agent-snippets.md",
@@ -234,8 +246,6 @@ ACTION_PIN_FILES = (
     "examples/gitlab-ci/03-sarif-or-artifact.yml",
     "examples/gitlab-ci/04-multi-config-workspace.yml",
     "examples/gitlab-ci/05-on-tool-source-changes.yml",
-    "prompts/decide-shipgate-relevance.md",
-    "skills/agents-shipgate/prompts/decide-shipgate-relevance.md",
     "prompts/stabilize-strict-mode.md",
     "skills/agents-shipgate/prompts/stabilize-strict-mode.md",
     "skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml",
@@ -531,7 +541,7 @@ def test_well_known_metadata_lists_packet_outputs():
         ".well-known schemas.governance_benchmark_result must point to the "
         f"current result schema; got {benchmark_result_url!r}."
     )
-    assert "verify_run" in schemas and "verify-run-schema.v3.json" in schemas["verify_run"]
+    assert "verify_run" in schemas and "verify-run-schema.v4.json" in schemas["verify_run"]
     assert "verification_plan" in schemas
     assert "verification-plan-schema.v1.json" in schemas["verification_plan"]
     assert "verification_unit_result" in schemas
@@ -544,7 +554,7 @@ def test_well_known_metadata_lists_packet_outputs():
     assert "verification-receipt-schema.v1.json" in schemas["verification_receipt"]
     assert "human_authorization" in schemas
     assert "human-authorization-schema.v1.json" in schemas["human_authorization"]
-    assert "agent_handoff" in schemas and "agent-handoff-schema.v6.json" in schemas["agent_handoff"]
+    assert "agent_handoff" in schemas and "agent-handoff-schema.v7.json" in schemas["agent_handoff"]
     assert (
         "codex_boundary_result" in schemas
         and "codex-boundary-result-schema.v2.json" in schemas["codex_boundary_result"]
@@ -819,8 +829,13 @@ def test_action_pins_match_latest_published_version(relpath):
 @pytest.mark.parametrize("relpath", ACTION_PIN_FILES)
 def test_pip_pins_match_latest_published_version(relpath):
     """Every `agents-shipgate==X.Y.Z` install pin in a public surface
-    must equal the latest published version. Same drift guard as the Action
-    pin test, for pip-based CI examples."""
+    must equal the version of the build that emitted it.
+
+    The runner pin and the contract floor a prompt demands are rendered from
+    the same build (``{{ shipgate_version }}`` /
+    ``{{ minimum_control_contract_version }}``), so they cannot drift apart.
+    Pinning the latest *published* release instead is what produced the
+    contradiction the rendered-prompt guard prevents."""
     expected = LATEST_PUBLISHED_VERSION
     for line_number, line, found in _file_lines_with_pin(relpath, PIP_PIN_PATTERN):
         assert found == expected, (
@@ -840,7 +855,9 @@ def test_uvx_pins_match_latest_published_version(relpath):
     could leave a stale ``uvx agents-shipgate@…`` literal in a bundled
     prompt. The ``pipx run agents-shipgate==X.Y.Z`` form is already
     covered by ``PIP_PIN_PATTERN`` and the ``@v`` Action form by
-    ``ACTION_PIN_PATTERN``."""
+    ``ACTION_PIN_PATTERN``. Like the pip pin, this tracks the emitting build
+    rather than the latest published release, so the pin always satisfies the
+    contract floor rendered beside it."""
     expected = LATEST_PUBLISHED_VERSION
     for line_number, line, found in _file_lines_with_pin(relpath, UVX_PIN_PATTERN):
         assert found == expected, (
@@ -2903,3 +2920,25 @@ def test_read_first_instructions_match_contract_agent_read_order(relpath):
             f"contract's agent_read_order starts with {first_artifact!r} "
             "(see docs/agent-contract-current.md § Two read entry points)."
         )
+
+
+@pytest.mark.parametrize("relpath", RENDERED_PROMPT_PIN_FILES)
+def test_rendered_prompt_pins_match_the_emitting_build(relpath):
+    """A rendered prompt's runner pin must satisfy the floor it demands.
+
+    Both come from ``{{ shipgate_version }}`` and
+    ``{{ minimum_control_contract_version }}``, rendered by the build that
+    emitted the file. Hand-writing either is what produced the contradiction
+    these prompts shipped with: a pinned runner reporting contract 10 beside a
+    demand for a much higher floor, which no agent following the prompt
+    literally could ever satisfy.
+    """
+
+    for pattern in (PIP_PIN_PATTERN, UVX_PIN_PATTERN):
+        for line_number, line, found in _file_lines_with_pin(relpath, pattern):
+            assert found == __version__, (
+                f"{relpath}:{line_number} pins agents-shipgate {found}; this "
+                f"build is {__version__}. Render the pin from "
+                f"{{{{ shipgate_version }}}} rather than hand-writing it.\n"
+                f"  line: {line.strip()!r}"
+            )

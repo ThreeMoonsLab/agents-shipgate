@@ -48,7 +48,7 @@ index 0000000..1111111
 
     after = _snapshot(tmp_path)
     assert after == before
-    assert payload["schema_version"] == "shipgate.agent_boundary_result/v1"
+    assert payload["schema_version"] == "shipgate.agent_boundary_result/v2"
     assert payload["agent"] == "cursor"
     assert payload["actor"] == "cursor"
     assert payload["affected_hosts"] == ["codex"]
@@ -310,7 +310,7 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
 
     payload = shipgate_handoff(verifier_path=str(output_dir / "verifier.json"))
 
-    assert payload["schema_version"] == "shipgate.agent_handoff/v6"
+    assert payload["schema_version"] == "shipgate.agent_handoff/v7"
     assert payload["gate"]["merge_verdict"] == "mergeable"
     assert payload["control"]["state"] == "complete"
     assert _snapshot(tmp_path) == before

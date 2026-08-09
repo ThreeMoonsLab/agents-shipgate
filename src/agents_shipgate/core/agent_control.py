@@ -20,10 +20,15 @@ from agents_shipgate.schemas.agent_control import (
     CodingAgentFetchBaseAction,
     CompleteAgentControl,
     HumanControlAction,
+    HumanReviewAction,
     HumanReviewRequiredControl,
+    NoAgentPermissions,
     NoHumanReview,
+    PublishOnlyPermissions,
     RequiredHumanReview,
+    ReviewPublishableControl,
     normalize_legacy_agent_control,
+    project_legacy_agent_control,
 )
 
 
@@ -38,6 +43,7 @@ def derive_agent_control(
     verify_required: bool = False,
     human_review_required: bool = False,
     unsafe_block: bool = False,
+    publication_allowed: bool = False,
     allowed_next_commands: Sequence[str] = (),
     human_review_why: str | None = None,
     required_reviewers: Sequence[str] = (),
@@ -46,12 +52,26 @@ def derive_agent_control(
     """Project normalized obligations onto exactly one control state.
 
     Precedence is intentionally explicit: human-only review or an unsafe block
-    stops; otherwise an exact coding-agent route remains actionable; otherwise
-    pending verification without a route is an internal consistency error; and
-    only an obligation-free result is complete.
+    routes to a human; otherwise an exact coding-agent route remains
+    actionable; otherwise pending verification without a route is an internal
+    consistency error; and only an obligation-free result is complete.
 
-    ``completion_allowed`` and ``must_stop`` are not inputs.  They are fixed by
-    the selected union variant and therefore cannot drift across projections.
+``publication_allowed`` is one fact, asserted by the caller, meaning "this
+    result rests on a change Shipgate actually read and can stand behind".  It
+    governs the ``permissions`` vector on *every* route, not only human ones,
+    and it defaults to ``False`` so a caller that has not thought about it
+    authorizes nothing.
+
+    It is deliberately not inferred from ``next_action.kind``.  A kind
+    allowlist is a heuristic, and a wrong one grants publication for a change
+    that was never read: ``verify`` stopping at a missing manifest emits a
+    ``configure`` route with ``execution=failed`` and no diff, which any
+    plausible allowlist would have treated as evaluated.  On a human route the
+    same fact additionally selects ``review_publishable`` over the total stop.
+
+    ``completion_allowed``, ``must_stop``, and ``permissions`` are not inputs.
+    They are fixed by the selected union variant and therefore cannot drift
+    across projections.
     """
 
     action = _validate_action(next_action)
@@ -67,6 +87,36 @@ def derive_agent_control(
             kind="stop" if unsafe_block else "review",
             why=review_why,
         )
+        if publication_allowed:
+            if unsafe_block or human_action.kind == "stop":
+                raise AgentControlConsistencyError(
+                    "an unsafe block cannot also authorize publishing the change"
+                )
+            if stop_reason:
+                raise AgentControlConsistencyError(
+                    "a publishable review does not stop, so it cannot carry a stop reason"
+                )
+            commands = list(dict.fromkeys(allowed_next_commands))
+            if len(commands) > 1:
+                raise AgentControlConsistencyError(
+                    "a publishable review may offer at most one exact rerun command"
+                )
+            return ReviewPublishableControl(
+                state="review_publishable",
+                reason=reason,
+                verify_required=verify_required,
+                next_action=HumanReviewAction(why=human_action.why),
+                allowed_next_commands=commands,
+                permissions=PublishOnlyPermissions(),
+                human_review=RequiredHumanReview(
+                    why=review_why,
+                    required_reviewers=list(required_reviewers),
+                ),
+            )
+        if allowed_next_commands:
+            raise AgentControlConsistencyError(
+                "a stopping result cannot expose allowed next commands"
+            )
         return HumanReviewRequiredControl(
             state="human_review_required",
             reason=reason,
@@ -93,6 +143,9 @@ def derive_agent_control(
             verify_required=verify_required or action_requires_verify,
             next_action=action,
             allowed_next_commands=commands,
+            permissions=(
+                PublishOnlyPermissions() if publication_allowed else NoAgentPermissions()
+            ),
             human_review=NoHumanReview(),
         )
 
@@ -136,4 +189,5 @@ __all__ = [
     "AgentControlConsistencyError",
     "derive_agent_control",
     "normalize_legacy_agent_control",
+    "project_legacy_agent_control",
 ]

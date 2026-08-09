@@ -674,8 +674,15 @@ def test_plugin_enabled_verification_never_exposes_authorized_command(
         "authorization_requires_plugins_disabled"
     ]
     assert verifier.authorization.command is None
-    assert verifier.control.state == "human_review_required"
-    assert verifier.control.allowed_next_commands == []
+    # Contract v20: the review route may publish, so it may name the rerun that
+    # regenerates this evidence. It must never name the authorized operation.
+    assert verifier.control.state == "review_publishable"
+    assert verifier.control.permissions.merge is False
+    assert verifier.control.permissions.report_complete is False
+    assert verifier.fix_task is not None
+    assert verifier.control.allowed_next_commands == [
+        verifier.fix_task.verification_command
+    ]
 
 
 @pytest.mark.parametrize(
@@ -691,7 +698,7 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
     initial, report, exit_code = _verify(repo)
     assert exit_code == 0
     assert report is not None
-    assert initial.control.state == "human_review_required"
+    assert initial.control.state == "review_publishable"
     _validated_receipt(repo / "agents-shipgate-reports")
 
     request = _request_from_first_verification(repo)
@@ -779,10 +786,16 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
         "missing_trust": {"trust_policy_unavailable"},
     }
     assert expected_reasons[failure] <= set(rejected.authorization.reason_codes)
-    assert rejected.control.state == "human_review_required"
-    assert rejected.control.must_stop is True
+    # A rejected grant falls back to the ordinary review route: merge and
+    # completion stay denied, and no authorized operation command is exposed.
+    assert rejected.control.state == "review_publishable"
     assert rejected.control.completion_allowed is False
-    assert rejected.control.allowed_next_commands == []
+    assert rejected.control.permissions.merge is False
+    assert rejected.control.permissions.report_complete is False
+    assert rejected.fix_task is not None
+    assert rejected.control.allowed_next_commands == [
+        rejected.fix_task.verification_command
+    ]
     assert getattr(rejected.control.next_action, "command", None) is None
 
     out = repo / "agents-shipgate-reports"

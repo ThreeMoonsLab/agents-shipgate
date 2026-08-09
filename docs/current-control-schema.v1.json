@@ -16,6 +16,17 @@
           "title": "Must Stop",
           "type": "boolean"
         },
+        "permissions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishOnlyPermissions"
+            },
+            {
+              "$ref": "#/$defs/NoAgentPermissions"
+            }
+          ],
+          "title": "Permissions"
+        },
         "reason": {
           "minLength": 1,
           "title": "Reason",
@@ -31,7 +42,8 @@
         "state",
         "reason",
         "completion_allowed",
-        "must_stop"
+        "must_stop",
+        "permissions"
       ],
       "title": "AgentActionRequiredCurrentControl",
       "type": "object"
@@ -52,6 +64,9 @@
           "title": "Must Stop",
           "type": "boolean"
         },
+        "permissions": {
+          "$ref": "#/$defs/FullAgentPermissions"
+        },
         "reason": {
           "minLength": 1,
           "title": "Reason",
@@ -67,7 +82,8 @@
         "state",
         "reason",
         "completion_allowed",
-        "must_stop"
+        "must_stop",
+        "permissions"
       ],
       "title": "CompleteCurrentControl",
       "type": "object"
@@ -105,6 +121,7 @@
           "agent_action_required": "#/$defs/AgentActionRequiredCurrentControl",
           "complete": "#/$defs/CompleteCurrentControl",
           "human_review_required": "#/$defs/HumanReviewRequiredCurrentControl",
+          "review_publishable": "#/$defs/ReviewPublishableCurrentControl",
           "unavailable": "#/$defs/UnavailableCurrentControl"
         },
         "propertyName": "state"
@@ -118,6 +135,9 @@
         },
         {
           "$ref": "#/$defs/AgentActionRequiredCurrentControl"
+        },
+        {
+          "$ref": "#/$defs/ReviewPublishableCurrentControl"
         },
         {
           "$ref": "#/$defs/HumanReviewRequiredCurrentControl"
@@ -262,6 +282,58 @@
       "title": "CurrentControlWorkspaceIdentity",
       "type": "object"
     },
+    "FullAgentPermissions": {
+      "additionalProperties": false,
+      "description": "Terminal authority: the verifier already authorizes merge.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": true,
+          "default": true,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": true,
+          "default": true,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "FullAgentPermissions",
+      "type": "object"
+    },
     "HumanReviewRequiredCurrentControl": {
       "additionalProperties": false,
       "description": "The referenced run stops the coding agent pending human review.",
@@ -278,6 +350,9 @@
           "title": "Must Stop",
           "type": "boolean"
         },
+        "permissions": {
+          "$ref": "#/$defs/NoAgentPermissions"
+        },
         "reason": {
           "minLength": 1,
           "title": "Reason",
@@ -293,9 +368,154 @@
         "state",
         "reason",
         "completion_allowed",
-        "must_stop"
+        "must_stop",
+        "permissions"
       ],
       "title": "HumanReviewRequiredCurrentControl",
+      "type": "object"
+    },
+    "NoAgentPermissions": {
+      "additionalProperties": false,
+      "description": "None of the six pull-request actions is authorized.\n\nTwo different states carry this vector, for the same underlying reason \u2014\nShipgate has no assessment it is willing to stand behind.\n``human_review_required`` additionally ends the turn.  An\n``agent_action_required`` route whose subject was never evaluated does not\nend the turn, but the only thing it authorizes is the named\n``next_action``: there is no evaluated change yet, so there is nothing to\npublish and no basis for saying publishing it is safe.",
+      "properties": {
+        "commit": {
+          "const": false,
+          "default": false,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": false,
+          "default": false,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": false,
+          "default": false,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": false,
+          "default": false,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "NoAgentPermissions",
+      "type": "object"
+    },
+    "PublishOnlyPermissions": {
+      "additionalProperties": false,
+      "description": "Progress authority without merge or completion authority.",
+      "properties": {
+        "commit": {
+          "const": true,
+          "default": true,
+          "title": "Commit",
+          "type": "boolean"
+        },
+        "edit": {
+          "const": true,
+          "default": true,
+          "title": "Edit",
+          "type": "boolean"
+        },
+        "merge": {
+          "const": false,
+          "default": false,
+          "title": "Merge",
+          "type": "boolean"
+        },
+        "push": {
+          "const": true,
+          "default": true,
+          "title": "Push",
+          "type": "boolean"
+        },
+        "report_complete": {
+          "const": false,
+          "default": false,
+          "title": "Report Complete",
+          "type": "boolean"
+        },
+        "update_pr": {
+          "const": true,
+          "default": true,
+          "title": "Update Pr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "edit",
+        "commit",
+        "push",
+        "update_pr",
+        "merge",
+        "report_complete"
+      ],
+      "title": "PublishOnlyPermissions",
+      "type": "object"
+    },
+    "ReviewPublishableCurrentControl": {
+      "additionalProperties": false,
+      "description": "A human gates the merge; the agent may still publish for that review.\n\nThe pointer carries ``permissions`` because this is the one read a consumer\nis obliged to make before acting, and ``must_stop`` alone cannot answer the\nquestion it is asked here: `false` distinguishes this state from a total\nstop but says nothing about which actions the run authorized. Every variant\ncarries the vector so that answer never depends on the state tag.",
+      "properties": {
+        "completion_allowed": {
+          "const": false,
+          "default": false,
+          "title": "Completion Allowed",
+          "type": "boolean"
+        },
+        "must_stop": {
+          "const": false,
+          "default": false,
+          "title": "Must Stop",
+          "type": "boolean"
+        },
+        "permissions": {
+          "$ref": "#/$defs/PublishOnlyPermissions"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "const": "review_publishable",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "completion_allowed",
+        "must_stop",
+        "permissions"
+      ],
+      "title": "ReviewPublishableCurrentControl",
       "type": "object"
     },
     "UnavailableCurrentControl": {
@@ -314,6 +534,9 @@
           "title": "Must Stop",
           "type": "boolean"
         },
+        "permissions": {
+          "$ref": "#/$defs/NoAgentPermissions"
+        },
         "reason": {
           "minLength": 1,
           "title": "Reason",
@@ -329,7 +552,8 @@
         "state",
         "reason",
         "completion_allowed",
-        "must_stop"
+        "must_stop",
+        "permissions"
       ],
       "title": "UnavailableCurrentControl",
       "type": "object"

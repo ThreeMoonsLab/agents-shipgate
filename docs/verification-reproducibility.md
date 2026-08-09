@@ -151,7 +151,7 @@ cross-executor equivalence qualification that are not present in v1.
 
 ## Reviewed authorization overlay
 
-Runtime contract v19 can project one externally authorized coding-agent action
+Runtime contract v20 can project one externally authorized coding-agent action
 without changing the release decision. This is an overlay on a completed
 verification graph, not an input that lets a worker or repository assert human
 approval.

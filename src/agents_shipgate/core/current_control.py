@@ -43,7 +43,12 @@ from agents_shipgate.core.verification_identity import (
     read_regular_file_beneath,
     worktree_overlay,
 )
-from agents_shipgate.schemas.agent_control import AgentControl
+from agents_shipgate.schemas.agent_control import (
+    AgentControl,
+    FullAgentPermissions,
+    NoAgentPermissions,
+    PublishOnlyPermissions,
+)
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
     RECEIPT_ARTIFACT_KEY,
@@ -55,6 +60,7 @@ from agents_shipgate.schemas.current_control import (
     CurrentControlProjection,
     CurrentControlWorkspaceIdentity,
     HumanReviewRequiredCurrentControl,
+    ReviewPublishableCurrentControl,
     UnavailableCurrentControl,
     current_control_identity_payload,
 )
@@ -366,13 +372,37 @@ def project_agent_control(
                     "A completion-authorizing control was projected without a "
                     "verify receipt for this exact request, so it is refused."
                 ),
+                permissions=NoAgentPermissions(),
             )
-        return CompleteCurrentControl(state="complete", reason=control.reason)
+        return CompleteCurrentControl(
+            state="complete",
+            reason=control.reason,
+            permissions=FullAgentPermissions(),
+        )
     if control.state == "human_review_required":
         return HumanReviewRequiredCurrentControl(
-            state="human_review_required", reason=control.reason
+            state="human_review_required",
+            reason=control.reason,
+            permissions=NoAgentPermissions(),
         )
-    return AgentActionRequiredCurrentControl(state="agent_action_required", reason=control.reason)
+    # The permission vector is carried through verbatim rather than re-derived.
+    # This is a projection: re-deriving authority here would make the pointer a
+    # second decision engine, which is the one thing it must never be.
+    if control.state == "review_publishable":
+        return ReviewPublishableCurrentControl(
+            state="review_publishable",
+            reason=control.reason,
+            permissions=PublishOnlyPermissions(),
+        )
+    return AgentActionRequiredCurrentControl(
+        state="agent_action_required",
+        reason=control.reason,
+        permissions=(
+            PublishOnlyPermissions()
+            if control.permissions.publishes
+            else NoAgentPermissions()
+        ),
+    )
 
 
 def workspace_identity_from_plan(plan: VerificationPlan) -> CurrentControlWorkspaceIdentity:

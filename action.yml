@@ -284,7 +284,7 @@ outputs:
     description: True only for a verified passed result or a completed deterministic not-applicable skip.
     value: ${{ steps.report_outputs.outputs.can_merge_without_human }}
   agent_control_state:
-    description: Authoritative agent control state (`complete`, `agent_action_required`, or `human_review_required`).
+    description: Authoritative agent control state (`complete`, `agent_action_required`, `review_publishable`, or `human_review_required`). `review_publishable` authorizes commit/push/PR updates while denying merge and completion.
     value: ${{ steps.report_outputs.outputs.agent_control_state }}
   agent_control_reason:
     description: Deterministic reason for the authoritative agent control state.

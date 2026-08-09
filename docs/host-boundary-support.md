@@ -63,7 +63,7 @@ The path and precedence fixtures are pinned to the vendor contracts for
 
 ## Reading the result
 
-For local control, parse `shipgate.agent_boundary_result/v1` and switch on
+For local control, parse `shipgate.agent_boundary_result/v2` and switch on
 `control.state`. Review `input_coverage`, `host_coverage[]`, `affected_hosts[]`,
 `issues[]`, and `excluded_scopes[]` before relying on the result.
 

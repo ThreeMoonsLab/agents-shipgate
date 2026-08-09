@@ -40,7 +40,7 @@ shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
-`shipgate.agent_boundary_result/v1`; switch on `control.state`, then follow
+`shipgate.agent_boundary_result/v2`; switch on `control.state`, then follow
 `control.next_action`, `control.allowed_next_commands`, and
 `control.human_review`. Treat `decision` as diagnostic context, not as the
 operational control signal. Do not infer control from prose.
@@ -49,9 +49,14 @@ Before finishing an agent-related diff, run `shipgate check`. If
 `control.state=complete`, summarize the result and finish. If
 `control.state=agent_action_required`, perform only the exact coding-agent
 action and command authorized by `control.next_action`, then rerun the command.
-If `control.state=human_review_required`, stop and surface the JSON result to a
-human. Conversation-level acknowledgement never clears this state; only a new
-verifier artifact can do so.
+If `control.state=review_publishable`, a human must approve the merge — surface
+the JSON result and note that you may still commit, push, and update the pull
+request so that review can happen. If `control.state=human_review_required`,
+stop and surface the JSON result to a human. `control.permissions` states the
+authority exactly: updating a pull request is not merging it, and
+`permissions.merge` / `permissions.report_complete` are false on every state
+except `complete`. Conversation-level acknowledgement never clears these
+states; only a new verifier artifact can do so.
 
 For committed PR/CI verification, run `agents-shipgate verify --base
 origin/main --head HEAD --json` after making the base ref available; it never

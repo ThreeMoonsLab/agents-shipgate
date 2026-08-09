@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.install_hooks import (
@@ -689,6 +690,98 @@ def test_stop_hook_hands_off_instead_of_blocking_on_human_review(tmp_path: Path)
     rerun = _run_stop_hook(tmp_path, verify_payload=payload)
     assert rerun.returncode == 0, rerun.stderr
     assert rerun.stdout == ""
+
+
+def test_stop_hook_says_publishing_is_still_authorized_on_review_publishable(
+    tmp_path: Path,
+) -> None:
+    # Contract v20: a human gates the merge, not the pull request. The turn
+    # still ends — the agent has no Shipgate work left — but the notice must
+    # not read as "stop everything", or the workflow deadlocks on a change
+    # that was never published for the human to look at.
+    _stop_hook_workspace(tmp_path)
+    payload = json.dumps(
+        {
+            "release_decision": {
+                "decision": "review_required",
+                "blockers": [],
+                "review_items": [{}],
+            },
+            "control": {
+                "state": "review_publishable",
+                "reason": "capability change requires a reviewer",
+                "must_stop": False,
+                "allowed_next_commands": ["agents-shipgate verify --json"],
+                "permissions": {
+                    "edit": True,
+                    "commit": True,
+                    "push": True,
+                    "update_pr": True,
+                    "merge": False,
+                    "report_complete": False,
+                },
+                "human_review": {
+                    "required": True,
+                    "why": "a reviewer must approve the new tool authority",
+                },
+            },
+        }
+    )
+    result = _run_stop_hook(tmp_path, verify_payload=payload)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert "decision" not in out
+    message = out["systemMessage"]
+    assert "A human must review" in message
+    assert "commit, push, and update the pull request" in message
+    assert "may not merge it or report the task complete" in message
+    assert "agents-shipgate verify --json" in message
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        None,
+        {"edit": True, "commit": True, "push": True, "update_pr": True,
+         "merge": True, "report_complete": False},
+        {"edit": False, "commit": False, "push": False, "update_pr": False,
+         "merge": False, "report_complete": False},
+    ],
+)
+def test_stop_hook_never_announces_publication_off_the_state_tag(
+    tmp_path: Path, permissions: dict[str, bool] | None
+) -> None:
+    """This is a raw-JSON consumer; the tag is not the grant.
+
+    A malformed payload can carry `review_publishable` with no vector, or one
+    that grants merge. Announcing publication off the state would hand out
+    authority the producer never wrote.
+    """
+
+    _stop_hook_workspace(tmp_path)
+    control: dict[str, object] = {
+        "state": "review_publishable",
+        "reason": "capability change requires a reviewer",
+        "must_stop": False,
+        "allowed_next_commands": ["agents-shipgate verify --json"],
+        "human_review": {"required": True, "why": "review"},
+    }
+    if permissions is not None:
+        control["permissions"] = permissions
+    payload = json.dumps(
+        {
+            "release_decision": {"decision": "review_required", "blockers": [], "review_items": [{}]},
+            "control": control,
+        }
+    )
+    result = _run_stop_hook(tmp_path, verify_payload=payload)
+    assert result.returncode == 0, result.stderr
+    message = json.loads(result.stdout)["systemMessage"]
+    assert "without the exact publish-only permission vector" in message
+    assert "commit, push, and update the pull request" not in message
+    # A malformed result must not be cached as a verified tree state.
+    rerun = _run_stop_hook(tmp_path, verify_payload=payload)
+    assert json.loads(rerun.stdout)["systemMessage"] == message
 
 
 def test_stop_hook_surfaces_fetch_base_without_inventing_a_command(

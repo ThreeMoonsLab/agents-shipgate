@@ -21,6 +21,8 @@ from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV
 from agents_shipgate.schemas.verifier import (
     VerifierArtifact,
     VerifierDiffStatus,
+    VerifierFixTask,
+    VerifierRepair,
     map_merge_verdict,
 )
 from agents_shipgate.schemas.verify_run import VerifyRunOutcome, build_verify_run_artifact
@@ -183,9 +185,9 @@ def test_handoff_rejects_tampered_current_verify_run_outcome() -> None:
 @pytest.mark.parametrize(
     ("schema_path", "control_path"),
     [
-        ("docs/verifier-schema.v0.7.json", ("control",)),
-        ("docs/agent-handoff-schema.v6.json", ("control",)),
-        ("docs/verify-run-schema.v3.json", ("outcome", "control")),
+        ("docs/verifier-schema.v0.8.json", ("control",)),
+        ("docs/agent-handoff-schema.v7.json", ("control",)),
+        ("docs/verify-run-schema.v4.json", ("outcome", "control")),
     ],
 )
 def test_generated_public_schemas_reject_contradictory_control(
@@ -196,9 +198,9 @@ def test_generated_public_schemas_reject_contradictory_control(
     run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
-        "docs/verifier-schema.v0.7.json": verifier.model_dump(mode="json"),
-        "docs/agent-handoff-schema.v6.json": handoff.model_dump(mode="json"),
-        "docs/verify-run-schema.v3.json": run.model_dump(mode="json"),
+        "docs/verifier-schema.v0.8.json": verifier.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v7.json": handoff.model_dump(mode="json"),
+        "docs/verify-run-schema.v4.json": run.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
     control = payload
@@ -212,7 +214,7 @@ def test_generated_public_schemas_reject_contradictory_control(
 
 @pytest.mark.parametrize(
     "schema_path",
-    ["docs/verifier-schema.v0.7.json", "docs/agent-handoff-schema.v6.json"],
+    ["docs/verifier-schema.v0.8.json", "docs/agent-handoff-schema.v7.json"],
 )
 def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
     schema_path: str,
@@ -221,8 +223,8 @@ def test_generated_schemas_reject_accepted_authorization_on_passed_gate(
     run = _passed_run(verifier)
     handoff = build_agent_handoff(verifier=verifier, verify_run=run)
     payload_by_schema = {
-        "docs/verifier-schema.v0.7.json": verifier.model_dump(mode="json"),
-        "docs/agent-handoff-schema.v6.json": handoff.model_dump(mode="json"),
+        "docs/verifier-schema.v0.8.json": verifier.model_dump(mode="json"),
+        "docs/agent-handoff-schema.v7.json": handoff.model_dump(mode="json"),
     }
     payload = deepcopy(payload_by_schema[schema_path])
     payload["authorization"] = _accepted_authorization().model_dump(mode="json")
@@ -249,7 +251,7 @@ def test_verifier_schema_requires_complete_authorized_projection(field: str) -> 
     payload = _authorized_verifier().model_dump(mode="json")
     payload.pop(field)
 
-    schema = json.loads((ROOT / "docs/verifier-schema.v0.7.json").read_text(encoding="utf-8"))
+    schema = json.loads((ROOT / "docs/verifier-schema.v0.8.json").read_text(encoding="utf-8"))
     assert list(Draft202012Validator(schema).iter_errors(payload))
 
 
@@ -367,5 +369,153 @@ def test_passed_wrapper_contradictions_fail_pydantic_and_generated_schema(
     mutate(payload)
     with pytest.raises(ValidationError):
         VerifierArtifact.model_validate(payload)
-    schema = json.loads((ROOT / "docs/verifier-schema.v0.7.json").read_text())
+    schema = json.loads((ROOT / "docs/verifier-schema.v0.8.json").read_text())
     assert list(Draft202012Validator(schema).iter_errors(payload))
+
+
+# --- Contract v20: a review route publishes evidence, it does not merge ----
+
+_RERUN = "agents-shipgate verify --config shipgate.yaml --head HEAD --json"
+
+
+def _human_fix_task() -> VerifierFixTask:
+    return VerifierFixTask(
+        actor="human",
+        safe_to_attempt=False,
+        instructions=["A reviewer must approve the new tool authority."],
+        allowed_repairs=[
+            VerifierRepair(
+                id="review_capability_change",
+                actor="human",
+                kind="investigate",
+                target="agents-shipgate-reports",
+                reason="A capability change needs a reviewer.",
+            )
+        ],
+        forbidden_repairs=[],
+        forbidden_shortcuts=["Do not suppress the finding to pass."],
+        verification_command=_RERUN,
+    )
+
+
+def _review_publishable_verifier(commands: list[str]) -> VerifierArtifact:
+    why = "A reviewer must approve the new tool authority."
+    return VerifierArtifact(
+        workspace="/tmp/repo",
+        diff_status=VerifierDiffStatus(),
+        config="shipgate.yaml",
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=_release_decision("review_required"),
+        decision="review_required",
+        merge_verdict="human_review_required",
+        applicability="verified",
+        can_merge_without_human=False,
+        control=derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(kind="review", why=why),
+            verify_required=True,
+            human_review_required=True,
+            publication_allowed=True,
+            allowed_next_commands=commands,
+            human_review_why=why,
+        ),
+        authorization=AuthorizationEvaluationV1.not_requested(),
+        fix_task=_human_fix_task(),
+    )
+
+
+def test_review_publishable_verifier_denies_merge_and_authorizes_the_rerun() -> None:
+    verifier = _review_publishable_verifier([_RERUN])
+
+    assert verifier.control.state == "review_publishable"
+    assert verifier.can_merge_without_human is False
+    assert verifier.control.completion_allowed is False
+    assert verifier.control.permissions.merge is False
+    assert verifier.control.permissions.report_complete is False
+    assert verifier.control.permissions.commit is True
+    assert verifier.control.permissions.push is True
+    assert verifier.control.permissions.update_pr is True
+    assert verifier.control.allowed_next_commands == [_RERUN]
+    assert verifier.control.next_action.actor == "human"
+
+    schema = json.loads(
+        (ROOT / "docs" / "verifier-schema.v0.8.json").read_text(encoding="utf-8")
+    )
+    Draft202012Validator(schema).validate(verifier.model_dump(mode="json"))
+
+
+def test_review_publishable_verifier_cannot_authorize_an_unrelated_command() -> None:
+    """Publishing evidence is authority over the PR, never over Shipgate."""
+
+    with pytest.raises(ValidationError):
+        _review_publishable_verifier([AUTHORIZED_COMMAND])
+
+
+@pytest.mark.parametrize(
+    ("execution", "decision", "applicability", "verdict"),
+    [
+        ("failed", None, "failed", "unknown"),
+        ("skipped", None, "not_applicable", "mergeable"),
+    ],
+)
+def test_publication_requires_a_completed_release_decision(
+    execution: str, decision: str | None, applicability: str, verdict: str
+) -> None:
+    """A run with no decision has nothing reviewable to publish.
+
+    The control variant alone cannot see the substrate, so without this
+    container invariant a hand-built artifact could pair `review_publishable`
+    with a failed run and keep every publication permission.
+    """
+
+    why = "A reviewer must approve this."
+    control = derive_agent_control(
+        reason=why,
+        next_action=HumanControlAction(kind="review", why=why),
+        human_review_required=True,
+        publication_allowed=True,
+        human_review_why=why,
+    )
+    with pytest.raises(ValidationError):
+        VerifierArtifact(
+            workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
+            config="shipgate.yaml",
+            execution=execution,  # type: ignore[arg-type]
+            head_status=execution,  # type: ignore[arg-type]
+            release_decision=None,
+            decision=decision,
+            merge_verdict=verdict,  # type: ignore[arg-type]
+            applicability=applicability,  # type: ignore[arg-type]
+            can_merge_without_human=execution == "skipped",
+            control=control,
+            authorization=AuthorizationEvaluationV1.not_requested(),
+        )
+
+
+def test_a_blocked_release_decision_cannot_authorize_publication() -> None:
+    why = "A reviewer must approve this."
+    control = derive_agent_control(
+        reason=why,
+        next_action=HumanControlAction(kind="review", why=why),
+        human_review_required=True,
+        publication_allowed=True,
+        human_review_why=why,
+    )
+    with pytest.raises(ValidationError):
+        VerifierArtifact(
+            workspace="/tmp/repo",
+            diff_status=VerifierDiffStatus(),
+            config="shipgate.yaml",
+            execution="succeeded",
+            head_status="succeeded",
+            release_decision=_release_decision("blocked"),
+            decision="blocked",
+            merge_verdict="blocked",
+            applicability="verified",
+            can_merge_without_human=False,
+            control=control,
+            authorization=AuthorizationEvaluationV1.not_requested(),
+            fix_task=_human_fix_task(),
+        )

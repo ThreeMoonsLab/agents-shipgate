@@ -27,11 +27,11 @@ Claude Code registration (`.mcp.json`):
 
 | Tool | Input | Output |
 |---|---|---|
-| `shipgate.check` | `{agent, workspace, diff_text, config?, policy?}` | exact `shipgate.agent_boundary_result/v1` |
+| `shipgate.check` | `{agent, workspace, diff_text, config?, policy?}` | exact `shipgate.agent_boundary_result/v2` |
 | `shipgate.preflight` | `{workspace?, config?, plan?, changed_files?, diff_text?, capability_request?, base_preflight?}` | exact `PreflightResultV3` |
 | `shipgate.explain` | `{check_id}` or `{fingerprint, report_path}` | deterministic check/finding explanation JSON |
 | `shipgate.capabilities` | `{config}` or `{base_lock, head_lock}` | capability lock or capability lock diff JSON |
-| `shipgate.handoff` | `{verifier_path, report_path?, verify_run_path?}` | exact `shipgate.agent_handoff/v6` |
+| `shipgate.handoff` | `{verifier_path, report_path?, verify_run_path?}` | exact `shipgate.agent_handoff/v7` |
 
 `shipgate.check` is the same protocol surface documented in
 [`agents/protocol.md`](agents/protocol.md). `shipgate.preflight` is proactive
@@ -54,7 +54,7 @@ complete `base`/`head` ref range before following a verification route.
 
 `shipgate.handoff` is a read-only projection over existing verifier artifacts.
 It never runs `verify`, shells out to git, or writes `agent-handoff.json`; it
-returns the same `shipgate.agent_handoff/v6` shape that `verify` writes for
+returns the same `shipgate.agent_handoff/v7` shape that `verify` writes for
 agents that need a compact control/release-readiness object.
 
 ## Trust model
