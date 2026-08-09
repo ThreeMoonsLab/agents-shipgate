@@ -1,0 +1,53 @@
+name: Release Rehearsal
+
+# A release candidate used to be first-run at the same moment publication
+# became possible: the only way to exercise release.yml was to push a `v*` tag,
+# which is also the only thing that can publish. Steps added after v0.15.0 had
+# therefore never executed when they were relied upon to gate a release.
+#
+# This workflow runs the identical verification path — same build, same
+# qualification validation, same tests, same audit, same SBOM, same
+# content-addressed handoff — by calling the same reusable workflow release.yml
+# calls. What it does not contain is a publication job.
+#
+# Three independent things prevent this from publishing, so a misconfigured
+# step cannot become a release:
+#
+#   1. There is no publication job in this file to instantiate.
+#   2. `permissions: contents: read` at workflow level. A job here cannot be
+#      granted write, so `gh release create` and tag creation fail.
+#   3. No `id-token: write` anywhere, so PyPI Trusted Publishing cannot mint a
+#      token. There is no `environment: pypi` either.
+#
+# See docs/release-runbook.md: a rehearsal on the candidate commit is a
+# prerequisite for pushing a release tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to rehearse. Defaults to the dispatch ref.
+        required: false
+        type: string
+        default: ""
+      release_tag:
+        description: >-
+          Tag to rehearse against. Leave empty to derive v<pyproject version>,
+          which is what the real tag will be.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    name: Rehearse candidate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      release_tag: ${{ inputs.release_tag }}
+      mode: rehearsal

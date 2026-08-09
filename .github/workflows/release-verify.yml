@@ -1,0 +1,360 @@
+name: Release Verification
+
+# Read-only verification of a release candidate. Called by release.yml (before
+# publication) and by release-rehearsal.yml (instead of publication), so the
+# rehearsal exercises the identical build, qualification, test, audit, SBOM and
+# handoff path rather than an approximation of it.
+#
+# This workflow never publishes. It holds `contents: read` and no `id-token`,
+# which caps what any caller can grant it: a reusable workflow cannot be
+# handed more permission than it declares. That is what makes the rehearsal
+# structurally incapable of publishing rather than merely configured not to.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to verify. A tag for a release, any ref for a rehearsal.
+        required: true
+        type: string
+      release_tag:
+        description: >-
+          Tag the candidate claims. Empty means "derive v<pyproject version>",
+          which is what a rehearsal on a branch checks against.
+        required: false
+        type: string
+        default: ""
+      mode:
+        description: Either "release" or "rehearsal". Affects reporting only.
+        required: false
+        type: string
+        default: rehearsal
+    outputs:
+      version:
+        description: Package version of the verified candidate.
+        value: ${{ jobs.verify.outputs.version }}
+      release_tag:
+        description: Tag the verified candidate is bound to.
+        value: ${{ jobs.verify.outputs.release_tag }}
+      wheel_filename:
+        description: Basename of the qualified wheel.
+        value: ${{ jobs.verify.outputs.wheel_filename }}
+      wheel_sha256:
+        description: SHA-256 of the wheel that verification approved.
+        value: ${{ jobs.verify.outputs.wheel_sha256 }}
+      manifest_sha256:
+        description: >-
+          SHA-256 of the candidate manifest. Travels through the job-output
+          channel rather than the artifact store, so the publication job can
+          detect artifact substitution.
+        value: ${{ jobs.verify.outputs.manifest_sha256 }}
+      artifact_name:
+        description: Name of the uploaded candidate bundle.
+        value: ${{ jobs.verify.outputs.artifact_name }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    # Measured, not estimated: the correctness suite runs ~7 min wall clock at
+    # `-n auto` on a 2-core hosted runner, and build + qualification + audit +
+    # SBOM add ~4 min. 25 minutes leaves roughly 2x headroom on the dominant
+    # term. Re-derive this from the rehearsal timings printed in the readiness
+    # summary whenever the suite grows materially; see docs/release-runbook.md.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.candidate.outputs.version }}
+      release_tag: ${{ steps.candidate.outputs.release_tag }}
+      wheel_filename: ${{ steps.qualified.outputs.wheel_filename }}
+      wheel_sha256: ${{ steps.handoff.outputs.wheel_sha256 }}
+      manifest_sha256: ${{ steps.handoff.outputs.manifest_sha256 }}
+      artifact_name: ${{ steps.handoff.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Resolve candidate version and tag
+        id: candidate
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
+          if [ -z "${version}" ]; then
+            echo "::error::Could not read version from pyproject.toml."
+            exit 1
+          fi
+          tag="${REQUESTED_TAG:-v${version}}"
+          # Fail fast before the test/qualification pipeline if the tag was cut
+          # on a commit whose pyproject.toml disagrees (e.g. a v0.15.0 tag
+          # pushed while main still says 0.14.0). PyPI uploads are immutable,
+          # so this is the last cheap moment to catch a mistagged release.
+          if [ "${tag}" != "v${version}" ]; then
+            echo "::error::Tag ${tag} does not match pyproject.toml version ${version}; refusing to release."
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "OK: ${tag} matches pyproject.toml (${version})."
+
+      - name: Require protected safety qualification inputs
+        env:
+          QUALIFIED_WHEEL_URL: ${{ vars.SAFETY_QUALIFICATION_WHEEL_URL }}
+          QUALIFIED_WHEEL_FILENAME: ${{ vars.SAFETY_QUALIFICATION_WHEEL_FILENAME }}
+          QUALIFICATION_JSON_URL: ${{ vars.SAFETY_QUALIFICATION_JSON_URL }}
+          QUALIFICATION_BUNDLE_URL: ${{ vars.SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL }}
+          QUALIFICATION_SIGNER_IDENTITY: ${{ vars.SAFETY_QUALIFICATION_SIGNER_IDENTITY }}
+          QUALIFICATION_OIDC_ISSUER: ${{ vars.SAFETY_QUALIFICATION_OIDC_ISSUER }}
+        run: |
+          missing=0
+          for name in \
+            QUALIFIED_WHEEL_URL \
+            QUALIFIED_WHEEL_FILENAME \
+            QUALIFICATION_JSON_URL \
+            QUALIFICATION_BUNDLE_URL \
+            QUALIFICATION_SIGNER_IDENTITY \
+            QUALIFICATION_OIDC_ISSUER
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Repository variable ${name} is required; refusing to release."
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+          for url in \
+            "${QUALIFIED_WHEEL_URL}" \
+            "${QUALIFICATION_JSON_URL}" \
+            "${QUALIFICATION_BUNDLE_URL}"
+          do
+            case "${url}" in
+              https://*) ;;
+              *) echo "::error::Qualification artifact URLs must use HTTPS."; exit 1 ;;
+            esac
+          done
+          case "${QUALIFIED_WHEEL_FILENAME}" in
+            *.whl) ;;
+            *) echo "::error::SAFETY_QUALIFICATION_WHEEL_FILENAME must be a wheel basename."; exit 1 ;;
+          esac
+          if [[ ! "${QUALIFIED_WHEEL_FILENAME}" =~ ^[A-Za-z0-9_.+-]+\.whl$ ]]; then
+            echo "::error::Qualified wheel filename contains unsafe characters or path components."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Build a wheel from the checked-out source
+        # The provenance gate this feeds is the only thing tying the published
+        # bytes back to the tagged commit. PIP_CONSTRAINT pins the build
+        # backend so the archive is byte-reproducible; without it a hatchling
+        # bump alone changes the wheel and the gate fails on a legitimate
+        # release. See constraints/release-build.txt.
+        env:
+          PIP_CONSTRAINT: constraints/release-build.txt
+        run: |
+          set -euo pipefail
+          if [ -e source-build ] || [ -L source-build ]; then
+            echo "::error::source-build must not pre-exist in the release checkout."
+            exit 1
+          fi
+          python -m build --wheel --outdir source-build .
+
+      - name: Download configured qualification inputs
+        id: qualified
+        env:
+          QUALIFIED_WHEEL_URL: ${{ vars.SAFETY_QUALIFICATION_WHEEL_URL }}
+          QUALIFIED_WHEEL_FILENAME: ${{ vars.SAFETY_QUALIFICATION_WHEEL_FILENAME }}
+          QUALIFICATION_JSON_URL: ${{ vars.SAFETY_QUALIFICATION_JSON_URL }}
+          QUALIFICATION_BUNDLE_URL: ${{ vars.SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -e qualified-dist ] || [ -L qualified-dist ]; then
+            echo "::error::qualified-dist must not pre-exist in the release checkout."
+            exit 1
+          fi
+          mkdir -p qualified-dist
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output "qualified-dist/${QUALIFIED_WHEEL_FILENAME}" \
+            "${QUALIFIED_WHEEL_URL}"
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output qualified-dist/safety-qualification.json \
+            "${QUALIFICATION_JSON_URL}"
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output qualified-dist/safety-qualification.sigstore.json \
+            "${QUALIFICATION_BUNDLE_URL}"
+          echo "QUALIFIED_WHEEL=qualified-dist/${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
+          echo "QUALIFIED_WHEEL_FILENAME=${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
+          echo "wheel_filename=${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify configured qualification signature
+        env:
+          QUALIFICATION_SIGNER_IDENTITY: ${{ vars.SAFETY_QUALIFICATION_SIGNER_IDENTITY }}
+          QUALIFICATION_OIDC_ISSUER: ${{ vars.SAFETY_QUALIFICATION_OIDC_ISSUER }}
+        run: |
+          sigstore verify identity \
+            --bundle qualified-dist/safety-qualification.sigstore.json \
+            --cert-identity "${QUALIFICATION_SIGNER_IDENTITY}" \
+            --cert-oidc-issuer "${QUALIFICATION_OIDC_ISSUER}" \
+            qualified-dist/safety-qualification.json
+
+      - name: Verify production qualification and exact wheel binding
+        env:
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+        run: |
+          python scripts/verify_safety_qualification_release.py \
+            --wheel "${QUALIFIED_WHEEL}" \
+            --qualification qualified-dist/safety-qualification.json \
+            --tag "${RELEASE_TAG}"
+          python -m twine check "${QUALIFIED_WHEEL}"
+
+      - name: Bind the qualified wheel to the tagged source tree
+        # Without this the pipeline tests the checkout and publishes a wheel
+        # downloaded from a repository variable, with nothing asserting the two
+        # correspond: any wheel declaring the right Name and Version passed.
+        # Byte equality is required; a container-metadata-only difference is
+        # reported as a reproducibility gap and still fails, because the
+        # weaker bar must never be taken silently.
+        run: |
+          python scripts/verify_wheel_provenance.py \
+            --built source-build/*.whl \
+            --qualified "${QUALIFIED_WHEEL}" \
+            --source-commit "${GITHUB_SHA}" \
+            --report provenance.json
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Compile
+        run: python -m compileall -q src tests
+
+      - name: Verify generated schemas are up to date
+        run: python scripts/generate_schemas.py --check
+
+      - name: Trust-model invariant lint (static, no user code execution)
+        # Kept as its own step, and excluded from the aggregate run below, so a
+        # release candidate that introduces a dynamic-import surface in an
+        # adapter fails with a named check rather than inside coverage noise.
+        run: python -m pytest tests/test_adapter_static_only.py -q
+
+      - name: Test
+        # Deliberately differs from CI in two ways, and only two:
+        #
+        #   * `-n auto` matches CI's supported parallelism. Serial execution
+        #     made a release candidate spend the whole budget re-running work
+        #     CI already parallelises.
+        #   * `-m "not perf"` excludes the latency-budget tests. CI is the
+        #     merge-time enforcement point for latency; those tests assert
+        #     wallclock medians and are the one part of the suite that fails
+        #     from shared-runner timing noise rather than from a defect. A
+        #     release candidate must fail on deterministic correctness
+        #     evidence, not on how busy the runner was.
+        #
+        # The coverage floor stays at CI's 85 so release cannot bypass it.
+        run: >-
+          python -m pytest -n auto -m "not perf"
+          --ignore=tests/test_adapter_static_only.py
+          --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
+
+      - name: Dependency audit
+        run: python -m pip_audit .
+
+      - name: Generate wheel-scoped SBOM
+        # Inventories an isolated runtime-only install of the qualified wheel.
+        # `cyclonedx-py environment` over `.[dev]` described the CI environment
+        # instead — pytest, ruff, twine, Sigstore and the CycloneDX tooling —
+        # so the signed SBOM attested to software the user never receives.
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          python scripts/release_sbom.py build \
+            --wheel "${QUALIFIED_WHEEL}" \
+            --output candidate/agents-shipgate-sbom.json
+          python scripts/release_sbom.py verify \
+            --wheel "${QUALIFIED_WHEEL}" \
+            --sbom candidate/agents-shipgate-sbom.json
+
+      - name: Assemble content-addressed candidate handoff
+        id: handoff
+        env:
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          cp -- "${QUALIFIED_WHEEL}" "candidate/${QUALIFIED_WHEEL_FILENAME}"
+          cp -- qualified-dist/safety-qualification.json candidate/safety-qualification.json
+          cp -- qualified-dist/safety-qualification.sigstore.json \
+            candidate/safety-qualification.sigstore.json
+          cp -- provenance.json candidate/provenance.json
+          cmp -- "${QUALIFIED_WHEEL}" "candidate/${QUALIFIED_WHEEL_FILENAME}"
+          python scripts/release_publication.py manifest \
+            --tag "${RELEASE_TAG}" \
+            --source-commit "${GITHUB_SHA}" \
+            --wheel "candidate/${QUALIFIED_WHEEL_FILENAME}" \
+            --asset candidate/agents-shipgate-sbom.json \
+            --asset candidate/safety-qualification.json \
+            --asset candidate/safety-qualification.sigstore.json \
+            --asset candidate/provenance.json \
+            --output candidate/candidate-manifest.json
+          manifest_sha256="$(python -c 'import hashlib,pathlib,sys; sys.stdout.write(hashlib.sha256(pathlib.Path("candidate/candidate-manifest.json").read_bytes()).hexdigest())')"
+          wheel_sha256="$(python -c 'import hashlib,pathlib,os,sys; sys.stdout.write(hashlib.sha256(pathlib.Path("candidate/"+os.environ["QUALIFIED_WHEEL_FILENAME"]).read_bytes()).hexdigest())')"
+          {
+            echo "manifest_sha256=${manifest_sha256}"
+            echo "wheel_sha256=${wheel_sha256}"
+            echo "artifact_name=release-candidate-${RELEASE_TAG}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload candidate bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.handoff.outputs.artifact_name }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Readiness summary
+        env:
+          MODE: ${{ inputs.mode }}
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+          WHEEL_FILENAME: ${{ steps.qualified.outputs.wheel_filename }}
+          WHEEL_SHA256: ${{ steps.handoff.outputs.wheel_sha256 }}
+          MANIFEST_SHA256: ${{ steps.handoff.outputs.manifest_sha256 }}
+        run: |
+          {
+            echo "## Release candidate ${RELEASE_TAG} (${MODE})"
+            echo
+            echo "| Control | Result |"
+            echo "| --- | --- |"
+            echo "| Tag matches pyproject version | pass |"
+            echo "| Qualification signature identity | pass |"
+            echo "| Production qualification policy | pass |"
+            echo "| Wheel bound to tagged source | $(python -c 'import json,sys; sys.stdout.write(json.load(open("provenance.json"))["provenance_mode"])') |"
+            echo "| Correctness suite (-n auto, not perf) | pass |"
+            echo "| Dependency audit | pass |"
+            echo "| Wheel-scoped SBOM | pass |"
+            echo
+            echo "- Wheel: \`${WHEEL_FILENAME}\`"
+            echo "- Wheel SHA-256: \`${WHEEL_SHA256}\`"
+            echo "- Candidate manifest SHA-256: \`${MANIFEST_SHA256}\`"
+            echo
+            if [ "${MODE}" = "rehearsal" ]; then
+              echo "Rehearsal only. This workflow holds no publication authority:"
+              echo "no PyPI upload, no tag, and no GitHub Release was created."
+            else
+              echo "Verification complete. Publication requires \`pypi\` environment approval."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

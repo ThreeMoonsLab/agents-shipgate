@@ -324,8 +324,26 @@ def test_marketplace_action_repo_has_ci_and_release_workflows():
 
 
 def test_release_workflow_uses_release_security_steps():
+    import yaml
+
     text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 
     assert "uv publish --trusted-publishing always" in text
     assert "sigstore sign" in text
-    assert "cyclonedx-py environment" in text
+
+    # Checked against the commands the workflows actually run, not their text:
+    # both files discuss the superseded `cyclonedx-py environment` scan in
+    # comments explaining why it was replaced.
+    commands = []
+    for name in ("release.yml", "release-verify.yml"):
+        parsed = yaml.safe_load(Path(".github/workflows", name).read_text(encoding="utf-8"))
+        for job in parsed["jobs"].values():
+            commands.extend(step["run"] for step in (job.get("steps") or []) if "run" in step)
+    joined = "\n".join(commands)
+
+    # The SBOM describes an isolated runtime-only install of the shipped
+    # wheel. Scanning the CI environment inventoried pytest, ruff, twine and
+    # Sigstore instead — a signed attestation about software the user never
+    # receives.
+    assert "scripts/release_sbom.py build" in joined
+    assert "cyclonedx-py environment" not in joined
