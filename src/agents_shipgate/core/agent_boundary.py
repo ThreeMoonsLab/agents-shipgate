@@ -1313,6 +1313,7 @@ def _structural_diff_issues(
 ) -> list[BoundaryInputIssue]:
     issues: list[BoundaryInputIssue] = []
     seen_paths: set[str] = set()
+    duplicate_paths_seen: set[str] = set()
     if diff_text.strip() and not diff_files:
         issues.append(
             BoundaryInputIssue(
@@ -1328,17 +1329,7 @@ def _structural_diff_issues(
         duplicate_paths = sorted(record_paths.intersection(seen_paths))
         seen_paths.update(record_paths)
         if duplicate_paths:
-            issues.extend(
-                BoundaryInputIssue(
-                    code="boundary_diff_shape_invalid",
-                    path=path,
-                    message=(
-                        "The supplied diff contains more than one file record "
-                        "for the same path; one coherent record per path is required."
-                    ),
-                )
-                for path in duplicate_paths
-            )
+            duplicate_paths_seen.update(duplicate_paths)
             continue
         shape_errors = [
             *(
@@ -1422,6 +1413,20 @@ def _structural_diff_issues(
                     ),
                 )
             )
+    if duplicate_paths_seen:
+        shown = ", ".join(sorted(duplicate_paths_seen)[:3])
+        suffix = "" if len(duplicate_paths_seen) <= 3 else ", …"
+        issues.append(
+            BoundaryInputIssue(
+                code="boundary_diff_shape_invalid",
+                path="<diff>",
+                message=(
+                    "The supplied diff contains multiple file records for "
+                    f"{len(duplicate_paths_seen)} path(s) ({shown}{suffix}); "
+                    "one coherent record per path is required."
+                ),
+            )
+        )
     return issues
 
 

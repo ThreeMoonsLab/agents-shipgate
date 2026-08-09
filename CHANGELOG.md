@@ -48,6 +48,21 @@
   with `must_stop: true`. The installed Claude Code Stop hook now says, on a
   publishable review, that commit/push/PR-update remain authorized and names
   the rerun command. ([#335](https://github.com/ThreeMoonsLab/agents-shipgate/issues/335))
+- **Local verification now evaluates committed and uncommitted edits as one
+  effective worktree diff.** When a branch change and a review follow-up touch
+  the same path, `verify` compares the merge base directly with the current
+  worktree instead of concatenating overlapping diff records. The evaluated
+  change set is merge-base-relative while the overlay is HEAD-relative, so the
+  verification plan binds the exact HEAD-relative overlay path set separately —
+  a path canceled by an uncommitted edit leaves policy evaluation but stays
+  bound, at its real content, in the receipt. Canceled committed changes are
+  called out in `base_notes`; worktree diff collection honors repositories that
+  set `core.fileMode=false` rather than forcing Git's mode reads on, which had
+  turned every tracked file in such a checkout into a phantom mode change; and a
+  plan that predates the bound overlay path set fails with an explicit
+  re-prepare action.
+  ([#336](https://github.com/ThreeMoonsLab/agents-shipgate/issues/336))
+
 - **A coding agent can no longer enforce a verifier result the workspace has
   outgrown.** The reported failure ran forward: a worktree verify returned
   `human_review_required`, a human committed the reviewed change, a fresh

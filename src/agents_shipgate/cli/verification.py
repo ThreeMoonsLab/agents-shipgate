@@ -29,10 +29,12 @@ from agents_shipgate.cli.verify.git import (
     merge_base_sha,
     ref_exists,
     repository_identity,
+    require_merge_base_sha,
     resolve_source_head_identity,
     tree_sha,
     validate_source_head_identity,
     working_tree_context,
+    working_tree_paths,
 )
 from agents_shipgate.config.loader import load_yaml_file
 from agents_shipgate.core.agent_handoff import build_agent_handoff
@@ -54,10 +56,11 @@ from agents_shipgate.core.verification_identity import (
     build_terminal_receipt,
     build_unit_result,
     build_verification_plan,
-    sha256_file,
+    plan_worktree_overlay_paths,
     validate_engine_requirement,
     validate_plan_inputs,
     validate_receipt_artifacts,
+    worktree_overlay,
 )
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.json_report import report_json_payload
@@ -124,11 +127,23 @@ def prepare(
         ),
         repository=repository_identity(root),
     )
-    changed, diff_text = (
-        diff_context(root, base, head_ref)
-        if base
-        else working_tree_context(root, reject_index_hidden=True)
-    )
+    worktree_overlay_paths: list[str] | None = None
+    if head is not None:
+        changed, diff_text = diff_context(root, base, head_ref)
+    elif base:
+        worktree_overlay_paths = working_tree_paths(root)
+        effective_base = require_merge_base_sha(root, base, head_ref)
+        changed, diff_text = working_tree_context(
+            root,
+            comparison_ref=effective_base,
+            reject_index_hidden=True,
+        )
+    else:
+        worktree_overlay_paths, overlay_diff = working_tree_context(
+            root,
+            reject_index_hidden=True,
+        )
+        changed, diff_text = worktree_overlay_paths, overlay_diff
     resolved_date = evaluation_date or commit_date(root, head_ref)
     config_relative = _under(root, config).relative_to(root)
     policy_paths = [_under(root, path) for path in policy_packs or []]
@@ -156,6 +171,7 @@ def prepare(
             ci_mode=ci_mode,
             no_plugins=no_plugins,
             no_heuristics=no_heuristics,
+            worktree_overlay_paths=worktree_overlay_paths,
         )
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
@@ -237,6 +253,7 @@ def _build_plan(
     ci_mode: str,
     no_plugins: bool,
     no_heuristics: bool,
+    worktree_overlay_paths: list[str] | None = None,
 ) -> VerificationPlan:
     """Build the worktree or committed-tree plan for ``prepare``."""
 
@@ -251,7 +268,11 @@ def _build_plan(
             input_root=root,
             policy_pack_paths=policy_paths,
             plugins_enabled=False if no_plugins else None,
-            changed_files=changed,
+            # The overlay set is HEAD-relative and ``changed`` is merge-base-
+            # relative, so a canceled path appears only in the former. Bind the
+            # union: an overlay path the snapshot contains but never read is
+            # reported as absent, which would attest a present file as deleted.
+            changed_files=sorted({*changed, *(worktree_overlay_paths or [])}),
             plan_inputs=[
                 path
                 for path in (baseline_path, diff_from_path, *policy_paths)
@@ -276,6 +297,7 @@ def _build_plan(
                 evaluation_date=resolved_date,
                 options=options,
                 plugins_enabled=False if no_plugins else None,
+                worktree_overlay_paths=worktree_overlay_paths,
                 captured_input_paths=captured,
             )
     source_identity = resolve_source_head_identity(root, head_ref=head_ref)
@@ -816,18 +838,14 @@ def _validate_git_subject(plan: VerificationPlan, workspace: Path) -> None:
             raise ValueError("worktree-overlay plan cannot carry source-head authority")
         if commit_sha(root, "HEAD") != subject.head_commit_sha:
             raise ValueError("worker HEAD does not match the worktree-overlay plan")
-        rows: list[dict[str, Any]] = []
-        for relative in plan.inputs.changed_paths:
-            candidate = (root / relative).resolve()
-            if candidate != root and root not in candidate.parents:
-                raise ValueError(f"plan changed path escapes workspace: {relative}")
-            rows.append(
-                {
-                    "path": relative,
-                    "status": "present" if candidate.is_file() else "deleted",
-                    "sha256": sha256_file(candidate) if candidate.is_file() else None,
-                }
-            )
+        overlay_paths = plan_worktree_overlay_paths(plan)
+        # Recompute through the same builder the plan committed to. #347 added
+        # `kind` and `executable` to the producer's rows and exposed
+        # `worktree_overlay` so "the same function builds the overlay a plan
+        # commits to and the overlay a later reader recomputes", but this reader
+        # was still hand-rolling the older row shape — so the two normalizations
+        # disagreed and every non-empty worktree overlay failed here.
+        rows = worktree_overlay(root, overlay_paths)
         actual_overlay = content_id(rows) if rows else None
         if actual_overlay != subject.worktree_overlay_sha256:
             raise ValueError("worker worktree overlay does not match the plan")
