@@ -93,14 +93,24 @@ variable afterwards.
 
 ### Re-deriving the timeout
 
-`release-verify.yml` sets `timeout-minutes: 25`. The dominant term is the
-correctness suite (~710s of CPU work; roughly 6 minutes wall clock at `-n auto`
-on a 2-core hosted runner), plus ~4 minutes for build, qualification, audit and
-SBOM. That leaves about 2x headroom.
+`release-verify.yml` sets `timeout-minutes: 25`, derived from observed hosted-
+runner timings rather than an estimate:
+
+| Phase | Observed |
+|---|---|
+| Correctness suite (`-n auto`, `not perf`) | 407s |
+| Install, lint, compile, schema check, static lint, dependency audit | ~40s |
+| Source build, artifact download, signature + qualification verification, isolated SBOM install | ~2 min |
+
+A healthy run lands near 10 minutes, so 25 leaves roughly 2.5x headroom. The
+suite dominates; the SBOM step is the second largest because it installs the
+wheel's runtime closure into a fresh environment.
 
 After any change that materially grows the suite, read the actual job duration
-from a rehearsal run and reset the timeout to roughly twice it. Do not raise it
-in response to a single timeout without checking what got slower.
+from a rehearsal run and reset the timeout to roughly 2.5x it. Do not raise it
+in response to a single timeout without checking what got slower — a timeout
+that appears without a corresponding change in these phases is more likely a
+hung step than an undersized budget.
 
 ## Cutting the release
 

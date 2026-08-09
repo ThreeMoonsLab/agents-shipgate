@@ -58,11 +58,16 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    # Measured, not estimated: the correctness suite runs ~7 min wall clock at
-    # `-n auto` on a 2-core hosted runner, and build + qualification + audit +
-    # SBOM add ~4 min. 25 minutes leaves roughly 2x headroom on the dominant
-    # term. Re-derive this from the rehearsal timings printed in the readiness
-    # summary whenever the suite grows materially; see docs/release-runbook.md.
+    # Measured, not estimated. Observed on a hosted runner (CI run 31336011667,
+    # the same suite selection this job uses): the correctness suite is 407s,
+    # and install + lint + compile + schema check + static lint + audit total
+    # ~40s. This job adds a source build, artifact download, signature and
+    # qualification verification, and the isolated SBOM install — together
+    # ~2 min, dominated by the SBOM environment's dependency install.
+    #
+    # That puts a healthy run near 10 minutes; 25 leaves roughly 2.5x headroom.
+    # Re-derive from the rehearsal timings whenever the suite grows materially,
+    # and see docs/release-runbook.md before raising it after a single timeout.
     timeout-minutes: 25
     permissions:
       contents: read
