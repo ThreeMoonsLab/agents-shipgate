@@ -965,6 +965,10 @@ def test_evidence_gaps_low_confidence_tool_points_at_inventory():
         "incomplete_surface",
         "low_confidence_tool",
     ]
+    first_gap = gaps[0]
+    assert first_gap.next_action.kind == "declare_tool_inventory"
+    assert first_gap.next_action.path == "suggested-inventory.json"
+    assert "langchain.tool_inventories" in first_gap.next_action.expects
     gap = gaps[1]
     assert gap.kind == "low_confidence_tool"
     assert gap.subject.startswith("lookup_case [")

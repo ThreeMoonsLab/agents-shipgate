@@ -47,6 +47,8 @@ def primary_evidence_remediation_text(evidence: EvidenceCoverageDecision) -> str
     fallback exists only for older reports that predate structured gap rows.
     """
 
+    # Current decisions always carry a structured gap here. Only compatibility
+    # reports from before evidence_gaps existed can reach this fallback.
     if not evidence.evidence_gaps:
         return _GENERIC_EVIDENCE_REMEDIATION
 
@@ -56,5 +58,7 @@ def primary_evidence_remediation_text(evidence: EvidenceCoverageDecision) -> str
     else:
         text = action.expects
     if action.path and action.path not in text:
-        text = f"{text.rstrip('.')} Target: {action.path}."
+        if not text.endswith((".", "!", "?")):
+            text = f"{text}."
+        text = f"{text} Target: {action.path}."
     return text

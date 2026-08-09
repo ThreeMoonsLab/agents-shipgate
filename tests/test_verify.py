@@ -850,6 +850,66 @@ def test_verify_real_base_scan_enables_head_diff(tmp_path: Path) -> None:
     assert report_payload["release_decision"]["decision"] == "insufficient_evidence"
 
 
+def test_verify_text_projects_google_adk_primary_evidence_action(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "agent.py").write_text(
+        '''
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
+
+
+def lookup_case(case_id: str) -> dict:
+    """Look up read-only support case metadata."""
+    return {"case_id": case_id}
+
+
+lookup_tool = FunctionTool(func=lookup_case)
+root_agent = LlmAgent(name="support_reader", tools=[lookup_tool])
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "shipgate.yaml").write_text(
+        '''
+version: "0.1"
+project:
+  name: google-adk-remediation
+agent:
+  name: support-reader
+  declared_purpose: [read support case metadata]
+environment:
+  target: local
+tool_sources:
+  - id: adk
+    type: google_adk
+    path: agent.py
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    _commit_all(repo, "add google adk agent")
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--no-base",
+            "--format",
+            "text",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("Agents Shipgate verify: insufficient_evidence")
+    assert "Improve evidence: Run: agents-shipgate verify" in result.output
+    assert "google_adk.tool_inventories" in result.output
+    assert "suggested-inventory.json" in result.output
+    assert "verification. Target: suggested-inventory.json." in result.output
+    assert "broader OpenAI SDK source path" not in result.output
+
+
 def test_pr_comment_keeps_code_span_values_unescaped() -> None:
     verifier = VerifierArtifact(
         workspace="/tmp/work",

@@ -163,7 +163,7 @@ Then read `report.json.release_decision.decision`, the source-of-truth gate:
 | Decision | Meaning | Next action |
 | --- | --- | --- |
 | `blocked` | Active, unaccepted blockers exist. | Fix blockers or remove the risky tool surface. |
-| `insufficient_evidence` | The scan cannot confidently gate release from the available static evidence; this does not prove the agent is unsafe. | Provide an MCP export, OpenAPI spec, explicit local tool inventory, or broader OpenAI SDK source path, then rerun. |
+| `insufficient_evidence` | The scan cannot confidently gate release from the available static evidence; this does not prove the agent is unsafe. | Follow the first structured evidence-gap action. Supported frameworks name the generated local inventory and exact manifest route; unidentified source shapes receive the generic source guidance. Then rerun. |
 | `review_required` | Human review is needed for accepted debt or evidence gaps below the blocked threshold. | Review the listed items before promotion. |
 | `passed` | No active blocker or review signal was found. | Keep the report artifact with the PR/release record. |
 
