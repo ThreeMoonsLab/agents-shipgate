@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from agents_shipgate.schemas.report import EvidenceCoverageDecision
 
+_GENERIC_EVIDENCE_REMEDIATION = (
+    "Provide a complete MCP export, OpenAPI spec, explicit local tool inventory, "
+    "or a broader supported source path; then rerun the scan."
+)
+
 
 def evidence_coverage_text(evidence: EvidenceCoverageDecision) -> str:
     extras: list[str] = []
@@ -32,3 +37,24 @@ def evidence_coverage_text(evidence: EvidenceCoverageDecision) -> str:
         extras.append("human review recommended")
     suffix = f" ({'; '.join(extras)})" if extras else ""
     return f"{evidence.level}{suffix}"
+
+
+def primary_evidence_remediation_text(evidence: EvidenceCoverageDecision) -> str:
+    """Render the decision engine's rank-1 evidence-gap action.
+
+    Short-form surfaces must project ``evidence_gaps[0].next_action`` instead
+    of replacing framework-specific guidance with a generic source list.  The
+    fallback exists only for older reports that predate structured gap rows.
+    """
+
+    if not evidence.evidence_gaps:
+        return _GENERIC_EVIDENCE_REMEDIATION
+
+    action = evidence.evidence_gaps[0].next_action
+    if action.command:
+        text = f"Run: {action.command}. {action.expects}"
+    else:
+        text = action.expects
+    if action.path and action.path not in text:
+        text = f"{text.rstrip('.')} Target: {action.path}."
+    return text
