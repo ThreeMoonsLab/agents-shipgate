@@ -184,6 +184,7 @@ def build_verification_plan(
     evaluation_date: str,
     options: dict[str, Any],
     plugins_enabled: bool | None,
+    worktree_overlay_paths: list[str] | None = None,
     diff_logical_path: str = "verification-input.diff",
     external_input_root: Path | None = None,
     captured_input_paths: list[Path] | None = None,
@@ -191,7 +192,17 @@ def build_verification_plan(
     effective_plugins_enabled = _plugins_enabled(plugins_enabled)
     normalized_options = dict(options)
     normalized_options["plugins_enabled"] = effective_plugins_enabled
-    overlay = _worktree_overlay(git_root, changed_files) if not archived_head else []
+    overlay_paths = sorted(
+        set(changed_files if worktree_overlay_paths is None else worktree_overlay_paths)
+    )
+    if not archived_head:
+        # The evaluated change set is merge-base-relative, while the overlay is
+        # HEAD-relative. Keeping the latter path set inside the content-
+        # addressed inputs makes cancellations and overlapping edits
+        # reproducible without polluting policy evaluation with non-effective
+        # paths.
+        normalized_options["worktree_overlay_paths"] = overlay_paths
+    overlay = _worktree_overlay(git_root, overlay_paths) if not archived_head else []
     overlay_hash = content_id(overlay) if overlay else None
     if not archived_head and source_head_commit_sha is not None:
         raise ValueError("worktree-overlay plans cannot declare a source head commit")
@@ -979,6 +990,30 @@ def _existing_changed_blobs(paths: list[str], *, root: Path, source: str) -> lis
     return _blobs(candidates, root=root, source=source)
 
 
+def plan_worktree_overlay_paths(plan: VerificationPlan) -> list[str]:
+    """Return the HEAD-relative overlay path set a worktree plan committed to.
+
+    Since #336 this is *not* ``inputs.changed_paths``: the evaluated change set
+    is merge-base-relative while the overlay is HEAD-relative, so a path a
+    worktree edit cancels appears only here. Every recomputation of
+    ``worktree_overlay_sha256`` — the worker, the current-control reader — must
+    take the set from one place, or it recomputes a different overlay than the
+    plan committed to and reports drift that never happened.
+    """
+
+    declared = plan.inputs.options.get("worktree_overlay_paths")
+    if declared is None:
+        raise ValueError(
+            "worktree-overlay plan predates overlay path binding; "
+            "re-run `agents-shipgate verification prepare`"
+        )
+    if not isinstance(declared, list) or not all(isinstance(path, str) for path in declared):
+        raise ValueError("plan worktree_overlay_paths must be a string list")
+    if declared != sorted(set(declared)):
+        raise ValueError("plan worktree_overlay_paths must be sorted and unique")
+    return declared
+
+
 def worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
     """Return the normalized rows a worktree decision commits to.
 
@@ -1007,6 +1042,9 @@ def _worktree_overlay(root: Path, paths: list[str]) -> list[dict[str, Any]]:
         candidate = lexical.resolve()
         if root_resolved not in candidate.parents:
             raise ValueError(f"worktree path escapes repository: {relative}")
+        # ``_overlay_entry`` (#347) supersedes this branch's ``git_mode``: it
+        # binds the executable bit as well, and additionally records ``kind``
+        # and hashes a symlink's target rather than following it.
         rows.append({"path": relative, **_overlay_entry(lexical, candidate, snapshot)})
     return rows
 
@@ -1267,6 +1305,7 @@ __all__ = [
     "build_engine_requirement",
     "read_regular_file_beneath",
     "worktree_overlay",
+    "plan_worktree_overlay_paths",
     "build_executor",
     "build_terminal_receipt",
     "build_unit_result",

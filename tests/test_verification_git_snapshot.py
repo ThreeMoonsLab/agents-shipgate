@@ -10,6 +10,7 @@ from agents_shipgate.cli.verify.git import (
     archive_tree,
     diff_revspec_context,
     repository_identity,
+    working_tree_context,
 )
 from agents_shipgate.core.errors import ConfigError
 
@@ -118,3 +119,125 @@ def test_repository_identity_normalizes_ssh_and_https_remotes(tmp_path: Path) ->
         "https://token@example.test/org/repo.git?credential=secret",
     )
     assert repository_identity(root) == "example.test/org/repo"
+
+
+def test_effective_worktree_diff_coalesces_committed_staged_and_unstaged_edits(
+    tmp_path: Path,
+) -> None:
+    root = _repo(tmp_path)
+    target = root / "AGENTS.md"
+    target.write_text("base\n", encoding="utf-8")
+    _git(root, "add", "AGENTS.md")
+    _git(root, "commit", "-m", "base")
+
+    target.write_text("committed\n", encoding="utf-8")
+    _git(root, "add", "AGENTS.md")
+    _git(root, "commit", "-m", "issue fix")
+    target.write_text("staged review\n", encoding="utf-8")
+    _git(root, "add", "AGENTS.md")
+    target.write_text("unstaged review\n", encoding="utf-8")
+
+    changed, diff_text = working_tree_context(
+        root,
+        comparison_ref="HEAD~1",
+        reject_index_hidden=True,
+    )
+
+    assert changed == ["AGENTS.md"]
+    assert diff_text.count("diff --git a/AGENTS.md b/AGENTS.md") == 1
+    assert "unstaged review" in diff_text
+    assert "committed" not in diff_text
+    assert "+staged review" not in diff_text
+
+
+def test_effective_worktree_diff_preserves_rename_and_mode_semantics(
+    tmp_path: Path,
+) -> None:
+    root = _repo(tmp_path)
+    source = root / "AGENTS.md"
+    source.write_text(
+        "shared rule\nshared scope\nbase instructions\n",
+        encoding="utf-8",
+    )
+    _git(root, "add", "AGENTS.md")
+    _git(root, "commit", "-m", "base")
+
+    destination = root / "CLAUDE.md"
+    source.rename(destination)
+    _git(root, "add", "-A")
+    _git(root, "commit", "-m", "rename instructions")
+    destination.write_text(
+        "shared rule\nshared scope\nreviewed instructions\n",
+        encoding="utf-8",
+    )
+    destination.chmod(0o755)
+
+    changed, diff_text = working_tree_context(
+        root,
+        comparison_ref="HEAD~1",
+        reject_index_hidden=True,
+    )
+
+    assert changed == ["AGENTS.md", "CLAUDE.md"]
+    assert diff_text.count("diff --git ") == 1
+    assert "rename from AGENTS.md" in diff_text
+    assert "rename to CLAUDE.md" in diff_text
+    assert "old mode 100644" in diff_text
+    assert "new mode 100755" in diff_text
+
+
+def test_effective_worktree_diff_honors_repository_filemode_false(
+    tmp_path: Path,
+) -> None:
+    root = _repo(tmp_path)
+    target = root / "lib" / "util.py"
+    target.parent.mkdir()
+    target.write_text("base\n", encoding="utf-8")
+    manifest = root / "shipgate.yaml"
+    manifest.write_text("version: '0.1'\n", encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+
+    _git(root, "config", "core.fileMode", "false")
+    target.write_text("committed change\n", encoding="utf-8")
+    _git(root, "add", "lib/util.py")
+    _git(root, "commit", "-m", "change utility")
+    target.chmod(0o755)
+    manifest.chmod(0o755)
+
+    changed, diff_text = working_tree_context(
+        root,
+        comparison_ref="HEAD~1",
+        reject_index_hidden=True,
+    )
+
+    assert changed == ["lib/util.py"]
+    assert "shipgate.yaml" not in diff_text
+    assert "old mode 100644" not in diff_text
+    assert "new mode 100755" not in diff_text
+
+
+def test_effective_worktree_diff_retains_merge_base_relative_untracked_paths(
+    tmp_path: Path,
+) -> None:
+    root = _repo(tmp_path)
+    tracked = root / "agent.py"
+    tracked.write_text("base\n", encoding="utf-8")
+    _git(root, "add", "agent.py")
+    _git(root, "commit", "-m", "base")
+
+    tracked.write_text("committed\n", encoding="utf-8")
+    _git(root, "add", "agent.py")
+    _git(root, "commit", "-m", "change agent")
+    untracked = root / "new_agent.py"
+    untracked.write_text("untracked capability\n", encoding="utf-8")
+
+    changed, diff_text = working_tree_context(
+        root,
+        comparison_ref="HEAD~1",
+        reject_index_hidden=True,
+    )
+
+    assert changed == ["agent.py", "new_agent.py"]
+    assert "diff --git a/agent.py b/agent.py" in diff_text
+    assert "new_agent.py" not in diff_text

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.cli.scan import writing as scan_writing
-from agents_shipgate.cli.verification import assemble, worker
+from agents_shipgate.cli.verification import _validate_git_subject, assemble, worker
 from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 from agents_shipgate.cli.verify.git import commit_date
 from agents_shipgate.cli.verify.orchestrator import run_verify
@@ -556,6 +556,252 @@ def test_verify_threads_uncommitted_worktree_files_into_head_scan(tmp_path):
     )
 
     assert report is not None
+    assert any(
+        finding.check_id == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
+        and finding.evidence.get("changed_file") == "AGENTS.md"
+        for finding in report.findings
+    )
+
+
+def test_verify_normalizes_overlapping_commit_and_worktree_into_one_diff_record(
+    tmp_path: Path,
+) -> None:
+    """Issue #336: review follow-ups may overlap the committed issue fix."""
+
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+    target = repo / "AGENTS.md"
+    target.write_text("base instructions\n", encoding="utf-8")
+
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base")
+
+    target.write_text("committed issue fix\n", encoding="utf-8")
+    _git(repo, "add", "AGENTS.md")
+    _git(repo, "commit", "-m", "issue fix")
+    target.write_text("uncommitted review follow-up\n", encoding="utf-8")
+
+    out_dir = repo / "agents-shipgate-reports"
+    verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=False,
+        out=out_dir,
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert not any(
+        finding.check_id == "SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE"
+        and finding.evidence.get("code") == "boundary_diff_shape_invalid"
+        for finding in report.findings
+    )
+    diff_text = (out_dir / "verification-input.diff").read_text(encoding="utf-8")
+    assert diff_text.count("diff --git a/AGENTS.md b/AGENTS.md") == 1
+    assert "uncommitted review follow-up" in diff_text
+    assert "committed issue fix" not in diff_text
+    assert verifier.changed_files == ["AGENTS.md"]
+
+    plan = VerificationPlan.model_validate_json(
+        (out_dir / "verification-plan.json").read_text(encoding="utf-8")
+    )
+    assert plan.inputs.changed_paths == ["AGENTS.md"]
+    assert plan.inputs.options["worktree_overlay_paths"] == ["AGENTS.md"]
+    assert plan.subject.git.worktree_overlay_sha256 is not None
+    receipt = VerificationReceipt.model_validate_json(
+        (out_dir / "verification-receipt.json").read_text(encoding="utf-8")
+    )
+    assert receipt.subject_id == plan.subject.subject_id
+    assert receipt.request_id == plan.request_id
+
+
+def test_worktree_overlay_identity_preserves_an_effectively_cancelled_path(
+    tmp_path: Path,
+) -> None:
+    """A worktree cancellation is absent from policy diff but present in identity."""
+
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base")
+
+    cancelled = repo / "CLAUDE.md"
+    cancelled.write_text("committed instructions\n", encoding="utf-8")
+    _git(repo, "add", "CLAUDE.md")
+    _git(repo, "commit", "-m", "add instructions")
+    cancelled.unlink()
+
+    out_dir = repo / "agents-shipgate-reports"
+    verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=False,
+        out=out_dir,
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert verifier.changed_files == []
+    assert (out_dir / "verification-input.diff").read_text(encoding="utf-8") == ""
+    plan = VerificationPlan.model_validate_json(
+        (out_dir / "verification-plan.json").read_text(encoding="utf-8")
+    )
+    assert plan.inputs.changed_paths == []
+    assert plan.inputs.options["worktree_overlay_paths"] == ["CLAUDE.md"]
+    assert plan.subject.git.worktree_overlay_sha256 is not None
+    assert any(
+        "1 committed change is canceled by uncommitted worktree edits" in note
+        for note in verifier.base_notes
+    )
+
+    legacy_options = dict(plan.inputs.options)
+    legacy_options.pop("worktree_overlay_paths")
+    legacy_plan = plan.model_copy(
+        update={
+            "inputs": plan.inputs.model_copy(update={"options": legacy_options})
+        }
+    )
+    with pytest.raises(ValueError, match="predates overlay path binding"):
+        _validate_git_subject(legacy_plan, repo)
+
+
+def test_worktree_overlay_binds_a_cancelled_path_that_is_still_present(
+    tmp_path: Path,
+) -> None:
+    """A canceled path leaves the policy diff but stays bound at its real bytes.
+
+    The overlay set is HEAD-relative while the change set is merge-base-
+    relative, so a canceled path exists only in the former. Plan construction
+    runs under the static input snapshot, which reports a path it contains but
+    never read as absent — binding only the change set would attest a present
+    file as ``deleted`` and make the worker reject the plan the producer just
+    wrote. The sibling test above cancels by deleting, which cannot catch this.
+    """
+
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+    cancelled = repo / "KEEP.md"
+    cancelled.write_text("original\n", encoding="utf-8")
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base")
+
+    cancelled.write_text("committed change\n", encoding="utf-8")
+    _git(repo, "add", "KEEP.md")
+    _git(repo, "commit", "-m", "change keep")
+    cancelled.write_text("original\n", encoding="utf-8")
+
+    out_dir = repo / "agents-shipgate-reports"
+    verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=False,
+        out=out_dir,
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert verifier.changed_files == []
+    plan = VerificationPlan.model_validate_json(
+        (out_dir / "verification-plan.json").read_text(encoding="utf-8")
+    )
+    assert plan.inputs.changed_paths == []
+    assert plan.inputs.options["worktree_overlay_paths"] == ["KEEP.md"]
+    # Raises unless the producer recorded the still-present canceled file at its
+    # real content, exactly as the worker recomputes it from the filesystem.
+    _validate_git_subject(plan, repo)
+
+
+def test_verify_fail_closes_on_merge_base_relative_untracked_trust_root(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    sample_dst = repo / "samples" / "support_refund_agent"
+    sample_dst.parent.mkdir(parents=True)
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", sample_dst)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base")
+
+    (repo / "notes.txt").write_text("committed branch change\n", encoding="utf-8")
+    _git(repo, "add", "notes.txt")
+    _git(repo, "commit", "-m", "branch change")
+    (repo / "AGENTS.md").write_text("untracked instructions\n", encoding="utf-8")
+
+    verifier, report, _exit_code = run_verify(
+        workspace=repo,
+        config=Path("samples/support_refund_agent/shipgate.yaml"),
+        base="HEAD~1",
+        head="HEAD",
+        archive_head=False,
+        out=repo / "agents-shipgate-reports",
+        ci_mode="advisory",
+        fail_on=None,
+        baseline=None,
+        baseline_mode="new-findings",
+        diff_from=None,
+        policy_packs=None,
+        plugins_enabled=False,
+        strict_plugins=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verbose=False,
+    )
+
+    assert report is not None
+    assert "AGENTS.md" in verifier.changed_files
     assert any(
         finding.check_id == "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
         and finding.evidence.get("changed_file") == "AGENTS.md"

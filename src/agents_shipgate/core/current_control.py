@@ -39,6 +39,7 @@ from typing import ParamSpec, TypeVar
 
 from agents_shipgate.core.errors import AgentsShipgateError
 from agents_shipgate.core.verification_identity import (
+    plan_worktree_overlay_paths,
     read_regular_file_beneath,
     worktree_overlay,
 )
@@ -650,7 +651,10 @@ def _validate_worktree_currency(
             label="current control plan",
         )
         plan = VerificationPlan.model_validate_json(data)
-        decided_paths = list(plan.inputs.changed_paths)
+        # Not `inputs.changed_paths`: since #336 that is the merge-base-
+        # relative evaluated set, while the overlay this pointer was
+        # published against is HEAD-relative and recorded separately.
+        decided_paths = plan_worktree_overlay_paths(plan)
         rows = worktree_overlay(live.root, decided_paths)
     except (ValueError, OSError) as exc:
         raise CurrentControlUnavailable(

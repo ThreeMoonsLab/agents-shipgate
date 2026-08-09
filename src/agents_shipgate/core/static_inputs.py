@@ -191,6 +191,9 @@ class StaticInputSnapshot:
                 "static input snapshot exceeds the "
                 f"{self.max_total_bytes}-byte aggregate limit"
             )
+        metadata = key.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"static input is not a regular file: {key}")
         self._entries[key] = data
         self._total_bytes = next_total
 

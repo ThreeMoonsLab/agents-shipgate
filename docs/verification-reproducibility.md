@@ -69,6 +69,13 @@ Committed snapshots are materialized from Git objects with `git ls-tree` and
 `export-ignore` and `export-subst` cannot change the evaluated bytes. Symlinks
 and submodules fail closed for archived verification inputs.
 
+Worktree verification evaluates one merge-base-to-effective-worktree diff,
+including staged and unstaged changes, instead of concatenating a committed
+range with a HEAD-relative overlay. The request separately binds the exact
+HEAD-relative overlay path set and each path's presence, content hash, and Git
+file mode. A path changed in both layers therefore has one policy-evaluation
+record while the terminal receipt still identifies the complete overlay.
+
 `attempt_id` is diagnostic and deliberately excluded from `receipt_id`.
 Changing an authoritative input, result, decision, or artifact changes the
 corresponding content ID. Reusing a base-scan cache does not change the public
