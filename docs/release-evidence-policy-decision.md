@@ -1,7 +1,9 @@
 # Decision Brief: The Evidence Bar for Pre-1.0 Tags
 
-**Status: open. Awaiting a named human product/security owner.**
-Tracked by [#341](https://github.com/ThreeMoonsLab/agents-shipgate/issues/341).
+**Status: open, not milestone-blocking.** Tracked by
+[#341](https://github.com/ThreeMoonsLab/agents-shipgate/issues/341) (P2 —
+"queued; valuable but not blocking"), outside the v0.16.0 milestone by product
+decision on 2026-08-09.
 
 This brief exists to make the decision cheap to take, not to take it. No route
 is selected here, and nothing in this document changes the enforced policy: the
@@ -9,6 +11,14 @@ release verifier still requires the full 100-case production-beta artifact.
 
 Do not infer the choice from the tag, and do not rename the current policy after
 the fact.
+
+> **What "not blocking" does and does not mean.** Descoping #341 changed what
+> the milestone tracks, not what the pipeline enforces. A `v*` tag still fails
+> closed at **Verify production qualification and exact wheel binding** unless a
+> signed artifact satisfies the 100-case bar. Shipping a tag therefore still
+> needs either that artifact (Route 1) or an approved alternative policy
+> (Route 2) — the difference is that neither is now treated as a v0.16.0
+> deliverable.
 
 ## Why a decision is required
 
@@ -31,9 +41,13 @@ measurement, but they are not interchangeable with qualification cases:
 qualification additionally binds adjudicated labels and a terminal verifier
 receipt per case.
 
-So `v0.16.0` is blocked on a policy question, not on engineering. The five
-engineering workstreams (#342, #343, #344, #355, #356) are complete and
-independent of this decision.
+This is a policy question, not an engineering one. The five engineering
+workstreams (#342, #343, #344, #355, #356) are complete and independent of it,
+which is why the milestone no longer waits on this decision.
+
+What remains true is that the qualification gate is a hard precondition for any
+tag. Until a conforming artifact exists, the practical options are to keep the
+release unpublished, or to take one of the two routes below deliberately.
 
 ## Where the bar is defined
 
@@ -57,10 +71,10 @@ it.
 
 ### Route 1 — retain the 100-case production-beta policy
 
-`v0.16.0` stays blocked until a separate corpus-delivery issue produces the
+No tag publishes until a separate corpus-delivery issue produces the
 independently labelled, adjudicated, receipt-bound artifact.
 
-- **Cost:** the release is gated on a substantial data effort — roughly 68 more
+- **Cost:** publication is gated on a substantial data effort — roughly 68 more
   adjudicated cases with receipts, spread to satisfy 28 strata and the origin
   minimum.
 - **Benefit:** the shipped claim is exactly the claim that was designed. No
@@ -76,7 +90,7 @@ at 1.0.
 - **Cost:** a new tier in the schema vocabulary, a second requirements
   constructor, verifier branching, and doc updates. Adds a surface that must
   later be retired.
-- **Benefit:** unblocks `v0.16.0` on a stated, auditable basis rather than an
+- **Benefit:** allows a `0.x` tag to publish on a stated, auditable basis rather than an
   implied one.
 - **Non-negotiable regardless of the numbers chosen:**
   - zero unsafe auto-passes, per profile and overall
