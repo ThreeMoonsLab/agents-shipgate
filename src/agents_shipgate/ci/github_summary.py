@@ -6,7 +6,10 @@ from pathlib import Path
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.report.markdown import _safe_markdown_text
-from agents_shipgate.report.summary_text import evidence_coverage_text
+from agents_shipgate.report.summary_text import (
+    evidence_coverage_text,
+    primary_evidence_remediation_text,
+)
 from agents_shipgate.schemas.report import ReadinessReport
 
 
@@ -41,8 +44,8 @@ def write_github_step_summary(report: ReadinessReport) -> None:
         )
         if decision.decision == "insufficient_evidence":
             lines.append(
-                "Improve evidence: provide MCP export, OpenAPI spec, explicit local "
-                "tool inventory, or a broader OpenAI SDK source path; then rerun scan."
+                "Improve evidence: "
+                f"{_safe_markdown_text(primary_evidence_remediation_text(decision.evidence_coverage))}"
             )
         if agent_summary and agent_summary.first_recommended_action:
             lines.append(_agent_next_action_line(agent_summary.first_recommended_action))

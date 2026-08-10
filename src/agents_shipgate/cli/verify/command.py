@@ -19,6 +19,7 @@ from agents_shipgate.core.current_control import CurrentControlPublishError
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.report.summary_text import primary_evidence_remediation_text
 from agents_shipgate.schemas.diagnostics import NextAction
 
 from .git import ensure_git_workspace, staged_paths_under
@@ -427,6 +428,14 @@ def verify(
         typer.echo(f"Trigger: {verifier.trigger.get('rationale')}")
         typer.echo(f"Base status: {verifier.base_status}")
         typer.echo(f"Exit code: {exit_code}")
+        if (
+            verifier.release_decision is not None
+            and verifier.release_decision.decision == "insufficient_evidence"
+        ):
+            typer.echo(
+                "Improve evidence: "
+                f"{primary_evidence_remediation_text(verifier.release_decision.evidence_coverage)}"
+            )
         typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
     raise typer.Exit(exit_code)
 

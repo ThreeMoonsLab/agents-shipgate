@@ -723,17 +723,32 @@ def _semantic_gap(
         action_why = "Conflicting binding evidence cannot be auto-resolved."
         expects = "Reconcile positive structural evidence and reviewed declarations, then rerun verification."
     elif kind == "incomplete_surface":
-        action_kind = "provide_complete_inventory"
-        accepted_values = [
-            "complete_mcp_export",
-            "openapi_spec",
-            "reviewed_explicit_inventory",
-        ]
-        action_why = "The complete statically-bound tool surface must be enumerable."
-        expects = (
-            "Provide a complete MCP export, OpenAPI spec, or reviewed explicit "
-            "tool inventory, then rerun verification."
-        )
+        manifest_key = _inventory_manifest_key(tool.source_type)
+        if manifest_key is not None:
+            action_kind = "declare_tool_inventory"
+            accepted_values = ["reviewed_explicit_inventory"]
+            action_why = (
+                f"{tool.source_type} extraction is static-only; an explicit "
+                "local tool inventory is the supported way to make the full "
+                "surface enumerable."
+            )
+            expects = (
+                "Review the skeleton written next to report.json, save it in "
+                f"your repo, reference it from `{manifest_key}` in "
+                "shipgate.yaml, then rerun verification."
+            )
+        else:
+            action_kind = "provide_complete_inventory"
+            accepted_values = [
+                "complete_mcp_export",
+                "openapi_spec",
+                "reviewed_explicit_inventory",
+            ]
+            action_why = "The complete statically-bound tool surface must be enumerable."
+            expects = (
+                "Provide a complete MCP export, OpenAPI spec, or reviewed explicit "
+                "tool inventory, then rerun verification."
+            )
     elif kind in {
         "missing_effect_evidence",
         "inferred_effect_only",
@@ -854,6 +869,8 @@ def _semantic_gap_path(kind: str, tool: Tool) -> str:
 
     action_row = f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
     if kind == "incomplete_surface":
+        if _inventory_manifest_key(tool.source_type) is not None:
+            return SUGGESTED_INVENTORY_FILENAME
         return "shipgate.yaml#tool_sources"
     if kind in _SELECTOR_KINDS:
         return action_row

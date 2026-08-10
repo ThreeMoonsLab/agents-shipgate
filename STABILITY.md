@@ -1101,11 +1101,14 @@ takes precedence over both. The precedence is therefore:
 → `review_required` (other) → `passed`.
 
 The intended recovery for a degraded-evidence case — whichever of the two
-verdicts it lands on — is to provide clearer local evidence — for example an MCP
-export, OpenAPI spec, explicit local tool inventory, broader OpenAI Agents SDK
-source path, or validation trace — and rerun the scan. When the decision is
-`review_required` because of an active high/critical finding, also resolve that
-finding. `agents-shipgate verify` keeps both cases human-routed
+verdicts it lands on — is the first structured action in
+`release_decision.evidence_coverage.evidence_gaps[]`. For supported frameworks,
+that action names the generated local inventory artifact and the exact
+`<framework>.tool_inventories` manifest route. Only unidentified or unsupported
+source shapes receive generic MCP/OpenAPI/inventory guidance. Apply the reviewed
+evidence route and rerun the scan. When the decision is `review_required`
+because of an active high/critical finding, also resolve that finding.
+`agents-shipgate verify` keeps both cases human-routed
 (`fix_task.actor = "human"`): a degraded-evidence case never opens an automated
 coding-agent fix path, regardless of which verdict it carries.
 

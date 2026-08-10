@@ -18,7 +18,10 @@ from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings.constants import SEVERITY_ORDER
-from agents_shipgate.report.summary_text import evidence_coverage_text
+from agents_shipgate.report.summary_text import (
+    evidence_coverage_text,
+    primary_evidence_remediation_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -445,11 +448,7 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
         ev = decision.evidence_coverage
         typer.echo(f"Evidence coverage: {evidence_coverage_text(ev)}")
         if decision.decision == "insufficient_evidence":
-            typer.echo(
-                "Improve evidence: provide MCP export, OpenAPI spec, explicit "
-                "local tool inventory, or a broader OpenAI SDK source path; "
-                "then rerun scan."
-            )
+            typer.echo(f"Improve evidence: {primary_evidence_remediation_text(ev)}")
         if report.agent_summary and report.agent_summary.first_recommended_action:
             action = report.agent_summary.first_recommended_action
             if action.command:
