@@ -407,8 +407,11 @@ def test_the_token_bearing_job_installs_no_project_code() -> None:
 
     assert "pip install -e" not in commands
     assert '".[dev]"' not in commands
-    # Installs only the hash-locked closure, and verifies hashes on install.
-    assert "--require-hashes" in commands
+    # Installs only via the shared constrained action, which hash-verifies and
+    # allowlists what it installs.
+    assert any(
+        "install-release-toolchain" in str(step.get("uses", "")) for step in publish["steps"]
+    )
     assert "constraints/release-publish.txt" in json.dumps(publish)
     # No checkout of the repository at all.
     assert not any("actions/checkout" in str(step.get("uses", "")) for step in publish["steps"])
@@ -1038,7 +1041,9 @@ def test_finalisation_runs_no_project_code_either() -> None:
 
     assert not any("actions/checkout" in str(step.get("uses", "")) for step in finalize["steps"])
     assert "pip install -e" not in commands
-    assert "--require-hashes" in commands
+    assert any(
+        "install-release-toolchain" in str(step.get("uses", "")) for step in finalize["steps"]
+    )
     # Uses the stdlib-only scripts fetched by immutable SHA.
     assert "tools/release_publication.py" in commands
 
@@ -1380,20 +1385,35 @@ def test_qualification_counts_are_derived_from_cases_not_the_summary(tmp_path: P
         verify_qualification_binding(qualification_path=path, wheel_path=wheel, tag="v9.9.9")
 
 
-def test_the_publisher_lockfile_is_constrained_by_a_workflow_allowlist() -> None:
+def test_every_publication_side_job_constrains_what_it_installs() -> None:
     """`--require-hashes` constrains integrity, not choice: the lockfile comes
     from the candidate commit, so nothing in it stops a candidate adding a
-    package to a job that can mint a PyPI token."""
+    package to a job that can mint a PyPI token or rewrite a public release.
 
-    publish = _load_workflow("release.yml")["jobs"]["publish"]
-    install = publish["steps"][_step_index(publish, "--require-hashes")]["run"]
+    The allowlist lives in one composite action so the three jobs cannot drift
+    apart — an earlier revision guarded only the OIDC job.
+    """
 
-    assert "allowed=" in install
-    assert "not in this workflow's allowlist" in install
-    # Every distribution the committed lockfile actually needs must be listed,
-    # or the release fails on a legitimate lockfile.
     import re as _re
 
+    release = _load_workflow("release.yml")
+    action = yaml.safe_load(
+        (REPO_ROOT / ".github/actions/install-release-toolchain/action.yml").read_text("utf-8")
+    )
+    install = "\n".join(step["run"] for step in action["runs"]["steps"] if "run" in step)
+
+    for job_name in ("stage", "publish", "finalize"):
+        job = release["jobs"][job_name]
+        uses = [str(step.get("uses", "")) for step in job["steps"]]
+        assert any("install-release-toolchain" in item for item in uses), job_name
+        # No job installs the lockfile directly, bypassing the allowlist.
+        assert "pip install --require-hashes" not in _job_commands(job), job_name
+
+    assert "not on the allowlist" in install
+    assert "--require-hashes" in install
+
+    # Every distribution the committed lockfile actually needs must be listed,
+    # or the release fails on a legitimate lockfile.
     locked = {
         name.lower().replace("_", "-").replace(".", "-")
         for name in _re.findall(
