@@ -18,39 +18,58 @@ to install a published PyPI version.
 
 ## Supply Chain
 
-- Generate SBOMs for release artifacts.
+- Generate a wheel-scoped SBOM from an isolated runtime-only install of the
+  published wheel, bound to its SHA-256.
 - Sign release artifacts with Sigstore.
 - Publish to PyPI through Trusted Publishing from `.github/workflows/release.yml`.
 - Keep GitHub Actions pinned by SHA.
+- Pin the build backend in `constraints/release-build.txt` so release wheels are
+  byte-reproducible.
 - Use Dependabot for Python and GitHub Actions updates.
 - Add a lockfile for release and dev dependency builds once packaging workflow is finalized.
 
 PyPI Trusted Publishing is configured for this repository's tag-triggered
 release workflow and protected `pypi` environment.
 
+The operational procedure — mandatory rehearsal, the two-job publication
+transaction, and the recovery path when PyPI succeeds but release finalization
+fails — is in [`release-runbook.md`](release-runbook.md).
+
 ### Protected qualification inputs
 
-Every tag release now fails closed unless the protected `pypi` environment
-provides all six variables below. Values must be populated by the independent
-benchmark-owner promotion flow after it runs the frozen corpus against the
-exact wheel and signs `safety-qualification.json`:
+Qualification configuration is split by trust level. The values that
+**authenticate** the evidence — the Sigstore signer identity and OIDC issuer —
+live in reviewed code at `.github/release-trust-roots.json`, never in
+variables: an actor able to set variables could otherwise substitute fabricated
+qualification evidence *and* replace the identity that vouches for it, in one
+step with no diff to review.
 
-| Environment variable | Required value |
+Only the content-addressed **locations** are variables, at **repository** scope
+so the unattended verification job can read them. Values must be populated by
+the independent benchmark-owner promotion flow after it runs the frozen corpus
+against the exact wheel and signs `safety-qualification.json`:
+
+| Variable | Required value |
 |---|---|
 | `SAFETY_QUALIFICATION_WHEEL_URL` | HTTPS URL for the exact qualified wheel |
 | `SAFETY_QUALIFICATION_WHEEL_FILENAME` | Safe wheel basename, for example `agents_shipgate-0.16.0b6-py3-none-any.whl` |
 | `SAFETY_QUALIFICATION_JSON_URL` | HTTPS URL for the production-qualified JSON artifact |
 | `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | HTTPS URL for that JSON artifact's Sigstore bundle |
-| `SAFETY_QUALIFICATION_SIGNER_IDENTITY` | Exact trusted certificate identity configured for qualification promotion |
-| `SAFETY_QUALIFICATION_OIDC_ISSUER` | Trusted OIDC issuer, normally `https://token.actions.githubusercontent.com` for GitHub Actions |
 
-The release workflow verifies the signature identity first, then validates
-the artifact's production policy, 100-case invariants, tag/version, and wheel
-SHA-256. It copies and publishes that exact wheel only; it never rebuilds the
-package after qualification. Missing variables, non-HTTPS URLs, an unsafe
-filename, an invalid signature, a non-production result, or any binding
-mismatch stops before PyPI publication. Protect variable updates with required
-environment reviewers who are independent of the release initiator.
+The verification job checks the signature identity first, then validates the
+artifact's production policy, 100-case invariants, tag/version, and wheel
+SHA-256. It then rebuilds a wheel from the tagged checkout and requires byte
+equality with the qualified wheel, which is the binding that ties the published
+artifact to the tagged commit. The rebuilt wheel is only ever a comparison
+reference: the artifact published to PyPI remains the exact qualified wheel.
+
+Missing variables, non-HTTPS URLs, an unsafe filename, an invalid signature, a
+non-production result, or any binding mismatch stops before PyPI publication.
+
+Because a tampered wheel URL now fails the source-binding gate rather than
+reaching PyPI, variable ACLs are no longer the primary control over what gets
+published. The required-reviewer gate on the `pypi` environment protects the
+publication step itself.
 
 This is a configured trust root, not proof of organizational independence.
 The promotion job trusts the signed qualification summary and does not replay

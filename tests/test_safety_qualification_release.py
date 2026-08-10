@@ -300,31 +300,63 @@ def test_release_validator_cli_fails_closed(tmp_path: Path) -> None:
 
 
 def test_release_workflow_reuses_signed_qualified_wheel_before_publish() -> None:
-    workflow_path = REPO_ROOT / ".github/workflows/release.yml"
-    workflow = workflow_path.read_text(encoding="utf-8")
+    """The published wheel stays the *qualified* one, and every binding
+    precedes publication.
 
-    signature_index = workflow.index("sigstore verify identity")
-    binding_index = workflow.index("scripts/verify_safety_qualification_release.py")
-    publish_index = workflow.index("uv publish --trusted-publishing always")
-    assert signature_index < binding_index < publish_index
-    assert "SAFETY_QUALIFICATION_WHEEL_URL" in workflow
-    assert "SAFETY_QUALIFICATION_JSON_URL" in workflow
-    assert "SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL" in workflow
-    assert 'uv publish --trusted-publishing always "dist/${QUALIFIED_WHEEL_FILENAME}"' in workflow
-    assert "python -m build" not in workflow
-    assert "dist/*.tar.gz" not in workflow
-    assert "dist/safety-qualification.json" in workflow
-    assert "dist/safety-qualification.sigstore.json" in workflow
+    Verification now builds a wheel from the tagged source too, but only to
+    compare against the qualified wheel — the artifact that reaches PyPI is
+    still the signed, qualified one, never a freshly built substitute.
+    """
 
-    parsed = yaml.safe_load(workflow)
-    for step in parsed["jobs"]["release"]["steps"]:
-        if "run" in step:
-            subprocess.run(
-                ["bash", "-n", "-c", step["run"]],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+    verify = (REPO_ROOT / ".github/workflows/release-verify.yml").read_text(encoding="utf-8")
+    release = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    # Ordering is asserted inside the sealing job. The exhaustive policy
+    # re-derivation lives in the `tests` gate because it needs the project
+    # installed; the sealer verifies the signature first, then restates the
+    # decisive invariants, then binds the wheel to the tagged source.
+    sealer = yaml.safe_load(verify)["jobs"]["artifact"]["steps"]
+    order = [json.dumps(step) for step in sealer]
+
+    def _at(needle: str) -> int:
+        return next(i for i, step in enumerate(order) if needle in step)
+
+    assert _at("sigstore verify identity") < _at("scripts/verify_qualification_binding.py")
+    assert _at("scripts/verify_qualification_binding.py") < _at(
+        "scripts/verify_wheel_provenance.py"
+    )
+    assert "SAFETY_QUALIFICATION_WHEEL_URL" in verify
+    assert "SAFETY_QUALIFICATION_JSON_URL" in verify
+    assert "SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL" in verify
+
+    # Publication lives in a different job that cannot start until the
+    # verification job succeeds, so ordering is enforced by the dependency
+    # graph rather than by step position.
+    assert "uv publish --trusted-publishing always" not in verify
+    parsed_release = yaml.safe_load(release)
+    assert parsed_release["jobs"]["publish"]["needs"] == ["verify", "stage"]
+
+    # The wheel is addressed by the filename verification approved, and the
+    # source-built wheel never enters the publishable set.
+    assert 'uv publish --trusted-publishing always "dist/${WHEEL_FILENAME}"' in release
+    assert "source-build" not in release
+    assert "dist/*.tar.gz" not in release
+    assert "safety-qualification.json" in verify
+    assert "safety-qualification.sigstore.json" in verify
+
+    for workflow in ("release.yml", "release-verify.yml", "release-rehearsal.yml"):
+        parsed = yaml.safe_load(
+            (REPO_ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8")
+        )
+        for job in parsed["jobs"].values():
+            for step in job.get("steps") or []:
+                if "run" in step:
+                    subprocess.run(
+                        ["bash", "-n", "-c", step["run"]],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
 
 
 def test_release_validator_is_directly_executable_from_the_documented_command() -> None:

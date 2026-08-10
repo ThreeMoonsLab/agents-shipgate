@@ -1,0 +1,60 @@
+name: Install release toolchain
+description: >-
+  Fetch, constrain, and hash-verify the publication-side Python toolchain
+  without checking out or executing any project code.
+
+inputs:
+  lockfile-url:
+    description: >-
+      Raw URL of the hash-locked requirements file, pinned to an immutable
+      commit SHA. Fetched rather than read from a checkout so the jobs that
+      hold write or OIDC authority need no repository checkout at all.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch and constrain the locked toolchain
+      shell: bash
+      env:
+        LOCKFILE_URL: ${{ inputs.lockfile-url }}
+      run: |
+        set -euo pipefail
+        curl --fail --location --proto '=https' --proto-redir '=https' \
+          --output release-toolchain.txt "${LOCKFILE_URL}"
+
+        # `--require-hashes` proves the downloaded bytes match the digests in
+        # the lockfile — but the lockfile itself comes from the candidate
+        # commit, so it constrains *integrity*, not *choice*. Nothing in it
+        # stops a candidate adding a package, and its build hooks, to a job
+        # that can mint a PyPI token or rewrite a public release.
+        #
+        # The allowlist below is the constraint on choice. It lives here, in
+        # `.github/**`, so widening the set is a small reviewed diff rather
+        # than one more line in a 400-line generated file where it would pass
+        # unnoticed. That raises the review floor; it is not an independent
+        # trust root, because this action is itself part of the tagged
+        # candidate. See the Deployment prerequisites in
+        # docs/release-runbook.md.
+        allowed="annotated-types certifi cffi charset-normalizer cryptography"
+        allowed="${allowed} dnspython email-validator id idna markdown-it-py mdurl"
+        allowed="${allowed} platformdirs pyasn1 pycparser pydantic pydantic-core"
+        allowed="${allowed} pygments pyjwt pyopenssl requests rfc3161-client rfc8785"
+        allowed="${allowed} rich securesystemslib sigstore sigstore-models"
+        allowed="${allowed} sigstore-rekor-types tuf typing-extensions"
+        allowed="${allowed} typing-inspection urllib3 uv"
+
+        grep -oE '^[A-Za-z0-9][A-Za-z0-9._-]*==' release-toolchain.txt \
+          | sed 's/==$//' | tr 'A-Z_.' 'a-z--' | sort -u > requested-toolchain.txt
+        while read -r name; do
+          case " ${allowed} " in
+            *" ${name} "*) ;;
+            *)
+              echo "::error::Release toolchain lockfile requests ${name}, which is not on the allowlist in .github/actions/install-release-toolchain/action.yml."
+              exit 1
+              ;;
+          esac
+        done < requested-toolchain.txt
+        echo "OK: every locked distribution is on the allowlist."
+
+        python -m pip install --require-hashes --requirement release-toolchain.txt

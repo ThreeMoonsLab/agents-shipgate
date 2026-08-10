@@ -1254,11 +1254,7 @@ def _postprocess_authorization_evaluation(schema: dict[str, Any]) -> None:
         },
         {
             "if": {
-                "properties": {
-                    "status": {
-                        "enum": ["rejected", "not_requested", "not_applicable"]
-                    }
-                }
+                "properties": {"status": {"enum": ["rejected", "not_requested", "not_applicable"]}}
             },
             "then": {"properties": {"command": {"type": "null"}}},
         },
@@ -1270,11 +1266,7 @@ def _postprocess_authorization_evaluation(schema: dict[str, Any]) -> None:
             },
         },
         {
-            "if": {
-                "properties": {
-                    "status": {"enum": ["not_requested", "not_applicable"]}
-                }
-            },
+            "if": {"properties": {"status": {"enum": ["not_requested", "not_applicable"]}}},
             "then": {
                 "properties": {
                     **{field: {"type": "null"} for field in authority_fields},

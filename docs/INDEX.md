@@ -160,6 +160,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`integrations.md`](integrations.md) — CI/CD integration recipes (GitHub Actions, GitLab CI, CircleCI, Jenkins snippet)
 - [`troubleshooting.md`](troubleshooting.md) — error messages → fixes
 - [`distribution.md`](distribution.md) — release process and SBOM/signature verification
+- [`release-runbook.md`](release-runbook.md) — cutting a tag: mandatory rehearsal, the two-job publication transaction, provenance bindings, and the recovery path when PyPI succeeds but finalization fails
+- [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) — open decision brief for the pre-1.0 qualification evidence bar (awaiting a named human owner; no route selected)
 - [`decisions.md`](decisions.md) — architectural decisions
 
 ## For agents

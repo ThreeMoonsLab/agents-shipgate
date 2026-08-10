@@ -2,6 +2,96 @@
 
 ## Unreleased
 
+- **The release pipeline now proves the wheel it publishes came from the
+  tagged commit.** The tag workflow established three bindings — tag to
+  `pyproject.toml` version, qualification payload to wheel bytes, and tag to
+  the wheel's own `METADATA` version — but none tied the shipped bytes back to
+  any source tree. It tested the checkout with `ruff`, `compileall`, and
+  `pytest`, then published a wheel downloaded from a repository-variable URL,
+  with nothing asserting the two corresponded: any wheel declaring
+  `Name: agents-shipgate` and the right `Version` satisfied every check.
+  Verification now rebuilds the wheel from the tagged checkout and requires
+  byte equality with the qualified wheel before publication
+  (`scripts/verify_wheel_provenance.py`). Byte equality is achievable because
+  the build backend is pinned in `constraints/release-build.txt` — wheels
+  record `Generator: hatchling <version>`, so an unpinned backend alone
+  changes the archive. A container-metadata-only difference is reported as a
+  reproducibility gap and still fails; the weaker unpacked-content bar exists
+  behind an explicit `--allow-payload-equivalent` flag so it can never be
+  taken silently. The published artifact is still the signed, qualified wheel;
+  the rebuilt one is only a comparison reference.
+- **Verification and publication are now separate jobs, and a partial publish
+  is recoverable.** Expensive verification and immutable publication ran in
+  one job, so a failure after a successful PyPI upload could leave an
+  immutable version with no finalized GitHub Release and no attached
+  provenance — and re-running was not a safe recovery, because the version
+  already existed. Verification is now a read-only reusable workflow
+  (`contents: read`, no OIDC) that hands off a content-addressed candidate
+  bundle; the manifest digest travels through the job-output channel, so
+  swapping an artifact — or rewriting the manifest to agree with the swap — is
+  detected, and the check is closed-world so an unlisted file cannot ride
+  along. Write and OIDC authority are never held by the same job: the PyPI
+  publisher holds `id-token: write` alone, checks out no project code, and
+  installs only a hash-locked toolchain, so a compromised dependency cannot
+  both mint a token and rewrite the repository. A **draft** GitHub Release
+  carrying the authoritative assets exists before the upload, and finalization
+  happens only after asset validation. The upload is idempotence-aware:
+  `scripts/release_publication.py pypi-state` classifies the index as `absent`,
+  `published_identical` — requiring *exactly one* unyanked wheel with the
+  expected filename and digest, so a divergent sdist or second wheel is not
+  mistaken for a completed transaction — or `published_divergent` (always
+  fatal). An unreachable index is never read as permission to upload, and an
+  already-published release is verified and left untouched rather than
+  clobbered. Release
+  concurrency is serialized across the PyPI project rather than per tag, with
+  `cancel-in-progress: false`. The `pypi` reviewer gate moved to publication,
+  so reviewers approve *after* the readiness summary exists instead of
+  approving a run whose evidence has not been produced yet.
+- **The qualification signer identity is reviewed code, and a release candidate
+  must have been rehearsed.** The identity and OIDC issuer that authenticate the
+  signed qualification artifact now live in `.github/release-trust-roots.json`
+  rather than in variables: an actor able to set variables could otherwise
+  substitute fabricated evidence *and* replace the allowlist that vouches for
+  it in one unreviewed step — an attack source-to-wheel binding cannot see,
+  because it reuses the legitimate wheel and forges only the claims about it.
+  Only content-addressed locations stay mutable. Verification also runs against
+  the immutable event SHA rather than the symbolic tag ref, and the tag is
+  re-peeled against the remote before each irreversible step, so a moved tag
+  cannot make the pipeline build one commit while claiming another.
+  Publication additionally requires a successful rehearsal at the same source
+  SHA whose candidate manifest is byte-identical, and every rehearsal now
+  proves the provenance gate fails closed by injecting a tampered wheel and
+  asserting it is rejected.
+- **The signed SBOM now describes the shipped wheel instead of the CI
+  machine.** The workflow installed `.[dev]` and ran `cyclonedx-py
+  environment`, inventorying pytest, ruff, twine, Sigstore, and the CycloneDX
+  tooling itself — a signed attestation about software the user never
+  receives. `scripts/release_sbom.py` inventories an isolated, runtime-only
+  install of the qualified wheel, binds the document to that wheel's SHA-256,
+  and re-verifies the binding before publication. It also normalizes away the
+  `file://` build-machine path CycloneDX records, which otherwise leaked runner
+  filesystem layout into a published artifact and made the signed SBOM
+  non-deterministic. The dev-only exclusion is derived from the `dev` extra
+  rather than hardcoded, so new tooling is covered automatically.
+- **A release candidate can be rehearsed without any publication authority.**
+  The workflow could only be exercised by pushing a `v*` tag, so its
+  verification and failure paths were first-run at the moment publication
+  became possible — steps added after v0.15.0 had never executed. A
+  `workflow_dispatch` rehearsal now runs the identical build, qualification,
+  test, audit, SBOM, and handoff path by calling the same reusable workflow,
+  and is structurally incapable of publishing: no publication job exists in the
+  file, `permissions: contents: read` caps the token so tag and release
+  creation fail, and no `id-token: write` means Trusted Publishing cannot mint
+  a token. Rehearsal is a documented prerequisite for a candidate tag.
+- **Release test selection matches CI, so candidates fail on correctness
+  evidence rather than timing noise.** The release ran the full suite serially,
+  including timing-sensitive `perf` tests, inside a 15-minute budget shared
+  with qualification, audit, signing, and artifact work. It now uses CI's
+  `-n auto` parallelism and excludes `perf`-marked latency budgets, which
+  remain enforced at merge time; the adapter static-only trust-model lint keeps
+  its own fail-fast step, and the coverage floor stays at CI's 85. The timeout
+  is derived from measurement rather than estimate, with the basis recorded in
+  `docs/release-runbook.md`.
 - **Insufficient-evidence remediation now stays framework-aware from the
   decision engine through every primary short-form surface.** Semantic
   `incomplete_surface` gaps for frameworks with explicit inventory support now

@@ -63,10 +63,7 @@ def render(repo_root: Path = REPO_ROOT) -> str:
 
 def main() -> int:
     OUTPUT_PATH.write_text(render(), encoding="utf-8")
-    print(
-        f"Wrote {OUTPUT_PATH.relative_to(REPO_ROOT)} "
-        f"({OUTPUT_PATH.stat().st_size:,} bytes)"
-    )
+    print(f"Wrote {OUTPUT_PATH.relative_to(REPO_ROOT)} ({OUTPUT_PATH.stat().st_size:,} bytes)")
     return 0
 
 

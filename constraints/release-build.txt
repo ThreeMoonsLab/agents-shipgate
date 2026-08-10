@@ -1,0 +1,21 @@
+# Pinned build backend for reproducible release wheels.
+#
+# Wheels record `Generator: hatchling <version>` in `.dist-info/WHEEL`, so the
+# backend version is part of the archive's content. With the unpinned
+# `requires = ["hatchling>=1.31.0"]` build requirement in pyproject.toml, two
+# machines that resolve different hatchling versions produce different bytes
+# for identical source — which would make byte-for-byte reproducibility
+# impossible and turn the source-to-wheel binding in
+# scripts/verify_wheel_provenance.py into a spurious release blocker.
+#
+# Both sides of that comparison must build with this file:
+#
+#     PIP_CONSTRAINT=constraints/release-build.txt python -m build --wheel
+#
+# that is, the qualification promotion flow that produces the signed,
+# qualified wheel *and* the release verification job that rebuilds from the
+# tagged source. See docs/release-runbook.md.
+#
+# Bumping this pin changes the wheel bytes. A qualified wheel produced before
+# the bump will no longer match, so re-run qualification after any change here.
+hatchling==1.31.0
