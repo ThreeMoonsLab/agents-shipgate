@@ -167,7 +167,7 @@ def test_identical_bytes_under_a_different_filename_are_rejected(
 
 
 def test_release_verification_gates_publication_on_source_binding() -> None:
-    verify = _load_workflow("release-verify.yml")["jobs"]["verify"]
+    verify = _load_workflow("release-verify.yml")["jobs"]["artifact"]
 
     build_index = _step_index(verify, "python -m build --wheel")
     provenance_index = _step_index(verify, "scripts/verify_wheel_provenance.py")
@@ -183,7 +183,7 @@ def test_build_backend_is_pinned_so_byte_equality_is_achievable() -> None:
     constraints = (REPO_ROOT / "constraints/release-build.txt").read_text(encoding="utf-8")
     assert "hatchling==" in constraints
 
-    verify = _load_workflow("release-verify.yml")["jobs"]["verify"]
+    verify = _load_workflow("release-verify.yml")["jobs"]["artifact"]
     build_step = verify["steps"][_step_index(verify, "python -m build --wheel")]
     assert build_step["env"]["PIP_CONSTRAINT"] == "constraints/release-build.txt"
 
@@ -205,7 +205,7 @@ def test_verification_runs_against_an_immutable_commit_not_a_symbolic_ref() -> N
 
 
 def test_provenance_is_keyed_to_the_resolved_checkout_sha() -> None:
-    verify = _load_workflow("release-verify.yml")["jobs"]["verify"]
+    verify = _load_workflow("release-verify.yml")["jobs"]["artifact"]
     commands = _job_commands(verify)
 
     # Resolved after checkout rather than taken from the event.
@@ -386,7 +386,8 @@ def test_write_and_oidc_authority_are_never_held_together() -> None:
     assert release["permissions"] == {}
     assert release["jobs"]["verify"]["permissions"] == {"contents": "read"}
     assert verify_workflow["permissions"] == {"contents": "read"}
-    assert verify_workflow["jobs"]["verify"]["permissions"] == {"contents": "read"}
+    assert verify_workflow["jobs"]["tests"]["permissions"] == {"contents": "read"}
+    assert verify_workflow["jobs"]["artifact"]["permissions"] == {"contents": "read"}
 
     assert release["jobs"]["stage"]["permissions"] == {"contents": "write", "actions": "read"}
     assert release["jobs"]["publish"]["permissions"] == {"id-token": "write"}
@@ -464,16 +465,23 @@ def test_draft_release_exists_before_publication_and_is_finalised_after() -> Non
     assert "--draft \\" in stage
     # A failure after the immutable upload leaves a discoverable draft holding
     # the authoritative assets.
-    assert _step_index(finalize, "is missing required asset") < _step_index(
-        finalize, "--draft=false"
-    )
+    assert _step_index(finalize, "verify-manifest") < _step_index(finalize, "--draft=false")
 
 
-def test_publication_is_idempotence_aware() -> None:
+def test_index_state_is_reclassified_inside_the_publish_attempt() -> None:
+    """Reusing stage's cached result would make a re-run after a post-upload
+    failure retry an immutable version and never reach recovery."""
+
     publish = _load_workflow("release.yml")["jobs"]["publish"]
     upload = publish["steps"][_step_index(publish, "uv publish")]
 
-    assert upload["if"] == "needs.stage.outputs.should_publish == 'true'"
+    # The decision is taken inside the step, from a fresh query.
+    assert "release_publication.py pypi-state" in upload["run"]
+    assert "if" not in upload
+    assert "is absent" in upload["run"]
+    assert "is published_identical" in upload["run"]
+    # Any other state stops rather than guessing.
+    assert "Unexpected index state before upload" in upload["run"]
 
 
 def test_release_assets_are_uploaded_from_an_explicit_allowlist() -> None:
@@ -704,9 +712,7 @@ def _test_step_command(job: dict[str, Any], name: str) -> str:
 
 
 def test_release_matches_ci_parallelism_and_excludes_perf() -> None:
-    release_test = _test_step_command(
-        _load_workflow("release-verify.yml")["jobs"]["verify"], "Test"
-    )
+    release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
     ci_test = _test_step_command(_load_workflow("ci.yml")["jobs"]["test"], "Test")
 
     # Same supported parallelism as CI: a release candidate should not spend
@@ -720,9 +726,7 @@ def test_release_matches_ci_parallelism_and_excludes_perf() -> None:
 
 
 def test_release_does_not_weaken_the_coverage_floor() -> None:
-    release_test = _test_step_command(
-        _load_workflow("release-verify.yml")["jobs"]["verify"], "Test"
-    )
+    release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
     ci_test = _test_step_command(_load_workflow("ci.yml")["jobs"]["test"], "Test")
 
     assert "--cov-fail-under=85" in release_test
@@ -733,21 +737,23 @@ def test_adapter_static_only_lint_stays_covered_in_release() -> None:
     """It is excluded from the aggregate run, so it needs its own step or the
     trust-model invariant silently stops being checked at release time."""
 
-    verify = _load_workflow("release-verify.yml")["jobs"]["verify"]
-    aggregate = _test_step_command(verify, "Test")
+    tests_job = _load_workflow("release-verify.yml")["jobs"]["tests"]
+    aggregate = _test_step_command(tests_job, "Test")
 
     assert "--ignore=tests/test_adapter_static_only.py" in aggregate
-    assert _step_index(verify, "tests/test_adapter_static_only.py -q") < _step_index(
-        verify, "--cov-fail-under=85"
+    assert _step_index(tests_job, "tests/test_adapter_static_only.py -q") < _step_index(
+        tests_job, "--cov-fail-under=85"
     )
 
 
 def test_release_verification_timeout_is_documented_and_bounded() -> None:
-    verify = _load_workflow("release-verify.yml")["jobs"]["verify"]
+    workflow = _load_workflow("release-verify.yml")
     source = (WORKFLOWS / "release-verify.yml").read_text(encoding="utf-8")
 
-    assert verify["timeout-minutes"] == 25
-    # The number has to be traceable to a measurement, not an estimate.
+    # The suite dominates one job; artifact sealing is much cheaper. Both are
+    # bounded, and neither number is an estimate.
+    assert workflow["jobs"]["tests"]["timeout-minutes"] == 20
+    assert workflow["jobs"]["artifact"]["timeout-minutes"] == 15
     assert "Measured, not estimated" in source
 
 
@@ -825,7 +831,7 @@ def test_publication_requires_a_rehearsal_of_this_exact_candidate() -> None:
 def test_every_rehearsal_proves_the_provenance_gate_fails_closed() -> None:
     """The deliberate failure-path exercise is executed, not documented."""
 
-    verify = _load_workflow("release-verify.yml")["jobs"]["verify"]
+    verify = _load_workflow("release-verify.yml")["jobs"]["artifact"]
     step = verify["steps"][_step_index(verify, "fault-injected.whl")]
 
     assert step["if"] == "inputs.mode == 'rehearsal'"
@@ -835,7 +841,7 @@ def test_every_rehearsal_proves_the_provenance_gate_fails_closed() -> None:
 
 
 def test_rehearsal_publishes_inspectable_candidate_artifacts() -> None:
-    verify = _load_workflow("release-verify.yml")["jobs"]["verify"]
+    verify = _load_workflow("release-verify.yml")["jobs"]["artifact"]
 
     upload = verify["steps"][_step_index(verify, "actions/upload-artifact")]
     assert upload["with"]["if-no-files-found"] == "error"
@@ -877,8 +883,148 @@ def test_trust_roots_are_committed_and_fail_closed_while_unset() -> None:
     assert set(roots) >= {"signer_identity", "oidc_issuer"}
     assert roots["oidc_issuer"].startswith("https://")
 
-    commands = _job_commands(_load_workflow("release-verify.yml")["jobs"]["verify"])
+    commands = _job_commands(_load_workflow("release-verify.yml")["jobs"]["artifact"])
     # An unset trust root must stop the release rather than default to
     # something permissive.
     assert '= "CHANGE_ME"' in commands
     assert "configure the qualification trust root before releasing" in commands
+
+
+# --------------------------------------------------------------------------
+# Review round 2 — the handoff, the tag, and the public release
+# --------------------------------------------------------------------------
+
+
+def test_every_caller_consumed_output_is_publicly_exported() -> None:
+    """A reusable workflow's callers can read only the outputs declared in its
+    `workflow_call.outputs` map. A job-level output that is not exported
+    resolves to the empty string in the caller, silently — which is how
+    `source_sha` shipped as a job output that no `needs.verify.outputs`
+    reference could ever see.
+    """
+
+    import re
+
+    exported = set(_load_workflow("release-verify.yml")["on"]["workflow_call"]["outputs"])
+    consumed = set(
+        re.findall(
+            r"needs\.verify\.outputs\.(\w+)",
+            (WORKFLOWS / "release.yml").read_text(encoding="utf-8"),
+        )
+    )
+
+    assert consumed, "the caller consumes no outputs; the check would be vacuous"
+    assert consumed <= exported, f"not exported: {sorted(consumed - exported)}"
+
+
+def test_the_handoff_is_sealed_by_a_job_that_runs_no_candidate_tests() -> None:
+    """In a combined job the qualified wheel stayed writable while the suite
+    ran, so a test could replace the bytes after the equality check and before
+    the handoff was sealed — with the provenance report still claiming
+    equality."""
+
+    workflow = _load_workflow("release-verify.yml")
+    artifact = workflow["jobs"]["artifact"]
+    commands = _job_commands(artifact)
+
+    assert set(workflow["jobs"]) == {"tests", "artifact"}
+    assert artifact["needs"] == "tests"
+    # The sealing job runs no suite, no plugins, no audit.
+    assert "pytest" not in commands
+    assert "pip_audit" not in commands
+    # And the suite job never touches the qualified wheel.
+    tests_commands = _job_commands(workflow["jobs"]["tests"])
+    assert "QUALIFIED_WHEEL" not in tests_commands
+    assert "verify_wheel_provenance" not in tests_commands
+
+
+def test_the_binding_is_reasserted_on_the_exact_bytes_being_sealed() -> None:
+    artifact = _load_workflow("release-verify.yml")["jobs"]["artifact"]
+    handoff = artifact["steps"][_step_index(artifact, "release_publication.py manifest")]["run"]
+
+    # Provenance is re-derived inside the sealing step, before the copy.
+    assert handoff.index("verify_wheel_provenance.py") < handoff.index("release_publication.py")
+
+
+def test_a_completed_transaction_is_left_entirely_alone() -> None:
+    """Re-signing a published release would mint fresh, non-reproducible
+    Sigstore bundles and replace the public attestations for no benefit."""
+
+    release = _load_workflow("release.yml")
+
+    for job in ("publish", "finalize"):
+        assert release["jobs"][job]["if"] == "needs.stage.outputs.release_state != 'published'"
+    assert release["jobs"]["stage"]["outputs"]["release_state"] == (
+        "${{ steps.release.outputs.release_state }}"
+    )
+    stage = _job_commands(release["jobs"]["stage"])
+    for state in ("absent", "draft", "published"):
+        assert f"release_state={state}" in stage
+
+
+def test_registry_disagreement_stops_the_release() -> None:
+    """A published GitHub release with an absent index is not a state to
+    recover from automatically."""
+
+    stage = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
+
+    assert 'if [ "${INDEX_STATE}" != "published_identical" ]' in stage
+    assert "the registries disagree" in stage
+
+
+def test_finalisation_verifies_remote_bytes_not_asset_names() -> None:
+    """Draft repair clobbers expected names but leaves unlisted assets behind,
+    and an asset can be replaced during the approval window."""
+
+    finalize = _load_workflow("release.yml")["jobs"]["finalize"]
+    commands = _job_commands(finalize)
+
+    # Every remote asset is downloaded and re-derived against the trusted
+    # manifest digest, closed-world apart from the two signature bundles.
+    assert "gh release download" in commands
+    assert "verify-manifest" in commands
+    assert '--expected-sha256 "${MANIFEST_SHA256}"' in commands
+    assert '--allow "${WHEEL_FILENAME}.sigstore.json"' in commands
+    assert "--allow agents-shipgate-sbom.json.sigstore.json" in commands
+    # The signature bundles are verified, not merely present.
+    assert "sigstore verify identity" in commands
+    assert _step_index(finalize, "sigstore verify identity") < _step_index(
+        finalize, "--draft=false"
+    )
+
+
+def test_finalisation_refuses_to_mutate_a_release_that_is_no_longer_a_draft() -> None:
+    finalize = _load_workflow("release.yml")["jobs"]["finalize"]
+    commands = _job_commands(finalize)
+
+    assert commands.count("--json isDraft --jq .isDraft") >= 2
+    assert _step_index(finalize, "refusing to mutate a published release") < _step_index(
+        finalize, "gh release upload"
+    )
+
+
+def test_the_tag_is_rebound_before_finalisation_and_again_before_undrafting() -> None:
+    """PyPI holds the bytes for source A by this point; if the tag moves to B,
+    GitHub's source archives resolve to different code than the index holds."""
+
+    finalize = _load_workflow("release.yml")["jobs"]["finalize"]
+    commands = _job_commands(finalize)
+
+    assert commands.count("git ls-remote") >= 2
+    assert _step_index(finalize, "not the verified ${SOURCE_SHA}") < _step_index(
+        finalize, "gh release upload"
+    )
+    undraft = finalize["steps"][_step_index(finalize, "--draft=false")]["run"]
+    assert "git ls-remote" in undraft
+    assert "moved to" in undraft
+
+
+def test_finalisation_runs_no_project_code_either() -> None:
+    finalize = _load_workflow("release.yml")["jobs"]["finalize"]
+    commands = _job_commands(finalize)
+
+    assert not any("actions/checkout" in str(step.get("uses", "")) for step in finalize["steps"])
+    assert "pip install -e" not in commands
+    assert "--require-hashes" in commands
+    # Uses the stdlib-only scripts fetched by immutable SHA.
+    assert "tools/release_publication.py" in commands

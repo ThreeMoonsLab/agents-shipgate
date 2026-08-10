@@ -9,14 +9,24 @@ For the packaging surface and post-release fan-out checks, see
 
 ## The pipeline
 
-A release runs as four jobs with an explicit, content-addressed handoff.
+A release runs as five jobs with an explicit, content-addressed handoff.
 
 | Job | Permissions | What it does |
 |---|---|---|
-| `verify` | `contents: read` | Builds from the tagged source, validates the signed qualification, binds wheel to source, runs the correctness suite, audits dependencies, produces the wheel-scoped SBOM, uploads a candidate bundle |
+| `verify` → `tests` | `contents: read` | Lint, compile, schema check, the correctness suite, dependency audit |
+| `verify` → `artifact` | `contents: read` | Builds from the tagged source, validates the signed qualification, binds wheel to source, produces the wheel-scoped SBOM, seals and uploads the candidate bundle |
 | `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, classifies the index, creates or repairs the **draft** release |
 | `publish` | `id-token: write`, `environment: pypi` | Signs and uploads to PyPI once |
-| `finalize` | `contents: write` | Attaches signatures, confirms the index, validates assets, undrafts |
+| `finalize` | `contents: write` | Attaches signatures, re-verifies the remote bytes, undrafts |
+
+Verification is two jobs for a specific reason: **the job that seals the handoff
+never runs the candidate's tests.** In a combined job the qualified wheel stayed
+writable on disk — with its path exported through `GITHUB_ENV` — while pytest,
+its plugins, and `conftest` code executed. A test could therefore replace the
+wheel *after* the source-to-wheel equality check and before the handoff was
+sealed, and the provenance report would still have claimed equality. The
+`artifact` job runs no suite and no dependency audit, and re-asserts the binding
+on the exact bytes it seals.
 
 The split is about which capabilities are ever held together. `publish` can
 mint a PyPI Trusted Publishing token, so it holds **no repository write**,
@@ -39,9 +49,19 @@ push event and the checkout would build one commit while provenance recorded
 another. Every downstream binding is keyed to the SHA the verification job
 actually resolved with `git rev-parse HEAD`.
 
-Because a tag can still move (or be deleted) *after* verification, both `stage`
-and `publish` re-peel it against the remote immediately before acting, and the
+Because a tag can still move (or be deleted) *after* verification, it is
+re-peeled against the remote immediately before every irreversible step — in
+`stage`, in `publish` before the upload, in `finalize` before touching the
+release, and once more immediately before undrafting. Undrafting is the moment
+the release becomes public, so the binding is confirmed as late as possible: by
+then PyPI already holds the bytes for source A, and a tag moved to B would make
+GitHub's source archives resolve to different code than the index serves. The
 draft is created with `gh release create --verify-tag`.
+
+**Repository prerequisite:** protect `v*` tags with a ruleset that forbids
+updates and deletions. The re-peel checks detect a moved tag and fail closed,
+but detection is a weaker control than prevention, and they cannot help during
+the window between GitHub resolving a ref and acting on it.
 
 ### Which artifact is authoritative
 
@@ -126,18 +146,19 @@ budget on drills.
 
 ### Re-deriving the timeout
 
-`release-verify.yml` sets `timeout-minutes: 25`, derived from observed hosted-
-runner timings rather than an estimate:
+Each verification job is bounded separately, from observed hosted-runner
+timings rather than an estimate:
 
-| Phase | Observed |
-|---|---|
-| Correctness suite (`-n auto`, `not perf`) | 407s |
-| Install, lint, compile, schema check, static lint, dependency audit | ~40s |
-| Source build, artifact download, signature + qualification verification, isolated SBOM install | ~2 min |
+| Job | Phase | Observed | Timeout |
+|---|---|---|---|
+| `tests` | correctness suite (`-n auto`, `not perf`) | 407s | 20 min |
+| `tests` | install, lint, compile, schema check, static lint, audit | ~40s | |
+| `artifact` | source build, downloads, signature + qualification + provenance | ~30s | 15 min |
+| `artifact` | isolated SBOM install | ~1–2 min | |
 
-A healthy run lands near 10 minutes, so 25 leaves roughly 2.5x headroom. The
-suite dominates; the SBOM step is the second largest because it installs the
-wheel's runtime closure into a fresh environment.
+Each leaves roughly 2.5–3.5x headroom. The suite dominates its job; the SBOM
+step dominates the other, because it installs the wheel's whole runtime closure
+into a fresh environment.
 
 After any change that materially grows the suite, read the actual job duration
 from a rehearsal run and reset the timeout to roughly 2.5x it. Do not raise it
@@ -181,10 +202,24 @@ that also carries a divergent sdist, a second wheel, a renamed file, or a
 yanked record is **not** treated as identical, because skipping the upload and
 finalising over it would ship a release this pipeline never verified.
 
-A re-run also never mutates an already-published GitHub Release. It downloads
-the published assets, proves they are the verified ones, and leaves them alone;
-only drafts are repaired. Clobbering a published release's assets would replace
-public bytes that immutable PyPI can no longer be made to match.
+A re-run also never mutates an already-published GitHub Release. `stage`
+downloads the published assets, proves they are the verified ones, records
+`release_state=published`, and **`publish` and `finalize` do not run at all**.
+Re-signing would mint fresh, non-reproducible Sigstore bundles and replace the
+public attestations for no benefit; clobbering assets would replace public bytes
+that immutable PyPI can no longer be made to match.
+
+The index is also reclassified *inside* the publish attempt rather than reusing
+the decision `stage` made before environment approval. A stale `absent` would
+otherwise make "Re-run failed jobs" retry an immutable version and never reach
+recovery.
+
+Before undrafting, `finalize` downloads every remote asset and re-derives it
+against the trusted manifest digest — closed-world apart from the two signature
+bundles, which are themselves verified against the release workflow's Sigstore
+identity. Asset *names* are not evidence: draft repair clobbers expected names
+but leaves unlisted ones behind, and an asset can be replaced during the
+approval window.
 
 If re-running is not possible, finalise by hand — the draft already has the
 authoritative assets:

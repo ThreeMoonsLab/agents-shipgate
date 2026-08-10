@@ -45,6 +45,7 @@ jobs:
     outputs:
       should_publish: ${{ steps.index.outputs.should_publish }}
       index_state: ${{ steps.index.outputs.state }}
+      release_state: ${{ steps.release.outputs.release_state }}
     steps:
       - name: Checkout the verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -141,16 +142,23 @@ jobs:
             --github-output "${GITHUB_OUTPUT}"
 
       - name: Create or repair the draft release
+        id: release
         # A draft carrying the authoritative assets must exist before the
         # immutable PyPI upload, so a later failure leaves something to finish
         # from. Only drafts are ever mutated: an already-published release is
         # verified and left alone, because clobbering its assets on a re-run
         # would replace public bytes that PyPI can no longer be made to match.
+        #
+        # `release_state` is propagated so the downstream jobs can stand down
+        # entirely rather than re-signing and re-uploading over a completed
+        # transaction — Sigstore bundles are not reproducible, so re-signing a
+        # published release replaces public attestations for no reason.
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
           MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
+          INDEX_STATE: ${{ steps.index.outputs.state }}
         run: |
           set -euo pipefail
           # `v1.2.3` is a final release; anything else (v0.16.0b7, rc, a) is a
@@ -178,12 +186,14 @@ jobs:
               "${maturity}" \
               --title "${RELEASE_TAG}" \
               --notes "Agents Shipgate ${RELEASE_TAG}"
+            echo "release_state=absent" >> "${GITHUB_OUTPUT}"
             echo "Created draft release ${RELEASE_TAG}."
             exit 0
           fi
 
           if [ "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" = "true" ]; then
             gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
+            echo "release_state=draft" >> "${GITHUB_OUTPUT}"
             echo "Repaired existing draft ${RELEASE_TAG}."
             exit 0
           fi
@@ -191,6 +201,10 @@ jobs:
           # Published already. Prove it carries exactly these bytes, then stop
           # touching it. Signature bundles are produced after staging, so they
           # are the only additional files permitted.
+          if [ "${INDEX_STATE}" != "published_identical" ]; then
+            echo "::error::Release ${RELEASE_TAG} is published on GitHub but the index state is ${INDEX_STATE}; the registries disagree. See docs/release-runbook.md."
+            exit 1
+          fi
           mkdir -p published
           gh release download "${RELEASE_TAG}" --dir published --clobber
           python scripts/release_publication.py verify-manifest \
@@ -199,11 +213,16 @@ jobs:
             --directory published \
             --allow "${WHEEL_FILENAME}.sigstore.json" \
             --allow agents-shipgate-sbom.json.sigstore.json
+          echo "release_state=published" >> "${GITHUB_OUTPUT}"
           echo "Release ${RELEASE_TAG} is already published with the verified assets; leaving it untouched."
 
   publish:
     name: Publish to PyPI
     needs: [verify, stage]
+    # A completed transaction is left alone. Re-signing a published release
+    # would mint fresh, non-reproducible Sigstore bundles and replace the
+    # public attestations for no benefit.
+    if: needs.stage.outputs.release_state != 'published'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The human gate sits here, on the one irreversible action, and after the
@@ -223,14 +242,23 @@ jobs:
 
       - name: Install the hash-locked publication toolchain
         env:
-          LOCKFILE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}/constraints/release-publish.txt
+          RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}
         run: |
           set -euo pipefail
           # Fetched by immutable commit SHA rather than checked out, so no
-          # project code lands in the token-bearing job.
-          curl --fail --location --proto '=https' --proto-redir '=https' \
-            --output release-publish.txt "${LOCKFILE_URL}"
-          python -m pip install --require-hashes --requirement release-publish.txt
+          # project code lands in the token-bearing job. The two scripts are
+          # standard-library only, so nothing beyond the locked toolchain is
+          # ever imported here.
+          mkdir -p tools
+          for path in \
+            constraints/release-publish.txt \
+            scripts/release_publication.py \
+            scripts/_release_support.py
+          do
+            curl --fail --location --proto '=https' --proto-redir '=https' \
+              --output "tools/$(basename "${path}")" "${RAW_BASE}/${path}"
+          done
+          python -m pip install --require-hashes --requirement tools/release-publish.txt
 
       - name: Confirm the tag still points at the verified commit
         env:
@@ -270,14 +298,32 @@ jobs:
             dist/agents-shipgate-sbom.json
 
       - name: Publish to PyPI with Trusted Publishing
-        # Skipped when the index already holds these exact bytes, which is what
-        # a re-run after a post-publication failure looks like. `stage`
-        # hard-fails if the version exists with anything else, so this can never
-        # quietly succeed against a divergent artifact.
-        if: needs.stage.outputs.should_publish == 'true'
+        # The index is reclassified here rather than reusing `stage`'s result.
+        # That result predates environment approval and, on "Re-run failed
+        # jobs" after a post-upload step failed, would still say `absent` —
+        # retrying an immutable version and never reaching recovery. Deciding
+        # inside the attempt makes the three outcomes exact at the moment they
+        # matter: absent -> upload, identical -> skip and continue, divergent
+        # -> fail.
         env:
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
-        run: uv publish --trusted-publishing always "dist/${WHEEL_FILENAME}"
+        run: |
+          set -euo pipefail
+          state="$(python tools/release_publication.py pypi-state \
+            --wheel "dist/${WHEEL_FILENAME}" --github-output /dev/null)"
+          echo "${state}"
+          case "${state}" in
+            *"is absent"*)
+              uv publish --trusted-publishing always "dist/${WHEEL_FILENAME}"
+              ;;
+            *"is published_identical"*)
+              echo "Index already holds these exact bytes; completing the interrupted transaction."
+              ;;
+            *)
+              echo "::error::Unexpected index state before upload: ${state}"
+              exit 1
+              ;;
+          esac
 
       - name: Upload signatures for finalisation
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -290,6 +336,8 @@ jobs:
   finalize:
     name: Finalise release
     needs: [verify, stage, publish]
+    # Nothing to finalise when the transaction already completed.
+    if: needs.stage.outputs.release_state != 'published'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Repository write, and no `id-token`: a dependency compromised here cannot
@@ -297,16 +345,46 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout the verified source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ needs.verify.outputs.source_sha }}
-          persist-credentials: false
-
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
+
+      - name: Install the hash-locked verification toolchain
+        env:
+          RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          # Same fetch-by-immutable-SHA approach as the publish job: this job
+          # mutates a public release, so it runs no project code either.
+          mkdir -p tools
+          for path in \
+            constraints/release-publish.txt \
+            scripts/release_publication.py \
+            scripts/_release_support.py
+          do
+            curl --fail --location --proto '=https' --proto-redir '=https' \
+              --output "tools/$(basename "${path}")" "${RAW_BASE}/${path}"
+          done
+          python -m pip install --require-hashes --requirement tools/release-publish.txt
+
+      - name: Confirm the tag still points at the verified commit
+        # Re-peeled before any mutation here. PyPI has the bytes for source A
+        # by this point; if the tag moved to B, GitHub's source archives and
+        # the release would resolve to different code than the index holds.
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}^{}" | cut -f1)"
+          if [ -z "${peeled}" ]; then
+            peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}" | cut -f1)"
+          fi
+          if [ "${peeled}" != "${SOURCE_SHA}" ]; then
+            echo "::error::Tag ${RELEASE_TAG} now points at ${peeled:-<missing>}, not the verified ${SOURCE_SHA}."
+            exit 1
+          fi
 
       - name: Download verified candidate
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
@@ -324,8 +402,19 @@ jobs:
         env:
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
         run: |
-          python scripts/release_publication.py pypi-state \
+          python tools/release_publication.py pypi-state \
             --wheel "dist/${WHEEL_FILENAME}" | tee /dev/stderr | grep -q "published_identical"
+
+      - name: Require the release to still be a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "::error::Release ${RELEASE_TAG} is no longer a draft; refusing to mutate a published release."
+            exit 1
+          fi
 
       - name: Attach signatures
         env:
@@ -333,36 +422,68 @@ jobs:
           RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
         run: gh release upload "${RELEASE_TAG}" signatures/*.sigstore.json --clobber
 
-      - name: Validate release assets
+      - name: Validate the exact remote asset set, byte for byte
+        # Name membership was not enough. Draft repair clobbers expected names
+        # but leaves unlisted ones behind, and an asset can be replaced during
+        # the approval window, so the published bytes are re-derived here
+        # rather than assumed from the staging run.
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
         run: |
           set -euo pipefail
-          attached="$(gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name')"
-          for required in \
-            "${WHEEL_FILENAME}" \
-            "${WHEEL_FILENAME}.sigstore.json" \
-            agents-shipgate-sbom.json \
-            agents-shipgate-sbom.json.sigstore.json \
-            safety-qualification.json \
-            provenance.json \
-            candidate-manifest.json
-          do
-            if ! printf '%s\n' "${attached}" | grep -qx -- "${required}"; then
-              echo "::error::Release ${RELEASE_TAG} is missing required asset ${required}."
-              exit 1
-            fi
+          rm -rf remote && mkdir -p remote
+          gh release download "${RELEASE_TAG}" --dir remote --clobber
+          # Closed-world: the remote set must be exactly the candidate assets
+          # plus the two signature bundles, and every listed byte must match
+          # the digest the verification job recorded.
+          python tools/release_publication.py verify-manifest \
+            --manifest remote/candidate-manifest.json \
+            --expected-sha256 "${MANIFEST_SHA256}" \
+            --directory remote \
+            --allow "${WHEEL_FILENAME}.sigstore.json" \
+            --allow agents-shipgate-sbom.json.sigstore.json
+          echo "OK: the remote asset set matches the verified candidate exactly."
+
+      - name: Verify the attached signatures
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+        run: |
+          set -euo pipefail
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${RELEASE_TAG}"
+          for target in "${WHEEL_FILENAME}" agents-shipgate-sbom.json; do
+            sigstore verify identity \
+              --bundle "remote/${target}.sigstore.json" \
+              --cert-identity "${identity}" \
+              --cert-oidc-issuer https://token.actions.githubusercontent.com \
+              "remote/${target}"
           done
-          echo "OK: all required assets are attached to ${RELEASE_TAG}."
+          echo "OK: attached signatures verify against ${identity}."
 
       - name: Finalise GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
         run: |
           set -euo pipefail
+          # Re-peeled once more: undrafting is the moment the release becomes
+          # public, so the tag binding is confirmed as late as possible.
+          peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}^{}" | cut -f1)"
+          if [ -z "${peeled}" ]; then
+            peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}" | cut -f1)"
+          fi
+          if [ "${peeled}" != "${SOURCE_SHA}" ]; then
+            echo "::error::Tag ${RELEASE_TAG} moved to ${peeled:-<missing>} before finalisation; refusing to publish the release."
+            exit 1
+          fi
+          if [ "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "::error::Release ${RELEASE_TAG} is no longer a draft."
+            exit 1
+          fi
           if [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             maturity="--latest"
           else
