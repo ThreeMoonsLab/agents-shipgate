@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Insufficient-evidence remediation now stays framework-aware from the
+  decision engine through every primary short-form surface.** Semantic
+  `incomplete_surface` gaps for frameworks with explicit inventory support now
+  lead with the generated `suggested-inventory.json` artifact and the exact
+  `<framework>.tool_inventories` manifest key instead of an unreachable generic
+  MCP/OpenAPI route. Console scan output, the GitHub step summary, and text-mode
+  `verify` all project that same rank-1 action; unsupported source shapes retain
+  the compatibility fallback. Human work now precedes the exact rerun command
+  in text output, and verifier fix tasks collapse the duplicate semantic and
+  extraction inventory remedies into one instruction. The regression runs a
+  real Google ADK workspace through static extraction and semantic assessment,
+  so it cannot manufacture a pass-ineligible medium-confidence tool state.
+  ([#318](https://github.com/ThreeMoonsLab/agents-shipgate/issues/318))
+
 - **Human review now blocks merge and completion, not publication of the
   evidence a human needs in order to review.** A human route was one universal
   stop: `control.state: "human_review_required"` with `must_stop: true` and

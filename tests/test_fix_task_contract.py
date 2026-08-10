@@ -786,6 +786,61 @@ def test_insufficient_evidence_names_low_confidence_sources() -> None:
     assert "mcp-tools.json" not in joined
 
 
+def test_inventory_semantic_gap_does_not_duplicate_low_confidence_remedy() -> None:
+    inventory_action = EvidenceGapAction(
+        kind="declare_tool_inventory",
+        path="suggested-inventory.json",
+        why="The complete tool surface must be enumerable.",
+        expects=(
+            "Review the skeleton and reference it from "
+            "`langchain.tool_inventories`."
+        ),
+    )
+    report = _report(
+        decision="insufficient_evidence",
+        findings=[],
+        low_confidence_tool_count=1,
+        semantic_gap_count=1,
+        tool_inventory=[
+            {
+                "name": "lookup_case",
+                "source_type": "langchain_function",
+                "source_ref": "agent.py",
+                "confidence": "medium",
+            }
+        ],
+        evidence_gaps=[
+            EvidenceGap(
+                kind="incomplete_surface",
+                subject="lookup_case [langchain]",
+                source_type="langchain_function",
+                source_ref="agent.py",
+                why="Static extraction did not prove the complete surface.",
+                next_action=inventory_action,
+            ),
+            EvidenceGap(
+                kind="low_confidence_tool",
+                subject="lookup_case [langchain]",
+                source_type="langchain_function",
+                source_ref="agent.py",
+                why="extraction_confidence=medium",
+                next_action=inventory_action,
+            ),
+        ],
+    )
+
+    task = _fix_task(report)
+
+    assert task is not None and task.actor == "human"
+    inventory_instructions = [
+        instruction
+        for instruction in task.instructions
+        if "langchain.tool_inventories" in instruction
+    ]
+    assert len(inventory_instructions) == 1
+    assert not any("Review the skeleton" in item for item in task.instructions)
+
+
 def test_insufficient_evidence_without_inventory_gives_generic_remedy() -> None:
     f = _with_applicable_patch(
         _finding("F1", requires_human_review=False, autofix_safe=True)
