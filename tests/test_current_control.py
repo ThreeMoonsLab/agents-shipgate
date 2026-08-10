@@ -918,6 +918,13 @@ def test_a_pointer_cannot_be_hand_edited_without_breaking_its_identity() -> None
 
 
 def test_agent_control_command_prints_the_validated_pointer(repo: Path) -> None:
+    """The pointer itself remains reachable, under ``--format pointer``.
+
+    Contract v22 made the compact control envelope this command's default
+    output; the underlying artifact is what this test is about, so it asks for
+    it explicitly.
+    """
+
     _verify(repo)
     result = runner.invoke(
         app,
@@ -928,6 +935,8 @@ def test_agent_control_command_prints_the_validated_pointer(repo: Path) -> None:
             str(repo),
             "--reports-dir",
             str(repo / "agents-shipgate-reports"),
+            "--format",
+            "pointer",
         ],
     )
 

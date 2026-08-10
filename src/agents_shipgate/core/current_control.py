@@ -519,6 +519,25 @@ def read_current_control(
     )
 
 
+def load_published_control_pointer(out_dir: Path) -> CurrentControlPointer | None:
+    """Read back the pointer the calling run just published, or ``None``.
+
+    Deliberately *not* :func:`read_current_control`. That function answers "is
+    this decision still current for a reader who did not make it", and its
+    live-workspace comparison is the whole point. A run reading back its own
+    publication is asking something narrower — "what did I just bind?" — and
+    running the currency protocol against a workspace the run is still standing
+    in would only re-derive an answer it already has.
+
+    External consumers must keep using :func:`read_current_control`.
+    """
+
+    try:
+        return _load_pointer(out_dir, current_control_path(out_dir))
+    except CurrentControlUnavailable:
+        return None
+
+
 def _load_pointer(out_dir: Path, path: Path) -> CurrentControlPointer:
     if path.is_symlink():
         raise CurrentControlUnavailable(
@@ -976,6 +995,7 @@ __all__ = [
     "current_control_lifecycle",
     "current_control_lifecycle_owner",
     "current_control_path",
+    "load_published_control_pointer",
     "owns_current_control",
     "project_agent_control",
     "publish_current_control",

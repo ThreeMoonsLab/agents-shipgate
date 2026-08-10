@@ -15,6 +15,11 @@ from agents_shipgate.cli.verify.git import (
     tree_sha,
     working_tree_context,
 )
+from agents_shipgate.core.agent_control_envelope import (
+    AgentControlRouteUnavailable,
+    envelope_from_pointer,
+    render_agent_control_envelope,
+)
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.current_control import (
     CurrentControlUnavailable,
@@ -23,8 +28,12 @@ from agents_shipgate.core.current_control import (
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.contract import COMMANDS, DEFAULT_PATHS
-from agents_shipgate.schemas.current_control import CURRENT_CONTROL_ARTIFACT_NAME
+from agents_shipgate.schemas.current_control import (
+    CURRENT_CONTROL_ARTIFACT_NAME,
+    CurrentControlPointer,
+)
 from agents_shipgate.schemas.diagnostics import NextAction
+from agents_shipgate.schemas.verifier import VerifierArtifact
 
 agent_app = typer.Typer(
     help="Agent-native projection commands.",
@@ -130,15 +139,48 @@ def control(
         "--reports-dir",
         help="Directory holding current-control.json.",
     ),
+    format_: str = typer.Option(
+        "control",
+        "--format",
+        help=(
+            "control (default): the compact shipgate.agent_control/v1 envelope "
+            "— state, permissions, next action, and hashed artifact paths in "
+            "one object. pointer: the raw shipgate.current_control/v1 pointer."
+        ),
+    ),
 ) -> None:
     """Read the current control identity using the generation-safe protocol.
 
-    This is the one refresh entry point.  A zero exit means the printed pointer
+    This is the one refresh entry point.  A zero exit means the printed answer
     was validated against every artifact it binds, still describes ``--workspace``
     as it stands right now, and did not move while it was read.  A non-zero exit
     means no control identity is current here: the caller holds no authority and
     must not fall back on a control state it cached earlier in the conversation.
+
+    The default output is the compact envelope rather than the pointer itself.
+    The pointer deliberately records no route — reproducing one there would make
+    it a second decision — so a caller reading it still had to open the handoff
+    to learn what to do next.  The envelope answers both questions in one read,
+    by joining the pointer's currency guarantee to the route the bound verifier
+    already published.  ``--format pointer`` returns the underlying artifact
+    unchanged.
     """
+
+    if format_ not in {"control", "pointer"}:
+        guidance = "Re-run with --format control or --format pointer."
+        typer.echo(f"Config error: --format must be control or pointer, not {format_!r}", err=True)
+        emit_agent_mode_error(
+            "config_error",
+            message=f"--format must be control or pointer, not {format_!r}",
+            exit_code=2,
+            next_action=guidance,
+            next_actions=[
+                NextAction(
+                    kind="review", why=guidance, expects="A supported --format value."
+                ).model_dump(mode="json")
+            ],
+        )
+        raise typer.Exit(2)
 
     try:
         result = read_current_control(
@@ -178,9 +220,66 @@ def control(
         )
         raise typer.Exit(exit_code) from exc
 
-    typer.echo(
-        json.dumps(result.pointer.model_dump(mode="json"), indent=2, sort_keys=True)
-    )
+    if format_ == "pointer":
+        typer.echo(json.dumps(result.pointer.model_dump(mode="json"), indent=2, sort_keys=True))
+        return
+
+    bound_verifier = _bound_verifier(reports_dir, result.pointer)
+    try:
+        envelope = envelope_from_pointer(
+            result.pointer,
+            verifier=bound_verifier,
+            # The exit code the producing run recorded, not this reader's.
+            exit_code=None if bound_verifier is None else bound_verifier.head_exit_code,
+            artifact_root=reports_dir.as_posix(),
+        )
+    except AgentControlRouteUnavailable as exc:
+        guidance = (
+            "Run `agents-shipgate verify` in this workspace. The pointer that "
+            "is current was published by a command that reaches no release "
+            "decision, so there is no route to return; inventing one would be "
+            "a route that does not reproduce this subject."
+        )
+        typer.echo(f"Current control carries no route: {exc}", err=True)
+        emit_agent_mode_error(
+            "other_error",
+            message=str(exc),
+            exit_code=4,
+            next_action=guidance,
+            next_actions=[
+                NextAction(
+                    kind="command",
+                    command=COMMANDS["verify_pr"],
+                    why=guidance,
+                    expects=(
+                        "A verify run publishes a pointer that binds verifier.json, "
+                        "which carries the exact next action."
+                    ),
+                ).model_dump(mode="json")
+            ],
+        )
+        raise typer.Exit(4) from exc
+
+    typer.echo(render_agent_control_envelope(envelope))
+
+
+def _bound_verifier(reports_dir: Path, pointer: CurrentControlPointer) -> VerifierArtifact | None:
+    """Load the verifier artifact this pointer binds, or ``None``.
+
+    Reading it back is safe without re-hashing: :func:`read_current_control`
+    validated every bound artifact against its recorded hash immediately before
+    returning, and rejected the read outright if the pointer moved underneath
+    it.  A parse failure here is therefore a malformed artifact rather than a
+    stale one, and resolves to "no route" rather than a crash.
+    """
+
+    ref = pointer.artifacts.get("verifier")
+    if ref is None:
+        return None
+    try:
+        return VerifierArtifact.model_validate_json((reports_dir / ref.path).read_bytes())
+    except (OSError, ValueError):
+        return None
 
 
 def _live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:

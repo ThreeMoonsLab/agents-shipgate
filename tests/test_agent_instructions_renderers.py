@@ -161,9 +161,9 @@ def test_committed_claude_command_matches_renderer() -> None:
 
 def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "9"
+    assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "21"
+    assert payload["contract_version"] == "22"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
@@ -218,6 +218,11 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
         "agents-shipgate-reports/current-control.json"
     )
     assert payload["commands"]["agent_control"].startswith("agents-shipgate agent control")
+    # The compact envelope that command now returns, so a downstream agent can
+    # validate what it is reading without fetching the full contract.
+    assert payload["agent_control_schema_version"] == "shipgate.agent_control/v1"
+    assert payload["agent_control_schema_path"] == "docs/agent-control-schema.v1.json"
+    assert payload["agent_control_max_bytes"] == 4096
     # The refresh obligation is contract data, not prose: a consumer must be
     # able to enumerate the boundaries at which a cached control state expires.
     assert "before enforcing a cached must_stop" in payload["agent_refresh_triggers"]

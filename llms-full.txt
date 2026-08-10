@@ -184,7 +184,18 @@ Read the pointer with:
 agents-shipgate agent control --workspace . --reports-dir agents-shipgate-reports
 ```
 
-A zero exit means the printed pointer was validated against every artifact it
+That returns `shipgate.agent_control/v1`, the compact control envelope: the
+control state, the `permissions` vector, the next actor, the exact next action,
+and the path and sha256 of every forensic artifact, in one object. It is the
+whole routing answer — an agent that switches on `permissions` and
+`next_action` from it does not need the artifact walk above. Read
+`execution` and `exit_code` as what they are: whether the tool ran, and whether
+the CI gate failed. Neither is merge authority; `permissions.merge` is. Pass
+`--format pointer` for the raw `current-control.json`, and use
+`agents-shipgate verify --format control` to get the same envelope directly
+from a run you just performed.
+
+A zero exit means the printed answer was validated against every artifact it
 binds, still describes the repository as it stands right now, and did not move
 while it was read. Byte consistency is not generation consistency: one commit
 is enough to make an intact artifact set describe a workspace that has moved,
@@ -1069,6 +1080,29 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+Runtime contract v22 publishes `shipgate.agent_control/v1`, the compact control
+envelope. It is a **projection of the control state, not a second decision**:
+every field is copied from a producer that already published it, and the
+schema's validators only assert that the copies cannot contradict each other.
+One object answers the whole routing question — tool execution status, the
+release or boundary decision and which engine made it, the control state, the
+six-way `permissions` vector, who acts next, the exact next action, and the
+content-addressed path and hash of every forensic artifact. It is emitted by
+`agents-shipgate verify --format control`, `agents-shipgate check --format
+agent-control-json`, and `agents-shipgate agent control` (now its default
+output; `--format pointer` returns the raw pointer). It has a published budget
+of `agent_control_max_bytes` (4096) and is never written to disk — the
+artifacts it names stay where they are.
+
+Three separations are structural, not documentary. `execution` says whether the
+tool ran; `decision` says what the gate decided; `permissions` says what the
+agent may do. A failed run can never authorize completion, but a *succeeded* one
+carries no implication at all. `exit_code` reports the CI gate signal, which is
+mode-dependent — in advisory mode a `blocked` decision still exits 0 — so
+`permissions.merge` is the only field that answers "may I merge". The full
+`verifier.json` remains the authoritative substrate and is unchanged;
+`verify --json` still emits it.
+
 Runtime contract v20 adds `agents-shipgate-reports/current-control.json`,
 the one atomic entry point that says which control identity is current. It is a
 pointer, not a second decision: it binds identities and hashes the receipt,
@@ -1160,7 +1194,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `21` (minimum control contract: `21`)
+- Runtime contract: `22` (minimum control contract: `21`)
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
@@ -1168,12 +1202,13 @@ Downstream repos generated with
 - Current verify-run schema: `shipgate.verify_run/v4` — [`docs/verify-run-schema.v4.json`](verify-run-schema.v4.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
+- Current agent control envelope schema: `shipgate.agent_control/v1` — [`docs/agent-control-schema.v1.json`](agent-control-schema.v1.json)
 - Current human-authorization schemas: request, signed grant, verifier evaluation, and external trust policy v1 — [`docs/human-authorization-schema.v1.json`](human-authorization-schema.v1.json)
 - Current agent handoff schema: `shipgate.agent_handoff/v7` — [`docs/agent-handoff-schema.v7.json`](agent-handoff-schema.v7.json)
 - Current agent boundary result schema: `shipgate.agent_boundary_result/v2` — [`docs/agent-boundary-result-schema.v2.json`](agent-boundary-result-schema.v2.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
 - Current preflight schema: `0.4` — [`docs/preflight-schema.v0.4.json`](preflight-schema.v0.4.json)
-- Current downstream local agent contract schema: `9`
+- Current downstream local agent contract schema: `10`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.6` — [`docs/capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json)
 - Current capability lock diff schema: `0.7` — [`docs/capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json)
@@ -1197,6 +1232,16 @@ agent control --workspace .`), which names the run that is current. Everything
 below it describes *a* run; only the pointer says *which* run. A non-zero exit
 from the reader means no control identity is current here and the caller holds
 no authority — not that the previous answer still stands.
+
+**The promoted read for a coding-agent control loop is one command.**
+`agents-shipgate agent control --workspace .` runs the currency protocol and
+returns the `shipgate.agent_control/v1` envelope, which already carries the
+route the pointer deliberately omits. An agent that routes on `permissions` and
+`next_action` from that one object never needs the artifact walk below; the walk
+remains the contract for consumers that want the forensic detail, for CI, and
+for anything reading the artifacts directly. A run can skip the second command
+entirely with `agents-shipgate verify --format control`, which emits the same
+envelope for the run it just performed.
 
 Byte consistency is not generation consistency. A pointer whose artifacts all
 still hash correctly can describe a workspace that one commit has moved past, so

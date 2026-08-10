@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- **One compact object now answers "what may I do next?", instead of four
+  artifacts and a guess.** A verify run could simultaneously report `execution:
+  "succeeded"`, exit code `0`, `release_decision.decision: "review_required"`,
+  and `control.state: "human_review_required"` — four facts, three of which
+  read like permission to continue, spread across thousands of tokens of
+  forensic JSON. New `shipgate.agent_control/v1`
+  ([`docs/agent-control-schema.v1.json`](docs/agent-control-schema.v1.json))
+  carries tool execution status, the release or boundary decision and which
+  engine produced it, the control state, the six-way `permissions` vector, the
+  next actor, the exact next action, and the path and sha256 of every forensic
+  artifact — in one stdout object under a published `agent_control_max_bytes`
+  budget of 4096, roughly a fifth of the `verifier.json` plus
+  `agent-handoff.json` an agent reads today to answer the same question. Three
+  separations that were documentary are now structural: a failed execution can
+  never authorize completion (and a *succeeded* one implies nothing); a
+  stopping state authorizes nothing; and `permissions.merge`, not `exit_code`,
+  answers "may I merge" — the exit code is the CI gate signal and in advisory
+  mode a `blocked` decision still exits 0, which is now pinned across all four
+  decisions in both modes. The envelope decides nothing: every field is copied
+  from a producer that already published it, and where the current-control
+  pointer refused a completion its run claimed, the pointer wins and the run's
+  route is dropped rather than recovered. Emitted by `agents-shipgate verify
+  --format control` (added; `--json` still emits the full verifier artifact),
+  `agents-shipgate check --format agent-control-json` (added;
+  `agent-boundary-json` unchanged), and `agents-shipgate agent control`, whose
+  default output changes from the raw pointer to the envelope — `--format
+  pointer` returns the previous output unchanged. `verify --format text` now
+  leads with the control state, next actor, and permission vector before the
+  existing verdict line. Runtime contract advances `21 → 22` and the downstream
+  local contract `9 → 10`; `minimum_control_contract_version` stays at `21`
+  because the `AgentControl` union itself is unchanged.
+  ([#333](https://github.com/ThreeMoonsLab/agents-shipgate/issues/333),
+  [#323](https://github.com/ThreeMoonsLab/agents-shipgate/issues/323),
+  [#338](https://github.com/ThreeMoonsLab/agents-shipgate/issues/338))
+
 - **The release pipeline now proves the wheel it publishes came from the
   tagged commit.** The tag workflow established three bindings — tag to
   `pyproject.toml` version, qualification payload to wheel bytes, and tag to

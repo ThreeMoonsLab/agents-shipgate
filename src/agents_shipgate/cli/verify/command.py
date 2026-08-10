@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import typer
 
@@ -15,12 +15,22 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
-from agents_shipgate.core.current_control import CurrentControlPublishError
+from agents_shipgate.core.agent_control_envelope import (
+    control_headline_lines,
+    envelope_from_verifier,
+    render_agent_control_envelope,
+)
+from agents_shipgate.core.current_control import (
+    CurrentControlPublishError,
+    load_published_control_pointer,
+)
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.report.summary_text import primary_evidence_remediation_text
+from agents_shipgate.schemas.agent_control_envelope import AgentControlEnvelope
 from agents_shipgate.schemas.diagnostics import NextAction
+from agents_shipgate.schemas.verifier import VerifierArtifact
 
 from .git import ensure_git_workspace, staged_paths_under
 from .orchestrator import run_preview, run_verify
@@ -110,9 +120,11 @@ def verify(
         None,
         "--format",
         help=(
-            "Verifier stdout format: text or json (full verifier artifact). "
-            "Defaults to text, or json when a coding-agent environment is "
-            "detected. Scan artifacts are fixed."
+            "Verifier stdout format: text, json (full verifier artifact), or "
+            "control (the compact shipgate.agent_control/v1 envelope — the "
+            "promoted shape for a coding-agent control loop). Defaults to "
+            "text, or json when a coding-agent environment is detected. Scan "
+            "artifacts are fixed."
         ),
     ),
     json_output: bool = typer.Option(
@@ -418,12 +430,41 @@ def verify(
 
     if stdout_format == "json":
         typer.echo(json.dumps(verifier.model_dump(mode="json"), indent=2))
+    elif stdout_format == "control":
+        typer.echo(
+            render_agent_control_envelope(
+                _verify_envelope(verifier, workspace, exit_code, preview=preview)
+            )
+        )
     else:
         verdict = (
             verifier.release_decision.decision
             if verifier.release_decision is not None
             else ("skipped" if verifier.head_status == "skipped" else "failed")
         )
+        # Lead with the operational answer. The release verdict below is the
+        # gate's word on the change; these lines are the reader's word on what
+        # they may do next, and printing the verdict first is what let
+        # "succeeded" read as "done" in the #338 walkthrough.
+        #
+        # Every envelope invariant restates one the verifier already enforces,
+        # so a failure here means two layers disagree — a bug, not an input.
+        # ``--format control`` raises on it, because a caller who asked for the
+        # control answer must not receive a partial one. The human path says so
+        # and keeps going: losing the verdict and the exit code to a traceback
+        # helps nobody, and the line below denies authority rather than
+        # assuming it.
+        try:
+            headline = control_headline_lines(
+                _verify_envelope(verifier, workspace, exit_code, preview=preview)
+            )
+        except ValueError as exc:
+            headline = [
+                "Control: could not be projected — treat this run as "
+                f"authorizing nothing and re-run verification ({exc}).",
+            ]
+        for line in headline:
+            typer.echo(line)
         typer.echo(f"Agents Shipgate verify: {verdict}")
         typer.echo(f"Trigger: {verifier.trigger.get('rationale')}")
         typer.echo(f"Base status: {verifier.base_status}")
@@ -482,6 +523,11 @@ def _resolve_verify_format(value: str | None, *, json_output: bool, preview: boo
 
     Precedence: explicit ``--format`` > ``--json`` shortcut > agent-mode
     auto-detection > text.
+
+    Agent-mode auto-detection still resolves to ``json``. ``control`` is the
+    promoted shape for a coding-agent control loop and is far cheaper, but
+    silently swapping what an already-installed agent receives on stdout is a
+    compatibility event, not a default change; the rollout is #323's.
     """
     if value is not None:
         return _parse_verify_format(value)
@@ -496,11 +542,69 @@ def _parse_verify_format(value: str) -> str:
         return "text"
     if normalized == "json":
         return "json"
+    if normalized == "control":
+        return "control"
     if normalized == "agent":
         raise ConfigError(
             "--format agent was removed in the 0.14.0 contract cleanup; use --format json"
         )
-    raise ConfigError("--format must be text or json for verify")
+    raise ConfigError("--format must be text, json, or control for verify")
+
+
+def _verify_envelope(
+    verifier: VerifierArtifact,
+    workspace: Path,
+    exit_code: int,
+    *,
+    preview: bool,
+) -> AgentControlEnvelope:
+    """Project this run onto ``shipgate.agent_control/v1``.
+
+    The pointer this run just published supplies the content-addressed artifact
+    set and the currency identity, and it overrules the run's own control block
+    where the two disagree. Its directory is recovered from the artifact map
+    rather than threaded through ``run_verify``: ``verify`` resolves the reports
+    directory against the Git root through several branches, and re-deriving it
+    from the paths the run actually wrote cannot drift from them.
+    """
+
+    pointer = None
+    reports_dir = _reports_dir_from_artifacts(verifier, workspace)
+    if reports_dir is not None:
+        pointer = load_published_control_pointer(reports_dir)
+    return envelope_from_verifier(
+        verifier,
+        operation="preview" if preview else "verify",
+        source="run",
+        exit_code=exit_code,
+        pointer=pointer,
+        # The verifier records artifact paths the way the run displays them —
+        # relative to the Git root, absolute only when the directory sits
+        # outside it. Reusing that spelling keeps the envelope's paths openable
+        # from the same place every other emitted path is.
+        artifact_root=_artifact_root(verifier),
+    )
+
+
+def _artifact_root(verifier: VerifierArtifact) -> str | None:
+    recorded = verifier.artifacts.get("verifier_json")
+    if not recorded:
+        return None
+    root = PurePosixPath(Path(recorded).as_posix()).parent.as_posix()
+    return None if root in {"", "."} else root
+
+
+def _reports_dir_from_artifacts(verifier: VerifierArtifact, workspace: Path) -> Path | None:
+    recorded = verifier.artifacts.get("verifier_json")
+    if not recorded:
+        return None
+    path = Path(recorded)
+    if not path.is_absolute():
+        try:
+            path = ensure_git_workspace(workspace.resolve()) / path
+        except ConfigError:
+            path = workspace.resolve() / path
+    return path.parent
 
 
 def _parse_pr_comment_style(value: str) -> str:

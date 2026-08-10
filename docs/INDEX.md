@@ -67,6 +67,7 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`verification-artifact-manifest-schema.v1.json`](verification-artifact-manifest-schema.v1.json) — content-addressed terminal artifact set
 - [`verification-receipt-schema.v1.json`](verification-receipt-schema.v1.json) — terminal request, decision, executor, and artifact closure
 - [`current-control-schema.v1.json`](current-control-schema.v1.json) — the atomic pointer naming which control identity is current
+- [`agent-control-schema.v1.json`](agent-control-schema.v1.json) — the compact `shipgate.agent_control/v1` control envelope emitted on stdout
 - [`agent-handoff-schema.v4.json`](agent-handoff-schema.v4.json) — frozen handoff v4 reference
 - [`agent-handoff-schema.v3.json`](agent-handoff-schema.v3.json) — frozen handoff v3 reference
 - [`agent-handoff-schema.v2.json`](agent-handoff-schema.v2.json) — frozen handoff v2 reference

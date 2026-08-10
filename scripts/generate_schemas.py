@@ -26,6 +26,7 @@ Writes / verifies:
 - docs/verification-artifact-manifest-schema.v1.json
 - docs/verification-receipt-schema.v1.json
 - docs/current-control-schema.v1.json
+- docs/agent-control-schema.v1.json
                                 (from agents_shipgate.schemas.verification_identity)
 - docs/human-authorization-schema.v1.json
                                 (authorization request, signed grant,
@@ -1464,6 +1465,25 @@ def build_current_control_schema() -> tuple[Path, str]:
     )
 
 
+def build_agent_control_envelope_schema() -> tuple[Path, str]:
+    from agents_shipgate.schemas.agent_control_envelope import AgentControlEnvelope
+
+    return _verification_identity_schema(
+        model=AgentControlEnvelope,
+        filename="agent-control-schema.v1.json",
+        title="Agents Shipgate Agent Control Envelope v1",
+        description=(
+            "JSON Schema for the compact shipgate.agent_control/v1 control "
+            "envelope emitted by `verify --format control`, `check --format "
+            "agent-control-json`, and `agents-shipgate agent control`. A "
+            "projection of the authoritative control state, never a second "
+            "decision. Generated from "
+            "agents_shipgate.schemas.agent_control_envelope.AgentControlEnvelope. "
+            "Do not edit by hand."
+        ),
+    )
+
+
 def build_human_authorization_schema() -> tuple[Path, str]:
     """Generate the signed authorization protocol schema family."""
 
@@ -1863,6 +1883,7 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("verification_artifact_manifest", build_verification_artifact_manifest_schema),
     ("verification_receipt", build_verification_receipt_schema),
     ("current_control", build_current_control_schema),
+    ("agent_control_envelope", build_agent_control_envelope_schema),
     ("human_authorization", build_human_authorization_schema),
     ("agent_handoff", build_agent_handoff_schema),
     ("agent_result", build_agent_result_schema),
