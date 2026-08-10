@@ -24,7 +24,6 @@ from typing import Any
 import pytest
 import yaml
 
-from agents_shipgate.core.errors import ConfigError
 from scripts._release_support import ReleaseError
 from scripts.release_publication import pypi_state, verify_manifest
 from scripts.release_sbom import dev_only_distributions, verify_release_sbom
@@ -104,12 +103,12 @@ def test_qualified_wheel_carrying_extra_code_fails_closed(tmp_path: Path) -> Non
 
     built, qualified = _wheel_pair(tmp_path, {"agents_shipgate/_backdoor.py": "import os\n"})
 
-    with pytest.raises(ConfigError) as excinfo:
+    with pytest.raises(ReleaseError) as excinfo:
         verify_wheel_provenance(built_path=built, qualified_path=qualified)
 
     assert "_backdoor.py" in str(excinfo.value)
     # Even the explicitly weaker interim bar must not let this through.
-    with pytest.raises(ConfigError):
+    with pytest.raises(ReleaseError):
         verify_wheel_provenance(
             built_path=built, qualified_path=qualified, allow_payload_equivalent=True
         )
@@ -118,7 +117,7 @@ def test_qualified_wheel_carrying_extra_code_fails_closed(tmp_path: Path) -> Non
 def test_modified_module_contents_fail_closed(tmp_path: Path) -> None:
     built, qualified = _wheel_pair(tmp_path, {"agents_shipgate/__init__.py": "x = 666\n"})
 
-    with pytest.raises(ConfigError, match="content differs"):
+    with pytest.raises(ReleaseError, match="content differs"):
         verify_wheel_provenance(built_path=built, qualified_path=qualified)
 
 
@@ -135,7 +134,7 @@ def test_container_only_difference_is_rejected_unless_explicitly_allowed(tmp_pat
     assert mode == "identical_payload"
     assert differences == []
 
-    with pytest.raises(ConfigError, match="not byte-identical"):
+    with pytest.raises(ReleaseError, match="not byte-identical"):
         verify_wheel_provenance(built_path=built, qualified_path=qualified)
 
     record = verify_wheel_provenance(
@@ -162,7 +161,7 @@ def test_identical_bytes_under_a_different_filename_are_rejected(
     built = _write_wheel(tmp_path / "built" / WHEEL_FILENAME)
     qualified = _write_wheel(tmp_path / "qualified" / renamed)
 
-    with pytest.raises(ConfigError, match=expected):
+    with pytest.raises(ReleaseError, match=expected):
         verify_wheel_provenance(built_path=built, qualified_path=qualified)
 
 
@@ -473,15 +472,18 @@ def test_index_state_is_reclassified_inside_the_publish_attempt() -> None:
     failure retry an immutable version and never reach recovery."""
 
     publish = _load_workflow("release.yml")["jobs"]["publish"]
-    upload = publish["steps"][_step_index(publish, "uv publish")]
+    upload = publish["steps"][_step_index(publish, "uv publish --trusted-publishing")]
 
-    # The decision is taken inside the step, from a fresh query.
-    assert "release_publication.py pypi-state" in upload["run"]
+    # The decision is taken inside the step, from a fresh query — and made
+    # with runner-provided tools, never a helper fetched from the candidate
+    # tree, because this job can mint a PyPI token.
     assert "if" not in upload
-    assert "is absent" in upload["run"]
-    assert "is published_identical" in upload["run"]
-    # Any other state stops rather than guessing.
-    assert "Unexpected index state before upload" in upload["run"]
+    assert "https://pypi.org/pypi/agents-shipgate/" in upload["run"]
+    assert "jq -r" in upload["run"]
+    assert "published_identical" in upload["run"]
+    assert "published_divergent" in upload["run"]
+    # An unreachable index is not permission to upload.
+    assert "not permission to upload" in upload["run"]
 
 
 def test_release_assets_are_uploaded_from_an_explicit_allowlist() -> None:
@@ -932,10 +934,20 @@ def test_the_handoff_is_sealed_by_a_job_that_runs_no_candidate_tests() -> None:
     # The sealing job runs no suite, no plugins, no audit.
     assert "pytest" not in commands
     assert "pip_audit" not in commands
-    # And the suite job never touches the qualified wheel.
+    # And installs no editable project and no ranged dev extra: an unlocked
+    # resolve here could rewrite the verifier and the digests it seals.
+    assert "pip install -e" not in commands
+    assert '".[dev]"' not in commands
+    assert "--require-hashes" in commands
+    assert "constraints/release-seal.txt" in commands
+    # The suite job runs the exhaustive policy gate, so it downloads its own
+    # copy — into a different directory the sealer never reads. It is a gate,
+    # not a producer: nothing the sealer trusts comes out of it.
     tests_commands = _job_commands(workflow["jobs"]["tests"])
-    assert "QUALIFIED_WHEEL" not in tests_commands
+    assert "policy-dist" in tests_commands
+    assert "qualified-dist" not in tests_commands
     assert "verify_wheel_provenance" not in tests_commands
+    assert "release_publication.py manifest" not in tests_commands
 
 
 def test_the_binding_is_reasserted_on_the_exact_bytes_being_sealed() -> None:
@@ -984,8 +996,9 @@ def test_finalisation_verifies_remote_bytes_not_asset_names() -> None:
     assert "gh release download" in commands
     assert "verify-manifest" in commands
     assert '--expected-sha256 "${MANIFEST_SHA256}"' in commands
-    assert '--allow "${WHEEL_FILENAME}.sigstore.json"' in commands
-    assert "--allow agents-shipgate-sbom.json.sigstore.json" in commands
+    # `--require`, not `--allow`: a release missing a bundle is incomplete.
+    assert '--require "${WHEEL_FILENAME}.sigstore.json"' in commands
+    assert "--require agents-shipgate-sbom.json.sigstore.json" in commands
     # The signature bundles are verified, not merely present.
     assert "sigstore verify identity" in commands
     assert _step_index(finalize, "sigstore verify identity") < _step_index(
@@ -1028,3 +1041,164 @@ def test_finalisation_runs_no_project_code_either() -> None:
     assert "--require-hashes" in commands
     # Uses the stdlib-only scripts fetched by immutable SHA.
     assert "tools/release_publication.py" in commands
+
+
+# --------------------------------------------------------------------------
+# Review round 3 — the sealer's trust boundary
+# --------------------------------------------------------------------------
+
+
+def test_the_sealer_installs_only_a_hash_locked_toolchain() -> None:
+    """An unlocked `pip install -e ".[dev]"` in the sealing job resolves dozens
+    of packages by range and runs before the build, the qualification checks,
+    the provenance comparison and the sealing — so one compromised compatible
+    release could rewrite the verifier and the digests it seals."""
+
+    lockfile = (REPO_ROOT / "constraints/release-seal.txt").read_text(encoding="utf-8")
+
+    for pinned in ("build==", "hatchling==", "sigstore==", "cyclonedx-bom=="):
+        assert pinned in lockfile
+    assert lockfile.count("--hash=sha256:") > 20
+    assert ">=" not in lockfile.replace("# ", "")
+
+
+def test_the_sealer_and_the_build_pin_agree_on_the_backend() -> None:
+    """A backend mismatch between the two lockfiles would break byte equality
+    on a legitimate release."""
+
+    def _hatchling(path: str) -> str:
+        for line in (REPO_ROOT / path).read_text(encoding="utf-8").splitlines():
+            if line.startswith("hatchling=="):
+                return line.split()[0]
+        raise AssertionError(f"no hatchling pin in {path}")
+
+    assert _hatchling("constraints/release-build.txt") == _hatchling("constraints/release-seal.txt")
+
+
+def test_the_sealer_restates_the_decisive_invariants_without_the_project() -> None:
+    """The exhaustive re-derivation needs pydantic, so it runs in the gate job.
+    The sealer must still restate the claims that delegate publication
+    authority, or a signed-but-weakened artifact passes on its signature."""
+
+    workflow = _load_workflow("release-verify.yml")
+    sealer = _job_commands(workflow["jobs"]["artifact"])
+    gate = _job_commands(workflow["jobs"]["tests"])
+
+    assert "verify_qualification_binding.py" in sealer
+    assert "verify_safety_qualification_release.py" not in sealer
+    # The exhaustive version still runs, as a gate.
+    assert "verify_safety_qualification_release.py" in gate
+
+
+def test_the_stdlib_invariant_checker_rejects_a_weakened_signed_artifact(
+    tmp_path: Path,
+) -> None:
+    from scripts.verify_qualification_binding import verify_qualification_binding
+
+    wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
+    digest = _digest(wheel)
+
+    def _artifact(**overrides: Any) -> Path:
+        payload: dict[str, Any] = {
+            "qualification_tier": "beta",
+            "qualified": True,
+            "production_qualified": True,
+            "static_only": True,
+            "runtime_behavior_proven": False,
+            "failures": [],
+            "cases": [{"id": f"c{i}"} for i in range(100)],
+            "summary": {
+                "total_cases": 100,
+                "receipt_count": 100,
+                "unsafe_auto_pass_count": 0,
+                "runtime_failure_count": 0,
+            },
+            "inputs": {
+                "wheel_name": "agents-shipgate",
+                "wheel_version": "9.9.9",
+                "engine_version": "9.9.9",
+                "wheel_sha256": digest,
+            },
+        }
+        payload.update(overrides)
+        path = tmp_path / "qualification.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    # The honest artifact passes.
+    assert verify_qualification_binding(
+        qualification_path=_artifact(), wheel_path=wheel, tag="v9.9.9"
+    )
+
+    for overrides, expected in [
+        ({"qualification_tier": "test"}, "tier is not beta"),
+        ({"production_qualified": False}, "not production_qualified"),
+        ({"cases": [{"id": "c0"}]}, "cases, not 100"),
+        ({"runtime_behavior_proven": True}, "runtime behaviour"),
+        ({"failures": ["x"]}, "reports failures"),
+    ]:
+        with pytest.raises(ReleaseError, match=expected):
+            verify_qualification_binding(
+                qualification_path=_artifact(**overrides), wheel_path=wheel, tag="v9.9.9"
+            )
+
+    # And the binding itself: a different wheel is rejected even when every
+    # policy claim is intact.
+    other = _write_wheel(tmp_path / "other" / WHEEL_FILENAME, {"agents_shipgate/_x.py": "y = 1\n"})
+    with pytest.raises(ReleaseError, match="SHA-256 mismatch"):
+        verify_qualification_binding(qualification_path=_artifact(), wheel_path=other, tag="v9.9.9")
+
+
+def test_the_suite_and_the_sealer_must_agree_on_the_commit() -> None:
+    """They check out independently; a mutable ref could test A and seal B."""
+
+    workflow = _load_workflow("release-verify.yml")
+    sealer = _job_commands(workflow["jobs"]["artifact"])
+
+    assert workflow["jobs"]["tests"]["outputs"]["source_sha"]
+    assert "The suite ran against ${TESTED_SHA}" in sealer
+
+
+def test_the_rehearsal_cannot_pass_a_mutable_ref() -> None:
+    rehearsal = _load_workflow("release-rehearsal.yml")
+
+    assert rehearsal["jobs"]["rehearse"]["with"]["ref"] == "${{ github.sha }}"
+    # No free-form ref input to resolve twice.
+    assert "ref" not in rehearsal["on"]["workflow_dispatch"]["inputs"]
+
+
+def test_the_tag_is_rebound_inside_the_upload_step_itself() -> None:
+    """Artifact download, digest verification, signing and the index query all
+    sit between the previous peel and the irreversible upload."""
+
+    publish = _load_workflow("release.yml")["jobs"]["publish"]
+    upload = publish["steps"][_step_index(publish, "uv publish --trusted-publishing")]["run"]
+
+    assert "git ls-remote" in upload
+    assert upload.index("git ls-remote") < upload.index("uv publish --trusted-publishing")
+    assert "refusing to publish" in upload
+
+
+def test_an_already_published_release_must_be_complete_and_signed() -> None:
+    """Declaring the transaction complete makes both signature-verifying jobs
+    skip, so `--allow` (permit) was the wrong verb — the bundles must be
+    required and verified here."""
+
+    stage = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
+
+    assert '--require "${WHEEL_FILENAME}.sigstore.json"' in stage
+    assert "--require agents-shipgate-sbom.json.sigstore.json" in stage
+    assert "sigstore verify identity" in stage
+
+
+def test_deployment_prerequisites_are_documented_with_their_residuals() -> None:
+    """Two of the windows cannot be closed by code in this repository, and the
+    docs must say so rather than implying the workflow handles them."""
+
+    runbook = (REPO_ROOT / "docs/release-runbook.md").read_text(encoding="utf-8")
+
+    assert "## Deployment prerequisites" in runbook
+    for prerequisite in ("Immutable releases", "updates and deletions", "release-write"):
+        assert prerequisite in runbook
+    # The honest limit about the workflow being candidate-controlled.
+    assert "the workflow at that tag" in runbook

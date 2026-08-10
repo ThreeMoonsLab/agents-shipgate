@@ -73,6 +73,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    outputs:
+      source_sha: ${{ steps.tested.outputs.source_sha }}
 
     steps:
       - name: Checkout
@@ -80,6 +82,10 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
+
+      - name: Record the commit under test
+        id: tested
+        run: echo "source_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -126,6 +132,33 @@ jobs:
 
       - name: Dependency audit
         run: python -m pip_audit .
+
+      - name: Exhaustive safety qualification policy re-derivation
+        # Re-derives every stratum, Wilson interval and confusion matrix in the
+        # signed artifact. It imports the project's pydantic schemas, so it
+        # belongs here, with the project installed, rather than in the sealing
+        # job — which restates the decisive invariants using only the standard
+        # library. This is a gate, not a producer: nothing the sealer trusts
+        # comes out of this job.
+        env:
+          QUALIFIED_WHEEL_URL: ${{ vars.SAFETY_QUALIFICATION_WHEEL_URL }}
+          QUALIFIED_WHEEL_FILENAME: ${{ vars.SAFETY_QUALIFICATION_WHEEL_FILENAME }}
+          QUALIFICATION_JSON_URL: ${{ vars.SAFETY_QUALIFICATION_JSON_URL }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
+          tag="${RELEASE_TAG:-v${version}}"
+          mkdir -p policy-dist
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output "policy-dist/${QUALIFIED_WHEEL_FILENAME}" "${QUALIFIED_WHEEL_URL}"
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output policy-dist/safety-qualification.json "${QUALIFICATION_JSON_URL}"
+          python scripts/verify_safety_qualification_release.py \
+            --wheel "policy-dist/${QUALIFIED_WHEEL_FILENAME}" \
+            --qualification policy-dist/safety-qualification.json \
+            --tag "${tag}"
+          python -m twine check "policy-dist/${QUALIFIED_WHEEL_FILENAME}"
 
   artifact:
     name: Verify and seal the candidate
@@ -276,8 +309,31 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install
-        run: python -m pip install -e ".[dev]"
+      - name: Install the hash-locked sealing toolchain
+        # No editable install and no `dev` extra. An unlocked
+        # `pip install -e ".[dev]"` resolves dozens of packages by range and
+        # runs *before* the build, the qualification checks, the provenance
+        # comparison and the sealing — so one compromised compatible release
+        # could rewrite the verifier, both wheel copies, and the digests that
+        # delegate publication authority, with every later check agreeing.
+        run: |
+          python -m pip install --require-hashes \
+            --requirement constraints/release-seal.txt
+
+      - name: Confirm the sealer is verifying the tested commit
+        # `tests` and this job check out independently. If a caller passed a
+        # mutable ref, the two could resolve to different commits — testing A
+        # and sealing B.
+        env:
+          TESTED_SHA: ${{ needs.tests.outputs.source_sha }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [ "${TESTED_SHA}" != "${SOURCE_SHA}" ]; then
+            echo "::error::The suite ran against ${TESTED_SHA} but this job resolved ${SOURCE_SHA}."
+            exit 1
+          fi
+          echo "OK: suite and sealer agree on ${SOURCE_SHA}."
 
       - name: Build a wheel from the checked-out source
         # The provenance gate this feeds is the only thing tying the published
@@ -333,15 +389,23 @@ jobs:
             --cert-oidc-issuer "${QUALIFICATION_OIDC_ISSUER}" \
             qualified-dist/safety-qualification.json
 
-      - name: Verify production qualification and exact wheel binding
+      - name: Re-derive the decisive qualification invariants
+        # The exhaustive policy re-derivation (every stratum, Wilson interval
+        # and confusion matrix) imports the project's pydantic schemas, so it
+        # runs in the `policy` job where the project is installed. What is
+        # restated here, with the standard library only, are the claims that
+        # actually delegate publication authority: beta/qualified/
+        # production_qualified, static-only, no failures, 100 cases and
+        # receipts, zero unsafe auto-passes, and the wheel name/version/digest
+        # binding. A signed-but-weakened artifact therefore cannot pass on the
+        # strength of its signature alone.
         env:
           RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
         run: |
-          python scripts/verify_safety_qualification_release.py \
-            --wheel "${QUALIFIED_WHEEL}" \
+          python scripts/verify_qualification_binding.py \
             --qualification qualified-dist/safety-qualification.json \
+            --wheel "${QUALIFIED_WHEEL}" \
             --tag "${RELEASE_TAG}"
-          python -m twine check "${QUALIFIED_WHEEL}"
 
       - name: Bind the qualified wheel to the tagged source tree
         # Without this the pipeline tests the checkout and publishes a wheel

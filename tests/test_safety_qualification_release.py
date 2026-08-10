@@ -311,10 +311,20 @@ def test_release_workflow_reuses_signed_qualified_wheel_before_publish() -> None
     verify = (REPO_ROOT / ".github/workflows/release-verify.yml").read_text(encoding="utf-8")
     release = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
 
-    signature_index = verify.index("sigstore verify identity")
-    binding_index = verify.index("scripts/verify_safety_qualification_release.py")
-    provenance_index = verify.index("scripts/verify_wheel_provenance.py")
-    assert signature_index < binding_index < provenance_index
+    # Ordering is asserted inside the sealing job. The exhaustive policy
+    # re-derivation lives in the `tests` gate because it needs the project
+    # installed; the sealer verifies the signature first, then restates the
+    # decisive invariants, then binds the wheel to the tagged source.
+    sealer = yaml.safe_load(verify)["jobs"]["artifact"]["steps"]
+    order = [json.dumps(step) for step in sealer]
+
+    def _at(needle: str) -> int:
+        return next(i for i, step in enumerate(order) if needle in step)
+
+    assert _at("sigstore verify identity") < _at("scripts/verify_qualification_binding.py")
+    assert _at("scripts/verify_qualification_binding.py") < _at(
+        "scripts/verify_wheel_provenance.py"
+    )
     assert "SAFETY_QUALIFICATION_WHEEL_URL" in verify
     assert "SAFETY_QUALIFICATION_JSON_URL" in verify
     assert "SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL" in verify

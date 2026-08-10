@@ -51,9 +51,12 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 
-from packaging.utils import InvalidWheelFilename, parse_wheel_filename
-
-from agents_shipgate.core.errors import ConfigError
+if __package__:
+    from scripts._release_support import ReleaseError as ConfigError
+    from scripts._release_support import parse_wheel_filename
+else:  # ``python scripts/verify_wheel_provenance.py``
+    from _release_support import ReleaseError as ConfigError
+    from _release_support import parse_wheel_filename
 
 ProvenanceMode = Literal["identical_bytes", "identical_payload", "mismatch"]
 
@@ -134,14 +137,10 @@ def _assert_compatible_filenames(built_path: Path, qualified_path: Path) -> None
     while hashing identically.
     """
 
-    try:
-        built = parse_wheel_filename(built_path.name)
-        qualified = parse_wheel_filename(qualified_path.name)
-    except InvalidWheelFilename as exc:
-        raise ConfigError(f"Unparsable wheel filename: {exc}") from exc
-
-    built_name, built_version, built_build, built_tags = built
-    qualified_name, qualified_version, qualified_build, qualified_tags = qualified
+    built_name, built_version, built_build, built_tags = parse_wheel_filename(built_path.name)
+    qualified_name, qualified_version, qualified_build, qualified_tags = parse_wheel_filename(
+        qualified_path.name
+    )
 
     differences: list[str] = []
     if built_name != qualified_name:
@@ -151,10 +150,7 @@ def _assert_compatible_filenames(built_path: Path, qualified_path: Path) -> None
     if built_build != qualified_build:
         differences.append(f"build tag {built_build} vs {qualified_build}")
     if built_tags != qualified_tags:
-        differences.append(
-            f"compatibility tags {sorted(map(str, built_tags))} vs "
-            f"{sorted(map(str, qualified_tags))}"
-        )
+        differences.append(f"compatibility tags {sorted(built_tags)} vs {sorted(qualified_tags)}")
     if differences:
         raise ConfigError(
             "Built and qualified wheel filenames describe different artifacts: "

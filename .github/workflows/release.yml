@@ -58,6 +58,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install the hash-locked verification toolchain
+        # Needed to verify signature bundles on an already-published release.
+        # Hash-locked and project-free, like the other publication-side jobs.
+        run: |
+          python -m pip install --require-hashes \
+            --requirement constraints/release-publish.txt
+
       - name: Confirm the tag still points at the verified commit
         # Guards a tag moved (or deleted and recreated) after verification.
         # `^{}` peels annotated tags to the commit they name.
@@ -207,14 +214,26 @@ jobs:
           fi
           mkdir -p published
           gh release download "${RELEASE_TAG}" --dir published --clobber
+          # `--require`, not `--allow`: declaring the transaction complete makes
+          # both downstream signature-verifying jobs skip, so a release missing
+          # a bundle — or carrying arbitrary bytes under the expected name —
+          # must fail here rather than be waved through.
           python scripts/release_publication.py verify-manifest \
             --manifest published/candidate-manifest.json \
             --expected-sha256 "${MANIFEST_SHA256}" \
             --directory published \
-            --allow "${WHEEL_FILENAME}.sigstore.json" \
-            --allow agents-shipgate-sbom.json.sigstore.json
+            --require "${WHEEL_FILENAME}.sigstore.json" \
+            --require agents-shipgate-sbom.json.sigstore.json
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${RELEASE_TAG}"
+          for target in "${WHEEL_FILENAME}" agents-shipgate-sbom.json; do
+            sigstore verify identity \
+              --bundle "published/${target}.sigstore.json" \
+              --cert-identity "${identity}" \
+              --cert-oidc-issuer https://token.actions.githubusercontent.com \
+              "published/${target}"
+          done
           echo "release_state=published" >> "${GITHUB_OUTPUT}"
-          echo "Release ${RELEASE_TAG} is already published with the verified assets; leaving it untouched."
+          echo "Release ${RELEASE_TAG} is already published, complete and signed; leaving it untouched."
 
   publish:
     name: Publish to PyPI
@@ -242,23 +261,22 @@ jobs:
 
       - name: Install the hash-locked publication toolchain
         env:
-          RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}
+          LOCKFILE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}/constraints/release-publish.txt
         run: |
           set -euo pipefail
-          # Fetched by immutable commit SHA rather than checked out, so no
-          # project code lands in the token-bearing job. The two scripts are
-          # standard-library only, so nothing beyond the locked toolchain is
-          # ever imported here.
-          mkdir -p tools
-          for path in \
-            constraints/release-publish.txt \
-            scripts/release_publication.py \
-            scripts/_release_support.py
-          do
-            curl --fail --location --proto '=https' --proto-redir '=https' \
-              --output "tools/$(basename "${path}")" "${RAW_BASE}/${path}"
-          done
-          python -m pip install --require-hashes --requirement tools/release-publish.txt
+          # Only the lockfile is fetched, and `--require-hashes` means a
+          # substituted lockfile cannot install anything: every artifact must
+          # match a recorded digest.
+          #
+          # No candidate *code* runs in this job. An earlier revision fetched
+          # `release_publication.py` here and ran it before `uv publish`;
+          # "standard library only" is not a trust boundary, because the file
+          # still came from the candidate tree and could have rewritten the
+          # wheel or requested an OIDC token directly. The index query below
+          # therefore uses curl and jq, which the runner provides.
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --output release-publish.txt "${LOCKFILE_URL}"
+          python -m pip install --require-hashes --requirement release-publish.txt
 
       - name: Confirm the tag still points at the verified commit
         env:
@@ -307,23 +325,64 @@ jobs:
         # -> fail.
         env:
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          WHEEL_SHA256: ${{ needs.verify.outputs.wheel_sha256 }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
         run: |
           set -euo pipefail
-          state="$(python tools/release_publication.py pypi-state \
-            --wheel "dist/${WHEEL_FILENAME}" --github-output /dev/null)"
-          echo "${state}"
-          case "${state}" in
-            *"is absent"*)
-              uv publish --trusted-publishing always "dist/${WHEEL_FILENAME}"
-              ;;
-            *"is published_identical"*)
-              echo "Index already holds these exact bytes; completing the interrupted transaction."
+          # Classified with curl and jq rather than a candidate-tree helper:
+          # this job can mint a PyPI token, so it runs no repository code.
+          url="https://pypi.org/pypi/agents-shipgate/${VERSION}/json"
+          status="$(curl --silent --show-error --location --proto '=https' \
+            --write-out '%{http_code}' --output index.json "${url}" || true)"
+
+          case "${status}" in
+            404) state="absent" ;;
+            200)
+              # Exactly one unyanked wheel, expected filename, matching digest.
+              state="$(jq -r --arg f "${WHEEL_FILENAME}" --arg d "${WHEEL_SHA256}" '
+                if (.urls | length) == 1
+                   and .urls[0].filename == $f
+                   and .urls[0].packagetype == "bdist_wheel"
+                   and .urls[0].digests.sha256 == $d
+                   and (.urls[0].yanked != true)
+                then "published_identical" else "published_divergent" end
+              ' index.json)"
               ;;
             *)
-              echo "::error::Unexpected index state before upload: ${state}"
+              echo "::error::Unable to query ${url}: HTTP ${status}. An unreachable index is not permission to upload."
               exit 1
               ;;
           esac
+          echo "Index state: ${state}"
+
+          case "${state}" in
+            published_identical)
+              echo "Index already holds these exact bytes; completing the interrupted transaction."
+              exit 0
+              ;;
+            published_divergent)
+              echo "::error::${VERSION} is already on the index with different content. PyPI uploads are immutable; cut a new version. See docs/release-runbook.md."
+              exit 1
+              ;;
+          esac
+
+          # Last possible moment: the tag is re-peeled immediately before the
+          # irreversible upload, not several steps earlier. Everything between
+          # the previous check and here (download, digest check, signing) is
+          # window in which an unprotected tag could have moved.
+          peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}^{}" | cut -f1)"
+          if [ -z "${peeled}" ]; then
+            peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}" | cut -f1)"
+          fi
+          if [ "${peeled}" != "${SOURCE_SHA}" ]; then
+            echo "::error::Tag ${RELEASE_TAG} points at ${peeled:-<missing>}, not the verified ${SOURCE_SHA}; refusing to publish."
+            exit 1
+          fi
+          echo "${WHEEL_SHA256}  dist/${WHEEL_FILENAME}" | sha256sum --check --strict
+
+          uv publish --trusted-publishing always "dist/${WHEEL_FILENAME}"
 
       - name: Upload signatures for finalisation
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -443,8 +502,8 @@ jobs:
             --manifest remote/candidate-manifest.json \
             --expected-sha256 "${MANIFEST_SHA256}" \
             --directory remote \
-            --allow "${WHEEL_FILENAME}.sigstore.json" \
-            --allow agents-shipgate-sbom.json.sigstore.json
+            --require "${WHEEL_FILENAME}.sigstore.json" \
+            --require agents-shipgate-sbom.json.sigstore.json
           echo "OK: the remote asset set matches the verified candidate exactly."
 
       - name: Verify the attached signatures

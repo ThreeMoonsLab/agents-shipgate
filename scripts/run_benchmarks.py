@@ -282,8 +282,7 @@ def main() -> int:
     if args.scenario != "all":
         if args.scenario not in scenarios:
             sys.stderr.write(
-                f"unknown scenario {args.scenario!r}. "
-                f"Known: {sorted(scenarios.keys())}\n"
+                f"unknown scenario {args.scenario!r}. Known: {sorted(scenarios.keys())}\n"
             )
             return 2
         scenarios = {args.scenario: scenarios[args.scenario]}
@@ -332,7 +331,9 @@ def main() -> int:
     if args.json is not None:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"      JSON written to {args.json.relative_to(_REPO_ROOT) if args.json.is_absolute() and args.json.is_relative_to(_REPO_ROOT) else args.json}")
+        print(
+            f"      JSON written to {args.json.relative_to(_REPO_ROOT) if args.json.is_absolute() and args.json.is_relative_to(_REPO_ROOT) else args.json}"
+        )
     if args.save:
         _RESULTS_ROOT.mkdir(parents=True, exist_ok=True)
         save_path = _RESULTS_ROOT / f"run-{int(started_at)}.json"

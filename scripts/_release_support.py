@@ -51,6 +51,35 @@ def canonicalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def parse_wheel_filename(filename: str) -> tuple[str, str, str | None, frozenset[str]]:
+    """Return ``(distribution, version, build tag, compatibility tags)``.
+
+    A stdlib stand-in for ``packaging.utils.parse_wheel_filename`` so the
+    sealing job needs no third-party import. Per PEP 427 a wheel name is
+    ``{distribution}-{version}(-{build})?-{python}-{abi}-{platform}.whl``, and
+    the compressed tag fields expand on ``.`` into their cross product.
+    """
+
+    if not filename.endswith(".whl"):
+        raise ReleaseError(f"Not a wheel filename: {filename}")
+    parts = filename[: -len(".whl")].split("-")
+    if len(parts) not in (5, 6):
+        raise ReleaseError(f"Unparsable wheel filename: {filename}")
+    distribution = canonicalize_name(parts[0])
+    version = parts[1]
+    build = parts[2] if len(parts) == 6 else None
+    pythons, abis, platforms = parts[-3:]
+    tags = frozenset(
+        f"{python}-{abi}-{platform}"
+        for python in pythons.split(".")
+        for abi in abis.split(".")
+        for platform in platforms.split(".")
+    )
+    if not version or not tags:
+        raise ReleaseError(f"Unparsable wheel filename: {filename}")
+    return distribution, version, build, tags
+
+
 def inspect_wheel(path: Path) -> tuple[str, str, str]:
     """Return canonical distribution name, version, and content digest."""
 

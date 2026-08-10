@@ -41,9 +41,7 @@ MAX_SUMMARY_CHARS = 60000
 PAYLOAD_FILENAME = "check-run-payload.json"
 DEFAULT_CHECK_NAME = "Agents Shipgate"
 DEFAULT_CHECK_RUN_POLICY = "advisory"
-CHECK_RUN_POLICIES = frozenset(
-    {"advisory", "blocked-fails", "require-mergeable"}
-)
+CHECK_RUN_POLICIES = frozenset({"advisory", "blocked-fails", "require-mergeable"})
 
 _CONCLUSIONS = {
     "mergeable": "success",
@@ -136,9 +134,7 @@ def annotations_from_sarif(sarif: dict[str, Any] | None) -> list[dict[str, Any]]
                     "path": path,
                     "start_line": start_line,
                     "end_line": start_line,
-                    "annotation_level": _SARIF_LEVELS.get(
-                        result.get("level"), "notice"
-                    ),
+                    "annotation_level": _SARIF_LEVELS.get(result.get("level"), "notice"),
                     "message": message[:1000],
                     "title": str(result.get("ruleId") or "agents-shipgate"),
                 }
@@ -248,9 +244,7 @@ def main() -> int:
     )
     out_path = output_dir / PAYLOAD_FILENAME
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Wrote {out_path}")
     return 0
 

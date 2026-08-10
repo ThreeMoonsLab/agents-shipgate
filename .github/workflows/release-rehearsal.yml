@@ -25,11 +25,6 @@ name: Release Rehearsal
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: Branch, tag or SHA to rehearse. Defaults to the dispatch ref.
-        required: false
-        type: string
-        default: ""
       release_tag:
         description: >-
           Tag to rehearse against. Leave empty to derive v<pyproject version>,
@@ -48,6 +43,12 @@ jobs:
       contents: read
     uses: ./.github/workflows/release-verify.yml
     with:
-      ref: ${{ inputs.ref || github.ref }}
+      # `github.sha` — the immutable commit the dispatch resolved to — never a
+      # branch name or a free-form ref input. The verification workflow checks
+      # out independently in its `tests` and `artifact` jobs, so a mutable ref
+      # could otherwise be tested as commit A and sealed as commit B, while
+      # `stage` later located the run by its original `head_sha`. Choose which
+      # commit to rehearse with the workflow_dispatch ref selector.
+      ref: ${{ github.sha }}
       release_tag: ${{ inputs.release_tag }}
       mode: rehearsal

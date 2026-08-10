@@ -120,17 +120,23 @@ def build_manifest(
 
 
 def _assert_closed_world(
-    manifest_path: Path, base: Path, expected: set[str], allowed_extra: set[str]
+    manifest_path: Path,
+    base: Path,
+    expected: set[str],
+    allowed_extra: set[str],
+    required_extra: set[str],
 ) -> None:
     """Reject anything in the candidate directory the manifest does not name.
 
-    ``allowed_extra`` is an explicit allowlist, not an escape hatch: the only
-    legitimate additions are the signature bundles produced *after* the
-    manifest is sealed, and naming them individually keeps the check
-    closed-world.
+    ``allowed_extra`` permits a file; ``required_extra`` demands it. The
+    distinction matters at the end of the transaction: the signature bundles
+    are produced *after* the manifest is sealed, so they cannot be listed in
+    it, but a finished release that is missing one — or that carries arbitrary
+    bytes under the expected name — is not complete. Permitting without
+    requiring let exactly that pass.
     """
 
-    allowed = expected | {manifest_path.name} | allowed_extra
+    allowed = expected | {manifest_path.name} | allowed_extra | required_extra
     present: set[str] = set()
     for entry in sorted(base.rglob("*")):
         if entry.is_dir():
@@ -146,6 +152,12 @@ def _assert_closed_world(
             "Candidate handoff contains files the manifest does not list "
             f"({', '.join(unexpected)}); publication would upload unverified bytes."
         )
+    absent = sorted(required_extra - present)
+    if absent:
+        raise ReleaseError(
+            f"Release is missing required assets ({', '.join(absent)}); "
+            "the transaction is not complete."
+        )
 
 
 def verify_manifest(
@@ -154,6 +166,7 @@ def verify_manifest(
     expected_sha256: str | None = None,
     directory: Path | None = None,
     allowed_extra: set[str] | None = None,
+    required_extra: set[str] | None = None,
 ) -> dict[str, Any]:
     """Re-derive every digest the verification job recorded.
 
@@ -204,7 +217,9 @@ def verify_manifest(
     if errors:
         raise ReleaseError("Candidate handoff rejected: " + "; ".join(errors))
 
-    _assert_closed_world(manifest_path, base, listed, allowed_extra or set())
+    _assert_closed_world(
+        manifest_path, base, listed, allowed_extra or set(), required_extra or set()
+    )
     return manifest
 
 
@@ -324,6 +339,17 @@ def _parser() -> argparse.ArgumentParser:
             "bundles produced after the manifest was sealed"
         ),
     )
+    verify.add_argument(
+        "--require",
+        action="append",
+        default=[],
+        metavar="FILENAME",
+        help=(
+            "additionally require this filename to be present; use for the "
+            "final asset set, where a missing signature bundle means the "
+            "transaction did not complete"
+        ),
+    )
 
     state = subparsers.add_parser("pypi-state", help="classify the index state for this wheel")
     state.add_argument("--wheel", type=Path, required=True)
@@ -355,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_sha256=args.expected_sha256,
                 directory=args.directory,
                 allowed_extra=set(args.allow),
+                required_extra=set(args.require),
             )
             sys.stdout.write(
                 f"OK: all {len(manifest['assets'])} candidate assets match the verified digests.\n"

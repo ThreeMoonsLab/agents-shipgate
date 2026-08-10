@@ -58,10 +58,12 @@ then PyPI already holds the bytes for source A, and a tag moved to B would make
 GitHub's source archives resolve to different code than the index serves. The
 draft is created with `gh release create --verify-tag`.
 
-**Repository prerequisite:** protect `v*` tags with a ruleset that forbids
-updates and deletions. The re-peel checks detect a moved tag and fail closed,
-but detection is a weaker control than prevention, and they cannot help during
-the window between GitHub resolving a ref and acting on it.
+The tag is re-peeled again inside the upload step itself, immediately before
+`uv publish`, because everything between the previous check and the upload —
+artifact download, digest verification, signing, the index query — is window.
+
+See [Deployment prerequisites](#deployment-prerequisites): tag protection is
+what actually closes this, and the re-peels are detection, not prevention.
 
 ### Which artifact is authoritative
 
@@ -249,6 +251,33 @@ mistaken for the shipped ones.
 Nothing outside the run changed: no tag deletion, no cleanup needed. Fix the
 cause on the branch, and either move the tag (only safe while nothing has been
 published for it) or cut a new version.
+
+## Deployment prerequisites
+
+Some windows in this pipeline cannot be closed by code in this repository, and
+the workflow does not pretend otherwise. Each item below is a **repository or
+organisation setting**; without them the corresponding check is detection after
+the fact rather than prevention.
+
+| Prerequisite | What it closes | Residual without it |
+|---|---|---|
+| Ruleset on `v*` forbidding tag **updates and deletions** | A tag moving between verification and any later step | The re-peels detect a moved tag, but only at the next checkpoint. Between the last peel and `uv publish`, a move publishes immutable candidate A while the public tag resolves to B |
+| **Immutable releases** enabled | Post-publication mutation of release assets | A `contents: write` actor can replace assets after finalisation, and nothing in this workflow runs again to notice |
+| **Restricted release-write authority** (few actors, protected environment) | Concurrent mutation during finalisation | Remote verification and undrafting are two API calls. Another writer can replace an asset or add one in between, and the undraft publishes the changed server-side set |
+| Protected `.github/workflows/**` and `.github/release-trust-roots.json` (CODEOWNERS or ruleset) | Changes to the pipeline and its trust roots landing unreviewed | Workflow logic is candidate-controlled at the tag, so review is the control that makes it trustworthy |
+| `pypi` environment reviewers, independent of the release initiator | Unattended publication | Approval becomes a formality |
+
+### The limit worth stating plainly
+
+The workflow that runs for a tag is **the workflow at that tag** — it is part of
+the candidate. The publication job is hardened as far as this repository can
+harden it: it holds `id-token: write` and nothing else, checks out no
+repository code, installs only a hash-locked closure with `--require-hashes`,
+and classifies the index with `curl` and `jq` rather than a fetched helper.
+That removes candidate *code* from the token-bearing job. It does not make the
+job's own YAML a separate trust root, and no arrangement of files in this
+repository can. Branch/tag protection and review of `.github/**` are what
+supply that boundary.
 
 ## Required configuration
 

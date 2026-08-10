@@ -72,20 +72,11 @@ def emit_github_annotations(payload: dict[str, Any]) -> None:
 
 
 def _escape_data(value: object) -> str:
-    return (
-        str(value)
-        .replace("%", "%25")
-        .replace("\r", "%0D")
-        .replace("\n", "%0A")
-    )
+    return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 def _escape_property(value: object) -> str:
-    return (
-        _escape_data(value)
-        .replace(":", "%3A")
-        .replace(",", "%2C")
-    )
+    return _escape_data(value).replace(":", "%3A").replace(",", "%2C")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
