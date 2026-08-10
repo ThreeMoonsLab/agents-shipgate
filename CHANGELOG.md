@@ -29,17 +29,39 @@
   (`contents: read`, no OIDC) that hands off a content-addressed candidate
   bundle; the manifest digest travels through the job-output channel, so
   swapping an artifact — or rewriting the manifest to agree with the swap — is
-  detected. Publication holds the only `contents: write` and `id-token: write`,
-  creates a **draft** GitHub Release carrying the authoritative assets before
-  uploading to PyPI, and finalizes only after asset validation. The upload is
-  idempotence-aware: `scripts/release_publication.py pypi-state` classifies the
-  index as `absent`, `published_identical` (a re-run completing an interrupted
-  transaction, which skips the upload), or `published_divergent` (always
-  fatal). An unreachable index is never read as permission to upload. Release
+  detected, and the check is closed-world so an unlisted file cannot ride
+  along. Write and OIDC authority are never held by the same job: the PyPI
+  publisher holds `id-token: write` alone, checks out no project code, and
+  installs only a hash-locked toolchain, so a compromised dependency cannot
+  both mint a token and rewrite the repository. A **draft** GitHub Release
+  carrying the authoritative assets exists before the upload, and finalization
+  happens only after asset validation. The upload is idempotence-aware:
+  `scripts/release_publication.py pypi-state` classifies the index as `absent`,
+  `published_identical` — requiring *exactly one* unyanked wheel with the
+  expected filename and digest, so a divergent sdist or second wheel is not
+  mistaken for a completed transaction — or `published_divergent` (always
+  fatal). An unreachable index is never read as permission to upload, and an
+  already-published release is verified and left untouched rather than
+  clobbered. Release
   concurrency is serialized across the PyPI project rather than per tag, with
   `cancel-in-progress: false`. The `pypi` reviewer gate moved to publication,
   so reviewers approve *after* the readiness summary exists instead of
   approving a run whose evidence has not been produced yet.
+- **The qualification signer identity is reviewed code, and a release candidate
+  must have been rehearsed.** The identity and OIDC issuer that authenticate the
+  signed qualification artifact now live in `.github/release-trust-roots.json`
+  rather than in variables: an actor able to set variables could otherwise
+  substitute fabricated evidence *and* replace the allowlist that vouches for
+  it in one unreviewed step — an attack source-to-wheel binding cannot see,
+  because it reuses the legitimate wheel and forges only the claims about it.
+  Only content-addressed locations stay mutable. Verification also runs against
+  the immutable event SHA rather than the symbolic tag ref, and the tag is
+  re-peeled against the remote before each irreversible step, so a moved tag
+  cannot make the pipeline build one commit while claiming another.
+  Publication additionally requires a successful rehearsal at the same source
+  SHA whose candidate manifest is byte-identical, and every rehearsal now
+  proves the provenance gate fails closed by injecting a tampered wheel and
+  asserting it is rejected.
 - **The signed SBOM now describes the shipped wheel instead of the CI
   machine.** The workflow installed `.[dev]` and ran `cyclonedx-py
   environment`, inventorying pytest, ruff, twine, Sigstore, and the CycloneDX

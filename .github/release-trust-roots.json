@@ -1,0 +1,26 @@
+{
+  "$comment": [
+    "Trust roots for release safety qualification. Reviewed code, not mutable configuration.",
+    "",
+    "These two values are the allowlist that authenticates the signed qualification",
+    "artifact. They must not live in repository or environment variables: an actor able",
+    "to set variables could otherwise substitute fabricated qualification evidence AND",
+    "replace the identity that authenticates it, in one step, with no diff to review.",
+    "Source-to-wheel binding does not compensate, because that attack reuses the",
+    "legitimate wheel and forges only the safety claims about it.",
+    "",
+    "Only content-addressed *locations* stay mutable (the SAFETY_QUALIFICATION_*_URL",
+    "variables and the wheel filename): pointing them somewhere else fails either the",
+    "signature check against this file or the source-to-wheel provenance gate.",
+    "",
+    "signer_identity is the exact Sigstore certificate identity of the qualification",
+    "promotion job, for example the workflow ref that signs safety-qualification.json.",
+    "Both values are CHANGE_ME until the promotion flow exists; the release refuses to",
+    "run while either is unset rather than defaulting to something permissive.",
+    "",
+    "Changing either value below is a trust-root change and must be reviewed as one.",
+    "See docs/release-runbook.md."
+  ],
+  "signer_identity": "CHANGE_ME",
+  "oidc_issuer": "https://token.actions.githubusercontent.com"
+}

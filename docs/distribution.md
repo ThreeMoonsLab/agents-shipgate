@@ -37,14 +37,17 @@ fails — is in [`release-runbook.md`](release-runbook.md).
 
 ### Protected qualification inputs
 
-Every tag release fails closed unless all six variables below are configured.
-They are read by the read-only verification job, which runs without an
-environment so it can run unattended and produce the evidence the `pypi`
-reviewers approve against — so the values must exist at **repository** scope.
-Environment-scoped values still override them for the publication job. Values
-must be populated by the independent benchmark-owner promotion flow after it
-runs the frozen corpus against the exact wheel and signs
-`safety-qualification.json`:
+Qualification configuration is split by trust level. The values that
+**authenticate** the evidence — the Sigstore signer identity and OIDC issuer —
+live in reviewed code at `.github/release-trust-roots.json`, never in
+variables: an actor able to set variables could otherwise substitute fabricated
+qualification evidence *and* replace the identity that vouches for it, in one
+step with no diff to review.
+
+Only the content-addressed **locations** are variables, at **repository** scope
+so the unattended verification job can read them. Values must be populated by
+the independent benchmark-owner promotion flow after it runs the frozen corpus
+against the exact wheel and signs `safety-qualification.json`:
 
 | Variable | Required value |
 |---|---|
@@ -52,8 +55,6 @@ runs the frozen corpus against the exact wheel and signs
 | `SAFETY_QUALIFICATION_WHEEL_FILENAME` | Safe wheel basename, for example `agents_shipgate-0.16.0b6-py3-none-any.whl` |
 | `SAFETY_QUALIFICATION_JSON_URL` | HTTPS URL for the production-qualified JSON artifact |
 | `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | HTTPS URL for that JSON artifact's Sigstore bundle |
-| `SAFETY_QUALIFICATION_SIGNER_IDENTITY` | Exact trusted certificate identity configured for qualification promotion |
-| `SAFETY_QUALIFICATION_OIDC_ISSUER` | Trusted OIDC issuer, normally `https://token.actions.githubusercontent.com` for GitHub Actions |
 
 The verification job checks the signature identity first, then validates the
 artifact's production policy, 100-case invariants, tag/version, and wheel

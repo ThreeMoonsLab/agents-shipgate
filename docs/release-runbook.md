@@ -9,17 +9,39 @@ For the packaging surface and post-release fan-out checks, see
 
 ## The pipeline
 
-A release runs as two jobs with an explicit, content-addressed handoff.
+A release runs as four jobs with an explicit, content-addressed handoff.
 
-| Job | Workflow | Permissions | What it does |
-|---|---|---|---|
-| `verify` | `release-verify.yml` (reusable) | `contents: read` | Builds from the tagged source, validates the signed qualification, binds wheel to source, runs the correctness suite, audits dependencies, produces the wheel-scoped SBOM, uploads a candidate bundle |
-| `publish` | `release.yml` | `contents: write`, `id-token: write`, `environment: pypi` | Re-derives every digest, signs, drafts the GitHub Release, publishes to PyPI once, validates assets, finalises |
+| Job | Permissions | What it does |
+|---|---|---|
+| `verify` | `contents: read` | Builds from the tagged source, validates the signed qualification, binds wheel to source, runs the correctness suite, audits dependencies, produces the wheel-scoped SBOM, uploads a candidate bundle |
+| `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, classifies the index, creates or repairs the **draft** release |
+| `publish` | `id-token: write`, `environment: pypi` | Signs and uploads to PyPI once |
+| `finalize` | `contents: write` | Attaches signatures, confirms the index, validates assets, undrafts |
 
-Verification holds no write or OIDC authority, so the expensive read-only work
-cannot mutate anything. The `pypi` environment's required-reviewer gate sits on
-`publish` alone, which means reviewers approve **after** the readiness summary
-exists rather than approving a run whose evidence has not been produced yet.
+The split is about which capabilities are ever held together. `publish` can
+mint a PyPI Trusted Publishing token, so it holds **no repository write**,
+checks out **no project code**, and installs only the hash-locked toolchain in
+`constraints/release-publish.txt` with `--require-hashes`. Conversely `stage`
+and `finalize` can write to the repository but cannot mint a token. A
+dependency compromised in any single job therefore cannot reach both registries.
+
+Verification holds no write or OIDC authority at all, so the expensive
+read-only work cannot mutate anything. The `pypi` environment's
+required-reviewer gate sits on `publish` alone, so reviewers approve **after**
+the readiness summary exists rather than approving a run whose evidence has not
+been produced yet.
+
+### The candidate is pinned to a commit, not a tag
+
+`release.yml` passes `github.sha` — never `github.ref` — into verification. A
+symbolic ref is re-resolved by the checkout action, so a tag moved between the
+push event and the checkout would build one commit while provenance recorded
+another. Every downstream binding is keyed to the SHA the verification job
+actually resolved with `git rev-parse HEAD`.
+
+Because a tag can still move (or be deleted) *after* verification, both `stage`
+and `publish` re-peel it against the remote immediately before acting, and the
+draft is created with `gh release create --verify-tag`.
 
 ### Which artifact is authoritative
 
@@ -63,13 +85,21 @@ opening an issue to track the gap, and it still rejects any content difference.
 
 ## Before tagging: rehearse
 
-**A rehearsal on the candidate commit is a prerequisite for pushing a tag.**
-Before this existed, the verification and failure paths of the release workflow
-were first-run at the same moment publication became possible.
+**A rehearsal on the candidate commit is a prerequisite for pushing a tag, and
+the pipeline enforces it.** Before this existed, the verification and failure
+paths of the release workflow were first-run at the same moment publication
+became possible.
 
 Run the **Release Rehearsal** workflow (`workflow_dispatch`) against the
 candidate ref. It calls the same reusable verification workflow the release
 uses — same build, qualification validation, tests, audit, SBOM, and handoff.
+
+`stage` refuses to proceed without a successful rehearsal run whose `head_sha`
+equals the verified commit — which binds the workflow revision too, since both
+live in the same tree — and whose candidate manifest is byte-identical to the
+tagged one. That second check binds candidate *identity*: a qualification
+artifact swapped between the rehearsal and the tag is caught even though the
+source did not change.
 
 It cannot publish, for three independent reasons: there is no publication job in
 the file, `permissions: contents: read` caps the token so tag and release
@@ -83,13 +113,16 @@ Check the run's readiness summary before tagging:
   means the backend pin drifted);
 - the wheel SHA-256 matches the wheel you expect to ship.
 
-### Rehearsing a failure path
+### The failure path is rehearsed automatically
 
-At least once per release-process change, prove the gate fails closed. The
-cheapest deliberate mismatch: point `SAFETY_QUALIFICATION_WHEEL_URL` at a wheel
-from a different commit and confirm the rehearsal fails at **Bind the qualified
-wheel to the tagged source tree**, naming the differing members. Restore the
-variable afterwards.
+Every rehearsal runs a fault-injection drill: it corrupts a *copy* of the
+qualified wheel and asserts the provenance gate rejects it, failing the
+rehearsal if the tampered artifact is accepted. The deliberate-mismatch
+exercise is therefore executed on every run rather than left to operator
+discipline, and the rejection message appears in the log.
+
+The drill runs only in rehearsal mode — a real release must not spend its
+budget on drills.
 
 ### Re-deriving the timeout
 
@@ -137,10 +170,21 @@ This is the case the ordering is designed for. PyPI holds the version and a
 **draft** GitHub Release holds the wheel, SBOM, signatures, qualification
 artifacts, provenance record, and candidate manifest.
 
-Re-run the `publish` job. It is idempotence-aware:
+Re-run the workflow. It is idempotence-aware:
 `scripts/release_publication.py pypi-state` classifies the index as
 `published_identical`, the upload step is skipped via its `if:` condition, and
-the job proceeds to asset validation and finalisation.
+the run proceeds to asset validation and finalisation.
+
+`published_identical` is deliberately strict — it requires the index to hold
+*exactly one* unyanked wheel with the expected filename and digest. A version
+that also carries a divergent sdist, a second wheel, a renamed file, or a
+yanked record is **not** treated as identical, because skipping the upload and
+finalising over it would ship a release this pipeline never verified.
+
+A re-run also never mutates an already-published GitHub Release. It downloads
+the published assets, proves they are the verified ones, and leaves them alone;
+only drafts are repaired. Clobbering a published release's assets would replace
+public bytes that immutable PyPI can no longer be made to match.
 
 If re-running is not possible, finalise by hand — the draft already has the
 authoritative assets:
@@ -171,11 +215,33 @@ Nothing outside the run changed: no tag deletion, no cleanup needed. Fix the
 cause on the branch, and either move the tag (only safe while nothing has been
 published for it) or cut a new version.
 
-## Required repository configuration
+## Required configuration
 
-The six qualification variables are read by the **verification** job, which
-deliberately runs without an environment so it can run unattended. They must
-therefore be available at **repository** scope:
+Qualification configuration is split by trust level: **what authenticates the
+evidence** lives in reviewed code, and only **where the evidence lives** is
+mutable.
+
+### Trust roots — reviewed code
+
+`.github/release-trust-roots.json` holds the two values that authenticate the
+signed qualification artifact:
+
+| Field | Value |
+|---|---|
+| `signer_identity` | Exact Sigstore certificate identity of the qualification promotion job |
+| `oidc_issuer` | Trusted OIDC issuer, normally `https://token.actions.githubusercontent.com` |
+
+These must **not** be variables. An actor able to set variables could otherwise
+substitute fabricated qualification evidence *and* replace the identity that
+vouches for it, in a single step with no diff to review. Source-to-wheel
+binding does not compensate: that attack reuses the legitimate wheel and forges
+only the safety claims about it.
+
+Both ship as `CHANGE_ME` until the promotion flow exists. The release **fails
+closed** while either is unset rather than defaulting to something permissive.
+Changing either is a trust-root change and is reviewed as one.
+
+### Artifact locations — repository variables
 
 | Variable | Value |
 |---|---|
@@ -183,15 +249,12 @@ therefore be available at **repository** scope:
 | `SAFETY_QUALIFICATION_WHEEL_FILENAME` | Safe wheel basename |
 | `SAFETY_QUALIFICATION_JSON_URL` | HTTPS URL for the qualified JSON artifact |
 | `SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL` | HTTPS URL for that artifact's Sigstore bundle |
-| `SAFETY_QUALIFICATION_SIGNER_IDENTITY` | Trusted certificate identity for qualification promotion |
-| `SAFETY_QUALIFICATION_OIDC_ISSUER` | Trusted OIDC issuer |
 
-These are variables, not secrets — they are URLs and identities, readable by any
-workflow in the repository regardless of scope. Environment-scoped values still
-override repository ones for the `publish` job.
+These are read by the verification job, which deliberately runs without an
+environment so it can run unattended, so they live at **repository** scope.
+Leaving them mutable is safe precisely because they are only *locations*:
+pointing one somewhere else fails either the signature check against the
+committed trust root or the source-to-wheel provenance gate.
 
-Moving them to repository scope does weaken *who can change them* relative to
-environment-scoped variables. That is an accepted trade, because the control
-that mattered is now stronger: a tampered wheel URL no longer reaches PyPI, it
-fails the source-binding gate. Variable ACLs were doing work that
-content-addressing now does directly.
+None of the four are currently set. Until they are, the release stops at
+**Require configured qualification artifact locations**.

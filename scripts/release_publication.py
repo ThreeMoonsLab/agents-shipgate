@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Content-addressed handoff and idempotence guard for the publication job.
+"""Content-addressed handoff and idempotence guard for the publication jobs.
+
+Standard library only, on purpose — see ``scripts/_release_support``. The jobs
+that run this are the ones able to mint a PyPI token, so they install no
+project code.
 
 Verification and publication run as separate jobs so that expensive, read-only
 checking cannot hold write or OIDC permissions, and so an immutable PyPI upload
@@ -15,7 +19,10 @@ GitHub's trusted channel rather than the artifact store, so
 
     job output digest -> manifest bytes -> per-asset digests -> asset bytes
 
-Any substitution in the artifact store breaks one of those links.
+The check is closed-world. Verifying only the *listed* assets would leave an
+intact manifest sitting beside an unlisted sdist or executable that a
+subsequent ``dist/*`` upload would happily publish, so the directory contents
+must equal the manifest exactly, and every entry must be a regular file.
 
 ``pypi-state`` answers the question a retry must ask before re-uploading an
 immutable version. PyPI uploads cannot be replaced, so "just re-run the job" is
@@ -25,17 +32,23 @@ against a version that already holds different bytes. The three states are:
 ``absent``
     Version not on the index. Publication proceeds.
 ``published_identical``
-    Version exists and the index holds this exact wheel digest. The upload
-    already succeeded; a re-run is completing an interrupted transaction, so
-    the publish step is skipped and finalization continues.
+    The index holds exactly one file for this version: an unyanked wheel with
+    the expected filename and digest. The upload already succeeded; a re-run is
+    completing an interrupted transaction, so the publish step is skipped and
+    finalisation continues.
 ``published_divergent``
-    Version exists with *different* bytes. Always fatal: the tag would ship
-    something other than what is on the index.
+    Anything else. Always fatal.
+
+That last classification is deliberately strict about *the whole file set*, not
+just "our digest appears somewhere". A release that also carries a divergent
+sdist, a second wheel, a renamed file, or a yanked record is not the release
+this pipeline verified, and treating it as identical would skip the upload and
+finalise over it.
 
 Run from the repo root:
 
     python scripts/release_publication.py manifest --tag v0.16.0 \\
-        --source-commit "$GITHUB_SHA" --wheel dist/agents_shipgate-0.16.0-py3-none-any.whl \\
+        --source-commit "$SOURCE_SHA" --wheel dist/agents_shipgate-0.16.0-py3-none-any.whl \\
         --asset dist/agents-shipgate-sbom.json --output dist/candidate-manifest.json
     python scripts/release_publication.py verify-manifest \\
         --manifest dist/candidate-manifest.json --expected-sha256 "$DIGEST"
@@ -46,7 +59,6 @@ Run from the repo root:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 import urllib.error
@@ -54,12 +66,20 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.core.errors import ConfigError
-
 if __package__:
-    from scripts.run_safety_qualification import inspect_wheel, sha256_file
+    from scripts._release_support import (
+        SHA256_PATTERN,
+        ReleaseError,
+        inspect_wheel,
+        sha256_file,
+    )
 else:  # ``python scripts/release_publication.py``
-    from run_safety_qualification import inspect_wheel, sha256_file
+    from _release_support import (
+        SHA256_PATTERN,
+        ReleaseError,
+        inspect_wheel,
+        sha256_file,
+    )
 
 DEFAULT_INDEX = "https://pypi.org/pypi"
 _NETWORK_TIMEOUT_SECONDS = 30
@@ -77,12 +97,12 @@ def build_manifest(
 
     wheel_name, wheel_version, wheel_sha256 = inspect_wheel(wheel_path)
     if tag != f"v{wheel_version}":
-        raise ConfigError(f"Release tag {tag} does not match wheel version {wheel_version}")
+        raise ReleaseError(f"Release tag {tag} does not match wheel version {wheel_version}")
 
     assets = []
     for path in sorted({*asset_paths, wheel_path}, key=lambda item: item.name):
         if not path.is_file():
-            raise ConfigError(f"Candidate asset not found: {path}")
+            raise ReleaseError(f"Candidate asset not found: {path}")
         assets.append({"filename": path.name, "sha256": sha256_file(path)})
 
     manifest = {
@@ -99,47 +119,99 @@ def build_manifest(
     return manifest
 
 
+def _assert_closed_world(
+    manifest_path: Path, base: Path, expected: set[str], allowed_extra: set[str]
+) -> None:
+    """Reject anything in the candidate directory the manifest does not name.
+
+    ``allowed_extra`` is an explicit allowlist, not an escape hatch: the only
+    legitimate additions are the signature bundles produced *after* the
+    manifest is sealed, and naming them individually keeps the check
+    closed-world.
+    """
+
+    allowed = expected | {manifest_path.name} | allowed_extra
+    present: set[str] = set()
+    for entry in sorted(base.rglob("*")):
+        if entry.is_dir():
+            continue
+        relative = entry.relative_to(base).as_posix()
+        if entry.is_symlink() or not entry.is_file():
+            raise ReleaseError(f"Candidate handoff contains a non-regular entry: {relative}")
+        present.add(relative)
+
+    unexpected = sorted(present - allowed)
+    if unexpected:
+        raise ReleaseError(
+            "Candidate handoff contains files the manifest does not list "
+            f"({', '.join(unexpected)}); publication would upload unverified bytes."
+        )
+
+
 def verify_manifest(
-    *, manifest_path: Path, expected_sha256: str | None = None, directory: Path | None = None
+    *,
+    manifest_path: Path,
+    expected_sha256: str | None = None,
+    directory: Path | None = None,
+    allowed_extra: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Re-derive every digest the verification job recorded."""
+    """Re-derive every digest the verification job recorded.
+
+    ``expected_sha256`` is compared whenever it is supplied, including when it
+    is an empty or malformed string. A truthiness test here would fail open:
+    a missing or redacted job output arrives as ``""`` and the workflow still
+    passes ``--expected-sha256 ""``, silently disabling the one binding that
+    does not travel through the artifact store.
+    """
 
     if not manifest_path.is_file():
-        raise ConfigError(f"Candidate manifest not found: {manifest_path}")
-    actual_sha256 = sha256_file(manifest_path)
-    if expected_sha256 and actual_sha256 != expected_sha256:
-        raise ConfigError(
-            "Candidate manifest digest does not match the verification job output "
-            f"(expected {expected_sha256}, got {actual_sha256}); the artifact handoff was "
-            "modified between verification and publication."
-        )
+        raise ReleaseError(f"Candidate manifest not found: {manifest_path}")
+
+    if expected_sha256 is not None:
+        if not SHA256_PATTERN.fullmatch(expected_sha256):
+            raise ReleaseError(
+                "Expected manifest digest is not a 64-character lowercase SHA-256 "
+                f"({expected_sha256!r}); the verification job output was missing or redacted."
+            )
+        actual_sha256 = sha256_file(manifest_path)
+        if actual_sha256 != expected_sha256:
+            raise ReleaseError(
+                "Candidate manifest digest does not match the verification job output "
+                f"(expected {expected_sha256}, got {actual_sha256}); the artifact handoff was "
+                "modified between verification and publication."
+            )
+
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ConfigError(f"Invalid candidate manifest {manifest_path}: {exc}") from exc
+        raise ReleaseError(f"Invalid candidate manifest {manifest_path}: {exc}") from exc
 
     base = directory or manifest_path.parent
     errors: list[str] = []
+    listed: set[str] = set()
     for asset in manifest.get("assets", []):
-        path = base / str(asset.get("filename", ""))
+        filename = str(asset.get("filename", ""))
+        listed.add(filename)
+        path = base / filename
         if not path.is_file():
-            errors.append(f"missing asset {asset.get('filename')}")
+            errors.append(f"missing asset {filename}")
             continue
         digest = sha256_file(path)
         if digest != asset.get("sha256"):
             errors.append(
-                f"{asset.get('filename')} digest {digest} does not match "
-                f"the verified {asset.get('sha256')}"
+                f"{filename} digest {digest} does not match the verified {asset.get('sha256')}"
             )
     if errors:
-        raise ConfigError("Candidate handoff rejected: " + "; ".join(errors))
+        raise ReleaseError("Candidate handoff rejected: " + "; ".join(errors))
+
+    _assert_closed_world(manifest_path, base, listed, allowed_extra or set())
     return manifest
 
 
 def _fetch_release_files(distribution: str, version: str, index: str) -> list[dict[str, Any]]:
     url = f"{index.rstrip('/')}/{distribution}/{version}/json"
     if not url.startswith("https://"):
-        raise ConfigError(f"Index URL must use HTTPS: {url}")
+        raise ReleaseError(f"Index URL must use HTTPS: {url}")
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
         with urllib.request.urlopen(  # noqa: S310 - scheme asserted https above
@@ -149,30 +221,57 @@ def _fetch_release_files(distribution: str, version: str, index: str) -> list[di
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return []
-        raise ConfigError(f"Unable to query {url}: HTTP {exc.code}") from exc
+        raise ReleaseError(f"Unable to query {url}: HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeError) as exc:
         # Deliberately not treated as "absent": an unreachable index must not
         # be read as permission to upload.
-        raise ConfigError(f"Unable to query {url}: {exc}") from exc
-    return list(payload.get("urls", []))
+        raise ReleaseError(f"Unable to query {url}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ReleaseError(f"Malformed index response for {url}")
+    files = payload.get("urls", [])
+    if not isinstance(files, list) or not all(isinstance(item, dict) for item in files):
+        raise ReleaseError(f"Malformed index file list for {url}")
+    return files
+
+
+def _classify_published(
+    files: list[dict[str, Any]], *, wheel_filename: str, wheel_sha256: str
+) -> str:
+    """Require the index to hold exactly the one file this pipeline publishes."""
+
+    if len(files) != 1:
+        return "published_divergent"
+    record = files[0]
+    digests = record.get("digests")
+    if not isinstance(digests, dict):
+        return "published_divergent"
+    matches = (
+        str(record.get("filename", "")) == wheel_filename
+        and str(record.get("packagetype", "")) == "bdist_wheel"
+        and str(digests.get("sha256", "")) == wheel_sha256
+        and record.get("yanked") is not True
+    )
+    return "published_identical" if matches else "published_divergent"
 
 
 def pypi_state(*, wheel_path: Path, index: str = DEFAULT_INDEX) -> dict[str, Any]:
-    """Classify whether this exact wheel is already on the index."""
+    """Classify whether this exact wheel — and nothing else — is on the index."""
 
     distribution, version, wheel_sha256 = inspect_wheel(wheel_path)
     files = _fetch_release_files(distribution, version, index)
     if not files:
         state = "absent"
     else:
-        digests = {str(item.get("digests", {}).get("sha256", "")) for item in files}
-        state = "published_identical" if wheel_sha256 in digests else "published_divergent"
+        state = _classify_published(
+            files, wheel_filename=wheel_path.name, wheel_sha256=wheel_sha256
+        )
 
     if state == "published_divergent":
-        raise ConfigError(
-            f"{distribution} {version} is already on the index with different bytes. "
-            "PyPI uploads are immutable, so this tag cannot be republished. Cut a new "
-            "version; see docs/release-runbook.md for the recovery procedure."
+        raise ReleaseError(
+            f"{distribution} {version} is already on the index, but not as the single "
+            f"unyanked wheel {wheel_path.name} with digest {wheel_sha256}. PyPI uploads are "
+            "immutable, so this tag cannot be republished. Cut a new version; see "
+            "docs/release-runbook.md for the recovery procedure."
         )
     return {
         "state": state,
@@ -206,8 +305,25 @@ def _parser() -> argparse.ArgumentParser:
 
     verify = subparsers.add_parser("verify-manifest", help="re-derive the handoff digests")
     verify.add_argument("--manifest", type=Path, required=True)
-    verify.add_argument("--expected-sha256")
+    verify.add_argument(
+        "--expected-sha256",
+        required=True,
+        help=(
+            "manifest digest from the verification job output; required so a missing "
+            "or redacted value cannot silently skip the binding"
+        ),
+    )
     verify.add_argument("--directory", type=Path)
+    verify.add_argument(
+        "--allow",
+        action="append",
+        default=[],
+        metavar="FILENAME",
+        help=(
+            "additionally permit this filename in the directory; for signature "
+            "bundles produced after the manifest was sealed"
+        ),
+    )
 
     state = subparsers.add_parser("pypi-state", help="classify the index state for this wheel")
     state.add_argument("--wheel", type=Path, required=True)
@@ -228,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
                 asset_paths=list(args.asset),
                 output_path=args.output,
             )
-            digest = hashlib.sha256(args.output.read_bytes()).hexdigest()
+            digest = sha256_file(args.output)
             sys.stdout.write(
                 f"OK: candidate manifest for {manifest['release_tag']} lists "
                 f"{len(manifest['assets'])} assets; manifest sha256 {digest}.\n"
@@ -238,6 +354,7 @@ def main(argv: list[str] | None = None) -> int:
                 manifest_path=args.manifest,
                 expected_sha256=args.expected_sha256,
                 directory=args.directory,
+                allowed_extra=set(args.allow),
             )
             sys.stdout.write(
                 f"OK: all {len(manifest['assets'])} candidate assets match the verified digests.\n"
@@ -255,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"OK: {result['distribution']} {result['version']} index state "
                 f"is {result['state']}; should_publish={result['should_publish']}.\n"
             )
-    except (ConfigError, OSError, ValueError) as exc:
+    except (ReleaseError, OSError, ValueError) as exc:
         sys.stderr.write(f"Release publication error: {exc}\n")
         return 1
     return 0

@@ -74,6 +74,7 @@ jobs:
     outputs:
       version: ${{ steps.candidate.outputs.version }}
       release_tag: ${{ steps.candidate.outputs.release_tag }}
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
       wheel_filename: ${{ steps.qualified.outputs.wheel_filename }}
       wheel_sha256: ${{ steps.handoff.outputs.wheel_sha256 }}
       manifest_sha256: ${{ steps.handoff.outputs.manifest_sha256 }}
@@ -92,6 +93,11 @@ jobs:
           REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
+          # The commit actually checked out, resolved after checkout rather than
+          # taken from the triggering event. Callers pass an immutable SHA, but
+          # this is what every downstream binding is keyed to, so it is measured
+          # here instead of assumed.
+          source_sha="$(git rev-parse HEAD)"
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
           if [ -z "${version}" ]; then
             echo "::error::Could not read version from pyproject.toml."
@@ -106,27 +112,58 @@ jobs:
             echo "::error::Tag ${tag} does not match pyproject.toml version ${version}; refusing to release."
             exit 1
           fi
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "release_tag=${tag}" >> "${GITHUB_OUTPUT}"
-          echo "OK: ${tag} matches pyproject.toml (${version})."
+          {
+            echo "version=${version}"
+            echo "release_tag=${tag}"
+            echo "source_sha=${source_sha}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "OK: ${tag} matches pyproject.toml (${version}) at ${source_sha}."
 
-      - name: Require protected safety qualification inputs
+      - name: Load qualification trust roots from reviewed code
+        # The signer identity and OIDC issuer are the allowlist that
+        # authenticates the qualification artifact, so they live in a committed,
+        # reviewed file rather than in variables. If they were mutable
+        # configuration, one actor could substitute fabricated qualification
+        # evidence *and* replace the identity that vouches for it, in a single
+        # step with no diff to review — and source-to-wheel binding would not
+        # notice, because that attack reuses the legitimate wheel and forges
+        # only the safety claims about it.
+        id: trust_roots
+        run: |
+          set -euo pipefail
+          roots=".github/release-trust-roots.json"
+          identity="$(python -c "import json,sys; sys.stdout.write(json.load(open('${roots}'))['signer_identity'])")"
+          issuer="$(python -c "import json,sys; sys.stdout.write(json.load(open('${roots}'))['oidc_issuer'])")"
+          for pair in "signer_identity=${identity}" "oidc_issuer=${issuer}"; do
+            value="${pair#*=}"
+            if [ -z "${value}" ] || [ "${value}" = "CHANGE_ME" ]; then
+              echo "::error::${roots} leaves ${pair%%=*} unset; configure the qualification trust root before releasing."
+              exit 1
+            fi
+          done
+          case "${issuer}" in
+            https://*) ;;
+            *) echo "::error::Qualification OIDC issuer must use HTTPS."; exit 1 ;;
+          esac
+          {
+            echo "signer_identity=${identity}"
+            echo "oidc_issuer=${issuer}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "OK: qualification trust roots loaded from ${roots}."
+
+      - name: Require configured qualification artifact locations
         env:
           QUALIFIED_WHEEL_URL: ${{ vars.SAFETY_QUALIFICATION_WHEEL_URL }}
           QUALIFIED_WHEEL_FILENAME: ${{ vars.SAFETY_QUALIFICATION_WHEEL_FILENAME }}
           QUALIFICATION_JSON_URL: ${{ vars.SAFETY_QUALIFICATION_JSON_URL }}
           QUALIFICATION_BUNDLE_URL: ${{ vars.SAFETY_QUALIFICATION_SIGSTORE_BUNDLE_URL }}
-          QUALIFICATION_SIGNER_IDENTITY: ${{ vars.SAFETY_QUALIFICATION_SIGNER_IDENTITY }}
-          QUALIFICATION_OIDC_ISSUER: ${{ vars.SAFETY_QUALIFICATION_OIDC_ISSUER }}
         run: |
           missing=0
           for name in \
             QUALIFIED_WHEEL_URL \
             QUALIFIED_WHEEL_FILENAME \
             QUALIFICATION_JSON_URL \
-            QUALIFICATION_BUNDLE_URL \
-            QUALIFICATION_SIGNER_IDENTITY \
-            QUALIFICATION_OIDC_ISSUER
+            QUALIFICATION_BUNDLE_URL
           do
             if [ -z "${!name:-}" ]; then
               echo "::error::Repository variable ${name} is required; refusing to release."
@@ -207,10 +244,10 @@ jobs:
           echo "QUALIFIED_WHEEL_FILENAME=${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
           echo "wheel_filename=${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_OUTPUT}"
 
-      - name: Verify configured qualification signature
+      - name: Verify qualification signature against the committed trust root
         env:
-          QUALIFICATION_SIGNER_IDENTITY: ${{ vars.SAFETY_QUALIFICATION_SIGNER_IDENTITY }}
-          QUALIFICATION_OIDC_ISSUER: ${{ vars.SAFETY_QUALIFICATION_OIDC_ISSUER }}
+          QUALIFICATION_SIGNER_IDENTITY: ${{ steps.trust_roots.outputs.signer_identity }}
+          QUALIFICATION_OIDC_ISSUER: ${{ steps.trust_roots.outputs.oidc_issuer }}
         run: |
           sigstore verify identity \
             --bundle qualified-dist/safety-qualification.sigstore.json \
@@ -235,12 +272,40 @@ jobs:
         # Byte equality is required; a container-metadata-only difference is
         # reported as a reproducibility gap and still fails, because the
         # weaker bar must never be taken silently.
+        env:
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
         run: |
           python scripts/verify_wheel_provenance.py \
             --built source-build/*.whl \
             --qualified "${QUALIFIED_WHEEL}" \
-            --source-commit "${GITHUB_SHA}" \
+            --source-commit "${SOURCE_SHA}" \
             --report provenance.json
+
+      - name: Prove the provenance gate fails closed
+        # Executable version of the runbook's "rehearse a failure path" step.
+        # Corrupts a *copy* of the qualified wheel and asserts the gate rejects
+        # it, so every rehearsal demonstrates the control actually stops a
+        # substituted artifact instead of asserting it in prose. Runs only in
+        # rehearsal mode; a real release must not spend time on drills.
+        if: inputs.mode == 'rehearsal'
+        run: |
+          set -euo pipefail
+          cp -- "${QUALIFIED_WHEEL}" fault-injected.whl
+          python - <<'PY'
+          import zipfile
+
+          with zipfile.ZipFile("fault-injected.whl", "a") as archive:
+              archive.writestr("agents_shipgate/_fault_injection.py", "raise SystemExit\n")
+          PY
+          if python scripts/verify_wheel_provenance.py \
+              --built source-build/*.whl \
+              --qualified fault-injected.whl > fault-injection.log 2>&1; then
+            echo "::error::Fault injection was accepted; the provenance gate does not fail closed."
+            exit 1
+          fi
+          rm -f fault-injected.whl
+          echo "OK: provenance gate rejected a tampered wheel:"
+          cat fault-injection.log
 
       - name: Lint
         run: python -m ruff check .
@@ -298,6 +363,7 @@ jobs:
         id: handoff
         env:
           RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           cp -- "${QUALIFIED_WHEEL}" "candidate/${QUALIFIED_WHEEL_FILENAME}"
@@ -308,7 +374,7 @@ jobs:
           cmp -- "${QUALIFIED_WHEEL}" "candidate/${QUALIFIED_WHEEL_FILENAME}"
           python scripts/release_publication.py manifest \
             --tag "${RELEASE_TAG}" \
-            --source-commit "${GITHUB_SHA}" \
+            --source-commit "${SOURCE_SHA}" \
             --wheel "candidate/${QUALIFIED_WHEEL_FILENAME}" \
             --asset candidate/agents-shipgate-sbom.json \
             --asset candidate/safety-qualification.json \

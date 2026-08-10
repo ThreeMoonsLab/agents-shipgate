@@ -324,7 +324,7 @@ def test_release_workflow_reuses_signed_qualified_wheel_before_publish() -> None
     # graph rather than by step position.
     assert "uv publish --trusted-publishing always" not in verify
     parsed_release = yaml.safe_load(release)
-    assert parsed_release["jobs"]["publish"]["needs"] == "verify"
+    assert parsed_release["jobs"]["publish"]["needs"] == ["verify", "stage"]
 
     # The wheel is addressed by the filename verification approved, and the
     # source-built wheel never enters the publishable set.

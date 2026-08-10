@@ -5,10 +5,10 @@ on:
     tags:
       - "v*"
 
-# No ambient authority. Each job requests the minimum it needs: verification
-# gets read-only via the reusable workflow, and only `publish` holds the
-# `contents: write` and `id-token: write` that can mutate anything outside
-# this run.
+# No ambient authority. Each job requests the minimum it needs, and the two
+# dangerous capabilities are never held together: `publish` can mint a PyPI
+# token but cannot write to the repository, and `stage`/`finalize` can write to
+# the repository but cannot mint a token.
 permissions: {}
 
 # Serialised across the PyPI project rather than per tag. Two different tags
@@ -27,39 +27,77 @@ jobs:
       contents: read
     uses: ./.github/workflows/release-verify.yml
     with:
-      ref: ${{ github.ref }}
+      # The immutable SHA of the push event, never `github.ref`. A symbolic ref
+      # is re-resolved by the checkout action, so a tag moved between the event
+      # and the checkout would build commit B while provenance recorded A.
+      ref: ${{ github.sha }}
       release_tag: ${{ github.ref_name }}
       mode: release
 
-  publish:
-    name: Publish candidate
+  stage:
+    name: Stage release
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # The human gate sits here rather than on verification. Reviewers now
-    # approve *after* the readiness summary exists, instead of approving a run
-    # whose evidence has not been produced yet.
-    environment: pypi
+    timeout-minutes: 15
     permissions:
       contents: write
-      id-token: write
-
+      actions: read
+    outputs:
+      should_publish: ${{ steps.index.outputs.should_publish }}
+      index_state: ${{ steps.index.outputs.state }}
     steps:
-      - name: Checkout
+      - name: Checkout the verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ needs.verify.outputs.source_sha }}
           persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
-          cache: pip
 
-      - name: Install publication tooling
+      - name: Confirm the tag still points at the verified commit
+        # Guards a tag moved (or deleted and recreated) after verification.
+        # `^{}` peels annotated tags to the commit they name.
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
         run: |
-          python -m pip install -e ".[dev]"
-          python -m pip install "uv==0.11.7"
+          set -euo pipefail
+          peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}^{}" | cut -f1)"
+          if [ -z "${peeled}" ]; then
+            peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}" | cut -f1)"
+          fi
+          if [ "${peeled}" != "${SOURCE_SHA}" ]; then
+            echo "::error::Tag ${RELEASE_TAG} now points at ${peeled:-<missing>}, not the verified ${SOURCE_SHA}."
+            exit 1
+          fi
+          echo "OK: ${RELEASE_TAG} still resolves to ${SOURCE_SHA}."
+
+      - name: Require a successful rehearsal of this exact candidate
+        # #355 made rehearsal mandatory in the runbook; this makes it a
+        # precondition the pipeline enforces. Matching on `head_sha` binds both
+        # the source and the workflow revision, because they are the same tree.
+        # Comparing the rehearsed manifest byte-for-byte additionally binds
+        # candidate identity, so a qualification artifact swapped between the
+        # rehearsal and the tag is caught here.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          ARTIFACT_NAME: ${{ needs.verify.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release-rehearsal.yml/runs?head_sha=${SOURCE_SHA}&status=success&per_page=100" \
+            --jq '.workflow_runs[0].id // empty')"
+          if [ -z "${run_id}" ]; then
+            echo "::error::No successful Release Rehearsal run for ${SOURCE_SHA}. Rehearse the candidate before tagging; see docs/release-runbook.md."
+            exit 1
+          fi
+          echo "Rehearsal run: ${run_id}"
+          gh run download "${run_id}" --name "${ARTIFACT_NAME}" --dir rehearsed
+          echo "REHEARSAL_RUN_ID=${run_id}" >> "${GITHUB_ENV}"
 
       - name: Download verified candidate
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
@@ -70,13 +108,18 @@ jobs:
       - name: Verify the candidate handoff
         # The expected digest arrives through the job-output channel, not the
         # artifact store, so swapping a file in the store — or rewriting the
-        # manifest to agree with the swap — breaks one of the links.
+        # manifest to agree with the swap — breaks one of the links. The check
+        # is closed-world: an unlisted file in `dist/` is rejected rather than
+        # silently uploaded.
         env:
           MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
         run: |
+          set -euo pipefail
           python scripts/release_publication.py verify-manifest \
             --manifest dist/candidate-manifest.json \
             --expected-sha256 "${MANIFEST_SHA256}"
+          cmp -- rehearsed/candidate-manifest.json dist/candidate-manifest.json
+          echo "OK: the tagged candidate is byte-identical to the rehearsed one."
 
       - name: Re-verify the wheel-scoped SBOM binding
         env:
@@ -86,22 +129,28 @@ jobs:
             --wheel "dist/${WHEEL_FILENAME}" \
             --sbom dist/agents-shipgate-sbom.json
 
-      - name: Sign release artifacts
+      - name: Classify index state
+        id: index
+        # Runs *before* anything mutates the GitHub Release, so a divergent
+        # version fails with both registries untouched.
         env:
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
         run: |
-          sigstore sign --output-directory dist --overwrite \
-            "dist/${WHEEL_FILENAME}" \
-            dist/agents-shipgate-sbom.json
+          python scripts/release_publication.py pypi-state \
+            --wheel "dist/${WHEEL_FILENAME}" \
+            --github-output "${GITHUB_OUTPUT}"
 
-      - name: Create draft GitHub release
-        # Created before the immutable PyPI upload and carrying the
-        # authoritative assets, so a failure anywhere after publication leaves
-        # a discoverable draft to finish from rather than a published version
-        # with nothing attached.
+      - name: Create or repair the draft release
+        # A draft carrying the authoritative assets must exist before the
+        # immutable PyPI upload, so a later failure leaves something to finish
+        # from. Only drafts are ever mutated: an already-published release is
+        # verified and left alone, because clobbering its assets on a re-run
+        # would replace public bytes that PyPI can no longer be made to match.
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
         run: |
           set -euo pipefail
           # `v1.2.3` is a final release; anything else (v0.16.0b7, rc, a) is a
@@ -112,35 +161,164 @@ jobs:
             maturity="--prerelease"
           fi
           echo "RELEASE_MATURITY=${maturity}" >> "${GITHUB_ENV}"
-          if gh release view "${RELEASE_TAG}" > /dev/null 2>&1; then
-            echo "Release ${RELEASE_TAG} already exists; re-uploading assets to the existing draft."
-            gh release upload "${RELEASE_TAG}" dist/* --clobber
-          else
-            gh release create "${RELEASE_TAG}" dist/* \
+
+          assets=(
+            "dist/${WHEEL_FILENAME}"
+            dist/agents-shipgate-sbom.json
+            dist/safety-qualification.json
+            dist/safety-qualification.sigstore.json
+            dist/provenance.json
+            dist/candidate-manifest.json
+          )
+
+          if ! gh release view "${RELEASE_TAG}" > /dev/null 2>&1; then
+            gh release create "${RELEASE_TAG}" "${assets[@]}" \
               --draft \
+              --verify-tag \
               "${maturity}" \
               --title "${RELEASE_TAG}" \
               --notes "Agents Shipgate ${RELEASE_TAG}"
+            echo "Created draft release ${RELEASE_TAG}."
+            exit 0
           fi
 
-      - name: Classify index state
-        id: index
+          if [ "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" = "true" ]; then
+            gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
+            echo "Repaired existing draft ${RELEASE_TAG}."
+            exit 0
+          fi
+
+          # Published already. Prove it carries exactly these bytes, then stop
+          # touching it. Signature bundles are produced after staging, so they
+          # are the only additional files permitted.
+          mkdir -p published
+          gh release download "${RELEASE_TAG}" --dir published --clobber
+          python scripts/release_publication.py verify-manifest \
+            --manifest published/candidate-manifest.json \
+            --expected-sha256 "${MANIFEST_SHA256}" \
+            --directory published \
+            --allow "${WHEEL_FILENAME}.sigstore.json" \
+            --allow agents-shipgate-sbom.json.sigstore.json
+          echo "Release ${RELEASE_TAG} is already published with the verified assets; leaving it untouched."
+
+  publish:
+    name: Publish to PyPI
+    needs: [verify, stage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The human gate sits here, on the one irreversible action, and after the
+    # readiness summary exists — reviewers approve with evidence rather than
+    # approving a run whose evidence has not been produced yet.
+    environment: pypi
+    # Deliberately *only* `id-token`. This job can mint a PyPI token, so it
+    # holds no repository write, checks out no project code, and installs
+    # nothing but the hash-locked toolchain in constraints/release-publish.txt.
+    permissions:
+      id-token: write
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install the hash-locked publication toolchain
+        env:
+          LOCKFILE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}/constraints/release-publish.txt
+        run: |
+          set -euo pipefail
+          # Fetched by immutable commit SHA rather than checked out, so no
+          # project code lands in the token-bearing job.
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --output release-publish.txt "${LOCKFILE_URL}"
+          python -m pip install --require-hashes --requirement release-publish.txt
+
+      - name: Confirm the tag still points at the verified commit
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}^{}" | cut -f1)"
+          if [ -z "${peeled}" ]; then
+            peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}" | cut -f1)"
+          fi
+          if [ "${peeled}" != "${SOURCE_SHA}" ]; then
+            echo "::error::Tag ${RELEASE_TAG} now points at ${peeled:-<missing>}, not the verified ${SOURCE_SHA}."
+            exit 1
+          fi
+
+      - name: Download verified candidate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: ${{ needs.verify.outputs.artifact_name }}
+          path: dist
+
+      - name: Confirm the wheel digest verification approved
+        env:
+          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          WHEEL_SHA256: ${{ needs.verify.outputs.wheel_sha256 }}
+        run: |
+          set -euo pipefail
+          echo "${WHEEL_SHA256}  dist/${WHEEL_FILENAME}" | sha256sum --check --strict
+
+      - name: Sign release artifacts
         env:
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
         run: |
-          python scripts/release_publication.py pypi-state \
-            --wheel "dist/${WHEEL_FILENAME}" \
-            --github-output "${GITHUB_OUTPUT}"
+          sigstore sign --output-directory dist --overwrite \
+            "dist/${WHEEL_FILENAME}" \
+            dist/agents-shipgate-sbom.json
 
       - name: Publish to PyPI with Trusted Publishing
         # Skipped when the index already holds these exact bytes, which is what
-        # a re-run after a post-publication failure looks like. The state check
-        # hard-fails if the version exists with *different* bytes, so this can
-        # never quietly succeed against a divergent artifact.
-        if: steps.index.outputs.should_publish == 'true'
+        # a re-run after a post-publication failure looks like. `stage`
+        # hard-fails if the version exists with anything else, so this can never
+        # quietly succeed against a divergent artifact.
+        if: needs.stage.outputs.should_publish == 'true'
         env:
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
         run: uv publish --trusted-publishing always "dist/${WHEEL_FILENAME}"
+
+      - name: Upload signatures for finalisation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-signatures-${{ needs.verify.outputs.release_tag }}
+          path: dist/*.sigstore.json
+          if-no-files-found: error
+          retention-days: 14
+
+  finalize:
+    name: Finalise release
+    needs: [verify, stage, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Repository write, and no `id-token`: a dependency compromised here cannot
+    # reach PyPI.
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.verify.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Download verified candidate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: ${{ needs.verify.outputs.artifact_name }}
+          path: dist
+
+      - name: Download signatures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: release-signatures-${{ needs.verify.outputs.release_tag }}
+          path: signatures
 
       - name: Confirm the index holds the verified bytes
         env:
@@ -148,6 +326,12 @@ jobs:
         run: |
           python scripts/release_publication.py pypi-state \
             --wheel "dist/${WHEEL_FILENAME}" | tee /dev/stderr | grep -q "published_identical"
+
+      - name: Attach signatures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+        run: gh release upload "${RELEASE_TAG}" signatures/*.sigstore.json --clobber
 
       - name: Validate release assets
         env:
@@ -159,7 +343,9 @@ jobs:
           attached="$(gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name')"
           for required in \
             "${WHEEL_FILENAME}" \
+            "${WHEEL_FILENAME}.sigstore.json" \
             agents-shipgate-sbom.json \
+            agents-shipgate-sbom.json.sigstore.json \
             safety-qualification.json \
             provenance.json \
             candidate-manifest.json
@@ -175,4 +361,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-        run: gh release edit "${RELEASE_TAG}" --draft=false "${RELEASE_MATURITY}"
+        run: |
+          set -euo pipefail
+          if [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            maturity="--latest"
+          else
+            maturity="--prerelease"
+          fi
+          gh release edit "${RELEASE_TAG}" --draft=false "${maturity}"

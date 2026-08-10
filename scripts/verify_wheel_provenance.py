@@ -51,6 +51,8 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 
+from packaging.utils import InvalidWheelFilename, parse_wheel_filename
+
 from agents_shipgate.core.errors import ConfigError
 
 ProvenanceMode = Literal["identical_bytes", "identical_payload", "mismatch"]
@@ -122,9 +124,48 @@ def _describe_differences(
     return differences
 
 
+def _assert_compatible_filenames(built_path: Path, qualified_path: Path) -> None:
+    """Require both basenames to describe the same distribution and platform.
+
+    Checked before any byte comparison, because identical bytes under a
+    different name are not the same artifact to an installer: the filename's
+    version and compatibility tags are what pip matches against, so a wheel
+    renamed from ``py3-none-any`` to ``py2-none-any`` resolves differently
+    while hashing identically.
+    """
+
+    try:
+        built = parse_wheel_filename(built_path.name)
+        qualified = parse_wheel_filename(qualified_path.name)
+    except InvalidWheelFilename as exc:
+        raise ConfigError(f"Unparsable wheel filename: {exc}") from exc
+
+    built_name, built_version, built_build, built_tags = built
+    qualified_name, qualified_version, qualified_build, qualified_tags = qualified
+
+    differences: list[str] = []
+    if built_name != qualified_name:
+        differences.append(f"distribution {built_name} vs {qualified_name}")
+    if built_version != qualified_version:
+        differences.append(f"version {built_version} vs {qualified_version}")
+    if built_build != qualified_build:
+        differences.append(f"build tag {built_build} vs {qualified_build}")
+    if built_tags != qualified_tags:
+        differences.append(
+            f"compatibility tags {sorted(map(str, built_tags))} vs "
+            f"{sorted(map(str, qualified_tags))}"
+        )
+    if differences:
+        raise ConfigError(
+            "Built and qualified wheel filenames describe different artifacts: "
+            + "; ".join(differences)
+        )
+
+
 def compare_wheels(built_path: Path, qualified_path: Path) -> tuple[ProvenanceMode, list[str]]:
     """Classify how a wheel built from source relates to the qualified wheel."""
 
+    _assert_compatible_filenames(built_path, qualified_path)
     built_sha256 = _sha256_file(built_path)
     qualified_sha256 = _sha256_file(qualified_path)
     if built_sha256 == qualified_sha256:

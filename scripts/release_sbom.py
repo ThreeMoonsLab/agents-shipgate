@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -47,15 +48,12 @@ import venv
 from pathlib import Path
 from typing import Any
 
-from packaging.requirements import Requirement
-from packaging.utils import canonicalize_name
-
-from agents_shipgate.core.errors import ConfigError
-
 if __package__:
-    from scripts.run_safety_qualification import inspect_wheel
+    from scripts._release_support import ReleaseError as ConfigError
+    from scripts._release_support import canonicalize_name, inspect_wheel
 else:  # ``python scripts/release_sbom.py``
-    from run_safety_qualification import inspect_wheel
+    from _release_support import ReleaseError as ConfigError
+    from _release_support import canonicalize_name, inspect_wheel
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WHEEL_FILENAME_PROPERTY = "agents-shipgate:wheel-filename"
@@ -79,9 +77,23 @@ def dev_only_distributions(pyproject_path: Path) -> set[str]:
     runtime = project.get("dependencies", [])
     if not dev:
         raise ConfigError(f"{pyproject_path} declares no [project.optional-dependencies].dev")
-    dev_names = {canonicalize_name(Requirement(item).name) for item in dev}
-    runtime_names = {canonicalize_name(Requirement(item).name) for item in runtime}
+    dev_names = {_requirement_name(item) for item in dev}
+    runtime_names = {_requirement_name(item) for item in runtime}
     return dev_names - runtime_names
+
+
+def _requirement_name(requirement: str) -> str:
+    """Canonical distribution name from a PEP 508 requirement string.
+
+    Only the leading name is needed, so this avoids a ``packaging`` import and
+    keeps the module usable from the publication jobs, which install no
+    project dependencies.
+    """
+
+    match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", requirement)
+    if not match:
+        raise ConfigError(f"Unparsable requirement string: {requirement!r}")
+    return canonicalize_name(match.group(1))
 
 
 def _component_names(document: dict[str, Any]) -> set[str]:
@@ -110,6 +122,56 @@ def _assert_runtime_only(document: dict[str, Any], *, sbom_path: Path) -> None:
             f"SBOM {sbom_path} inventories dev-only distributions ({', '.join(present)}); "
             "it describes a development environment rather than the shipped wheel."
         )
+
+
+def _promote_subject_component(
+    document: dict[str, Any],
+    *,
+    wheel_name: str,
+    wheel_version: str,
+    wheel_sha256: str,
+    wheel_filename: str,
+) -> None:
+    """Move CycloneDX's own component for the wheel into ``metadata.component``.
+
+    Inventing a fresh ``bom-ref`` here would leave the document describing the
+    subject twice: once as the invented metadata component and once as the
+    installed package in ``components``, with the dependency graph still keyed
+    by the original ref — so the declared subject would have no dependency node
+    at all. Reusing the emitted component keeps the graph intact and leaves
+    exactly one node for the subject.
+    """
+
+    components = document.get("components", [])
+    subject = next(
+        (
+            component
+            for component in components
+            if canonicalize_name(str(component.get("name", ""))) == wheel_name
+            and str(component.get("version", "")) == wheel_version
+        ),
+        None,
+    )
+    if subject is None:
+        raise ConfigError(
+            f"SBOM does not inventory {wheel_name} {wheel_version}; the isolated "
+            "environment did not contain the wheel under test."
+        )
+
+    components.remove(subject)
+    hashes = [entry for entry in subject.get("hashes", []) or [] if isinstance(entry, dict)]
+    if not any(
+        str(entry.get("alg", "")).upper() == "SHA-256"
+        and str(entry.get("content", "")) == wheel_sha256
+        for entry in hashes
+    ):
+        hashes.append({"alg": "SHA-256", "content": wheel_sha256})
+    subject["hashes"] = hashes
+    properties = [entry for entry in subject.get("properties", []) or [] if isinstance(entry, dict)]
+    properties.append({"name": WHEEL_FILENAME_PROPERTY, "value": wheel_filename})
+    subject["properties"] = properties
+
+    document.setdefault("metadata", {})["component"] = subject
 
 
 def build_release_sbom(*, wheel_path: Path, output_path: Path) -> dict[str, Any]:
@@ -173,15 +235,13 @@ def build_release_sbom(*, wheel_path: Path, output_path: Path) -> dict[str, Any]
         document = json.loads(raw_path.read_text(encoding="utf-8"))
 
     _normalise_external_references(document, wheel_path.name)
-    metadata = document.setdefault("metadata", {})
-    metadata["component"] = {
-        "type": "library",
-        "bom-ref": f"{wheel_name}-wheel",
-        "name": wheel_name,
-        "version": wheel_version,
-        "hashes": [{"alg": "SHA-256", "content": wheel_sha256}],
-        "properties": [{"name": WHEEL_FILENAME_PROPERTY, "value": wheel_path.name}],
-    }
+    _promote_subject_component(
+        document,
+        wheel_name=wheel_name,
+        wheel_version=wheel_version,
+        wheel_sha256=wheel_sha256,
+        wheel_filename=wheel_path.name,
+    )
     _assert_runtime_only(document, sbom_path=output_path)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,8 +285,46 @@ def verify_release_sbom(*, wheel_path: Path, sbom_path: Path) -> dict[str, Any]:
             f"SBOM {sbom_path} is not bound to {wheel_path.name}: " + "; ".join(errors)
         )
 
+    _assert_subject_is_singular(document, sbom_path=sbom_path, wheel_name=wheel_name)
     _assert_runtime_only(document, sbom_path=sbom_path)
     return document
+
+
+def _assert_subject_is_singular(
+    document: dict[str, Any], *, sbom_path: Path, wheel_name: str
+) -> None:
+    """The subject appears once, and the dependency graph still refers to it.
+
+    Guards the failure mode of describing the wheel both as the metadata
+    subject and as an ordinary installed package, which leaves consumers
+    unable to tell which node the document is actually about.
+    """
+
+    duplicates = sorted(
+        str(component.get("bom-ref", component.get("name")))
+        for component in document.get("components", [])
+        if canonicalize_name(str(component.get("name", ""))) == wheel_name
+    )
+    if duplicates:
+        raise ConfigError(
+            f"SBOM {sbom_path} lists {wheel_name} in components as well as "
+            f"metadata.component ({', '.join(duplicates)}); the subject is described twice."
+        )
+
+    subject_ref = str(document["metadata"]["component"].get("bom-ref", ""))
+    dependencies = document.get("dependencies")
+    if dependencies is None:
+        # cyclonedx-py emits a graph, but an SBOM without one is still bound by
+        # the digest checks above; only assert consistency when it is present.
+        return
+    matching = [
+        node for node in dependencies if str(node.get("ref", "")) == subject_ref and subject_ref
+    ]
+    if len(matching) != 1:
+        raise ConfigError(
+            f"SBOM {sbom_path} has {len(matching)} dependency nodes for the declared "
+            f"subject {subject_ref!r}; expected exactly one."
+        )
 
 
 def _parser() -> argparse.ArgumentParser:
