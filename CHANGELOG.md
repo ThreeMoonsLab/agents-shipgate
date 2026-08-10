@@ -9,9 +9,12 @@
   `<framework>.tool_inventories` manifest key instead of an unreachable generic
   MCP/OpenAPI route. Console scan output, the GitHub step summary, and text-mode
   `verify` all project that same rank-1 action; unsupported source shapes retain
-  the compatibility fallback. The regression runs a real Google ADK workspace
-  through static extraction and semantic assessment, so it cannot manufacture
-  a pass-ineligible medium-confidence tool state. ([#318](https://github.com/ThreeMoonsLab/agents-shipgate/issues/318))
+  the compatibility fallback. Human work now precedes the exact rerun command
+  in text output, and verifier fix tasks collapse the duplicate semantic and
+  extraction inventory remedies into one instruction. The regression runs a
+  real Google ADK workspace through static extraction and semantic assessment,
+  so it cannot manufacture a pass-ineligible medium-confidence tool state.
+  ([#318](https://github.com/ThreeMoonsLab/agents-shipgate/issues/318))
 
 - **Human review now blocks merge and completion, not publication of the
   evidence a human needs in order to review.** A human route was one universal

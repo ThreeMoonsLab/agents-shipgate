@@ -903,7 +903,9 @@ tool_sources:
 
     assert result.exit_code == 0, result.output
     assert result.output.startswith("Agents Shipgate verify: insufficient_evidence")
-    assert "Improve evidence: Run: agents-shipgate verify" in result.output
+    assert "Improve evidence: Review the skeleton" in result.output
+    assert "\nRun: agents-shipgate verify" in result.output
+    assert result.output.index("Review the skeleton") < result.output.index("Run:")
     assert "google_adk.tool_inventories" in result.output
     assert "suggested-inventory.json" in result.output
     assert "verification. Target: suggested-inventory.json." in result.output

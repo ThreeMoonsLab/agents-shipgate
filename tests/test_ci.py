@@ -118,6 +118,7 @@ def test_short_summaries_project_framework_specific_evidence_action(
         assert "skeleton written next to report.json" in output
         assert "suggested-inventory.json" in output
         assert "verification. Target: suggested-inventory.json." in output
+        assert output.index("Review the skeleton") < output.index("Run:")
         assert "broader OpenAI SDK source path" not in output
 
 

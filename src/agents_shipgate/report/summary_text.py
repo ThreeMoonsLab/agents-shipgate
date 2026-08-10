@@ -53,12 +53,11 @@ def primary_evidence_remediation_text(evidence: EvidenceCoverageDecision) -> str
         return _GENERIC_EVIDENCE_REMEDIATION
 
     action = evidence.evidence_gaps[0].next_action
-    if action.command:
-        text = f"Run: {action.command}. {action.expects}"
-    else:
-        text = action.expects
+    text = action.expects
     if action.path and action.path not in text:
         if not text.endswith((".", "!", "?")):
             text = f"{text}."
         text = f"{text} Target: {action.path}."
+    if action.command:
+        text = f"{text}\nRun: {action.command}"
     return text

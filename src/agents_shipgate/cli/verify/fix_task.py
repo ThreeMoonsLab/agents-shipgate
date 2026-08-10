@@ -443,7 +443,10 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     decision = report.release_decision
     assert decision is not None
     for gap in decision.evidence_coverage.evidence_gaps:
-        if gap.kind in {"low_confidence_tool", "source_warning"}:
+        if gap.kind in {"low_confidence_tool", "source_warning"} or (
+            gap.kind == "incomplete_surface"
+            and gap.next_action.kind == "declare_tool_inventory"
+        ):
             continue
         action = gap.next_action
         accepted = (
