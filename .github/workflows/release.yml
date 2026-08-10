@@ -170,12 +170,18 @@ jobs:
           set -euo pipefail
           # `v1.2.3` is a final release; anything else (v0.16.0b7, rc, a) is a
           # pre-release and must not be promoted to "Latest".
+          #
+          # Maturity is applied only at finalisation. A draft cannot be marked
+          # latest — GitHub rejects `draft: true` together with
+          # `make_latest: true` — so requesting it at create time would fail
+          # every first-time stable release here, before PyPI is touched. The
+          # draft is created with the pre-release flag when applicable and no
+          # latest request at all.
           if [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            maturity="--latest"
+            create_maturity="--latest=false"
           else
-            maturity="--prerelease"
+            create_maturity="--prerelease"
           fi
-          echo "RELEASE_MATURITY=${maturity}" >> "${GITHUB_ENV}"
 
           assets=(
             "dist/${WHEEL_FILENAME}"
@@ -190,7 +196,7 @@ jobs:
             gh release create "${RELEASE_TAG}" "${assets[@]}" \
               --draft \
               --verify-tag \
-              "${maturity}" \
+              "${create_maturity}" \
               --title "${RELEASE_TAG}" \
               --notes "Agents Shipgate ${RELEASE_TAG}"
             echo "release_state=absent" >> "${GITHUB_OUTPUT}"
@@ -264,10 +270,6 @@ jobs:
           LOCKFILE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}/constraints/release-publish.txt
         run: |
           set -euo pipefail
-          # Only the lockfile is fetched, and `--require-hashes` means a
-          # substituted lockfile cannot install anything: every artifact must
-          # match a recorded digest.
-          #
           # No candidate *code* runs in this job. An earlier revision fetched
           # `release_publication.py` here and ran it before `uv publish`;
           # "standard library only" is not a trust boundary, because the file
@@ -276,6 +278,40 @@ jobs:
           # therefore uses curl and jq, which the runner provides.
           curl --fail --location --proto '=https' --proto-redir '=https' \
             --output release-publish.txt "${LOCKFILE_URL}"
+
+          # `--require-hashes` proves the downloaded bytes match the digests in
+          # the lockfile — but the lockfile itself comes from the candidate
+          # commit, so it constrains *integrity*, not *choice*. Nothing in it
+          # stops a candidate adding a package (and its build hooks) to a job
+          # that can mint a PyPI token.
+          #
+          # The allowlist below is the constraint on choice. It lives in this
+          # workflow rather than in the lockfile, so widening the set means
+          # editing `.github/**` — a small, reviewed diff — instead of adding a
+          # line to a 400-line generated file where it would pass unnoticed.
+          # This raises the review floor; it is not an independent trust root,
+          # because this workflow is itself part of the tagged candidate. See
+          # the Deployment prerequisites in docs/release-runbook.md.
+          allowed="annotated-types certifi cffi charset-normalizer cryptography"
+          allowed="${allowed} dnspython email-validator id idna markdown-it-py mdurl"
+          allowed="${allowed} platformdirs pyasn1 pycparser pydantic pydantic-core"
+          allowed="${allowed} pygments pyjwt pyopenssl requests rfc3161-client rfc8785"
+          allowed="${allowed} rich securesystemslib sigstore sigstore-models"
+          allowed="${allowed} sigstore-rekor-types tuf typing-extensions"
+          allowed="${allowed} typing-inspection urllib3 uv"
+          grep -oE '^[A-Za-z0-9][A-Za-z0-9._-]*==' release-publish.txt \
+            | sed 's/==$//' | tr 'A-Z_.' 'a-z--' | sort -u > requested.txt
+          while read -r name; do
+            case " ${allowed} " in
+              *" ${name} "*) ;;
+              *)
+                echo "::error::Publication lockfile requests ${name}, which is not in this workflow's allowlist."
+                exit 1
+                ;;
+            esac
+          done < requested.txt
+          echo "OK: every locked distribution is on the workflow allowlist."
+
           python -m pip install --require-hashes --requirement release-publish.txt
 
       - name: Confirm the tag still points at the verified commit

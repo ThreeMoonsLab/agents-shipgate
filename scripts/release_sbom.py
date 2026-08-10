@@ -10,17 +10,18 @@ about software the user never receives.
 
 ``build`` installs *only* the wheel into an isolated interpreter created with
 ``--without-pip``, so the resulting environment is exactly the wheel plus its
-runtime closure, then inventories that. Two post-processing steps matter:
+runtime closure, then inventories it by **reading ``.dist-info`` metadata**.
 
-1. CycloneDX records the wheel it installed from as an ``externalReferences``
-   entry of type ``distribution``, including a ``file://`` URL pointing at the
-   build machine's temporary directory. That path varies per run, so it would
-   make the signed SBOM non-deterministic, and it leaks runner filesystem
-   layout into a published artifact. The URL is reduced to the wheel basename;
-   the SHA-256 alongside it is kept.
-2. The inventory has no ``metadata.component``, so nothing in the document
-   says which artifact it describes. The wheel is promoted to that slot with
-   its digest, which is what ``verify`` later binds against.
+That last part is a security property, not a style choice. ``cyclonedx-py
+environment`` inventories by *launching* the target interpreter, and starting a
+Python process runs ``site`` processing — which executes any ``.pth`` file
+beginning with ``import``. Those files come from the wheel's runtime dependency
+closure, resolved unpinned from the index, so the previous implementation ran
+third-party code inside the job that seals the release, before the handoff
+digests were computed. Parsing metadata files cannot execute anything.
+
+Installation is wheels-only for the same reason: an sdist would run its build
+backend during resolution.
 
 ``verify`` re-derives the wheel digest and refuses any SBOM that describes
 different bytes, a different version, or an environment containing a dev-only
@@ -45,6 +46,8 @@ import sys
 import tempfile
 import tomllib
 import venv
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from pathlib import Path
 from typing import Any
 
@@ -104,16 +107,6 @@ def _component_names(document: dict[str, Any]) -> set[str]:
     }
 
 
-def _normalise_external_references(document: dict[str, Any], wheel_name: str) -> None:
-    """Replace build-machine ``file://`` URLs with the wheel basename."""
-
-    for component in [*document.get("components", []), document.get("metadata", {})]:
-        for reference in component.get("externalReferences", []) or []:
-            url = str(reference.get("url", ""))
-            if url.startswith("file://"):
-                reference["url"] = wheel_name
-
-
 def _assert_runtime_only(document: dict[str, Any], *, sbom_path: Path) -> None:
     forbidden = dev_only_distributions(REPO_ROOT / "pyproject.toml")
     present = sorted(forbidden & _component_names(document))
@@ -124,54 +117,92 @@ def _assert_runtime_only(document: dict[str, Any], *, sbom_path: Path) -> None:
         )
 
 
-def _promote_subject_component(
-    document: dict[str, Any],
-    *,
-    wheel_name: str,
-    wheel_version: str,
-    wheel_sha256: str,
-    wheel_filename: str,
-) -> None:
-    """Move CycloneDX's own component for the wheel into ``metadata.component``.
+def _site_packages(env_dir: Path) -> Path:
+    candidates = sorted(env_dir.glob("lib/python*/site-packages")) + [env_dir / "Lib/site-packages"]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    raise ConfigError(f"No site-packages directory under {env_dir}")
 
-    Inventing a fresh ``bom-ref`` here would leave the document describing the
-    subject twice: once as the invented metadata component and once as the
-    installed package in ``components``, with the dependency graph still keyed
-    by the original ref — so the declared subject would have no dependency node
-    at all. Reusing the emitted component keeps the graph intact and leaves
-    exactly one node for the subject.
+
+def _read_metadata(dist_info: Path) -> dict[str, Any]:
+    """Parse one ``.dist-info/METADATA`` without importing anything from it."""
+
+    path = dist_info / "METADATA"
+    if not path.is_file():
+        raise ConfigError(f"Installed distribution has no METADATA: {dist_info}")
+    message = BytesParser(policy=email_policy).parsebytes(path.read_bytes())
+    name = str(message.get("Name", "")).strip()
+    version = str(message.get("Version", "")).strip()
+    if not name or not version:
+        raise ConfigError(f"Installed distribution has no Name/Version: {dist_info}")
+    licenses = [
+        str(value).strip()
+        for value in message.get_all("License-Expression", [])
+        or message.get_all("License", [])
+        or []
+        if str(value).strip()
+    ]
+    requires = [
+        str(value).strip() for value in message.get_all("Requires-Dist", []) or [] if str(value)
+    ]
+    return {"name": name, "version": version, "licenses": licenses, "requires": requires}
+
+
+def _component(entry: dict[str, Any]) -> dict[str, Any]:
+    canonical = canonicalize_name(entry["name"])
+    component: dict[str, Any] = {
+        "type": "library",
+        "bom-ref": f"{canonical}=={entry['version']}",
+        "name": entry["name"],
+        "version": entry["version"],
+        "purl": f"pkg:pypi/{canonical}@{entry['version']}",
+    }
+    if entry["licenses"]:
+        component["licenses"] = [{"license": {"name": value}} for value in entry["licenses"]]
+    return component
+
+
+def inventory_environment(env_dir: Path) -> list[dict[str, Any]]:
+    """Inventory installed distributions by reading ``.dist-info`` directories.
+
+    Deliberately does *not* launch the target interpreter. `cyclonedx-py
+    environment` does, and starting a Python process runs `site` processing —
+    which executes any ``.pth`` file beginning with ``import``. Those files come
+    from the wheel's runtime dependency closure, resolved from the index, so
+    launching that interpreter would run third-party code inside the job that
+    seals the release, before the handoff digests are computed. Reading
+    metadata files cannot execute anything.
     """
 
-    components = document.get("components", [])
-    subject = next(
-        (
-            component
-            for component in components
-            if canonicalize_name(str(component.get("name", ""))) == wheel_name
-            and str(component.get("version", "")) == wheel_version
-        ),
-        None,
-    )
-    if subject is None:
-        raise ConfigError(
-            f"SBOM does not inventory {wheel_name} {wheel_version}; the isolated "
-            "environment did not contain the wheel under test."
+    site_packages = _site_packages(env_dir)
+    entries = [_read_metadata(path) for path in sorted(site_packages.glob("*.dist-info"))]
+    if not entries:
+        raise ConfigError(f"No installed distributions found under {site_packages}")
+    return entries
+
+
+def _dependency_graph(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Edges between installed distributions, from ``Requires-Dist`` names.
+
+    Environment markers and extras are not evaluated: the *component set* is
+    exact because it is what was installed, while the edge set is a documented
+    over-approximation of the closure.
+    """
+
+    by_canonical = {canonicalize_name(entry["name"]): entry for entry in entries}
+    graph = []
+    for entry in entries:
+        canonical = canonicalize_name(entry["name"])
+        depends = sorted(
+            {
+                f"{name}=={by_canonical[name]['version']}"
+                for name in (_requirement_name(item) for item in entry["requires"])
+                if name in by_canonical and name != canonical
+            }
         )
-
-    components.remove(subject)
-    hashes = [entry for entry in subject.get("hashes", []) or [] if isinstance(entry, dict)]
-    if not any(
-        str(entry.get("alg", "")).upper() == "SHA-256"
-        and str(entry.get("content", "")) == wheel_sha256
-        for entry in hashes
-    ):
-        hashes.append({"alg": "SHA-256", "content": wheel_sha256})
-    subject["hashes"] = hashes
-    properties = [entry for entry in subject.get("properties", []) or [] if isinstance(entry, dict)]
-    properties.append({"name": WHEEL_FILENAME_PROPERTY, "value": wheel_filename})
-    subject["properties"] = properties
-
-    document.setdefault("metadata", {})["component"] = subject
+        graph.append({"ref": f"{canonical}=={entry['version']}", "dependsOn": depends})
+    return graph
 
 
 def build_release_sbom(*, wheel_path: Path, output_path: Path) -> dict[str, Any]:
@@ -201,6 +232,11 @@ def build_release_sbom(*, wheel_path: Path, output_path: Path) -> dict[str, Any]
                 "install",
                 "--quiet",
                 "--no-input",
+                # Wheels only: an sdist would execute its build backend during
+                # resolution, which is exactly the code execution this module
+                # is structured to avoid.
+                "--only-binary",
+                ":all:",
                 str(wheel_path),
             ],
             check=False,
@@ -211,37 +247,37 @@ def build_release_sbom(*, wheel_path: Path, output_path: Path) -> dict[str, Any]
             raise ConfigError(
                 f"Unable to install {wheel_path} into an isolated environment: {install.stderr}"
             )
+        entries = inventory_environment(env_dir)
 
-        raw_path = Path(workdir) / "raw-sbom.json"
-        generate = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "cyclonedx_py",
-                "environment",
-                "--output-reproducible",
-                "--of",
-                "JSON",
-                "-o",
-                str(raw_path),
-                str(env_python),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if generate.returncode != 0:
-            raise ConfigError(f"cyclonedx-py failed for {wheel_path}: {generate.stderr}")
-        document = json.loads(raw_path.read_text(encoding="utf-8"))
-
-    _normalise_external_references(document, wheel_path.name)
-    _promote_subject_component(
-        document,
-        wheel_name=wheel_name,
-        wheel_version=wheel_version,
-        wheel_sha256=wheel_sha256,
-        wheel_filename=wheel_path.name,
+    subject = next(
+        (
+            entry
+            for entry in entries
+            if canonicalize_name(entry["name"]) == wheel_name and entry["version"] == wheel_version
+        ),
+        None,
     )
+    if subject is None:
+        raise ConfigError(
+            f"SBOM does not inventory {wheel_name} {wheel_version}; the isolated "
+            "environment did not contain the wheel under test."
+        )
+
+    subject_component = _component(subject)
+    subject_component["hashes"] = [{"alg": "SHA-256", "content": wheel_sha256}]
+    subject_component["properties"] = [{"name": WHEEL_FILENAME_PROPERTY, "value": wheel_path.name}]
+
+    document = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "version": 1,
+        "metadata": {"component": subject_component},
+        # The subject appears once, as the metadata component; listing it again
+        # here would leave consumers unable to tell which node the document is
+        # about.
+        "components": [_component(entry) for entry in entries if entry["name"] != subject["name"]],
+        "dependencies": _dependency_graph(entries),
+    }
     _assert_runtime_only(document, sbom_path=output_path)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

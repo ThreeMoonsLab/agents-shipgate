@@ -75,6 +75,12 @@ jobs:
       contents: read
     outputs:
       source_sha: ${{ steps.tested.outputs.source_sha }}
+      # Digests of the exact inputs the exhaustive policy gate accepted. The
+      # sealer re-downloads from the same (mutable) URLs and must land on these
+      # bytes, or a validly signed but weakened artifact could be sealed
+      # without ever passing the gate.
+      qualified_wheel_sha256: ${{ steps.policy.outputs.qualified_wheel_sha256 }}
+      qualification_sha256: ${{ steps.policy.outputs.qualification_sha256 }}
 
     steps:
       - name: Checkout
@@ -134,6 +140,7 @@ jobs:
         run: python -m pip_audit .
 
       - name: Exhaustive safety qualification policy re-derivation
+        id: policy
         # Re-derives every stratum, Wilson interval and confusion matrix in the
         # signed artifact. It imports the project's pydantic schemas, so it
         # belongs here, with the project installed, rather than in the sealing
@@ -159,6 +166,10 @@ jobs:
             --qualification policy-dist/safety-qualification.json \
             --tag "${tag}"
           python -m twine check "policy-dist/${QUALIFIED_WHEEL_FILENAME}"
+          {
+            echo "qualified_wheel_sha256=$(sha256sum "policy-dist/${QUALIFIED_WHEEL_FILENAME}" | cut -d' ' -f1)"
+            echo "qualification_sha256=$(sha256sum policy-dist/safety-qualification.json | cut -d' ' -f1)"
+          } >> "${GITHUB_OUTPUT}"
 
   artifact:
     name: Verify and seal the candidate
@@ -349,7 +360,14 @@ jobs:
             echo "::error::source-build must not pre-exist in the release checkout."
             exit 1
           fi
-          python -m build --wheel --outdir source-build .
+          # `--no-isolation` so the hash-locked hatchling installed above is
+          # the backend that actually runs. With isolation, `build` creates a
+          # fresh environment and re-resolves the `pyproject.toml` build
+          # requirements, which puts the backend's own transitive dependencies
+          # outside the lock — the locked closure would be bypassed for exactly
+          # the code that produces the artifact. Verified byte-equivalent to an
+          # isolated build.
+          python -m build --wheel --no-isolation --outdir source-build .
 
       - name: Download configured qualification inputs
         id: qualified
@@ -377,6 +395,20 @@ jobs:
           echo "QUALIFIED_WHEEL=qualified-dist/${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
           echo "QUALIFIED_WHEEL_FILENAME=${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_ENV}"
           echo "wheel_filename=${QUALIFIED_WHEEL_FILENAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Bind the sealed inputs to the exhaustively verified ones
+        # The gate and this job download from the same mutable URLs at
+        # different times. Without this comparison the gate proves a policy
+        # about one set of bytes while the sealer seals another.
+        env:
+          GATE_WHEEL_SHA256: ${{ needs.tests.outputs.qualified_wheel_sha256 }}
+          GATE_QUALIFICATION_SHA256: ${{ needs.tests.outputs.qualification_sha256 }}
+        run: |
+          set -euo pipefail
+          echo "${GATE_WHEEL_SHA256}  ${QUALIFIED_WHEEL}" | sha256sum --check --strict
+          echo "${GATE_QUALIFICATION_SHA256}  qualified-dist/safety-qualification.json" \
+            | sha256sum --check --strict
+          echo "OK: sealing the exact inputs the exhaustive policy gate accepted."
 
       - name: Verify qualification signature against the committed trust root
         env:

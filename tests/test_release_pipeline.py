@@ -1056,8 +1056,11 @@ def test_the_sealer_installs_only_a_hash_locked_toolchain() -> None:
 
     lockfile = (REPO_ROOT / "constraints/release-seal.txt").read_text(encoding="utf-8")
 
-    for pinned in ("build==", "hatchling==", "sigstore==", "cyclonedx-bom=="):
+    for pinned in ("build==", "hatchling==", "sigstore=="):
         assert pinned in lockfile
+    # CycloneDX left the closure when SBOM generation stopped launching the
+    # target interpreter; the sealer's trusted surface shrank with it.
+    assert "cyclonedx" not in lockfile
     assert lockfile.count("--hash=sha256:") > 20
     assert ">=" not in lockfile.replace("# ", "")
 
@@ -1106,7 +1109,16 @@ def test_the_stdlib_invariant_checker_rejects_a_weakened_signed_artifact(
             "static_only": True,
             "runtime_behavior_proven": False,
             "failures": [],
-            "cases": [{"id": f"c{i}"} for i in range(100)],
+            "cases": [
+                {
+                    "id": f"c{i}",
+                    "expected_decision": "blocked",
+                    "actual_decision": "blocked",
+                    "receipt_sha256": f"{i:064x}",
+                    "runtime_failure": False,
+                }
+                for i in range(100)
+            ],
             "summary": {
                 "total_cases": 100,
                 "receipt_count": 100,
@@ -1133,7 +1145,7 @@ def test_the_stdlib_invariant_checker_rejects_a_weakened_signed_artifact(
     for overrides, expected in [
         ({"qualification_tier": "test"}, "tier is not beta"),
         ({"production_qualified": False}, "not production_qualified"),
-        ({"cases": [{"id": "c0"}]}, "cases, not 100"),
+        ({"cases": [{"id": "c0", "receipt_sha256": "0" * 64}]}, "cases, not 100"),
         ({"runtime_behavior_proven": True}, "runtime behaviour"),
         ({"failures": ["x"]}, "reports failures"),
     ]:
@@ -1202,3 +1214,193 @@ def test_deployment_prerequisites_are_documented_with_their_residuals() -> None:
         assert prerequisite in runbook
     # The honest limit about the workflow being candidate-controlled.
     assert "the workflow at that tag" in runbook
+
+
+# --------------------------------------------------------------------------
+# Review round 4 — code execution inside the sealer, and the draft/latest bug
+# --------------------------------------------------------------------------
+
+
+def test_the_sbom_inventory_never_executes_environment_code(tmp_path: Path) -> None:
+    """Reproduction of the finding: `cyclonedx-py environment` inventories by
+    *launching* the target interpreter, and interpreter startup runs `site`
+    processing, which executes any `.pth` file beginning with `import`. Those
+    files come from the wheel's runtime closure, resolved unpinned from the
+    index — so the previous implementation ran third-party code inside the job
+    that seals the release, before the handoff digests were computed.
+    """
+
+    import sys
+    import venv as venv_module
+
+    from scripts.release_sbom import inventory_environment
+
+    env_dir = tmp_path / "runtime"
+    venv_module.EnvBuilder(with_pip=False, symlinks=sys.platform != "win32").create(env_dir)
+    site_packages = next(env_dir.glob("lib/python*/site-packages"), None) or (
+        env_dir / "Lib/site-packages"
+    )
+    site_packages.mkdir(parents=True, exist_ok=True)
+
+    # A minimal installed distribution, plus a .pth that would run on startup.
+    dist_info = site_packages / "victim-1.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: victim\nVersion: 1.0\n", encoding="utf-8"
+    )
+    marker = tmp_path / "executed"
+    (site_packages / "zz_evil.pth").write_text(
+        f"import pathlib; pathlib.Path({str(marker)!r}).write_text('x')\n", encoding="utf-8"
+    )
+
+    entries = inventory_environment(env_dir)
+
+    assert [entry["name"] for entry in entries] == ["victim"]
+    assert not marker.exists(), "inventorying executed a .pth from the target environment"
+
+
+def test_the_sbom_generator_needs_no_third_party_tooling() -> None:
+    """Removing the launch also removed CycloneDX from the sealer's closure."""
+
+    seal = (REPO_ROOT / "constraints/release-seal.txt").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "scripts/release_sbom.py").read_text(encoding="utf-8")
+
+    assert "cyclonedx" not in seal
+    assert "cyclonedx_py" not in source
+    # Wheels only: an sdist would run its build backend during resolution.
+    assert "--only-binary" in source
+
+
+def test_the_wheel_is_built_with_the_locked_backend() -> None:
+    """`python -m build` defaults to creating a fresh isolated environment and
+    re-resolving the pyproject build requirements, which puts the backend's own
+    transitive dependencies outside the hash-locked closure."""
+
+    artifact = _load_workflow("release-verify.yml")["jobs"]["artifact"]
+    build_step = artifact["steps"][_step_index(artifact, "python -m build --wheel")]["run"]
+
+    assert "--no-isolation" in build_step
+
+
+def test_a_draft_is_never_created_as_latest() -> None:
+    """GitHub rejects `draft: true` together with `make_latest: true`, so
+    requesting it at create time fails every first stable release during
+    staging, before PyPI is touched."""
+
+    release = _load_workflow("release.yml")
+    stage = _job_commands(release["jobs"]["stage"])
+    finalize = _job_commands(release["jobs"]["finalize"])
+
+    # Creation never requests latest; a stable tag explicitly opts out.
+    assert "--latest=false" in stage
+    assert '"${create_maturity}"' in stage
+    assert 'create_maturity="--latest"' not in stage
+    # Maturity is applied only when the draft is lifted.
+    assert 'maturity="--latest"' in finalize
+    assert "--draft=false" in finalize
+
+
+def test_the_sealer_seals_the_bytes_the_policy_gate_accepted() -> None:
+    """The gate and the sealer download from the same mutable URLs at different
+    times; without this the gate proves a policy about one artifact while the
+    sealer seals another."""
+
+    workflow = _load_workflow("release-verify.yml")
+    gate_outputs = workflow["jobs"]["tests"]["outputs"]
+    sealer = _job_commands(workflow["jobs"]["artifact"])
+
+    assert "qualified_wheel_sha256" in gate_outputs
+    assert "qualification_sha256" in gate_outputs
+    assert "GATE_WHEEL_SHA256" in sealer
+    assert "GATE_QUALIFICATION_SHA256" in sealer
+    assert sealer.count("sha256sum --check --strict") >= 2
+
+
+def test_qualification_counts_are_derived_from_cases_not_the_summary(tmp_path: Path) -> None:
+    """The summary is a claim the artifact makes about itself. An attacker able
+    to produce a validly signed artifact can also write `unsafe_auto_pass_count:
+    0` above a hundred cases that say otherwise."""
+
+    from scripts.verify_qualification_binding import verify_qualification_binding
+
+    wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
+    cases = [
+        {
+            "id": f"c{index}",
+            "expected_decision": "blocked",
+            "actual_decision": "blocked",
+            "receipt_sha256": f"{index:064x}",
+            "runtime_failure": False,
+        }
+        for index in range(100)
+    ]
+    payload = {
+        "qualification_tier": "beta",
+        "qualified": True,
+        "production_qualified": True,
+        "static_only": True,
+        "runtime_behavior_proven": False,
+        "failures": [],
+        "cases": cases,
+        "summary": {
+            "total_cases": 100,
+            "receipt_count": 100,
+            "unsafe_auto_pass_count": 0,
+            "runtime_failure_count": 0,
+        },
+        "inputs": {
+            "wheel_name": "agents-shipgate",
+            "wheel_version": "9.9.9",
+            "engine_version": "9.9.9",
+            "wheel_sha256": _digest(wheel),
+        },
+    }
+    path = tmp_path / "qualification.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert verify_qualification_binding(qualification_path=path, wheel_path=wheel, tag="v9.9.9")
+
+    # A case that auto-passed something it should not have, with the summary
+    # still claiming zero.
+    payload["cases"][0] = {
+        "id": "c0",
+        "expected_decision": "blocked",
+        "actual_decision": "passed",
+        "receipt_sha256": f"{0:064x}",
+        "runtime_failure": False,
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ReleaseError, match="cases contain an unsafe auto-pass"):
+        verify_qualification_binding(qualification_path=path, wheel_path=wheel, tag="v9.9.9")
+
+    # Duplicated receipts are not 100 distinct receipts.
+    payload["cases"][0] = dict(cases[0])
+    payload["cases"][1] = dict(cases[0], id="c1")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ReleaseError, match="receipt digests are not unique"):
+        verify_qualification_binding(qualification_path=path, wheel_path=wheel, tag="v9.9.9")
+
+
+def test_the_publisher_lockfile_is_constrained_by_a_workflow_allowlist() -> None:
+    """`--require-hashes` constrains integrity, not choice: the lockfile comes
+    from the candidate commit, so nothing in it stops a candidate adding a
+    package to a job that can mint a PyPI token."""
+
+    publish = _load_workflow("release.yml")["jobs"]["publish"]
+    install = publish["steps"][_step_index(publish, "--require-hashes")]["run"]
+
+    assert "allowed=" in install
+    assert "not in this workflow's allowlist" in install
+    # Every distribution the committed lockfile actually needs must be listed,
+    # or the release fails on a legitimate lockfile.
+    import re as _re
+
+    locked = {
+        name.lower().replace("_", "-").replace(".", "-")
+        for name in _re.findall(
+            r"^([A-Za-z0-9][A-Za-z0-9._-]*)==",
+            (REPO_ROOT / "constraints/release-publish.txt").read_text(encoding="utf-8"),
+            _re.MULTILINE,
+        )
+    }
+    allowed = set(_re.findall(r"[a-z0-9][a-z0-9-]*", install.split("grep -oE")[0]))
+    assert locked <= allowed, f"not allowlisted: {sorted(locked - allowed)}"

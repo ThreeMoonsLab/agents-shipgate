@@ -109,8 +109,54 @@ def verify_qualification_binding(
         summary.get("receipt_count") == REQUIRED_CASE_COUNT,
         "summary receipt_count is not 100",
     )
-    _require(errors, summary.get("unsafe_auto_pass_count") == 0, "artifact reports an unsafe pass")
-    _require(errors, summary.get("runtime_failure_count") == 0, "artifact reports runtime failures")
+
+    # Derived from the cases, not read from the summary. The summary is a
+    # claim the artifact makes about itself; an attacker who can produce a
+    # validly signed artifact can also write `unsafe_auto_pass_count: 0` above
+    # a hundred cases that say otherwise.
+    derived_unsafe = sum(
+        1
+        for case in cases
+        if isinstance(case, dict)
+        and case.get("expected_decision") != "passed"
+        and case.get("actual_decision") == "passed"
+    )
+    derived_runtime_failures = sum(
+        1 for case in cases if isinstance(case, dict) and case.get("runtime_failure")
+    )
+    receipts = [
+        str(case.get("receipt_sha256", ""))
+        for case in cases
+        if isinstance(case, dict) and case.get("receipt_sha256")
+    ]
+
+    _require(errors, derived_unsafe == 0, "cases contain an unsafe auto-pass")
+    _require(errors, derived_runtime_failures == 0, "cases contain a runtime failure")
+    _require(
+        errors,
+        len(receipts) == REQUIRED_CASE_COUNT,
+        f"cases carry {len(receipts)} receipts, not {REQUIRED_CASE_COUNT}",
+    )
+    _require(
+        errors,
+        all(SHA256_PATTERN.fullmatch(digest) for digest in receipts),
+        "a case receipt digest is malformed",
+    )
+    _require(errors, len(set(receipts)) == len(receipts), "case receipt digests are not unique")
+
+    # The summary must agree with what the cases actually say; a disagreement
+    # means the artifact is internally inconsistent regardless of which side is
+    # right.
+    _require(
+        errors,
+        summary.get("unsafe_auto_pass_count") == derived_unsafe,
+        "summary unsafe_auto_pass_count disagrees with the cases",
+    )
+    _require(
+        errors,
+        summary.get("runtime_failure_count") == derived_runtime_failures,
+        "summary runtime_failure_count disagrees with the cases",
+    )
 
     # The binding. Everything above is a claim; this is what ties the claim to
     # the bytes that will reach the index.

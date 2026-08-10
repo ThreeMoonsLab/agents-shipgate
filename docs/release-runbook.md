@@ -19,6 +19,14 @@ A release runs as five jobs with an explicit, content-addressed handoff.
 | `publish` | `id-token: write`, `environment: pypi` | Signs and uploads to PyPI once |
 | `finalize` | `contents: write` | Attaches signatures, re-verifies the remote bytes, undrafts |
 
+The sealing job installs no project code — only the hash-locked toolchain in
+`constraints/release-seal.txt` — and executes nothing from the wheel's runtime
+closure. The SBOM is produced by reading installed `.dist-info` metadata rather
+than launching the environment's interpreter, because interpreter startup runs
+`site` processing, which executes any `.pth` file the closure installed. The
+wheel itself is built with `--no-isolation` so the locked backend is the code
+that runs.
+
 Verification is two jobs for a specific reason: **the job that seals the handoff
 never runs the candidate's tests.** In a combined job the qualified wheel stayed
 writable on disk — with its path exported through `GITHUB_ENV` — while pytest,
