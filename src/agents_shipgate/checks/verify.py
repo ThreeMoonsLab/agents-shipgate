@@ -20,7 +20,7 @@ verdict.
 from __future__ import annotations
 
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.globbing import glob_match
+from agents_shipgate.core.globbing import glob_match_ci
 
 # The trust-root table lives in ``core.trust_roots`` so the local boundary
 # evaluator can classify paths from the identical data without an import cycle
@@ -67,7 +67,7 @@ def run(context: ScanContext) -> list[Finding]:
 
 def _classify(path: str) -> tuple[str, str] | None:
     for trust_root_class, pattern in TRUST_ROOT_SURFACES:
-        if glob_match(pattern, path) or glob_match(pattern.casefold(), path.casefold()):
+        if glob_match_ci(pattern, path):
             return trust_root_class, pattern
     return None
 

@@ -20,6 +20,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from agents_shipgate.checks import (
     verify_agent_instructions,
     verify_baseline_waiver,
@@ -34,6 +36,7 @@ from agents_shipgate.core.lenses.effective_policy import (
     build_effective_policy_snapshot,
 )
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
+from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.schemas.capability_change import EffectivePolicy
 from agents_shipgate.schemas.verification import VerificationContext
 
@@ -596,3 +599,72 @@ def test_trigger_catalog_unrelated_emits_nothing():
 
 def test_trigger_catalog_no_verification_emits_nothing():
     assert verify_trigger_drift.run(_context(verification=False)) == []
+
+
+# --- Tier A / Tier B case parity -------------------------------------------
+#
+# `trust_root_class_for` (Tier A, SHIP-VERIFY-TRUST-ROOT-TOUCHED) matches a
+# path case-insensitively, because Git can carry a spelling that resolves to
+# the canonical governance file on a case-insensitive filesystem. The
+# specialized Tier B checks below all select their changed files through
+# `_verify_common.touched()`. When that matched case-sensitively, a path was
+# a trust root to Tier A and invisible to the specialized check that carries
+# the real severity — a policy edit with no fail-safe, and a deleted CI gate
+# with no critical finding.
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["services/foo/Policies/refund.yaml", "SHIPGATE.yaml", "Shipgate.yaml"],
+)
+def test_policy_weakened_fail_safe_sees_case_variant_trust_roots(path):
+    assert trust_root_class_for(path) is not None, (
+        f"Fixture drift: {path!r} is no longer a Tier A trust root."
+    )
+    findings = verify_policy.run(_context(base_policy=None, changed_files=[path]))
+    assert len(findings) == 1, (
+        f"{path!r} is a Tier A trust root but produced no policy fail-safe "
+        f"finding; got {findings!r}."
+    )
+    assert findings[0].evidence["kind"] == "base_snapshot_unavailable"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".github/workflows/Agents-Shipgate.yaml",
+        ".github/workflows/AGENTS-SHIPGATE.yml",
+        "services/foo/.github/workflows/Agents-Shipgate.yml",
+    ],
+)
+def test_ci_gate_removed_sees_case_variant_workflow_paths(tmp_path, path):
+    assert trust_root_class_for(path) == "ci_gate", (
+        f"Fixture drift: {path!r} is no longer classified as a CI gate."
+    )
+    ctx = _context(changed_files=[path], config_path=str(tmp_path / "shipgate.yaml"))
+    findings = verify_ci_gate.run(ctx)
+    assert len(findings) == 1, (
+        f"Deleting {path!r} is a CI-gate removal to Tier A but produced no "
+        f"critical gate-removal finding; got {findings!r}."
+    )
+    assert findings[0].severity == "critical"
+    assert findings[0].evidence["kind"] == "ci_gate_removed"
+
+
+@pytest.mark.parametrize("path", ["docs/Triggers.json", "docs/TRIGGERS.JSON"])
+def test_trigger_catalog_drift_sees_case_variant_catalog_paths(path):
+    findings = verify_trigger_drift.run(_context(changed_files=[path]))
+    assert len(findings) == 1, (
+        f"{path!r} is the trigger catalog on a case-insensitive filesystem; "
+        f"editing it must still route to review. Got {findings!r}."
+    )
+    assert findings[0].check_id == "SHIP-VERIFY-TRIGGER-CATALOG-DRIFT"
+
+
+def test_agent_instructions_weakened_sees_case_variant_paths():
+    findings = verify_agent_instructions.run(_context(changed_files=["agents.md"]))
+    assert len(findings) == 1, (
+        "`agents.md` resolves to AGENTS.md on a case-insensitive filesystem "
+        f"and is a Tier A trust root; got {findings!r}."
+    )
+    assert findings[0].check_id == "SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED"

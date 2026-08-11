@@ -31,7 +31,8 @@ from agents_shipgate.core.boundary_registry import (
     is_agent_boundary_path,
 )
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.globbing import glob_match as _glob_match
+from agents_shipgate.core.globbing import glob_match as _glob_match_exact
+from agents_shipgate.core.globbing import glob_match_ci as _glob_match
 from agents_shipgate.invocation import render_command, retarget_command
 
 _TRIGGERS_FILENAME = "triggers.json"
@@ -256,6 +257,27 @@ def _next_action(
 def _eval_predicate(
     pred: dict[str, Any] | None,
     *,
+    # Case sensitivity is chosen per predicate by which way a wider match
+    # moves the verdict, not for uniformity:
+    #
+    # - ``glob`` (case-INsensitive). A wider match adds a *run*. A
+    #   case-sensitive matcher would route
+    #   ``services/foo/Policies/refund.yaml`` as ``no_match`` while
+    #   ``SHIP-VERIFY-TRUST-ROOT-TOUCHED`` classifies the same path as a
+    #   policy trust root.
+    # - ``none_match_glob`` (case-INsensitive). It guards a negative rule,
+    #   so a wider match makes that rule fire *less*. Case-folding it is what
+    #   stops a ``Prompts/*.md`` edit skipping through the docs-only rule.
+    # - ``every_file_matches`` (case-SENSITIVE, deliberately). It is the
+    #   negative rule's own classifier, so a wider match makes the rule fire
+    #   *more* and `skip_shipgate` beats `run_shipgate`. Case-folding it
+    #   reads ``src/TEST_agent.py`` — a legitimate production path on a
+    #   case-sensitive filesystem — as a test file, and a diff adding
+    #   ``@function_tool`` beside it would be skipped rather than run.
+    #
+    # The rule: fold the predicates that can only add evaluation, never the
+    # one that can subtract it. The catalog's ``predicate_vocabulary``
+    # documents both, so third-party consumers apply the same semantics.
     paths: list[str],
     diff_text: str,
     manifest_present: bool,
@@ -299,8 +321,10 @@ def _eval_predicate(
         patterns = pred["every_file_matches"]
         if isinstance(patterns, str):
             patterns = [patterns]
+        # Case-sensitive on purpose — see the note on this function's
+        # signature. Widening this predicate adds skips, not runs.
         return all(
-            any(_glob_match(g, p) for g in patterns) for p in paths
+            any(_glob_match_exact(g, p) for g in patterns) for p in paths
         )
     if "none_match_glob" in pred:
         globs = pred["none_match_glob"]

@@ -22,7 +22,7 @@ from agents_shipgate.core.agent_controls import (
 )
 from agents_shipgate.core.boundary_diff import parse_unified_diff
 from agents_shipgate.core.errors import ConfigError, InputParseError
-from agents_shipgate.core.globbing import glob_match
+from agents_shipgate.core.globbing import glob_match_ci
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
     INCOMPARABLE_BASELINE_REVIEW,
@@ -596,8 +596,7 @@ def _build_trust_root_graph(
     configured_is_catalogued = bool(configured_relative) and any(
         spec.kind == "manifest"
         and (
-            glob_match(spec.pattern, configured_relative)
-            or glob_match(spec.pattern.casefold(), configured_relative.casefold())
+            glob_match_ci(spec.pattern, configured_relative)
         )
         for spec in specs
     )
@@ -1160,10 +1159,7 @@ def _spec_by_key() -> dict[tuple[str, str], ProtectedSurfaceSpec]:
 
 def _classify(path: str) -> ProtectedSurfaceSpec | None:
     for spec in protected_surface_specs():
-        if glob_match(spec.pattern, path) or glob_match(
-            spec.pattern.casefold(),
-            path.casefold(),
-        ):
+        if glob_match_ci(spec.pattern, path):
             return spec
     return None
 
@@ -1272,7 +1268,7 @@ def _walk_trust_root_files(
 
     The trust-root graph must use the same glob semantics as touch
     classification. ``Path.glob("**")`` has Python-version-dependent trailing
-    globstar behavior, so walk files once and classify with ``glob_match``.
+    globstar behavior, so walk files once and classify with ``glob_match_ci``.
     ``os.walk`` materializes a complete directory before yielding, which cannot
     enforce a bound on one hostile, very large directory; the explicit scandir
     stack stops as soon as the aggregate graph inventory budget is exhausted.
@@ -1334,12 +1330,10 @@ def _present_paths(
     candidate_paths: tuple[str, ...],
     pattern: str,
 ) -> list[str]:
-    folded_pattern = pattern.casefold()
     return [
         path
         for path in candidate_paths
-        if glob_match(pattern, path)
-        or glob_match(folded_pattern, path.casefold())
+        if glob_match_ci(pattern, path)
         or (
             (root / path).is_symlink()
             and _symlink_may_hide_pattern(path, pattern)
