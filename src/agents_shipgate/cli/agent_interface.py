@@ -25,6 +25,7 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.contract import COMMANDS, DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
+    REPORT_ARTIFACT_KEY,
     VERIFIER_ARTIFACT_KEY,
 )
 from agents_shipgate.schemas.diagnostics import NextAction
@@ -184,8 +185,11 @@ def control(
             # here leaves a window in which HEAD advances before the return.
             live=lambda: live_workspace(workspace, reports_dir),
             # Captured inside the protocol, not reopened after it: the route
-            # must come from the same generation whose identity was confirmed.
-            capture=(VERIFIER_ARTIFACT_KEY,),
+            # and the verdict must come from the same generation whose identity
+            # was confirmed. Keys the pointer does not bind are simply absent —
+            # a `scan` binds no verifier, and a `--format markdown` scan binds
+            # no report.
+            capture=(VERIFIER_ARTIFACT_KEY, REPORT_ARTIFACT_KEY),
         )
     except CurrentControlUnavailable as exc:
         guidance = (
@@ -250,6 +254,7 @@ def control(
         envelope = envelope_from_routeless_pointer(
             result.pointer,
             verify_command=_recovery_verify_command(workspace, reports_dir),
+            decision=_bound_release_decision(result),
             artifact_root=reports_dir.as_posix(),
         )
     elif result.pointer.lifecycle_state == "terminal":
@@ -372,6 +377,38 @@ def _bound_verifier(result: CurrentControlRead) -> VerifierArtifact | None:
             "recovered."
         )
     return verifier
+
+
+def _bound_release_decision(result: CurrentControlRead) -> str | None:
+    """Lift ``release_decision.decision`` from the report this pointer bound.
+
+    Same sourcing rule as :func:`_bound_verifier`: the bytes come from the
+    generation-safe read, hashed against the pointer in the pass that confirmed
+    it had not moved, so the verdict reported here belongs to the generation
+    whose identity is being reported. The pointer itself records no decision by
+    design — a second copy of the verdict is a second verdict — so this is the
+    only place a `scan` generation's verdict survives.
+
+    Unlike the verifier, an unreadable report degrades to ``None`` rather than
+    refusing the whole read. The verifier carries the *route*, so a malformed one
+    leaves nothing to answer with; the decision is context beside a route that
+    comes from the pointer either way, and withholding it denies nothing.
+    """
+
+    data = result.artifacts.get(REPORT_ARTIFACT_KEY)
+    if data is None:
+        return None
+    try:
+        payload = json.loads(data)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    release_decision = payload.get("release_decision")
+    if not isinstance(release_decision, dict):
+        return None
+    decision = release_decision.get("decision")
+    return decision if isinstance(decision, str) and decision.strip() else None
 
 
 def _load_required_json(path: Path, label: str) -> dict[str, Any]:

@@ -13,10 +13,12 @@ from typing import Any
 from pydantic import ValidationError
 
 from agents_shipgate.schemas.agent_control import (
+    COMMANDLESS_CODING_AGENT_ACTIONS,
     AgentActionRequiredControl,
     AgentControl,
     AgentControlAction,
     CodingAgentCommandAction,
+    CodingAgentEditAction,
     CodingAgentFetchBaseAction,
     CompleteAgentControl,
     HumanControlAction,
@@ -129,7 +131,7 @@ def derive_agent_control(
             stop_reason=stop_reason or review_why,
         )
 
-    if isinstance(action, (CodingAgentCommandAction, CodingAgentFetchBaseAction)):
+    if isinstance(action, (CodingAgentCommandAction, *COMMANDLESS_CODING_AGENT_ACTIONS)):
         commands = list(allowed_next_commands)
         if isinstance(action, CodingAgentCommandAction) and action.command not in commands:
             commands.insert(0, action.command)
@@ -172,12 +174,20 @@ def _validate_action(
         # control is needlessly circular.  Its three variants have disjoint
         # ``kind`` values, so direct model selection stays deterministic.
         if isinstance(
-            value, (CodingAgentCommandAction, CodingAgentFetchBaseAction, HumanControlAction)
+            value,
+            (
+                CodingAgentCommandAction,
+                CodingAgentFetchBaseAction,
+                CodingAgentEditAction,
+                HumanControlAction,
+            ),
         ):
             return value
         kind = value.get("kind")
         if kind == "fetch_base":
             return CodingAgentFetchBaseAction.model_validate(value)
+        if kind == "edit":
+            return CodingAgentEditAction.model_validate(value)
         if kind in {"review", "stop"}:
             return HumanControlAction.model_validate(value)
         return CodingAgentCommandAction.model_validate(value)

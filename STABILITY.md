@@ -13,6 +13,68 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-setup-control-envelope"></a>
+
+## Migration Note: unreleased — one control vocabulary across the setup commands
+
+Runtime contract `23 → 24`. `minimum_control_contract_version` **stays at 21**.
+Nothing an existing consumer reads changed value or shape: the additions are a
+new field on three payloads, a new action variant only the new producers emit,
+and a decision that was previously reported as absent.
+
+**`detect --json`, `init --json`, and every `doctor --json` payload gain a
+`control` field.** It holds the same `shipgate.agent_control/v1` envelope that
+`verify --format control`, `check --format agent-control-json`, and
+`agents-shipgate agent control` already emit — same schema document, same
+`control_state`, same six-way `permissions` vector. Additive: every existing
+field on those payloads, including `next_action` and `next_actions[]`, is
+unchanged, and the agent-mode *error* line still carries the ranked-action
+fields rather than a control object.
+
+**Setup control is distinguishable from gate control, in both directions.**
+These commands run before a release decision exists, so their envelope carries
+`decision_source: "setup"` and a `decision` from the closed vocabulary
+`setup_complete | setup_incomplete | setup_not_applicable`. The published JSON
+Schema requires `decision_source: "setup"` to come from `detect`/`init`/`doctor`
+*and* requires those operations to report no other source, so a reader switching
+on `decision_source` can never take a setup verdict for
+`release_decision.decision`.
+
+**A setup envelope authorizes nothing.** Setup reads no diff, so all six
+`permissions` are `false`, no setup envelope binds an artifact or a
+`current_control_id`, and `control_state: "complete"` is unreachable for these
+operations because `CompleteControlEnvelope.operation` is fixed to
+`verify`/`check`. A successful `init` is not permission to commit, merge, or
+report a task complete.
+
+**Unresolved human-owned manifest placeholders route to a human.** When
+`shipgate.yaml` still carries an unresolved `declared_purpose`,
+`prohibited_actions`, policy, or permission value, the setup control state is
+`human_review_required` and the action names the exact file, line, and field.
+These are declarations a person makes; the same rule already governs
+`do_not_auto_assert` and `baseline save --owner/--reason`. Placeholders an agent
+can legitimately resolve from the repository — a tool-source path, a project
+name — stay coding-agent work.
+
+**`next_action` gains `kind: "edit"`.** A typed coding-agent step carrying
+`path` and `expects` and no `command`, for work that is unambiguously the
+agent's and has no executable form. Only setup output can contain it: `verify`,
+`check`, and `agent control` cannot return one, which is why the control floor
+does not move. The frozen `shipgate.codex_boundary_result/v2` schema is
+unchanged — it now snapshots its own action union instead of tracking the live
+one, and an `edit` route reaching it collapses to the universal human stop.
+
+**`agent control` on a `scan` generation now reports that generation's release
+decision.** `scan` runs the release engine and binds its `report.json`, but the
+envelope previously published `decision: null` / `decision_source: "none"`,
+which made it indistinguishable from output produced before any engine had run.
+The verdict is now lifted from the bound report inside the same generation-safe
+read that validates the pointer. Authority is unchanged: the control state and
+`permissions` still come from the pointer, and `scan` still cannot authorize a
+merge.
+
+---
+
 <a id="migration-note-unreleased-invocation-spelled-commands"></a>
 
 ## Migration Note: unreleased — commands spelled for the invocation that emitted them

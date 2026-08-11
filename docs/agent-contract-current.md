@@ -10,6 +10,48 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+Runtime contract v24 rolls the control envelope across the setup commands.
+`detect --json`, `init --json`, and every `doctor --json` payload now carry a
+`control` field holding the same `shipgate.agent_control/v1` object that
+`verify`, `check`, and `agent control` emit, so one vocabulary answers "what may
+I do next" for the whole adoption walk. Two things keep the setup family
+distinguishable from the gate:
+
+- **Setup names its own source.** These commands run before a release decision
+  exists, so they report `decision_source: "setup"` and a `decision` from the
+  closed setup vocabulary `setup_complete | setup_incomplete |
+  setup_not_applicable`. The published schema enforces the pairing both ways: a
+  setup source can only come from `detect`/`init`/`doctor`, and those operations
+  can report no other source. `decision_source: "release_decision"` still means,
+  and only means, `release_decision.decision`.
+- **Setup authorizes nothing.** No setup command reads a diff, so every field of
+  `permissions` is `false` on every setup envelope, no setup envelope binds an
+  artifact or a `current_control_id`, and `control_state: "complete"` is
+  unreachable for these operations in the schema itself. Setup routes; it never
+  finishes a task.
+
+`scan` reaches a real release decision, and `agent control` on a `scan`
+generation now reports it: the verdict is lifted from the `report.json` that
+generation bound, inside the same validated read, instead of the previous
+`decision: null`. Nothing about authority changed — the state and `permissions`
+still come from the pointer.
+
+`next_action` gains one coding-agent variant, `kind: "edit"`, carrying `path`
+and `expects`. It is the typed form of "change this file", which setup routing
+needs and no other producer emits — `verify`, `check`, and `agent control`
+cannot return it, so a consumer written against contract v21 control fields is
+unaffected and `minimum_control_contract_version` stays at `21`. The frozen
+`shipgate.codex_boundary_result/v2` projection is unchanged and now snapshots its
+own action union rather than tracking the live one; an `edit` route reaching it
+collapses to the universal human stop.
+
+A human-owned manifest declaration is never published as a coding-agent edit.
+When `shipgate.yaml` still holds an unresolved `declared_purpose`, policy, or
+permission placeholder, the setup control state is `human_review_required` and
+the action names the exact file, line, and field a person must fill in. The
+command-specific `next_action` / `next_actions[]` fields are unchanged, and
+remain supported.
+
 Runtime contract v23 spells every emitted command for the invocation that
 produced it. A run started with `python -m agents_shipgate` now proposes
 `<sys.executable> -m agents_shipgate ...` instead of a console script its
@@ -160,7 +202,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `23` (minimum control contract: `21`)
+- Runtime contract: `24` (minimum control contract: `21`)
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

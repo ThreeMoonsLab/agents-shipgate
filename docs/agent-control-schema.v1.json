@@ -33,6 +33,68 @@
         {
           "if": {
             "properties": {
+              "decision_source": {
+                "const": "setup"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "maxProperties": 0
+              },
+              "current_control_id": {
+                "type": "null"
+              },
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              },
+              "decision_source": {
+                "const": "setup"
+              },
+              "source": {
+                "const": "run"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
               "next_action": {
                 "properties": {
                   "kind": {
@@ -160,7 +222,10 @@
             "verify",
             "preview",
             "scan",
-            "check"
+            "check",
+            "detect",
+            "init",
+            "doctor"
           ],
           "title": "Operation",
           "type": "string"
@@ -300,6 +365,7 @@
         "mapping": {
           "configure": "#/$defs/CodingAgentCommandAction",
           "discover": "#/$defs/CodingAgentCommandAction",
+          "edit": "#/$defs/CodingAgentEditAction",
           "fetch_base": "#/$defs/CodingAgentFetchBaseAction",
           "initialize": "#/$defs/CodingAgentCommandAction",
           "install": "#/$defs/CodingAgentCommandAction",
@@ -315,6 +381,9 @@
         },
         {
           "$ref": "#/$defs/CodingAgentFetchBaseAction"
+        },
+        {
+          "$ref": "#/$defs/CodingAgentEditAction"
         }
       ]
     },
@@ -365,6 +434,53 @@
         "why"
       ],
       "title": "CodingAgentCommandAction",
+      "type": "object"
+    },
+    "CodingAgentEditAction": {
+      "additionalProperties": false,
+      "description": "A file the coding agent must change, when no command can make the change.\n\nSetup routing (``detect`` / ``init`` / ``doctor``) reaches steps that are\nunambiguously coding-agent work and have no executable form: a manifest the\nloader rejected, a ``tool_sources[].path`` that does not resolve, a\n``type:`` that names no adapter.  Before this variant existed the union\noffered two bad projections for them \u2014 hide the instruction inside the\n``why`` of some *other* command, or route agent-owned work to a human and\nend the turn.  Both were wrong in a way the union is supposed to prevent,\nso the typed form is the third option.\n\n``path`` carries the same ``<file>`` or ``<file>:<line>`` spelling that\n:class:`~agents_shipgate.schemas.diagnostics.NextAction` uses, so a caller\ncan open exactly what it was handed.  ``expects`` is required rather than\noptional: an edit route that does not say what \"done\" looks like cannot be\nchecked by the agent that follows it, and every producer already states it.\n\nOwnership is *not* encoded here.  A human-owned declaration is never\npublished as a coding-agent action at all \u2014 it routes to\n:class:`HumanControlAction` \u2014 so the presence of this type already means\nthe agent may perform the edit.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "minLength": 1,
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "const": "edit",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "path",
+        "expects",
+        "why"
+      ],
+      "title": "CodingAgentEditAction",
       "type": "object"
     },
     "CodingAgentFetchBaseAction": {
@@ -434,6 +550,68 @@
             "properties": {
               "decision": {
                 "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "maxProperties": 0
+              },
+              "current_control_id": {
+                "type": "null"
+              },
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              },
+              "decision_source": {
+                "const": "setup"
+              },
+              "source": {
+                "const": "run"
               }
             }
           }
@@ -806,6 +984,68 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "maxProperties": 0
+              },
+              "current_control_id": {
+                "type": "null"
+              },
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              },
+              "decision_source": {
+                "const": "setup"
+              },
+              "source": {
+                "const": "run"
+              }
+            }
+          }
         }
       ],
       "description": "Nothing is authorized: Shipgate has no assessment it can stand behind.",
@@ -914,7 +1154,10 @@
             "verify",
             "preview",
             "scan",
-            "check"
+            "check",
+            "detect",
+            "init",
+            "doctor"
           ],
           "title": "Operation",
           "type": "string"
@@ -1175,6 +1418,68 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "maxProperties": 0
+              },
+              "current_control_id": {
+                "type": "null"
+              },
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              },
+              "decision_source": {
+                "const": "setup"
+              },
+              "source": {
+                "const": "run"
+              }
+            }
+          }
         }
       ],
       "description": "A human gates the merge; publishing the evidence for that review does not.\n\n``next_action`` is typed as the review-only action rather than the general\nhuman action, so a stop route cannot be published under a state that grants\npublication authority \u2014 in generated JSON Schema as well as in Pydantic.",
@@ -1283,7 +1588,10 @@
             "verify",
             "preview",
             "scan",
-            "check"
+            "check",
+            "detect",
+            "init",
+            "doctor"
           ],
           "title": "Operation",
           "type": "string"

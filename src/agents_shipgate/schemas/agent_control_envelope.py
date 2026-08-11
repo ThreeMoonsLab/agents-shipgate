@@ -112,8 +112,16 @@ MAX_ENVELOPE_PROSE_BYTES = 400
 PROSE_TRUNCATION_MARKER = " […]"
 
 # Which command produced this answer. ``check`` reaches no release decision and
-# publishes no pointer; the other three do both.
-AgentControlOperation = Literal["verify", "preview", "scan", "check"]
+# publishes no pointer; ``verify``/``preview``/``scan`` do both; the three setup
+# operations run before a release decision can exist at all (see #323).
+AgentControlOperation = Literal[
+    "verify", "preview", "scan", "check", "detect", "init", "doctor"
+]
+
+# The operations whose control state is derived from *setup facts* rather than
+# from a gate verdict. Named once, because three separate rules below depend on
+# the same membership and a second spelling of this set is how they drift apart.
+SETUP_OPERATIONS: tuple[str, ...] = ("detect", "init", "doctor")
 
 # Whether this envelope came from the run that decided, or from re-reading the
 # published pointer at a later refresh boundary. Both are validated against the
@@ -128,11 +136,29 @@ AgentControlExecution = Literal["not_run", "succeeded", "skipped", "failed"]
 # only by a model validator a JSON Schema consumer never sees.
 CompleteExecution = Literal["not_run", "succeeded", "skipped"]
 
-# Which engine produced ``decision``. ``init``/``doctor``-style commands run
-# before any decision exists and report ``none``; naming the source keeps
+# Which engine produced ``decision``. ``detect``/``init``/``doctor`` run before
+# any release decision exists, so they report ``setup``; naming the source keeps
 # ``decision`` from meaning "the gate said" in one command and "setup said" in
-# another once the vocabulary rolls out (see #323).
+# another (see #323). The pairing is enforced in both directions by
+# ``_SETUP_PROVENANCE_RULE``: a setup source can only come from a setup
+# operation, and a setup operation can report no other source.
 AgentControlDecisionSource = Literal["release_decision", "agent_boundary", "setup", "none"]
+
+# The closed vocabulary ``decision`` uses when ``decision_source`` is ``setup``,
+# exactly as ``release_decision.decision`` is the vocabulary under
+# ``release_decision``. It describes how far *configuration* has got, and
+# deliberately says nothing about a release: no value here ever authorizes
+# merge, because the ``complete`` variant cannot carry a setup operation at all.
+#
+#   ``setup_complete``       — configuration is in place; the outstanding step
+#                              is the gate, not more setup.
+#   ``setup_incomplete``     — at least one setup obligation remains.
+#   ``setup_not_applicable`` — the workspace is not a Shipgate target.
+SETUP_DECISIONS: tuple[str, ...] = (
+    "setup_complete",
+    "setup_incomplete",
+    "setup_not_applicable",
+)
 
 # Who owns the next step. Fixed by the state tag on every variant.
 AgentControlActor = Literal["coding_agent", "human", "none"]
@@ -174,6 +200,43 @@ _COMPLETE_PROVENANCE_RULE = [
             "required": ["current_control_id"],
         },
     }
+]
+
+# Setup-derived and release-decision-derived control states must not be
+# confusable, in either direction — the whole point of rolling one vocabulary
+# across six commands is that `control_state` cannot mean "the gate says" on one
+# command and "setup says" on another.
+#
+# Published as if/then rules rather than left to the ``operation`` field alone,
+# because a reader that switches on `decision_source` (which is what it is for)
+# would otherwise have to know the operation table by heart to tell the two
+# apart. The second half also fixes the provenance: setup evaluates no diff,
+# publishes no pointer, and binds no artifact, so an envelope claiming both a
+# setup operation and a bound artifact set is describing something no producer
+# can be.
+_SETUP_PROVENANCE_RULE = [
+    {
+        "if": {
+            "properties": {"decision_source": {"const": "setup"}},
+            "required": ["decision_source"],
+        },
+        "then": {"properties": {"operation": {"enum": list(SETUP_OPERATIONS)}}},
+    },
+    {
+        "if": {
+            "properties": {"operation": {"enum": list(SETUP_OPERATIONS)}},
+            "required": ["operation"],
+        },
+        "then": {
+            "properties": {
+                "decision_source": {"const": "setup"},
+                "decision": {"enum": list(SETUP_DECISIONS)},
+                "source": {"const": "run"},
+                "current_control_id": {"type": "null"},
+                "artifacts": {"maxProperties": 0},
+            }
+        },
+    },
 ]
 
 # A `verify` route carries an independent verification obligation. The
@@ -268,7 +331,10 @@ class _AgentControlEnvelopeBase(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"required": _ENVELOPE_FIELDS, "allOf": _DECISION_PAIRING_RULE},
+        json_schema_extra={
+            "required": _ENVELOPE_FIELDS,
+            "allOf": [*_DECISION_PAIRING_RULE, *_SETUP_PROVENANCE_RULE],
+        },
     )
 
     schema_version: Literal["shipgate.agent_control/v1"] = AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION
@@ -317,6 +383,34 @@ class _AgentControlEnvelopeBase(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _setup_provenance_matches_the_producer(self) -> _AgentControlEnvelopeBase:
+        """Mirror ``_SETUP_PROVENANCE_RULE`` so both layers agree.
+
+        Same reasoning as the completion rule below: a payload one layer accepts
+        and the other rejects is a contract that means two different things
+        depending on who reads it. The direction that matters here is a
+        release-decision-derived state wearing a setup operation, or the
+        reverse — either makes ``control_state`` ambiguous about what decided
+        it, which is the confusion this envelope was rolled out to remove.
+        """
+
+        is_setup_operation = self.operation in SETUP_OPERATIONS
+        if (self.decision_source == "setup") != is_setup_operation:
+            raise ValueError(
+                "decision_source='setup' and a setup operation "
+                f"({', '.join(SETUP_OPERATIONS)}) imply each other"
+            )
+        if not is_setup_operation:
+            return self
+        if self.decision not in SETUP_DECISIONS:
+            raise ValueError(f"a setup decision must be one of {SETUP_DECISIONS}")
+        if self.source != "run":
+            raise ValueError("setup control is only ever read from the run that produced it")
+        if self.current_control_id is not None or self.artifacts:
+            raise ValueError("setup publishes no control pointer and binds no artifact")
+        return self
+
 
 class CompleteControlEnvelope(_AgentControlEnvelopeBase):
     """The coding agent may merge and report the task complete.
@@ -331,7 +425,11 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
         extra="forbid",
         json_schema_extra={
             "required": _ENVELOPE_FIELDS,
-            "allOf": [*_DECISION_PAIRING_RULE, *_COMPLETE_PROVENANCE_RULE],
+            "allOf": [
+                *_DECISION_PAIRING_RULE,
+                *_SETUP_PROVENANCE_RULE,
+                *_COMPLETE_PROVENANCE_RULE,
+            ],
         },
     )
 
@@ -391,7 +489,11 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
         extra="forbid",
         json_schema_extra={
             "required": _ENVELOPE_FIELDS,
-            "allOf": [*_DECISION_PAIRING_RULE, *_VERIFY_OBLIGATION_RULE],
+            "allOf": [
+                *_DECISION_PAIRING_RULE,
+                *_SETUP_PROVENANCE_RULE,
+                *_VERIFY_OBLIGATION_RULE,
+            ],
         },
     )
 
@@ -477,6 +579,8 @@ __all__ = [
     "AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION",
     "MAX_ENVELOPE_PROSE_BYTES",
     "PROSE_TRUNCATION_MARKER",
+    "SETUP_DECISIONS",
+    "SETUP_OPERATIONS",
     "AgentActionControlEnvelope",
     "AgentControlActor",
     "AgentControlArtifactRef",

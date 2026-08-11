@@ -595,6 +595,10 @@ def _json_documents(text: str) -> list[object]:
         ),
         ("apply-patches", ["apply-patches", "--from", "missing-report.json"]),
         ("detect", ["detect", "--workspace", ".", "--json"]),
+        # The two setup surfaces that gained a `control` envelope in contract
+        # v24. Both are read-only here: `init` without `--write` renders only.
+        ("init", ["init", "--workspace", ".", "--json"]),
+        ("doctor", ["doctor", "--json"]),
         ("explain-finding", ["explain-finding", "--from", "missing.json", "--fingerprint", "x"]),
         ("findings", ["findings", "--from", "missing.json", "--json"]),
         ("explain", ["explain", "no-such-check-id", "--json"]),

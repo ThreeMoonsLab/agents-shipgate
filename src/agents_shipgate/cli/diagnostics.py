@@ -646,26 +646,36 @@ def diagnose_doctor(
     return diagnostics
 
 
+def ranked_diagnostics(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
+    """Order diagnostics by urgency: block > warn > info.
+
+    Within each severity bucket the input order is preserved, so callers can
+    shape the catalog output deterministically.
+
+    Split out from :func:`top_next_actions` because the control projection needs
+    the *diagnostic* — its id decides who owns the route and which action kind
+    it is — not just its rank-1 action. Two orderings of the same list would
+    eventually disagree about which condition is primary, and then the JSON
+    payload's ``next_actions[0]`` and its ``control.next_action`` would name
+    different work.
+    """
+
+    severity_rank = {"block": 0, "warn": 1, "info": 2}
+    return [
+        diag
+        for _, diag in sorted(
+            enumerate(diagnostics),
+            key=lambda item: (severity_rank[item[1].severity], item[0]),
+        )
+    ]
+
+
 def top_next_actions(
     diagnostics: list[Diagnostic], *, limit: int = 3
 ) -> list[NextAction]:
-    """Flatten ranked rank-1 actions across diagnostics.
+    """Flatten ranked rank-1 actions across diagnostics."""
 
-    Severity order: block > warn > info. Within each severity bucket,
-    the input order is preserved so callers can shape the catalog
-    output deterministically.
-    """
-    severity_rank = {"block": 0, "warn": 1, "info": 2}
-    ordered = sorted(
-        enumerate(diagnostics),
-        key=lambda item: (severity_rank[item[1].severity], item[0]),
-    )
-    actions: list[NextAction] = []
-    for _, diag in ordered:
-        actions.append(diag.next_actions[0])
-        if len(actions) >= limit:
-            break
-    return actions
+    return [diag.next_actions[0] for diag in ranked_diagnostics(diagnostics)[:limit]]
 
 
 # --- Internals --------------------------------------------------------------

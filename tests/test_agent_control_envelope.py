@@ -930,12 +930,19 @@ def test_agent_control_returns_the_envelope_by_default(repo: Path):
 
 
 def test_a_current_but_routeless_generation_is_reported_not_refused(repo: Path):
-    """A `scan` pointer is current; it just reaches no release decision.
+    """A `scan` pointer is current; it just publishes no verifier route.
 
     Refusing it conflated two answers. The published contract says a non-zero
     exit means *no current identity exists*, and here one does — `--format
     pointer` returned it with exit 0 while the default exited 4. The envelope
     now reports the generation, denies merge, and names the step it is short of.
+
+    It also reports the verdict that generation *did* reach. `scan` runs the
+    release engine and binds its `report.json`; publishing `decision: null` made
+    the envelope indistinguishable from one produced before any engine had run,
+    which is the ambiguity #323 removes. The verdict is lifted from the bound
+    report inside the same validated read, never recomputed, and it changes
+    nothing about authority — `permissions` still comes from the pointer.
     """
 
     reports = repo / "agents-shipgate-reports"
@@ -965,7 +972,9 @@ def test_a_current_but_routeless_generation_is_reported_not_refused(repo: Path):
     payload = json.loads(envelope.stdout)
     assert payload["operation"] == "scan"
     assert payload["execution"] == "not_run"
-    assert payload["decision"] is None
+    report = json.loads((reports / "report.json").read_text(encoding="utf-8"))
+    assert payload["decision"] == report["release_decision"]["decision"]
+    assert payload["decision_source"] == "release_decision"
     assert payload["permissions"]["merge"] is False
     assert payload["permissions"]["report_complete"] is False
     # Same generation, and a route derived from the subject just validated.

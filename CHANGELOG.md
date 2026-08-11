@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+- **One control vocabulary across the adoption walk.** `detect`, `init`, and
+  `doctor` each answered "what do I do next" in their own shape, so an agent
+  driving a first adoption had to learn four result formats and could not tell
+  a setup obligation from a gate verdict. All three `--json` payloads now carry
+  a `control` field holding the same `shipgate.agent_control/v1` envelope that
+  `verify --format control`, `check --format agent-control-json`, and
+  `agents-shipgate agent control` already emit — one `control_state`, one
+  six-way `permissions` vector, one typed rank-1 `next_action`. It is a
+  projection of the diagnostics those commands already publish, computed in one
+  module, so `control.next_action` and `next_actions[0]` name the same work by
+  construction; no renderer computes a second verdict. Contract `24`. Every
+  existing field, including `next_action` and `next_actions[]`, is unchanged.
+  Setup and gate control cannot be confused: setup reports
+  `decision_source: "setup"` with a verdict from `setup_complete |
+  setup_incomplete | setup_not_applicable`, and the published schema requires
+  that source to come from `detect`/`init`/`doctor` *and* requires those
+  operations to report no other source. Setup also authorizes nothing — it
+  reads no diff, so all six permissions are false, it binds no artifact or
+  control identity, and `control_state: "complete"` is unreachable for these
+  operations in the schema itself, because a successful `init` is not
+  permission to commit, merge, or report a task done.
+- **A manifest declaration a person owes is no longer routed to the agent.**
+  `init --write` reported unresolved `CHANGE_ME` placeholders and, in the same
+  breath, told the caller to scan — inviting the agent to invent an
+  `agent.declared_purpose`, which is exactly the class of claim
+  `do_not_auto_assert` exists to protect. When a human-owned placeholder is
+  unresolved, the setup control state is now `human_review_required` and the
+  action names the exact file, line, and field. A placeholder an agent can
+  legitimately resolve from the repository — a tool-source path, a project
+  name — stays coding-agent work, and once the human-owned values are supplied
+  `doctor` advances deterministically to `verify`.
+- **`next_action` gains a typed `edit` route** (`kind: "edit"`, with `path` and
+  `expects`). Setup reaches steps that are unambiguously the agent's and have
+  no executable form — a manifest the loader rejected, a `tool_sources[].path`
+  that does not resolve — and the union previously forced a choice between
+  hiding the instruction in another command's prose or stopping the turn for
+  work the agent owns. Only setup output can contain it, so
+  `minimum_control_contract_version` stays at `21`. The frozen
+  `shipgate.codex_boundary_result/v2` projection is byte-unchanged and now
+  snapshots its own action union rather than tracking the live one — it had
+  been silently widening with every variant added to `AgentControl`, which is
+  what "frozen" was supposed to prevent.
+- **`agent control` after a `scan` now reports that scan's release decision.**
+  `scan` runs the release engine and binds its `report.json`, but the envelope
+  published `decision: null` / `decision_source: "none"`, making a completed
+  scan indistinguishable from output produced before any engine had run. The
+  verdict is lifted from the bound report inside the same generation-safe read
+  that validates the pointer, never recomputed. Authority is unchanged: the
+  control state and permissions still come from the pointer, and a scan still
+  cannot authorize a merge.
+
 - **The recommended next command now runs where it was recommended.** Every
   emitted command was written as the console script the wheel installs
   (`agents-shipgate …`), so a run started from a source checkout with

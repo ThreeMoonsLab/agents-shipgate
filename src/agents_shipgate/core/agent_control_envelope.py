@@ -1,10 +1,17 @@
 """The single projection that produces ``shipgate.agent_control/v1``.
 
-Three surfaces emit the envelope — ``verify --format control``,
-``check --format agent-control-json``, and ``agents-shipgate agent control`` —
-and all three come through here. That is the point: an envelope assembled
-independently at each call site would be a second control vocabulary within a
-month, which is the outcome #333 and #323 were merged to prevent.
+Every surface that emits the envelope comes through here — ``verify --format
+control``, ``check --format agent-control-json``, ``agents-shipgate agent
+control``, and the ``control`` field on ``detect``/``init``/``doctor``
+``--json``. That is the point: an envelope assembled independently at each call
+site would be a second control vocabulary within a month, which is the outcome
+#333 and #323 were merged to prevent.
+
+The setup commands are the one family whose control state is *not* a projection
+of a release decision, because none exists when they run. They are not therefore
+a second gate: they carry ``decision_source: "setup"``, they authorize nothing
+at all, and the ``complete`` variant is unreachable for them in the published
+schema. See :func:`envelope_from_setup`.
 
 Nothing in this module decides anything. Every field is lifted from a producer
 that already published it, and the two places where a choice looks like it is
@@ -30,9 +37,11 @@ from pathlib import PurePosixPath
 
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_control import (
+    COMMANDLESS_CODING_AGENT_ACTIONS,
     AgentControl,
     AgentControlAction,
     CodingAgentCommandAction,
+    CodingAgentEditAction,
     CodingAgentFetchBaseAction,
     HumanControlAction,
     HumanReviewAction,
@@ -41,6 +50,8 @@ from agents_shipgate.schemas.agent_control import (
     RequiredHumanReview,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
+    SETUP_DECISIONS,
+    SETUP_OPERATIONS,
     AgentActionControlEnvelope,
     AgentControlArtifactRef,
     AgentControlDecisionSource,
@@ -248,19 +259,84 @@ def envelope_from_agent_result(
     )
 
 
+def envelope_from_setup(
+    control: AgentControl,
+    *,
+    operation: AgentControlOperation,
+    decision: str,
+    input_id: str,
+    execution: AgentControlExecution = "succeeded",
+    exit_code: int | None = None,
+) -> AgentControlEnvelope:
+    """Project a setup command — ``detect``, ``init``, ``doctor`` — onto the envelope.
+
+    These run before a release decision can exist, so ``decision`` carries the
+    setup verdict and ``decision_source`` says ``setup``. That naming is the
+    whole reason the field exists: without it ``control_state`` would mean "the
+    gate says" on ``verify`` and "setup says" on ``init``, and a reader would
+    have no way to tell which it was holding.
+
+    Two properties are enforced here rather than left to each caller, because
+    "every setup command remembered to deny authority" is not a property a
+    contract can rest on:
+
+    * **Setup authorizes nothing but its own next action.** No setup command
+      reads a diff, so none of them has an evaluated change to stand behind.
+      ``permissions`` is therefore all-false on every setup envelope, and the
+      published schema additionally makes ``complete`` unreachable for these
+      operations by fixing ``CompleteControlEnvelope.operation`` to
+      ``verify``/``check``.
+    * **Setup binds no artifacts and no control identity.** It publishes no
+      pointer, so there is nothing whose hash it could vouch for.
+
+    ``input_id`` names the workspace state the setup answer was computed
+    against, for the same reason ``check`` records its ``audit_id``: an answer
+    detached from its subject is one a reader cannot check.
+    """
+
+    if operation not in SETUP_OPERATIONS:
+        raise ValueError(f"{operation!r} is not a setup operation")
+    if decision not in SETUP_DECISIONS:
+        raise ValueError(f"{decision!r} is not one of {SETUP_DECISIONS}")
+    if control.permissions.authorizes_anything:
+        raise ValueError(
+            "setup read no change, so it cannot authorize edit, commit, push, "
+            "update_pr, merge, or report_complete"
+        )
+    return project_agent_control_envelope(
+        control=control,
+        operation=operation,
+        source="run",
+        execution=execution,
+        exit_code=exit_code,
+        decision=decision,
+        decision_source="setup",
+        input_id=input_id,
+    )
+
+
 def envelope_from_routeless_pointer(
     pointer: CurrentControlPointer,
     *,
     verify_command: str,
+    decision: str | None = None,
     artifact_root: str | None = None,
 ) -> AgentControlEnvelope:
-    """Project a *current* generation that reaches no release decision.
+    """Project a *current* generation that reaches no verifier route.
 
     A `scan` pointer is current — it passes the generation-safe read and the
-    live-workspace comparison — but binds no verifier, so it carries no route
-    and no decision. Refusing it conflated two different answers: the published
-    contract says a non-zero exit means *no current identity exists*, and here
-    one does.
+    live-workspace comparison — but binds no verifier, so it carries no route.
+    Refusing it conflated two different answers: the published contract says a
+    non-zero exit means *no current identity exists*, and here one does.
+
+    ``decision`` is that generation's ``release_decision.decision``, lifted from
+    the ``report.json`` the pointer binds and validated in the same pass. Scan
+    *does* reach a release decision even though it publishes no route, and
+    reporting ``decision_source: "none"`` here said otherwise — which made a scan
+    envelope indistinguishable from one produced before any engine had run, and
+    is the confusion #323 exists to remove. It is lifted rather than recomputed,
+    and it is still not the route: `permissions` and the state come from the
+    pointer exactly as before.
 
     The route is not invented. `scan` is not the gate, so "run verify on this
     workspace" is the step this generation is actually short of, and it is
@@ -297,8 +373,8 @@ def envelope_from_routeless_pointer(
         source="refresh",
         execution="not_run",
         exit_code=None,
-        decision=None,
-        decision_source="none",
+        decision=decision,
+        decision_source="release_decision" if decision is not None else "none",
         input_id=pointer.request_id,
         current_control_id=pointer.current_control_id,
         artifacts=_artifact_refs(pointer, artifact_root),
@@ -375,6 +451,9 @@ def control_headline_lines(envelope: AgentControlEnvelope) -> list[str]:
             # these headline lines print first — reusing the prefix would put a
             # `Run:` above the remediation it is not the remediation for.
             lines.append(f"Next command: {single_line_text(action.command)}")
+        elif isinstance(action, CodingAgentEditAction):
+            lines.append(f"Next edit: {single_line_text(action.path)}")
+            lines.append(f"Expected: {single_line_text(action.expects)}")
         elif isinstance(action, CodingAgentFetchBaseAction):
             lines.append(f"Provide: {single_line_text(action.expects)}")
     return lines
@@ -470,9 +549,9 @@ def _bounded_action(action: AgentControlAction | None) -> AgentControlAction | N
     why = truncate_prose(action.why)
     if why == action.why:
         return action
-    if isinstance(action, CodingAgentCommandAction):
-        return action.model_copy(update={"why": why})
-    if isinstance(action, CodingAgentFetchBaseAction):
+    if isinstance(action, (CodingAgentCommandAction, *COMMANDLESS_CODING_AGENT_ACTIONS)):
+        # ``path`` and ``expects`` are opened and checked, not read, so the cap
+        # applies to ``why`` alone — exactly as it leaves ``command`` alone.
         return action.model_copy(update={"why": why})
     if isinstance(action, HumanReviewAction):
         return HumanReviewAction(why=why)
@@ -496,6 +575,7 @@ __all__ = [
     "envelope_from_agent_result",
     "envelope_from_pointer",
     "envelope_from_routeless_pointer",
+    "envelope_from_setup",
     "envelope_from_verifier",
     "project_agent_control_envelope",
     "render_agent_control_envelope",

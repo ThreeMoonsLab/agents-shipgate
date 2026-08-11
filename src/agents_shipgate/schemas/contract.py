@@ -75,11 +75,20 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # omitted rather than emitted as ``null``, so an action that cannot carry an
 # argv is unchanged on the wire.
 #
-# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21: v22 adds a projection of the
-# ``AgentControl`` union and v23 changes only how commands inside it are
-# spelled, so a consumer written against v21 control fields keeps reading them
-# unchanged.
-CONTRACT_VERSION: Literal["23"] = "23"
+# v24 rolls the control envelope across the setup commands (#323): ``detect``,
+# ``init``, and ``doctor`` publish ``shipgate.agent_control/v1`` under
+# ``decision_source: "setup"``, and the coding-agent action union gains the
+# typed ``edit`` route those commands need.
+#
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21. v22 adds a projection of the
+# ``AgentControl`` union, v23 changes only how commands inside it are spelled,
+# and v24 adds a producer set and an action variant that only those new
+# producers emit — ``verify``, ``check``, and ``agent control`` cannot return an
+# ``edit`` route, and the setup ``control`` field did not exist for a v21
+# consumer to read. So a consumer written against v21 control fields keeps
+# reading them unchanged, and raising the floor would force every adopter to
+# upgrade a CLI for output they do not consume.
+CONTRACT_VERSION: Literal["24"] = "24"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

@@ -22,7 +22,16 @@ from agents_shipgate.cli.diagnostics import (
     top_next_actions,
 )
 from agents_shipgate.cli.discovery import detect_workspace
+from agents_shipgate.cli.setup_control import (
+    SETUP_COMPLETE,
+    SETUP_INCOMPLETE,
+    setup_control_envelope,
+    setup_input_id,
+)
 from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.agent_control import AgentActionKind
+from agents_shipgate.schemas.detect import DetectResult
 from agents_shipgate.schemas.diagnostics import Diagnostic, NextAction
 
 
@@ -85,6 +94,27 @@ def detect(
         payload = result.model_dump(mode="json")
         payload["diagnostics"] = [d.model_dump(mode="json") for d in diagnostics]
         payload["next_actions"] = [a.model_dump(mode="json") for a in flattened]
+        advance, advance_kind, advance_decision = _detect_advance(
+            result, has_manifest=has_manifest, workspace=workspace_resolved
+        )
+        payload["control"] = setup_control_envelope(
+            operation="detect",
+            input_id=setup_input_id(
+                operation="detect",
+                workspace=workspace_resolved,
+                manifest_path=(
+                    workspace_resolved / "shipgate.yaml" if has_manifest else None
+                ),
+            ),
+            reason=_detect_reason(result, has_manifest=has_manifest),
+            diagnostics=diagnostics,
+            advance=advance,
+            advance_kind=advance_kind,
+            advance_decision=advance_decision,
+            # `detect` classifies; it never fails a gate. This JSON path always
+            # exits 0, and reporting the fact beats leaving a reader to infer it.
+            exit_code=0,
+        ).model_dump(mode="json")
         typer.echo(json.dumps(payload, indent=2))
         return
 
@@ -135,6 +165,74 @@ def detect(
             typer.echo(f"- {candidate.mode}: {candidate.path}")
     typer.echo("")
     typer.echo(f"Next: {result.next_action}")
+
+
+def _detect_reason(result: DetectResult, *, has_manifest: bool) -> str:
+    """One sentence stating what this classification found."""
+
+    if has_manifest:
+        return "This workspace already has a shipgate.yaml; classification is informational."
+    if result.is_agent_project:
+        frameworks = ", ".join(framework.type for framework in result.frameworks)
+        return f"Detected an agent project ({frameworks}) with no shipgate.yaml yet."
+    if result.suggested_sources or result.codex_plugin_candidates:
+        return (
+            "Detected Shipgate-compatible tool artifacts with no Python "
+            "framework and no shipgate.yaml yet."
+        )
+    return "No agent framework, tool artifact, or prompt surface matched."
+
+
+def _detect_advance(
+    result: DetectResult,
+    *,
+    has_manifest: bool,
+    workspace: Path,
+) -> tuple[NextAction | None, AgentActionKind, str]:
+    """The stage this classification hands off to when nothing is wrong.
+
+    ``DetectResult.next_action`` already names ``init`` in the adoptable case,
+    and this reuses it rather than composing a second answer. The one case it
+    does *not* cover is a workspace that is already configured: detect keeps
+    saying ``init`` there, which the command would refuse, so the control route
+    names the gate instead. That is not a new decision — the manifest's presence
+    is a fact detect already computed for its own diagnostics.
+
+    ``None`` when the workspace is not adoptable at all; the negative-control
+    diagnostics own that route and end in a human stop.
+    """
+
+    if has_manifest:
+        return (
+            NextAction(
+                kind="command",
+                command=render_command(["verify", "--workspace", str(workspace), "--json"]),
+                why=(
+                    "This workspace is already configured, so the outstanding "
+                    "step is the release gate, not more setup."
+                ),
+                expects="A verifier run that publishes a control identity for this workspace.",
+            ),
+            "verify",
+            SETUP_COMPLETE,
+        )
+    adoptable = bool(
+        result.is_agent_project
+        or result.suggested_sources
+        or result.codex_plugin_candidates
+    )
+    if not adoptable:
+        return (None, "discover", SETUP_INCOMPLETE)
+    return (
+        NextAction(
+            kind="command",
+            command=result.next_action,
+            why="Draft a manifest for the detected agent surface.",
+            expects="shipgate.yaml is created at the workspace root.",
+        ),
+        "initialize",
+        SETUP_INCOMPLETE,
+    )
 
 
 def _echo_excluded_sources(excluded: list[dict[str, str]]) -> None:

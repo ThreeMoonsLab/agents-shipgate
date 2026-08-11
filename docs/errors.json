@@ -128,7 +128,7 @@
     "stop": "Negative-control action: stop this flow because the workspace or input is intentionally out of scope."
   },
   "invocation_policy": {
-    "contract_version": "23",
+    "contract_version": "24",
     "description": "Every emitted `command` names the entry point that started the running process, so a recovery command is runnable in the environment that produced it. A console-script run emits `agents-shipgate ...` or `shipgate ...` unchanged; a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate ...`, spelled by interpreter path because a bare `python` resolves through PATH. `command` never contains `__main__.py`.",
     "override_env_var": "AGENTS_SHIPGATE_CLI",
     "override_precedence": "Highest. An explicit entry point is always used, including one whose program name matches a console script (`/private/venv/bin/agents-shipgate`) — the operator named that wrapper, not whichever one PATH resolves.",

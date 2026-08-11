@@ -29,7 +29,15 @@ from agents_shipgate.cli.discovery.gitignore_block import (
 )
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+from agents_shipgate.cli.setup_control import (
+    SETUP_COMPLETE,
+    SETUP_INCOMPLETE,
+    setup_control_envelope,
+    setup_input_id,
+)
 from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.agent_control import AgentActionKind
 from agents_shipgate.schemas.diagnostics import NextAction
 
 
@@ -164,6 +172,106 @@ def _claude_code_outcome_lines(outcome: dict[str, object]) -> list[str]:
             label = entry.get("path", key)
             lines.append(f"Verify alias ({key}): {label} ({status})")
     return lines
+
+
+def _init_reason(manifest_status: str, *, target: Path, write: bool) -> str:
+    if manifest_status == "written":
+        return f"Wrote {target}."
+    if manifest_status == "skipped_existing":
+        return f"{target} already exists and was left untouched."
+    if not write:
+        return f"Rendered a manifest for {target} without writing it."
+    return "init made no manifest change."
+
+
+def _init_advance(
+    *,
+    workspace: Path,
+    target: Path,
+    write: bool,
+    manifest_status: str,
+    manifest_exit: int,
+    next_action_create: NextAction,
+    skipped_target: object | None,
+) -> tuple[NextAction, AgentActionKind, str]:
+    """The step init already names, typed for the control envelope.
+
+    Every branch reuses a route the command publishes elsewhere rather than
+    composing a new one, so ``control.next_action`` and the JSON payload's
+    ``next_action`` cannot drift apart. The dry-run branch is the only place a
+    command is spelled here, and it is the ``--write`` form of the invocation
+    the caller just made, which the human-readable output already tells them to
+    run.
+
+    A refused instruction target outranks the manifest route: init reports a
+    non-zero exit for it, and a control state that pointed past it would call a
+    failed run's onward step the next thing to do.
+    """
+
+    if skipped_target is not None:
+        return (
+            NextAction(
+                kind="edit",
+                path=getattr(skipped_target, "path", str(target)),
+                why=getattr(skipped_target, "message", None)
+                or "This target is in a state init will not overwrite.",
+                expects=(
+                    "The file is absent or carries the managed block, then "
+                    f"re-run init --write --agent-instructions="
+                    f"{getattr(skipped_target, 'name', 'default')}."
+                ),
+            ),
+            "configure",
+            SETUP_INCOMPLETE,
+        )
+    if manifest_status == "skipped_existing" and manifest_exit == 0:
+        # The manifest was left alone *on purpose*: `--agent-instructions` makes
+        # this the advertised refresh command, and init reports success. Sending
+        # the caller to edit a manifest nothing is wrong with would invent an
+        # obligation out of a run that had none. The workspace is already
+        # configured, so the outstanding step is the gate.
+        return (
+            NextAction(
+                kind="command",
+                command=render_command(["verify", "--workspace", str(workspace), "--json"]),
+                why=(
+                    "The manifest and the requested agent instructions are in "
+                    "place. The outstanding step is the release gate."
+                ),
+                expects="A verifier run that publishes a control identity for this workspace.",
+            ),
+            "verify",
+            SETUP_COMPLETE,
+        )
+    if manifest_status == "skipped_existing":
+        return (
+            NextAction(
+                kind="edit",
+                path=str(target),
+                why=(
+                    f"{target} already exists. Edit it directly or remove it "
+                    "before re-running init --write."
+                ),
+                expects=(
+                    "The manifest reflects the desired tool sources, agent "
+                    "declared_purpose, and policies."
+                ),
+            ),
+            "configure",
+            SETUP_INCOMPLETE,
+        )
+    if not write:
+        return (
+            NextAction(
+                kind="command",
+                command=render_command(["init", "--workspace", str(workspace), "--write"]),
+                why="Nothing was written. Re-run with --write to commit the rendered manifest.",
+                expects=f"{target} exists.",
+            ),
+            "initialize",
+            SETUP_INCOMPLETE,
+        )
+    return (next_action_create, "rerun", SETUP_COMPLETE)
 
 
 def register(app: typer.Typer) -> None:
@@ -573,6 +681,40 @@ def register(app: typer.Typer) -> None:
                 payload["gitignore"] = gitignore_outcome.to_json()
             if claude_code_outcome is not None:
                 payload["claude_code"] = claude_code_outcome
+            advance, advance_kind, advance_decision = _init_advance(
+                workspace=workspace,
+                target=target,
+                write=write,
+                manifest_status=manifest_status,
+                manifest_exit=manifest_exit,
+                next_action_create=next_action_create,
+                skipped_target=next(
+                    (t for t in agent_instructions_targets if t.status.startswith("skipped")),
+                    None,
+                )
+                if agent_instructions_exit
+                else None,
+            )
+            payload["control"] = setup_control_envelope(
+                operation="init",
+                input_id=setup_input_id(
+                    operation="init",
+                    workspace=workspace_resolved,
+                    manifest_path=target if target.exists() else None,
+                ),
+                reason=_init_reason(manifest_status, target=target, write=write),
+                advance=advance,
+                advance_kind=advance_kind,
+                advance_decision=advance_decision,
+                # Only the manifest this run actually wrote. On
+                # ``skipped_existing`` these placeholders come from the template
+                # that was *not* written, so their line numbers name positions in
+                # a file that does not exist — routing a human to them would be
+                # routing them to nothing.
+                placeholders=placeholders if manifest_status == "written" else None,
+                manifest_display_path=str(target),
+                exit_code=max(manifest_exit, agent_instructions_exit) or None,
+            ).model_dump(mode="json")
             typer.echo(json.dumps(payload, indent=2))
         else:
             if not write:

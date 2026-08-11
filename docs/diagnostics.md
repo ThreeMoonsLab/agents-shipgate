@@ -231,3 +231,49 @@ unchanged). Per-finding remediation already has its own v0.7 fields
 (`autofix_safe`, `requires_human_review`, `suggested_patch_kind`,
 `docs_url`); diagnostics are pre-scan recovery hints, not post-scan
 remediation.
+
+## Projection onto the control envelope
+
+Contract v24 adds a `control` field to `detect --json`, `init --json`, and each
+`doctor --json` payload, carrying the same `shipgate.agent_control/v1` envelope
+that `verify`, `check`, and `agent control` emit
+([`docs/agent-control-schema.v1.json`](agent-control-schema.v1.json)). It is a
+projection of these diagnostics, not a second analysis: the rank-1 control
+action is a diagnostic's own rank-1 `NextAction`, retyped.
+
+The mapping, in `agents_shipgate.cli.setup_control` — one module, so the four
+commands cannot drift apart:
+
+| Selected route | `control_state` | `next_actor` |
+| --- | --- | --- |
+| A `block`-severity diagnostic with a `command` or `edit` action | `agent_action_required` | `coding_agent` |
+| An unresolved **human-owned** manifest placeholder | `human_review_required` | `human` |
+| A diagnostic whose rank-1 action is `review` or `stop`, or whose id is human-owned | `human_review_required` | `human` |
+| No diagnostic and no outstanding human obligation | `agent_action_required` on the next stage | `coding_agent` |
+
+Precedence is that table's order. A blocking diagnostic outranks the placeholder
+obligation deliberately: a manifest the loader rejects has to be repaired before
+anyone can usefully review what it declares, and the obligation is not lost —
+it is derived from the manifest on every run, never remembered.
+
+`NextAction.kind` maps to the control action type: `command` becomes a
+`CodingAgentCommandAction` whose `kind` comes from
+`setup_control.SETUP_ACTION_KINDS` (one entry per diagnostic id, pinned by
+test), `edit` becomes the contract-v24 `CodingAgentEditAction`, and
+`review`/`stop` become human routes.
+
+**Human-owned placeholders.** A placeholder is human-owned when any segment of
+its reported field path is one of `declared_purpose`, `prohibited_actions`,
+`owner`, `approval_required`, `reason`, `policies`, or `permissions` — the
+values that record a person having decided something, where an invented value
+is not a guess but a forged declaration. Every other placeholder (a tool-source
+path, a project name) is ordinary repository reading and stays coding-agent
+work. Matching is on every segment, not the leaf, because
+`collect_placeholders` names a list item by its own text: a `CHANGE_ME` under
+`declared_purpose: [...]` is reported as `agent.declared_purpose.CHANGE_ME`.
+
+The `control` field never carries authority: setup reads no diff, so all six
+`permissions` are `false`, no artifact or `current_control_id` is bound, and
+`control_state: "complete"` is unreachable for these operations in the published
+schema. `next_action` is the single typed rank-1 step; `next_actions[]` beside
+it keeps the ranked alternatives, unchanged.

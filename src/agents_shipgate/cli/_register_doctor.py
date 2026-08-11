@@ -17,9 +17,45 @@ from agents_shipgate.cli.diagnostics import (
 )
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.scan.inspect import inspect_sources
+from agents_shipgate.cli.setup_control import (
+    SETUP_COMPLETE,
+    setup_control_envelope,
+    setup_input_id,
+)
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.diagnostics import NextAction
+
+
+def _doctor_reason(payload: dict[str, object], manifest_path: Path) -> str:
+    total = payload.get("total_tools", 0)
+    sources = payload.get("sources") or []
+    return (
+        f"{manifest_path} loaded with {len(sources)} tool source(s) "
+        f"and {total} enumerable tool(s)."
+    )
+
+
+def _doctor_advance(manifest_path: Path) -> NextAction:
+    """The stage a clean manifest hands off to.
+
+    ``doctor`` validates configuration; it never decides a release, so even a
+    manifest with nothing wrong leaves an outstanding step. Naming the gate is
+    what keeps the setup envelope from looking like a finish line — and
+    ``verify``, not ``scan``, because ``scan`` is the engine rather than the
+    command an adopter runs.
+    """
+
+    return NextAction(
+        kind="command",
+        command=render_command(["verify", "--config", str(manifest_path), "--json"]),
+        why=(
+            "The manifest validates and its declared sources resolve. The "
+            "outstanding step is the release gate, which doctor does not run."
+        ),
+        expects="A verifier run that publishes a control identity for this workspace.",
+    )
 
 
 def register(app: typer.Typer) -> None:
@@ -119,6 +155,26 @@ def register(app: typer.Typer) -> None:
             enriched["next_action"] = (
                 flattened[0].to_legacy_string() if flattened else ""
             )
+            enriched["control"] = setup_control_envelope(
+                operation="doctor",
+                input_id=setup_input_id(
+                    operation="doctor",
+                    workspace=(workspace or path.parent).resolve(),
+                    manifest_path=path,
+                ),
+                reason=_doctor_reason(payload, path),
+                diagnostics=diagnostics,
+                placeholders=placeholders,
+                manifest_display_path=str(path),
+                advance=_doctor_advance(path),
+                advance_kind="verify",
+                advance_decision=SETUP_COMPLETE,
+                # `doctor` exits 3 for a human on unresolved sources but 0 for a
+                # JSON consumer, and the control envelope is read by the latter.
+                # Publishing the human exit code here would contradict the
+                # process status the caller actually observed.
+                exit_code=0,
+            ).model_dump(mode="json")
             enriched_payloads.append(enriched)
         payloads = enriched_payloads
         if json_output:
