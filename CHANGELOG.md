@@ -49,6 +49,20 @@
   by the catalog. The catalog stays at `schema_version` 0.3: this widens an
   existing rule's globs, adds no rule ID and no state, and moves outcomes only
   toward evaluating more, never less.
+
+  Case tolerance is chosen per predicate by which way a wider match moves the
+  verdict, not for uniformity. `glob` and `none_match_glob` are folded because
+  a wider match can only add a run or make a negative rule fire less.
+  `every_file_matches` stays case-sensitive: it is the docs-only rule's own
+  classifier and `skip_shipgate` beats `run_shipgate`, so folding it would read
+  `src/TEST_agent.py` — a production module on a case-sensitive filesystem — as
+  a test file and skip a PR that adds `@function_tool` beside it. The same
+  tolerance now reaches the Tier B checks: `_verify_common.touched()` selected
+  changed files case-sensitively, so `services/foo/Policies/refund.yaml` was a
+  policy trust root that produced no fail-safe finding, and a deleted
+  `.github/workflows/Agents-Shipgate.yaml` was a `ci_gate` trust root that
+  missed the critical gate-removal finding entirely. Preflight's three inline
+  copies of the same retry are folded into the one helper.
 - **One compact object now answers "what may I do next?", instead of four
   artifacts and a guess.** A verify run could simultaneously report `execution:
   "succeeded"`, exit code `0`, `release_decision.decision: "review_required"`,

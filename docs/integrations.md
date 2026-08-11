@@ -310,8 +310,8 @@ repos:
             (.*/)?conductor/.*\.json|
             (.*/)?ai/examples/.*\.json|
             (.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)|
-            (.*/)?\.claude/(settings(\.local)?\.json|commands/.*)|
-            (.*/)?\.cursor/(cli\.json|mcp\.json|rules/.*)|
+            (.*/)?\.claude/(settings(\.local)?\.json|commands(/.*)?)|
+            (.*/)?\.cursor/(cli\.json|mcp\.json|rules(/.*)?)|
             (.*/)?\.vscode/mcp\.json|
             (.*/)?\.shipgate/agent-contract\.json|
             (.*/)?(AGENTS(\.override)?|CLAUDE)\.md|

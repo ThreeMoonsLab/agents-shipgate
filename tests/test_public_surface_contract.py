@@ -1292,6 +1292,86 @@ def test_triggers_test_only_diff_with_decorator_skips(paths):
     )
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/TEST_agent.py",
+        "src/AGENT_TEST.py",
+        "TESTS/helper.py",
+        "SRC/Tests/support.py",
+        "README.MD",
+    ],
+)
+def test_uppercase_production_paths_do_not_read_as_docs_only(path: str):
+    """`every_file_matches` must stay case-SENSITIVE.
+
+    It is the docs-only rule's own classifier and `skip_shipgate` beats
+    `run_shipgate`, so widening it subtracts evaluation. On a case-sensitive
+    filesystem `src/TEST_agent.py` is a production module, not a test: with
+    a case-folded matcher it satisfies `**/test_*.py`, and a diff adding
+    `@function_tool` beside it is skipped instead of run.
+
+    The sibling predicates are folded precisely because widening them can
+    only *add* evaluation — see `test_governance_case_variants_still_run`."""
+    result = evaluate(paths=[path], diff_text="+@function_tool\n+def search(): ...")
+
+    assert result["run_shipgate"] is True, (
+        f"{path!r} is a production path on a case-sensitive filesystem; a diff "
+        f"adding @function_tool beside it must run, not skip. Got {result!r}."
+    )
+    matched_ids = {m["id"] for m in result["matched_rules"]}
+    assert "TRIGGER-DOCS-ONLY-NEGATIVE" not in matched_ids, (
+        f"TRIGGER-DOCS-ONLY-NEGATIVE classified {path!r} as docs/tests-only. "
+        "`every_file_matches` must not be case-folded."
+    )
+
+
+@pytest.mark.parametrize(
+    "paths",
+    [
+        ["tests/test_agent.py"],
+        ["README.md"],
+        ["docs/guide.md", "tests/test_b.py"],
+    ],
+)
+def test_lowercase_docs_and_tests_still_skip(paths: list[str]):
+    """Negative control for the case-sensitivity split: the docs-only rule
+    must keep firing on the genuinely lowercase paths it has always
+    covered."""
+    result = evaluate(paths=paths, diff_text="+@function_tool\n")
+    assert result["run_shipgate"] is False, (
+        f"{paths!r} is a real docs/tests-only change set and must still skip; "
+        f"got {result!r}."
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "services/foo/Policies/refund.yaml",
+        "enterprise/lib/captain/Prompts/system.md",
+        "SHIPGATE.yaml",
+        ".github/workflows/Agents-Shipgate.yaml",
+    ],
+)
+def test_governance_case_variants_still_run(path: str):
+    """The other half of the split: `glob` and `none_match_glob` are folded,
+    because a case variant of a governance path resolves to the canonical
+    file on a case-insensitive filesystem and the verifier classifies it as
+    a trust root either way."""
+    from agents_shipgate.core.trust_roots import trust_root_class_for
+
+    assert trust_root_class_for(path) is not None, (
+        f"Fixture drift: {path!r} is no longer a trust root, so it no longer "
+        "tests trigger/verifier parity."
+    )
+    result = evaluate(paths=[path])
+    assert result["run_shipgate"] is True, (
+        f"{path!r} is classified as a trust root but the catalog routes it as "
+        f"{result['skip_reason']!r}."
+    )
+
+
 def test_triggers_code_plus_test_does_not_skip():
     """A PR that mixes a real code change with a test file is NOT
     test-only and should follow the run rules. Negative case for the
@@ -2525,12 +2605,14 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
         ".claude/settings.local.json",
         ".mcp.json",
         ".claude/commands/review.md",
+        ".claude/commands",
         "claude.md",
     ],
     "TRIGGER-CURSOR-BOUNDARY-CONFIG-CHANGED": [
         ".cursor/cli.json",
         ".cursor/mcp.json",
         ".cursor/rules/security.mdc",
+        ".cursor/rules",
     ],
     "TRIGGER-VSCODE-MCP-BOUNDARY-CHANGED": [
         ".vscode/mcp.json",
@@ -2628,6 +2710,66 @@ def test_hook_regex_fixtures_cover_every_path_based_trigger():
     assert not stale, (
         f"_HOOK_PATH_TRIGGERS_EXCLUDED names rule(s) {sorted(stale)} that no longer "
         "exist in docs/triggers.json."
+    )
+
+
+def _representative_paths(pattern: str) -> set[str]:
+    """Concrete paths a glob is meant to match.
+
+    Mirrors the synthesis in `trust_roots._registry_trust_root_surfaces`:
+    `**` becomes a directory segment and `*` a filename fragment. Adds the
+    bare-directory form for `dir/**` and `dir/*`, because this project's
+    globstar matches `dir` itself, and a nested form for `**/`-prefixed
+    patterns.
+    """
+    expanded = pattern.replace("**/", "nested/").replace("/**", "/nested").replace("**", "nested")
+    out = {expanded.replace("*", "item")}
+    for suffix in ("/**", "/*"):
+        if pattern.endswith(suffix):
+            bare = pattern[: -len(suffix)]
+            out.add(bare.replace("**/", "nested/").replace("**", "nested").replace("*", "item"))
+    if pattern.startswith("**/"):
+        out.add("svc/" + expanded[len("nested/") :].replace("*", "item"))
+    return {path for path in out if path and not path.endswith("/")}
+
+
+def test_hook_regex_stages_every_path_the_evaluator_would_run_on():
+    """Generated sweep: the hook must not be narrower than the evaluator.
+
+    The hand-written fixture table above only checks paths someone thought
+    to write down, which is how the bare `.claude/commands` and
+    `.cursor/rules` forms stayed uncovered while the manifest claimed
+    `dir/**` parity. This derives representative paths from every positive
+    catalog glob and every boundary-adapter path instead, so a clause that
+    is narrower than its glob fails here without anyone predicting it.
+    """
+    from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+    from agents_shipgate.triggers import evaluate as evaluate_triggers
+
+    pattern = _hook_files_regex()
+    catalog = _load_triggers_json()
+
+    patterns: set[str] = set()
+    for rule in catalog["rules"]:
+        if rule["id"] in _HOOK_PATH_TRIGGERS_EXCLUDED:
+            continue
+        patterns |= _collect_globs(rule.get("when"))
+    for adapter in BOUNDARY_ADAPTERS:
+        patterns |= set(adapter.globs) | set(adapter.exact_paths)
+    assert len(patterns) > 40, f"Only swept {len(patterns)} patterns; synthesis broke."
+
+    missed = [
+        (source, path)
+        for source in sorted(patterns)
+        for path in sorted(_representative_paths(source))
+        if evaluate_triggers(paths=[path])["run_shipgate"] and not pattern.match(path)
+    ]
+    assert not missed, (
+        "The pre-commit `files:` regex is narrower than the trigger catalog for:\n"
+        + "\n".join(f"  {source} -> {path}" for source, path in missed)
+        + "\nThe hook would not stage a change the evaluator says must run. Widen "
+        "the clause in .pre-commit-hooks.yaml (both hook ids) and re-sync the two "
+        "documented snippets."
     )
 
 
