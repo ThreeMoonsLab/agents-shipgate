@@ -45,7 +45,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "0b1e1305cd6b8cece3bd2845095e3e087954b26ac0e2536c09951e58bf6e4568"
+        "3e10877198eead17338d54810ef7dc32317fa1b1013b54acccc1c2e9a94f53e4"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         # Renders {{ shipgate_version }}; changes on every version bump.
@@ -81,7 +81,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "e90b0c105ec5cb0332e6d0be02699c25241278f27067f72f7089250adf18abd1"
+        "34ef4bdac90ff7b409eb2254f6b73c52888e92bd9ba44824d6f056c44c2a50ff"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -93,7 +93,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "49f71ac4f5b6c83f34caa1e5a7126cf4550d95188725ce37d93b558c6bfae17a"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "34c1d9730f7caf5cfc9747e0f063dd94ca7415d56d00cec822db10d2cdf6d686"
+        "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a"
     ),
 }
 

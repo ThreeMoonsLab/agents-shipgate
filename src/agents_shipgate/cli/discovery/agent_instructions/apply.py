@@ -524,19 +524,19 @@ def _apply_local_contract(path: Path, workspace: Path) -> TargetOutcome:
 
 
 def _is_managed_local_contract(existing: bytes) -> bool:
-    """Whether this file is a Shipgate-managed contract that may be replaced.
+    """Whether this file is an untouched managed contract at the current version.
 
-    Recognizing *any* earlier schema version, not only the current one, is
-    deliberate. The exact-hash allowlist beside this check has to be extended on
-    every outgoing render, and twice in a row it was not — leaving repositories
-    on v8 and v9 unable to upgrade in place, because an untouched managed file
-    was reported as ``skipped_user_modified``. A file carrying the managed
-    gating signal and the managed local-contract path under a version this
-    release already supersedes is a stale managed render, not user work.
+    Deliberately narrow. An earlier revision of this change widened it to accept
+    *any* superseded version carrying the managed gating signal and path, on the
+    reasoning that the exact-hash allowlist beside it had twice been left
+    un-appended and stranded repositories on schema 8 and 9. That traded one
+    failure for a worse one: a v9 file a user had customized still matched the
+    shape, so the upgrade silently erased their edit.
 
-    Still closed-world: the version must parse as an integer and must not be
-    newer than this release's, so a contract written by a future version is
-    never overwritten by an older CLI.
+    The allowlist is the right mechanism — it distinguishes *pristine* earlier
+    renders from modified ones, which shape alone cannot — and it now carries
+    the v8 and v9 hashes that were missing. A modified older contract stays
+    ``skipped_user_modified``, which is the answer a user's own edit deserves.
     """
 
     try:
@@ -548,16 +548,11 @@ def _is_managed_local_contract(existing: bytes) -> bool:
     default_paths = payload.get("default_paths")
     if not isinstance(default_paths, dict):
         return False
-    if (
-        payload.get("gating_signal") != GATING_SIGNAL
-        or default_paths.get("local_contract") != LOCAL_CONTRACT_RELATIVE_PATH
-    ):
-        return False
-    try:
-        version = int(str(payload.get("schema_version")))
-    except (TypeError, ValueError):
-        return False
-    return 0 < version <= int(LOCAL_CONTRACT_SCHEMA_VERSION)
+    return (
+        payload.get("schema_version") == LOCAL_CONTRACT_SCHEMA_VERSION
+        and payload.get("gating_signal") == GATING_SIGNAL
+        and default_paths.get("local_contract") == LOCAL_CONTRACT_RELATIVE_PATH
+    )
 
 
 def _apply_file_tree(

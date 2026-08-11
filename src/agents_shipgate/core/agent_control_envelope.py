@@ -363,20 +363,20 @@ def control_headline_lines(envelope: AgentControlEnvelope) -> list[str]:
     if envelope.verify_required:
         lines.append("Verification is still required before this can complete.")
     if envelope.pending_review:
-        owed = ", ".join(_single_line(item.rule_id) for item in envelope.pending_review)
+        owed = ", ".join(single_line_text(item.rule_id) for item in envelope.pending_review)
         lines.append(f"Still owed human review: {owed}")
     action = envelope.next_action
     if action is not None:
-        lines.append(f"Next: {_single_line(action.why)}")
+        lines.append(f"Next: {single_line_text(action.why)}")
         if isinstance(action, CodingAgentCommandAction):
             # Deliberately not the bare ``Run:`` prefix that
             # `primary_evidence_remediation_text` uses for the evidence-gap
             # rerun. #358 requires the human work to precede that line, and
             # these headline lines print first — reusing the prefix would put a
             # `Run:` above the remediation it is not the remediation for.
-            lines.append(f"Next command: {_single_line(action.command)}")
+            lines.append(f"Next command: {single_line_text(action.command)}")
         elif isinstance(action, CodingAgentFetchBaseAction):
-            lines.append(f"Provide: {_single_line(action.expects)}")
+            lines.append(f"Provide: {single_line_text(action.expects)}")
     return lines
 
 
@@ -385,7 +385,7 @@ def control_headline_lines(envelope: AgentControlEnvelope) -> list[str]:
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
-def _single_line(value: str) -> str:
+def single_line_text(value: str) -> str:
     """Render one field on one line, showing control characters rather than obeying them.
 
     These lines state authority, and every value interpolated into them —
@@ -411,12 +411,21 @@ def _reconcile_with_pointer(
 ) -> AgentControl:
     """Let the pointer overrule a run that claimed more than it can bind."""
 
-    if pointer is None or pointer.control.state == control.state:
+    if pointer is None:
         return control
-    # `project_agent_control` only ever downgrades, and only onto this state.
-    # Anything else means the two artifacts disagree in a way neither can
-    # explain, which is itself a reason to stop.
-    return _human_stop(pointer.control.reason)
+    projected = pointer.control
+    # State alone is not the authority. A pointer carrying
+    # `agent_action_required` with no permissions and a verifier carrying the
+    # same state with publish-only permissions agree on the tag and disagree on
+    # what is authorized; taking the verifier's widened publication authority
+    # on a tag match is the fail-open direction.
+    if projected.state == control.state and (
+        projected.permissions.model_dump() == control.permissions.model_dump()
+    ):
+        return control
+    # `project_agent_control` only ever narrows, so a disagreement is either
+    # that narrowing or an inconsistency neither artifact can explain. Both stop.
+    return _human_stop(projected.reason)
 
 
 def _human_stop(reason: str) -> HumanReviewRequiredControl:
@@ -490,4 +499,5 @@ __all__ = [
     "envelope_from_verifier",
     "project_agent_control_envelope",
     "render_agent_control_envelope",
+    "single_line_text",
 ]

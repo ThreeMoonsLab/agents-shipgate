@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -180,7 +181,9 @@ def control(
     try:
         result = read_current_control(
             reports_dir,
-            live=live_workspace(workspace, reports_dir),
+            # A callable, so the protocol can re-observe it: a snapshot taken
+            # here leaves a window in which HEAD advances before the return.
+            live=lambda: live_workspace(workspace, reports_dir),
             # Captured inside the protocol, not reopened after it: the route
             # must come from the same generation whose identity was confirmed.
             capture=(VERIFIER_ARTIFACT_KEY,),
@@ -239,15 +242,27 @@ def control(
             exit_code=bound_verifier.head_exit_code,
             artifact_root=reports_dir.as_posix(),
         )
-    elif result.pointer.lifecycle_state == "terminal":
+    elif result.pointer.lifecycle_state == "terminal" and result.pointer.operation == "scan":
         # Current, but published by a command that reaches no release decision.
         # Refusing conflated "nothing is current" with "what is current cannot
-        # authorize a merge"; only the first justifies a non-zero exit.
+        # authorize a merge"; only the first justifies a non-zero exit. Scoped
+        # to `scan`: a verify or preview pointer that binds no verifier lost an
+        # artifact it must have written, which is an inconsistent generation.
         envelope = envelope_from_routeless_pointer(
             result.pointer,
-            verify_command=verify_command_for(workspace, None),
+            verify_command=_recovery_verify_command(workspace, reports_dir),
             artifact_root=reports_dir.as_posix(),
         )
+    elif result.pointer.lifecycle_state == "terminal":
+        _refuse_route(
+            reports_dir,
+            workspace,
+            detail=(
+                f"The current control pointer was published by {result.pointer.operation!r} "
+                "but binds no verifier artifact, so the generation is incomplete."
+            ),
+        )
+        raise typer.Exit(4)
     else:
         # An in-progress marker really is "no decision is current here".
         _refuse_route(
@@ -263,6 +278,29 @@ def control(
     typer.echo(render_agent_control_envelope(envelope))
 
 
+def _recovery_verify_command(workspace: Path, reports_dir: Path) -> str:
+    """The verify invocation that refreshes *this* pointer.
+
+    Both the workspace and the reports directory come from the request that was
+    just validated. Emitting a bare `verify --workspace .` discarded the
+    subject: following it checked a different manifest, wrote a second reports
+    directory, and left the pointer being refreshed exactly as it was.
+
+    The manifest is deliberately not guessed. `verify` resolves a relative
+    `--config` against the Git root, and the pointer does not record which
+    manifest the producing run used, so naming one would be inventing part of
+    the subject rather than recovering it — and naming the wrong one silently
+    verifies a different gate. The default resolution is the honest answer, and
+    `--out` keeps the refresh pointed at the directory the caller asked about.
+    """
+
+    return verify_command_for(
+        workspace,
+        None,
+        extra=("--out", shlex.quote(str(reports_dir))),
+    )
+
+
 def _refuse_route(reports_dir: Path, workspace: Path, *, detail: str) -> None:
     """Report that no route is available, in the caller's own terms.
 
@@ -276,7 +314,7 @@ def _refuse_route(reports_dir: Path, workspace: Path, *, detail: str) -> None:
         "Run verify in this workspace to obtain a decision. Until one exists, "
         "treat completion, merge, and any cached must_stop as unavailable."
     )
-    command = verify_command_for(workspace, None)
+    command = _recovery_verify_command(workspace, reports_dir)
     typer.echo(f"Current control carries no route: {detail}", err=True)
     emit_agent_mode_error(
         "other_error",
@@ -315,8 +353,16 @@ def _bound_verifier(result: CurrentControlRead) -> VerifierArtifact | None:
         return None
     try:
         verifier = VerifierArtifact.model_validate_json(data)
-    except ValueError:
-        return None
+    except ValueError as exc:
+        # Not the same thing as "no verifier was bound". A pointer that binds a
+        # verifier it cannot parse is an inconsistent generation, and returning
+        # `None` sent it down the routeless-scan path, where a hash-bound `{}`
+        # under a terminal *verify* pointer exited 0 and kept update-PR
+        # authority.
+        raise AgentControlRouteUnavailable(
+            f"The verifier artifact bound by the current control pointer is "
+            f"malformed, so this generation is inconsistent: {exc}"
+        ) from exc
     # The state tag alone is not identity. A verifier that closes a different
     # request than the pointer decided cannot supply this pointer's route, and
     # the difference is invisible in `control.state`.

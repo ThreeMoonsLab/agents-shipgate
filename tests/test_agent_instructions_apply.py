@@ -270,44 +270,31 @@ def test_local_contract_upgrades_a_real_shipped_v9_render(tmp_path: Path) -> Non
     assert upgraded == json.loads(render_local_contract_file())
 
 
-def test_local_contract_upgrades_any_superseded_managed_version(tmp_path: Path) -> None:
-    """Recognition does not depend on the hash allowlist being complete.
+def test_local_contract_refuses_a_modified_older_contract(tmp_path: Path) -> None:
+    """A user's edit to an older managed file is theirs, not ours to erase.
 
-    The allowlist has to be extended on every outgoing render and twice was
-    not. A file carrying the managed gating signal and local-contract path
-    under a superseded version is a stale managed render whatever its bytes.
+    Recognizing any superseded version by shape alone would have upgraded this
+    and silently discarded the customization. Only a *pristine* earlier render —
+    matched by exact hash — is safe to replace, which is why the allowlist and
+    not the shape check is the mechanism that carries older versions forward.
     """
 
     target = tmp_path / ".shipgate/agent-contract.json"
     target.parent.mkdir(parents=True)
-    payload = json.loads(render_local_contract_file())
-    payload["schema_version"] = "6"
-    payload["agents_shipgate_version"] = "0.0.0-ancient"
-    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-    result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
-
-    [outcome] = result.targets
-    assert outcome.status == "updated", outcome.message
-    assert json.loads(target.read_text(encoding="utf-8"))["schema_version"] == (
-        LOCAL_CONTRACT_SCHEMA_VERSION
+    shipped = json.loads(
+        (Path(__file__).parent / "fixtures/local-agent-contract.v9.json").read_text(
+            encoding="utf-8"
+        )
     )
-
-
-def test_local_contract_never_downgrades_a_newer_contract(tmp_path: Path) -> None:
-    """A contract written by a future release is user work to an older CLI."""
-
-    target = tmp_path / ".shipgate/agent-contract.json"
-    target.parent.mkdir(parents=True)
-    payload = json.loads(render_local_contract_file())
-    payload["schema_version"] = str(int(LOCAL_CONTRACT_SCHEMA_VERSION) + 1)
-    body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    shipped["commands"]["verify_pr"] = "agents-shipgate verify --config custom.yaml --json"
+    body = json.dumps(shipped, indent=2, sort_keys=True) + "\n"
     target.write_text(body, encoding="utf-8")
 
     result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
 
     [outcome] = result.targets
     assert outcome.status == "skipped_user_modified"
+    assert result.exit_code == 2
     assert target.read_text(encoding="utf-8") == body
 
 

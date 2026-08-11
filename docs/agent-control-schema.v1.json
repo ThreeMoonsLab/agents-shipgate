@@ -29,6 +29,29 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "next_action": {
+                "properties": {
+                  "kind": {
+                    "const": "verify"
+                  }
+                }
+              }
+            },
+            "required": [
+              "next_action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "verify_required": {
+                "const": true
+              }
+            }
+          }
         }
       ],
       "description": "One exact coding-agent-owned step remains.\n\n``permissions`` admits two vectors because the route decides: a step that\nruns before any diff was read authorizes nothing beyond itself, while a step\ntaken on an evaluated change keeps publication authority. Both deny merge.",
@@ -67,6 +90,7 @@
           "anyOf": [
             {
               "minLength": 1,
+              "pattern": "\\S",
               "type": "string"
             },
             {
@@ -113,6 +137,7 @@
           "anyOf": [
             {
               "minLength": 1,
+              "pattern": "\\S",
               "type": "string"
             },
             {
@@ -160,6 +185,7 @@
         },
         "reason": {
           "minLength": 1,
+          "pattern": "\\S",
           "title": "Reason",
           "type": "string"
         },
@@ -411,6 +437,50 @@
               }
             }
           }
+        },
+        {
+          "else": {
+            "properties": {
+              "artifacts": {
+                "minProperties": 1
+              },
+              "current_control_id": {
+                "type": "string"
+              },
+              "decision_source": {
+                "const": "release_decision"
+              }
+            },
+            "required": [
+              "current_control_id"
+            ]
+          },
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "check"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "maxProperties": 0
+              },
+              "current_control_id": {
+                "type": "null"
+              },
+              "decision_source": {
+                "const": "agent_boundary"
+              },
+              "source": {
+                "const": "run"
+              }
+            }
+          }
         }
       ],
       "description": "The coding agent may merge and report the task complete.\n\nEvery authority-bearing field is pinned by the tag. ``execution`` narrows to\nthe statuses a completed evaluation can have, which is what makes\n\"a failed run can never authorize completion\" a schema rule rather than a\nvalidator a JSON Schema consumer never runs.",
@@ -446,23 +516,15 @@
           "title": "Current Control Id"
         },
         "decision": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Decision"
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Decision",
+          "type": "string"
         },
         "decision_source": {
           "enum": [
             "release_decision",
-            "agent_boundary",
-            "setup",
-            "none"
+            "agent_boundary"
           ],
           "title": "Decision Source",
           "type": "string"
@@ -492,6 +554,7 @@
         },
         "input_id": {
           "minLength": 1,
+          "pattern": "\\S",
           "title": "Input Id",
           "type": "string"
         },
@@ -509,8 +572,6 @@
         "operation": {
           "enum": [
             "verify",
-            "preview",
-            "scan",
             "check"
           ],
           "title": "Operation",
@@ -529,6 +590,7 @@
         },
         "reason": {
           "minLength": 1,
+          "pattern": "\\S",
           "title": "Reason",
           "type": "string"
         },
@@ -782,6 +844,7 @@
           "anyOf": [
             {
               "minLength": 1,
+              "pattern": "\\S",
               "type": "string"
             },
             {
@@ -828,6 +891,7 @@
           "anyOf": [
             {
               "minLength": 1,
+              "pattern": "\\S",
               "type": "string"
             },
             {
@@ -867,6 +931,7 @@
         },
         "reason": {
           "minLength": 1,
+          "pattern": "\\S",
           "title": "Reason",
           "type": "string"
         },
@@ -1148,6 +1213,7 @@
           "anyOf": [
             {
               "minLength": 1,
+              "pattern": "\\S",
               "type": "string"
             },
             {
@@ -1194,6 +1260,7 @@
           "anyOf": [
             {
               "minLength": 1,
+              "pattern": "\\S",
               "type": "string"
             },
             {
@@ -1233,6 +1300,7 @@
         },
         "reason": {
           "minLength": 1,
+          "pattern": "\\S",
           "title": "Reason",
           "type": "string"
         },

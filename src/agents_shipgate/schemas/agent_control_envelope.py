@@ -148,6 +148,47 @@ _DECISION_PAIRING_RULE = [
     }
 ]
 
+# Terminal authority is only reachable two ways, and each leaves a different
+# trace. A verify run publishes a pointer and binds artifacts; a boundary check
+# writes nothing and binds neither. Without this, both Pydantic and the
+# published schema accepted a `complete` envelope with `operation: "scan"`, no
+# decision, no identity, no artifacts, and full merge authority — a shape no
+# producer can emit and no reader should ever honour.
+_COMPLETE_PROVENANCE_RULE = [
+    {
+        "if": {"properties": {"operation": {"const": "check"}}, "required": ["operation"]},
+        "then": {
+            "properties": {
+                "source": {"const": "run"},
+                "decision_source": {"const": "agent_boundary"},
+                "current_control_id": {"type": "null"},
+                "artifacts": {"maxProperties": 0},
+            }
+        },
+        "else": {
+            "properties": {
+                "decision_source": {"const": "release_decision"},
+                "current_control_id": {"type": "string"},
+                "artifacts": {"minProperties": 1},
+            },
+            "required": ["current_control_id"],
+        },
+    }
+]
+
+# A `verify` route carries an independent verification obligation. The
+# authoritative union rejects a verify action beside `verify_required: false`;
+# without this the envelope and its schema did not.
+_VERIFY_OBLIGATION_RULE = [
+    {
+        "if": {
+            "properties": {"next_action": {"properties": {"kind": {"const": "verify"}}}},
+            "required": ["next_action"],
+        },
+        "then": {"properties": {"verify_required": {"const": True}}},
+    }
+]
+
 _ENVELOPE_FIELDS = [
     "schema_version",
     "contract_version",
@@ -170,11 +211,20 @@ _ENVELOPE_FIELDS = [
     "artifacts",
 ]
 
+# `strip_whitespace` has no JSON Schema representation, so a schema-only
+# consumer accepted `input_id=" "` on a merge-authorizing envelope that Pydantic
+# rejected. A pattern requiring one non-whitespace character *is* published, so
+# both layers agree on what counts as present.
+_NON_BLANK = r"\S"
+
 BoundedProse = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1),
+    StringConstraints(strip_whitespace=True, min_length=1, pattern=_NON_BLANK),
 ]
-NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+NonEmptyText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, pattern=_NON_BLANK),
+]
 
 
 class AgentControlPendingReview(BaseModel):
@@ -277,8 +327,22 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
     validator a JSON Schema consumer never runs.
     """
 
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "required": _ENVELOPE_FIELDS,
+            "allOf": [*_DECISION_PAIRING_RULE, *_COMPLETE_PROVENANCE_RULE],
+        },
+    )
+
     control_state: Literal["complete"]
     execution: CompleteExecution
+    # `scan` and `preview` reach no release decision, so neither can complete.
+    operation: Literal["verify", "check"]
+    # A completion always has a verdict behind it, from one of the two engines
+    # that can produce one.
+    decision: NonEmptyText
+    decision_source: Literal["release_decision", "agent_boundary"]
     # Required, not optional: terminal authority that cannot name the input it
     # was assessed against is authority no reader can check.
     input_id: NonEmptyText
@@ -289,6 +353,31 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
     next_action: None = None
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
 
+    @model_validator(mode="after")
+    def _provenance_matches_the_producer(self) -> CompleteControlEnvelope:
+        """Mirror ``_COMPLETE_PROVENANCE_RULE`` so both layers agree.
+
+        The published rule is what an external consumer enforces; this is what
+        an in-process caller hits. Neither is redundant, because a shape
+        accepted by one and rejected by the other is a contract that means two
+        different things depending on who reads it.
+        """
+
+        if self.operation == "check":
+            if self.source != "run" or self.decision_source != "agent_boundary":
+                raise ValueError("a completed boundary check is a local run of that engine")
+            if self.current_control_id is not None or self.artifacts:
+                raise ValueError("a boundary check publishes no pointer and binds no artifact")
+        else:
+            if self.decision_source != "release_decision":
+                raise ValueError("a completed verification is decided by the release engine")
+            if self.current_control_id is None or not self.artifacts:
+                raise ValueError(
+                    "a completed verification must name the control identity and the "
+                    "artifacts it bound"
+                )
+        return self
+
 
 class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
     """One exact coding-agent-owned step remains.
@@ -298,12 +387,28 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
     taken on an evaluated change keeps publication authority. Both deny merge.
     """
 
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "required": _ENVELOPE_FIELDS,
+            "allOf": [*_DECISION_PAIRING_RULE, *_VERIFY_OBLIGATION_RULE],
+        },
+    )
+
     control_state: Literal["agent_action_required"]
     permissions: PublishOnlyPermissions | NoAgentPermissions
     verify_required: bool
     next_actor: Literal["coding_agent"] = "coding_agent"
     next_action: CodingAgentAction
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
+
+    @model_validator(mode="after")
+    def _a_verify_route_keeps_its_obligation(self) -> AgentActionControlEnvelope:
+        """Mirror ``_VERIFY_OBLIGATION_RULE``; the authoritative union has it too."""
+
+        if self.next_action.kind == "verify" and not self.verify_required:
+            raise ValueError("a verify action must preserve verify_required=true")
+        return self
 
 
 class ReviewPublishableControlEnvelope(_AgentControlEnvelopeBase):

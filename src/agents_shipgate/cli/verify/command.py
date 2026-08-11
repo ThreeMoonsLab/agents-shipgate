@@ -22,6 +22,7 @@ from agents_shipgate.core.agent_control_envelope import (
     denied_control_envelope,
     envelope_from_verifier,
     render_agent_control_envelope,
+    single_line_text,
 )
 from agents_shipgate.core.current_control import (
     CurrentControlPublishError,
@@ -502,18 +503,27 @@ def _emit_verify_stdout(
             _verify_envelope(verifier, workspace, exit_code, preview=preview)
         ):
             typer.echo(line)
-        typer.echo(f"Agents Shipgate verify: {verdict}")
-        typer.echo(f"Trigger: {verifier.trigger.get('rationale')}")
-        typer.echo(f"Base status: {verifier.base_status}")
+        # Every value below is repository-derived — a trigger rationale, a tool
+        # name reaching the remediation text, a ref — and none is under
+        # Shipgate's control. Sanitizing only the control headline left the
+        # rest: a tool name containing newlines printed forged `Control:
+        # complete` and `You may: merge` lines further down the same output.
+        typer.echo(f"Agents Shipgate verify: {single_line_text(str(verdict))}")
+        typer.echo(f"Trigger: {single_line_text(str(verifier.trigger.get('rationale')))}")
+        typer.echo(f"Base status: {single_line_text(str(verifier.base_status))}")
         typer.echo(f"Exit code: {exit_code}")
         if (
             verifier.release_decision is not None
             and verifier.release_decision.decision == "insufficient_evidence"
         ):
-            typer.echo(
-                "Improve evidence: "
-                f"{primary_evidence_remediation_text(verifier.release_decision.evidence_coverage)}"
+            remediation = primary_evidence_remediation_text(
+                verifier.release_decision.evidence_coverage
             )
+            # This one is deliberately multi-line (#358 renders "Run: <cmd>" on
+            # its own line), so each line is sanitized rather than the whole.
+            for index, part in enumerate(remediation.splitlines() or [""]):
+                prefix = "Improve evidence: " if index == 0 else ""
+                typer.echo(f"{prefix}{single_line_text(part)}")
         typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
 
 
@@ -604,10 +614,12 @@ def _verify_envelope(
     `agent control` was simultaneously refusing the same directory as
     `workspace_changed`.
 
-    The captured verifier is used in preference to the in-memory one for the
-    same reason: pointer and route must come from one generation, and a
-    concurrent run republishing between this run's publish and this read would
-    otherwise pair its pointer with our decision.
+    The captured verifier is then required to be *this invocation's*. Taking
+    whatever generation is current was wrong in the other direction: a preview
+    run reported a concurrent passing run's `complete`, `passed`, and
+    `merge=true` under `source="run"`, printing that run's exit code while the
+    process exited with its own. ``source="run"`` is a claim about whose result
+    this is, so the identities must match exactly and a mismatch fails closed.
 
     A refusal does not raise. ``verify``'s exit code is the CI gate signal and
     must not change, so the run's verdict is still reported — with authority
@@ -615,52 +627,51 @@ def _verify_envelope(
     """
 
     operation: AgentControlOperation = "preview" if preview else "verify"
-    reports_dir = _reports_dir_from_artifacts(verifier, workspace)
-    if reports_dir is None:
+
+    def denied(reason: str) -> AgentControlEnvelope:
         return denied_control_envelope(
             operation=operation,
             source="run",
             execution=verifier.execution,
             exit_code=exit_code,
-            reason=(
-                "This run recorded no verifier artifact path, so the control "
-                "identity it published could not be located or validated."
-            ),
+            reason=reason,
+        )
+
+    reports_dir = _reports_dir_from_artifacts(verifier, workspace)
+    if reports_dir is None:
+        return denied(
+            "This run recorded no verifier artifact path, so the control "
+            "identity it published could not be located or validated."
         )
     try:
         result = read_current_control(
             reports_dir,
-            live=live_workspace(workspace, reports_dir),
+            live=lambda: live_workspace(workspace, reports_dir),
             capture=(VERIFIER_ARTIFACT_KEY,),
         )
     except CurrentControlUnavailable as exc:
-        return denied_control_envelope(
-            operation=operation,
-            source="run",
-            execution=verifier.execution,
-            exit_code=exit_code,
-            reason=str(exc),
-        )
+        return denied(str(exc))
     captured = result.artifacts.get(VERIFIER_ARTIFACT_KEY)
     if captured is None:
-        return denied_control_envelope(
-            operation=operation,
-            source="run",
-            execution=verifier.execution,
-            exit_code=exit_code,
-            reason=(
-                "The control identity this run published binds no verifier "
-                "artifact, so no validated route could be recovered."
-            ),
+        return denied(
+            "The control identity this run published binds no verifier "
+            "artifact, so no validated route could be recovered."
         )
-    current = VerifierArtifact.model_validate_json(captured)
+    try:
+        current = VerifierArtifact.model_validate_json(captured)
+    except ValueError as exc:
+        return denied(f"The bound verifier artifact could not be read: {exc}")
+    if (current.request_id, current.decision_id) != (verifier.request_id, verifier.decision_id):
+        return denied(
+            "Another run published over this directory while this one was "
+            "reporting; the control identity that is current closes a different "
+            "request, so this run cannot speak for it. Re-run verification."
+        )
     return envelope_from_verifier(
         current,
         operation=operation,
         source="run",
-        # The exit code the *current* generation recorded. It equals this run's
-        # own whenever the pointer is this run's, which is the ordinary case.
-        exit_code=current.head_exit_code,
+        exit_code=exit_code,
         pointer=result.pointer,
         artifact_root=_artifact_root(verifier, workspace),
     )

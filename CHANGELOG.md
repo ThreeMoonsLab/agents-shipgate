@@ -51,7 +51,15 @@
   current-but-routeless generation (a `scan` pointer) is now reported with exit
   0 and merge denied instead of refused, preserving the documented meaning of a
   non-zero exit, and recovery commands are generated from the requested
-  workspace rather than a hardcoded default. Separately,
+  workspace and reports directory rather than a hardcoded default. Terminal
+  authority is additionally constrained by provenance — `complete` is
+  representable only from `verify` (naming its pointer and artifacts) or from
+  `check` (naming neither), never from `scan` or `preview` — and a `verify`
+  route cannot drop `verify_required`; both are published in the JSON Schema,
+  not only enforced in Python. `verify --format control` now reports only this
+  invocation's generation instead of whichever is current, and the currency
+  comparison re-observes the workspace after confirming the pointer, closing a
+  window in which a commit could land mid-read. Separately,
   `.shipgate/agent-contract.json` now upgrades in place from any superseded
   managed version rather than only from renders whose exact hash was recorded —
   repositories on local-contract schema 8 or 9 were stranded. Runtime contract advances `21 → 22` and the downstream
