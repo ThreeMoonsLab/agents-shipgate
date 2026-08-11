@@ -595,6 +595,33 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
                 "path": None,
                 "why": "check",
                 "expects": None,
+                # No executable/args. Contract v23 omits the pair rather than
+                # emitting nulls, so an action that can never carry an argv is
+                # byte-for-byte what it was before #322.
             }
         ],
     }
+
+    command_action = Diagnostic(
+        id="SHIP-DIAG-EXAMPLE",
+        title="Example",
+        severity="info",
+        next_actions=[
+            NextAction(
+                kind="command",
+                command="agents-shipgate detect --workspace . --json",
+                why="check",
+            )
+        ],
+    )
+    assert command_action.model_dump(mode="json")["next_actions"] == [
+        {
+            "kind": "command",
+            "command": "agents-shipgate detect --workspace . --json",
+            "path": None,
+            "why": "check",
+            "expects": None,
+            "executable": ["agents-shipgate"],
+            "args": ["detect", "--workspace", ".", "--json"],
+        }
+    ]

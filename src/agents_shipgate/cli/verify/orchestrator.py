@@ -66,6 +66,7 @@ from agents_shipgate.core.verification_identity import (
     build_unit_result,
     build_verification_plan,
 )
+from agents_shipgate.invocation import retarget_command
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.capability_lock_diff_markdown import (
     render_capability_lock_diff_markdown,
@@ -3567,15 +3568,17 @@ def _shell_join(parts: list[str]) -> str:
 
 def _preview_init_command(workspace: Path) -> str:
     command_workspace = workspace if workspace.is_absolute() else Path.cwd() / workspace
-    return _shell_join(
-        [
-            "shipgate",
-            "init",
-            "--workspace",
-            str(command_workspace),
-            "--write",
-            "--json",
-        ]
+    return retarget_command(
+        _shell_join(
+            [
+                "shipgate",
+                "init",
+                "--workspace",
+                str(command_workspace),
+                "--write",
+                "--json",
+            ]
+        )
     )
 
 
@@ -3611,7 +3614,7 @@ def _preview_verify_command(
     if not preview:
         parts.extend(["--ci-mode", "advisory"])
     parts.append("--json")
-    return _shell_join(parts)
+    return retarget_command(_shell_join(parts))
 
 
 @contextlib.contextmanager

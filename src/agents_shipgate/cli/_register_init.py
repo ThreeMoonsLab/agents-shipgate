@@ -300,8 +300,14 @@ def register(app: typer.Typer) -> None:
             template = render_manifest_template(workspace_resolved)
             placeholders = collect_placeholders(template)
             auto_detected: dict[str, object] = {}
-            next_action_create = (
-                "Replace placeholders, then run: agents-shipgate scan -c shipgate.yaml"
+            next_action_create = NextAction(
+                kind="command",
+                command="agents-shipgate scan -c shipgate.yaml",
+                why=(
+                    "Replace every value listed in placeholders[] in shipgate.yaml, "
+                    "then scan the declared tool surface."
+                ),
+                expects="A readiness report under agents-shipgate-reports/.",
             )
             next_action_dry = "Inspect the template, then re-run with --write to commit it."
         else:
@@ -334,24 +340,23 @@ def register(app: typer.Typer) -> None:
                 _validate_manifest_text(template)
             except Exception as exc:  # noqa: BLE001 - validation surface
                 typer.echo(f"Generated manifest failed validation: {exc}", err=True)
+                minimal_action = NextAction(
+                    kind="command",
+                    command="agents-shipgate init --minimal",
+                    why=(
+                        "Auto-detected manifest failed schema validation. "
+                        "Fall back to the legacy CHANGE_ME-heavy template."
+                    ),
+                    expects=(
+                        "shipgate.yaml renders with placeholder fields "
+                        "you fill in manually."
+                    ),
+                )
                 _emit_agent_mode_error(
                     "internal_error",
                     message=f"Generated manifest failed validation: {exc}",
-                    next_action="agents-shipgate init --minimal",
-                    next_actions=[
-                        NextAction(
-                            kind="command",
-                            command="agents-shipgate init --minimal",
-                            why=(
-                                "Auto-detected manifest failed schema validation. "
-                                "Fall back to the legacy CHANGE_ME-heavy template."
-                            ),
-                            expects=(
-                                "shipgate.yaml renders with placeholder fields "
-                                "you fill in manually."
-                            ),
-                        ).model_dump(mode="json")
-                    ],
+                    next_action=minimal_action.to_legacy_string(),
+                    next_actions=[minimal_action.model_dump(mode="json")],
                 )
                 raise typer.Exit(4) from exc
             placeholders = collect_placeholders(template)
@@ -390,8 +395,14 @@ def register(app: typer.Typer) -> None:
                 # tool_sources so the manifest scans, surfaced here so the
                 # decision is visible to JSON consumers.
                 auto_detected["excluded_sources"] = excluded_sources
-            next_action_create = (
-                "Review and run: agents-shipgate scan -c shipgate.yaml --suggest-patches"
+            next_action_create = NextAction(
+                kind="command",
+                command="agents-shipgate scan -c shipgate.yaml --suggest-patches",
+                why=(
+                    "Review the auto-detected manifest, then scan the declared "
+                    "tool surface with patch suggestions."
+                ),
+                expects="A readiness report under agents-shipgate-reports/.",
             )
             next_action_dry = "Inspect the template, then re-run with --write to commit it."
 
@@ -545,7 +556,11 @@ def register(app: typer.Typer) -> None:
                 payload["template"] = template
                 payload["next_action"] = next_action_dry
             else:
-                payload["next_action"] = next_action_create
+                # Projected from the action rather than written twice, so the
+                # recovery command is spelled for this invocation and carries
+                # its structured argv (#322).
+                payload["next_action"] = next_action_create.to_legacy_string()
+                payload["next_actions"] = [next_action_create.model_dump(mode="json")]
             if auto_detected:
                 payload["auto_detected"] = auto_detected
             if workflow_outcome is not None:

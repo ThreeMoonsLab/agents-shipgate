@@ -270,23 +270,25 @@ def apply_patches(
 
 
 def _emit_input_error(kind: str, message: str, **fields: object) -> None:
-    """Emit a structured one-line JSON error on stderr when agent mode is
-    active (explicit AGENTS_SHIPGATE_AGENT_MODE or an auto-detected
-    coding-agent harness env), matching the convention used by other
-    commands. Silent otherwise.
+    """Emit this command's agent-mode errors through the shared emitter.
+
+    This used to be a second, parallel implementation that reproduced the
+    payload by hand. Two things followed from that, and both were invisible
+    until something looked: the line never carried the ``command`` field every
+    other agent-mode error carries, and — because the recovery routes here are
+    built as plain dicts rather than
+    :class:`~agents_shipgate.schemas.diagnostics.NextAction` objects — they
+    silently opted out of the invocation policy, advertising a console script
+    to a caller that had none (#322).
 
     ``fields`` may carry ``next_action`` (legacy single string) and
-    ``next_actions`` (ranked list of NextAction dicts) so callers can
-    attach recovery hints in the same shape as the global agent-mode
-    helper."""
-    import sys
+    ``next_actions`` (ranked list of action dicts); the shared emitter
+    normalizes both.
+    """
 
-    from agents_shipgate.cli.agent_mode import is_agent_mode
+    from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 
-    if not is_agent_mode():
-        return
-    payload = {"error": kind, "message": message, **fields}
-    print(json.dumps(payload, default=str), file=sys.stderr)
+    emit_agent_mode_error(kind, message=message, **fields)
 
 
 def _emit_malformed_patch_error(from_path: Path, message: str) -> None:

@@ -1,11 +1,63 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    model_serializer,
+    model_validator,
+)
+from pydantic.functional_serializers import SerializerFunctionWrapHandler
+
+from agents_shipgate.invocation import retarget_command, split_invocation
 
 NextActionKind = Literal["command", "edit", "review", "stop"]
 DiagnosticSeverity = Literal["block", "warn", "info"]
+
+_ARGV_PROPERTY_SCHEMA: dict[str, Any] = {
+    "executable": {
+        "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
+        "readOnly": True,
+        "description": (
+            "Entry-point argv tokens, computed from `command` (contract v23+). Absent when "
+            "the command has no faithful argv form. Accepted but ignored on input: the "
+            "projection is always recomputed, so it cannot be forged in transit."
+        ),
+    },
+    "args": {
+        "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
+        "readOnly": True,
+        "description": "The remaining argv tokens. Same rules as `executable`.",
+    },
+}
+
+
+def _describe_computed_argv(schema: dict[str, Any]) -> None:
+    """Document the computed argv pair in the generated JSON Schema.
+
+    Neither mode describes it unaided: validation mode omits computed fields,
+    and the wrap serializer that drops the pair when absent erases the
+    serialization shape. A schema that omits properties the payload actually
+    carries is a schema a consumer cannot validate against, so both modes are
+    told about them here. Merged rather than assigned — a plain
+    ``json_schema_extra`` dict would replace ``properties`` wholesale and hide
+    every real field.
+    """
+
+    schema.setdefault("type", "object")
+    schema.setdefault("properties", {}).update(_ARGV_PROPERTY_SCHEMA)
+
+
+# Known limitation: ``model_json_schema(mode="serialization")`` returns an open
+# object for this model, because a wrap serializer replaces the inferred shape
+# before ``json_schema_extra`` runs. Validation mode is the documented schema
+# and is complete; nothing in the repo generates a serialization schema for
+# ``NextAction``. Emitting ``null`` instead of omitting the pair would restore
+# it, at the cost of widening the wire for every action that can never carry an
+# argv — see ``_drop_absent_argv``.
 
 
 class NextAction(BaseModel):
@@ -18,15 +70,108 @@ class NextAction(BaseModel):
       ``shipgate.yaml:<line>``).
     - ``kind="review"`` → no command, just a sentence in ``why``.
     - ``kind="stop"`` → negative-control; ``command`` is None.
+
+    Call sites write ``command`` as the console-script spelling
+    (``agents-shipgate ...``). Two things happen to it here, and both happen
+    here rather than at the ~40 construction sites so that no surface can opt
+    out of the policy by being written later:
+
+    * It is retargeted to however *this* process entered the CLI. Emitting
+      ``agents-shipgate`` from a ``python -m agents_shipgate`` run hands the
+      caller a command its environment may have no wrapper for (#322).
+    * ``executable`` and ``args`` are *computed* from the retargeted string, so
+      a caller that would rather not parse a shell string does not have to.
+      They are a projection and never independent input — supplying them is an
+      ``extra_forbidden`` error, and because they are recomputed on every read
+      no mutation path can leave them describing a command the action no longer
+      holds. "The two forms cannot disagree" is a property of the type rather
+      than a claim about one code path.
+
+    This model is published with ``extra="forbid"``, so the two properties are
+    not additive for a strict consumer validating against the pre-v23 shape —
+    contract v23 carries the change, and they are omitted entirely rather than
+    serialized as ``null`` so that every non-command action stays byte-for-byte
+    what it was.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_describe_computed_argv)
 
     kind: NextActionKind
     command: str | None = None
     path: str | None = None
     why: str
     expects: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def executable(self) -> list[str] | None:
+        """Entry-point argv tokens for :attr:`command`, or ``None``.
+
+        Computed rather than stored, which is what makes "the two forms cannot
+        disagree" a property of the type instead of a claim about one code
+        path. Setting the pair once during validation left it stale after
+        ``model_copy(update={"command": ...})`` — which skips validation — and
+        after a plain attribute assignment, so a mutated action could serialize
+        an argv belonging to the command it used to hold. Deriving on every
+        read closes both, and ``extra="forbid"`` now rejects a caller trying to
+        supply the pair at all.
+        """
+
+        return self._argv[0]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def args(self) -> list[str] | None:
+        """The remaining argv tokens. See :attr:`executable`."""
+
+        return self._argv[1]
+
+    @property
+    def _argv(self) -> tuple[list[str], list[str]] | tuple[None, None]:
+        if self.kind != "command" or not self.command:
+            return (None, None)
+        # ``None`` means the string has no faithful argv form — a leading
+        # ``NAME=VALUE`` assignment, or unquoted shell syntax. Withholding the
+        # pair is the honest answer; the rendered string carries the whole
+        # instruction either way.
+        return split_invocation(self.command) or (None, None)
+
+    @model_serializer(mode="wrap")
+    def _drop_absent_argv(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Emit ``executable``/``args`` only where they carry something.
+
+        Every other optional field on this model serializes as ``null`` when
+        unset, and these deliberately do not. A ``review``/``edit``/``stop``
+        action can never carry an argv, so emitting the keys there would widen
+        the wire shape for every consumer to describe an absence they could
+        already infer from ``kind``.
+        """
+
+        data = handler(self)
+        for field in ("executable", "args"):
+            if data.get(field) is None:
+                data.pop(field, None)
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_own_output(cls, data: Any) -> Any:
+        """Let the model read back what it wrote.
+
+        ``executable`` and ``args`` are computed, so ``extra="forbid"`` would
+        reject them on the way in — and the payload they appear in is one this
+        model produced. A wire model that cannot validate its own serialization
+        is broken for every consumer that round-trips through it, including
+        ``Diagnostic`` and agent-mode output replayed through the schema.
+
+        They are dropped rather than read: the projection is still computed
+        from ``command``, so a payload whose pair was edited in transit
+        validates to the pair its command actually implies.
+        """
+
+        if isinstance(data, dict) and ("executable" in data or "args" in data):
+            return {key: value for key, value in data.items() if key not in {"executable", "args"}}
+        return data
 
     @model_validator(mode="after")
     def _check_kind_fields(self) -> NextAction:
@@ -36,6 +181,8 @@ class NextAction(BaseModel):
             raise ValueError("kind='edit' requires a non-empty path")
         if self.kind == "stop" and self.command is not None:
             raise ValueError("kind='stop' must not carry a command")
+        if self.kind == "command" and self.command:
+            self.command = retarget_command(self.command)
         return self
 
     def to_legacy_string(self) -> str:

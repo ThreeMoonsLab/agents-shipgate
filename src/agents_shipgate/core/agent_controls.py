@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-import shlex
 from pathlib import Path
+
+from agents_shipgate.invocation import render_command, retarget_command
 
 # Reward-hacking moves that are never acceptable for an autonomous coding
 # agent. These strings are shared by verify and preflight surfaces.
@@ -15,6 +16,12 @@ FORBIDDEN_SHORTCUTS: tuple[str, ...] = (
     "evaluate this change.",
 )
 
+# The canonical spelling, as installed by the wheel. Every command this module
+# hands out is rendered through the invocation policy before it leaves, so a
+# run started with ``python -m agents_shipgate`` proposes a command that
+# environment can actually execute (#322). The constant itself stays canonical:
+# it is also the documented spelling, and the policy is a no-op for it whenever
+# a console script really is the way in.
 DEFAULT_VERIFY_COMMAND = "agents-shipgate verify --json"
 
 
@@ -45,7 +52,13 @@ def verify_command_for(
 ) -> str:
     """The verify invocation that evaluates the given target.
 
-    Two things make this less obvious than it looks:
+    Every argument — including each element of ``extra`` — is one **raw** argv
+    token, quoted here exactly once. Callers must not pre-quote: a value that
+    arrives already shell-quoted is quoted a second time, and the reader that
+    follows the command gets the quote characters as part of the value (a
+    ``--out`` path that names a directory literally called ``'/tmp/x y'``).
+
+    Two more things make this less obvious than it looks:
 
     ``verify`` resolves a relative ``--config`` against the repository root,
     not against ``--workspace``. Echoing the caller's own relative spelling
@@ -64,26 +77,26 @@ def verify_command_for(
     if (base is None) != (head is None):
         raise ValueError("verify command requires both base and head, or neither")
     if workspace is None and config is None and base is None and not extra:
-        return DEFAULT_VERIFY_COMMAND
-    parts = ["agents-shipgate", "verify"]
+        return retarget_command(DEFAULT_VERIFY_COMMAND)
+    args = ["verify"]
     if workspace is not None:
-        parts.extend(["--workspace", shlex.quote(_cwd_anchored(workspace))])
+        args.extend(["--workspace", _cwd_anchored(workspace)])
     if config is not None:
-        parts.extend(["--config", shlex.quote(_config_for_verify(workspace, config))])
+        args.extend(["--config", _config_for_verify(workspace, config)])
     if base is not None and head is not None:
-        parts.extend(["--base", shlex.quote(base), "--head", shlex.quote(head)])
-    parts.extend(extra)
-    parts.append("--json")
-    return " ".join(parts)
+        args.extend(["--base", base, "--head", head])
+    args.extend(extra)
+    args.append("--json")
+    return render_command(args)
 
 
 def detect_command_for(workspace: Path | None) -> str:
     """The detect invocation for the same checkout as a boundary check."""
 
     requested_workspace = workspace or Path(".")
-    return (
-        "shipgate detect --workspace "
-        f"{shlex.quote(_cwd_anchored(requested_workspace))} --json"
+    return render_command(
+        ["detect", "--workspace", _cwd_anchored(requested_workspace), "--json"],
+        program="shipgate",
     )
 
 

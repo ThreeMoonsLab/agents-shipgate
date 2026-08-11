@@ -10,6 +10,21 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+Runtime contract v23 spells every emitted command for the invocation that
+produced it. A run started with `python -m agents_shipgate` now proposes
+`<sys.executable> -m agents_shipgate ...` instead of a console script its
+environment may not have; a console-script run is unchanged. Actions with
+`kind="command"` in `next_actions[]` also carry `executable[]` and `args[]` —
+**the authoritative runnable form on every platform**; run them as
+`[*executable, *args]` with no shell. The pair is computed from `command` and
+cannot be supplied, so the two forms cannot disagree, and it is omitted (not
+`null`) whenever the command has no faithful argv form. `command` itself is a
+POSIX rendering for display and POSIX shells. When the rank-1 action is a
+command, the legacy `next_action` string is that command verbatim. Set `AGENTS_SHIPGATE_CLI` to
+name the entry point explicitly. Durable evidence artifacts (`report.json`,
+`packet.*`) stay canonical: "same inputs, same report" outranks runnability
+there, and process-entry spelling is not an input.
+
 Runtime contract v22 publishes `shipgate.agent_control/v1`, the compact control
 envelope. It is a **projection of the control state, not a second decision**:
 every field is copied from a producer that already published it, and the
@@ -145,7 +160,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `22` (minimum control contract: `21`)
+- Runtime contract: `23` (minimum control contract: `21`)
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

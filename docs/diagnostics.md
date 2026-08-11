@@ -42,13 +42,99 @@ do not change the exit code.
 `NextAction` (ranked recovery step; ordered list — array position is
 the rank, no separate `rank` field):
 
-| Field    | Type                                      | Notes                                                         |
-| -------- | ----------------------------------------- | ------------------------------------------------------------- |
-| kind     | `command \| edit \| review \| stop`       | Action category.                                              |
-| command  | `string \| null`                          | Required when `kind="command"`. Always `null` when `"stop"`. |
-| path     | `string \| null`                          | Required when `kind="edit"`. May be `shipgate.yaml:<line>`. |
-| why      | `string`                                  | One-sentence rationale.                                       |
-| expects  | `string \| null`                          | Optional: what the next run should output if the action worked. |
+| Field      | Type                                      | Notes                                                         |
+| ---------- | ----------------------------------------- | ------------------------------------------------------------- |
+| kind       | `command \| edit \| review \| stop`       | Action category.                                              |
+| command    | `string \| null`                          | Required when `kind="command"`. Always `null` when `"stop"`. |
+| path       | `string \| null`                          | Required when `kind="edit"`. May be `shipgate.yaml:<line>`. |
+| why        | `string`                                  | One-sentence rationale.                                       |
+| expects    | `string \| null`                          | Optional: what the next run should output if the action worked. |
+| executable | `string[]` (absent when N/A)              | Entry-point argv tokens (contract v23+). Present only when `kind="command"` and the command has a faithful argv form; **omitted**, never `null`. |
+| args       | `string[]` (absent when N/A)              | The remaining argv tokens. Same presence rule as `executable`. |
+
+### Invocation policy
+
+Emitted commands name the entry point that started *this* process, so the
+recovery loop stays runnable in the environment that produced it:
+
+| How Shipgate was started              | What emitted commands say                       |
+| ------------------------------------- | ----------------------------------------------- |
+| `AGENTS_SHIPGATE_CLI` set             | That value, split with `shlex` — highest precedence. The same override the Claude Code hook installer honours. An explicit entry point is always spliced in, including `AGENTS_SHIPGATE_CLI=/private/venv/bin/agents-shipgate`: the program *name* matches a console script, but the operator named that wrapper, not whichever one `PATH` resolves. |
+| `agents-shipgate …` / `shipgate …`    | The same console script the command was written with — unchanged. |
+| `python -m agents_shipgate …`         | `<sys.executable> -m agents_shipgate …`. The interpreter is spelled by path, not as a bare `python`, because a bare name resolves through `PATH` and can land on a different interpreter. |
+| Anything else                         | The canonical `agents-shipgate`. An unrecognised argv is not evidence of a better spelling. |
+
+`command` never contains `__main__.py`.
+
+**`command` is a POSIX-shell rendering, not a host-shell promise.** It is
+quoted with POSIX rules on every platform, deliberately: one renderer and one
+parser must agree, or a value changes in transit. (`subprocess.list2cmdline`
+looks like the Windows answer but is MS C-runtime *argv* quoting — it leaves
+`feature&whoami` unquoted for `cmd.exe`, and pairing it with a POSIX parse
+turned `C:\repo` into `C:repo`: a runnable command against the wrong
+workspace.) Uniform POSIX quoting round-trips Windows paths exactly, since a
+single-quoted `'C:\repo'` keeps its backslashes. **Do not paste `command`
+into `cmd.exe` or PowerShell** — single quotes are not quoting there. Use the
+structured pair.
+
+**Structured argv, where it is carried.** `executable` and `args` need no
+shell at all: `subprocess.run([*executable, *args])` runs exactly what the
+string describes. They are *computed* from `command` and ignored on input, and
+they are recomputed on every read, so no mutation can leave them describing a
+command the action no longer holds.
+
+They are carried on **`next_actions[]`** — agent-mode error lines and the
+`detect` / `doctor` / `init` / `scan` / `verify` / `check` / `preflight` JSON
+payloads. They are **not** carried on the operational control contracts:
+`control.next_action`, `allowed_next_commands`, verifier repairs, and
+`fix_task.verification_command` publish the string only. Extending the argv
+pair into those contracts changes the `AgentControl` union, which raises
+`minimum_control_contract_version` and forces a down-projection for the frozen
+`shipgate.codex_boundary_result/v2` schema; it is tracked in
+[#369](https://github.com/ThreeMoonsLab/agents-shipgate/issues/369) rather
+than folded in here.
+
+**Recovering argv from any command string.** Because every command Shipgate
+emits is rendered with POSIX quoting on every platform — one renderer, no
+exceptions — `shlex.split(command)` reproduces the exact argv on every surface,
+including the control contracts, and on Windows:
+
+```python
+subprocess.run(shlex.split(control["next_action"]["command"]))
+```
+
+This is a guarantee, not an observation: it is pinned by
+`tests/test_invocation_policy.py::test_every_control_surface_command_recovers_exact_argv`.
+Use it wherever `executable`/`args` are absent, in preference to `shell=True`.
+
+Both keys are **omitted**, not `null`, whenever the command has no faithful
+argv form:
+
+- a leading `NAME=VALUE` assignment, which is shell syntax rather than an argv
+  token;
+- any unquoted shell metacharacter — an operator (`&&`, `|`, `;`), redirection
+  (`>`, and therefore a `<report.json>` placeholder), substitution (`$VAR`,
+  backticks), or a glob. `shlex.split` returns `&&` as an ordinary token, so
+  publishing its output would advertise a call that does something other than
+  what the string says. Only **single** quotes make these inert: double quotes
+  suppress word splitting but not substitution, so `"$HOME"` is withheld too;
+- any action whose `kind` is not `command`.
+
+The rendered string stays authoritative in all of those cases.
+
+### What the policy does *not* touch
+
+| Surface | Why it stays canonical |
+| ------- | ---------------------- |
+| `report.json`, `report.md`, `packet.*` | [`docs/architecture.md`](architecture.md) makes **same inputs → same report** a non-negotiable invariant. Process entry is not an input: the same scan through a wrapper and through `python -m` must produce the same bytes, or one semantic `run_id` acquires several artifact bodies and the packet hash stops meaning anything. Live routes carry the runnable spelling instead. |
+| `primary_commands`, `.well-known/agents-shipgate.json` | Published vocabulary describing the installed CLI, not a route for one run — and its generator must never bake an interpreter path into a committed file. |
+| Prose (`why`, `recommendation`, report Markdown) | Documentation of the canonical CLI rather than a field a caller executes. |
+
+Everything else that *is* a command to run — `command` on next actions,
+agent-mode error routes, preflight `related_command`, and the control and
+repair commands the verifier and boundary publish — follows the policy. It is
+applied at the emission boundary, not at each call site, so a route built as a
+plain dict rather than as a `NextAction` cannot opt out.
 
 The legacy `next_action: str` field on `detect`, `doctor`, and
 agent-mode error JSON is the rank-1 action projected to a single string:
@@ -56,12 +142,20 @@ agent-mode error JSON is the rank-1 action projected to a single string:
 | Rank-1 kind | Legacy projection                  |
 | ----------- | ---------------------------------- |
 | command     | the `command` value verbatim       |
-| edit        | `Edit <path>`                      |
-| review      | `Review: <why>`                    |
-| stop        | `Stop: <why>`                      |
+| edit        | `Edit <path>`, or a caller-written sentence naming the same file |
+| review      | `Review: <why>`, or a caller-written sentence |
+| stop        | `Stop: <why>`, or a caller-written sentence |
 
 This keeps `next_action` string-typed even for negative-control
 diagnostics where no command should run.
+
+A rank-1 `command` is authoritative: the legacy field is that command
+verbatim, spelled for the same invocation, so the two can never route a caller
+to different programs. For the other kinds there is no program to disagree
+about, and a command emitter may supply a more specific sentence than the
+generic projection (`Remove <path> and re-run scan` rather than
+`Edit <path>`); those are still retargeted, so prose cannot name a stale entry
+point either.
 
 ## Catalog
 

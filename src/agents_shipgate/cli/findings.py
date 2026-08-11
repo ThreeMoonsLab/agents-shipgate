@@ -217,27 +217,26 @@ def findings(
         )
     except ValueError as exc:
         typer.echo(f"findings: {exc}", err=True)
+        # Both forms are projected from one action so the legacy string cannot
+        # keep naming a console script the ranked array has already retargeted.
+        action = NextAction(
+            kind="command",
+            command="agents-shipgate scan -c shipgate.yaml --format json",
+            why=(
+                f"Could not load or filter {source}. Generate a "
+                "fresh report.json with the current CLI."
+            ),
+            expects=(
+                "agents-shipgate-reports/report.json on disk, "
+                "validatable against report schema v0.15 or newer."
+            ),
+        )
         emit_agent_mode_error(
             "input_parse_error",
             message=str(exc),
             source_report=str(source),
-            next_action="agents-shipgate scan -c shipgate.yaml --format json",
-            next_actions=[
-                NextAction(
-                    kind="command",
-                    command=(
-                        "agents-shipgate scan -c shipgate.yaml --format json"
-                    ),
-                    why=(
-                        f"Could not load or filter {source}. Generate a "
-                        "fresh report.json with the current CLI."
-                    ),
-                    expects=(
-                        "agents-shipgate-reports/report.json on disk, "
-                        "validatable against report schema v0.15 or newer."
-                    ),
-                ).model_dump(mode="json")
-            ],
+            next_action=action.to_legacy_string(),
+            next_actions=[action.model_dump(mode="json")],
         )
         raise typer.Exit(3) from exc
 

@@ -315,7 +315,9 @@ The full set of error kinds emitted in agent mode: `config_error`, `config_alrea
 
 The machine-readable catalog of error kinds — exit codes, typical causes, additional fields per kind, recovery hints — lives at [`docs/errors.json`](docs/errors.json). Pre-fetch it once and pattern-match the `error` field instead of re-deriving the recovery vocabulary from this prose.
 
-`detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, and `expects` fields. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
+`detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, `expects`, and the structured `executable[]` / `args[]` pair. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
+
+Every emitted command names the entry point that started the running process, so it is runnable where it was produced: a console-script run emits `agents-shipgate …`, and a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate …`. Set `AGENTS_SHIPGATE_CLI` to name the entry point explicitly; it wins over detection. **On `next_actions[]`, run `[*executable, *args]` (contract v23+) rather than parsing `command`** — it needs no shell and is computed from `command`, so it cannot disagree with it; it is omitted, never `null`, when the command has no faithful argv form. The operational control contracts (`control.next_action`, `allowed_next_commands`, verifier repairs) carry the string only: recover argv there with `shlex.split(command)`, which is exact on every platform because every emitted command is POSIX-rendered. Never use `shell=True`, and do not paste `command` into `cmd.exe` or PowerShell. Durable artifacts (`report.json`, `packet.*`) stay canonical so that same inputs still produce the same report. See [docs/diagnostics.md](docs/diagnostics.md#invocation-policy).
 
 ### Doctor behavior change for unresolved tool_sources
 
@@ -1083,6 +1085,21 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+Runtime contract v23 spells every emitted command for the invocation that
+produced it. A run started with `python -m agents_shipgate` now proposes
+`<sys.executable> -m agents_shipgate ...` instead of a console script its
+environment may not have; a console-script run is unchanged. Actions with
+`kind="command"` in `next_actions[]` also carry `executable[]` and `args[]` —
+**the authoritative runnable form on every platform**; run them as
+`[*executable, *args]` with no shell. The pair is computed from `command` and
+cannot be supplied, so the two forms cannot disagree, and it is omitted (not
+`null`) whenever the command has no faithful argv form. `command` itself is a
+POSIX rendering for display and POSIX shells. When the rank-1 action is a
+command, the legacy `next_action` string is that command verbatim. Set `AGENTS_SHIPGATE_CLI` to
+name the entry point explicitly. Durable evidence artifacts (`report.json`,
+`packet.*`) stay canonical: "same inputs, same report" outranks runnability
+there, and process-entry spelling is not an input.
+
 Runtime contract v22 publishes `shipgate.agent_control/v1`, the compact control
 envelope. It is a **projection of the control state, not a second decision**:
 every field is copied from a producer that already published it, and the
@@ -1218,7 +1235,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `22` (minimum control contract: `21`)
+- Runtime contract: `23` (minimum control contract: `21`)
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

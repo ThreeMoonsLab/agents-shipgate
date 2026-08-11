@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- **The recommended next command now runs where it was recommended.** Every
+  emitted command was written as the console script the wheel installs
+  (`agents-shipgate …`), so a run started from a source checkout with
+  `python -m agents_shipgate` handed the caller a command its environment may
+  have had no wrapper for — and agent-mode errors reported the running command
+  as `__main__.py`, which is not a program and which any consumer rendering the
+  field as Markdown silently corrupts to `**main**.py`. Commands are now
+  spelled for the entry point that started the process: a console-script run
+  emits exactly what it emitted before, a `python -m agents_shipgate` run emits
+  `<sys.executable> -m agents_shipgate …` (by interpreter path, since a bare
+  `python` resolves through `PATH` and can land on a different one), and
+  `AGENTS_SHIPGATE_CLI` — already the operator override for the Claude Code
+  hook command — takes precedence over both, including when the path it names
+  happens to end in a console-script name, and parsed with the host's own rules
+  so a Windows value keeps its backslashes. One policy covers preview,
+  init, doctor, scan, verify, detect, check, preflight, apply-patches, and the
+  control and repair commands the verifier and boundary publish; it is applied
+  at the emission boundary, so a route built as a plain dict rather than as a
+  `NextAction` cannot opt out. Contract `23`. `next_actions[]` entries with
+  `kind="command"` additionally carry an `executable[]` / `args[]` pair — the
+  authoritative runnable form on every platform, needing no shell. It is
+  *computed* from `command` rather than stored, so supplying it is an error and
+  no mutation can leave it describing a command the action no longer holds; the
+  pair is omitted rather than emitted as `null`, so every action that cannot
+  carry an argv is unchanged on the wire, and it is withheld entirely when the
+  command needs a shell — an operator, a redirection, a substitution (including
+  inside double quotes, which do not make `$VAR` inert), or a `<placeholder>` —
+  rather than advertising an argv that would do something else. `command`
+  itself is a POSIX rendering on every platform: one renderer and one parser
+  must agree, and pairing Windows argv-quoting with a POSIX parse turned
+  `C:\repo` into `C:repo` — a runnable command against the wrong workspace.
+  Because that rendering is uniform, `shlex.split(command)` recovers the exact
+  argv on *every* surface and host, which is the documented recovery for the
+  operational control contracts (`control.next_action`,
+  `allowed_next_commands`, verifier repairs), where the argv pair is not
+  carried. When the rank-1 action is a command, the legacy `next_action` string
+  is that command verbatim, so the back-compat field cannot route a caller to a
+  different program than `next_actions[0]`. Durable evidence stays canonical: `report.json`,
+  `report.md`, and `packet.*` are byte-identical however the process was
+  started, because "same inputs, same report" outranks runnability there and
+  process entry is not an input. This is the path used to evaluate external
+  PRs, where the recovery loop breaking is worst. ([#322](https://github.com/ThreeMoonsLab/agents-shipgate/issues/322))
+
 - **A prompt or policy edit outside the repository root — or spelled
   `Policies/` — no longer reports as "nothing in this PR signals a tool-surface
   change."** `TRIGGER-PROMPTS-OR-POLICIES` matched `prompts/**` and

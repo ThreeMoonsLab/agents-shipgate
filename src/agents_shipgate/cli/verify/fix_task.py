@@ -20,6 +20,7 @@ from agents_shipgate.ci.release_decision import (
     evidence_below_ie_threshold,
 )
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
+from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
@@ -526,7 +527,7 @@ def _mechanical_repairs(
     for finding_id in finding_ids:
         apply_parts.extend(["--finding-id", finding_id])
     apply_parts.extend(["--confidence", "high", "--apply"])
-    apply_command = " ".join(shlex.quote(part) for part in apply_parts)
+    apply_command = retarget_command(" ".join(shlex.quote(part) for part in apply_parts))
     for finding in gating:
         for index, patch in enumerate(finding.patches or [], start=1):
             if getattr(patch, "kind", None) == "manual":
@@ -820,7 +821,7 @@ def _verification_command(
         parts.extend(["--head", shlex.quote(head_ref or "HEAD")])
     parts.extend(options or ())
     parts.append("--json")
-    return " ".join(parts)
+    return retarget_command(" ".join(parts))
 
 
 __all__ = ["FORBIDDEN_SHORTCUTS", "build_fix_task"]

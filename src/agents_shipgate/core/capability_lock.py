@@ -15,6 +15,7 @@ from agents_shipgate.core.capability_delta import (
 )
 from agents_shipgate.core.domain import Agent, Tool
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_SCHEMA_VERSION,
     CAPABILITY_STANDARD_VERSION,
@@ -282,15 +283,17 @@ def _require_comparable_capability_standards(
         stale_path = head_path
 
     output_path = stale_path or DEFAULT_CAPABILITY_LOCK_PATH
-    command = " ".join(
-        [
-            "agents-shipgate capability export",
-            "--config",
-            shlex.quote(stale_lock.source.config_path),
-            "--out",
-            shlex.quote(str(output_path)),
-            "--no-report-copy",
-        ]
+    command = retarget_command(
+        " ".join(
+            [
+                "agents-shipgate capability export",
+                "--config",
+                shlex.quote(stale_lock.source.config_path),
+                "--out",
+                shlex.quote(str(output_path)),
+                "--no-report-copy",
+            ]
+        )
     )
     raise InputParseError(
         "Mixed capability-standard lock diff is not comparable "

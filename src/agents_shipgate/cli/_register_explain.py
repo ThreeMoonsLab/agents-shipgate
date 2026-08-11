@@ -29,24 +29,21 @@ def register(app: typer.Typer) -> None:
             suggestion = matches[0] if matches else None
             suffix = f". Did you mean {suggestion}?" if suggestion else ""
             typer.echo(f"Unknown check id: {check_id}{suffix}", err=True)
+            catalog_action = NextAction(
+                kind="command",
+                command="agents-shipgate list-checks --json",
+                why=(
+                    "Enumerate the full check catalog so the agent can "
+                    "match by id."
+                ),
+                expects=("JSON array of CheckMetadata objects with stable ids."),
+            )
             _emit_agent_mode_error(
                 "unknown_check_id",
                 check_id=check_id,
                 suggestion=suggestion,
-                next_action="agents-shipgate list-checks --json",
-                next_actions=[
-                    NextAction(
-                        kind="command",
-                        command="agents-shipgate list-checks --json",
-                        why=(
-                            "Enumerate the full check catalog so the agent can "
-                            "match by id."
-                        ),
-                        expects=(
-                            "JSON array of CheckMetadata objects with stable ids."
-                        ),
-                    ).model_dump(mode="json")
-                ],
+                next_action=catalog_action.to_legacy_string(),
+                next_actions=[catalog_action.model_dump(mode="json")],
             )
             raise typer.Exit(2)
         if json_output:
