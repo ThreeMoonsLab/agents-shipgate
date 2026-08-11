@@ -29,8 +29,7 @@ Scoring (per plan §1, post-review v4):
 A framework is *detected* when its score ≥ 2.0 AND it accumulated at
 least one strong signal.
 
-Agent-name candidate ranking (corrected post-review):
-``Agent(name="…")`` literal → ADK config ``name=`` → workspace dir name.
+Agent-name candidate ranking: see :func:`_rank_agent_name_candidates`.
 ``pyproject.[project].name`` seeds ``project.name``, NOT ``agent.name``.
 """
 
@@ -39,6 +38,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -65,6 +65,8 @@ from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.detect import (
+    AgentNameCandidate,
+    AgentNameRole,
     CodexPluginCandidate,
     DetectResult,
     FrameworkDetection,
@@ -131,6 +133,59 @@ PACKAGE_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 CONVENTIONAL_DIRS = ("prompts", "tools", ".agents-shipgate")
+
+# --- Agent-name evidence vocabulary -----------------------------------------
+
+# Constructions whose ``name=`` keyword names an agent. Deliberately not
+# :data:`GOOGLE_ADK_AGENT_CLASSES`, which those two names coincide with:
+# this set is framework-agnostic (it also catches the OpenAI Agents SDK's
+# and CrewAI's ``Agent``) and is about extracting an identity, not about
+# scoring a framework. ``App`` is absent on purpose: ``App(name=…)`` names
+# the *application*, not the agent, and only its ``root_agent=`` binding is
+# read (below).
+AGENT_NAME_CLASSES = {"Agent", "LlmAgent"}
+# Classes that bind an agent as the application root. Google ADK's
+# ``App(root_agent=…)`` is the explicit form; ``root_agent`` as a module
+# symbol is the conventional one ``adk run``/``adk web`` discover.
+APP_ROOT_CLASSES = {"App"}
+ROOT_AGENT_SYMBOL = "root_agent"
+# Keywords whose list elements are children of the surrounding agent.
+# ``sub_agents`` is Google ADK; ``handoffs`` is the OpenAI Agents SDK.
+CHILD_AGENT_KEYWORDS = ("sub_agents", "handoffs")
+# Callables whose second positional argument is a static default an agent
+# name can be resolved through without importing user code.
+ENV_LOOKUP_CALLS = {"os.environ.get", "os.getenv", "environ.get", "getenv"}
+
+# Quality floor for a value that may be written as ``agent.name``. A
+# one-character loop-variable-grade identifier and a scaffolding placeholder
+# are both context-poor enough that a CHANGE_ME placeholder plus an explicit
+# review action is the more honest output. Both are compared against the
+# value's normalised form, so ``my_agent``/``My-Agent`` collapse onto the
+# same entry.
+AGENT_NAME_MIN_LENGTH = 3
+GENERIC_AGENT_NAME_VALUES = frozenset(
+    {
+        "agent",
+        "agents",
+        "bar",
+        "baz",
+        "changeme",
+        "dummy",
+        "example",
+        "foo",
+        "myagent",
+        "name",
+        "placeholder",
+        "qux",
+        "sample",
+        "temp",
+        "test",
+        "tests",
+        "tmp",
+        "todo",
+        "untitled",
+    }
+)
 
 
 # --- Internal scoring state -------------------------------------------------
@@ -222,8 +277,10 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
             )
     detections.sort(key=lambda d: (-d.score, d.type))
 
-    agent_name_candidates = _agent_name_candidates(py_facts, workspace)
     project_name_candidates = _project_name_candidates(workspace)
+    agent_name_candidates = _rank_agent_name_candidates(
+        py_facts, workspace, project_name_candidates
+    )
     suggested_sources, excluded_sources = _suggested_sources(workspace)
     codex_plugin_candidates = _codex_plugin_candidates(workspace)
 
@@ -274,13 +331,44 @@ def _collect_python_files(workspace: Path, *, max_files: int) -> list[Path]:
 
 
 @dataclass
+class _Constant:
+    """A module-level string constant an agent name can resolve through."""
+
+    value: str
+    # "module_constant" for ``NAME = "…"``; "env_default" for
+    # ``NAME = os.environ.get("…", "…")``, whose value is the *declared
+    # default* and can be overridden at runtime.
+    provenance: str
+
+
+@dataclass
+class _AgentNameEvidence:
+    """One ``Agent(name=…)`` site, with the hierarchy it sits in.
+
+    Exactly one of ``literal``/``symbol`` is set: a string constant resolves
+    immediately, a bare name needs the cross-module pass in
+    :func:`_resolve_agent_name_evidence`.
+    """
+
+    role: AgentNameRole
+    rel_path: str
+    literal: str | None = None
+    symbol: str | None = None
+    root_evidence: str = ""
+
+
+@dataclass
 class _PyFacts:
     path: Path
     rel_path: str
     imports: set[str] = field(default_factory=set)
     decorators: set[str] = field(default_factory=set)
     constructors: set[str] = field(default_factory=set)
-    agent_name_literals: list[str] = field(default_factory=list)
+    agent_names: list[_AgentNameEvidence] = field(default_factory=list)
+    module_constants: dict[str, _Constant] = field(default_factory=dict)
+    # Symbol → (module, level) for ``from <module> import <symbol>``. Level
+    # is the relative-import dot count (0 for absolute).
+    constant_imports: dict[str, tuple[str, int]] = field(default_factory=dict)
 
 
 def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
@@ -294,6 +382,8 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
         return None
 
     facts = _PyFacts(path=path, rel_path=_relative(path, workspace))
+    hierarchy = _AgentHierarchy()
+    agent_calls: list[ast.Call] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -303,19 +393,163 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
                 facts.imports.add(node.module)
                 for alias in node.names:
                     facts.imports.add(f"{node.module}.{alias.name}")
+            if node.module or node.level:
+                for alias in node.names:
+                    bound = alias.asname or alias.name
+                    facts.constant_imports[bound] = (node.module or "", node.level)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for decorator in node.decorator_list:
                 name = _decorator_name(decorator)
                 if name:
                     facts.decorators.add(name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
+                    hierarchy.assign_targets[id(node.value)] = target.id
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and isinstance(node.value, ast.Call):
+                hierarchy.assign_targets[id(node.value)] = node.target.id
         elif isinstance(node, ast.Call):
             ctor = _call_name(node.func)
             if ctor:
                 facts.constructors.add(ctor)
-                literal = _name_keyword(node)
-                if literal and ctor.split(".")[-1] in {"Agent", "LlmAgent"}:
-                    facts.agent_name_literals.append(literal)
+                tail = ctor.split(".")[-1]
+                hierarchy.observe(node, tail)
+                if tail in AGENT_NAME_CLASSES:
+                    agent_calls.append(node)
+
+    # Roles are assigned only once the whole module has been seen: the
+    # ``App(root_agent=…)`` binding that identifies a coordinator can appear
+    # after the construction it names, and reading it early is exactly the
+    # source-order dependence these roles exist to remove.
+    for call in agent_calls:
+        evidence = _agent_name_evidence(call, hierarchy, facts.rel_path)
+        if evidence is not None:
+            facts.agent_names.append(evidence)
+
+    for name, constant in _module_constants(tree).items():
+        facts.module_constants[name] = constant
     return facts
+
+
+@dataclass
+class _AgentHierarchy:
+    """Structural relationships between agent constructions in one module.
+
+    Accumulated during the single parse walk; call nodes are keyed by
+    ``id()``, and the tree stays alive for the duration of the parse.
+    """
+
+    assign_targets: dict[int, str] = field(default_factory=dict)
+    root_symbols: set[str] = field(default_factory=set)
+    root_calls: set[int] = field(default_factory=set)
+    child_symbols: set[str] = field(default_factory=set)
+    child_calls: set[int] = field(default_factory=set)
+
+    def observe(self, call: ast.Call, tail: str) -> None:
+        """Record what one call says about the agents around it."""
+        for keyword in call.keywords:
+            if tail in APP_ROOT_CLASSES and keyword.arg == ROOT_AGENT_SYMBOL:
+                if isinstance(keyword.value, ast.Name):
+                    self.root_symbols.add(keyword.value.id)
+                elif isinstance(keyword.value, ast.Call):
+                    self.root_calls.add(id(keyword.value))
+            elif keyword.arg in CHILD_AGENT_KEYWORDS:
+                for element in _sequence_elements(keyword.value):
+                    if isinstance(element, ast.Name):
+                        self.child_symbols.add(element.id)
+                    elif isinstance(element, ast.Call):
+                        self.child_calls.add(id(element))
+
+    def role_for(self, call: ast.Call) -> tuple[AgentNameRole, str]:
+        """Return ``(role, evidence)`` for one agent construction."""
+        target = self.assign_targets.get(id(call))
+        if id(call) in self.root_calls:
+            return "root_agent", f"constructed inline as App({ROOT_AGENT_SYMBOL}=…)"
+        if target and target in self.root_symbols:
+            return "root_agent", f"bound as App({ROOT_AGENT_SYMBOL}={target})"
+        if target == ROOT_AGENT_SYMBOL:
+            return "root_agent", f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` symbol"
+        if id(call) in self.child_calls:
+            return "sub_agent", "constructed inline inside another agent's children"
+        if target and target in self.child_symbols:
+            return "sub_agent", f"listed in another agent's children as `{target}`"
+        return "agent", ""
+
+
+def _sequence_elements(node: ast.AST) -> list[ast.expr]:
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return list(node.elts)
+    return []
+
+
+def _agent_name_evidence(
+    call: ast.Call, hierarchy: _AgentHierarchy, rel_path: str
+) -> _AgentNameEvidence | None:
+    value = _name_keyword_node(call)
+    if value is None:
+        return None
+    role, root_evidence = hierarchy.role_for(call)
+    if isinstance(value, ast.Constant):
+        literal = value.value
+        if not isinstance(literal, str) or not literal.strip():
+            return None
+        return _AgentNameEvidence(
+            role=role,
+            rel_path=rel_path,
+            literal=literal.strip(),
+            root_evidence=root_evidence,
+        )
+    if isinstance(value, ast.Name):
+        return _AgentNameEvidence(
+            role=role, rel_path=rel_path, symbol=value.id, root_evidence=root_evidence
+        )
+    return None
+
+
+def _module_constants(tree: ast.AST) -> dict[str, _Constant]:
+    """Module-level ``NAME = <str>`` and ``NAME = os.environ.get(…, <str>)``.
+
+    Module level only, and only these two forms. Anything conditional,
+    computed, or f-string-interpolated is left unresolved so the caller
+    fails closed to a placeholder rather than partially evaluating user
+    code — the static-only boundary erodes one convenience at a time.
+    """
+    constants: dict[str, _Constant] = {}
+    body = getattr(tree, "body", [])
+    for node in body:
+        targets: list[ast.expr]
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+        constant = _static_string(value)
+        if constant is None:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                constants.setdefault(target.id, constant)
+    return constants
+
+
+def _static_string(node: ast.expr) -> _Constant | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.strip():
+        return _Constant(value=node.value.strip(), provenance="module_constant")
+    if isinstance(node, ast.Call):
+        callee = _call_name(node.func) or ""
+        if callee in ENV_LOOKUP_CALLS and len(node.args) == 2:
+            default = node.args[1]
+            if (
+                isinstance(default, ast.Constant)
+                and isinstance(default.value, str)
+                and default.value.strip()
+            ):
+                return _Constant(value=default.value.strip(), provenance="env_default")
+    return None
 
 
 def _decorator_name(node: ast.AST) -> str | None:
@@ -335,12 +569,10 @@ def _call_name(node: ast.AST) -> str | None:
     return None
 
 
-def _name_keyword(call: ast.Call) -> str | None:
+def _name_keyword_node(call: ast.Call) -> ast.expr | None:
     for keyword in call.keywords:
-        if keyword.arg == "name" and isinstance(keyword.value, ast.Constant):
-            value = keyword.value.value
-            if isinstance(value, str) and value.strip():
-                return value.strip()
+        if keyword.arg == "name":
+            return keyword.value
     return None
 
 
@@ -565,18 +797,280 @@ def _confidence_label(score: float) -> str:
     return "low"
 
 
-def _agent_name_candidates(facts: list[_PyFacts], workspace: Path) -> list[NameCandidate]:
-    candidates: list[NameCandidate] = []
-    seen: set[str] = set()
+def select_agent_name(
+    candidates: Sequence[AgentNameCandidate],
+) -> AgentNameCandidate | None:
+    """The one candidate ``init`` may write as ``agent.name``.
+
+    Single implementation on purpose. This decision previously lived
+    inline in both the manifest renderer and the ``init`` JSON summary as
+    a ``source in {…}`` set literal, which is two chances to disagree about
+    the identity the manifest declares. ``None`` means every candidate
+    failed the quality floor and the manifest keeps its CHANGE_ME
+    placeholder.
+    """
+    for candidate in candidates:
+        if candidate.selectable:
+            return candidate
+    return None
+
+
+def _normalise_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _safe_resolve(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return path
+
+
+def _is_test_path(rel_path: str) -> bool:
+    """Whether ``rel_path`` is test code rather than product code.
+
+    A name declared only in a test is a fixture name. It stays a candidate —
+    it is often the real one — but it must not outrank a name the shipped
+    code declares.
+    """
+    parts = Path(rel_path).parts
+    if any(part in {"test", "tests"} for part in parts[:-1]):
+        return True
+    stem = Path(rel_path).name
+    return stem == "conftest.py" or stem.startswith("test_") or stem.endswith("_test.py")
+
+
+def _resolve_agent_name_evidence(
+    evidence: _AgentNameEvidence,
+    fact: _PyFacts,
+    by_path: dict[Path, _PyFacts],
+    workspace: Path,
+) -> tuple[str, str, str] | None:
+    """Resolve one evidence site to ``(value, provenance, detail)``.
+
+    A literal resolves to itself. A bare symbol resolves through **one** hop:
+    a module-level constant in the same file, or a module-level constant in a
+    module this file imports the symbol from directly. The hop never chains —
+    a constant that is itself a name stays unresolved — and the target module
+    must be a file already parsed inside the workspace, so no path outside
+    the walk is ever read.
+    """
+    if evidence.literal is not None:
+        return evidence.literal, "literal", ""
+    symbol = evidence.symbol
+    if not symbol:
+        return None
+    local = fact.module_constants.get(symbol)
+    if local is not None:
+        return local.value, local.provenance, fact.rel_path
+    imported = fact.constant_imports.get(symbol)
+    if imported is None:
+        return None
+    module, level = imported
+    for candidate_path in _constant_module_paths(fact.path, module, level, workspace):
+        target = by_path.get(candidate_path)
+        if target is None:
+            continue
+        constant = target.module_constants.get(symbol)
+        if constant is not None:
+            return constant.value, constant.provenance, target.rel_path
+    return None
+
+
+def _constant_module_paths(
+    importer: Path, module: str, level: int, workspace: Path
+) -> list[Path]:
+    """Files ``from <module> import <symbol>`` could refer to, workspace-only.
+
+    Two spellings reach the adjacent config module that agent packages use:
+    the relative ``from .config import AGENT_NAME`` and the absolute
+    ``from config import AGENT_NAME`` that works because the framework puts
+    the agent directory on ``sys.path``. Both resolve to a sibling file.
+    """
+    parts = [part for part in module.split(".") if part]
+    bases: list[Path] = []
+    if level:
+        base = importer.parent
+        for _ in range(level - 1):
+            base = base.parent
+        bases.append(base)
+    else:
+        bases.append(importer.parent)
+        bases.append(workspace)
+    resolved: list[Path] = []
+    for base in bases:
+        for suffix in ((*parts[:-1], f"{parts[-1]}.py") if parts else (), (*parts, "__init__.py")):
+            if not suffix:
+                continue
+            candidate = base.joinpath(*suffix)
+            try:
+                candidate = candidate.resolve()
+            except (OSError, RuntimeError):
+                continue
+            if candidate.is_relative_to(workspace) and candidate not in resolved:
+                resolved.append(candidate)
+    return resolved
+
+
+@dataclass
+class _RankedName:
+    value: str
+    role: AgentNameRole
+    rel_path: str
+    score: float
+    selectable: bool
+    rationale: list[str]
+    order: int
+
+
+def _rank_agent_name_candidates(
+    facts: list[_PyFacts], workspace: Path, project_names: Sequence[NameCandidate]
+) -> list[AgentNameCandidate]:
+    """Rank ``Agent(name=…)`` evidence best-first.
+
+    Source order is not a ranking. It used to be the whole policy, which is
+    how a one-character test literal became a repository's declared identity
+    (#320) and how a Salesforce worker outranked the coordinator that owns it
+    (#324). Four signals decide the order instead:
+
+    - **Hierarchy.** An application root outranks an unqualified agent, which
+      outranks a declared sub-agent. This is the only signal that can reorder
+      two equally plausible names.
+    - **Origin.** Product code outranks test code.
+    - **Corroboration.** A name the project name independently agrees with
+      is two sources, not one.
+    - **Quality floor.** A value too short or too generic to be an identity
+      is ranked last and made unselectable, so ``init`` writes CHANGE_ME and
+      asks for review rather than asserting something unreliable.
+
+    Scores are published so a reordering regression is visible in
+    ``detect --json`` instead of silently changing what the manifest claims.
+    """
+    by_path = {_safe_resolve(fact.path): fact for fact in facts}
+    project_forms = {
+        _normalise_name(candidate.value) for candidate in project_names if candidate.value
+    }
+    project_forms.add(_normalise_name(workspace.name))
+    project_forms.discard("")
+
+    best: dict[str, _RankedName] = {}
+    order = 0
     for fact in facts:
-        for literal in fact.agent_name_literals:
-            if literal not in seen:
-                candidates.append(NameCandidate(value=literal, source="Agent_name_literal"))
-                seen.add(literal)
+        for evidence in fact.agent_names:
+            resolved = _resolve_agent_name_evidence(evidence, fact, by_path, workspace)
+            if resolved is None:
+                continue
+            value, provenance, detail = resolved
+            ranked = _score_agent_name(
+                value=value,
+                role=evidence.role,
+                rel_path=evidence.rel_path,
+                root_evidence=evidence.root_evidence,
+                provenance=provenance,
+                detail=detail,
+                project_forms=project_forms,
+                order=order,
+            )
+            order += 1
+            previous = best.get(value)
+            if previous is None or ranked.score > previous.score:
+                best[value] = ranked
+
+    ordered = sorted(best.values(), key=lambda r: (not r.selectable, -r.score, r.order))
+    candidates = [
+        AgentNameCandidate(
+            value=ranked.value,
+            source="Agent_name_literal",
+            role=ranked.role,
+            path=ranked.rel_path,
+            rank_score=round(ranked.score, 2),
+            selectable=ranked.selectable,
+            rationale=ranked.rationale,
+        )
+        for ranked in ordered
+    ]
+
     workspace_name = workspace.name
-    if workspace_name and workspace_name not in seen:
-        candidates.append(NameCandidate(value=workspace_name, source="workspace_dir"))
+    if workspace_name and workspace_name not in best:
+        candidates.append(
+            AgentNameCandidate(
+                value=workspace_name,
+                source="workspace_dir",
+                role="workspace_dir",
+                path=None,
+                rank_score=0.0,
+                selectable=False,
+                rationale=[
+                    "directory name, not a declared agent identity — reported "
+                    "for reference, never written as agent.name"
+                ],
+            )
+        )
     return candidates
+
+
+def _score_agent_name(
+    *,
+    value: str,
+    role: AgentNameRole,
+    rel_path: str,
+    root_evidence: str,
+    provenance: str,
+    detail: str,
+    project_forms: set[str],
+    order: int,
+) -> _RankedName:
+    score = 1.0
+    rationale: list[str] = [f"declared as Agent(name=…) in {rel_path}"]
+
+    if provenance == "module_constant":
+        rationale.append(f"resolved from a module constant in {detail}")
+    elif provenance == "env_default":
+        rationale.append(
+            f"resolved from the static default of an environment lookup in "
+            f"{detail} — overridable at runtime"
+        )
+
+    if role == "root_agent":
+        score += 3.0
+        rationale.append(root_evidence or "bound as the application root")
+    elif role == "sub_agent":
+        score -= 1.5
+        rationale.append(
+            root_evidence or "declared as a child of another agent, not the root"
+        )
+
+    if _is_test_path(rel_path):
+        score -= 2.0
+        rationale.append("declared in test code, which names fixtures rather than the product")
+
+    normalised = _normalise_name(value)
+    if normalised and normalised in project_forms:
+        score += 1.0
+        rationale.append("corroborated by the project name")
+
+    selectable = True
+    if len(normalised) < AGENT_NAME_MIN_LENGTH:
+        score -= 3.0
+        selectable = False
+        rationale.append(
+            f"rejected: fewer than {AGENT_NAME_MIN_LENGTH} significant characters, "
+            "too context-poor to assert as an identity"
+        )
+    elif normalised in GENERIC_AGENT_NAME_VALUES:
+        score -= 3.0
+        selectable = False
+        rationale.append("rejected: generic scaffolding name, not an identity")
+
+    return _RankedName(
+        value=value,
+        role=role,
+        rel_path=rel_path,
+        score=score,
+        selectable=selectable,
+        rationale=rationale,
+        order=order,
+    )
 
 
 def _project_name_candidates(workspace: Path) -> list[NameCandidate]:

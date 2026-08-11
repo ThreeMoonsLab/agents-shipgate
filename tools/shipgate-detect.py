@@ -49,8 +49,11 @@ Intentional simplifications vs. the canonical CLI:
   guards against — ``mcpServers``-style host configs — is always JSON,
   so the probe is exact where it matters.
 
-The verdict, detected framework set, and suggested/excluded source split
-match.
+The verdict, detected framework set, suggested/excluded source split, and
+the ranked ``agent_name_candidates`` all match. The name ranking is pinned
+rather than simplified: it decides which agent a manifest declares as the
+reviewed identity, and a script that ranked differently from ``init`` would
+send an agent to fix the wrong one.
 """
 from __future__ import annotations
 
@@ -64,7 +67,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "0.2.3"
+SCRIPT_VERSION = "0.3.0"
 MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
 
 # Framework signal vocabulary (mirror of cli/discovery/signals.py).
@@ -128,6 +131,21 @@ OPENAI_API_PATTERNS = (
     ("tests/*api*cases*.json", "openai-api test cases"),
 )
 CONVENTIONAL_DIRS = ("prompts", "tools", ".agents-shipgate")
+# Agent-name evidence vocabulary (mirror of cli/discovery/signals.py). The
+# ranking below is pinned to the CLI's by tests/test_zero_install_detector.py:
+# two rankings that disagree would have `init` and this script name different
+# agents as the reviewed identity.
+AGENT_NAME_CLASSES = {"Agent", "LlmAgent"}
+APP_ROOT_CLASSES = {"App"}
+ROOT_AGENT_SYMBOL = "root_agent"
+CHILD_AGENT_KEYWORDS = ("sub_agents", "handoffs")
+ENV_LOOKUP_CALLS = {"os.environ.get", "os.getenv", "environ.get", "getenv"}
+AGENT_NAME_MIN_LENGTH = 3
+GENERIC_AGENT_NAME_VALUES = frozenset({
+    "agent", "agents", "bar", "baz", "changeme", "dummy", "example", "foo",
+    "myagent", "name", "placeholder", "qux", "sample", "temp", "test",
+    "tests", "tmp", "todo", "untitled",
+})
 SKIP_DIRS = {
     ".agents-private", ".cache", ".claude", ".direnv", ".git", ".hg",
     ".nox", ".svn", ".mypy_cache", ".next", ".pnpm-store", ".pytest_cache",
@@ -327,29 +345,328 @@ def _parse_py(path: Path) -> dict[str, Any] | None:
     except (OSError, UnicodeDecodeError, SyntaxError):
         return None
     imports, decos, ctors, names = set(), set(), set(), []
+    constant_imports: dict[str, tuple[str, int]] = {}
+    hierarchy = _new_hierarchy()
+    agent_calls: list[ast.Call] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imports.update(a.name for a in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imports.add(node.module)
-            for a in node.names:
-                imports.add(f"{node.module}.{a.name}")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imports.add(node.module)
+                for a in node.names:
+                    imports.add(f"{node.module}.{a.name}")
+            if node.module or node.level:
+                for a in node.names:
+                    constant_imports[a.asname or a.name] = (node.module or "", node.level)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for d in node.decorator_list:
                 n = _name(d)
                 if n:
                     decos.add(n)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
+                    hierarchy["assign_targets"][id(node.value)] = target.id
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and isinstance(node.value, ast.Call):
+                hierarchy["assign_targets"][id(node.value)] = node.target.id
         elif isinstance(node, ast.Call):
             ctor = _name(node.func)
             if ctor:
                 ctors.add(ctor)
-                for kw in node.keywords:
-                    if (kw.arg == "name" and isinstance(kw.value, ast.Constant)
-                            and isinstance(kw.value.value, str)
-                            and kw.value.value.strip()
-                            and ctor.split(".")[-1] in {"Agent", "LlmAgent"}):
-                        names.append(kw.value.value.strip())
-    return {"imports": imports, "decorators": decos, "constructors": ctors, "names": names}
+                tail = ctor.split(".")[-1]
+                _observe_call(hierarchy, node, tail)
+                if tail in AGENT_NAME_CLASSES:
+                    agent_calls.append(node)
+    # Roles are assigned only once the whole module has been seen: an
+    # App(root_agent=…) binding can appear after the construction it names.
+    for call in agent_calls:
+        evidence = _agent_name_evidence(call, hierarchy)
+        if evidence is not None:
+            names.append(evidence)
+    return {
+        "imports": imports,
+        "decorators": decos,
+        "constructors": ctors,
+        "names": names,
+        "constants": _module_constants(tree),
+        "constant_imports": constant_imports,
+    }
+
+
+def _new_hierarchy() -> dict[str, Any]:
+    """Structural relationships between agent constructions in one module,
+    accumulated during the single parse walk. Call nodes are keyed by
+    ``id()``; the tree stays alive for the duration of the parse."""
+    return {
+        "assign_targets": {},
+        "root_symbols": set(),
+        "root_calls": set(),
+        "child_symbols": set(),
+        "child_calls": set(),
+    }
+
+
+def _observe_call(hierarchy: dict[str, Any], call: ast.Call, tail: str) -> None:
+    """Record what one call says about the agents around it."""
+    for kw in call.keywords:
+        if tail in APP_ROOT_CLASSES and kw.arg == ROOT_AGENT_SYMBOL:
+            if isinstance(kw.value, ast.Name):
+                hierarchy["root_symbols"].add(kw.value.id)
+            elif isinstance(kw.value, ast.Call):
+                hierarchy["root_calls"].add(id(kw.value))
+        elif kw.arg in CHILD_AGENT_KEYWORDS and isinstance(
+            kw.value, (ast.List, ast.Tuple, ast.Set)
+        ):
+            for element in kw.value.elts:
+                if isinstance(element, ast.Name):
+                    hierarchy["child_symbols"].add(element.id)
+                elif isinstance(element, ast.Call):
+                    hierarchy["child_calls"].add(id(element))
+
+
+def _agent_name_evidence(call: ast.Call, hierarchy: dict[str, Any]) -> dict[str, Any] | None:
+    value = None
+    for kw in call.keywords:
+        if kw.arg == "name":
+            value = kw.value
+            break
+    if value is None:
+        return None
+    target = hierarchy["assign_targets"].get(id(call))
+    if id(call) in hierarchy["root_calls"]:
+        role, why = "root_agent", f"constructed inline as App({ROOT_AGENT_SYMBOL}=…)"
+    elif target and target in hierarchy["root_symbols"]:
+        role, why = "root_agent", f"bound as App({ROOT_AGENT_SYMBOL}={target})"
+    elif target == ROOT_AGENT_SYMBOL:
+        role = "root_agent"
+        why = f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` symbol"
+    elif id(call) in hierarchy["child_calls"]:
+        role, why = "sub_agent", "constructed inline inside another agent's children"
+    elif target and target in hierarchy["child_symbols"]:
+        role, why = "sub_agent", f"listed in another agent's children as `{target}`"
+    else:
+        role, why = "agent", ""
+    if isinstance(value, ast.Constant):
+        if not isinstance(value.value, str) or not value.value.strip():
+            return None
+        return {"literal": value.value.strip(), "symbol": None, "role": role, "why": why}
+    if isinstance(value, ast.Name):
+        return {"literal": None, "symbol": value.id, "role": role, "why": why}
+    return None
+
+
+def _module_constants(tree: ast.AST) -> dict[str, tuple[str, str]]:
+    """Module-level ``NAME = <str>`` and ``NAME = os.environ.get(…, <str>)``.
+
+    Module level and these two forms only. Anything conditional or computed
+    stays unresolved so the caller fails closed rather than partially
+    evaluating user code.
+    """
+    constants: dict[str, tuple[str, str]] = {}
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Assign):
+            targets, value = list(node.targets), node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets, value = [node.target], node.value
+        else:
+            continue
+        constant = _static_string(value)
+        if constant is None:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                constants.setdefault(target.id, constant)
+    return constants
+
+
+def _static_string(node: ast.AST) -> tuple[str, str] | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.strip():
+        return (node.value.strip(), "module_constant")
+    if isinstance(node, ast.Call):
+        if (_name(node.func) or "") in ENV_LOOKUP_CALLS and len(node.args) == 2:
+            default = node.args[1]
+            if (isinstance(default, ast.Constant) and isinstance(default.value, str)
+                    and default.value.strip()):
+                return (default.value.strip(), "env_default")
+    return None
+
+
+def _normalise_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _is_test_path(rel: str) -> bool:
+    parts = Path(rel).parts
+    if any(part in {"test", "tests"} for part in parts[:-1]):
+        return True
+    stem = Path(rel).name
+    return stem == "conftest.py" or stem.startswith("test_") or stem.endswith("_test.py")
+
+
+def _constant_module_paths(importer: Path, module: str, level: int,
+                           workspace: Path) -> list[Path]:
+    parts = [p for p in module.split(".") if p]
+    bases: list[Path] = []
+    if level:
+        base = importer.parent
+        for _ in range(level - 1):
+            base = base.parent
+        bases.append(base)
+    else:
+        bases.extend((importer.parent, workspace))
+    resolved: list[Path] = []
+    for base in bases:
+        suffixes = [(*parts, "__init__.py")]
+        if parts:
+            suffixes.insert(0, (*parts[:-1], f"{parts[-1]}.py"))
+        for suffix in suffixes:
+            candidate = base.joinpath(*suffix)
+            try:
+                candidate = candidate.resolve()
+            except (OSError, RuntimeError):
+                continue
+            if candidate.is_relative_to(workspace) and candidate not in resolved:
+                resolved.append(candidate)
+    return resolved
+
+
+def _resolve_agent_name(evidence: dict[str, Any], path: Path, facts: dict[str, Any],
+                        by_path: dict[Path, dict[str, Any]],
+                        workspace: Path) -> tuple[str, str, str] | None:
+    """Resolve one evidence site to ``(value, provenance, detail)``.
+
+    A bare symbol resolves through **one** hop: a module-level constant in
+    the same file, or one in a module this file imports the symbol from
+    directly. The hop never chains, and the target module must already be a
+    parsed file inside the workspace.
+    """
+    if evidence["literal"] is not None:
+        return evidence["literal"], "literal", ""
+    symbol = evidence["symbol"]
+    if not symbol:
+        return None
+    local = facts["constants"].get(symbol)
+    if local is not None:
+        return local[0], local[1], _rel(path, workspace)
+    imported = facts["constant_imports"].get(symbol)
+    if imported is None:
+        return None
+    module, level = imported
+    for candidate in _constant_module_paths(path, module, level, workspace):
+        target = by_path.get(candidate)
+        if target is None:
+            continue
+        constant = target["constants"].get(symbol)
+        if constant is not None:
+            return constant[0], constant[1], _rel(candidate, workspace)
+    return None
+
+
+def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Path,
+                      project_names: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Rank ``Agent(name=…)`` evidence best-first — mirror of
+    ``cli/discovery/signals.py:_rank_agent_name_candidates``.
+
+    Source order is not a ranking. Hierarchy (an application root outranks a
+    declared sub-agent), origin (product code outranks test code), and
+    corroboration by the project name decide the order; a value too short or
+    too generic to be an identity is ranked last and made unselectable so
+    ``init`` writes CHANGE_ME rather than asserting something unreliable.
+    """
+    by_path: dict[Path, dict[str, Any]] = {}
+    for path, facts in py_facts:
+        try:
+            by_path[path.resolve()] = facts
+        except (OSError, RuntimeError):
+            by_path[path] = facts
+    project_forms = {_normalise_name(c["value"]) for c in project_names if c["value"]}
+    project_forms.add(_normalise_name(workspace.name))
+    project_forms.discard("")
+
+    best: dict[str, dict[str, Any]] = {}
+    order = 0
+    for path, facts in py_facts:
+        rel = _rel(path, workspace)
+        for evidence in facts["names"]:
+            resolved = _resolve_agent_name(evidence, path, facts, by_path, workspace)
+            if resolved is None:
+                continue
+            value, provenance, detail = resolved
+            score = 1.0
+            rationale = [f"declared as Agent(name=…) in {rel}"]
+            if provenance == "module_constant":
+                rationale.append(f"resolved from a module constant in {detail}")
+            elif provenance == "env_default":
+                rationale.append(
+                    f"resolved from the static default of an environment lookup in "
+                    f"{detail} — overridable at runtime"
+                )
+            role = evidence["role"]
+            if role == "root_agent":
+                score += 3.0
+                rationale.append(evidence["why"] or "bound as the application root")
+            elif role == "sub_agent":
+                score -= 1.5
+                rationale.append(
+                    evidence["why"] or "declared as a child of another agent, not the root"
+                )
+            if _is_test_path(rel):
+                score -= 2.0
+                rationale.append(
+                    "declared in test code, which names fixtures rather than the product"
+                )
+            normalised = _normalise_name(value)
+            if normalised and normalised in project_forms:
+                score += 1.0
+                rationale.append("corroborated by the project name")
+            selectable = True
+            if len(normalised) < AGENT_NAME_MIN_LENGTH:
+                score -= 3.0
+                selectable = False
+                rationale.append(
+                    f"rejected: fewer than {AGENT_NAME_MIN_LENGTH} significant "
+                    "characters, too context-poor to assert as an identity"
+                )
+            elif normalised in GENERIC_AGENT_NAME_VALUES:
+                score -= 3.0
+                selectable = False
+                rationale.append("rejected: generic scaffolding name, not an identity")
+            ranked = {
+                "value": value,
+                "source": "Agent_name_literal",
+                "role": role,
+                "path": rel,
+                "rank_score": round(score, 2),
+                "selectable": selectable,
+                "rationale": rationale,
+                "_order": order,
+            }
+            order += 1
+            previous = best.get(value)
+            if previous is None or ranked["rank_score"] > previous["rank_score"]:
+                best[value] = ranked
+
+    ordered = sorted(
+        best.values(),
+        key=lambda r: (not r["selectable"], -r["rank_score"], r["_order"]),
+    )
+    candidates = [{k: v for k, v in r.items() if k != "_order"} for r in ordered]
+    if workspace.name and workspace.name not in best:
+        candidates.append({
+            "value": workspace.name,
+            "source": "workspace_dir",
+            "role": "workspace_dir",
+            "path": None,
+            "rank_score": 0.0,
+            "selectable": False,
+            "rationale": [
+                "directory name, not a declared agent identity — reported for "
+                "reference, never written as agent.name"
+            ],
+        })
+    return candidates
 
 
 def _package_tokens(workspace: Path) -> list[str]:
@@ -520,16 +837,6 @@ def detect(workspace: Path) -> dict[str, Any]:
     ]
     detections.sort(key=lambda d: (-d["score"], d["type"]))
 
-    name_candidates: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for _p, f in py_facts:
-        for lit in f["names"]:
-            if lit not in seen:
-                name_candidates.append({"value": lit, "source": "Agent_name_literal"})
-                seen.add(lit)
-    if workspace.name not in seen:
-        name_candidates.append({"value": workspace.name, "source": "workspace_dir"})
-
     project_names: list[dict[str, str]] = []
     pyproject = workspace / "pyproject.toml"
     if pyproject.is_file():
@@ -541,6 +848,8 @@ def detect(workspace: Path) -> dict[str, Any]:
         if m:
             project_names.append({"value": m.group(1).strip(), "source": "pyproject"})
     project_names.append({"value": workspace.name, "source": "workspace_dir"})
+
+    name_candidates = _rank_agent_names(py_facts, workspace, project_names)
 
     # Glob candidates, then keep only the ones the input adapters accept —
     # a glob hit (e.g. an mcpServers-style host config matching *mcp*.json)

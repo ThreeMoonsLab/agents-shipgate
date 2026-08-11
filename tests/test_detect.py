@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agents_shipgate.cli.discovery.signals import detect_workspace
+from agents_shipgate.cli.discovery.signals import detect_workspace, select_agent_name
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.schemas.detect import DetectResult
 
@@ -515,3 +515,253 @@ def test_wildcard_mcp_export_stays_suggested(tmp_path: Path) -> None:
         {"type": "mcp", "path": "everything-mcp.json"}
     ]
     assert result.excluded_sources == []
+
+
+# --- Agent-name candidate ranking -------------------------------------------
+#
+# Two bugs, one cause: candidates used to be emitted in file-then-AST order
+# with no ranking, and every consumer took the first one. #320 is the
+# candidate-*quality* face of that (a one-character test literal became a
+# repository's declared identity); #324 is the candidate-*hierarchy* face
+# (a Salesforce worker outranked the coordinator that owns it). Both are
+# pinned here against the shape of the repository that reported them.
+
+
+def _write_adk_root_agent_project(root: Path) -> None:
+    """The google/adk-samples#1745 shape: two literal sub-agents, a
+    coordinator whose name comes from an adjacent config module, and an
+    explicit ``App(root_agent=…)`` binding."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "config.py").write_text(
+        textwrap.dedent(
+            """
+            import os
+
+            AGENT_NAME = os.environ.get("AGENT_NAME", "SmartCloserAgent")
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    (root / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from config import AGENT_NAME
+            from google.adk.agents import LlmAgent
+            from google.adk.apps import App
+            from google.adk.tools import FunctionTool
+
+            salesforce_agent = LlmAgent(name="SalesforceAgent")
+            sap_agent = LlmAgent(name="SapAgent")
+
+            root_agent = LlmAgent(
+                name=AGENT_NAME,
+                sub_agents=[salesforce_agent, sap_agent],
+                tools=[FunctionTool(func=lambda: None)],
+            )
+
+            app = App(name="smart_closer_app", root_agent=root_agent)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+
+
+def test_adk_app_root_agent_outranks_first_sub_agent(tmp_path: Path) -> None:
+    """#324: the application root wins over the sub-agent the walk reaches
+    first. Both worker names are plausible agent names — that is exactly why
+    picking one is the failure that survives review."""
+    _write_adk_root_agent_project(tmp_path / "smart_closer")
+    result = detect_workspace(tmp_path / "smart_closer")
+
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None
+    assert selected.value == "SmartCloserAgent"
+    assert selected.role == "root_agent"
+    # The workers stay in the list — an agent may still override the choice —
+    # but they rank below the coordinator that declares them.
+    values = [c.value for c in result.agent_name_candidates]
+    assert values[0] == "SmartCloserAgent"
+    assert {"SalesforceAgent", "SapAgent"} <= set(values)
+    roles = {c.value: c.role for c in result.agent_name_candidates}
+    assert roles["SalesforceAgent"] == "sub_agent"
+    assert roles["SapAgent"] == "sub_agent"
+
+
+def test_adk_root_name_resolves_one_hop_through_adjacent_config(
+    tmp_path: Path,
+) -> None:
+    """#324 step 3: ``name=AGENT_NAME`` imported from a sibling module
+    resolves statically. The rendered manifest must carry the resolved name,
+    and the rationale must say the value came from an environment default so
+    a reviewer knows it can be overridden at runtime."""
+    _write_adk_root_agent_project(tmp_path / "smart_closer")
+    result = detect_workspace(tmp_path / "smart_closer")
+
+    root = result.agent_name_candidates[0]
+    assert root.value == "SmartCloserAgent"
+    assert any("config.py" in reason for reason in root.rationale)
+    assert any("overridable at runtime" in reason for reason in root.rationale)
+    assert "agent:\n  name: SmartCloserAgent" in render_auto_manifest(
+        tmp_path / "smart_closer", result
+    )
+
+
+def test_root_name_from_unresolvable_expression_falls_back(tmp_path: Path) -> None:
+    """The static-only boundary. An f-string root name is not resolvable
+    without running user code, so the root contributes no candidate at all
+    and the sub-agents are all that is left — better a demotable worker name
+    plus visible roles than a fabricated identity."""
+    project = tmp_path / "dynamic"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            import os
+            from google.adk.agents import LlmAgent
+            from google.adk.apps import App
+
+            worker = LlmAgent(name="WorkerAgent")
+            root_agent = LlmAgent(
+                name=f"{os.environ['TIER']}-coordinator",
+                sub_agents=[worker],
+            )
+            app = App(name="dynamic_app", root_agent=root_agent)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    values = [c.value for c in result.agent_name_candidates]
+    assert not any("coordinator" in value for value in values)
+    assert values[0] == "WorkerAgent"
+
+
+def test_one_character_literal_never_becomes_the_agent_name(tmp_path: Path) -> None:
+    """#320, in the shape usestrix/strix reported it: every ``Agent(name=…)``
+    literal in the repository lives in a test, and the one the walk reaches
+    first is a single character. ``t`` must be unselectable, and the name the
+    project name independently corroborates must win."""
+    project = tmp_path / "strix"
+    tests_dir = project / "tests"
+    tests_dir.mkdir(parents=True)
+    (project / "runner.py").write_text(
+        "from agents import Agent\n", encoding="utf-8"
+    )
+    # File order matters: `t` is encountered first, which used to be the
+    # entire selection policy.
+    (tests_dir / "test_aaa_streaming.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="t")\n', encoding="utf-8"
+    )
+    (tests_dir / "test_zzz_recovery.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="Strix")\n', encoding="utf-8"
+    )
+
+    result = detect_workspace(project)
+    by_value = {c.value: c for c in result.agent_name_candidates}
+    assert by_value["t"].selectable is False
+    assert any("context-poor" in reason for reason in by_value["t"].rationale)
+
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "Strix"
+    assert any("corroborated" in reason for reason in selected.rationale)
+
+
+def test_generic_placeholder_name_fails_closed_to_change_me(tmp_path: Path) -> None:
+    """When the only literal is scaffolding, ``init`` must leave the
+    CHANGE_ME placeholder and ask for review rather than declare
+    ``agent`` as the reviewed identity."""
+    project = tmp_path / "scaffold"
+    project.mkdir()
+    (project / "main.py").write_text(
+        'from agents import Agent, function_tool\n\n'
+        '@function_tool\ndef ping() -> str:\n    return "pong"\n\n'
+        'agent = Agent(name="agent", tools=[ping])\n',
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    assert all(not c.selectable for c in result.agent_name_candidates)
+    assert "name: CHANGE_ME" in render_auto_manifest(project, result)
+
+
+def test_test_declared_name_ranks_below_product_declared_name(tmp_path: Path) -> None:
+    """A name that only a test declares is a fixture name. It stays a
+    candidate — often it is the real one — but product code outranks it."""
+    project = tmp_path / "svc"
+    (project / "tests").mkdir(parents=True)
+    (project / "service.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="billing-assistant")\n',
+        encoding="utf-8",
+    )
+    (project / "tests" / "test_service.py").write_text(
+        'from agents import Agent\n\nfixture = Agent(name="alpha-fixture")\n',
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    assert [c.value for c in result.agent_name_candidates][:2] == [
+        "billing-assistant",
+        "alpha-fixture",
+    ]
+    fixture = next(c for c in result.agent_name_candidates if c.value == "alpha-fixture")
+    assert any("test code" in reason for reason in fixture.rationale)
+
+
+def test_workspace_dir_candidate_is_never_selectable(tmp_path: Path) -> None:
+    """Reported for reference only. ``init`` writing the directory name as
+    ``agent.name`` would be asserting an identity nothing declared."""
+    project = tmp_path / "some_workspace"
+    project.mkdir()
+    result = detect_workspace(project)
+    assert [c.value for c in result.agent_name_candidates] == ["some_workspace"]
+    assert result.agent_name_candidates[0].selectable is False
+    assert result.agent_name_candidates[0].role == "workspace_dir"
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_constant_resolution_does_not_chain_across_modules(tmp_path: Path) -> None:
+    """One hop, not a graph walk. A constant that is itself a name in the
+    imported module stays unresolved — following it is the first step toward
+    partially evaluating user code."""
+    project = tmp_path / "chained"
+    project.mkdir()
+    (project / "base.py").write_text('REAL_NAME = "DeepAgent"\n', encoding="utf-8")
+    (project / "config.py").write_text(
+        "from base import REAL_NAME\n\nAGENT_NAME = REAL_NAME\n", encoding="utf-8"
+    )
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from config import AGENT_NAME
+            from google.adk.agents import Agent
+
+            root_agent = Agent(name=AGENT_NAME)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    assert "DeepAgent" not in {c.value for c in result.agent_name_candidates}
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_constant_lookup_stays_inside_the_workspace(tmp_path: Path) -> None:
+    """A module resolved outside the selected workspace is never read, even
+    when the import would resolve there on ``sys.path``."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "config.py").write_text('AGENT_NAME = "OutsideAgent"\n', encoding="utf-8")
+    project = tmp_path / "inside"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from config import AGENT_NAME
+            from google.adk.agents import Agent
+
+            root_agent = Agent(name=AGENT_NAME)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    assert "OutsideAgent" not in {c.value for c in result.agent_name_candidates}

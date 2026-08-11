@@ -31,7 +31,7 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "codex_plugin_candidates": [{"mode": "package", "path": "..."}],
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
-  "script_version": "0.2.2"
+  "script_version": "0.3.0"
 }
 ```
 
@@ -40,6 +40,8 @@ Like the canonical CLI, the script parse-probes each glob-matched MCP/OpenAPI ca
 Like `agents-shipgate detect`, the script silently skips common fixture corpus directories such as `fixtures/`, `_fixtures/`, `__fixtures__/`, `testdata/`, `test_data/`, `test-fixtures/`, `test_fixtures/`, `golden/`, and `goldens/` when they are below the selected workspace. Point `--workspace` directly at a fixture project if you intentionally want to classify that fixture itself.
 
 The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources, same excluded sources, and same Codex plugin candidates for every sample in `samples/`. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
+
+`agent_name_candidates` is the one field pinned byte for byte, including its ranking and each entry's `rationale[]`. It is not a yes/no signal: it names the agent a generated manifest would declare as the reviewed identity, so a script that ranked differently would point you at a different agent than `init` does.
 
 **When to use this:** you're a coding agent (Claude Code, Codex, Cursor) deciding *whether* to propose Shipgate. The script tells you in one fetch + one Python invocation. The full flow (`init`, `scan`, `apply-patches`) requires the actual install.
 

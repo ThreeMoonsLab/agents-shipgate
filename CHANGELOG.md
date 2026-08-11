@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- **`init` ranks agent-name candidates instead of taking the first one it
+  trips over.** Candidates were emitted in file-then-AST order with no
+  scoring, and all three consumers — the manifest renderer, the `init` JSON
+  summary, and the zero-install detector — took the first entry with an
+  accepted `source`. "First encountered" was the entire selection policy, and
+  it produced two different wrong identities. In
+  [usestrix/strix](https://github.com/usestrix/strix) it chose the
+  one-character test literal `t` over `Strix`
+  ([#320](https://github.com/ThreeMoonsLab/agents-shipgate/issues/320)); in
+  [google/adk-samples#1745](https://github.com/google/adk-samples/pull/1745)
+  it chose `SalesforceAgent` — a real worker agent — over the
+  `App(root_agent=…)` coordinator that declares it
+  ([#324](https://github.com/ThreeMoonsLab/agents-shipgate/issues/324)). The
+  second is the one that survives review: the manifest was schema-valid and
+  named a genuine agent, just not the reviewed one. Selection is now one
+  ranking pass over four signals — structural role (an application root
+  outranks an unqualified agent, which outranks a declared `sub_agents=[…]` /
+  `handoffs=[…]` child), origin (product code outranks test code, which names
+  fixtures), corroboration by the project name, and a quality floor that
+  rejects values under three significant characters and generic scaffolding
+  names. A rejected value is never written: `agent.name` keeps its
+  `CHANGE_ME` placeholder and the existing `placeholders[]` review action,
+  rather than asserting an identity nothing reliably declares. `name=` given
+  as a symbol now resolves statically through **one** hop — a module constant
+  or an `os.environ.get("…", "…")` default in the same package, never a
+  chain, never a file outside the workspace, and never by importing user
+  code. Each `agent_name_candidates[]` entry carries `role`, `path`,
+  `rank_score`, `selectable`, and a `rationale[]` explaining its rank, so a
+  future ordering regression is visible in `detect --json` instead of
+  silently changing what the manifest claims. The rule itself now exists once
+  (`select_agent_name`) rather than as a `source in {…}` set literal copied
+  into the renderer and the JSON summary, and
+  `tools/shipgate-detect.py` (`script_version` `0.3.0`) is pinned to the
+  CLI's ranking byte for byte by the parity suite.
+
 - **The recommended next command now runs where it was recommended.** Every
   emitted command was written as the console script the wheel installs
   (`agents-shipgate …`), so a run started from a source checkout with

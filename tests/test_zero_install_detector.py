@@ -5,9 +5,14 @@ Pins the script's structural verdict to ``agents-shipgate detect --json``
 sample fixture in ``samples/``. The contract is **structural parity**,
 not byte parity: same ``is_agent_project``, same set of fired
 frameworks, same ``suggested_sources`` and ``excluded_sources``.
-Evidence/reason strings and absolute scores are intentionally simplified
-— a coding agent uses the script to make a yes/no decision, not to
-re-derive the report.
+Evidence/reason strings and absolute framework scores are intentionally
+simplified — a coding agent uses the script to make a yes/no decision, not
+to re-derive the report.
+
+``agent_name_candidates`` is the one exception, pinned byte for byte. It is
+not a yes/no signal: it names the agent a generated manifest declares as
+the reviewed identity, so a script that ranked differently would send an
+agent to fix a different agent than ``init`` did.
 
 If a new sample is added or the canonical detection rules change, this
 test catches drift between the script and the CLI immediately.
@@ -222,6 +227,16 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
     assert set(script_signals) == set(cli_signals), (
         f"{sample_dir.name}: workspace_signals keys diverged "
         f"(script={set(script_signals)!r}, cli={set(cli_signals)!r})."
+    )
+
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"], (
+        f"{sample_dir.name}: agent_name_candidates diverged.\n"
+        f"script={script_result['agent_name_candidates']!r}\n"
+        f"cli={cli_result['agent_name_candidates']!r}\n"
+        "The ranking decides which agent the generated manifest declares as "
+        "the reviewed identity, so this one is byte parity, not structural: "
+        "the script's rules must match "
+        "cli/discovery/signals.py:_rank_agent_name_candidates exactly."
     )
 
 
@@ -452,3 +467,57 @@ def test_script_excludes_swagger2_json_like_cli(script_module, tmp_path):
     ] == [(s["type"], s["path"]) for s in cli_result["excluded_sources"]] == [
         ("openapi", "legacy-swagger.json")
     ]
+
+
+def _write_ranking_probe(root: Path) -> None:
+    """Both issue shapes in one workspace: an ADK coordinator bound through
+    ``App(root_agent=…)`` with a name resolved from an adjacent config
+    module, two literal sub-agents, and a one-character test literal."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "config.py").write_text(
+        'import os\n\nAGENT_NAME = os.environ.get("AGENT_NAME", "SmartCloserAgent")\n',
+        encoding="utf-8",
+    )
+    (root / "agent.py").write_text(
+        "from config import AGENT_NAME\n"
+        "from google.adk.agents import LlmAgent\n"
+        "from google.adk.apps import App\n"
+        "from google.adk.tools import FunctionTool\n\n"
+        'salesforce_agent = LlmAgent(name="SalesforceAgent")\n'
+        'sap_agent = LlmAgent(name="SapAgent")\n'
+        # Annotated on purpose: the assignment-target lookup that resolves
+        # `App(root_agent=root_agent)` has to read AnnAssign as well as Assign.
+        "root_agent: LlmAgent = LlmAgent(\n"
+        "    name=AGENT_NAME,\n"
+        "    sub_agents=[salesforce_agent, sap_agent],\n"
+        "    tools=[FunctionTool(func=lambda: None)],\n"
+        ")\n"
+        'app = App(name="smart_closer_app", root_agent=root_agent)\n',
+        encoding="utf-8",
+    )
+    tests_dir = root / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_agent.py").write_text(
+        'from google.adk.agents import LlmAgent\n\nfixture = LlmAgent(name="t")\n',
+        encoding="utf-8",
+    )
+
+
+def test_script_agent_name_ranking_matches_cli(script_module, tmp_path):
+    """Samples all carry a single unambiguous name literal, so they cannot
+    catch a ranking divergence. This workspace can: it has a hierarchy, a
+    cross-module constant, a test-only literal, and a value below the
+    quality floor. The script and the CLI must agree on all of it —
+    disagreeing would have `init` and the zero-install path name different
+    agents as the reviewed identity."""
+    _write_ranking_probe(tmp_path / "smart_closer")
+    script_result = script_module.detect(tmp_path / "smart_closer")
+    cli_result = detect_workspace((tmp_path / "smart_closer").resolve()).model_dump(
+        mode="json"
+    )
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    assert cli_result["agent_name_candidates"][0]["value"] == "SmartCloserAgent"
+    assert cli_result["agent_name_candidates"][0]["role"] == "root_agent"
+    assert [
+        c["value"] for c in cli_result["agent_name_candidates"] if not c["selectable"]
+    ] == ["t", "smart_closer"]

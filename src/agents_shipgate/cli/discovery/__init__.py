@@ -37,9 +37,10 @@ from agents_shipgate.cli.discovery.ci_workflow import (
     CiWorkflowResult,
     write_ci_workflow,
 )
-from agents_shipgate.cli.discovery.signals import detect_workspace
+from agents_shipgate.cli.discovery.signals import detect_workspace, select_agent_name
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.schemas.detect import (
+    AgentNameCandidate,
     CodexPluginCandidate,
     DetectResult,
     FrameworkDetection,
@@ -50,6 +51,7 @@ from agents_shipgate.schemas.detect import (
 __all__ = [
     "ANTHROPIC_POLICY_PATTERNS",
     "ANTHROPIC_TOOL_PATTERNS",
+    "AgentNameCandidate",
     "CiWorkflowResult",
     "CodexPluginCandidate",
     "DetectResult",
@@ -74,5 +76,6 @@ __all__ = [
     "discover_tool_sources",
     "render_auto_manifest",
     "render_manifest_template",
+    "select_agent_name",
     "write_ci_workflow",
 ]

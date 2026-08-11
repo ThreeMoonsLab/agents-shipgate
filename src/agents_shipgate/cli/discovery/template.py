@@ -27,6 +27,7 @@ from agents_shipgate.cli.discovery.artifacts import (
     discover_n8n_artifacts,
     discover_openai_api_artifacts,
 )
+from agents_shipgate.cli.discovery.signals import select_agent_name
 from agents_shipgate.cli.discovery.source_ids import assign_source_ids
 from agents_shipgate.schemas.detect import DetectResult
 
@@ -130,10 +131,10 @@ def _project_name(workspace: Path, detect_result: DetectResult) -> str:
 
 
 def _agent_name(detect_result: DetectResult) -> str:
-    for candidate in detect_result.agent_name_candidates:
-        if candidate.source in {"Agent_name_literal", "ADK_name_field"}:
-            return _safe_yaml_scalar(candidate.value)
-    return "CHANGE_ME"
+    selected = select_agent_name(detect_result.agent_name_candidates)
+    if selected is None:
+        return "CHANGE_ME"
+    return _safe_yaml_scalar(selected.value)
 
 
 def _safe_yaml_scalar(value: str) -> str:
