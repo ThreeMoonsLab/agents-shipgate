@@ -33,8 +33,12 @@
   itself is a POSIX rendering on every platform: one renderer and one parser
   must agree, and pairing Windows argv-quoting with a POSIX parse turned
   `C:\repo` into `C:repo` — a runnable command against the wrong workspace.
-  When the rank-1 action is a command, the legacy `next_action` string is that
-  command verbatim, so the back-compat field cannot route a caller to a
+  Because that rendering is uniform, `shlex.split(command)` recovers the exact
+  argv on *every* surface and host, which is the documented recovery for the
+  operational control contracts (`control.next_action`,
+  `allowed_next_commands`, verifier repairs), where the argv pair is not
+  carried. When the rank-1 action is a command, the legacy `next_action` string
+  is that command verbatim, so the back-compat field cannot route a caller to a
   different program than `next_actions[0]`. Durable evidence stays canonical: `report.json`,
   `report.md`, and `packet.*` are byte-identical however the process was
   started, because "same inputs, same report" outranks runnability there and

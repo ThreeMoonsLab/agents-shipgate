@@ -691,9 +691,55 @@ def _project_root(payload: dict[str, Any]) -> Path:
     return Path(str(raw)).resolve()
 
 
+def _split_windows_command_line(raw: str) -> list[str]:
+    """MS C-runtime argv rules, mirroring agents_shipgate.invocation.
+
+    Kept in step by tests/test_install_hooks.py, which loads this generated
+    script and compares it against the package parser over a shared table.
+    POSIX shlex cannot stand in: it reads a backslash as an escape, so an
+    ordinary Windows path would lose every separator it contains.
+    """
+
+    argv: list[str] = []
+    token: list[str] = []
+    pending = 0
+    in_quotes = False
+    started = False
+    for char in raw:
+        if char == "\\":
+            pending += 1
+            continue
+        if char == '"':
+            token.extend("\\" * (pending // 2))
+            if pending % 2:
+                token.append('"')
+            else:
+                in_quotes = not in_quotes
+                started = True
+            pending = 0
+            continue
+        token.extend("\\" * pending)
+        pending = 0
+        if char.isspace() and not in_quotes:
+            if token or started:
+                argv.append("".join(token))
+                token.clear()
+                started = False
+            continue
+        token.append(char)
+    token.extend("\\" * pending)
+    if token or started:
+        argv.append("".join(token))
+    return argv
+
+
 def _cli() -> list[str]:
     raw = os.environ.get("AGENTS_SHIPGATE_CLI", "agents-shipgate").strip()
-    return shlex.split(raw) if raw else ["agents-shipgate"]
+    if not raw:
+        return ["agents-shipgate"]
+    if os.name == "nt":
+        return _split_windows_command_line(raw) or ["agents-shipgate"]
+    return shlex.split(raw)
 
 
 def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> int:

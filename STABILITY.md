@@ -13,6 +13,75 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-invocation-spelled-commands"></a>
+
+## Migration Note: unreleased — commands spelled for the invocation that emitted them
+
+Runtime contract `22 → 23`. `minimum_control_contract_version` **stays at 21**:
+the `AgentControl` union is unchanged, and v23 changes only how the commands
+inside it are spelled. A consumer written against v21 control fields keeps
+reading them unchanged.
+
+**Every emitted command names the entry point that started the process.** A
+console-script run emits exactly what it emitted before — `agents-shipgate …`
+or `shipgate …`, byte for byte. A `python -m agents_shipgate` run emits
+`<sys.executable> -m agents_shipgate …`, spelled by interpreter path because a
+bare `python` resolves through `PATH` and can land on a different interpreter.
+`AGENTS_SHIPGATE_CLI` overrides both and is parsed with the host's own rules
+(POSIX `shlex` elsewhere, MS C-runtime argv rules on Windows, so a value like
+`C:\Tools\agents-shipgate.exe` keeps its backslashes). `command` never contains
+`__main__.py`.
+
+This covers `next_action` / `next_actions[]` on every command, the agent-mode
+error line's own `command` field, preflight signals' `related_command`, matched
+trigger rules, and the control and repair commands the verifier and boundary
+publish.
+
+**`command` is a POSIX rendering on every platform, not a host-shell promise.**
+There is one renderer and one parser, and they must agree — a string rendered
+by one set of rules and parsed by another silently changes the values it
+carries. Uniform POSIX quoting round-trips Windows paths exactly, because a
+single-quoted `'C:\repo'` keeps its backslashes. It does **not** make the
+string safe to paste into `cmd.exe` or PowerShell, where single quotes are not
+quoting; nothing would. Recover argv instead:
+
+```python
+subprocess.run(shlex.split(command))   # exact on every surface and every host
+```
+
+**New on `next_actions[]`: `executable[]` and `args[]`.** A shell-independent
+projection of `command`, runnable as `[*executable, *args]`. Both are computed
+from `command` and ignored on input, and are recomputed on every read, so they
+cannot describe a command the action no longer holds. They are **omitted, not
+`null`**, when the command has no faithful argv form — a leading `NAME=VALUE`
+assignment, or any unquoted shell metacharacter (operators, redirection and
+therefore `<placeholder>` syntax, substitution, globs; only single quotes make
+those inert). Every action that cannot carry an argv is therefore byte-for-byte
+what it was.
+
+`NextAction` is published with `extra="forbid"`, so these two properties are
+**not** additive for a strict consumer validating against the v22 shape — that
+is what this contract version carries. The model accepts its own serialization:
+the pair is stripped on input and recomputed, so a round-trip validates and a
+pair edited in transit is replaced by the one its command implies.
+
+The argv pair is scoped to `next_actions[]`. The operational control contracts
+(`control.next_action`, `allowed_next_commands`, verifier repairs,
+`fix_task.verification_command`) publish the command string only, and
+`shlex.split` is the documented recovery there. Extending the pair into them
+changes the `AgentControl` union, which would raise
+`minimum_control_contract_version` and force a down-projection for the frozen
+`shipgate.codex_boundary_result/v2` schema; that is tracked in
+[#369](https://github.com/ThreeMoonsLab/agents-shipgate/issues/369).
+
+**Durable artifacts are unaffected.** `report.json`, `report.md`, and
+`packet.*` stay canonical: `docs/architecture.md` makes *same inputs → same
+report* non-negotiable, and process entry is not an input. Published contract
+vocabulary (`primary_commands`, `.well-known/agents-shipgate.json`) is
+canonical for the same reason.
+
+---
+
 <a id="migration-note-unreleased-compact-control-envelope"></a>
 
 ## Migration Note: unreleased — the compact control envelope

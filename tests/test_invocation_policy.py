@@ -16,13 +16,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pydantic import ValidationError
 
 from agents_shipgate.invocation import (
     CANONICAL_CONSOLE_SCRIPT,
@@ -34,8 +35,9 @@ from agents_shipgate.invocation import (
     resolve_invocation,
     retarget_command,
     split_invocation,
+    split_windows_command_line,
 )
-from agents_shipgate.schemas.diagnostics import NextAction
+from agents_shipgate.schemas.diagnostics import Diagnostic, NextAction
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -399,22 +401,24 @@ def test_non_command_actions_carry_no_structured_pair() -> None:
     assert action.args is None
 
 
-def test_structured_pair_cannot_be_supplied(monkeypatch) -> None:
-    """A caller cannot publish an argv that disagrees with the string."""
+def test_a_supplied_structured_pair_has_no_effect(monkeypatch) -> None:
+    """A caller cannot publish an argv that disagrees with the string.
+
+    The keys are accepted rather than rejected so the model can read back its
+    own serialization, but they are dropped and recomputed — so accepting them
+    is not believing them.
+    """
 
     monkeypatch.delenv(CLI_OVERRIDE_ENV_VAR, raising=False)
-    with pytest.raises(ValidationError) as excinfo:
-        NextAction(
-            kind="command",
-            command="agents-shipgate verify --json",
-            why="because",
-            executable=["rm"],
-            args=["-rf", "/"],
-        )
-    assert [error["type"] for error in excinfo.value.errors()] == [
-        "extra_forbidden",
-        "extra_forbidden",
-    ]
+    action = NextAction(
+        kind="command",
+        command="agents-shipgate verify --json",
+        why="because",
+        executable=["rm"],
+        args=["-rf", "/"],
+    )
+    assert action.executable == ["agents-shipgate"]
+    assert action.args == ["verify", "--json"]
 
 
 @pytest.mark.parametrize("mutate", ["copy", "assign"])
@@ -680,6 +684,12 @@ def test_preflight_host_grant_route_is_spelled_for_this_invocation(tmp_path: Pat
             "host_permission_requests": [],
         }
     )
+    # An isolated copy: preflight's verdict depends on workspace state, and
+    # running it against the shared repository root made this test depend on
+    # whatever else the suite was writing there concurrently.
+    workspace = tmp_path / "workspace"
+    shutil.copytree(REPO_ROOT / "samples" / "support_refund_agent", workspace)
+
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO_ROOT / "src")
     env["AGENTS_SHIPGATE_AGENT_MODE"] = "1"
@@ -689,7 +699,7 @@ def test_preflight_host_grant_route_is_spelled_for_this_invocation(tmp_path: Pat
             *_module_prefix(),
             "preflight",
             "--workspace",
-            str(REPO_ROOT),
+            str(workspace),
             "--config",
             "shipgate.yaml",
             "--plan",
@@ -700,7 +710,7 @@ def test_preflight_host_grant_route_is_spelled_for_this_invocation(tmp_path: Pat
         text=True,
         timeout=300,
         env=env,
-        cwd=str(REPO_ROOT),
+        cwd=str(workspace),
         input=plan,
     )
     assert result.returncode == 0, result.stderr
@@ -814,3 +824,162 @@ def test_the_determinism_check_would_notice_a_leak() -> None:
 
     canonical = "agents-shipgate verify --workspace . --ci-mode advisory --json"
     assert retarget_command(canonical, prefix=_module_prefix()) != canonical
+
+
+# --------------------------------------------------------------------------
+# Round-3 regressions
+# --------------------------------------------------------------------------
+
+
+def test_an_escaped_space_in_the_program_token_is_one_token() -> None:
+    """Locating the program by scanning to whitespace split a real path.
+
+    ``/opt/my\\ tool`` is one program with one argument; the scan reported
+    ``/opt/my\\`` plus a stray ``tool``, so the structured pair — the form the
+    docs tell agents to prefer — executed a different program than the string.
+    """
+
+    assert split_invocation(r"/opt/my\ tool --flag", prefix=("agents-shipgate",)) == (
+        ["/opt/my tool"],
+        ["--flag"],
+    )
+    assert shlex.split(r"/opt/my\ tool --flag") == ["/opt/my tool", "--flag"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # An ordinary Windows path: POSIX shlex would read the backslashes as
+        # escapes and produce C:Toolsagents-shipgate.exe.
+        (r"C:\Tools\agents-shipgate.exe", [r"C:\Tools\agents-shipgate.exe"]),
+        # Quoted program with spaces.
+        (
+            r'"C:\Program Files\ags\agents-shipgate.exe" --flag',
+            [r"C:\Program Files\ags\agents-shipgate.exe", "--flag"],
+        ),
+        # A quote *inside* a token: shlex(posix=False) splits this in two.
+        (
+            r'uv run --project="C:\My Project" agents-shipgate',
+            ["uv", "run", r"--project=C:\My Project", "agents-shipgate"],
+        ),
+        # The CRT's doubled-quote escape.
+        (r'"a b" c "d""e"', ["a b", "c", "de"]),
+        # 2n backslashes before a quote are n backslashes, and the quote toggles.
+        (r'"C:\dir\\" next', ["C:\\dir\\", "next"]),
+    ],
+)
+def test_windows_command_lines_follow_the_crt_rules(raw: str, expected: list[str]) -> None:
+    assert split_windows_command_line(raw) == expected
+
+
+def test_next_action_round_trips_through_its_own_model() -> None:
+    """A wire model that cannot read what it wrote is broken for consumers.
+
+    ``extra="forbid"`` plus computed fields rejected the model's own payload,
+    so anything replaying agent-mode output — or a ``Diagnostic`` — through the
+    schema failed on the two properties the schema advertises.
+    """
+
+    action = NextAction(kind="command", command="agents-shipgate verify --json", why="x")
+    payload = action.model_dump(mode="json")
+    assert NextAction.model_validate(payload).model_dump(mode="json") == payload
+
+    diagnostic = Diagnostic(id="SHIP-DIAG-X", title="t", severity="info", next_actions=[action])
+    dumped = diagnostic.model_dump(mode="json")
+    assert Diagnostic.model_validate(dumped).model_dump(mode="json") == dumped
+
+
+def test_an_argv_pair_edited_in_transit_is_replaced_not_trusted() -> None:
+    """Accepting the keys must not mean believing them."""
+
+    action = NextAction(kind="command", command="agents-shipgate verify --json", why="x")
+    tampered = dict(action.model_dump(mode="json"), executable=["rm"], args=["-rf", "/"])
+    assert NextAction.model_validate(tampered).args == ["verify", "--json"]
+
+
+def test_the_published_schema_documents_the_computed_pair() -> None:
+    properties = NextAction.model_json_schema()["properties"]
+    assert {"executable", "args"} <= set(properties)
+    assert properties["executable"]["readOnly"] is True
+
+
+@pytest.mark.parametrize(
+    ("label", "args"),
+    [
+        ("verify --json", ["verify", "--preview", "--base", "HEAD~1", "--head", "HEAD", "--json"]),
+        (
+            "check agent-boundary-json",
+            ["check", "--base", "HEAD~1", "--head", "HEAD", "--format", "agent-boundary-json"],
+        ),
+        (
+            "check agent-control-json",
+            ["check", "--base", "HEAD~1", "--head", "HEAD", "--format", "agent-control-json"],
+        ),
+    ],
+)
+def test_every_control_surface_command_recovers_exact_argv(label: str, args: list[str]) -> None:
+    """The documented recovery for surfaces that carry no structured pair.
+
+    `executable`/`args` are scoped to `next_actions[]`; the operational control
+    contracts publish the string alone. Because every command is rendered with
+    POSIX quoting on every platform, `shlex.split` recovers the exact argv
+    there — this pins that as a guarantee rather than an accident, so a future
+    renderer change cannot quietly strand a control consumer.
+    """
+
+    result = _run_module(*args, cwd=REPO_ROOT)
+    commands = [
+        value
+        for document in _json_documents(result.stdout + "\n" + result.stderr)
+        for _where, value in _command_values(document, label)
+    ]
+
+    for command in commands:
+        tokens = shlex.split(command)
+        assert tokens, command
+        # Stable under a second pass: re-rendering and re-parsing the recovered
+        # argv yields the same tokens, so nothing was lost or invented.
+        assert shlex.split(join_argv(tokens)) == tokens, command
+
+
+def test_the_control_surface_recovery_check_sees_real_commands() -> None:
+    """Negative control: the sweep above must not be vacuous."""
+
+    result = _run_module(
+        "check",
+        "--base",
+        "HEAD~1",
+        "--head",
+        "HEAD",
+        "--format",
+        "agent-boundary-json",
+        cwd=REPO_ROOT,
+    )
+    commands = [
+        value
+        for document in _json_documents(result.stdout)
+        for _where, value in _command_values(document)
+    ]
+    assert commands, "the boundary result published no command to recover"
+
+
+def test_successful_init_routes_to_a_runnable_scan(tmp_path: Path) -> None:
+    """The success path had no error to normalize, so it kept the canonical name.
+
+    Every earlier fix landed on failure routes; a source checkout that ran
+    `init --write` successfully still dead-ended on the very next step it was
+    told to take.
+    """
+
+    result = _run_module("init", "--minimal", "--write", "--json", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    prefix = f"{join_argv(_module_prefix())} "
+    assert payload["next_action"].startswith(prefix)
+    action = payload["next_actions"][0]
+    assert action["kind"] == "command"
+    assert action["executable"] == list(_module_prefix())
+    assert action["args"][0] == "scan"
+    # The legacy string is the rank-1 command verbatim, as documented.
+    assert payload["next_action"] == action["command"]

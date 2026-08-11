@@ -77,13 +77,35 @@ single-quoted `'C:\repo'` keeps its backslashes. **Do not paste `command`
 into `cmd.exe` or PowerShell** — single quotes are not quoting there. Use the
 structured pair.
 
-**Structured argv is the authoritative runnable form**, on every platform.
-`executable` and `args` need no shell at all: `subprocess.run([*executable,
-*args])` runs exactly what the string describes. They are *computed* from
-`command`, never supplied — passing them is a validation error, and they are
-recomputed on every read, so no mutation can leave them describing a command
-the action no longer holds. The entry point comes from the resolved invocation
-rather than from parsing the string back.
+**Structured argv, where it is carried.** `executable` and `args` need no
+shell at all: `subprocess.run([*executable, *args])` runs exactly what the
+string describes. They are *computed* from `command` and ignored on input, and
+they are recomputed on every read, so no mutation can leave them describing a
+command the action no longer holds.
+
+They are carried on **`next_actions[]`** — agent-mode error lines and the
+`detect` / `doctor` / `init` / `scan` / `verify` / `check` / `preflight` JSON
+payloads. They are **not** carried on the operational control contracts:
+`control.next_action`, `allowed_next_commands`, verifier repairs, and
+`fix_task.verification_command` publish the string only. Extending the argv
+pair into those contracts changes the `AgentControl` union, which raises
+`minimum_control_contract_version` and forces a down-projection for the frozen
+`shipgate.codex_boundary_result/v2` schema; it is tracked in
+[#369](https://github.com/ThreeMoonsLab/agents-shipgate/issues/369) rather
+than folded in here.
+
+**Recovering argv from any command string.** Because every command Shipgate
+emits is rendered with POSIX quoting on every platform — one renderer, no
+exceptions — `shlex.split(command)` reproduces the exact argv on every surface,
+including the control contracts, and on Windows:
+
+```python
+subprocess.run(shlex.split(control["next_action"]["command"]))
+```
+
+This is a guarantee, not an observation: it is pinned by
+`tests/test_invocation_policy.py::test_every_control_surface_command_recovers_exact_argv`.
+Use it wherever `executable`/`args` are absent, in preference to `shell=True`.
 
 Both keys are **omitted**, not `null`, whenever the command has no faithful
 argv form:

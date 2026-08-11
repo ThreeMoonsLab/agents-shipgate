@@ -185,29 +185,79 @@ def join_argv(tokens: Sequence[str]) -> str:
     return shlex.join(tokens)
 
 
-def _split_override(raw: str) -> list[str] | None:
-    """Parse ``AGENTS_SHIPGATE_CLI`` with the host's own rules.
+def split_windows_command_line(raw: str) -> list[str]:
+    """Split a Windows command line into argv using the documented CRT rules.
 
-    POSIX ``shlex`` treats a backslash as an escape, so the ordinary Windows
-    value ``C:\\Tools\\agents-shipgate.exe`` collapses to
+    ``shlex`` cannot do this in either mode. POSIX mode treats a backslash as
+    an escape, so ``C:\\Tools\\agents-shipgate.exe`` collapses to
     ``C:Toolsagents-shipgate.exe`` — a path that does not exist, produced from
-    a value the operator wrote correctly. Non-POSIX mode splits on whitespace
-    and keeps backslashes; it also keeps the quote characters, so surrounding
-    quotes are stripped here rather than left in the token.
+    a value the operator wrote correctly. Non-POSIX mode keeps the backslashes
+    but splits on whitespace regardless of quoting *inside* a token, so
+    ``--project="C:\\My Project"`` becomes two arguments.
+
+    So the rules are implemented rather than approximated. These are the ones
+    ``CommandLineToArgvW`` and the MS C runtime document:
+
+    * A quote toggles "in quotes"; ``""`` inside a quoted run is one literal
+      quote (the doubled-quote escape).
+    * ``2n`` backslashes before a quote produce ``n`` backslashes and toggle
+      quoting; ``2n+1`` produce ``n`` backslashes and one literal quote.
+    * Backslashes not followed by a quote are literal — which is what makes an
+      ordinary Windows path survive.
+    * Unquoted whitespace separates arguments.
     """
 
+    argv: list[str] = []
+    token: list[str] = []
+    pending_backslashes = 0
+    in_quotes = False
+    started = False
+
+    def flush_backslashes(count: int) -> None:
+        token.extend("\\" * count)
+
+    for char in raw:
+        if char == "\\":
+            pending_backslashes += 1
+            continue
+        if char == '"':
+            flush_backslashes(pending_backslashes // 2)
+            if pending_backslashes % 2:
+                token.append('"')
+            elif in_quotes:
+                # A doubled quote inside a quoted run is one literal quote.
+                in_quotes = False
+                started = True
+            else:
+                in_quotes = True
+                started = True
+            pending_backslashes = 0
+            continue
+        flush_backslashes(pending_backslashes)
+        pending_backslashes = 0
+        if char.isspace() and not in_quotes:
+            if token or started:
+                argv.append("".join(token))
+                token.clear()
+                started = False
+            continue
+        token.append(char)
+
+    flush_backslashes(pending_backslashes)
+    if token or started:
+        argv.append("".join(token))
+    return argv
+
+
+def _split_override(raw: str) -> list[str] | None:
+    """Parse ``AGENTS_SHIPGATE_CLI`` with the host's own rules."""
+
+    if _WINDOWS:
+        return split_windows_command_line(raw)
     try:
-        if _WINDOWS:
-            return [_strip_outer_quotes(token) for token in shlex.split(raw, posix=False)]
         return shlex.split(raw)
     except ValueError:
         return None
-
-
-def _strip_outer_quotes(token: str) -> str:
-    if len(token) >= 2 and token[0] == token[-1] and token[0] in "'\"":
-        return token[1:-1]
-    return token
 
 
 def _override_prefix(env: Mapping[str, str]) -> tuple[str, ...] | None:
@@ -359,7 +409,14 @@ def retarget_command(
 
 
 def _program_token_span(command: str) -> tuple[int, int] | None:
-    """Locate the program token, skipping leading ``NAME=VALUE`` assignments."""
+    """Locate the program token, skipping leading ``NAME=VALUE`` assignments.
+
+    Scans to whitespace without honouring quotes or escapes, which is only
+    sound because :func:`retarget_command` acts on the result *just* when it
+    spells one of our console scripts — names that contain neither. Do not
+    reuse this to parse a command: ``/opt/my\\ tool`` is one token and this
+    reports two. :func:`split_invocation` parses properly.
+    """
 
     index = 0
     length = len(command)
@@ -425,10 +482,16 @@ def split_invocation(
 ) -> tuple[list[str], list[str]] | None:
     """Split a rendered command into shell-independent ``(executable, args)``.
 
-    The entry point is never recovered by parsing: for our own commands it is
-    the resolved invocation itself, spliced in by :func:`retarget_command`.
-    That matters on Windows, where the rendered prefix is double-quoted and a
-    POSIX parse would eat the backslashes in ``C:\\Python312\\python.exe``.
+    The whole string is parsed with **one** grammar — the same POSIX grammar it
+    was rendered with — and the split point is then chosen by token count.
+    Locating the program by scanning to the first whitespace was wrong for the
+    same reason a second grammar is: ``/opt/my\\ tool --flag`` is one program
+    with one argument, and the scan cut it into ``/opt/my\\`` plus a stray
+    ``tool``, publishing an argv that runs a different program than the string.
+
+    How many tokens the entry point occupies still comes from the resolved
+    invocation rather than from guessing, because ``python -m agents_shipgate``
+    is three tokens and a console script is one.
 
     Returns ``None`` when the string has no faithful argv form — an unbalanced
     quote, a leading ``NAME=VALUE`` assignment, or any unquoted shell
@@ -439,24 +502,21 @@ def split_invocation(
 
     if _has_shell_syntax(command):
         return None
-
-    invocation = _as_invocation(prefix)
-    rendered = join_argv(invocation.tokens)
-
-    if rendered and command == rendered:
-        return list(invocation.tokens), []
-    if rendered and command.startswith(rendered) and command[len(rendered) :][:1].isspace():
-        head, tail = list(invocation.tokens), command[len(rendered) :]
-    else:
-        span = _program_token_span(command)
-        if span is None or span[0] != 0:
-            # Either nothing to split, or leading ``NAME=VALUE`` assignments,
-            # which are shell syntax rather than argv tokens.
-            return None
-        head, tail = [command[span[0] : span[1]]], command[span[1] :]
-
     try:
-        args = shlex.split(tail)
+        tokens = shlex.split(command)
     except ValueError:
         return None
-    return head, args
+    if not tokens:
+        return None
+    if _ENV_ASSIGNMENT.fullmatch(tokens[0]):
+        # Leading ``NAME=VALUE`` assignments are shell syntax, not argv.
+        return None
+
+    invocation = _as_invocation(prefix)
+    entry = list(invocation.tokens)
+    if entry and tokens[: len(entry)] == entry:
+        return entry, tokens[len(entry) :]
+    # Another program entirely (``pip install ...``), or our own command still
+    # spelled as the console script it was written with. Either way its argv[0]
+    # is the entry point; only the split point differs.
+    return tokens[:1], tokens[1:]

@@ -17,6 +17,48 @@ from agents_shipgate.invocation import retarget_command, split_invocation
 NextActionKind = Literal["command", "edit", "review", "stop"]
 DiagnosticSeverity = Literal["block", "warn", "info"]
 
+_ARGV_PROPERTY_SCHEMA: dict[str, Any] = {
+    "executable": {
+        "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
+        "readOnly": True,
+        "description": (
+            "Entry-point argv tokens, computed from `command` (contract v23+). Absent when "
+            "the command has no faithful argv form. Accepted but ignored on input: the "
+            "projection is always recomputed, so it cannot be forged in transit."
+        ),
+    },
+    "args": {
+        "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
+        "readOnly": True,
+        "description": "The remaining argv tokens. Same rules as `executable`.",
+    },
+}
+
+
+def _describe_computed_argv(schema: dict[str, Any]) -> None:
+    """Document the computed argv pair in the generated JSON Schema.
+
+    Neither mode describes it unaided: validation mode omits computed fields,
+    and the wrap serializer that drops the pair when absent erases the
+    serialization shape. A schema that omits properties the payload actually
+    carries is a schema a consumer cannot validate against, so both modes are
+    told about them here. Merged rather than assigned — a plain
+    ``json_schema_extra`` dict would replace ``properties`` wholesale and hide
+    every real field.
+    """
+
+    schema.setdefault("type", "object")
+    schema.setdefault("properties", {}).update(_ARGV_PROPERTY_SCHEMA)
+
+
+# Known limitation: ``model_json_schema(mode="serialization")`` returns an open
+# object for this model, because a wrap serializer replaces the inferred shape
+# before ``json_schema_extra`` runs. Validation mode is the documented schema
+# and is complete; nothing in the repo generates a serialization schema for
+# ``NextAction``. Emitting ``null`` instead of omitting the pair would restore
+# it, at the cost of widening the wire for every action that can never carry an
+# argv — see ``_drop_absent_argv``.
+
 
 class NextAction(BaseModel):
     """One ranked recovery step.
@@ -52,7 +94,7 @@ class NextAction(BaseModel):
     what it was.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_describe_computed_argv)
 
     kind: NextActionKind
     command: str | None = None
@@ -109,6 +151,26 @@ class NextAction(BaseModel):
         for field in ("executable", "args"):
             if data.get(field) is None:
                 data.pop(field, None)
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_own_output(cls, data: Any) -> Any:
+        """Let the model read back what it wrote.
+
+        ``executable`` and ``args`` are computed, so ``extra="forbid"`` would
+        reject them on the way in — and the payload they appear in is one this
+        model produced. A wire model that cannot validate its own serialization
+        is broken for every consumer that round-trips through it, including
+        ``Diagnostic`` and agent-mode output replayed through the schema.
+
+        They are dropped rather than read: the projection is still computed
+        from ``command``, so a payload whose pair was edited in transit
+        validates to the pair its command actually implies.
+        """
+
+        if isinstance(data, dict) and ("executable" in data or "args" in data):
+            return {key: value for key, value in data.items() if key not in {"executable", "args"}}
         return data
 
     @model_validator(mode="after")

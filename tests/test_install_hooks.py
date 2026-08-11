@@ -260,8 +260,7 @@ def test_generated_post_tool_hook_matches_untracked_diff_tokens(tmp_path: Path) 
     _init_repo(tmp_path)
     agent = tmp_path / "agent.py"
     agent.write_text(
-        "from agents import function_tool\n\n@function_tool\ndef lookup() -> str:\n"
-        "    return ''\n",
+        "from agents import function_tool\n\n@function_tool\ndef lookup() -> str:\n    return ''\n",
         encoding="utf-8",
     )
     hook_namespace = _rendered_hook_namespace(tmp_path)
@@ -307,9 +306,7 @@ def test_post_tool_hook_treats_custom_manifest_as_relevant_without_catalog_match
     custom.parent.mkdir()
     custom.write_text("version: '0.1'\n", encoding="utf-8")
     namespace["_git_diff_for_paths"] = lambda *_args, **_kwargs: "diff"
-    namespace["_run_trigger_for_paths"] = lambda *_args, **_kwargs: {
-        "should_run": False
-    }
+    namespace["_run_trigger_for_paths"] = lambda *_args, **_kwargs: {"should_run": False}
     args = SimpleNamespace(
         config="config/release.gate",
         base="HEAD",
@@ -534,9 +531,7 @@ def test_generated_stop_hook_warns_on_index_hidden_worktree_path(
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert "could not collect a bounded, static worktree snapshot" in payload[
-        "systemMessage"
-    ]
+    assert "could not collect a bounded, static worktree snapshot" in payload["systemMessage"]
     assert not log.exists()
 
 
@@ -640,7 +635,11 @@ def test_stop_hook_blocks_only_for_agent_action_required(tmp_path: Path) -> None
     _stop_hook_workspace(tmp_path)
     payload = json.dumps(
         {
-            "release_decision": {"decision": "review_required", "blockers": [], "review_items": [{}]},
+            "release_decision": {
+                "decision": "review_required",
+                "blockers": [],
+                "review_items": [{}],
+            },
             "control": {
                 "state": "agent_action_required",
                 "reason": "verify pending",
@@ -742,10 +741,22 @@ def test_stop_hook_says_publishing_is_still_authorized_on_review_publishable(
     "permissions",
     [
         None,
-        {"edit": True, "commit": True, "push": True, "update_pr": True,
-         "merge": True, "report_complete": False},
-        {"edit": False, "commit": False, "push": False, "update_pr": False,
-         "merge": False, "report_complete": False},
+        {
+            "edit": True,
+            "commit": True,
+            "push": True,
+            "update_pr": True,
+            "merge": True,
+            "report_complete": False,
+        },
+        {
+            "edit": False,
+            "commit": False,
+            "push": False,
+            "update_pr": False,
+            "merge": False,
+            "report_complete": False,
+        },
     ],
 )
 def test_stop_hook_never_announces_publication_off_the_state_tag(
@@ -770,7 +781,11 @@ def test_stop_hook_never_announces_publication_off_the_state_tag(
         control["permissions"] = permissions
     payload = json.dumps(
         {
-            "release_decision": {"decision": "review_required", "blockers": [], "review_items": [{}]},
+            "release_decision": {
+                "decision": "review_required",
+                "blockers": [],
+                "review_items": [{}],
+            },
             "control": control,
         }
     )
@@ -939,9 +954,7 @@ def test_pretooluse_stops_re_asking_for_an_already_allowed_file(tmp_path: Path) 
     assert _pretooluse_out(tmp_path, "CLAUDE.md") == ""
 
     # A different session never inherits the decision.
-    assert "permissionDecision" in _pretooluse_out(
-        tmp_path, "CLAUDE.md", session_id="S2"
-    )
+    assert "permissionDecision" in _pretooluse_out(tmp_path, "CLAUDE.md", session_id="S2")
     # Nor does an unrelated protected file.
     assert "permissionDecision" in _pretooluse_out(tmp_path, "shipgate.yaml")
 
@@ -1017,9 +1030,7 @@ def test_outside_workspace_path_cannot_authorize_a_repository_path(
     stray.write_text("version: '0.1'\n", encoding="utf-8")
 
     _posttooluse(tmp_path, str(stray))
-    assert "permissionDecision" in _pretooluse_out(
-        tmp_path, str(tmp_path / "shipgate.yaml")
-    )
+    assert "permissionDecision" in _pretooluse_out(tmp_path, str(tmp_path / "shipgate.yaml"))
 
 
 def test_approval_memory_preserves_other_sessions(tmp_path: Path) -> None:
@@ -1221,15 +1232,16 @@ def test_rendered_untracked_diff_enforces_an_aggregate_content_budget(
     namespace["GIT_DIFF_OUTPUT_LIMIT_BYTES"] = 64
     namespace["_run_git_bounded"] = lambda *_args, **_kwargs: b""
     metadata = SimpleNamespace(st_size=8, st_mtime_ns=1)
-    namespace["_read_untracked_file"] = (
-        lambda _root, _path: (b"12345678", metadata)
-    )
+    namespace["_read_untracked_file"] = lambda _root, _path: (b"12345678", metadata)
 
     untracked_content = namespace["_untracked_content_for_paths"]
-    assert untracked_content(
-        tmp_path,
-        ["one.py", "two.py", "three.py"],
-    ) is None
+    assert (
+        untracked_content(
+            tmp_path,
+            ["one.py", "two.py", "three.py"],
+        )
+        is None
+    )
 
 
 def test_rendered_git_path_arguments_are_literal_pathspecs(tmp_path: Path) -> None:
@@ -1363,10 +1375,7 @@ def test_rendered_alias_inspector_rejects_nonexact_unicode_entry(
 
     monkeypatch.setattr(Path, "lstat", aliasing_lstat)
     unsafe_alias_kind = namespace["_unsafe_alias_kind"]
-    assert (
-        unsafe_alias_kind(tmp_path, "config/cafe\u0301.gate")
-        == "aliased-path"
-    )
+    assert unsafe_alias_kind(tmp_path, "config/cafe\u0301.gate") == "aliased-path"
 
 
 def test_rendered_script_glob_matcher_matches_canonical_globbing(
@@ -1401,3 +1410,63 @@ def test_rendered_script_glob_matcher_matches_canonical_globbing(
                 pattern,
                 probe,
             )
+
+
+def _load_rendered_hook(tmp_path: Path):
+    """Import the generated hook script so its helpers can be exercised."""
+
+    import importlib.util
+
+    from agents_shipgate.cli.install_hooks import _hook_script_text
+
+    script = tmp_path / "agents_shipgate_hook.py"
+    script.write_text(_hook_script_text(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("rendered_shipgate_hook", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        r"C:\Tools\agents-shipgate.exe",
+        r'"C:\Program Files\ags\agents-shipgate.exe" --flag',
+        r'uv run --project="C:\My Project" agents-shipgate',
+        r'"a b" c "d""e"',
+        r'"C:\dir\\" next',
+        "agents-shipgate",
+    ],
+)
+def test_generated_hook_parses_the_cli_override_like_the_package(tmp_path: Path, raw: str) -> None:
+    """The hook is a second reader of AGENTS_SHIPGATE_CLI; it must agree.
+
+    It ships as a standalone script and cannot import the package, so the
+    Windows argv rules are duplicated inside it. Duplication is only safe if
+    divergence fails a test — the hook was still POSIX-splitting after the
+    package learned host rules, so a Windows override rendered a command
+    naming a path that does not exist.
+    """
+
+    from agents_shipgate.invocation import split_windows_command_line
+
+    hook = _load_rendered_hook(tmp_path)
+    assert hook._split_windows_command_line(raw) == split_windows_command_line(raw)
+
+
+def test_generated_hook_compiles_without_warnings(tmp_path: Path) -> None:
+    """This file is written into the user's repository; it must be clean.
+
+    A backslash in a non-raw docstring made the rendered hook emit a
+    SyntaxWarning on every run — noise in someone else's project, produced by
+    us.
+    """
+
+    import warnings
+
+    from agents_shipgate.cli.install_hooks import _hook_script_text
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        compile(_hook_script_text(), "agents-shipgate-hook.py", "exec")

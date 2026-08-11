@@ -300,8 +300,14 @@ def register(app: typer.Typer) -> None:
             template = render_manifest_template(workspace_resolved)
             placeholders = collect_placeholders(template)
             auto_detected: dict[str, object] = {}
-            next_action_create = (
-                "Replace placeholders, then run: agents-shipgate scan -c shipgate.yaml"
+            next_action_create = NextAction(
+                kind="command",
+                command="agents-shipgate scan -c shipgate.yaml",
+                why=(
+                    "Replace every value listed in placeholders[] in shipgate.yaml, "
+                    "then scan the declared tool surface."
+                ),
+                expects="A readiness report under agents-shipgate-reports/.",
             )
             next_action_dry = "Inspect the template, then re-run with --write to commit it."
         else:
@@ -389,8 +395,14 @@ def register(app: typer.Typer) -> None:
                 # tool_sources so the manifest scans, surfaced here so the
                 # decision is visible to JSON consumers.
                 auto_detected["excluded_sources"] = excluded_sources
-            next_action_create = (
-                "Review and run: agents-shipgate scan -c shipgate.yaml --suggest-patches"
+            next_action_create = NextAction(
+                kind="command",
+                command="agents-shipgate scan -c shipgate.yaml --suggest-patches",
+                why=(
+                    "Review the auto-detected manifest, then scan the declared "
+                    "tool surface with patch suggestions."
+                ),
+                expects="A readiness report under agents-shipgate-reports/.",
             )
             next_action_dry = "Inspect the template, then re-run with --write to commit it."
 
@@ -544,7 +556,11 @@ def register(app: typer.Typer) -> None:
                 payload["template"] = template
                 payload["next_action"] = next_action_dry
             else:
-                payload["next_action"] = next_action_create
+                # Projected from the action rather than written twice, so the
+                # recovery command is spelled for this invocation and carries
+                # its structured argv (#322).
+                payload["next_action"] = next_action_create.to_legacy_string()
+                payload["next_actions"] = [next_action_create.model_dump(mode="json")]
             if auto_detected:
                 payload["auto_detected"] = auto_detected
             if workflow_outcome is not None:
