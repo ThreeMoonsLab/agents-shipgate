@@ -28,6 +28,7 @@ import yaml
 from scripts._release_support import ReleaseError
 from scripts.release_notes import (
     MAX_BODY_CHARACTERS,
+    assert_body_matches,
     assert_expected_digest,
     extract_release_notes,
     notes_digest,
@@ -38,7 +39,10 @@ from scripts.update_locks import compile_command, prose_header
 from scripts.verify_dependency_lock import (
     DECLARATION_SENTINEL,
     LOCK_TARGETS,
+    SUPPORTED_ENVIRONMENTS,
     LockTarget,
+    applicable_environments,
+    build_system_problems,
     co_installed_problems,
     normalize_requirement,
     parse_lock,
@@ -442,8 +446,16 @@ def test_the_token_bearing_job_installs_no_project_code() -> None:
         "install-release-toolchain" in str(step.get("uses", "")) for step in publish["steps"]
     )
     assert "constraints/release-publish.txt" in json.dumps(publish)
-    # No checkout of the repository at all.
-    assert not any("actions/checkout" in str(step.get("uses", "")) for step in publish["steps"])
+    # The only thing checked out is the installer action itself, sparsely: a
+    # local action must exist in the workspace to be loadable at all, and cone
+    # mode would drag every repository-root file in with it. Nothing under
+    # `src/`, `tests/` or `scripts/` reaches this job.
+    checkouts = [
+        step for step in publish["steps"] if "actions/checkout" in str(step.get("uses", ""))
+    ]
+    assert len(checkouts) == 1
+    assert checkouts[0]["with"]["sparse-checkout"] == ".github/actions/install-release-toolchain"
+    assert checkouts[0]["with"]["sparse-checkout-cone-mode"] is False
 
 
 def test_the_publication_toolchain_is_hash_locked() -> None:
@@ -1068,7 +1080,13 @@ def test_finalisation_runs_no_project_code_either() -> None:
     finalize = _load_workflow("release.yml")["jobs"]["finalize"]
     commands = _job_commands(finalize)
 
-    assert not any("actions/checkout" in str(step.get("uses", "")) for step in finalize["steps"])
+    checkouts = [
+        step for step in finalize["steps"] if "actions/checkout" in str(step.get("uses", ""))
+    ]
+    # Only the installer action, sparsely; see the matching check on `publish`.
+    assert len(checkouts) == 1
+    assert checkouts[0]["with"]["sparse-checkout"] == ".github/actions/install-release-toolchain"
+    assert checkouts[0]["with"]["sparse-checkout-cone-mode"] is False
     assert "pip install -e" not in commands
     assert any(
         "install-release-toolchain" in str(step.get("uses", "")) for step in finalize["steps"]
@@ -2107,9 +2125,7 @@ def test_co_installed_locks_that_disagree_are_reported(tmp_path: Path) -> None:
         groups=(("constraints/first.txt", "constraints/second.txt"),),
     )
 
-    assert any("different versions by locks installed together" in item for item in problems), (
-        problems
-    )
+    assert any("resolves differently" in item for item in problems), problems
 
 
 def test_every_compiled_lock_is_gated_and_regenerated_by_one_command() -> None:
@@ -2139,3 +2155,377 @@ def test_every_compiled_lock_is_gated_and_regenerated_by_one_command() -> None:
         assert "--no-header" in command
     dev = next(target for target in LOCK_TARGETS if target.lock == "constraints/dev.txt")
     assert compile_command(dev)[-3:] == ["--extra", "dev", "pyproject.toml"]
+
+
+# --------------------------------------------------------------------------
+# #345 / re-review — the publication jobs must be able to start at all
+# --------------------------------------------------------------------------
+
+
+def _checkout_steps(job: dict[str, Any]) -> list[dict[str, Any]]:
+    return [step for step in job["steps"] if "actions/checkout" in str(step.get("uses", ""))]
+
+
+def test_every_job_using_a_local_action_checks_the_workspace_out() -> None:
+    """A `./.github/actions/...` action is loaded from the workspace, so a job
+    that uses one and checks out nothing fails while *preparing* the action —
+    before any step runs, and only on a real tag. `publish` and `finalize` were
+    both in that state, so the first release to reach publication would have
+    broken there."""
+
+    release = _load_workflow("release.yml")
+
+    for name, job in release["jobs"].items():
+        uses = [str(step.get("uses", "")) for step in job.get("steps") or []]
+        if not any(item.startswith("./") for item in uses):
+            continue
+        assert _checkout_steps(job), f"{name} uses a local action but checks nothing out"
+
+
+def test_the_token_bearing_jobs_check_out_the_installer_and_nothing_else() -> None:
+    """The checkout that makes the local action loadable must not become a way
+    for project code to enter a job holding `id-token: write` or
+    `contents: write`. Sparse, cone mode off — cone mode would also materialise
+    every file at the repository root."""
+
+    release = _load_workflow("release.yml")
+
+    for name in ("publish", "finalize"):
+        checkouts = _checkout_steps(release["jobs"][name])
+        assert len(checkouts) == 1, name
+        with_ = checkouts[0]["with"]
+        assert with_["sparse-checkout"] == ".github/actions/install-release-toolchain", name
+        assert with_["sparse-checkout-cone-mode"] is False, name
+        assert with_["persist-credentials"] is False, name
+        assert with_["ref"] == "${{ needs.verify.outputs.source_sha }}", name
+
+
+# --------------------------------------------------------------------------
+# #345 / re-review — the publication allowlist is fail-closed and tested
+# --------------------------------------------------------------------------
+
+
+def _allowlist_script() -> str:
+    action = yaml.safe_load(
+        (REPO_ROOT / ".github/actions/install-release-toolchain/action.yml").read_text("utf-8")
+    )
+    step = next(
+        step
+        for step in action["runs"]["steps"]
+        if step["name"] == "Allow only reviewed distributions"
+    )
+    return str(step["run"])
+
+
+def _run_allowlist(tmp_path: Path, lockfile: str) -> tuple[int, str]:
+    import subprocess
+    import sys
+
+    (tmp_path / "release-toolchain.txt").write_text(lockfile, encoding="utf-8")
+    script = tmp_path / "allowlist.sh"
+    script.write_text(_allowlist_script(), encoding="utf-8")
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    del sys
+    return result.returncode, result.stdout + result.stderr
+
+
+def test_the_committed_publication_lockfile_passes_the_allowlist(tmp_path: Path) -> None:
+    code, output = _run_allowlist(
+        tmp_path, (REPO_ROOT / "constraints/release-publish.txt").read_text("utf-8")
+    )
+
+    assert code == 0, output
+    assert "every locked distribution is on the allowlist" in output
+
+
+@pytest.mark.parametrize(
+    ("lockfile", "expected"),
+    [
+        # The hole: pip installs `name @ URL`, but a grep for `name==` omitted
+        # it from the comparison entirely, so it was installed unreviewed in a
+        # job that can mint a PyPI token.
+        (
+            "uv==0.11.7 \\\n    --hash=sha256:aa\nevil @ https://x.invalid/e.whl \\\n"
+            "    --hash=sha256:bb\n",
+            "not an exact name==version pin",
+        ),
+        ("uv==0.11.7 \\\n    --hash=sha256:aa\n-e .\n", "contains a pip option"),
+        ("uv>=0.11.7\n", "not an exact name==version pin"),
+        (
+            "uv==0.11.7 \\\n    --hash=sha256:aa\nrequests-evil==1.0 \\\n    --hash=sha256:bb\n",
+            "not on the allowlist",
+        ),
+        # An empty or comment-only lockfile must not be read as "nothing to check".
+        ("# nothing here\n", "requests nothing"),
+    ],
+)
+def test_the_allowlist_refuses_every_requirement_form_it_cannot_review(
+    tmp_path: Path, lockfile: str, expected: str
+) -> None:
+    code, output = _run_allowlist(tmp_path, lockfile)
+
+    assert code != 0, output
+    assert expected in output
+
+
+def test_the_allowlist_still_accepts_marker_qualified_pins(tmp_path: Path) -> None:
+    code, output = _run_allowlist(
+        tmp_path,
+        "cffi==2.1.1 ; platform_python_implementation != 'PyPy' \\\n    --hash=sha256:aa\n",
+    )
+
+    assert code == 0, output
+
+
+# --------------------------------------------------------------------------
+# #345 / re-review — pins are matched by environment, URL and marker
+# --------------------------------------------------------------------------
+
+
+def test_the_environment_matrix_covers_what_the_project_supports() -> None:
+    """Marker comparison is only as good as the environments it evaluates."""
+
+    pythons = {env["python_version"] for env in SUPPORTED_ENVIRONMENTS}
+    platforms = {env["sys_platform"] for env in SUPPORTED_ENVIRONMENTS}
+
+    assert "3.12" in pythons, "requires-python floor must be represented"
+    assert {"linux", "darwin", "win32"} <= platforms
+    assert applicable_environments(None) == frozenset(range(len(SUPPORTED_ENVIRONMENTS)))
+    assert applicable_environments("sys_platform == 'linux'") < applicable_environments(None)
+    # An unsatisfiable marker selects nothing, which is what makes "legitimately
+    # unpinned" a provable statement rather than an assumption.
+    assert applicable_environments("sys_platform == 'plan9'") == frozenset()
+
+
+def test_a_conditional_declaration_must_still_be_pinned_where_it_applies(
+    tmp_path: Path,
+) -> None:
+    """Waiving every marked declaration meant a requirement that installs on
+    Linux could be missing from the lock entirely, unreported."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1 ; sys_platform == 'linux'\n",
+        pins="other==1.0 \\\n    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n",
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("pins no demo that applies" in problem for problem in problems), problems
+    assert any("linux" in problem for problem in problems), problems
+
+
+def test_a_declaration_no_supported_environment_selects_is_not_required(
+    tmp_path: Path,
+) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1 ; sys_platform == 'plan9'\n",
+        pins="other==1.0 \\\n    --hash=sha256:aa\n    # via something-else\n",
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_a_pin_that_applies_nowhere_the_declaration_does_is_caught(tmp_path: Path) -> None:
+    """The wrong-platform case: the pin exists, the name matches, the version
+    satisfies the range — and no environment that needs it can install it."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo==1.0 ; sys_platform == 'win32' \\\n"
+            "    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("pins no demo that applies" in problem for problem in problems), problems
+
+
+def test_branches_that_overlap_are_rejected_even_with_different_marker_text(
+    tmp_path: Path,
+) -> None:
+    """Two markers can differ as strings and still both select Linux, in which
+    case which version installs there is undetermined — a syntactic
+    same-marker check accepts it."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo==1.0 ; sys_platform == 'linux' \\\n"
+            "    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n"
+            "demo==2.0 ; os_name == 'posix' \\\n"
+            "    --hash=sha256:bb\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("more than one demo branch applying" in problem for problem in problems), problems
+
+
+def test_a_direct_url_pin_must_be_the_url_the_declaration_names(tmp_path: Path) -> None:
+    """A URL declaration has no version range, so range checking says nothing:
+    without comparing the URL itself, the lock could fetch anything."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo @ https://example.invalid/demo-1.0-py3-none-any.whl\n",
+        pins=(
+            "demo @ https://elsewhere.invalid/demo-9.9-py3-none-any.whl \\\n"
+            "    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("elsewhere.invalid" in problem for problem in problems), problems
+
+    root, target = _lock_pair(
+        tmp_path / "honest",
+        declared="demo @ https://example.invalid/demo-1.0-py3-none-any.whl\n",
+        pins=(
+            "demo @ https://example.invalid/demo-1.0-py3-none-any.whl \\\n"
+            "    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_co_installed_locks_may_carry_different_halves_of_one_fork(tmp_path: Path) -> None:
+    """Comparing the *set* of versions each lock mentions rejects a valid
+    universal fork; in any single environment only one branch of each applies,
+    and only those have to agree."""
+
+    (tmp_path / "constraints").mkdir(parents=True)
+    (tmp_path / "constraints/first.txt").write_text(
+        "shared==1.0 ; python_full_version < '3.13' \\\n    --hash=sha256:aa\n"
+        "shared==2.0 ; python_full_version >= '3.13' \\\n    --hash=sha256:bb\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "constraints/second.txt").write_text(
+        "shared==2.0 ; python_full_version >= '3.13' \\\n    --hash=sha256:bb\n",
+        encoding="utf-8",
+    )
+    targets = (
+        LockTarget(lock="constraints/first.txt", source="constraints/first.in"),
+        LockTarget(lock="constraints/second.txt", source="constraints/second.in"),
+    )
+    group = (("constraints/first.txt", "constraints/second.txt"),)
+
+    assert co_installed_problems(root=tmp_path, targets=targets, groups=group) == []
+
+    # But a real disagreement inside one environment is still reported.
+    (tmp_path / "constraints/second.txt").write_text(
+        "shared==3.0 ; python_full_version >= '3.13' \\\n    --hash=sha256:cc\n",
+        encoding="utf-8",
+    )
+    problems = co_installed_problems(root=tmp_path, targets=targets, groups=group)
+    assert any("resolves differently" in problem for problem in problems), problems
+
+
+# --------------------------------------------------------------------------
+# #345 / re-review — the backend is bound to [build-system]
+# --------------------------------------------------------------------------
+
+
+def test_the_locked_backend_satisfies_the_declared_build_system() -> None:
+    assert build_system_problems() == []
+
+
+@pytest.mark.parametrize(
+    ("requires", "backend", "expected"),
+    [
+        # A raised floor the pinned closure cannot satisfy.
+        (['"hatchling>=99"'], '"hatchling.build"', "does not satisfy"),
+        # A different backend entirely: every existing check stays green.
+        (['"setuptools>=70"'], '"setuptools.build_meta"', "pins no setuptools"),
+        (['"hatchling>=1.31.0"'], '"flit_core.buildapi"', "which constraints"),
+    ],
+)
+def test_a_build_system_change_the_lock_cannot_serve_is_rejected(
+    tmp_path: Path, requires: list[str], backend: str, expected: str
+) -> None:
+    """`release-build.txt` and its closure can be perfectly consistent with
+    each other and still not be the backend `[build-system]` names."""
+
+    (tmp_path / "constraints").mkdir(parents=True)
+    (tmp_path / "constraints/build-backend.txt").write_text(
+        (REPO_ROOT / "constraints/build-backend.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        f"[build-system]\nrequires = [{', '.join(requires)}]\nbuild-backend = {backend}\n",
+        encoding="utf-8",
+    )
+
+    problems = build_system_problems(root=tmp_path)
+
+    assert any(expected in problem for problem in problems), problems
+
+
+def test_the_ci_build_uses_the_locked_backend_too() -> None:
+    """The hosted run created two isolated environments and re-resolved
+    `hatchling>=1.31.0`, despite the hashed closure already being installed —
+    so the artifact CI checked came from a backend nothing pinned."""
+
+    for workflow, job, step in (
+        ("ci.yml", "test", "Build package"),
+        ("release-verify.yml", "artifact", "Build a wheel from the checked-out source"),
+    ):
+        command = _test_step_command(_load_workflow(workflow)["jobs"][job], step)
+        assert "python -m build" in command, workflow
+        assert "--no-isolation" in command, workflow
+
+
+def test_a_published_rerun_certifies_the_body_as_well_as_the_bytes() -> None:
+    """Declaring the transaction complete makes `publish` and `finalize` skip,
+    so a re-run over a release whose notes were edited afterwards would
+    certify text nobody reviewed. Assets are content-addressed; the body is
+    not, so it is compared."""
+
+    stage = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
+    published_branch = stage.split("Published already", 1)[-1]
+
+    assert "--json body" in published_branch
+    assert "--published-body" in published_branch
+    assert '--expected-sha256 "${NOTES_SHA256}"' in published_branch
+    # Still read-only about the release itself.
+    assert "gh release edit" not in published_branch
+    assert "gh release upload" not in published_branch
+
+
+def test_a_published_body_is_compared_modulo_line_endings_only(tmp_path: Path) -> None:
+    """GitHub stores bodies with CRLF and no guaranteed trailing newline, so a
+    raw comparison would fail on every release; anything else must differ."""
+
+    notes = extract_release_notes(changelog_path=_changelog(tmp_path), tag="v2.0.0")
+
+    assert_body_matches(notes, notes.replace("\n", "\r\n").rstrip("\r\n"))
+    with pytest.raises(ReleaseError, match="not the changelog section"):
+        assert_body_matches(notes, notes + "\nInjected line.\n")
+
+
+def test_a_non_ascii_space_does_not_close_a_fence(tmp_path: Path) -> None:
+    """CommonMark permits only spaces and tabs after a closing fence, but
+    `str.strip()` also removes NBSP — which would end the block early and read
+    the next heading as content."""
+
+    nbsp = " "
+    changelog = _changelog(
+        tmp_path,
+        f"# Changelog\n\n## 2.0.0\n\n```text\nfenced\n```{nbsp}\nstill fenced\n",
+    )
+
+    with pytest.raises(ReleaseError, match="unterminated code fence"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")

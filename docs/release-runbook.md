@@ -17,7 +17,7 @@ A release runs as five jobs with an explicit, content-addressed handoff.
 | `verify` → `artifact` | `contents: read` | Requires a changelog section for the tag, builds from the tagged source, validates the signed qualification, binds wheel to source, produces the wheel-scoped SBOM, seals and uploads the candidate bundle |
 | `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, extracts the release notes, classifies the index, creates or repairs the **draft** release |
 | `publish` | `id-token: write`, `environment: pypi` | Signs and uploads to PyPI once |
-| `finalize` | `contents: write` | Attaches signatures, re-verifies the remote bytes, undrafts |
+| `finalize` | `contents: write` | Attaches signatures, re-verifies the remote bytes, reapplies the notes and undrafts in one call |
 
 The sealing job installs no project code — only the hash-locked toolchain in
 `constraints/release-seal.txt` — and executes nothing from the wheel's runtime
@@ -42,6 +42,15 @@ checks out **no project code**, and installs only the hash-locked toolchain in
 `constraints/release-publish.txt` with `--require-hashes`. Conversely `stage`
 and `finalize` can write to the repository but cannot mint a token. A
 dependency compromised in any single job therefore cannot reach both registries.
+
+"No project code" is exact rather than approximate: `publish` and `finalize`
+check out `.github/actions/install-release-toolchain` and nothing else, with
+`sparse-checkout-cone-mode: false` because cone mode would also materialise
+every file at the repository root. That checkout is not optional — a local
+`./.github/actions/...` action is loaded from the workspace, so a job that uses
+one without checking out fails while *preparing* the action, before any step
+runs. The file it makes available is the one the job already executes as an
+action, at the verified commit, with no credentials persisted.
 
 Verification holds no write or OIDC authority at all, so the expensive
 read-only work cannot mutate anything. The `pypi` environment's
@@ -182,6 +191,22 @@ a name-and-range comparison accepts all three silently. On top of that it fails
 on a declared requirement with no pin, a pin outside the declared range, a
 direct requirement the declarations no longer contain, and a pin without a hash.
 
+Pins are matched **per environment**, not by comparing marker text. Markers are
+evaluated over CPython 3.12–3.14 × linux/darwin/win32 × x86-64/aarch64, and for
+every environment a declaration selects there must be exactly one applicable
+pin, satisfying the declared range or naming the declared URL. That is what
+distinguishes a conditional requirement that is legitimately unpinned (no
+supported environment selects it) from one that is simply missing, catches a pin
+whose own marker excludes the platform that needs it, and rejects two branches
+whose markers differ as strings but both apply somewhere. The same comparison
+runs across locks installed together, so a universal fork split between two
+locks is fine while a genuine disagreement inside one environment is not.
+
+`[build-system]` is bound too: the backend `pyproject.toml` actually builds with
+must be the one `constraints/build-backend.txt` pins. Otherwise a raised floor
+or a switch to another backend leaves the hand-maintained pin, its closure, and
+this gate perfectly consistent with each other and wrong about the wheel.
+
 It deliberately does not re-resolve against the index — "stale" means
 *inconsistent with the declarations*, not *older than the newest release on
 PyPI*, or every unrelated upload would turn the build red.
@@ -321,6 +346,14 @@ downloads the published assets, proves they are the verified ones, records
 Re-signing would mint fresh, non-reproducible Sigstore bundles and replace the
 public attestations for no benefit; clobbering assets would replace public bytes
 that immutable PyPI can no longer be made to match.
+
+Because that declaration makes both signature-verifying jobs skip, the **body**
+is checked there too, not only the assets. Release notes stay editable after
+publication and nothing else re-reads them, so a re-run over a release whose
+text was changed afterwards would otherwise certify it. A divergent body fails
+the run rather than being rewritten — mutating a published release is exactly
+what this branch refuses to do — and the fix is to restore the changelog section
+by hand, or to investigate who edited it.
 
 The index is also reclassified *inside* the publish attempt rather than reusing
 the decision `stage` made before environment approval. A stale `absent` would

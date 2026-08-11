@@ -88,11 +88,14 @@ def _section_headings(lines: list[str]) -> list[tuple[int, str]]:
             elif (
                 marker[0] == fence[0]
                 and len(marker) >= len(fence)
-                # CommonMark allows spaces and tabs after a closing fence, so a
-                # closer with trailing whitespace must still close. Requiring an
-                # exactly empty suffix left the fence open and failed the whole
-                # release with "unterminated code fence".
-                and not fenced.group("info").strip()
+                # CommonMark allows spaces and tabs — and only those — after a
+                # closing fence. Requiring an exactly empty suffix failed the
+                # release with "unterminated code fence" on a valid changelog;
+                # bare `str.strip()` overshoots the other way and accepts
+                # Unicode whitespace such as NBSP, so a line that does *not*
+                # close the block would end it and the next heading would be
+                # read as content.
+                and not fenced.group("info").strip(" \t")
             ):
                 fence = None
             continue
@@ -194,6 +197,27 @@ def notes_digest(notes: str) -> str:
     return hashlib.sha256(notes.encode("utf-8")).hexdigest()
 
 
+def normalize_body(text: str) -> str:
+    """A release body as GitHub stores it, comparable to extracted notes.
+
+    GitHub returns bodies with CRLF line endings and no guaranteed trailing
+    newline, so a raw comparison reports a difference on every release that has
+    none. Only those two representational details are normalised; a single
+    changed character still differs.
+    """
+
+    return "\n".join(line.rstrip("\r") for line in text.split("\n")).strip("\n")
+
+
+def assert_body_matches(notes: str, body: str) -> None:
+    if normalize_body(body) != normalize_body(notes):
+        raise ReleaseError(
+            "The published release body is not the changelog section this release "
+            "verified. Release notes stay editable after publication, so a re-run must "
+            "not certify text nobody reviewed; see docs/release-runbook.md."
+        )
+
+
 def assert_expected_digest(notes: str, expected: str) -> str:
     """Bind extracted notes to the digest verification published.
 
@@ -237,6 +261,14 @@ def _parser() -> argparse.ArgumentParser:
         "--github-output",
         help="append release_notes_sha256 here",
     )
+    parser.add_argument(
+        "--published-body",
+        type=Path,
+        help=(
+            "file holding a published release's body; fails unless it is this "
+            "section, so a re-run cannot certify text that was edited afterwards"
+        ),
+    )
     return parser
 
 
@@ -249,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.expected_sha256 is not None
             else notes_digest(notes)
         )
+        if args.published_body is not None:
+            assert_body_matches(notes, args.published_body.read_text(encoding="utf-8"))
         if args.output is not None:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(notes, encoding="utf-8")

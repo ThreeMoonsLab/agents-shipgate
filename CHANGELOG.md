@@ -198,8 +198,25 @@
   before publication — checks that binding plus a declared requirement with no
   pin, a pin outside the declared range, a direct requirement the declarations
   no longer contain, a pin without a hash, and locks installed together that
-  disagree on a shared version. It never re-resolves against the index, so an
-  unrelated upload cannot turn the build red.
+  disagree. Markers are compared by *evaluating* them over the environments the
+  project supports (CPython 3.12–3.14 × linux/darwin/win32 × x86-64/aarch64)
+  rather than as text, so a conditional declaration that is genuinely missing is
+  distinguished from one no supported environment selects, a pin whose own
+  marker excludes the platform that needs it is caught, and a valid universal
+  fork is not mistaken for a conflict. `[build-system]` is bound to the same
+  closure, so a raised backend floor or a switch to another backend can no
+  longer leave every file consistent and the wheel built by something nobody
+  pinned. CI builds the package with `--no-isolation` for the same reason. It
+  never re-resolves against the index, so an unrelated upload cannot turn the
+  build red. Two release-only defects found in review are fixed here as well:
+  `publish` and `finalize` used a local composite action without checking the
+  repository out, which fails while *preparing* the action — the first release
+  to reach publication would have broken there, so both now check out that one
+  action directory sparsely, at the verified commit, with cone mode off; and the
+  publication allowlist matched only `name==version` lines, so a `name @ URL`
+  requirement was installed in the token-bearing jobs without ever being
+  compared against it — every requirement form it cannot review is now refused,
+  and the check runs as its own step against crafted lockfiles in the suite.
   ([#345](https://github.com/ThreeMoonsLab/agents-shipgate/issues/345))
 - **Insufficient-evidence remediation now stays framework-aware from the
   decision engine through every primary short-form surface.** Semantic

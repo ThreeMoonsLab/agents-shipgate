@@ -61,6 +61,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from packaging.markers import InvalidMarker, Marker, UndefinedComparison, UndefinedEnvironmentName
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
@@ -70,6 +71,76 @@ else:  # ``python scripts/verify_dependency_lock.py``
     from _release_support import ReleaseError
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _environment(python: str, platform: str, machine: str) -> dict[str, str]:
+    system, os_name = {
+        "linux": ("Linux", "posix"),
+        "darwin": ("Darwin", "posix"),
+        "win32": ("Windows", "nt"),
+    }[platform]
+    return {
+        "implementation_name": "cpython",
+        "implementation_version": python,
+        "os_name": os_name,
+        "platform_machine": machine,
+        "platform_python_implementation": "CPython",
+        "platform_release": "",
+        "platform_system": system,
+        "platform_version": "",
+        "python_full_version": python,
+        "python_version": ".".join(python.split(".")[:2]),
+        "sys_platform": platform,
+        "extra": "",
+    }
+
+
+# Markers are compared by *evaluation*, not by string equality, over the
+# environments this project supports: `requires-python >= 3.12`, the three
+# platforms wheels are published for, and both common machine architectures.
+# Two branches whose marker text differs may still both apply somewhere, and
+# a declaration behind a marker is only legitimately unpinned when no supported
+# environment selects it — neither fact is visible in the text.
+SUPPORTED_ENVIRONMENTS: tuple[dict[str, str], ...] = tuple(
+    _environment(python, platform, machine)
+    for python in ("3.12.0", "3.13.0", "3.14.0")
+    for platform in ("linux", "darwin", "win32")
+    for machine in ("x86_64", "aarch64")
+)
+
+
+def describe_environment(index: int) -> str:
+    environment = SUPPORTED_ENVIRONMENTS[index]
+    return (
+        f"CPython {environment['python_version']} on "
+        f"{environment['sys_platform']}/{environment['platform_machine']}"
+    )
+
+
+def applicable_environments(marker: Marker | str | None) -> frozenset[int]:
+    """Which supported environments a marker selects.
+
+    An unparsable or undecidable marker is treated as applying everywhere:
+    that makes a requirement *more* checked, never less, which is the safe
+    direction for a gate.
+    """
+
+    if marker is None or marker == "":
+        return frozenset(range(len(SUPPORTED_ENVIRONMENTS)))
+    try:
+        parsed = marker if isinstance(marker, Marker) else Marker(marker)
+    except InvalidMarker:
+        return frozenset(range(len(SUPPORTED_ENVIRONMENTS)))
+    selected = set()
+    for index, environment in enumerate(SUPPORTED_ENVIRONMENTS):
+        try:
+            applies = parsed.evaluate(environment)
+        except (UndefinedComparison, UndefinedEnvironmentName):
+            applies = True
+        if applies:
+            selected.add(index)
+    return frozenset(selected)
+
 
 # Everything from this line to the first pin is generated. `update_locks.py`
 # restores the prose above it and rewrites the block below it, so the two never
@@ -127,6 +198,9 @@ LOCK_TARGETS: tuple[LockTarget, ...] = (
 CO_INSTALLED: tuple[tuple[str, ...], ...] = (
     ("constraints/dev.txt", "constraints/build-backend.txt"),
 )
+
+# The closure that must satisfy `[build-system]`.
+BACKEND_LOCK = "constraints/build-backend.txt"
 
 
 @dataclass
@@ -327,6 +401,86 @@ def _declaration_problems(target: LockTarget, lock_path: Path, expected: list[st
     ]
 
 
+def _summarize(environments: list[int]) -> str:
+    shown = ", ".join(describe_environment(index) for index in sorted(environments)[:2])
+    remaining = len(environments) - 2
+    return f"{shown}{f' and {remaining} more' if remaining > 0 else ''}"
+
+
+def _requirement_problems(
+    target: LockTarget, requirement: Requirement, pins: dict[str, list[Pin]]
+) -> list[str]:
+    """Match one declaration against the pins, environment by environment.
+
+    Comparing marker *text* cannot answer the questions that matter: whether a
+    conditional declaration is legitimately unpinned, whether two branches that
+    look different both apply somewhere, and whether the branch that applies
+    where the declaration does actually satisfies it.
+    """
+
+    name = canonicalize_name(requirement.name)
+    declared_in = applicable_environments(requirement.marker)
+    if not declared_in:
+        # No supported environment selects it, so no resolution can contain it.
+        # The declaration block still binds the text, so this cannot hide a
+        # change — only a requirement that genuinely never installs.
+        return []
+
+    branches = pins.get(name, [])
+    missing: list[int] = []
+    overlapping: list[int] = []
+    unsatisfied: dict[str, list[int]] = {}
+    wrong_source: dict[str, list[int]] = {}
+
+    for index in sorted(declared_in):
+        applicable = [
+            branch for branch in branches if index in applicable_environments(branch.marker)
+        ]
+        if not applicable:
+            missing.append(index)
+            continue
+        if len(applicable) > 1:
+            overlapping.append(index)
+            continue
+        branch = applicable[0]
+        if requirement.url:
+            if branch.url != requirement.url:
+                wrong_source.setdefault(
+                    f"{branch.url or branch.version} where the declaration names {requirement.url}",
+                    [],
+                ).append(index)
+            continue
+        if branch.url is not None:
+            wrong_source.setdefault(f"the direct URL {branch.url}", []).append(index)
+            continue
+        if requirement.specifier and not requirement.specifier.contains(
+            branch.version or "", prereleases=True
+        ):
+            unsatisfied.setdefault(branch.version or "", []).append(index)
+
+    problems = []
+    if missing:
+        problems.append(
+            f"{target.source} declares {requirement} but {target.lock} pins no {name} that "
+            f"applies on {_summarize(missing)}; the lock is stale. Regenerate it with "
+            "scripts/update_locks.py."
+        )
+    if overlapping:
+        problems.append(
+            f"{target.lock} has more than one {name} branch applying on "
+            f"{_summarize(overlapping)}; which version installs there is not determined."
+        )
+    for version, indices in sorted(unsatisfied.items()):
+        problems.append(
+            f"{target.lock} pins {name}=={version} on {_summarize(indices)}, which does not "
+            f"satisfy the declared {requirement}. Regenerate the lock with "
+            "scripts/update_locks.py."
+        )
+    for detail, indices in sorted(wrong_source.items()):
+        problems.append(f"{target.lock} resolves {name} to {detail} on {_summarize(indices)}.")
+    return problems
+
+
 def verify_lock_target(
     target: LockTarget, *, root: Path = REPO_ROOT, distribution: str = "agents-shipgate"
 ) -> list[str]:
@@ -351,36 +505,8 @@ def verify_lock_target(
 
     declared: set[str] = set()
     for requirement in requirements:
-        name = canonicalize_name(requirement.name)
-        declared.add(name)
-        branches = pins.get(name)
-        if not branches:
-            if requirement.marker is not None:
-                # A declaration that no supported environment selects is
-                # legitimately absent from the resolution. The declaration
-                # block above still binds it, so a change cannot hide here.
-                continue
-            problems.append(
-                f"{target.source} declares {requirement} but {target.lock} pins no {name}; "
-                "the lock is stale. Regenerate it with scripts/update_locks.py."
-            )
-            continue
-        for branch in branches:
-            if branch.version is None:
-                if requirement.specifier:
-                    problems.append(
-                        f"{target.lock} resolves {name}{branch.describe()} to a direct URL, "
-                        f"but {target.source} declares the range {requirement}."
-                    )
-                continue
-            if requirement.specifier and not requirement.specifier.contains(
-                branch.version, prereleases=True
-            ):
-                problems.append(
-                    f"{target.lock} pins {name}{branch.describe()}, which does not satisfy "
-                    f"the declared {requirement}. Regenerate the lock with "
-                    "scripts/update_locks.py."
-                )
+        declared.add(canonicalize_name(requirement.name))
+        problems.extend(_requirement_problems(target, requirement, pins))
 
     markers = _direct_marker(target, distribution=distribution)
     for name, branches in sorted(pins.items()):
@@ -401,31 +527,102 @@ def co_installed_problems(
     targets: tuple[LockTarget, ...] = LOCK_TARGETS,
     groups: tuple[tuple[str, ...], ...] = CO_INSTALLED,
 ) -> list[str]:
-    """Locks installed side by side must not pin one distribution twice over."""
+    """Locks installed side by side must not pin one distribution twice over.
+
+    Compared per environment, not by collecting every version each lock
+    mentions: a universal lock legitimately forks one name across Python or
+    platform versions, and two locks carrying different halves of the same
+    fork do not disagree — in any single environment exactly one branch of
+    each applies, and only those need to match.
+    """
 
     known = {target.lock for target in targets}
     problems: list[str] = []
     for group in groups:
-        missing = [lock for lock in group if lock not in known]
-        if missing:
-            problems.append(f"Co-installed group names unknown locks: {', '.join(missing)}.")
+        unknown = [lock for lock in group if lock not in known]
+        if unknown:
+            problems.append(f"Co-installed group names unknown locks: {', '.join(unknown)}.")
             continue
-        versions: dict[str, dict[str, set[str]]] = {}
-        for lock in group:
-            for name, branches in parse_lock(root / lock).items():
-                for branch in branches:
-                    if branch.version is not None:
-                        versions.setdefault(name, {}).setdefault(branch.version, set()).add(lock)
-        for name, by_version in sorted(versions.items()):
-            if len(by_version) > 1:
+        parsed = {lock: parse_lock(root / lock) for lock in group}
+        names = sorted({name for pins in parsed.values() for name in pins})
+        for name in names:
+            # environment -> resolved identity -> the locks that resolve it
+            conflicts: dict[str, dict[str, set[str]]] = {}
+            for index in range(len(SUPPORTED_ENVIRONMENTS)):
+                effective: dict[str, set[str]] = {}
+                for lock, pins in parsed.items():
+                    for branch in pins.get(name, []):
+                        if index in applicable_environments(branch.marker):
+                            identity = branch.version or f"@ {branch.url}"
+                            effective.setdefault(identity, set()).add(lock)
+                if len(effective) > 1:
+                    conflicts[describe_environment(index)] = effective
+            if conflicts:
+                where, effective = sorted(conflicts.items())[0]
                 spread = "; ".join(
-                    f"{version} in {', '.join(sorted(locks))}"
-                    for version, locks in sorted(by_version.items())
+                    f"{identity} in {', '.join(sorted(locks))}"
+                    for identity, locks in sorted(effective.items())
                 )
                 problems.append(
-                    f"{name} is pinned at different versions by locks installed together "
+                    f"{name} resolves differently on {where} for locks installed together "
                     f"({spread}); the later install would move the earlier closure."
                 )
+    return problems
+
+
+def build_system_problems(*, root: Path = REPO_ROOT, lock: str = BACKEND_LOCK) -> list[str]:
+    """The backend that builds the project must be the one that is locked.
+
+    ``constraints/release-build.txt`` states which backend version the
+    byte-reproducibility argument rests on, and ``build-backend.txt`` resolves
+    it — but neither is derived from ``[build-system]``. A raised floor, an
+    added build requirement, or a switch to another backend entirely would
+    leave both files, and this gate, perfectly consistent and completely wrong.
+    """
+
+    pyproject = root / "pyproject.toml"
+    if not pyproject.is_file():
+        return [f"{pyproject} not found."]
+    table = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("build-system", {})
+    pins = parse_lock(root / lock)
+    problems: list[str] = []
+
+    requires = table.get("requires", [])
+    if not requires:
+        return ["pyproject.toml declares no [build-system].requires."]
+    for spec in requires:
+        try:
+            requirement = Requirement(spec)
+        except InvalidRequirement as exc:
+            problems.append(f"pyproject.toml build requirement {spec!r} is unparsable: {exc}")
+            continue
+        name = canonicalize_name(requirement.name)
+        branches = pins.get(name)
+        if not branches:
+            problems.append(
+                f"pyproject.toml builds with {spec!r}, but {lock} pins no {name}; the wheel "
+                "would be built by a backend nothing reviewed."
+            )
+            continue
+        for branch in branches:
+            if branch.version and not requirement.specifier.contains(
+                branch.version, prereleases=True
+            ):
+                problems.append(
+                    f"{lock} pins {name}=={branch.version}, which does not satisfy the "
+                    f"[build-system] requirement {spec!r}."
+                )
+
+    backend = str(table.get("build-backend", ""))
+    if not backend:
+        problems.append("pyproject.toml declares no [build-system].build-backend.")
+    else:
+        provider = canonicalize_name(backend.split(":")[0].split(".")[0])
+        if provider not in pins:
+            problems.append(
+                f"pyproject.toml builds with the {backend!r} backend, provided by "
+                f"{provider}, which {lock} does not pin."
+            )
     return problems
 
 
@@ -434,6 +631,7 @@ def verify_all(*, root: Path = REPO_ROOT, targets: tuple[LockTarget, ...] = LOCK
     for target in targets:
         problems.extend(verify_lock_target(target, root=root))
     problems.extend(co_installed_problems(root=root, targets=targets))
+    problems.extend(build_system_problems(root=root))
     if problems:
         raise ReleaseError("\n  - ".join(["Dependency locks are out of date:", *problems]))
 
