@@ -12,9 +12,11 @@
   carries tool execution status, the release or boundary decision and which
   engine produced it, the control state, the six-way `permissions` vector, the
   next actor, the exact next action, and the path and sha256 of every forensic
-  artifact — in one stdout object under a published `agent_control_max_bytes`
-  budget of 4096, roughly a fifth of the `verifier.json` plus
-  `agent-handoff.json` an agent reads today to answer the same question. Three
+  artifact — in one stdout object under a published `agent_control_budget_bytes`
+  budget of 4096 — a measured target, not an enforced cap, since a long
+  reviewer list or exact command must never be truncated to fit — roughly a
+  fifth of the `verifier.json` plus `agent-handoff.json` an agent reads today
+  to answer the same question. Three
   separations that were documentary are now structural: a failed execution can
   never authorize completion (and a *succeeded* one implies nothing); a
   stopping state authorizes nothing; and `permissions.merge`, not `exit_code`,
@@ -30,7 +32,16 @@
   default output changes from the raw pointer to the envelope — `--format
   pointer` returns the previous output unchanged. `verify --format text` now
   leads with the control state, next actor, and permission vector before the
-  existing verdict line. Runtime contract advances `21 → 22` and the downstream
+  existing verdict line. Both entry points run one currency test: `verify
+  --format control` validates its own published pointer against the live
+  workspace and withholds authority when the workspace moved past what the run
+  evaluated, instead of reporting `complete` on a directory `agent control` was
+  simultaneously refusing, and it routes from the verifier bytes captured inside
+  that read so a pointer can never be paired with another generation's decision.
+  Emitted artifact paths are relative to the invoking directory. Separately,
+  `.shipgate/agent-contract.json` now upgrades in place from any superseded
+  managed version rather than only from renders whose exact hash was recorded —
+  repositories on local-contract schema 8 or 9 were stranded. Runtime contract advances `21 → 22` and the downstream
   local contract `9 → 10`; `minimum_control_contract_version` stays at `21`
   because the `AgentControl` union itself is unchanged.
   ([#333](https://github.com/ThreeMoonsLab/agents-shipgate/issues/333),

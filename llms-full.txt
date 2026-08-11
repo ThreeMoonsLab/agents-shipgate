@@ -1090,14 +1090,33 @@ six-way `permissions` vector, who acts next, the exact next action, and the
 content-addressed path and hash of every forensic artifact. It is emitted by
 `agents-shipgate verify --format control`, `agents-shipgate check --format
 agent-control-json`, and `agents-shipgate agent control` (now its default
-output; `--format pointer` returns the raw pointer). It has a published budget
-of `agent_control_max_bytes` (4096) and is never written to disk — the
-artifacts it names stay where they are.
+output; `--format pointer` returns the raw pointer). It publishes a size *budget*,
+`agent_control_budget_bytes` (4096), that representative output meets and that
+is pinned by tests; it is not a hard maximum, because a long required-reviewer
+list or an unusually long exact command must never be truncated to hit a size
+target. Free-text fields are capped at 400 UTF-8 bytes; commands, paths, hashes,
+and reviewer names never are. It is never written to disk — the artifacts it
+names stay where they are.
+
+The envelope is a **discriminated union on `control_state`**, like the
+`AgentControl` union it projects, so the published JSON Schema — not only
+Pydantic — rejects a contradictory payload: `execution: "failed"` beside
+`control_state: "complete"`, a coding-agent route on a stopping state, a
+`review_publishable` that denies publication, or merge authority outside
+`complete`.
 
 Three separations are structural, not documentary. `execution` says whether the
 tool ran; `decision` says what the gate decided; `permissions` says what the
 agent may do. A failed run can never authorize completion, but a *succeeded* one
-carries no implication at all. `exit_code` reports the CI gate signal, which is
+carries no implication at all.
+
+Both entry points apply one currency test. `verify --format control` reads the
+pointer it just published through the generation-safe protocol, validated
+against the live workspace, and withholds authority when the workspace has moved
+past what the run evaluated; the route comes from the verifier bytes captured
+inside that read, so a pointer is never reported beside another generation's
+decision. `artifacts[].path` is relative to the directory the command was
+invoked from. `exit_code` reports the CI gate signal, which is
 mode-dependent — in advisory mode a `blocked` decision still exits 0 — so
 `permissions.merge` is the only field that answers "may I merge". The full
 `verifier.json` remains the authoritative substrate and is unchanged;

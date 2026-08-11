@@ -1466,22 +1466,36 @@ def build_current_control_schema() -> tuple[Path, str]:
 
 
 def build_agent_control_envelope_schema() -> tuple[Path, str]:
-    from agents_shipgate.schemas.agent_control_envelope import AgentControlEnvelope
+    """Publish the envelope union, not a flattened model.
 
-    return _verification_identity_schema(
-        model=AgentControlEnvelope,
-        filename="agent-control-schema.v1.json",
-        title="Agents Shipgate Agent Control Envelope v1",
-        description=(
-            "JSON Schema for the compact shipgate.agent_control/v1 control "
-            "envelope emitted by `verify --format control`, `check --format "
-            "agent-control-json`, and `agents-shipgate agent control`. A "
-            "projection of the authoritative control state, never a second "
-            "decision. Generated from "
-            "agents_shipgate.schemas.agent_control_envelope.AgentControlEnvelope. "
-            "Do not edit by hand."
-        ),
+    Generated from the ``TypeAdapter`` rather than a single class so the
+    per-state variants reach the published document as a discriminated
+    ``oneOf``. That is what makes the safety separations enforceable by an
+    off-the-shelf draft 2020-12 validator: a flat schema accepted
+    ``execution: "failed"`` beside ``control_state: "complete"``, and a
+    coding-agent route on a stopping state, because Pydantic model validators
+    have no JSON Schema representation.
+    """
+
+    from agents_shipgate.schemas.agent_control_envelope import (
+        AGENT_CONTROL_ENVELOPE_ADAPTER,
     )
+
+    filename = "agent-control-schema.v1.json"
+    schema = AGENT_CONTROL_ENVELOPE_ADAPTER.json_schema()
+    schema["$id"] = (
+        f"https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/{filename}"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Agent Control Envelope v1"
+    schema["description"] = (
+        "JSON Schema for the compact shipgate.agent_control/v1 control envelope "
+        "emitted by `verify --format control`, `check --format "
+        "agent-control-json`, and `agents-shipgate agent control`. A projection "
+        "of the authoritative control state, never a second decision. Generated "
+        "from agents_shipgate.schemas.agent_control_envelope. Do not edit by hand."
+    )
+    return DOCS / filename, _canonical_json(schema)
 
 
 def build_human_authorization_schema() -> tuple[Path, str]:

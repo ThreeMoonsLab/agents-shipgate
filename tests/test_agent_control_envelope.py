@@ -16,15 +16,18 @@ same document. The tests below hold three things:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
+from agents_shipgate.cli.current_workspace import live_workspace
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_control_envelope import (
@@ -35,15 +38,16 @@ from agents_shipgate.core.agent_control_envelope import (
     project_agent_control_envelope,
     render_agent_control_envelope,
 )
+from agents_shipgate.core.current_control import read_current_control
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
-    MAX_AGENT_CONTROL_ENVELOPE_BYTES,
-    MAX_ENVELOPE_PROSE_CHARS,
+    AGENT_CONTROL_ENVELOPE_BUDGET_BYTES,
+    MAX_ENVELOPE_PROSE_BYTES,
     PROSE_TRUNCATION_MARKER,
     AgentControlArtifactRef,
-    AgentControlEnvelope,
+    validate_agent_control_envelope,
 )
 from agents_shipgate.schemas.current_control import (
     CurrentControlArtifactRef,
@@ -56,6 +60,12 @@ from agents_shipgate.schemas.verification_identity import content_id
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# The committed document external consumers validate against. Loaded rather
+# than regenerated on purpose: drift between the live model and the published
+# file is exactly what these tests exist to catch.
+_PUBLISHED_SCHEMA = Draft202012Validator(
+    json.loads((REPO_ROOT / "docs/agent-control-schema.v1.json").read_text())
+)
 SAMPLE = REPO_ROOT / "samples" / "clean_read_only_agent"
 runner = CliRunner()
 
@@ -98,7 +108,7 @@ def _human_stop():
     )
 
 
-def _envelope(control, **overrides) -> AgentControlEnvelope:
+def _envelope(control, **overrides):
     kwargs = {
         "control": control,
         "operation": "verify",
@@ -144,60 +154,132 @@ def test_succeeded_execution_does_not_imply_release_readiness():
     assert envelope.next_actor == "human"
 
 
+def _reject_both_layers(payload: dict) -> None:
+    """A contradictory payload must fail Pydantic *and* the published schema.
+
+    Both halves matter, and they are enforced differently. Model validators have
+    no JSON Schema representation, so a shape rejected only in Python is
+    published as valid to every external consumer validating against
+    `docs/agent-control-schema.v1.json`. The state-discriminated variants exist
+    so one definition covers both layers.
+    """
+
+    with pytest.raises(ValidationError):
+        validate_agent_control_envelope(payload)
+    assert list(_PUBLISHED_SCHEMA.iter_errors(payload)), (
+        "accepted by the published JSON Schema"
+    )
+
+
+def test_a_valid_envelope_passes_both_layers():
+    """The guard above is only meaningful if the positive case passes."""
+
+    payload = json.loads(render_agent_control_envelope(_envelope(_complete())))
+
+    assert validate_agent_control_envelope(payload)
+    assert not list(_PUBLISHED_SCHEMA.iter_errors(payload))
+
+
 def test_a_failed_execution_can_never_authorize_completion():
     """The one direction of the implication that *is* enforced."""
 
-    with pytest.raises(ValidationError, match="failed execution cannot authorize completion"):
-        AgentControlEnvelope.model_validate(
-            {
-                **json.loads(render_agent_control_envelope(_envelope(_complete()))),
-                "execution": "failed",
-            }
-        )
-
-
-def test_exit_code_zero_never_stands_in_for_merge_authority():
-    """Advisory CI exits 0 on a blocked decision; the envelope must still deny."""
-
-    envelope = _envelope(
-        _human_stop(),
-        execution="succeeded",
-        exit_code=0,
-        decision="blocked",
+    _reject_both_layers(
+        {
+            **json.loads(render_agent_control_envelope(_envelope(_complete()))),
+            "execution": "failed",
+        }
     )
 
-    assert envelope.exit_code == 0
-    assert envelope.permissions.merge is False
-    assert envelope.permissions.authorizes_anything is False
-    assert envelope.control_state == "human_review_required"
 
-
-@pytest.mark.parametrize(
-    ("field", "value", "message"),
-    [
-        (
-            "permissions",
-            {
-                "edit": True,
-                "commit": True,
-                "push": True,
-                "update_pr": True,
-                "merge": True,
-                "report_complete": True,
+def test_a_complete_result_cannot_carry_a_route():
+    _reject_both_layers(
+        {
+            **json.loads(render_agent_control_envelope(_envelope(_complete()))),
+            "next_actor": "coding_agent",
+            "next_action": {
+                "actor": "coding_agent",
+                "kind": "verify",
+                "command": "agents-shipgate verify --json",
+                "expects": None,
+                "why": "w",
             },
-            "exactly when",
-        ),
-        ("next_actor", "coding_agent", "next_actor must name"),
-        ("decision_source", "none", "both be present or both absent"),
-    ],
-)
-def test_a_contradictory_field_is_rejected(field, value, message):
-    """Hand-assembled payloads cannot publish a shape the union would refuse."""
+        }
+    )
 
-    payload = json.loads(render_agent_control_envelope(_envelope(_review_publishable())))
-    payload[field] = value
-    with pytest.raises(ValidationError, match=message):
-        AgentControlEnvelope.model_validate(payload)
+
+def test_a_complete_result_cannot_still_owe_a_verification():
+    _reject_both_layers(
+        {
+            **json.loads(render_agent_control_envelope(_envelope(_complete()))),
+            "verify_required": True,
+        }
+    )
+
+
+def test_a_stopping_state_cannot_carry_a_coding_agent_route():
+    payload = json.loads(
+        render_agent_control_envelope(_envelope(_human_stop(), decision="blocked"))
+    )
+    payload["next_action"] = {
+        "actor": "coding_agent",
+        "kind": "verify",
+        "command": "agents-shipgate verify --json",
+        "expects": None,
+        "why": "w",
+    }
+    _reject_both_layers(payload)
+
+
+def test_a_human_review_state_cannot_carry_broad_permissions():
+    payload = json.loads(
+        render_agent_control_envelope(_envelope(_human_stop(), decision="blocked"))
+    )
+    payload["permissions"] = dict.fromkeys(payload["permissions"], True)
+    _reject_both_layers(payload)
+
+
+def test_a_publishable_review_cannot_deny_publication():
+    """`review_publishable` without publication authority is a contradiction."""
+
+    payload = json.loads(
+        render_agent_control_envelope(
+            _envelope(_review_publishable(), decision="review_required")
+        )
+    )
+    payload["permissions"] = dict.fromkeys(payload["permissions"], False)
+    _reject_both_layers(payload)
+
+
+def test_a_publishable_review_cannot_carry_a_stop_route():
+    payload = json.loads(
+        render_agent_control_envelope(
+            _envelope(_review_publishable(), decision="review_required")
+        )
+    )
+    payload["next_action"] = {
+        "actor": "human",
+        "kind": "stop",
+        "command": None,
+        "expects": None,
+        "why": "w",
+    }
+    _reject_both_layers(payload)
+
+
+def test_merge_authority_is_bound_to_the_complete_state():
+    payload = json.loads(
+        render_agent_control_envelope(
+            _envelope(_review_publishable(), decision="review_required")
+        )
+    )
+    payload["permissions"] = {**payload["permissions"], "merge": True, "report_complete": True}
+    _reject_both_layers(payload)
+
+
+def test_decision_and_source_must_move_together():
+    valid = json.loads(render_agent_control_envelope(_envelope(_complete())))
+    _reject_both_layers({**valid, "decision": None})
+    _reject_both_layers({**valid, "decision_source": "none"})
 
 
 def test_a_stopping_state_authorizes_nothing():
@@ -207,20 +289,6 @@ def test_a_stopping_state_authorizes_nothing():
     assert envelope.permissions.authorizes_anything is False
     assert envelope.human_review.required is True
 
-
-def test_a_non_complete_envelope_always_names_who_acts_next():
-    """The dead end #338 is about: no route, no actor, no way forward."""
-
-    payload = json.loads(render_agent_control_envelope(_envelope(_agent_action())))
-    payload["next_action"] = None
-    payload["next_actor"] = "none"
-    with pytest.raises(ValidationError, match="must name the actor who acts next"):
-        AgentControlEnvelope.model_validate(payload)
-
-
-# ---------------------------------------------------------------------------
-# Projection fidelity.
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -247,9 +315,9 @@ def test_prose_is_capped_but_the_exact_command_never_is():
 
     command = "agents-shipgate verify --workspace " + "a" * 300 + " --json"
     control = derive_agent_control(
-        reason="R" * (MAX_ENVELOPE_PROSE_CHARS + 200),
+        reason="R" * (MAX_ENVELOPE_PROSE_BYTES + 200),
         next_action=CodingAgentCommandAction(
-            kind="verify", command=command, why="W" * (MAX_ENVELOPE_PROSE_CHARS + 200)
+            kind="verify", command=command, why="W" * (MAX_ENVELOPE_PROSE_BYTES + 200)
         ),
         verify_required=True,
         allowed_next_commands=[command],
@@ -257,9 +325,9 @@ def test_prose_is_capped_but_the_exact_command_never_is():
 
     envelope = _envelope(control, decision=None, decision_source="none")
 
-    assert len(envelope.reason) == MAX_ENVELOPE_PROSE_CHARS
+    assert len(envelope.reason.encode()) == MAX_ENVELOPE_PROSE_BYTES
     assert envelope.reason.endswith(PROSE_TRUNCATION_MARKER)
-    assert len(envelope.next_action.why) == MAX_ENVELOPE_PROSE_CHARS
+    assert len(envelope.next_action.why.encode()) == MAX_ENVELOPE_PROSE_BYTES
     assert envelope.next_action.command == command
 
 
@@ -317,14 +385,14 @@ def test_required_reviewers_survive_the_budget():
         reason="A human must approve the merge.",
         human_review_required=True,
         publication_allowed=True,
-        human_review_why="Q" * (MAX_ENVELOPE_PROSE_CHARS + 50),
+        human_review_why="Q" * (MAX_ENVELOPE_PROSE_BYTES + 50),
         required_reviewers=reviewers,
     )
 
     envelope = _envelope(control, decision="review_required")
 
     assert sorted(envelope.human_review.required_reviewers) == sorted(reviewers)
-    assert len(envelope.human_review.why) == MAX_ENVELOPE_PROSE_CHARS
+    assert len(envelope.human_review.why.encode()) == MAX_ENVELOPE_PROSE_BYTES
 
 
 def test_a_representative_envelope_fits_the_published_budget():
@@ -351,9 +419,9 @@ def test_a_representative_envelope_fits_the_published_budget():
     }
     command = "agents-shipgate verify --workspace . --config shipgate.yaml --json"
     control = derive_agent_control(
-        reason="R" * MAX_ENVELOPE_PROSE_CHARS,
+        reason="R" * MAX_ENVELOPE_PROSE_BYTES,
         next_action=CodingAgentCommandAction(
-            kind="verify", command=command, why="W" * MAX_ENVELOPE_PROSE_CHARS
+            kind="verify", command=command, why="W" * MAX_ENVELOPE_PROSE_BYTES
         ),
         verify_required=True,
         allowed_next_commands=[command],
@@ -369,7 +437,7 @@ def test_a_representative_envelope_fits_the_published_budget():
         )
     )
 
-    assert len(rendered.encode("utf-8")) <= MAX_AGENT_CONTROL_ENVELOPE_BYTES
+    assert len(rendered.encode("utf-8")) <= AGENT_CONTROL_ENVELOPE_BUDGET_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +518,70 @@ def test_a_refresh_without_a_bound_verifier_refuses_rather_than_inventing_a_rout
         envelope_from_pointer(_pointer("no route here"), verifier=None, exit_code=None)
 
 
+def test_the_route_is_read_inside_the_validated_generation(repo: Path):
+    """The verifier must come from the pass that hashed it, not a second read.
+
+    `read_current_control` validates every bound artifact and then re-confirms
+    the pointer has not moved. Reopening `verifier.json` after that returns
+    whatever is on disk *now*: a run republishing in between let pointer A be
+    reported beside verifier B's request, decision, and permissions. Capturing
+    the bytes inside the protocol makes that splice unrepresentable.
+    """
+
+    assert runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--json"]
+    ).exit_code == 0
+    reports = repo / "agents-shipgate-reports"
+
+    result = read_current_control(
+        reports,
+        live=live_workspace(repo, reports),
+        capture=("verifier",),
+    )
+
+    captured = result.artifacts["verifier"]
+    assert hashlib.sha256(captured).hexdigest() == (
+        result.pointer.artifacts["verifier"].sha256.removeprefix("sha256:")
+    )
+    # Replacing the file on disk cannot change what the validated read returned.
+    (reports / "verifier.json").write_text("{}", encoding="utf-8")
+    assert result.artifacts["verifier"] == captured
+
+
+def test_a_verifier_from_another_request_cannot_supply_the_route(repo: Path):
+    """Identity, not just the state tag, binds the route to the pointer."""
+
+    assert runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--json"]
+    ).exit_code == 0
+    reports = repo / "agents-shipgate-reports"
+    verifier = json.loads((reports / "verifier.json").read_bytes())
+    verifier["request_id"] = "sha256:" + "9" * 64
+    body = json.dumps(verifier).encode()
+    (reports / "verifier.json").write_bytes(body)
+
+    # Re-point the pointer at the edited bytes so only the identity differs;
+    # a hash mismatch would otherwise be caught earlier, by a different rule.
+    pointer_path = reports / "current-control.json"
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    pointer["artifacts"]["verifier"]["sha256"] = (
+        "sha256:" + hashlib.sha256(body).hexdigest()
+    )
+    pointer["artifacts"]["verifier"]["size_bytes"] = len(body)
+    pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "agent", "control", "--workspace", str(repo),
+            "--reports-dir", str(reports),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "different request" in result.output or "not a valid control pointer" in result.output
+
+
 def test_artifact_paths_are_openable_from_where_the_envelope_was_printed(repo: Path):
     """The pointer records paths relative to itself; stdout has no directory."""
 
@@ -525,10 +657,12 @@ def test_verify_format_control_answers_in_one_object(repo: Path):
     assert payload["source"] == "run"
     assert payload["decision_source"] == "release_decision"
     assert payload["current_control_id"].startswith("sha256:")
-    # The evidence is reachable from the same object, by path and hash.
+    # The evidence is reachable from the same object, by path and hash, and
+    # openable exactly as given from wherever the command was invoked — the
+    # schema's promise. Git-root-relative paths did not exist for a caller
+    # standing anywhere but the Git root.
     assert payload["artifacts"]["verifier"]["path"].endswith("verifier.json")
-    assert (repo / payload["artifacts"]["verifier"]["path"]).is_file()
-    assert len(result.stdout.encode("utf-8")) <= MAX_AGENT_CONTROL_ENVELOPE_BYTES
+    assert Path(payload["artifacts"]["verifier"]["path"]).is_file()
 
 
 def test_verify_format_control_is_smaller_than_the_artifact_it_projects(repo: Path):
@@ -561,12 +695,13 @@ def test_verify_text_leads_with_control_before_the_verdict(repo: Path):
     assert any(line.startswith("Agents Shipgate verify: ") for line in lines)
 
 
-def test_text_mode_survives_a_control_projection_failure(repo: Path, monkeypatch):
-    """A control-plane bug must not cost a human their verdict or exit code.
+def test_a_projection_failure_is_a_structured_internal_error(repo: Path, monkeypatch):
+    """Rendering runs inside `verify`'s error boundary.
 
-    The fallback denies authority rather than assuming it, and `--format
-    control` still raises — a caller who asked for the control answer must not
-    receive a partial one.
+    Every envelope invariant restates one the verifier already enforces, so a
+    failure means two layers disagree. That is an internal bug, and the
+    published agent-mode policy for one is an `internal_error` line and exit 4 —
+    not a bare traceback and exit 1, which is what a post-boundary raise gave.
     """
 
     from agents_shipgate.cli.verify import command as verify_command
@@ -575,16 +710,85 @@ def test_text_mode_survives_a_control_projection_failure(repo: Path, monkeypatch
         raise ValueError("two enforcement layers disagree")
 
     monkeypatch.setattr(verify_command, "_verify_envelope", explode)
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
 
     result = runner.invoke(
         app,
-        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--format", "text"],
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--format", "control"],
     )
 
-    assert result.exit_code == 0, result.output
-    assert result.stdout.splitlines()[0].startswith("Control: could not be projected")
-    assert "authorizing nothing" in result.stdout
-    assert any(line.startswith("Agents Shipgate verify: ") for line in result.stdout.splitlines())
+    assert result.exit_code == 4
+    line = json.loads(
+        [x for x in result.output.splitlines() if x.startswith('{"error"')][-1]
+    )
+    assert line["error"] == "internal_error"
+    assert line["exit_code"] == 4
+    assert "authorizing nothing" in line["next_action"]
+
+
+def test_verify_withholds_authority_when_the_workspace_has_moved(repo: Path):
+    """Two entry points into one decision must apply one currency test.
+
+    A `--head` run evaluates a committed tree, so uncommitted work is outside
+    its evidence. Before this, `verify --format control` reported `complete`
+    with `permissions.merge=true` on a workspace `agent control` was refusing as
+    `workspace_changed` — the same directory, the same generation, two answers.
+    """
+
+    clean = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", "shipgate.yaml",
+            "--head", "HEAD", "--format", "control",
+        ],
+    )
+    assert json.loads(clean.stdout)["control_state"] == "complete", clean.output
+
+    (repo / "tools.json").write_text(
+        (repo / "tools.json").read_text(encoding="utf-8") + "\n", encoding="utf-8"
+    )
+    drifted = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", "shipgate.yaml",
+            "--head", "HEAD", "--format", "control",
+        ],
+    )
+    refreshed = runner.invoke(
+        app,
+        [
+            "agent", "control", "--workspace", str(repo),
+            "--reports-dir", str(repo / "agents-shipgate-reports"),
+        ],
+    )
+
+    payload = json.loads(drifted.stdout)
+    assert payload["control_state"] == "human_review_required"
+    assert payload["permissions"]["merge"] is False
+    assert payload["permissions"]["report_complete"] is False
+    assert "uncommitted change" in payload["reason"]
+    # The gate signal is untouched: withholding authority is not failing the run.
+    assert drifted.exit_code == 0
+    # And the other entry point agrees rather than contradicting it.
+    assert refreshed.exit_code != 0
+
+
+def test_a_worktree_run_keeps_authority_over_the_changes_it_evaluated(repo: Path):
+    """The currency test must not refuse the change the run just decided on.
+
+    A worktree verification covers the uncommitted files; refusing them would
+    make every local run deny itself, which is the opposite failure.
+    """
+
+    (repo / "tools.json").write_text(
+        (repo / "tools.json").read_text(encoding="utf-8") + "\n", encoding="utf-8"
+    )
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--format", "control"],
+    )
+
+    assert json.loads(result.stdout)["control_state"] == "complete", result.output
 
 
 def test_verify_json_still_emits_the_full_verifier_artifact(repo: Path):
@@ -735,6 +939,46 @@ def test_agent_control_refuses_a_routeless_pointer_with_an_exact_command(repo: P
     )
     assert pointer.exit_code == 0, pointer.output
     assert json.loads(pointer.stdout)["operation"] == "scan"
+
+
+def test_every_shipped_recipe_reads_the_field_the_default_output_has():
+    """Changing a default is only safe once the shipped readers moved with it.
+
+    The kits told an agent to run bare `agents-shipgate agent control` and then
+    read `lifecycle_state` and nested `control.state` — pointer fields the
+    envelope does not carry at those paths. The installed adoption workflow
+    would have failed at its first authority check.
+    """
+
+    pointer_only = ("lifecycle_state", "control.state`")
+    for rel in (
+        "adoption-kits/codex-skill/references/report-reading.md",
+        ".agents/skills/agents-shipgate/references/report-reading.md",
+        "plugins/agents-shipgate/skills/agents-shipgate/references/report-reading.md",
+    ):
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        step_zero = next(line for line in text.splitlines() if line.startswith("0. "))
+        assert "control_state" in step_zero, rel
+        assert "permissions" in step_zero, rel
+        # A pointer field may still be named, but only alongside the flag that
+        # actually returns it.
+        for field in pointer_only:
+            if field in step_zero:
+                assert "--format pointer" in step_zero, f"{rel} names {field} without the flag"
+
+
+def test_every_shipped_skill_names_the_envelope_the_command_returns():
+    for rel in (
+        "adoption-kits/codex-skill/SKILL.md",
+        ".agents/skills/agents-shipgate/SKILL.md",
+        "plugins/agents-shipgate/skills/agents-shipgate/SKILL.md",
+        "adoption-kits/claude-code-skill/SKILL.md",
+        "skills/agents-shipgate/SKILL.md",
+        "plugins/claude-code/skills/agents-shipgate/SKILL.md",
+    ):
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        assert "shipgate.agent_control/v1" in text, rel
+        assert "--format pointer" in text, rel
 
 
 def test_agent_control_rejects_an_unknown_format(repo: Path):

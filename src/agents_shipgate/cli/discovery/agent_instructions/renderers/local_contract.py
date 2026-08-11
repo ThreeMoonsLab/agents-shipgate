@@ -23,6 +23,12 @@ PRIOR_RENDER_SHA256: tuple[str, ...] = (
     "6041d5fc42ee4be37596c9c13b9752a8a511bb18bc987b32b0ffb49160ee6d93",
     # v7 final, before local contract v8 added the current-control pointer
     "e20840ce698c5bd81289de04f79674e4cac9dc670ae41d6e2580f13a38897b69",
+    # v8 as shipped by the current-control pointer change; never appended at the
+    # time, so a repo on v8 could not be upgraded in place.
+    "e4580d8f55c54157745cdf86066190080a11cf0a3c6201608c6342990b4e81ee",
+    # v9 as shipped by the publish-vs-merge permission change, and the outgoing
+    # render this revision replaces.
+    "8aa6004936f19c31607498eb7d603b5f42ee55443e31ccc8b8099b14196eb8ab",
 )
 
 

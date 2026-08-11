@@ -405,7 +405,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         current_control_fallback_read_order=["current-control.json"],
         agent_control_schema_version="shipgate.agent_control/v1",
         agent_control_schema_path="docs/agent-control-schema.v1.json",
-        agent_control_max_bytes=4096,
+        agent_control_budget_bytes=4096,
         human_authorization_request_schema_version=(
             "shipgate.human_authorization_request/v1"
         ),
@@ -492,7 +492,7 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "current_control_fallback_read_order": ["current-control.json"],
         "agent_control_schema_version": "shipgate.agent_control/v1",
         "agent_control_schema_path": "docs/agent-control-schema.v1.json",
-        "agent_control_max_bytes": 4096,
+        "agent_control_budget_bytes": 4096,
         "human_authorization_request_schema_version": (
             "shipgate.human_authorization_request/v1"
         ),

@@ -52,6 +52,24 @@ Three CLI changes, one of which is a default:
 permission vector *before* the existing `Agents Shipgate verify: <verdict>`
 line. That line, and every line after it, is unchanged.
 
+Both entry points apply the same currency test. `verify --format control` reads
+its own published pointer through the generation-safe protocol, validated
+against the live workspace, and **withholds authority** when the workspace has
+moved past what the run evaluated — a `--head` run in a dirty worktree reports
+`human_review_required` with the refusal as its reason rather than `complete`.
+The exit code is unaffected: withholding authority is not failing the run. The
+route is read from the verifier bytes captured inside that protocol, so a
+pointer can never be reported beside another generation's decision.
+
+`artifacts[].path` is relative to the directory the command was invoked from,
+falling back to an absolute path when the reports directory sits outside it. A
+reader can open it exactly as given.
+
+Unrelated fix in the same change: `.shipgate/agent-contract.json` now upgrades
+in place from any superseded managed version, not only from renders whose exact
+hash was recorded. Repositories on local-contract schema 8 or 9 were reported as
+`skipped_user_modified` and left un-upgraded.
+
 Exit-code semantics are unchanged and now explicitly documented: the exit code
 is the CI gate signal and depends on `ci.mode`. In advisory mode every decision
 — `blocked` included — exits 0, and `review_required` has no exit code of its
@@ -817,9 +835,11 @@ Stable JSON fields:
   default artifact path for `agents-shipgate-reports/current-control.json`, the
   one atomic entry point naming the control identity that is current.
 - `agent_control_schema_version` / `agent_control_schema_path` /
-  `agent_control_max_bytes` — schema version, checked-in JSON Schema path, and
-  published size budget in bytes for the compact `shipgate.agent_control/v1`
-  control envelope. The envelope is stdout only: it is emitted by `verify
+  `agent_control_budget_bytes` — schema version, checked-in JSON Schema path,
+  and published size budget in bytes for the compact `shipgate.agent_control/v1`
+  control envelope. The budget is a target that representative output meets, not
+  an enforced maximum: a long `required_reviewers` list or an unusually long
+  exact command may exceed it, and neither is truncated to fit. The envelope is stdout only: it is emitted by `verify
   --format control`, `check --format agent-control-json`, and `agents-shipgate
   agent control`, and is never written to the reports directory. It is a
   projection of the authoritative control state and never gates independently

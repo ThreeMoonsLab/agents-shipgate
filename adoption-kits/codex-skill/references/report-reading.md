@@ -1,17 +1,21 @@
 # Reading Agents Shipgate Reports
 
-For verify runs, read `agents-shipgate-reports/current-control.json` first —
-via `agents-shipgate agent control --workspace .` — because it names which run
-is current, checks it against the repository as it stands right now, and a
-non-zero exit means none is. Then validate the
-`agents-shipgate-reports/verification-receipt.json` it binds. Then read
+For verify runs, run `agents-shipgate agent control --workspace .` first. It
+names which run is current, checks it against the repository as it stands right
+now, and a non-zero exit means none is — you hold no authority. It prints one
+`shipgate.agent_control/v1` object, which is the whole routing answer; when it
+is enough, stop there. Add `--format pointer` for the raw
+`agents-shipgate-reports/current-control.json` artifact instead.
+
+For detail beyond routing, validate the
+`agents-shipgate-reports/verification-receipt.json` the run binds. Then read
 `agents-shipgate-reports/agent-handoff.json`. After that,
 read `agents-shipgate-reports/verifier.json` for detailed control context
 and `agents-shipgate-reports/report.json` for findings. Do not scrape Markdown.
 
 ## Order
 
-0. `current-control.json.current_control_id` / `lifecycle_state` / `control.state`: which run is current, and whether any decision is. Re-read this before enforcing a cached `must_stop`, before commit/push/PR update, before merge, and before declaring the task complete; if the id changed, discard cached control state and start again from the new identity.
+0. `agents-shipgate agent control --workspace .` -> `control_state`, `permissions`, `next_actor`, `next_action`, `current_control_id`: what is current, and what you may do. `permissions.merge` is the only field that answers "may I merge"; `execution` only says the tool ran, and `exit_code` is the CI gate signal, which is 0 in advisory mode even on `blocked`. Re-read this before enforcing a cached `must_stop`, before commit/push/PR update, before merge, and before declaring the task complete; if `current_control_id` changed, discard cached control state and start again from the new identity. `--format pointer` returns the raw `current-control.json` with `lifecycle_state` and nested `control.state`.
 1. `agent-handoff.json.control.state`: `complete`, `agent_action_required`, `review_publishable`, or `human_review_required`. `review_publishable` means a human must approve the merge and you may still commit, push, and update the pull request so that review can happen; `control.permissions` says exactly which actions are authorized, and updating a PR is never merging it.
 2. `agent-handoff.json.capability_review.top_changes[]`: the highest-signal tool/action or trust-root changes.
 3. `agent-handoff.json.next_action` / `control.next_action` / `fix_task`: who acts next and whether a coding agent may safely attempt the fix.

@@ -52,9 +52,13 @@ Always:
    `control.state`, `merge_verdict`, `can_merge_without_human`, `control.next_action`,
    `fix_task`, and `capability_review.top_changes`. Then parse
    `agents-shipgate-reports/report.json.release_decision.decision`; it is the
-   release gate. Refresh `agents-shipgate-reports/current-control.json` with
+   release gate. Refresh with
    `agents-shipgate agent control --workspace .` — which refuses the read when
-   HEAD, the tree, or the working tree has moved since the decision — before
+   HEAD, the tree, or the working tree has moved since the decision, and
+   otherwise prints one `shipgate.agent_control/v1` object carrying
+   `control_state`, `permissions`, `next_actor`, and `next_action`. Routing on
+   that object alone is enough; `--format pointer` returns the raw
+   `current-control.json`. Refresh before
    you act on any of that, and again
    before enforcing a cached `must_stop`, before commit/push/PR update, before
    merge, and before declaring the task complete. A non-zero exit means no

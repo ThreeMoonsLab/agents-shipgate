@@ -45,7 +45,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "cc468647434d12be45819de4db6ece8a860010b44c31ba3586038067eb3357af"
+        "0b1e1305cd6b8cece3bd2845095e3e087954b26ac0e2536c09951e58bf6e4568"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         # Renders {{ shipgate_version }}; changes on every version bump.
@@ -81,7 +81,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "8d56a0a026f1ba0b29ead84a660a4a1274757e13f04ecd2ce2069580b4b5e461"
+        "e90b0c105ec5cb0332e6d0be02699c25241278f27067f72f7089250adf18abd1"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -93,7 +93,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "49f71ac4f5b6c83f34caa1e5a7126cf4550d95188725ce37d93b558c6bfae17a"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "2cdd6d8c7468e7aa7cfaa91160b10f543bd61d5893a6e5a71f84ace667a4b1ec"
+        "34c1d9730f7caf5cfc9747e0f063dd94ca7415d56d00cec822db10d2cdf6d686"
     ),
 }
 
@@ -222,7 +222,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     # validate what it is reading without fetching the full contract.
     assert payload["agent_control_schema_version"] == "shipgate.agent_control/v1"
     assert payload["agent_control_schema_path"] == "docs/agent-control-schema.v1.json"
-    assert payload["agent_control_max_bytes"] == 4096
+    assert payload["agent_control_budget_bytes"] == 4096
     # The refresh obligation is contract data, not prose: a consumer must be
     # able to enumerate the boundaries at which a cached control state expires.
     assert "before enforcing a cached must_stop" in payload["agent_refresh_triggers"]

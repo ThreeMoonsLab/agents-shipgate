@@ -41,6 +41,7 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_cursor_file,
     render_local_contract_file,
 )
+from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_SCHEMA_VERSION
 
 
 def _filesystem_is_case_sensitive(path: Path) -> bool:
@@ -240,6 +241,74 @@ def test_local_contract_updates_prior_managed_contract(tmp_path: Path) -> None:
     assert json.loads(target.read_text(encoding="utf-8")) == json.loads(
         render_local_contract_file()
     )
+
+
+def test_local_contract_upgrades_a_real_shipped_v9_render(tmp_path: Path) -> None:
+    """The upgrade path is exercised from a byte-exact earlier release.
+
+    The fixture is the `.shipgate/agent-contract.json` this revision's base
+    actually generated, not a synthesized one. Every previous bump was
+    verified by round-tripping the *current* render, which cannot detect the
+    failure this covers: the outgoing hash was never appended, so a repository
+    holding an untouched managed v9 file was told `skipped_user_modified` and
+    left on the old schema.
+    """
+
+    target = tmp_path / ".shipgate/agent-contract.json"
+    target.parent.mkdir(parents=True)
+    shipped = (Path(__file__).parent / "fixtures/local-agent-contract.v9.json").read_bytes()
+    target.write_bytes(shipped)
+    assert json.loads(shipped)["schema_version"] == "9"
+
+    result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "updated", outcome.message
+    assert result.exit_code == 0
+    upgraded = json.loads(target.read_text(encoding="utf-8"))
+    assert upgraded["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION
+    assert upgraded == json.loads(render_local_contract_file())
+
+
+def test_local_contract_upgrades_any_superseded_managed_version(tmp_path: Path) -> None:
+    """Recognition does not depend on the hash allowlist being complete.
+
+    The allowlist has to be extended on every outgoing render and twice was
+    not. A file carrying the managed gating signal and local-contract path
+    under a superseded version is a stale managed render whatever its bytes.
+    """
+
+    target = tmp_path / ".shipgate/agent-contract.json"
+    target.parent.mkdir(parents=True)
+    payload = json.loads(render_local_contract_file())
+    payload["schema_version"] = "6"
+    payload["agents_shipgate_version"] = "0.0.0-ancient"
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "updated", outcome.message
+    assert json.loads(target.read_text(encoding="utf-8"))["schema_version"] == (
+        LOCAL_CONTRACT_SCHEMA_VERSION
+    )
+
+
+def test_local_contract_never_downgrades_a_newer_contract(tmp_path: Path) -> None:
+    """A contract written by a future release is user work to an older CLI."""
+
+    target = tmp_path / ".shipgate/agent-contract.json"
+    target.parent.mkdir(parents=True)
+    payload = json.loads(render_local_contract_file())
+    payload["schema_version"] = str(int(LOCAL_CONTRACT_SCHEMA_VERSION) + 1)
+    body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    target.write_text(body, encoding="utf-8")
+
+    result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "skipped_user_modified"
+    assert target.read_text(encoding="utf-8") == body
 
 
 def test_local_contract_refuses_user_authored_json(tmp_path: Path) -> None:

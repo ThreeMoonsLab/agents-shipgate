@@ -40,7 +40,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "current_control_fallback_read_order",
         "agent_control_schema_version",
         "agent_control_schema_path",
-        "agent_control_max_bytes",
+        "agent_control_budget_bytes",
         "human_authorization_request_schema_version",
         "human_authorization_schema_version",
         "human_authorization_evaluation_schema_version",

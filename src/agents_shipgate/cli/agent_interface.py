@@ -7,14 +7,7 @@ from typing import Any
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
-from agents_shipgate.cli.verify.git import (
-    commit_sha,
-    ensure_git_workspace,
-    merge_base_sha,
-    repository_identity,
-    tree_sha,
-    working_tree_context,
-)
+from agents_shipgate.cli.current_workspace import live_workspace
 from agents_shipgate.core.agent_control_envelope import (
     AgentControlRouteUnavailable,
     envelope_from_pointer,
@@ -22,15 +15,15 @@ from agents_shipgate.core.agent_control_envelope import (
 )
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.current_control import (
+    CurrentControlRead,
     CurrentControlUnavailable,
-    LiveWorkspace,
     read_current_control,
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.contract import COMMANDS, DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
-    CurrentControlPointer,
+    VERIFIER_ARTIFACT_KEY,
 )
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.verifier import VerifierArtifact
@@ -184,7 +177,11 @@ def control(
 
     try:
         result = read_current_control(
-            reports_dir, live=_live_workspace(workspace, reports_dir)
+            reports_dir,
+            live=live_workspace(workspace, reports_dir),
+            # Captured inside the protocol, not reopened after it: the route
+            # must come from the same generation whose identity was confirmed.
+            capture=(VERIFIER_ARTIFACT_KEY,),
         )
     except CurrentControlUnavailable as exc:
         guidance = (
@@ -224,8 +221,8 @@ def control(
         typer.echo(json.dumps(result.pointer.model_dump(mode="json"), indent=2, sort_keys=True))
         return
 
-    bound_verifier = _bound_verifier(reports_dir, result.pointer)
     try:
+        bound_verifier = _bound_verifier(result)
         envelope = envelope_from_pointer(
             result.pointer,
             verifier=bound_verifier,
@@ -263,77 +260,36 @@ def control(
     typer.echo(render_agent_control_envelope(envelope))
 
 
-def _bound_verifier(reports_dir: Path, pointer: CurrentControlPointer) -> VerifierArtifact | None:
-    """Load the verifier artifact this pointer binds, or ``None``.
+def _bound_verifier(result: CurrentControlRead) -> VerifierArtifact | None:
+    """Parse the verifier bytes the generation-safe read already validated.
 
-    Reading it back is safe without re-hashing: :func:`read_current_control`
-    validated every bound artifact against its recorded hash immediately before
-    returning, and rejected the read outright if the pointer moved underneath
-    it.  A parse failure here is therefore a malformed artifact rather than a
-    stale one, and resolves to "no route" rather than a crash.
+    The bytes come from :class:`CurrentControlRead`, hashed against the pointer
+    inside the same pass that confirmed the pointer had not moved. Reopening the
+    file here instead would be a second, unsynchronized read: a run republishing
+    between the two would let this pointer's identity be reported beside a
+    different generation's decision and permissions.
+
+    A parse failure is therefore a malformed artifact rather than a stale one,
+    and resolves to "no route" rather than a crash.
     """
 
-    ref = pointer.artifacts.get("verifier")
-    if ref is None:
+    data = result.artifacts.get(VERIFIER_ARTIFACT_KEY)
+    if data is None:
         return None
     try:
-        return VerifierArtifact.model_validate_json((reports_dir / ref.path).read_bytes())
-    except (OSError, ValueError):
+        verifier = VerifierArtifact.model_validate_json(data)
+    except ValueError:
         return None
-
-
-def _live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
-    """Resolve the repository as it stands now, or ``None`` outside Git.
-
-    ``None`` is not "no drift" — it means the comparison could not be made, and
-    the reader refuses completion authority on that basis rather than assuming
-    the pointer still holds.
-
-    The reports directory is excluded from the change set for the same reason
-    ``verify`` excludes it when building the plan: the run's own output is not
-    part of the change it evaluated, and including it here would make every
-    refresh disagree with the decision it is checking.
-    """
-
-    try:
-        root = ensure_git_workspace(workspace.resolve())
-        try:
-            changed, _ = working_tree_context(root, exclude=reports_dir)
-            changed_paths: tuple[str, ...] | None = tuple(changed)
-        except Exception:  # noqa: BLE001 - an unreadable worktree is "unverified".
-            changed_paths = None
-        return LiveWorkspace(
-            root=root,
-            repository=repository_identity(root),
-            head_commit_sha=commit_sha(root, "HEAD"),
-            head_tree_sha=tree_sha(root, "HEAD"),
-            changed_paths=changed_paths,
-            resolve_commit=lambda ref: _safe_commit_sha(root, ref),
-            resolve_merge_base=lambda base, head: _safe_merge_base(root, base, head),
+    # The state tag alone is not identity. A verifier that closes a different
+    # request than the pointer decided cannot supply this pointer's route, and
+    # the difference is invisible in `control.state`.
+    if (verifier.request_id, verifier.decision_id) != (result.pointer.request_id, result.pointer.decision_id):
+        raise AgentControlRouteUnavailable(
+            "The bound verifier reports a different request than the current "
+            "control pointer decided, so no route for this generation could be "
+            "recovered."
         )
-    except Exception:  # noqa: BLE001 - an unresolvable workspace is "unverified".
-        return None
-
-
-def _safe_commit_sha(root: Path, ref: str) -> str | None:
-    """Resolve a ref recorded in a pointer; ``None`` when it no longer exists.
-
-    A base ref that has been deleted is drift, not a crash — and it is drift the
-    caller must see, so a failure here resolves to ``None`` and compares unequal
-    rather than propagating.
-    """
-
-    try:
-        return commit_sha(root, ref)
-    except Exception:  # noqa: BLE001 - an unresolvable ref is drift.
-        return None
-
-
-def _safe_merge_base(root: Path, base: str, head: str) -> str | None:
-    try:
-        return merge_base_sha(root, base, head)
-    except Exception:  # noqa: BLE001 - an unresolvable range is drift.
-        return None
+    return verifier
 
 
 def _load_required_json(path: Path, label: str) -> dict[str, Any]:

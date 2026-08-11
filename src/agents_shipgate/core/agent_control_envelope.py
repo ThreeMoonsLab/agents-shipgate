@@ -38,13 +38,16 @@ from agents_shipgate.schemas.agent_control import (
     RequiredHumanReview,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
-    AgentControlActor,
+    AgentActionControlEnvelope,
     AgentControlArtifactRef,
     AgentControlDecisionSource,
     AgentControlEnvelope,
     AgentControlExecution,
     AgentControlOperation,
     AgentControlSource,
+    CompleteControlEnvelope,
+    HumanReviewRequiredControlEnvelope,
+    ReviewPublishableControlEnvelope,
     truncate_prose,
 )
 from agents_shipgate.schemas.agent_result import AgentResultV2
@@ -75,26 +78,50 @@ def project_agent_control_envelope(
     :func:`truncate_prose`. Every other field is a copy.
     """
 
+    shared = {
+        "contract_version": CONTRACT_VERSION,
+        "operation": operation,
+        "source": source,
+        "execution": execution,
+        "exit_code": exit_code,
+        "decision": truncate_prose(decision) if decision else None,
+        "decision_source": decision_source,
+        "reason": truncate_prose(control.reason),
+        "current_control_id": current_control_id,
+        "artifacts": dict(artifacts or {}),
+    }
     action = _bounded_action(control.next_action)
-    return AgentControlEnvelope(
-        contract_version=CONTRACT_VERSION,
-        operation=operation,
-        source=source,
-        execution=execution,
-        exit_code=exit_code,
-        decision=decision,
-        decision_source=decision_source,
-        control_state=control.state,
-        # Carried through verbatim. Re-deriving the vector here would make this
-        # a second place where authority is decided.
-        permissions=control.permissions,
+    review = _bounded_human_review(control.human_review)
+
+    # One variant per control state, selected from the tag the union already
+    # fixed. `permissions` is carried through verbatim on the two states that
+    # admit more than one vector; the others pin it, so re-deriving anything
+    # here is impossible by construction rather than by discipline.
+    if control.state == "complete":
+        return CompleteControlEnvelope(control_state="complete", **shared)
+    if control.state == "agent_action_required":
+        return AgentActionControlEnvelope(
+            control_state="agent_action_required",
+            permissions=control.permissions,
+            verify_required=control.verify_required,
+            next_action=action,
+            **shared,
+        )
+    if control.state == "review_publishable":
+        return ReviewPublishableControlEnvelope(
+            control_state="review_publishable",
+            permissions=control.permissions,
+            verify_required=control.verify_required,
+            next_action=action,
+            human_review=review,
+            **shared,
+        )
+    return HumanReviewRequiredControlEnvelope(
+        control_state="human_review_required",
         verify_required=control.verify_required,
-        next_actor=_next_actor(action),
         next_action=action,
-        human_review=_bounded_human_review(control.human_review),
-        reason=truncate_prose(control.reason),
-        current_control_id=current_control_id,
-        artifacts=dict(artifacts or {}),
+        human_review=review,
+        **shared,
     )
 
 
@@ -133,6 +160,34 @@ def envelope_from_verifier(
         decision_source="release_decision" if decision is not None else "none",
         current_control_id=pointer.current_control_id if pointer is not None else None,
         artifacts=_artifact_refs(pointer, artifact_root),
+    )
+
+
+def denied_control_envelope(
+    *,
+    operation: AgentControlOperation,
+    source: AgentControlSource,
+    execution: AgentControlExecution,
+    exit_code: int | None,
+    reason: str,
+) -> AgentControlEnvelope:
+    """The answer when no control authority can be established.
+
+    Used where a caller must still receive a well-formed envelope rather than an
+    exception — most importantly ``verify --format control`` when the run's own
+    pointer no longer describes the live workspace. The run's verdict is not
+    suppressed; what is withheld is authority, which is the only safe direction
+    when the subject of the decision has moved.
+    """
+
+    return project_agent_control_envelope(
+        control=_human_stop(reason),
+        operation=operation,
+        source=source,
+        execution=execution,
+        exit_code=exit_code,
+        decision=None,
+        decision_source="none",
     )
 
 
@@ -254,13 +309,19 @@ def _reconcile_with_pointer(
     # `project_agent_control` only ever downgrades, and only onto this state.
     # Anything else means the two artifacts disagree in a way neither can
     # explain, which is itself a reason to stop.
-    reason = truncate_prose(pointer.control.reason)
+    return _human_stop(pointer.control.reason)
+
+
+def _human_stop(reason: str) -> HumanReviewRequiredControl:
+    """The one control object that authorizes nothing at all."""
+
+    bounded = truncate_prose(reason)
     return HumanReviewRequiredControl(
         state="human_review_required",
-        reason=reason,
-        next_action=HumanControlAction(kind="review", why=reason),
-        human_review=RequiredHumanReview(why=reason),
-        stop_reason=reason,
+        reason=bounded,
+        next_action=HumanControlAction(kind="review", why=bounded),
+        human_review=RequiredHumanReview(why=bounded),
+        stop_reason=bounded,
     )
 
 
@@ -278,12 +339,6 @@ def _artifact_refs(
         )
         for key, ref in sorted(pointer.artifacts.items())
     }
-
-
-def _next_actor(action: AgentControlAction | None) -> AgentControlActor:
-    if action is None:
-        return "none"
-    return "human" if action.actor == "human" else "coding_agent"
 
 
 def _bounded_action(action: AgentControlAction | None) -> AgentControlAction | None:

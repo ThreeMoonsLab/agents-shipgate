@@ -25,6 +25,7 @@ the whole read is rejected rather than returning a mix of two generations.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import functools
 import hashlib
 import json
@@ -457,16 +458,25 @@ class LiveWorkspace:
 
 @dataclass(frozen=True)
 class CurrentControlRead:
-    """A pointer that was validated against the artifacts it binds."""
+    """A pointer that was validated against the artifacts it binds.
+
+    ``artifacts`` holds the exact bytes of the keys the caller asked to capture,
+    taken from the same validated pass that hashed them. A caller that reopens a
+    bound artifact afterwards is making a second, unsynchronized read: a run
+    republishing in between would let it combine this pointer's identity with a
+    different generation's evidence. Reading from here cannot.
+    """
 
     pointer: CurrentControlPointer
     path: Path
+    artifacts: dict[str, bytes] = dataclasses.field(default_factory=dict)
 
 
 def read_current_control(
     out_dir: Path,
     *,
     live: LiveWorkspace | None = None,
+    capture: Collection[str] = (),
     attempts: int = 3,
 ) -> CurrentControlRead:
     """Read the current control identity, or refuse.
@@ -498,7 +508,7 @@ def read_current_control(
     for _ in range(max(1, attempts)):
         pointer = _load_pointer(out_dir, path)
         try:
-            _validate_bound_artifacts(out_dir, pointer)
+            captured = _validate_bound_artifacts(out_dir, pointer, capture=capture)
         except CurrentControlUnavailable as mismatch:
             # A run that republished mid-read moves the pointer too. Retry that
             # case; a mismatch under a pointer that did not move is a real
@@ -510,7 +520,11 @@ def read_current_control(
         _validate_control_currency(out_dir, pointer, live)
         confirmation = _load_pointer(out_dir, path)
         if confirmation.current_control_id == pointer.current_control_id:
-            return CurrentControlRead(pointer=pointer, path=path)
+            # `captured` was read in the same pass that hashed it, and the
+            # pointer has not moved since. Returning the bytes is what lets a
+            # caller route on this artifact without opening it again outside
+            # the protocol.
+            return CurrentControlRead(pointer=pointer, path=path, artifacts=captured)
         last = moved
     raise last or CurrentControlUnavailable(
         "generation_changed",
@@ -850,7 +864,21 @@ def _unseen_change_detail(paths: list[str], clause: str) -> str:
     )
 
 
-def _validate_bound_artifacts(out_dir: Path, pointer: CurrentControlPointer) -> None:
+def _validate_bound_artifacts(
+    out_dir: Path,
+    pointer: CurrentControlPointer,
+    *,
+    capture: Collection[str] = (),
+) -> dict[str, bytes]:
+    """Hash every bound artifact, returning the bytes of the captured keys.
+
+    Capture happens here rather than in the caller so the bytes a consumer
+    routes on are the same ones that were just hashed against the pointer. A
+    second `open()` after this function returns is a different read of a file a
+    concurrent run may already have replaced.
+    """
+
+    captured: dict[str, bytes] = {}
     for name, ref in sorted(pointer.artifacts.items()):
         try:
             data = read_regular_file_beneath(
@@ -875,6 +903,9 @@ def _validate_bound_artifacts(out_dir: Path, pointer: CurrentControlPointer) -> 
                 ),
                 path=out_dir / ref.path,
             )
+        if name in capture:
+            captured[name] = data
+    return captured
 
 
 def _finalize(

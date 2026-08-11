@@ -524,6 +524,21 @@ def _apply_local_contract(path: Path, workspace: Path) -> TargetOutcome:
 
 
 def _is_managed_local_contract(existing: bytes) -> bool:
+    """Whether this file is a Shipgate-managed contract that may be replaced.
+
+    Recognizing *any* earlier schema version, not only the current one, is
+    deliberate. The exact-hash allowlist beside this check has to be extended on
+    every outgoing render, and twice in a row it was not — leaving repositories
+    on v8 and v9 unable to upgrade in place, because an untouched managed file
+    was reported as ``skipped_user_modified``. A file carrying the managed
+    gating signal and the managed local-contract path under a version this
+    release already supersedes is a stale managed render, not user work.
+
+    Still closed-world: the version must parse as an integer and must not be
+    newer than this release's, so a contract written by a future version is
+    never overwritten by an older CLI.
+    """
+
     try:
         payload = json.loads(existing.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -533,11 +548,16 @@ def _is_managed_local_contract(existing: bytes) -> bool:
     default_paths = payload.get("default_paths")
     if not isinstance(default_paths, dict):
         return False
-    return (
-        payload.get("schema_version") == LOCAL_CONTRACT_SCHEMA_VERSION
-        and payload.get("gating_signal") == GATING_SIGNAL
-        and default_paths.get("local_contract") == LOCAL_CONTRACT_RELATIVE_PATH
-    )
+    if (
+        payload.get("gating_signal") != GATING_SIGNAL
+        or default_paths.get("local_contract") != LOCAL_CONTRACT_RELATIVE_PATH
+    ):
+        return False
+    try:
+        version = int(str(payload.get("schema_version")))
+    except (TypeError, ValueError):
+        return False
+    return 0 < version <= int(LOCAL_CONTRACT_SCHEMA_VERSION)
 
 
 def _apply_file_tree(
