@@ -10,6 +10,11 @@ from agents_shipgate import __version__
 from agents_shipgate.schemas.agent_boundary import (
     AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
 )
+from agents_shipgate.schemas.agent_control_envelope import (
+    AGENT_CONTROL_ENVELOPE_BUDGET_BYTES,
+    AGENT_CONTROL_ENVELOPE_SCHEMA_PATH,
+    AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION,
+)
 from agents_shipgate.schemas.agent_handoff import (
     AGENT_HANDOFF_SCHEMA_PATH,
     AGENT_HANDOFF_SCHEMA_VERSION,
@@ -59,8 +64,13 @@ from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
 # v20 published the current-control pointer and the refresh protocol; v21 adds
-# action-scoped ``control.permissions`` and the ``review_publishable`` state.
-CONTRACT_VERSION: Literal["21"] = "21"
+# action-scoped ``control.permissions`` and the ``review_publishable`` state;
+# v22 publishes the compact ``shipgate.agent_control/v1`` control envelope.
+#
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21: v22 adds a projection of the
+# ``AgentControl`` union and does not change the union itself, so a consumer
+# written against v21 control fields keeps reading them unchanged.
+CONTRACT_VERSION: Literal["22"] = "22"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"
@@ -437,6 +447,9 @@ class ContractPayload(BaseModel):
     current_control_artifact: str
     agent_refresh_triggers: list[str]
     current_control_fallback_read_order: list[str]
+    agent_control_schema_version: str
+    agent_control_schema_path: str
+    agent_control_budget_bytes: int
     human_authorization_request_schema_version: str
     human_authorization_schema_version: str
     human_authorization_evaluation_schema_version: str
@@ -509,6 +522,9 @@ def build_contract_payload() -> ContractPayload:
         current_control_schema_version=CURRENT_CONTROL_SCHEMA_VERSION,
         current_control_schema_path=CURRENT_CONTROL_SCHEMA_PATH,
         current_control_artifact=ARTIFACTS["current_control"],
+        agent_control_schema_version=AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION,
+        agent_control_schema_path=AGENT_CONTROL_ENVELOPE_SCHEMA_PATH,
+        agent_control_budget_bytes=AGENT_CONTROL_ENVELOPE_BUDGET_BYTES,
         agent_refresh_triggers=list(AGENT_REFRESH_TRIGGERS),
         current_control_fallback_read_order=list(CURRENT_CONTROL_FALLBACK_READ_ORDER),
         human_authorization_request_schema_version=(
@@ -587,8 +603,11 @@ __all__ = [
     "AGENT_READ_ORDER",
     "AGENT_REFRESH_TRIGGERS",
     "CURRENT_CONTROL_FALLBACK_READ_ORDER",
+    "AGENT_CONTROL_ENVELOPE_SCHEMA_PATH",
+    "AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION",
     "CURRENT_CONTROL_SCHEMA_PATH",
     "CURRENT_CONTROL_SCHEMA_VERSION",
+    "AGENT_CONTROL_ENVELOPE_BUDGET_BYTES",
     "AGENT_HANDOFF_SCHEMA_PATH",
     "AGENT_HANDOFF_SCHEMA_VERSION",
     "AGENT_INTERFACE_OPERATIONS",

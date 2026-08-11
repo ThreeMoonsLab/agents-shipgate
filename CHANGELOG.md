@@ -2,6 +2,73 @@
 
 ## Unreleased
 
+- **One compact object now answers "what may I do next?", instead of four
+  artifacts and a guess.** A verify run could simultaneously report `execution:
+  "succeeded"`, exit code `0`, `release_decision.decision: "review_required"`,
+  and `control.state: "human_review_required"` — four facts, three of which
+  read like permission to continue, spread across thousands of tokens of
+  forensic JSON. New `shipgate.agent_control/v1`
+  ([`docs/agent-control-schema.v1.json`](docs/agent-control-schema.v1.json))
+  carries tool execution status, the release or boundary decision and which
+  engine produced it, the control state, the six-way `permissions` vector, the
+  next actor, the exact next action, the identity of the input it was assessed
+  against, any review obligations still owed, and the path and sha256 of every
+  artifact `current-control.json` binds — in one stdout object under a published `agent_control_budget_bytes`
+  budget of 4096 — a measured target, not an enforced cap, since a long
+  reviewer list or exact command must never be truncated to fit — roughly a
+  fifth of the `verifier.json` plus `agent-handoff.json` an agent reads today
+  to answer the same question. Three
+  separations that were documentary are now structural: a failed execution can
+  never authorize completion (and a *succeeded* one implies nothing); a
+  stopping state authorizes nothing; and `permissions.merge`, not `exit_code`,
+  answers "may I merge" — the exit code is the CI gate signal and in advisory
+  mode a `blocked` decision still exits 0, which is now pinned across all four
+  decisions in both modes. The envelope decides nothing: every field is copied
+  from a producer that already published it, and where the current-control
+  pointer refused a completion its run claimed, the pointer wins and the run's
+  route is dropped rather than recovered. Emitted by `agents-shipgate verify
+  --format control` (added; `--json` still emits the full verifier artifact),
+  `agents-shipgate check --format agent-control-json` (added;
+  `agent-boundary-json` unchanged), and `agents-shipgate agent control`, whose
+  default output changes from the raw pointer to the envelope — `--format
+  pointer` returns the previous output unchanged. `verify --format text` now
+  leads with the control state, next actor, and permission vector before the
+  existing verdict line. Both entry points run one currency test: `verify
+  --format control` validates its own published pointer against the live
+  workspace and withholds authority when the workspace moved past what the run
+  evaluated, instead of reporting `complete` on a directory `agent control` was
+  simultaneously refusing, and it routes from the verifier bytes captured inside
+  that read so a pointer can never be paired with another generation's decision.
+  Emitted artifact paths are relative to the invoking directory and joined
+  structurally, so a root of `/` or a trailing space cannot rename the file
+  whose hash was validated. `input_id` binds compact authority to the input it
+  assessed — required on `complete`, since two unrelated diffs otherwise
+  projected byte-identical envelopes granting merge — and `pending_review[]`
+  carries obligations a non-terminal route still owes. Human-readable output
+  renders control characters visibly and keeps one field per line, closing a
+  spoof where a workspace path containing newlines printed forged `Control:
+  complete` and `You may: ... merge` lines; JSON keeps the exact bytes. A
+  current-but-routeless generation (a `scan` pointer) is now reported with exit
+  0 and merge denied instead of refused, preserving the documented meaning of a
+  non-zero exit, and recovery commands are generated from the requested
+  workspace and reports directory rather than a hardcoded default. Terminal
+  authority is additionally constrained by provenance — `complete` is
+  representable only from `verify` (naming its pointer and artifacts) or from
+  `check` (naming neither), never from `scan` or `preview` — and a `verify`
+  route cannot drop `verify_required`; both are published in the JSON Schema,
+  not only enforced in Python. `verify --format control` now reports only this
+  invocation's generation instead of whichever is current, and the currency
+  comparison re-observes the workspace after confirming the pointer, closing a
+  window in which a commit could land mid-read. Separately,
+  `.shipgate/agent-contract.json` now upgrades in place from any superseded
+  managed version rather than only from renders whose exact hash was recorded —
+  repositories on local-contract schema 8 or 9 were stranded. Runtime contract advances `21 → 22` and the downstream
+  local contract `9 → 10`; `minimum_control_contract_version` stays at `21`
+  because the `AgentControl` union itself is unchanged.
+  ([#333](https://github.com/ThreeMoonsLab/agents-shipgate/issues/333),
+  [#323](https://github.com/ThreeMoonsLab/agents-shipgate/issues/323),
+  [#338](https://github.com/ThreeMoonsLab/agents-shipgate/issues/338))
+
 - **The release pipeline now proves the wheel it publishes came from the
   tagged commit.** The tag workflow established three bindings — tag to
   `pyproject.toml` version, qualification payload to wheel bytes, and tag to

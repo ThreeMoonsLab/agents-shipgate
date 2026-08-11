@@ -52,7 +52,7 @@ Always:
    `control.state`, `merge_verdict`, `can_merge_without_human`, `control.next_action`,
    `fix_task`, and `capability_review.top_changes`. Then parse
    `agents-shipgate-reports/report.json.release_decision.decision`; it is the
-   release gate. Refresh `agents-shipgate-reports/current-control.json` with
+   release gate. Refresh with
    `agents-shipgate agent control --workspace .` — which refuses the read when
    HEAD, the tree, or the working tree has moved since the decision — before
    you act on any of that, and again
@@ -61,7 +61,7 @@ Always:
    control identity is current and you hold no authority; if
    `current_control_id` changed, discard every cached control state and restart
    from the new identity. A result remembered from earlier in the conversation
-   never outranks the current pointer, in either direction.
+   never outranks the current pointer, in either direction. What that command prints depends on the installed CLI, so read `agents-shipgate contract --json` once: when it reports `agent_control_schema_version`, `agent control` returns that compact `shipgate.agent_control/v1` object — `control_state`, `permissions`, `next_actor`, `next_action` — and routing on it alone is enough, with `--format pointer` returning the raw `current-control.json`; when it does not, the CLI predates the envelope and `agent control` returns the raw pointer, whose fields are `lifecycle_state` and nested `control.state`.
 4. Before editing `shipgate.yaml`, Shipgate CI, AGENTS/CLAUDE/Cursor rules, policy packs, baselines, waivers, suppressions, Codex hooks/config, Codex plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, plan to run `agents-shipgate verify` before completion and route trust-root review to a human when the verifier requires it.
 5. Before finishing an agent-related diff, run `shipgate check --agent claude-code --workspace . --format agent-boundary-json`. For committed PR/CI verification, run `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json` after making the base ref available. `verify` never fetches. For host grants, run `shipgate audit --host --json --out agents-shipgate-reports/host-grants.json`.
 6. Do not bypass the verifier by suppressing findings, lowering severity, expanding baselines or waivers, removing Shipgate CI, or weakening agent instructions; verify-mode `SHIP-VERIFY-*` checks make those trust-root edits release-visible.

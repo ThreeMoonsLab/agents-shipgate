@@ -25,6 +25,7 @@ the whole read is rejected rather than returning a mix of two generations.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import functools
 import hashlib
 import json
@@ -457,16 +458,25 @@ class LiveWorkspace:
 
 @dataclass(frozen=True)
 class CurrentControlRead:
-    """A pointer that was validated against the artifacts it binds."""
+    """A pointer that was validated against the artifacts it binds.
+
+    ``artifacts`` holds the exact bytes of the keys the caller asked to capture,
+    taken from the same validated pass that hashed them. A caller that reopens a
+    bound artifact afterwards is making a second, unsynchronized read: a run
+    republishing in between would let it combine this pointer's identity with a
+    different generation's evidence. Reading from here cannot.
+    """
 
     pointer: CurrentControlPointer
     path: Path
+    artifacts: dict[str, bytes] = dataclasses.field(default_factory=dict)
 
 
 def read_current_control(
     out_dir: Path,
     *,
-    live: LiveWorkspace | None = None,
+    live: LiveWorkspace | Callable[[], LiveWorkspace | None] | None = None,
+    capture: Collection[str] = (),
     attempts: int = 3,
 ) -> CurrentControlRead:
     """Read the current control identity, or refuse.
@@ -483,6 +493,14 @@ def read_current_control(
     ``workspace_identity`` and any drift refuses the read.  Completion
     authority is never returned without that comparison: passing ``live=None``
     means "not verified", which downgrades to a refusal rather than a pass.
+
+    ``live`` should be a *callable*, and a pre-built snapshot is accepted only
+    for callers that cannot produce one.  A snapshot taken before this function
+    is entered leaves a window: advancing HEAD after the observation and before
+    the return still yielded a ``complete`` pointer, because only the pointer's
+    identity was reconfirmed.  A callable is re-observed after the pointer is
+    confirmed, and the read is rejected unless both the pointer *and* the
+    workspace are unchanged across the whole protocol.
     """
 
     path = current_control_path(out_dir)
@@ -494,11 +512,23 @@ def read_current_control(
         ),
         path=path,
     )
+    workspace_moved = CurrentControlUnavailable(
+        "workspace_changed",
+        (
+            "The workspace changed while the control identity was being read; "
+            "no coherent pointer and workspace pair could be observed. "
+            "Re-run verification."
+        ),
+        path=out_dir,
+    )
+    observe: Callable[[], LiveWorkspace | None] = (
+        live if callable(live) else (lambda: live)  # type: ignore[return-value]
+    )
     last: CurrentControlUnavailable | None = None
     for _ in range(max(1, attempts)):
         pointer = _load_pointer(out_dir, path)
         try:
-            _validate_bound_artifacts(out_dir, pointer)
+            captured = _validate_bound_artifacts(out_dir, pointer, capture=capture)
         except CurrentControlUnavailable as mismatch:
             # A run that republished mid-read moves the pointer too. Retry that
             # case; a mismatch under a pointer that did not move is a real
@@ -507,16 +537,64 @@ def read_current_control(
                 raise
             last = mismatch
             continue
-        _validate_control_currency(out_dir, pointer, live)
+        observed = observe()
+        _validate_control_currency(out_dir, pointer, observed)
         confirmation = _load_pointer(out_dir, path)
-        if confirmation.current_control_id == pointer.current_control_id:
-            return CurrentControlRead(pointer=pointer, path=path)
-        last = moved
+        if confirmation.current_control_id != pointer.current_control_id:
+            last = moved
+            continue
+        # The workspace is re-observed after the pointer is confirmed, and both
+        # observations must agree. Checking the pointer alone left a window in
+        # which HEAD advanced between the comparison and the return.
+        if _workspace_fingerprint(observe()) != _workspace_fingerprint(observed):
+            last = workspace_moved
+            continue
+        # `captured` was read in the same pass that hashed it, and neither the
+        # pointer nor the workspace moved since. Returning the bytes is what
+        # lets a caller route on this artifact without opening it again outside
+        # the protocol.
+        return CurrentControlRead(pointer=pointer, path=path, artifacts=captured)
     raise last or CurrentControlUnavailable(
         "generation_changed",
         "The current control identity could not be read coherently.",
         path=path,
     )
+
+
+def _workspace_fingerprint(live: LiveWorkspace | None) -> tuple[object, ...]:
+    """What must not change between the currency check and the return.
+
+    ``None`` fingerprints distinctly from any resolved workspace, so a
+    workspace that becomes unresolvable mid-read is drift rather than a match.
+    """
+
+    if live is None:
+        return (None,)
+    return (
+        live.repository,
+        live.head_commit_sha,
+        live.head_tree_sha,
+        live.changed_paths,
+    )
+
+
+def load_published_control_pointer(out_dir: Path) -> CurrentControlPointer | None:
+    """Read back the pointer the calling run just published, or ``None``.
+
+    Deliberately *not* :func:`read_current_control`. That function answers "is
+    this decision still current for a reader who did not make it", and its
+    live-workspace comparison is the whole point. A run reading back its own
+    publication is asking something narrower — "what did I just bind?" — and
+    running the currency protocol against a workspace the run is still standing
+    in would only re-derive an answer it already has.
+
+    External consumers must keep using :func:`read_current_control`.
+    """
+
+    try:
+        return _load_pointer(out_dir, current_control_path(out_dir))
+    except CurrentControlUnavailable:
+        return None
 
 
 def _load_pointer(out_dir: Path, path: Path) -> CurrentControlPointer:
@@ -831,7 +909,21 @@ def _unseen_change_detail(paths: list[str], clause: str) -> str:
     )
 
 
-def _validate_bound_artifacts(out_dir: Path, pointer: CurrentControlPointer) -> None:
+def _validate_bound_artifacts(
+    out_dir: Path,
+    pointer: CurrentControlPointer,
+    *,
+    capture: Collection[str] = (),
+) -> dict[str, bytes]:
+    """Hash every bound artifact, returning the bytes of the captured keys.
+
+    Capture happens here rather than in the caller so the bytes a consumer
+    routes on are the same ones that were just hashed against the pointer. A
+    second `open()` after this function returns is a different read of a file a
+    concurrent run may already have replaced.
+    """
+
+    captured: dict[str, bytes] = {}
     for name, ref in sorted(pointer.artifacts.items()):
         try:
             data = read_regular_file_beneath(
@@ -856,6 +948,9 @@ def _validate_bound_artifacts(out_dir: Path, pointer: CurrentControlPointer) -> 
                 ),
                 path=out_dir / ref.path,
             )
+        if name in capture:
+            captured[name] = data
+    return captured
 
 
 def _finalize(
@@ -976,6 +1071,7 @@ __all__ = [
     "current_control_lifecycle",
     "current_control_lifecycle_owner",
     "current_control_path",
+    "load_published_control_pointer",
     "owns_current_control",
     "project_agent_control",
     "publish_current_control",

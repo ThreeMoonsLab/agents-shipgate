@@ -38,6 +38,9 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "current_control_artifact",
         "agent_refresh_triggers",
         "current_control_fallback_read_order",
+        "agent_control_schema_version",
+        "agent_control_schema_path",
+        "agent_control_budget_bytes",
         "human_authorization_request_schema_version",
         "human_authorization_schema_version",
         "human_authorization_evaluation_schema_version",
@@ -70,9 +73,9 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
         "release_decisions",
         "do_not_auto_assert",
     ]
-    assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "9"
+    assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "10"
     assert payload["agents_shipgate_version"] == __version__
-    assert payload["contract_version"] == CONTRACT_VERSION == "21"
+    assert payload["contract_version"] == CONTRACT_VERSION == "22"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)

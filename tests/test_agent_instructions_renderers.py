@@ -45,7 +45,7 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": (
-        "cc468647434d12be45819de4db6ece8a860010b44c31ba3586038067eb3357af"
+        "3e10877198eead17338d54810ef7dc32317fa1b1013b54acccc1c2e9a94f53e4"
     ),
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
         # Renders {{ shipgate_version }}; changes on every version bump.
@@ -81,7 +81,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": (
-        "8d56a0a026f1ba0b29ead84a660a4a1274757e13f04ecd2ce2069580b4b5e461"
+        "34ef4bdac90ff7b409eb2254f6b73c52888e92bd9ba44824d6f056c44c2a50ff"
     ),
     ".agents/skills/agents-shipgate/agents/openai.yaml": (
         "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
@@ -93,7 +93,7 @@ EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
         "49f71ac4f5b6c83f34caa1e5a7126cf4550d95188725ce37d93b558c6bfae17a"
     ),
     ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "2cdd6d8c7468e7aa7cfaa91160b10f543bd61d5893a6e5a71f84ace667a4b1ec"
+        "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a"
     ),
 }
 
@@ -161,9 +161,9 @@ def test_committed_claude_command_matches_renderer() -> None:
 
 def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "9"
+    assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "21"
+    assert payload["contract_version"] == "22"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
@@ -218,6 +218,11 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
         "agents-shipgate-reports/current-control.json"
     )
     assert payload["commands"]["agent_control"].startswith("agents-shipgate agent control")
+    # The compact envelope that command now returns, so a downstream agent can
+    # validate what it is reading without fetching the full contract.
+    assert payload["agent_control_schema_version"] == "shipgate.agent_control/v1"
+    assert payload["agent_control_schema_path"] == "docs/agent-control-schema.v1.json"
+    assert payload["agent_control_budget_bytes"] == 4096
     # The refresh obligation is contract data, not prose: a consumer must be
     # able to enumerate the boundaries at which a cached control state expires.
     assert "before enforcing a cached must_stop" in payload["agent_refresh_triggers"]

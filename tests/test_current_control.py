@@ -734,13 +734,16 @@ def test_reader_rejects_a_generation_change_underneath_it(
     reports = repo / "agents-shipgate-reports"
     real_validate = current_control_module._validate_bound_artifacts
 
-    def republish_then_validate(out_dir: Path, pointer: CurrentControlPointer) -> None:
-        real_validate(out_dir, pointer)
+    def republish_then_validate(
+        out_dir: Path, pointer: CurrentControlPointer, **kwargs: object
+    ) -> dict[str, bytes]:
+        captured = real_validate(out_dir, pointer, **kwargs)
         begin_current_control(
             out_dir,
             operation="verify",
             reason="A competing run started while the pointer was being read.",
         )
+        return captured
 
     monkeypatch.setattr(
         current_control_module, "_validate_bound_artifacts", republish_then_validate
@@ -765,7 +768,9 @@ def test_reader_retries_past_a_republish_but_not_past_real_tampering(
     real_validate = current_control_module._validate_bound_artifacts
     calls: list[int] = []
 
-    def fail_once_then_republish(out_dir: Path, pointer: CurrentControlPointer) -> None:
+    def fail_once_then_republish(
+        out_dir: Path, pointer: CurrentControlPointer, **kwargs: object
+    ) -> dict[str, bytes]:
         calls.append(1)
         if len(calls) == 1:
             begin_current_control(
@@ -779,7 +784,7 @@ def test_reader_retries_past_a_republish_but_not_past_real_tampering(
                 ),
             )
             raise CurrentControlUnavailable("artifact_mismatch", "raced", path=out_dir)
-        real_validate(out_dir, pointer)
+        return real_validate(out_dir, pointer, **kwargs)
 
     monkeypatch.setattr(
         current_control_module, "_validate_bound_artifacts", fail_once_then_republish
@@ -918,6 +923,13 @@ def test_a_pointer_cannot_be_hand_edited_without_breaking_its_identity() -> None
 
 
 def test_agent_control_command_prints_the_validated_pointer(repo: Path) -> None:
+    """The pointer itself remains reachable, under ``--format pointer``.
+
+    Contract v22 made the compact control envelope this command's default
+    output; the underlying artifact is what this test is about, so it asks for
+    it explicitly.
+    """
+
     _verify(repo)
     result = runner.invoke(
         app,
@@ -928,6 +940,8 @@ def test_agent_control_command_prints_the_validated_pointer(repo: Path) -> None:
             str(repo),
             "--reports-dir",
             str(repo / "agents-shipgate-reports"),
+            "--format",
+            "pointer",
         ],
     )
 

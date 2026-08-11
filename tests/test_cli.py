@@ -24,6 +24,9 @@ from agents_shipgate.schemas.capabilities import (
 from agents_shipgate.schemas.contract import (
     AGENT_BOUNDARY_RESULT_SCHEMA_PATH,
     AGENT_BOUNDARY_RESULT_SCHEMA_VERSION,
+    AGENT_CONTROL_ENVELOPE_BUDGET_BYTES,
+    AGENT_CONTROL_ENVELOPE_SCHEMA_PATH,
+    AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION,
     AGENT_CONTROL_FIELDS,
     AGENT_CONTROL_PERMISSIONS,
     AGENT_CONTROL_STATES,
@@ -285,6 +288,9 @@ def test_cli_contract_json_outputs_runtime_contract():
         "current_control_artifact",
         "agent_refresh_triggers",
         "current_control_fallback_read_order",
+        "agent_control_schema_version",
+        "agent_control_schema_path",
+        "agent_control_budget_bytes",
         "human_authorization_request_schema_version",
         "human_authorization_schema_version",
         "human_authorization_evaluation_schema_version",
@@ -354,6 +360,9 @@ def test_cli_contract_json_outputs_runtime_contract():
         "current_control_artifact": ARTIFACTS["current_control"],
         "agent_refresh_triggers": list(AGENT_REFRESH_TRIGGERS),
         "current_control_fallback_read_order": list(CURRENT_CONTROL_FALLBACK_READ_ORDER),
+        "agent_control_schema_version": AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION,
+        "agent_control_schema_path": AGENT_CONTROL_ENVELOPE_SCHEMA_PATH,
+        "agent_control_budget_bytes": AGENT_CONTROL_ENVELOPE_BUDGET_BYTES,
         "human_authorization_request_schema_version": (
             HUMAN_AUTHORIZATION_REQUEST_SCHEMA_VERSION
         ),

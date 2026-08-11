@@ -549,6 +549,36 @@ def test_fail_policy_exit_code_matches_exit_code_for_report():
         assert decision.fail_policy.would_fail_ci == (expected != 0)
 
 
+@pytest.mark.parametrize(
+    ("decision", "advisory_exit", "strict_exit"),
+    [
+        ("passed", 0, 0),
+        ("review_required", 0, 0),
+        ("insufficient_evidence", 0, GATE_FAILURE_EXIT_CODE),
+        ("blocked", 0, GATE_FAILURE_EXIT_CODE),
+    ],
+)
+def test_exit_code_is_the_ci_gate_signal_not_the_release_decision(
+    decision, advisory_exit, strict_exit
+):
+    """Published exit-code semantics, pinned across all four decisions.
+
+    The exit code answers "did the configured CI gate fail", and that depends on
+    `ci.mode`. It is not a projection of `release_decision.decision`: in
+    advisory mode every decision — `blocked` included — exits 0, and
+    `review_required` has no exit code of its own in either mode. A consumer
+    that reads exit 0 as merge authority is therefore wrong in advisory mode by
+    construction, which is why `shipgate.agent_control/v1` reports
+    `permissions.merge` beside `exit_code` rather than expecting the caller to
+    infer one from the other. See docs/agent-contract-current.md.
+    """
+
+    report = _report()
+
+    assert exit_code_for_report(report, "advisory", release_decision=decision) == advisory_exit
+    assert exit_code_for_report(report, "strict", release_decision=decision) == strict_exit
+
+
 def test_summary_status_remains_baseline_blind():
     """Regression: summary.status MUST stay baseline-blind for v0.7 compat
     even though release_decision.decision is baseline-aware. A baseline-matched

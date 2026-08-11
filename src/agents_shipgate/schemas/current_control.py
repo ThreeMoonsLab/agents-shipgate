@@ -68,6 +68,9 @@ NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_lengt
 
 # The artifact key that must be bound before completion is representable.
 RECEIPT_ARTIFACT_KEY = "verification_receipt"
+# The artifact key carrying the route and execution status a pointer omits by
+# design. Named here so producers and readers cannot spell it differently.
+VERIFIER_ARTIFACT_KEY = "verifier"
 
 
 class CurrentControlArtifactRef(BaseModel):
@@ -277,6 +280,7 @@ __all__ = [
     "CURRENT_CONTROL_SCHEMA_PATH",
     "CURRENT_CONTROL_SCHEMA_VERSION",
     "RECEIPT_ARTIFACT_KEY",
+    "VERIFIER_ARTIFACT_KEY",
     "AgentActionRequiredCurrentControl",
     "CompleteCurrentControl",
     "CurrentControlArtifactRef",

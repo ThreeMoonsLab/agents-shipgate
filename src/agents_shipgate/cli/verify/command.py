@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
 
 import typer
 
@@ -13,14 +14,32 @@ from agents_shipgate.cli._helpers import (
     _parse_fail_on,
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
+from agents_shipgate.cli.current_workspace import live_workspace
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
-from agents_shipgate.core.current_control import CurrentControlPublishError
+from agents_shipgate.core.agent_control_envelope import (
+    control_headline_lines,
+    denied_control_envelope,
+    envelope_from_verifier,
+    render_agent_control_envelope,
+    single_line_text,
+)
+from agents_shipgate.core.current_control import (
+    CurrentControlPublishError,
+    CurrentControlUnavailable,
+    read_current_control,
+)
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.report.summary_text import primary_evidence_remediation_text
+from agents_shipgate.schemas.agent_control_envelope import (
+    AgentControlEnvelope,
+    AgentControlOperation,
+)
+from agents_shipgate.schemas.current_control import VERIFIER_ARTIFACT_KEY
 from agents_shipgate.schemas.diagnostics import NextAction
+from agents_shipgate.schemas.verifier import VerifierArtifact
 
 from .git import ensure_git_workspace, staged_paths_under
 from .orchestrator import run_preview, run_verify
@@ -110,9 +129,11 @@ def verify(
         None,
         "--format",
         help=(
-            "Verifier stdout format: text or json (full verifier artifact). "
-            "Defaults to text, or json when a coding-agent environment is "
-            "detected. Scan artifacts are fixed."
+            "Verifier stdout format: text, json (full verifier artifact), or "
+            "control (the compact shipgate.agent_control/v1 envelope — the "
+            "promoted shape for a coding-agent control loop). Defaults to "
+            "text, or json when a coding-agent environment is detected. Scan "
+            "artifacts are fixed."
         ),
     ),
     json_output: bool = typer.Option(
@@ -416,28 +437,94 @@ def verify(
 
     _warn_if_reports_staged(workspace, out)
 
+    # Rendering runs inside the structured error boundary. Every envelope
+    # invariant restates one the verifier already enforces, so a failure here
+    # means two layers disagree — an internal bug, and one that must reach a
+    # coding agent as the documented `internal_error`/exit 4 line rather than as
+    # a bare traceback and exit 1.
+    try:
+        _emit_verify_stdout(
+            verifier,
+            workspace=workspace,
+            exit_code=exit_code,
+            preview=preview,
+            stdout_format=stdout_format,
+        )
+    except Exception as exc:  # noqa: BLE001 - CLI boundary.
+        if verbose:
+            logger.exception("control projection failed")
+        typer.echo(f"Internal error: {exc}", err=True)
+        guidance = (
+            "Re-run with --verbose for a stack trace, then file an issue. Until "
+            "this run reports a control state, treat it as authorizing nothing."
+        )
+        emit_agent_mode_error(
+            "internal_error",
+            message=str(exc),
+            exit_code=4,
+            next_action=guidance,
+            next_actions=[NextAction(kind="review", why=guidance).model_dump(mode="json")],
+        )
+        raise typer.Exit(4) from exc
+    raise typer.Exit(exit_code)
+
+
+def _emit_verify_stdout(
+    verifier: VerifierArtifact,
+    *,
+    workspace: Path,
+    exit_code: int,
+    preview: bool,
+    stdout_format: str,
+) -> None:
+    """Write the one stdout document this run promised."""
+
     if stdout_format == "json":
         typer.echo(json.dumps(verifier.model_dump(mode="json"), indent=2))
+    elif stdout_format == "control":
+        typer.echo(
+            render_agent_control_envelope(
+                _verify_envelope(verifier, workspace, exit_code, preview=preview)
+            )
+        )
     else:
         verdict = (
             verifier.release_decision.decision
             if verifier.release_decision is not None
             else ("skipped" if verifier.head_status == "skipped" else "failed")
         )
-        typer.echo(f"Agents Shipgate verify: {verdict}")
-        typer.echo(f"Trigger: {verifier.trigger.get('rationale')}")
-        typer.echo(f"Base status: {verifier.base_status}")
+        # Lead with the operational answer. The release verdict below is the
+        # gate's word on the change; these lines are the reader's word on what
+        # they may do next, and printing the verdict first is what let
+        # "succeeded" read as "done" in the #338 walkthrough. A drift refusal
+        # arrives here as a denying envelope, not an exception, so the human
+        # still sees the verdict and the exit code.
+        for line in control_headline_lines(
+            _verify_envelope(verifier, workspace, exit_code, preview=preview)
+        ):
+            typer.echo(line)
+        # Every value below is repository-derived — a trigger rationale, a tool
+        # name reaching the remediation text, a ref — and none is under
+        # Shipgate's control. Sanitizing only the control headline left the
+        # rest: a tool name containing newlines printed forged `Control:
+        # complete` and `You may: merge` lines further down the same output.
+        typer.echo(f"Agents Shipgate verify: {single_line_text(str(verdict))}")
+        typer.echo(f"Trigger: {single_line_text(str(verifier.trigger.get('rationale')))}")
+        typer.echo(f"Base status: {single_line_text(str(verifier.base_status))}")
         typer.echo(f"Exit code: {exit_code}")
         if (
             verifier.release_decision is not None
             and verifier.release_decision.decision == "insufficient_evidence"
         ):
-            typer.echo(
-                "Improve evidence: "
-                f"{primary_evidence_remediation_text(verifier.release_decision.evidence_coverage)}"
+            remediation = primary_evidence_remediation_text(
+                verifier.release_decision.evidence_coverage
             )
+            # This one is deliberately multi-line (#358 renders "Run: <cmd>" on
+            # its own line), so each line is sanitized rather than the whole.
+            for index, part in enumerate(remediation.splitlines() or [""]):
+                prefix = "Improve evidence: " if index == 0 else ""
+                typer.echo(f"{prefix}{single_line_text(part)}")
         typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
-    raise typer.Exit(exit_code)
 
 
 def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
@@ -482,6 +569,11 @@ def _resolve_verify_format(value: str | None, *, json_output: bool, preview: boo
 
     Precedence: explicit ``--format`` > ``--json`` shortcut > agent-mode
     auto-detection > text.
+
+    Agent-mode auto-detection still resolves to ``json``. ``control`` is the
+    promoted shape for a coding-agent control loop and is far cheaper, but
+    silently swapping what an already-installed agent receives on stdout is a
+    compatibility event, not a default change; the rollout is #323's.
     """
     if value is not None:
         return _parse_verify_format(value)
@@ -496,11 +588,132 @@ def _parse_verify_format(value: str) -> str:
         return "text"
     if normalized == "json":
         return "json"
+    if normalized == "control":
+        return "control"
     if normalized == "agent":
         raise ConfigError(
             "--format agent was removed in the 0.14.0 contract cleanup; use --format json"
         )
-    raise ConfigError("--format must be text or json for verify")
+    raise ConfigError("--format must be text, json, or control for verify")
+
+
+def _verify_envelope(
+    verifier: VerifierArtifact,
+    workspace: Path,
+    exit_code: int,
+    *,
+    preview: bool,
+) -> AgentControlEnvelope:
+    """Project this run onto ``shipgate.agent_control/v1``.
+
+    This goes through exactly the protocol ``agents-shipgate agent control``
+    uses — the generation-safe read, validated against the live workspace, with
+    the verifier captured inside it. Two entry points into one decision must
+    apply one currency test: when they did not, a `--head` run in a dirty
+    worktree reported `complete` with `permissions.merge=true` here while
+    `agent control` was simultaneously refusing the same directory as
+    `workspace_changed`.
+
+    The captured verifier is then required to be *this invocation's*. Taking
+    whatever generation is current was wrong in the other direction: a preview
+    run reported a concurrent passing run's `complete`, `passed`, and
+    `merge=true` under `source="run"`, printing that run's exit code while the
+    process exited with its own. ``source="run"`` is a claim about whose result
+    this is, so the identities must match exactly and a mismatch fails closed.
+
+    A refusal does not raise. ``verify``'s exit code is the CI gate signal and
+    must not change, so the run's verdict is still reported — with authority
+    withheld and the refusal as the reason.
+    """
+
+    operation: AgentControlOperation = "preview" if preview else "verify"
+
+    def denied(reason: str) -> AgentControlEnvelope:
+        return denied_control_envelope(
+            operation=operation,
+            source="run",
+            execution=verifier.execution,
+            exit_code=exit_code,
+            reason=reason,
+        )
+
+    reports_dir = _reports_dir_from_artifacts(verifier, workspace)
+    if reports_dir is None:
+        return denied(
+            "This run recorded no verifier artifact path, so the control "
+            "identity it published could not be located or validated."
+        )
+    try:
+        result = read_current_control(
+            reports_dir,
+            live=lambda: live_workspace(workspace, reports_dir),
+            capture=(VERIFIER_ARTIFACT_KEY,),
+        )
+    except CurrentControlUnavailable as exc:
+        return denied(str(exc))
+    captured = result.artifacts.get(VERIFIER_ARTIFACT_KEY)
+    if captured is None:
+        return denied(
+            "The control identity this run published binds no verifier "
+            "artifact, so no validated route could be recovered."
+        )
+    try:
+        current = VerifierArtifact.model_validate_json(captured)
+    except ValueError as exc:
+        return denied(f"The bound verifier artifact could not be read: {exc}")
+    if (current.request_id, current.decision_id) != (verifier.request_id, verifier.decision_id):
+        return denied(
+            "Another run published over this directory while this one was "
+            "reporting; the control identity that is current closes a different "
+            "request, so this run cannot speak for it. Re-run verification."
+        )
+    return envelope_from_verifier(
+        current,
+        operation=operation,
+        source="run",
+        exit_code=exit_code,
+        pointer=result.pointer,
+        artifact_root=_artifact_root(verifier, workspace),
+    )
+
+
+def _artifact_root(verifier: VerifierArtifact, workspace: Path) -> str | None:
+    """The reports directory as the *invoking shell* would spell it.
+
+    The verifier records paths relative to the Git root. The envelope is printed
+    to stdout with no directory context, so a caller running from anywhere other
+    than the Git root could not open them: only `workspace / path` existed.
+    Rebasing onto the current working directory makes the emitted path openable
+    exactly as given, which is what the schema promises.
+    """
+
+    reports_dir = _reports_dir_from_artifacts(verifier, workspace)
+    if reports_dir is None:
+        return None
+    try:
+        relative = PurePosixPath(Path(os.path.relpath(reports_dir, Path.cwd())).as_posix())
+    except (OSError, ValueError):
+        # Different drives on Windows, or an unreadable cwd.
+        return reports_dir.as_posix()
+    # A relative spelling only when it stays inside the invoking directory.
+    # Climbing out of it is correct but neither shorter nor clearer than the
+    # absolute path, and it spends the size budget on `../` segments.
+    if relative.parts and relative.parts[0] == "..":
+        return reports_dir.as_posix()
+    return relative.as_posix()
+
+
+def _reports_dir_from_artifacts(verifier: VerifierArtifact, workspace: Path) -> Path | None:
+    recorded = verifier.artifacts.get("verifier_json")
+    if not recorded:
+        return None
+    path = Path(recorded)
+    if not path.is_absolute():
+        try:
+            path = ensure_git_workspace(workspace.resolve()) / path
+        except ConfigError:
+            path = workspace.resolve() / path
+    return path.parent
 
 
 def _parse_pr_comment_style(value: str) -> str:

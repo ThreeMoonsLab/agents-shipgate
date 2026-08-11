@@ -159,7 +159,19 @@ Read the pointer with:
 agents-shipgate agent control --workspace . --reports-dir agents-shipgate-reports
 ```
 
-A zero exit means the printed pointer was validated against every artifact it
+That returns `shipgate.agent_control/v1`, the compact control envelope: the
+control state, the `permissions` vector, the next actor, the exact next action,
+and the path and sha256 of every artifact `current-control.json` binds, in one
+object. It is the
+whole routing answer — an agent that switches on `permissions` and
+`next_action` from it does not need the artifact walk above. Read
+`execution` and `exit_code` as what they are: whether the tool ran, and whether
+the CI gate failed. Neither is merge authority; `permissions.merge` is. Pass
+`--format pointer` for the raw `current-control.json`, and use
+`agents-shipgate verify --format control` to get the same envelope directly
+from a run you just performed.
+
+A zero exit means the printed answer was validated against every artifact it
 binds, still describes the repository as it stands right now, and did not move
 while it was read. Byte consistency is not generation consistency: one commit
 is enough to make an intact artifact set describe a workspace that has moved,

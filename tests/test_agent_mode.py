@@ -307,7 +307,12 @@ def test_verify_without_agent_environment_defaults_to_text(
     result = runner.invoke(app, _verify_args(repo))
 
     assert result.exit_code == 0, result.output
-    assert result.output.startswith("Agents Shipgate verify:")
+    # Text mode leads with the control state (contract v22); the verdict line
+    # follows it. What this test pins is that the output is text at all, not
+    # the verifier JSON an agent environment would have selected.
+    assert result.output.startswith("Control: ")
+    assert "Agents Shipgate verify:" in result.output
+    assert "verifier_schema_version" not in result.output
 
 
 # --- detect_actor -----------------------------------------------------------

@@ -20,6 +20,10 @@ from agents_shipgate.cli.agent_result import (
 )
 from agents_shipgate.cli.verify.git import commit_sha
 from agents_shipgate.core.agent_control import derive_agent_control
+from agents_shipgate.core.agent_control_envelope import (
+    envelope_from_agent_result,
+    render_agent_control_envelope,
+)
 from agents_shipgate.core.agent_controls import git_root_for
 from agents_shipgate.core.bounded_io import (
     MAX_EXPLICIT_DIFF_BYTES,
@@ -41,6 +45,40 @@ from agents_shipgate.schemas.codex_boundary_result import (
     freeze_codex_boundary_result,
 )
 from agents_shipgate.schemas.diagnostics import NextAction
+
+# Formats whose *result* is the current agent-boundary contract. Two of them
+# differ only in how that one result is rendered on stdout, so every place that
+# chooses a builder, an audit-id schema, or an error projection must treat them
+# alike; only `_emit_check_result` may tell them apart.
+_CURRENT_BOUNDARY_FORMATS = frozenset({"agent-boundary-json", "agent-control-json"})
+CHECK_FORMATS = frozenset({*_CURRENT_BOUNDARY_FORMATS, "codex-boundary-json"})
+
+
+def _emit_check_result(
+    result: AgentResultV2,
+    *,
+    format_: str,
+    evaluated: bool = True,
+) -> None:
+    """Print one boundary result in the requested shape.
+
+    ``agent-control-json`` is a projection of the same result, not a different
+    evaluation: the boundary decision, the control state, and the permission
+    vector are the ones the result already carries.
+
+    ``evaluated`` is false on the diff-input-error routes, where a considered
+    ``block`` is emitted without any diff having been read. The envelope reports
+    that as ``execution: "failed"``, matching what ``verify`` reports for the
+    same condition.
+    """
+
+    if format_ == "agent-control-json":
+        envelope = envelope_from_agent_result(
+            result, execution="succeeded" if evaluated else "failed"
+        )
+        typer.echo(render_agent_control_envelope(envelope))
+        return
+    typer.echo(agent_result_json(result))
 
 
 def _corrected_request(
@@ -97,7 +135,7 @@ def _corrected_request(
     elif has_base and has_head:
         assert base is not None and head is not None
         parts.extend(["--base", shlex.quote(base), "--head", shlex.quote(head)])
-    valid_format = format_ if format_ == "codex-boundary-json" else "agent-boundary-json"
+    valid_format = format_ if format_ in CHECK_FORMATS else "agent-boundary-json"
     parts.extend(["--format", valid_format])
     return " ".join(parts)
 
@@ -152,7 +190,11 @@ def check(
     format_: str = typer.Option(
         "agent-boundary-json",
         "--format",
-        help="Output format. Supports agent-boundary-json and deprecated codex-boundary-json.",
+        help=(
+            "Output format. Supports agent-boundary-json, agent-control-json "
+            "(the compact shipgate.agent_control/v1 envelope), and deprecated "
+            "codex-boundary-json."
+        ),
     ),
     workspace: Path = typer.Option(
         Path("."),
@@ -249,9 +291,10 @@ def check(
             command=corrected(valid_agent=agent),
             expects="The current agent-boundary result contract.",
         )
-    if format_ not in {"agent-boundary-json", "codex-boundary-json"}:
+    if format_ not in CHECK_FORMATS:
         raise _flag_error(
-            "--format must be 'agent-boundary-json' or 'codex-boundary-json'.",
+            "--format must be 'agent-boundary-json', 'agent-control-json', or "
+            "'codex-boundary-json'.",
             command=corrected(valid_agent=agent),
             expects="The current agent-boundary result contract.",
         )
@@ -297,12 +340,12 @@ def check(
                 error_class=type(exc.__cause__).__name__,
                 error=str(exc),
             )
-            typer.echo(
-                agent_result_json(
-                    _neutral_diff_input_error(result, agent=agent, base=base, diff=diff)
-                    if format_ == "agent-boundary-json"
-                    else freeze_codex_boundary_result(result)
-                )
+            _emit_check_result(
+                _neutral_diff_input_error(result, agent=agent, base=base, diff=diff)
+                if format_ in _CURRENT_BOUNDARY_FORMATS
+                else freeze_codex_boundary_result(result),
+                format_=format_,
+                evaluated=False,
             )
             return
         raise _flag_error(
@@ -335,18 +378,18 @@ def check(
             error_class=type(exc).__name__,
             error=str(exc) or "diff input could not be resolved",
         )
-        typer.echo(
-            agent_result_json(
-                _neutral_diff_input_error(result, agent=agent, base=base, diff=diff)
-                if format_ == "agent-boundary-json"
-                else freeze_codex_boundary_result(result)
-            )
+        _emit_check_result(
+            _neutral_diff_input_error(result, agent=agent, base=base, diff=diff)
+            if format_ in _CURRENT_BOUNDARY_FORMATS
+            else freeze_codex_boundary_result(result),
+            format_=format_,
+            evaluated=False,
         )
         return
 
     builder = (
         build_agent_boundary_result
-        if format_ == "agent-boundary-json"
+        if format_ in _CURRENT_BOUNDARY_FORMATS
         else build_codex_agent_result
     )
     kwargs = {
@@ -383,7 +426,7 @@ def check(
                 "filesystem spelling and contains no symlink components."
             ),
         ) from exc
-    typer.echo(agent_result_json(result))
+    _emit_check_result(result, format_=format_)
 
 
 def _diff_input_error_result(
@@ -464,7 +507,7 @@ def _diff_input_error_result(
             policy=policy,
             output_schema=(
                 AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
-                if format_ == "agent-boundary-json"
+                if format_ in _CURRENT_BOUNDARY_FORMATS
                 else CODEX_BOUNDARY_RESULT_SCHEMA_VERSION
             ),
             diff=diff,

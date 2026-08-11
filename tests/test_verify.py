@@ -902,9 +902,15 @@ tool_sources:
     )
 
     assert result.exit_code == 0, result.output
-    assert result.output.startswith("Agents Shipgate verify: insufficient_evidence")
+    # Contract v22 leads text output with the control state; the verdict line
+    # follows it unchanged.
+    assert result.output.startswith("Control: ")
+    assert "Agents Shipgate verify: insufficient_evidence" in result.output
     assert "Improve evidence: Review the skeleton" in result.output
     assert "\nRun: agents-shipgate verify" in result.output
+    # #358: the human work precedes the exact rerun command. The control
+    # headline uses a distinct `Next command:` prefix precisely so it cannot
+    # insert a `Run:` line above this remediation.
     assert result.output.index("Review the skeleton") < result.output.index("Run:")
     assert "google_adk.tool_inventories" in result.output
     assert "suggested-inventory.json" in result.output

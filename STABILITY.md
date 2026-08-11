@@ -13,6 +13,95 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-compact-control-envelope"></a>
+
+## Migration Note: unreleased — the compact control envelope
+
+Runtime contract `21 → 22`. `minimum_control_contract_version` **stays at 21**:
+v22 adds a projection of the `AgentControl` union and does not change the union
+itself, so every consumer written against v21 control fields keeps reading them
+unchanged. The local downstream contract schema advances `9 → 10`.
+
+New: `shipgate.agent_control/v1`
+([`docs/agent-control-schema.v1.json`](docs/agent-control-schema.v1.json)), a
+compact control envelope emitted on stdout by three commands. It answers the
+whole routing question in one object — tool execution status, the release or
+boundary decision and which engine produced it, the control state, the six-way
+`permissions` vector, who acts next, the exact next action, and the
+content-addressed path and hash of every artifact `current-control.json` binds
+(`check` publishes no pointer and binds none) — within a published budget of
+`agent_control_budget_bytes` (4096) — a measured target, not an enforced cap.
+It is **not** written to disk, and it decides
+nothing: every field is copied from a producer that already published it.
+
+Three CLI changes, one of which is a default:
+
+- `agents-shipgate verify --format control` — **added**. `--format json` and
+  `--json` are unchanged and still emit the full `verifier.json` artifact, and
+  agent-mode auto-detection still resolves to `json`. Flipping that default is
+  a compatibility event and belongs to the command-by-command rollout.
+- `agents-shipgate check --format agent-control-json` — **added**.
+  `agent-boundary-json` remains the default and is unchanged.
+- `agents-shipgate agent control` — **default output changed** from the raw
+  `shipgate.current_control/v1` pointer to the envelope. `--format pointer`
+  returns the previous output byte for byte. The pointer deliberately records
+  no route, so a caller reading it still had to open the handoff to learn what
+  to do next; the envelope joins the pointer's currency guarantee to the route
+  the bound verifier already published. This command first shipped in
+  `0.16.0b7` and has not appeared in a tagged release.
+
+`verify --format text` now prints the control state, the next actor, and the
+permission vector *before* the existing `Agents Shipgate verify: <verdict>`
+line. That line, and every line after it, is unchanged.
+
+Both entry points apply the same currency test. `verify --format control` reads
+its own published pointer through the generation-safe protocol, validated
+against the live workspace, and **withholds authority** when the workspace has
+moved past what the run evaluated — a `--head` run in a dirty worktree reports
+`human_review_required` with the refusal as its reason rather than `complete`.
+The exit code is unaffected: withholding authority is not failing the run. The
+route is read from the verifier bytes captured inside that protocol, so a
+pointer can never be reported beside another generation's decision.
+
+`artifacts[].path` is relative to the directory the command was invoked from,
+falling back to an absolute path when the reports directory sits outside it. A
+reader can open it exactly as given.
+
+Terminal authority is constrained by provenance. A `complete` envelope is only
+representable from `verify` (with a named `current_control_id` and a non-empty
+`artifacts` map, decided by `release_decision`) or from `check` (with neither,
+decided by `agent_boundary`); `scan` and `preview` cannot complete at all. A
+`verify` route keeps `verify_required: true`. Both rules are published in the
+JSON Schema as well as enforced in Python, so a schema-only consumer and an
+in-process one accept the same set.
+
+`verify --format control` reports only *this* invocation's generation: if
+another run publishes over the directory while this one is reporting, the
+identities no longer match and authority is withheld rather than borrowed. The
+currency comparison re-observes the workspace after the pointer is confirmed,
+so a commit landing mid-read refuses the pair.
+
+`input_id` names the input the control was assessed against — the boundary
+`audit_id`, or the verifier `request_id` — and the `complete` variant requires
+it, so terminal authority can always be traced to its subject. `pending_review[]`
+carries review obligations that survive a non-terminal route. Human-readable
+output renders control characters visibly and keeps each field on one line;
+JSON keeps the exact bytes. `agents-shipgate agent control` now reports a
+*current but routeless* generation (a `scan` pointer) as an ordinary envelope
+with exit 0 and merge denied, rather than exiting non-zero — a non-zero exit
+keeps its documented meaning that no control identity is current.
+
+Unrelated fix in the same change: `.shipgate/agent-contract.json` now upgrades
+in place from any superseded managed version, not only from renders whose exact
+hash was recorded. Repositories on local-contract schema 8 or 9 were reported as
+`skipped_user_modified` and left un-upgraded.
+
+Exit-code semantics are unchanged and now explicitly documented: the exit code
+is the CI gate signal and depends on `ci.mode`. In advisory mode every decision
+— `blocked` included — exits 0, and `review_required` has no exit code of its
+own in either mode. `permissions.merge` is the only field that answers "may I
+merge".
+
 <a id="migration-note-unreleased-publish-vs-merge"></a>
 
 ## Migration Note: unreleased — publish authority is not merge authority
@@ -771,6 +860,16 @@ Stable JSON fields:
   `current_control_artifact` — schema version, checked-in JSON Schema path, and
   default artifact path for `agents-shipgate-reports/current-control.json`, the
   one atomic entry point naming the control identity that is current.
+- `agent_control_schema_version` / `agent_control_schema_path` /
+  `agent_control_budget_bytes` — schema version, checked-in JSON Schema path,
+  and published size budget in bytes for the compact `shipgate.agent_control/v1`
+  control envelope. The budget is a target that representative output meets, not
+  an enforced maximum: a long `required_reviewers` list or an unusually long
+  exact command may exceed it, and neither is truncated to fit. The envelope is stdout only: it is emitted by `verify
+  --format control`, `check --format agent-control-json`, and `agents-shipgate
+  agent control`, and is never written to the reports directory. It is a
+  projection of the authoritative control state and never gates independently
+  of `release_decision.decision`.
 - `agent_refresh_triggers[]` — the boundaries at which a consumer must re-read
   `current_control_artifact` before acting. A control state cached across any of
   them is not authority.

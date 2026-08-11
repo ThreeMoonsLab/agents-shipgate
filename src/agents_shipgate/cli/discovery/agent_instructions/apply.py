@@ -524,6 +524,21 @@ def _apply_local_contract(path: Path, workspace: Path) -> TargetOutcome:
 
 
 def _is_managed_local_contract(existing: bytes) -> bool:
+    """Whether this file is an untouched managed contract at the current version.
+
+    Deliberately narrow. An earlier revision of this change widened it to accept
+    *any* superseded version carrying the managed gating signal and path, on the
+    reasoning that the exact-hash allowlist beside it had twice been left
+    un-appended and stranded repositories on schema 8 and 9. That traded one
+    failure for a worse one: a v9 file a user had customized still matched the
+    shape, so the upgrade silently erased their edit.
+
+    The allowlist is the right mechanism — it distinguishes *pristine* earlier
+    renders from modified ones, which shape alone cannot — and it now carries
+    the v8 and v9 hashes that were missing. A modified older contract stays
+    ``skipped_user_modified``, which is the answer a user's own edit deserves.
+    """
+
     try:
         payload = json.loads(existing.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):

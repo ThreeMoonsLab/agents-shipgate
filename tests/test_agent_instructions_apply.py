@@ -41,6 +41,7 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     render_cursor_file,
     render_local_contract_file,
 )
+from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_SCHEMA_VERSION
 
 
 def _filesystem_is_case_sensitive(path: Path) -> bool:
@@ -189,8 +190,8 @@ def test_claude_command_current_file_matches_renderer() -> None:
 
 def test_local_contract_renderer_has_required_fields() -> None:
     payload = json.loads(render_local_contract_file())
-    assert payload["schema_version"] == "9"
-    assert payload["contract_version"] == "21"
+    assert payload["schema_version"] == "10"
+    assert payload["contract_version"] == "22"
     assert "verify_local" not in payload["primary_commands"]
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
@@ -240,6 +241,61 @@ def test_local_contract_updates_prior_managed_contract(tmp_path: Path) -> None:
     assert json.loads(target.read_text(encoding="utf-8")) == json.loads(
         render_local_contract_file()
     )
+
+
+def test_local_contract_upgrades_a_real_shipped_v9_render(tmp_path: Path) -> None:
+    """The upgrade path is exercised from a byte-exact earlier release.
+
+    The fixture is the `.shipgate/agent-contract.json` this revision's base
+    actually generated, not a synthesized one. Every previous bump was
+    verified by round-tripping the *current* render, which cannot detect the
+    failure this covers: the outgoing hash was never appended, so a repository
+    holding an untouched managed v9 file was told `skipped_user_modified` and
+    left on the old schema.
+    """
+
+    target = tmp_path / ".shipgate/agent-contract.json"
+    target.parent.mkdir(parents=True)
+    shipped = (Path(__file__).parent / "fixtures/local-agent-contract.v9.json").read_bytes()
+    target.write_bytes(shipped)
+    assert json.loads(shipped)["schema_version"] == "9"
+
+    result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "updated", outcome.message
+    assert result.exit_code == 0
+    upgraded = json.loads(target.read_text(encoding="utf-8"))
+    assert upgraded["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION
+    assert upgraded == json.loads(render_local_contract_file())
+
+
+def test_local_contract_refuses_a_modified_older_contract(tmp_path: Path) -> None:
+    """A user's edit to an older managed file is theirs, not ours to erase.
+
+    Recognizing any superseded version by shape alone would have upgraded this
+    and silently discarded the customization. Only a *pristine* earlier render —
+    matched by exact hash — is safe to replace, which is why the allowlist and
+    not the shape check is the mechanism that carries older versions forward.
+    """
+
+    target = tmp_path / ".shipgate/agent-contract.json"
+    target.parent.mkdir(parents=True)
+    shipped = json.loads(
+        (Path(__file__).parent / "fixtures/local-agent-contract.v9.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    shipped["commands"]["verify_pr"] = "agents-shipgate verify --config custom.yaml --json"
+    body = json.dumps(shipped, indent=2, sort_keys=True) + "\n"
+    target.write_text(body, encoding="utf-8")
+
+    result = apply_agent_instructions(tmp_path, ["local-contract"], write=True)
+
+    [outcome] = result.targets
+    assert outcome.status == "skipped_user_modified"
+    assert result.exit_code == 2
+    assert target.read_text(encoding="utf-8") == body
 
 
 def test_local_contract_refuses_user_authored_json(tmp_path: Path) -> None:
