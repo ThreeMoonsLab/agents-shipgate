@@ -130,7 +130,7 @@
       {
         "id": "TRIGGER-PROMPTS-OR-POLICIES",
         "action": "run_shipgate",
-        "rationale": "Prompts and policy YAML carry approval / confirmation evidence. Trace findings reference these surfaces.",
+        "rationale": "Prompts and policy YAML carry approval / confirmation evidence. Trace findings reference these surfaces. The globs match at any depth, and case-insensitively, so a nested or differently-spelled workspace (`services/foo/policies/**`, `enterprise/lib/captain/Prompts/**`) routes exactly like a repo-root one. That is parity with the verifier: `SHIP-VERIFY-TRUST-ROOT-TOUCHED` classifies both surfaces off `TRUST_ROOT_SURFACES`, which has always carried `**/policies/**` and `**/prompts/**`, and `SHIP-VERIFY-POLICY-WEAKENED` additionally treats `**/policies/**` as a fail-safe trust root (its surface list covers the manifest, policies and `.agents-shipgate/`, not prompts). A root-only, case-sensitive trigger reported edits those checks call governance-bearing as `no_match`. The `**/`-prefixed and bare forms are both listed because a consumer applying this catalog with a glob engine where `**/` requires at least one leading segment would otherwise lose the repo-root match.",
         "command": null
       }
     ],

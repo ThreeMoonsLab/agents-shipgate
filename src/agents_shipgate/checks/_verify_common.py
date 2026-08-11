@@ -29,7 +29,7 @@ from collections import defaultdict
 
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import ToolkitScopeBound
-from agents_shipgate.core.globbing import glob_match
+from agents_shipgate.core.globbing import glob_match_ci
 from agents_shipgate.core.lenses.effective_policy import (
     build_effective_policy_snapshot,
 )
@@ -69,8 +69,17 @@ def changed_files(context: ScanContext) -> list[str]:
 
 
 def touched(globs: tuple[str, ...], files: list[str]) -> list[str]:
-    """Sorted unique changed files matching any of ``globs``."""
-    hits = {f for f in files for pattern in globs if glob_match(pattern, f)}
+    """Sorted unique changed files matching any of ``globs``.
+
+    Case-tolerant, like the Tier A trust-root classifier this feeds. The
+    specialized Tier B checks (policy weakened, CI gate removed, agent
+    instructions weakened, trigger-catalog drift) all route through here, so
+    a case-sensitive match would classify ``services/foo/Policies/refund.yaml``
+    as a trust root in Tier A and then produce no policy fail-safe finding,
+    and would let ``.github/workflows/Agents-Shipgate.yaml`` miss the critical
+    gate-removal finding entirely.
+    """
+    hits = {f for f in files for pattern in globs if glob_match_ci(pattern, f)}
     return sorted(hits)
 
 

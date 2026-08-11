@@ -43,35 +43,55 @@ repos:
         entry: agents-shipgate verify --config shipgate.yaml --ci-mode advisory --format text
         language: system
         pass_filenames: false
+        # pre-commit's default `types: [file]` drops a tracked symlink
+        # before `files:` runs; governance paths can be symlinks.
+        types: []
+        types_or: [file, symlink]
         files: |
-          (?x)^(
+          (?ix)^(
             shipgate\.yaml|
             .*tools.*\.json|
             .*mcp.*\.json|
-            .*\.codex-plugin/.*|
-            .*\.agents/plugins/.*|
+            .*n8n.*\.json|
+            (.*/)?\.n8n(/.*)?|
+            (.*/)?conductor/.*\.json|
+            (.*/)?ai/examples/.*\.json|
+            (.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)|
+            (.*/)?\.claude/(settings(\.local)?\.json|commands(/.*)?)|
+            (.*/)?\.cursor/(cli\.json|mcp\.json|rules(/.*)?)|
+            (.*/)?\.vscode/mcp\.json|
+            (.*/)?\.shipgate/agent-contract\.json|
+            (.*/)?(AGENTS(\.override)?|CLAUDE)\.md|
+            \.(agents|claude)/skills/.*|
+            (.*/)?\.codex-plugin(/.*)?|
+            (.*/)?\.agents/plugins(/.*)?|
             .*\.app\.json|
             (.*/)?SKILL\.md|
             .*openapi.*\.(yaml|yml|json)|
             .*swagger.*\.(yaml|yml|json)|
             \.agents-shipgate/.*\.json|
-            prompts/.*|
-            policies/.*|
-            \.github/workflows/agents-shipgate\.(yaml|yml)
+            (.*/)?prompts(/.*)?|
+            (.*/)?policies(/.*)?|
+            (.*/)?\.github/workflows/.*\.(yaml|yml)
           )$
 ```
 
 ## When the hook fires
 
-The `files:` regex in [`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml) covers every **path-based** trigger from [`docs/triggers.json`](../../docs/triggers.json), so the hook activates when a staged change touches:
+The `files:` regex in [`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml) covers the path leg of every trigger in [`docs/triggers.json`](../../docs/triggers.json) that a path alone can decide, so the hook activates when a staged change touches:
 
 - `shipgate.yaml` (`TRIGGER-SHIPGATE-MANIFEST`)
 - MCP exports — `**/*mcp*.json`, `.agents-shipgate/*.json` (`TRIGGER-MCP-EXPORT-CHANGED`)
 - OpenAPI/Swagger specs — `**/*openapi*.{yaml,yml,json}`, `**/*swagger*.{yaml,yml,json}` (`TRIGGER-OPENAPI-SPEC-CHANGED`)
 - Static tool inventories — `**/*tools*.json` (`TRIGGER-STATIC-TOOL-INVENTORY-CHANGED`)
+- n8n workflow JSON — `**/*n8n*.json`, `**/.n8n/**` (`TRIGGER-N8N-WORKFLOW-CHANGED`, path leg)
+- Conductor OSS workflow JSON — `**/conductor/**/*.json`, `**/ai/examples/**/*.json` (`TRIGGER-CONDUCTOR-WORKFLOW-CHANGED`, path leg)
+- Coding-agent host configuration and instructions — Codex/Claude/Cursor/VS Code config, `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, skills (`TRIGGER-*-BOUNDARY-*`)
 - Codex plugin package files — `.codex-plugin/**`, `.agents/plugins/**`, `**/.app.json`, `**/.mcp.json`, `**/SKILL.md` (`TRIGGER-CODEX-PLUGIN-CHANGED`)
 - Prompts and policies — `prompts/**`, `policies/**` (`TRIGGER-PROMPTS-OR-POLICIES`)
 - Shipgate CI workflow — `.github/workflows/agents-shipgate.{yml,yaml}` (`TRIGGER-SHIPGATE-CI-WORKFLOW`, path leg)
+
+Matching is case-insensitive, and every clause whose catalog glob is recursive is recursive too: `services/foo/policies/refund.yaml`, `enterprise/lib/captain/Prompts/system.md`, and a nested `AGENTS.md` all stage the same as a repo-root copy. A `dir/**` glob also matches a tracked path named exactly `dir`, so the regex does too. That coverage claim is pinned exhaustively — a catalog rule with a path leg must be listed in the hook fixture table or in its documented exclusion set, so a new rule cannot land uncovered and unnoticed.
 
 ### What the hook can't catch
 

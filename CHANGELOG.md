@@ -2,6 +2,92 @@
 
 ## Unreleased
 
+- **A prompt or policy edit outside the repository root — or spelled
+  `Policies/` — no longer reports as "nothing in this PR signals a tool-surface
+  change."** `TRIGGER-PROMPTS-OR-POLICIES` matched `prompts/**` and
+  `policies/**` only at the root, and the trigger evaluator matched globs
+  case-sensitively while the verifier's trust-root classification reads the
+  same two surfaces at any depth (`**/prompts/**`, `**/policies/**`) and
+  tolerates the case variant a case-insensitive filesystem resolves to the
+  canonical name. The two lists disagreed about the same paths: a PR touching
+  `services/foo/policies/refund.yaml` reached `skip_reason: "no_match"` for a
+  path `SHIP-VERIFY-POLICY-WEAKENED` treats as a policy trust root, and
+  `services/foo/Policies/refund.yaml` did the same after the recursive fix
+  alone. Prompts failed worse than that — a nested `prompts/*.md` edit
+  satisfies the docs-only negative rule's `**/*.md` leg, so it did not merely
+  fail to match, it actively *skipped*. Both globs now match at any depth, in
+  the positive rule and in `TRIGGER-DOCS-ONLY-NEGATIVE`'s `none_match_glob`
+  list, so a nested prompt edit bundled with a docs edit is no longer
+  classified as docs-only; and the routing predicates — `glob` and
+  `none_match_glob` — now use the same case-tolerant matcher as the
+  trust-root classifier and the boundary registry. `every_file_matches`
+  deliberately does not: it is the docs-only rule's own classifier, so
+  folding it would *subtract* evaluation rather than add it. The catalog's
+  `predicate_vocabulary` documents both sides of that split; see the
+  directional rule below.
+
+  The surfaces that copy this routing follow, so the fix is end-to-end rather
+  than evaluator-only. The pre-commit `files:` regex now matches
+  `prompts/`, `policies/`, `.codex-plugin/`, `.agents/plugins/`, `.n8n/` and
+  `AGENTS.md`/`CLAUDE.md` at any depth, covers the n8n and Conductor path legs
+  it silently omitted, and matches a tracked path named exactly `dir` for a
+  `dir/**` glob — its "covers every path-based trigger" claim is now pinned
+  exhaustively, so a catalog rule with a path leg must be listed in the hook
+  fixture table or named in its exclusion set. Both documented copy-paste hook
+  snippets are derived from the canonical regex and pinned clause-by-clause
+  rather than by a hand-maintained sample. The `.cursor/rules/agents-shipgate.mdc`
+  activation globs gain the recursive forms too: that rule is
+  `alwaysApply: false`, so until a glob matched, a lone nested governance edit
+  activated no Shipgate instructions at all — and the benchmark setup variant
+  and the adoption harness's lint constant, two copies of that list that
+  nothing enforced, are now pinned to the renderer.
+
+  A new parity test pins every governance trust-root surface — the manifest,
+  `.agents-shipgate/`, `policies/`, `prompts/`, and the Shipgate CI workflow —
+  to a representative repo-root path, a nested one, and a case variant, so the
+  trust-root list and the trigger catalog cannot drift apart again unnoticed.
+  It records that a nested `shipgate.yaml` and a nested `.agents-shipgate/` are
+  still routed at the root only, because those two are anchored there by the
+  boundary registry that check, verify, preflight and audit share rather than
+  by the catalog. The catalog stays at `schema_version` 0.3: this widens an
+  existing rule's globs, adds no rule ID and no state, and moves outcomes only
+  toward evaluating more, never less.
+
+  Case tolerance is chosen per predicate by which way a wider match moves the
+  verdict, not for uniformity. `glob` and `none_match_glob` are folded because
+  a wider match can only add a run or make a negative rule fire less.
+  `every_file_matches` stays case-sensitive: it is the docs-only rule's own
+  classifier and `skip_shipgate` beats `run_shipgate`, so folding it would read
+  `src/TEST_agent.py` — a production module on a case-sensitive filesystem — as
+  a test file and skip a PR that adds `@function_tool` beside it. The same
+  tolerance now reaches the Tier B checks: `_verify_common.touched()` selected
+  changed files case-sensitively, so `services/foo/Policies/refund.yaml` was a
+  policy trust root that produced no fail-safe finding, and a deleted
+  `.github/workflows/Agents-Shipgate.yaml` was a `ci_gate` trust root that
+  missed the critical gate-removal finding entirely. Preflight's three inline
+  copies of the same retry are folded into the one helper.
+
+  Both pre-commit hooks now declare `types: []` with
+  `types_or: [file, symlink]`. pre-commit's default `types: [file]` is an
+  AND-filter applied *before* `files:`, and a tracked symlink carries the
+  `symlink` tag rather than `file` — so a governance directory symlinked into
+  a workspace invoked neither hook no matter what the regex said.
+
+- **The `on-tool-source-changes` CI recipes are retired**, on GitHub Actions,
+  GitLab CI and CircleCI alike. They gated Shipgate behind a changed-path
+  allowlist, which cannot work for two independent reasons. First,
+  `TRIGGER-EXISTING-MANIFEST-PRESENT` is `force_run`: a repo with a
+  `shipgate.yaml` is contracted to run on every PR, so the prefilter never
+  saved the scan it advertised. Second, every prefilter language involved —
+  GitHub `paths`/`paths-ignore`, GitLab `rules.changes`, a CircleCI shell
+  diff-gate — matches case-sensitively, while the trigger catalog matches
+  governance paths case-insensitively on purpose; an allowlist therefore drops
+  `services/foo/Policies/refund.yaml` with no job, no check and no signal at
+  all, which is indistinguishable from a repo that never adopted the gate. Run
+  the advisory recipe on every PR and let the in-job trigger evaluator decide;
+  `verify` short-circuits before the scan on a skip verdict. A contract test
+  now rejects any of those prefilter forms in any shipped recipe, across both
+  `.yml` and `.yaml`.
 - **One compact object now answers "what may I do next?", instead of four
   artifacts and a guess.** A verify run could simultaneously report `execution:
   "succeeded"`, exit code `0`, `release_decision.decision: "review_required"`,

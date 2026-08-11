@@ -42,7 +42,9 @@ globs:
   - "**/*workflow*.json"
   - ".agents-shipgate/*.json"
   - "prompts/**"
+  - "**/prompts/**"
   - "policies/**"
+  - "**/policies/**"
   - ".github/workflows/agents-shipgate.yml"
   - ".github/workflows/agents-shipgate.yaml"
 alwaysApply: false
@@ -155,4 +157,10 @@ PRIOR_RENDER_SHA256: tuple[str, ...] = (
     # outgoing hash here, a repo that already ran `init --write` would be read
     # as user-modified and would never receive the new rule.
     "b0c14c1d9eecebf177a8231eb017593ad09984592cd0aa717d87ef216aa8ca18",
+    # Before `**/prompts/**` and `**/policies/**` joined the activation
+    # globs. The rule is `alwaysApply: false`, so until a glob matches, a
+    # lone governance edit under a nested workspace activated no Shipgate
+    # instructions at all — the trigger catalog routed it while the host
+    # surface stayed silent.
+    "2a204e69629bc3c7ce2c4b4609079bb1049aa414ac5507a4d96b4f90c33bb423",
 )

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agents_shipgate.core.globbing import glob_match
+from agents_shipgate.core.globbing import glob_match_ci
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class BoundaryAdapterSpec:
     def matches(self, path: str) -> bool:
         normalized = path.replace("\\", "/").removeprefix("./").casefold()
         return any(normalized == item.casefold() for item in self.exact_paths) or any(
-            glob_match(pattern.casefold(), normalized) for pattern in self.globs
+            glob_match_ci(pattern, normalized) for pattern in self.globs
         )
 
 

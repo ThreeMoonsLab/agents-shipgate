@@ -7,12 +7,12 @@
   "documentation_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/AGENTS.md",
   "default_command": "agents-shipgate verify --preview --json",
   "predicate_vocabulary": {
-    "glob": "Any changed file in the PR matches the glob (relative to repo root). Globstar `**` matches zero or more path segments; `*` matches within a segment; brace expansion is not supported.",
+    "glob": "Any changed file in the PR matches the glob (relative to repo root). Globstar `**` matches zero or more path segments; `*` matches within a segment; brace expansion is not supported. Matching is case-insensitive, like `boundary_adapter` and the verifier's trust-root classification: Git can carry a spelling (`Policies/`, `agents.md`) that resolves to the canonical governance file on a case-insensitive filesystem, so a case variant must not route differently.",
     "diff_contains": "The unified diff (added or modified lines) of this PR contains the literal string. Use only with stable token forms — decorator names, package names, function calls.",
     "file_present": "The named path exists in the working tree at the head commit, regardless of whether this PR changed it.",
     "file_absent": "The named path does NOT exist in the working tree at the head commit.",
-    "every_file_matches": "Every changed file in this PR matches at least one of the listed globs (or the single glob, if a string). False on an empty PR.",
-    "none_match_glob": "No changed file matches any of the listed globs.",
+    "every_file_matches": "Every changed file in this PR matches at least one of the listed globs (or the single glob, if a string). False on an empty PR. Matching is case-SENSITIVE, unlike `glob` and `none_match_glob`. This predicate classifies a change set as ignorable, so a wider match produces more skips: case-folding it would read `src/TEST_agent.py` — a legitimate production path on a case-sensitive filesystem — as a test file and skip a PR that adds a tool beside it.",
+    "none_match_glob": "No changed file matches any of the listed globs. Same case-insensitive matching as `glob`: it guards a negative rule, so a wider match makes that rule fire less, never more.",
     "boundary_adapter": "Any changed file matches the named entry in `boundary_adapters`. Matching is case-insensitive. The adapter registry is the authoritative path source shared by check, verify, preflight, audit, and triggers.",
     "none_match_boundary_surface": "No changed file matches any path in `boundary_adapters`. Used by negative rules so a host trust root is never treated as a docs-only change.",
     "any_of": "Logical OR over a list of nested predicates.",
@@ -244,11 +244,13 @@
       "when": {
         "any_of": [
           {"glob": "prompts/**"},
-          {"glob": "policies/**"}
+          {"glob": "**/prompts/**"},
+          {"glob": "policies/**"},
+          {"glob": "**/policies/**"}
         ]
       },
       "action": "run_shipgate",
-      "rationale": "Prompts and policy YAML carry approval / confirmation evidence. Trace findings reference these surfaces."
+      "rationale": "Prompts and policy YAML carry approval / confirmation evidence. Trace findings reference these surfaces. The globs match at any depth, and case-insensitively, so a nested or differently-spelled workspace (`services/foo/policies/**`, `enterprise/lib/captain/Prompts/**`) routes exactly like a repo-root one. That is parity with the verifier: `SHIP-VERIFY-TRUST-ROOT-TOUCHED` classifies both surfaces off `TRUST_ROOT_SURFACES`, which has always carried `**/policies/**` and `**/prompts/**`, and `SHIP-VERIFY-POLICY-WEAKENED` additionally treats `**/policies/**` as a fail-safe trust root (its surface list covers the manifest, policies and `.agents-shipgate/`, not prompts). A root-only, case-sensitive trigger reported edits those checks call governance-bearing as `no_match`. The `**/`-prefixed and bare forms are both listed because a consumer applying this catalog with a glob engine where `**/` requires at least one leading segment would otherwise lose the repo-root match."
     },
     {
       "id": "TRIGGER-SHIPGATE-MANIFEST",
@@ -362,7 +364,9 @@
             "**/*openapi*.yml",
             "**/*openapi*.json",
             "prompts/**",
-            "policies/**"
+            "**/prompts/**",
+            "policies/**",
+            "**/policies/**"
           ]},
           {"none_match_boundary_surface": true}
         ]
