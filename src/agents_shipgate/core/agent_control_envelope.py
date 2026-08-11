@@ -24,8 +24,11 @@ being made are both refusals:
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
+from pathlib import PurePosixPath
 
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_control import (
     AgentControl,
     AgentControlAction,
@@ -44,6 +47,7 @@ from agents_shipgate.schemas.agent_control_envelope import (
     AgentControlEnvelope,
     AgentControlExecution,
     AgentControlOperation,
+    AgentControlPendingReview,
     AgentControlSource,
     CompleteControlEnvelope,
     HumanReviewRequiredControlEnvelope,
@@ -69,6 +73,8 @@ def project_agent_control_envelope(
     exit_code: int | None,
     decision: str | None,
     decision_source: AgentControlDecisionSource,
+    input_id: str | None = None,
+    pending_review: Sequence[AgentControlPendingReview] = (),
     current_control_id: str | None = None,
     artifacts: Mapping[str, AgentControlArtifactRef] | None = None,
 ) -> AgentControlEnvelope:
@@ -86,6 +92,8 @@ def project_agent_control_envelope(
         "exit_code": exit_code,
         "decision": truncate_prose(decision) if decision else None,
         "decision_source": decision_source,
+        "input_id": input_id,
+        "pending_review": list(pending_review),
         "reason": truncate_prose(control.reason),
         "current_control_id": current_control_id,
         "artifacts": dict(artifacts or {}),
@@ -98,7 +106,7 @@ def project_agent_control_envelope(
     # admit more than one vector; the others pin it, so re-deriving anything
     # here is impossible by construction rather than by discipline.
     if control.state == "complete":
-        return CompleteControlEnvelope(control_state="complete", **shared)
+        return CompleteControlEnvelope(control_state="complete", **shared)  # noqa: E501
     if control.state == "agent_action_required":
         return AgentActionControlEnvelope(
             control_state="agent_action_required",
@@ -158,6 +166,7 @@ def envelope_from_verifier(
         exit_code=exit_code,
         decision=decision,
         decision_source="release_decision" if decision is not None else "none",
+        input_id=verifier.request_id,
         current_control_id=pointer.current_control_id if pointer is not None else None,
         artifacts=_artifact_refs(pointer, artifact_root),
     )
@@ -220,6 +229,79 @@ def envelope_from_agent_result(
         exit_code=0,
         decision=result.decision,
         decision_source="agent_boundary",
+        # `check` writes nothing, so there is no pointer and no artifact to bind
+        # authority to. `audit_id` is the only identity of the request it
+        # assessed; without it two unrelated diffs project byte-identical
+        # `complete` envelopes that both grant merge.
+        input_id=result.audit_id,
+        # Carried, not dropped: a graded row routes the agent onward while still
+        # owing a human a look, and the compact form is what the agent reports.
+        pending_review=[
+            AgentControlPendingReview(
+                rule_id=item.rule_id,
+                risk_level=item.risk_level,
+                path=item.path,
+                reviewers=list(item.reviewers),
+            )
+            for item in getattr(result, "pending_review", ())
+        ],
+    )
+
+
+def envelope_from_routeless_pointer(
+    pointer: CurrentControlPointer,
+    *,
+    verify_command: str,
+    artifact_root: str | None = None,
+) -> AgentControlEnvelope:
+    """Project a *current* generation that reaches no release decision.
+
+    A `scan` pointer is current — it passes the generation-safe read and the
+    live-workspace comparison — but binds no verifier, so it carries no route
+    and no decision. Refusing it conflated two different answers: the published
+    contract says a non-zero exit means *no current identity exists*, and here
+    one does.
+
+    The route is not invented. `scan` is not the gate, so "run verify on this
+    workspace" is the step this generation is actually short of, and it is
+    derived from the caller's own workspace and reports directory rather than a
+    hardcoded default that would silently retarget the subject just validated.
+
+    Authority is unchanged: the pointer's permission vector is carried through,
+    `merge` and `report_complete` stay denied, and `execution` reports
+    `not_run` because no verification did.
+    """
+
+    projected = pointer.control
+    reason = projected.reason
+    if projected.state == "human_review_required":
+        control: AgentControl = _human_stop(reason)
+    else:
+        control = derive_agent_control(
+            reason=reason,
+            next_action=CodingAgentCommandAction(
+                kind="verify",
+                command=verify_command,
+                why=(
+                    "This directory's current control was published by a command "
+                    "that reaches no release decision. Run verify to obtain one."
+                ),
+            ),
+            verify_required=True,
+            allowed_next_commands=[verify_command],
+            publication_allowed=projected.permissions.publishes,
+        )
+    return project_agent_control_envelope(
+        control=control,
+        operation=pointer.operation,
+        source="refresh",
+        execution="not_run",
+        exit_code=None,
+        decision=None,
+        decision_source="none",
+        input_id=pointer.request_id,
+        current_control_id=pointer.current_control_id,
+        artifacts=_artifact_refs(pointer, artifact_root),
     )
 
 
@@ -280,19 +362,44 @@ def control_headline_lines(envelope: AgentControlEnvelope) -> list[str]:
         lines.append("You may not: " + ", ".join(denied))
     if envelope.verify_required:
         lines.append("Verification is still required before this can complete.")
+    if envelope.pending_review:
+        owed = ", ".join(_single_line(item.rule_id) for item in envelope.pending_review)
+        lines.append(f"Still owed human review: {owed}")
     action = envelope.next_action
     if action is not None:
-        lines.append(f"Next: {action.why}")
+        lines.append(f"Next: {_single_line(action.why)}")
         if isinstance(action, CodingAgentCommandAction):
             # Deliberately not the bare ``Run:`` prefix that
             # `primary_evidence_remediation_text` uses for the evidence-gap
             # rerun. #358 requires the human work to precede that line, and
             # these headline lines print first — reusing the prefix would put a
             # `Run:` above the remediation it is not the remediation for.
-            lines.append(f"Next command: {action.command}")
+            lines.append(f"Next command: {_single_line(action.command)}")
         elif isinstance(action, CodingAgentFetchBaseAction):
-            lines.append(f"Provide: {action.expects}")
+            lines.append(f"Provide: {_single_line(action.expects)}")
     return lines
+
+
+# C0 and C1 control characters, plus DEL. Newlines are the dangerous ones here,
+# but a bare CR overwrites a rendered line and ANSI escapes can repaint one.
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _single_line(value: str) -> str:
+    """Render one field on one line, showing control characters rather than obeying them.
+
+    These lines state authority, and every value interpolated into them —
+    ``why``, ``command``, ``expects`` — can contain a workspace path, a Git
+    error, or a ref, none of which is under Shipgate's control. A path
+    containing newlines produced forged ``Control: complete`` and ``You may:
+    ... merge`` lines *below* the real denial, which is the reading a human or a
+    line-scraping tool takes away.
+
+    JSON output is unaffected and keeps the exact bytes: ``json.dumps`` already
+    escapes these, and a consumer parsing structure cannot be confused by them.
+    """
+
+    return _CONTROL_CHARACTERS.sub(lambda match: f"\\x{ord(match.group()):02x}", value)
 
 
 _PERMISSION_ORDER = ("edit", "commit", "push", "update_pr", "merge", "report_complete")
@@ -331,10 +438,15 @@ def _artifact_refs(
 ) -> dict[str, AgentControlArtifactRef]:
     if pointer is None:
         return {}
-    root = (artifact_root or "").strip().rstrip("/")
+    # Joined structurally, never by string arithmetic. Trimming corrupted path
+    # identity: a root of "/" collapsed to "" and emitted a path relative to the
+    # invocation directory, and "/tmp/reports " lost a significant trailing
+    # space — in both cases naming a file other than the one whose hash was
+    # validated, while still exiting successfully.
+    root = PurePosixPath(artifact_root) if artifact_root else None
     return {
         key: AgentControlArtifactRef(
-            path=f"{root}/{ref.path}" if root else ref.path,
+            path=str(root / ref.path) if root is not None else ref.path,
             sha256=ref.sha256,
         )
         for key, ref in sorted(pointer.artifacts.items())
@@ -374,6 +486,7 @@ __all__ = [
     "control_headline_lines",
     "envelope_from_agent_result",
     "envelope_from_pointer",
+    "envelope_from_routeless_pointer",
     "envelope_from_verifier",
     "project_agent_control_envelope",
     "render_agent_control_envelope",

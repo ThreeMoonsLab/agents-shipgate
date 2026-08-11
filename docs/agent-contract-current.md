@@ -17,7 +17,9 @@ schema's validators only assert that the copies cannot contradict each other.
 One object answers the whole routing question — tool execution status, the
 release or boundary decision and which engine made it, the control state, the
 six-way `permissions` vector, who acts next, the exact next action, and the
-content-addressed path and hash of every forensic artifact. It is emitted by
+content-addressed path and hash of every artifact `current-control.json`
+binds — not every file a run writes, and none at all from `check`, which
+publishes no pointer. It is emitted by
 `agents-shipgate verify --format control`, `agents-shipgate check --format
 agent-control-json`, and `agents-shipgate agent control` (now its default
 output; `--format pointer` returns the raw pointer). It publishes a size *budget*,

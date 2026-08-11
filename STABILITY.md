@@ -28,7 +28,8 @@ compact control envelope emitted on stdout by three commands. It answers the
 whole routing question in one object — tool execution status, the release or
 boundary decision and which engine produced it, the control state, the six-way
 `permissions` vector, who acts next, the exact next action, and the
-content-addressed path and hash of every forensic artifact — within
+content-addressed path and hash of every artifact `current-control.json` binds
+(`check` publishes no pointer and binds none) — within
 `agent_control_max_bytes` (4096). It is **not** written to disk, and it decides
 nothing: every field is copied from a producer that already published it.
 
@@ -64,6 +65,16 @@ pointer can never be reported beside another generation's decision.
 `artifacts[].path` is relative to the directory the command was invoked from,
 falling back to an absolute path when the reports directory sits outside it. A
 reader can open it exactly as given.
+
+`input_id` names the input the control was assessed against — the boundary
+`audit_id`, or the verifier `request_id` — and the `complete` variant requires
+it, so terminal authority can always be traced to its subject. `pending_review[]`
+carries review obligations that survive a non-terminal route. Human-readable
+output renders control characters visibly and keeps each field on one line;
+JSON keeps the exact bytes. `agents-shipgate agent control` now reports a
+*current but routeless* generation (a `scan` pointer) as an ordinary envelope
+with exit 0 and merge denied, rather than exiting non-zero — a non-zero exit
+keeps its documented meaning that no control identity is current.
 
 Unrelated fix in the same change: `.shipgate/agent-contract.json` now upgrades
 in place from any superseded managed version, not only from renders whose exact

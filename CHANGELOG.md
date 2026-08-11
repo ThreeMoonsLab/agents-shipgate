@@ -11,8 +11,9 @@
   ([`docs/agent-control-schema.v1.json`](docs/agent-control-schema.v1.json))
   carries tool execution status, the release or boundary decision and which
   engine produced it, the control state, the six-way `permissions` vector, the
-  next actor, the exact next action, and the path and sha256 of every forensic
-  artifact — in one stdout object under a published `agent_control_budget_bytes`
+  next actor, the exact next action, the identity of the input it was assessed
+  against, any review obligations still owed, and the path and sha256 of every
+  artifact `current-control.json` binds — in one stdout object under a published `agent_control_budget_bytes`
   budget of 4096 — a measured target, not an enforced cap, since a long
   reviewer list or exact command must never be truncated to fit — roughly a
   fifth of the `verifier.json` plus `agent-handoff.json` an agent reads today
@@ -38,7 +39,19 @@
   evaluated, instead of reporting `complete` on a directory `agent control` was
   simultaneously refusing, and it routes from the verifier bytes captured inside
   that read so a pointer can never be paired with another generation's decision.
-  Emitted artifact paths are relative to the invoking directory. Separately,
+  Emitted artifact paths are relative to the invoking directory and joined
+  structurally, so a root of `/` or a trailing space cannot rename the file
+  whose hash was validated. `input_id` binds compact authority to the input it
+  assessed — required on `complete`, since two unrelated diffs otherwise
+  projected byte-identical envelopes granting merge — and `pending_review[]`
+  carries obligations a non-terminal route still owes. Human-readable output
+  renders control characters visibly and keeps one field per line, closing a
+  spoof where a workspace path containing newlines printed forged `Control:
+  complete` and `You may: ... merge` lines; JSON keeps the exact bytes. A
+  current-but-routeless generation (a `scan` pointer) is now reported with exit
+  0 and merge denied instead of refused, preserving the documented meaning of a
+  non-zero exit, and recovery commands are generated from the requested
+  workspace rather than a hardcoded default. Separately,
   `.shipgate/agent-contract.json` now upgrades in place from any superseded
   managed version rather than only from renders whose exact hash was recorded —
   repositories on local-contract schema 8 or 9 were stranded. Runtime contract advances `21 → 22` and the downstream

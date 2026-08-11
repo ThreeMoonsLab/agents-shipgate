@@ -11,8 +11,10 @@ from agents_shipgate.cli.current_workspace import live_workspace
 from agents_shipgate.core.agent_control_envelope import (
     AgentControlRouteUnavailable,
     envelope_from_pointer,
+    envelope_from_routeless_pointer,
     render_agent_control_envelope,
 )
+from agents_shipgate.core.agent_controls import verify_command_for
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.current_control import (
     CurrentControlRead,
@@ -223,41 +225,76 @@ def control(
 
     try:
         bound_verifier = _bound_verifier(result)
+    except AgentControlRouteUnavailable as exc:
+        # The pointer and the artifact it binds disagree about which request
+        # they close. That is an inconsistent set, not a current generation.
+        _refuse_route(reports_dir, workspace, detail=str(exc))
+        raise typer.Exit(4) from exc
+
+    if bound_verifier is not None:
         envelope = envelope_from_pointer(
             result.pointer,
             verifier=bound_verifier,
             # The exit code the producing run recorded, not this reader's.
-            exit_code=None if bound_verifier is None else bound_verifier.head_exit_code,
+            exit_code=bound_verifier.head_exit_code,
             artifact_root=reports_dir.as_posix(),
         )
-    except AgentControlRouteUnavailable as exc:
-        guidance = (
-            "Run `agents-shipgate verify` in this workspace. The pointer that "
-            "is current was published by a command that reaches no release "
-            "decision, so there is no route to return; inventing one would be "
-            "a route that does not reproduce this subject."
+    elif result.pointer.lifecycle_state == "terminal":
+        # Current, but published by a command that reaches no release decision.
+        # Refusing conflated "nothing is current" with "what is current cannot
+        # authorize a merge"; only the first justifies a non-zero exit.
+        envelope = envelope_from_routeless_pointer(
+            result.pointer,
+            verify_command=verify_command_for(workspace, None),
+            artifact_root=reports_dir.as_posix(),
         )
-        typer.echo(f"Current control carries no route: {exc}", err=True)
-        emit_agent_mode_error(
-            "other_error",
-            message=str(exc),
-            exit_code=4,
-            next_action=guidance,
-            next_actions=[
-                NextAction(
-                    kind="command",
-                    command=COMMANDS["verify_pr"],
-                    why=guidance,
-                    expects=(
-                        "A verify run publishes a pointer that binds verifier.json, "
-                        "which carries the exact next action."
-                    ),
-                ).model_dump(mode="json")
-            ],
+    else:
+        # An in-progress marker really is "no decision is current here".
+        _refuse_route(
+            reports_dir,
+            workspace,
+            detail=(
+                "A run is in progress in this directory, so no decision is "
+                "current and no route can be returned."
+            ),
         )
-        raise typer.Exit(4) from exc
+        raise typer.Exit(4)
 
     typer.echo(render_agent_control_envelope(envelope))
+
+
+def _refuse_route(reports_dir: Path, workspace: Path, *, detail: str) -> None:
+    """Report that no route is available, in the caller's own terms.
+
+    The recovery command is generated from the requested workspace rather than
+    a fixed `--workspace . --config shipgate.yaml --base origin/main` string:
+    echoing a default discards the subject that was just validated and points
+    the caller at a different repository than the one they asked about.
+    """
+
+    guidance = (
+        "Run verify in this workspace to obtain a decision. Until one exists, "
+        "treat completion, merge, and any cached must_stop as unavailable."
+    )
+    command = verify_command_for(workspace, None)
+    typer.echo(f"Current control carries no route: {detail}", err=True)
+    emit_agent_mode_error(
+        "other_error",
+        message=detail,
+        exit_code=4,
+        next_action=guidance,
+        next_actions=[
+            NextAction(
+                kind="command",
+                command=command,
+                why=guidance,
+                expects=(
+                    f"{reports_dir / CURRENT_CONTROL_ARTIFACT_NAME} binds a verifier "
+                    "artifact carrying the exact next action."
+                ),
+            ).model_dump(mode="json")
+        ],
+    )
 
 
 def _bound_verifier(result: CurrentControlRead) -> VerifierArtifact | None:

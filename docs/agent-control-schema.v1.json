@@ -109,6 +109,18 @@
         "human_review": {
           "$ref": "#/$defs/NoHumanReview"
         },
+        "input_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Input Id"
+        },
         "next_action": {
           "$ref": "#/$defs/CodingAgentAction"
         },
@@ -127,6 +139,13 @@
           ],
           "title": "Operation",
           "type": "string"
+        },
+        "pending_review": {
+          "items": {
+            "$ref": "#/$defs/AgentControlPendingReview"
+          },
+          "title": "Pending Review",
+          "type": "array"
         },
         "permissions": {
           "anyOf": [
@@ -170,6 +189,7 @@
         "source",
         "execution",
         "exit_code",
+        "input_id",
         "decision",
         "decision_source",
         "control_state",
@@ -178,6 +198,7 @@
         "next_actor",
         "next_action",
         "human_review",
+        "pending_review",
         "reason",
         "current_control_id",
         "artifacts"
@@ -205,6 +226,47 @@
         "sha256"
       ],
       "title": "AgentControlArtifactRef",
+      "type": "object"
+    },
+    "AgentControlPendingReview": {
+      "additionalProperties": false,
+      "description": "One review obligation the agent carries while it keeps working.\n\nA graded ``require_review`` boundary row routes the agent onward instead of\nending the turn, but the obligation is not cleared. The full row lives on\nthe boundary result; this is the compact restatement, because a projection\nthat keeps the route and drops the obligation tells the agent it is finished\nwith something it still owes a human.",
+      "properties": {
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewers",
+          "type": "array"
+        },
+        "risk_level": {
+          "minLength": 1,
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "rule_id": {
+          "minLength": 1,
+          "title": "Rule Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "risk_level"
+      ],
+      "title": "AgentControlPendingReview",
       "type": "object"
     },
     "CodingAgentAction": {
@@ -428,6 +490,11 @@
         "human_review": {
           "$ref": "#/$defs/NoHumanReview"
         },
+        "input_id": {
+          "minLength": 1,
+          "title": "Input Id",
+          "type": "string"
+        },
         "next_action": {
           "default": null,
           "title": "Next Action",
@@ -448,6 +515,14 @@
           ],
           "title": "Operation",
           "type": "string"
+        },
+        "pending_review": {
+          "items": {
+            "$ref": "#/$defs/AgentControlPendingReview"
+          },
+          "maxItems": 0,
+          "title": "Pending Review",
+          "type": "array"
         },
         "permissions": {
           "$ref": "#/$defs/FullAgentPermissions"
@@ -485,6 +560,7 @@
         "source",
         "execution",
         "exit_code",
+        "input_id",
         "decision",
         "decision_source",
         "control_state",
@@ -493,6 +569,7 @@
         "next_actor",
         "next_action",
         "human_review",
+        "pending_review",
         "reason",
         "current_control_id",
         "artifacts"
@@ -747,6 +824,18 @@
         "human_review": {
           "$ref": "#/$defs/RequiredHumanReview"
         },
+        "input_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Input Id"
+        },
         "next_action": {
           "$ref": "#/$defs/HumanControlAction"
         },
@@ -765,6 +854,13 @@
           ],
           "title": "Operation",
           "type": "string"
+        },
+        "pending_review": {
+          "items": {
+            "$ref": "#/$defs/AgentControlPendingReview"
+          },
+          "title": "Pending Review",
+          "type": "array"
         },
         "permissions": {
           "$ref": "#/$defs/NoAgentPermissions"
@@ -800,6 +896,7 @@
         "source",
         "execution",
         "exit_code",
+        "input_id",
         "decision",
         "decision_source",
         "control_state",
@@ -808,6 +905,7 @@
         "next_actor",
         "next_action",
         "human_review",
+        "pending_review",
         "reason",
         "current_control_id",
         "artifacts"
@@ -1092,6 +1190,18 @@
         "human_review": {
           "$ref": "#/$defs/RequiredHumanReview"
         },
+        "input_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Input Id"
+        },
         "next_action": {
           "$ref": "#/$defs/HumanReviewAction"
         },
@@ -1110,6 +1220,13 @@
           ],
           "title": "Operation",
           "type": "string"
+        },
+        "pending_review": {
+          "items": {
+            "$ref": "#/$defs/AgentControlPendingReview"
+          },
+          "title": "Pending Review",
+          "type": "array"
         },
         "permissions": {
           "$ref": "#/$defs/PublishOnlyPermissions"
@@ -1145,6 +1262,7 @@
         "source",
         "execution",
         "exit_code",
+        "input_id",
         "decision",
         "decision_source",
         "control_state",
@@ -1153,6 +1271,7 @@
         "next_actor",
         "next_action",
         "human_review",
+        "pending_review",
         "reason",
         "current_control_id",
         "artifacts"

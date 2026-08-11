@@ -45,8 +45,14 @@ Three separations follow from that structure:
 
 The envelope is emitted on stdout and is never written as an artifact. Adding
 one more file to a reports directory that already holds a dozen would deepen the
-read-order problem it exists to remove; the forensic artifacts stay where they
-are and are reachable from ``artifacts`` by path and hash.
+read-order problem it exists to remove; the artifacts stay where they are and
+are reachable from ``artifacts`` by path and hash.
+
+``artifacts`` is exactly what ``current-control.json`` binds — deliberately not
+"everything the run wrote". The pointer's binding is the set whose hashes were
+validated, so anything outside it would be a path this envelope cannot vouch
+for. ``check`` publishes no pointer and therefore binds nothing; its authority
+is bound by ``input_id`` instead.
 """
 
 from __future__ import annotations
@@ -149,6 +155,7 @@ _ENVELOPE_FIELDS = [
     "source",
     "execution",
     "exit_code",
+    "input_id",
     "decision",
     "decision_source",
     "control_state",
@@ -157,6 +164,7 @@ _ENVELOPE_FIELDS = [
     "next_actor",
     "next_action",
     "human_review",
+    "pending_review",
     "reason",
     "current_control_id",
     "artifacts",
@@ -166,6 +174,25 @@ BoundedProse = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
 ]
+NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class AgentControlPendingReview(BaseModel):
+    """One review obligation the agent carries while it keeps working.
+
+    A graded ``require_review`` boundary row routes the agent onward instead of
+    ending the turn, but the obligation is not cleared. The full row lives on
+    the boundary result; this is the compact restatement, because a projection
+    that keeps the route and drops the obligation tells the agent it is finished
+    with something it still owes a human.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str = Field(min_length=1)
+    risk_level: str = Field(min_length=1)
+    path: str | None = None
+    reviewers: list[str] = Field(default_factory=list)
 
 
 class AgentControlArtifactRef(BaseModel):
@@ -199,16 +226,26 @@ class _AgentControlEnvelopeBase(BaseModel):
     operation: AgentControlOperation
     source: AgentControlSource
 
-    # --- did the tool run? -------------------------------------------------
+    # --- did the tool run, and on what? ------------------------------------
     execution: AgentControlExecution
     # ``None`` when the producing run did not record one. Never inferred.
     exit_code: int | None
+    # The identity of the input this control was assessed against: the boundary
+    # ``audit_id``, or the verifier ``request_id``. Without it the compact form
+    # is authority detached from its subject — two unrelated diffs produced
+    # byte-identical `complete` envelopes granting merge, because everything
+    # that distinguished them (`audit_id`, `subject`, `changed_files`) lives
+    # only on the full result. The ``complete`` variant requires it.
+    input_id: NonEmptyText | None
 
     # --- what did the gate decide? ----------------------------------------
     decision: BoundedProse | None
     decision_source: AgentControlDecisionSource
 
     # --- where is the evidence? -------------------------------------------
+    # Obligations that survive a non-terminal route. Empty on ``complete``,
+    # which cannot coexist with an outstanding review.
+    pending_review: list[AgentControlPendingReview] = Field(default_factory=list)
     reason: BoundedProse
     current_control_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     artifacts: dict[str, AgentControlArtifactRef] = Field(default_factory=dict)
@@ -242,6 +279,10 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
 
     control_state: Literal["complete"]
     execution: CompleteExecution
+    # Required, not optional: terminal authority that cannot name the input it
+    # was assessed against is authority no reader can check.
+    input_id: NonEmptyText
+    pending_review: list[AgentControlPendingReview] = Field(default_factory=list, max_length=0)
     permissions: FullAgentPermissions = Field(default_factory=FullAgentPermissions)
     verify_required: Literal[False] = False
     next_actor: Literal["none"] = "none"
@@ -338,6 +379,7 @@ __all__ = [
     "AgentControlEnvelope",
     "AgentControlExecution",
     "AgentControlOperation",
+    "AgentControlPendingReview",
     "AgentControlSource",
     "CompleteControlEnvelope",
     "HumanReviewRequiredControlEnvelope",

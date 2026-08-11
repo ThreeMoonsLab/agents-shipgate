@@ -161,7 +161,8 @@ agents-shipgate agent control --workspace . --reports-dir agents-shipgate-report
 
 That returns `shipgate.agent_control/v1`, the compact control envelope: the
 control state, the `permissions` vector, the next actor, the exact next action,
-and the path and sha256 of every forensic artifact, in one object. It is the
+and the path and sha256 of every artifact `current-control.json` binds, in one
+object. It is the
 whole routing answer — an agent that switches on `permissions` and
 `next_action` from it does not need the artifact walk above. Read
 `execution` and `exit_code` as what they are: whether the tool ran, and whether
