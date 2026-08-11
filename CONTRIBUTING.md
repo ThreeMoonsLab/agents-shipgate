@@ -6,7 +6,8 @@ Yes, please contribute.
 
 ```bash
 python -m pip install --require-hashes --requirement constraints/dev.txt
-PIP_CONSTRAINT=constraints/release-build.txt python -m pip install -e . --no-deps
+python -m pip install --require-hashes --requirement constraints/build-backend.txt
+python -m pip install -e . --no-deps --no-build-isolation
 pytest
 ```
 

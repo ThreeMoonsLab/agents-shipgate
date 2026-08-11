@@ -54,6 +54,12 @@ on:
           channel rather than the artifact store, so the publication job can
           detect artifact substitution.
         value: ${{ jobs.artifact.outputs.manifest_sha256 }}
+      release_notes_sha256:
+        description: >-
+          SHA-256 of the changelog section this candidate publishes. Staging
+          and finalisation re-extract and must match it, and finalisation
+          reapplies the body in the call that undrafts.
+        value: ${{ jobs.artifact.outputs.release_notes_sha256 }}
       artifact_name:
         description: Name of the uploaded candidate bundle.
         value: ${{ jobs.artifact.outputs.artifact_name }}
@@ -98,17 +104,24 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: constraints/dev.txt
+          cache-dependency-path: |
+            constraints/dev.txt
+            constraints/build-backend.txt
 
       - name: Install
         # Byte-for-byte the environment CI installs — the same hash-locked
-        # closure, installed the same way. `pip install -e ".[dev]"` resolved
-        # fresh at tag time, so the run that decided whether to publish could
-        # differ from the run that approved the commit, and a release-only
+        # closures, installed with the same commands. `pip install -e ".[dev]"`
+        # resolved fresh at tag time, so the run that decided whether to publish
+        # could differ from the run that approved the commit, and a release-only
         # failure could not be reproduced from the same tree.
+        #
+        # Nothing here may resolve, including the PEP 517 backend: see the
+        # matching comment in ci.yml for why `--no-build-isolation` and a
+        # separate backend closure are what actually close that hole.
         run: |
           python -m pip install --require-hashes --requirement constraints/dev.txt
-          PIP_CONSTRAINT=constraints/release-build.txt python -m pip install -e . --no-deps
+          python -m pip install --require-hashes --requirement constraints/build-backend.txt
+          python -m pip install -e . --no-deps --no-build-isolation
           python -m pip check
 
       - name: Verify the dependency locks match the declared requirements
@@ -217,6 +230,7 @@ jobs:
       wheel_sha256: ${{ steps.handoff.outputs.wheel_sha256 }}
       manifest_sha256: ${{ steps.handoff.outputs.manifest_sha256 }}
       artifact_name: ${{ steps.handoff.outputs.artifact_name }}
+      release_notes_sha256: ${{ steps.notes.outputs.release_notes_sha256 }}
 
     steps:
       - name: Checkout
@@ -337,18 +351,28 @@ jobs:
           cache: pip
 
       - name: Require a CHANGELOG section for this tag
+        id: notes
         # The release body is the changelog section, so an absent section is a
         # release nobody described. Required here, in the shared verification
         # workflow, which means the rehearsal fails on it while the tag does
         # not yet exist — the only point at which "rename `## Unreleased`" is
-        # still a cheap fix. `stage` extracts the same section from the same
-        # commit; this is what guarantees it will find one.
+        # still a cheap fix.
+        #
+        # This is also where the notes become content-addressed: `stage` and
+        # `finalize` extract independently and must land on this digest. The
+        # rehearsal therefore exercises the identical write, to the identical
+        # runner-owned path, that the release will perform — a candidate is
+        # never the thing that decides where this file goes.
         #
         # Standard library only, so it needs no installed toolchain and runs
         # before the build, the downloads, and the qualification checks.
         env:
           RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
-        run: python scripts/release_notes.py --tag "${RELEASE_TAG}"
+        run: |
+          python scripts/release_notes.py \
+            --tag "${RELEASE_TAG}" \
+            --output "${RUNNER_TEMP}/release-notes.md" \
+            --github-output "${GITHUB_OUTPUT}"
 
       - name: Install the hash-locked sealing toolchain
         # No editable install and no `dev` extra. An unlocked
@@ -378,10 +402,18 @@ jobs:
 
       - name: Build a wheel from the checked-out source
         # The provenance gate this feeds is the only thing tying the published
-        # bytes back to the tagged commit. PIP_CONSTRAINT pins the build
-        # backend so the archive is byte-reproducible; without it a hatchling
-        # bump alone changes the wheel and the gate fails on a legitimate
-        # release. See constraints/release-build.txt.
+        # bytes back to the tagged commit, and the archive records
+        # `Generator: hatchling <version>`, so a backend bump alone changes the
+        # wheel and fails the gate on a legitimate release.
+        #
+        # What actually pins the backend here is the hash-locked
+        # constraints/release-seal.txt installed above, together with
+        # `--no-isolation` below. PIP_CONSTRAINT is kept as a belt-and-braces
+        # declaration of intent for any future pip-driven path, but it is not
+        # the mechanism: current pip does not apply it to an isolated build
+        # environment at all — constraining hatchling to a version that does
+        # not exist still builds — and `--no-isolation` creates no such
+        # environment to constrain. See constraints/release-build.txt.
         env:
           PIP_CONSTRAINT: constraints/release-build.txt
         run: |

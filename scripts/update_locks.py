@@ -35,10 +35,24 @@ from pathlib import Path
 
 if __package__:
     from scripts._release_support import ReleaseError
-    from scripts.verify_dependency_lock import LOCK_TARGETS, REPO_ROOT, LockTarget
+    from scripts.verify_dependency_lock import (
+        DECLARATION_SENTINEL,
+        LOCK_TARGETS,
+        REPO_ROOT,
+        LockTarget,
+        declared_requirements,
+        render_declarations,
+    )
 else:  # ``python scripts/update_locks.py``
     from _release_support import ReleaseError
-    from verify_dependency_lock import LOCK_TARGETS, REPO_ROOT, LockTarget
+    from verify_dependency_lock import (
+        DECLARATION_SENTINEL,
+        LOCK_TARGETS,
+        REPO_ROOT,
+        LockTarget,
+        declared_requirements,
+        render_declarations,
+    )
 
 # Matches the floor in `requires-python`; a universal resolution covers every
 # later interpreter from there.
@@ -46,7 +60,11 @@ TARGET_PYTHON = "3.12"
 
 
 def prose_header(lock_path: Path) -> str:
-    """The committed explanation at the top of a lock, which uv would discard."""
+    """The committed explanation at the top of a lock, which uv would discard.
+
+    Stops at the generated declaration block, so regenerating replaces that
+    block rather than accumulating a copy of it on every run.
+    """
 
     if not lock_path.is_file():
         raise ReleaseError(
@@ -55,6 +73,8 @@ def prose_header(lock_path: Path) -> str:
         )
     header: list[str] = []
     for line in lock_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith(DECLARATION_SENTINEL):
+            break
         if line.strip() and not line.startswith("#"):
             break
         header.append(line)
@@ -93,6 +113,10 @@ def _pinned_uv_version(root: Path) -> str | None:
 def update_lock(target: LockTarget, *, root: Path, uv: str) -> Path:
     lock_path = root / target.lock
     header = prose_header(lock_path)
+    # Read the declarations before compiling, from the same source uv is about
+    # to read, so the recorded block describes this resolution and not a
+    # neighbouring edit.
+    declarations = render_declarations(declared_requirements(target, root=root))
     result = subprocess.run(  # noqa: S603 - argument list is built here, never a shell string
         compile_command(target, uv=uv),
         cwd=root,
@@ -105,7 +129,7 @@ def update_lock(target: LockTarget, *, root: Path, uv: str) -> Path:
     body = result.stdout.strip("\n")
     if not body:
         raise ReleaseError(f"uv pip compile produced nothing for {target.source}.")
-    lock_path.write_text(f"{header}{body}\n", encoding="utf-8")
+    lock_path.write_text(f"{header}{declarations}{body}\n", encoding="utf-8")
     return lock_path
 
 

@@ -10,14 +10,16 @@
 # Both install this file instead:
 #
 #     python -m pip install --require-hashes --requirement constraints/dev.txt
-#     PIP_CONSTRAINT=constraints/release-build.txt python -m pip install -e . --no-deps
+#     python -m pip install --require-hashes --requirement constraints/build-backend.txt
+#     python -m pip install -e . --no-deps --no-build-isolation
 #     python -m pip check
 #
 # The project itself is installed separately, with `--no-deps`, because an
 # editable install cannot be hashed: its dependencies come from this closure,
-# and `pip check` then proves the closure actually satisfies them. The build
-# backend is pinned by constraints/release-build.txt, the same file that makes
-# the released wheel byte-reproducible.
+# and `pip check` then proves the closure actually satisfies them. The backend
+# comes from constraints/build-backend.txt and the install runs without
+# isolation, because `--no-deps` does not disable PEP 517 build isolation and
+# `PIP_CONSTRAINT` does not reach an isolated build environment on current pip.
 #
 # This is the *verification* closure, not a publication one. It installs the
 # project and runs its tests, so it is not inside the blast radius the
@@ -30,6 +32,29 @@
 #
 #     python scripts/update_locks.py constraints/dev.txt
 #     python scripts/verify_dependency_lock.py
+#
+# --- generated: the declarations this lock was compiled from ---
+#
+# Compared against the source by scripts/verify_dependency_lock.py, so a
+# changed extra, marker, URL or range cannot slip past without recompiling.
+#
+#   declares: build<2,>=1.5.0
+#   declares: cryptography<51,>=50.0.0
+#   declares: cyclonedx-bom<8,>=7.3.1
+#   declares: hypothesis<7,>=6.165.1
+#   declares: jsonschema<5,>=4.26.0
+#   declares: packaging<27,>=26.3
+#   declares: pip-audit<3,>=2.10.1
+#   declares: pydantic<3,>=2.13.4
+#   declares: pytest-cov<8,>=7.1.0
+#   declares: pytest-xdist<4,>=3.8
+#   declares: pytest<10,>=9.1.1
+#   declares: pyyaml<7,>=6.0.3
+#   declares: ruamel-yaml<1,>=0.19.1
+#   declares: ruff<1,>=0.16.1
+#   declares: sigstore<5,>=4.5.0
+#   declares: twine<8,>=7.0.0
+#   declares: typer<1,>=0.27.0
 #
 annotated-doc==0.0.5 \
     --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101 \

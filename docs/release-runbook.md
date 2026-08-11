@@ -101,11 +101,18 @@ record `Generator: hatchling <version>` inside `.dist-info/WHEEL`, so an
 unpinned backend makes two machines produce different bytes from identical
 source.
 
-**The qualification promotion flow must build with the same constraint file:**
+**The qualification promotion flow must build with the same backend:**
 
 ```bash
-PIP_CONSTRAINT=constraints/release-build.txt python -m build --wheel
+python -m pip install --require-hashes -r constraints/build-backend.txt
+python -m build --wheel --no-isolation
 ```
+
+Install the backend closure, then build without isolation. Setting
+`PIP_CONSTRAINT` alone does **not** pin it: current pip does not apply
+constraints to an isolated build environment, so a constrained build still
+resolves whatever the index offers — verified by constraining hatchling to a
+version that does not exist and watching the build succeed.
 
 If a backend bump lands between qualification and release, the provenance gate
 fails. The fix is to re-run qualification against a wheel built with the current
@@ -123,21 +130,32 @@ command:
 
 ```bash
 python -m pip install --require-hashes --requirement constraints/dev.txt
-PIP_CONSTRAINT=constraints/release-build.txt python -m pip install -e . --no-deps
+python -m pip install --require-hashes --requirement constraints/build-backend.txt
+python -m pip install -e . --no-deps --no-build-isolation
 python -m pip check
 ```
 
 The project is installed separately because an editable install cannot be
-hashed. `pip check` is what proves the locked closure actually satisfies the
-project's declared dependencies, and the backend is pinned by the same file that
-makes the released wheel byte-reproducible.
+hashed, and `pip check` is what proves the locked closure actually satisfies the
+project's declared dependencies.
+
+`--no-build-isolation` is load-bearing. `--no-deps` does not disable PEP 517
+build isolation, and current pip does not apply `PIP_CONSTRAINT` to an isolated
+build environment, so an editable install resolves its backend — and the
+backend's own dependencies — from the index unless the closure is already
+present. That is why the backend has a lock of its own.
 
 | Lock | Installed by | Contains |
 |---|---|---|
 | [`constraints/dev.txt`](../constraints/dev.txt) | CI and `verify` → `tests` | The development closure: runtime dependencies plus the `dev` extra |
+| [`constraints/build-backend.txt`](../constraints/build-backend.txt) | CI, `verify` → `tests`, qualification promotion | The build backend's closure, so builds need no isolation |
 | [`constraints/release-seal.txt`](../constraints/release-seal.txt) | `verify` → `artifact` | `build`, `hatchling`, `sigstore` |
 | [`constraints/release-publish.txt`](../constraints/release-publish.txt) | `stage`, `publish`, `finalize` | `uv`, `sigstore` |
-| [`constraints/release-build.txt`](../constraints/release-build.txt) | Every wheel build | The pinned build backend, hand-maintained |
+| [`constraints/release-build.txt`](../constraints/release-build.txt) | — | Not a lock: the one hand-maintained backend pin the closure above resolves |
+
+Locks installed into the same environment must pin every shared distribution to
+the same version, or the second `pip install` moves part of the first one's
+closure; that is checked too.
 
 Updating a dependency is two commands, and the second one is the gate:
 
@@ -151,12 +169,22 @@ which the compiler would otherwise overwrite — the reason regenerating used to
 be a per-file ritual nobody wanted to perform.
 
 `scripts/verify_dependency_lock.py` runs in CI **and** in release verification,
-and fails when a lock stops describing its declarations: a declared requirement
-with no pin, a pin outside the declared range, a direct requirement the
-declarations no longer contain, or a pin without a hash. It deliberately does
-not re-resolve against the index — "stale" means *inconsistent with the
-declarations*, not *older than the newest release on PyPI*, or every unrelated
-upload would turn the build red.
+and fails when a lock stops describing its declarations. Each lock records the
+normalized PEP 508 requirements it was compiled from:
+
+```
+#   declares: pytest<10,>=9.1.1
+```
+
+so a declaration that grows an extra, moves behind a marker, or becomes a direct
+URL invalidates the lock even though every name and every range still matches —
+a name-and-range comparison accepts all three silently. On top of that it fails
+on a declared requirement with no pin, a pin outside the declared range, a
+direct requirement the declarations no longer contain, and a pin without a hash.
+
+It deliberately does not re-resolve against the index — "stale" means
+*inconsistent with the declarations*, not *older than the newest release on
+PyPI*, or every unrelated upload would turn the build red.
 
 ### The release notes are the changelog
 
@@ -172,6 +200,17 @@ heading" a step the pipeline enforces rather than one an operator remembers.
 Verification requires the section, so a rehearsal fails on a missing one while
 the tag still does not exist. A body over GitHub's 125,000-character limit is
 also refused there rather than by a 422 from `gh release create`.
+
+Three jobs extract the notes — verification, `stage`, and `finalize` — so
+verification publishes their SHA-256 as a job output and the other two pass it
+back with `--expected-sha256`. `finalize` re-derives them from `CHANGELOG.md`
+fetched at the verified commit and reapplies the body **in the same API call
+that undrafts**, because everything between staging and finalisation, the
+environment approval window included, is time in which a release-write actor
+can edit the draft's text; asset digests are re-derived there but the body was
+not. Each job writes the file under `$RUNNER_TEMP`, never into the checkout, so
+a candidate that commits its own `release-notes.md` cannot decide where the
+write lands — and cannot pass the rehearsal only to fail after the tag exists.
 
 ## Before tagging: rehearse
 

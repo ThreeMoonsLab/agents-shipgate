@@ -8,13 +8,17 @@
 # impossible and turn the source-to-wheel binding in
 # scripts/verify_wheel_provenance.py into a spurious release blocker.
 #
-# Both sides of that comparison must build with this file:
+# Both sides of that comparison must build with this backend — the
+# qualification promotion flow that produces the signed, qualified wheel *and*
+# the release verification job that rebuilds from the tagged source:
 #
-#     PIP_CONSTRAINT=constraints/release-build.txt python -m build --wheel
+#     python -m pip install --require-hashes -r constraints/build-backend.txt
+#     python -m build --wheel --no-isolation
 #
-# that is, the qualification promotion flow that produces the signed,
-# qualified wheel *and* the release verification job that rebuilds from the
-# tagged source. See docs/release-runbook.md.
+# Install it, then build without isolation. `PIP_CONSTRAINT` pointing here is
+# *not* sufficient on current pip: constraints are not applied to an isolated
+# build environment, so a constrained build silently resolves whatever the
+# index offers. See docs/release-runbook.md.
 #
 # Bumping this pin changes the wheel bytes. A qualified wheel produced before
 # the bump will no longer match, so re-run qualification after any change here.

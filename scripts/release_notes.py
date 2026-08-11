@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """Extract the ``CHANGELOG.md`` section a release tag names.
 
-Standard library only, on purpose — see ``scripts/_release_support``. This runs
-in the staging job, which holds `contents: write`, and in the verification job
-before any toolchain is installed.
+Standard library only, on purpose — see ``scripts/_release_support``. It runs in
+the verification job before any toolchain is installed, in the staging job, and
+in finalisation, which fetches it by immutable SHA rather than checking out.
+
+Those three jobs extract independently, so verification publishes the digest of
+what it approved and the other two pass it back with ``--expected-sha256``. The
+body is then reapplied in the same API call that undrafts the release: the
+window between staging and finalisation includes the environment approval, and
+a release-write actor editing the draft's text in between would otherwise
+publish notes nobody reviewed.
 
 The release used to publish ``--notes "Agents Shipgate v0.16.0"`` while
 ``CHANGELOG.md`` held the real entry, so the one artifact users actually read on
@@ -31,14 +38,15 @@ Run from the repo root:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
 from pathlib import Path
 
 if __package__:
-    from scripts._release_support import ReleaseError
+    from scripts._release_support import SHA256_PATTERN, ReleaseError
 else:  # ``python scripts/release_notes.py``
-    from _release_support import ReleaseError
+    from _release_support import SHA256_PATTERN, ReleaseError
 
 # GitHub rejects a release body longer than this with a 422 — after the tag
 # exists, which is the expensive moment to discover it. The measured 0.16.0
@@ -77,7 +85,15 @@ def _section_headings(lines: list[str]) -> list[tuple[int, str]]:
             marker = fenced.group("marker")
             if fence is None:
                 fence = marker
-            elif marker[0] == fence[0] and len(marker) >= len(fence) and not fenced.group("info"):
+            elif (
+                marker[0] == fence[0]
+                and len(marker) >= len(fence)
+                # CommonMark allows spaces and tabs after a closing fence, so a
+                # closer with trailing whitespace must still close. Requiring an
+                # exactly empty suffix left the fence open and failed the whole
+                # release with "unterminated code fence".
+                and not fenced.group("info").strip()
+            ):
                 fence = None
             continue
         if fence is not None:
@@ -174,6 +190,33 @@ def extract_release_notes(*, changelog_path: Path, tag: str) -> str:
     return notes
 
 
+def notes_digest(notes: str) -> str:
+    return hashlib.sha256(notes.encode("utf-8")).hexdigest()
+
+
+def assert_expected_digest(notes: str, expected: str) -> str:
+    """Bind extracted notes to the digest verification published.
+
+    Compared whenever it is supplied, including when it is empty or malformed.
+    A truthiness test would fail open here in exactly the way
+    ``verify-manifest`` documents: an absent or redacted job output arrives as
+    ``""`` and the workflow still passes the flag.
+    """
+
+    if not SHA256_PATTERN.fullmatch(expected):
+        raise ReleaseError(
+            "Expected release-notes digest is not a 64-character lowercase SHA-256 "
+            f"({expected!r}); the verification job output was missing or redacted."
+        )
+    actual = notes_digest(notes)
+    if actual != expected:
+        raise ReleaseError(
+            f"Release notes digest {actual} does not match the verified {expected}; the "
+            "changelog this job read is not the one verification approved."
+        )
+    return actual
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Extract the CHANGELOG section for a release tag.")
     parser.add_argument("--changelog", type=Path, default=Path("CHANGELOG.md"))
@@ -183,6 +226,17 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="write the notes here; omit to validate the section without writing it",
     )
+    parser.add_argument(
+        "--expected-sha256",
+        help=(
+            "digest of the notes verification approved; every job downstream of "
+            "verification passes it, so a changelog read from a different tree fails"
+        ),
+    )
+    parser.add_argument(
+        "--github-output",
+        help="append release_notes_sha256 here",
+    )
     return parser
 
 
@@ -190,16 +244,24 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         notes = extract_release_notes(changelog_path=args.changelog, tag=args.tag)
+        digest = (
+            assert_expected_digest(notes, args.expected_sha256)
+            if args.expected_sha256 is not None
+            else notes_digest(notes)
+        )
         if args.output is not None:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(notes, encoding="utf-8")
+        if args.github_output:
+            with Path(args.github_output).open("a", encoding="utf-8") as handle:
+                handle.write(f"release_notes_sha256={digest}\n")
     except (ReleaseError, OSError, ValueError) as exc:
         sys.stderr.write(f"Release notes error: {exc}\n")
         return 1
     destination = f" -> {args.output}" if args.output is not None else ""
     sys.stdout.write(
         f"OK: {args.changelog} describes {args.tag} in {notes.count(chr(10))} lines "
-        f"({len(notes)} characters){destination}.\n"
+        f"({len(notes)} characters, sha256 {digest}){destination}.\n"
     )
     return 0
 

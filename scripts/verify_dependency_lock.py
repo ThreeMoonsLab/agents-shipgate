@@ -7,7 +7,19 @@ commit. That only holds while the lock and the declarations agree: a dependency
 added to ``pyproject.toml`` without recompiling would be installed at whatever
 version the lock happens to carry, or not installed at all.
 
-Three failure modes are checked, for every lock in the repository:
+The binding is the **declaration block** each lock carries, written by
+``scripts/update_locks.py`` from the requirements it compiled:
+
+    #   declares: pytest<10,>=9.1.1
+
+Comparing normalized PEP 508 strings rather than "name plus specifier" is what
+makes the check complete. A name-and-range comparison silently accepts a
+declaration that grows an extra (``demo`` -> ``demo[feature]``), moves behind an
+environment marker, or switches to a direct URL — each of which changes what
+gets installed while every name and every range still matches. Sources and
+marker branches are part of the declaration, so they are part of the comparison.
+
+On top of that binding, the pins themselves are checked:
 
 *missing*
     A declared requirement has no pin. The environment is not the declared one.
@@ -18,9 +30,16 @@ Three failure modes are checked, for every lock in the repository:
     The lock names a direct requirement the declarations no longer contain.
     ``uv`` records who asked for each pin, so a removed dependency that is still
     being installed is visible rather than merely harmless.
+*unhashed, or not a pin at all*
+    ``pip install --require-hashes`` is only meaningful over exact, hashed
+    requirements.
 
-Every pin must also be exact and carry at least one hash, which is what makes
-``pip install --require-hashes`` meaningful.
+A universal lock may legitimately pin one distribution several times under
+disjoint markers, so pins are modelled as a marker-qualified list per name and
+*every* branch must satisfy the declaration.
+
+Locks installed into the same environment must also agree: the second
+``pip install`` would otherwise move the first one's closure underneath it.
 
 This does **not** re-resolve against the index. "Stale" here means *inconsistent
 with the declarations*, not *older than the newest release on PyPI*: a check
@@ -52,7 +71,16 @@ else:  # ``python scripts/verify_dependency_lock.py``
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-_PIN = re.compile(r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*==\s*(?P<version>[^\s;\\]+)")
+# Everything from this line to the first pin is generated. `update_locks.py`
+# restores the prose above it and rewrites the block below it, so the two never
+# drift and regenerating never duplicates the block.
+DECLARATION_SENTINEL = "# --- generated: the declarations this lock was compiled from ---"
+DECLARATION_PREFIX = "#   declares: "
+
+_PIN = re.compile(
+    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:==\s*(?P<version>[^\s;\\]+)|@\s*(?P<url>\S+))"
+    r"\s*(?:;\s*(?P<marker>[^\\]*?))?\s*\\?$"
+)
 
 
 @dataclass(frozen=True)
@@ -65,16 +93,21 @@ class LockTarget:
     purpose: str = ""
 
 
-# `constraints/release-build.txt` is deliberately absent: it is a single
-# hand-written backend pin with no transitive closure, and the wheel-byte
-# reproducibility argument in its header is the reason it changes, not a
-# resolution.
+# `constraints/release-build.txt` is not a lock but a *source*: one
+# hand-maintained backend pin, chosen for the wheel-byte reproducibility
+# argument recorded in its header, which `constraints/build-backend.txt`
+# resolves into a hashed closure.
 LOCK_TARGETS: tuple[LockTarget, ...] = (
     LockTarget(
         lock="constraints/dev.txt",
         source="pyproject.toml",
         extras=("dev",),
         purpose="the development closure CI and release verification both install",
+    ),
+    LockTarget(
+        lock="constraints/build-backend.txt",
+        source="constraints/release-build.txt",
+        purpose="the build backend installed so editable installs need no isolation",
     ),
     LockTarget(
         lock="constraints/release-seal.txt",
@@ -88,22 +121,94 @@ LOCK_TARGETS: tuple[LockTarget, ...] = (
     ),
 )
 
+# Locks installed into one environment. A shared distribution pinned at two
+# versions means the second `pip install` moves what the first one placed, so
+# the closure that was tested is not the closure that ends up installed.
+CO_INSTALLED: tuple[tuple[str, ...], ...] = (
+    ("constraints/dev.txt", "constraints/build-backend.txt"),
+)
+
 
 @dataclass
 class Pin:
-    version: str
+    version: str | None
     line: int
+    url: str | None = None
+    marker: str = ""
     hashes: int = 0
     requesters: list[str] = field(default_factory=list)
 
+    def describe(self) -> str:
+        pinned = f"=={self.version}" if self.version else f" @ {self.url}"
+        return f"{pinned}{' ; ' + self.marker if self.marker else ''} (line {self.line})"
 
-def parse_lock(lock_path: Path) -> dict[str, Pin]:
-    """Read ``name==version`` pins, their hash count, and who requested them."""
+
+def normalize_requirement(requirement: Requirement) -> str:
+    """A canonical PEP 508 string: name, extras, source, range, and marker.
+
+    Built field by field rather than from ``str(requirement)`` so the
+    distribution name is canonicalized (``ruamel.yaml`` and ``ruamel-yaml`` are
+    one declaration) and the ordering is stable regardless of how the
+    requirement was spelled.
+    """
+
+    name = canonicalize_name(requirement.name)
+    extras = (
+        "[" + ",".join(sorted(canonicalize_name(extra) for extra in requirement.extras)) + "]"
+        if requirement.extras
+        else ""
+    )
+    source = f" @ {requirement.url}" if requirement.url else ""
+    # `SpecifierSet.__str__` sorts, so two spellings of one range agree.
+    specifier = str(requirement.specifier) if requirement.specifier else ""
+    marker = f" ; {requirement.marker}" if requirement.marker else ""
+    return f"{name}{extras}{source}{specifier}{marker}"
+
+
+def render_declarations(requirements: list[Requirement]) -> str:
+    """The generated block recording what a lock was compiled from."""
+
+    lines = [
+        DECLARATION_SENTINEL,
+        "#",
+        "# Compared against the source by scripts/verify_dependency_lock.py, so a",
+        "# changed extra, marker, URL or range cannot slip past without recompiling.",
+        "#",
+    ]
+    lines += [f"{DECLARATION_PREFIX}{text}" for text in sorted_declarations(requirements)]
+    lines.append("#")
+    return "\n".join(lines) + "\n"
+
+
+def sorted_declarations(requirements: list[Requirement]) -> list[str]:
+    return sorted(normalize_requirement(requirement) for requirement in requirements)
+
+
+def recorded_declarations(lock_path: Path) -> list[str] | None:
+    """What the lock says it was compiled from, or ``None`` if it says nothing."""
+
+    text = lock_path.read_text(encoding="utf-8")
+    if DECLARATION_SENTINEL not in text:
+        return None
+    return sorted(
+        line[len(DECLARATION_PREFIX) :].strip()
+        for line in text.splitlines()
+        if line.startswith(DECLARATION_PREFIX)
+    )
+
+
+def parse_lock(lock_path: Path) -> dict[str, list[Pin]]:
+    """Read the pins, their markers, hash counts, and who requested them.
+
+    Returns a list per distribution: ``uv pip compile --universal`` may pin one
+    name several times under disjoint markers, and each of those branches is a
+    version some environment will actually install.
+    """
 
     if not lock_path.is_file():
         raise ReleaseError(f"Lock file not found: {lock_path}")
 
-    pins: dict[str, Pin] = {}
+    pins: dict[str, list[Pin]] = {}
     current: Pin | None = None
     in_via = False
     for number, raw in enumerate(lock_path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -130,15 +235,25 @@ def parse_lock(lock_path: Path) -> dict[str, Pin]:
         match = _PIN.match(raw)
         if not match:
             raise ReleaseError(
-                f"{lock_path}:{number} is not an exact pin ({raw.strip()!r}); a lock that "
-                "resolves at install time is not a lock."
+                f"{lock_path}:{number} is neither an exact pin nor a direct URL "
+                f"({raw.strip()!r}); a lock that resolves at install time is not a lock."
             )
         name = canonicalize_name(match.group("name"))
-        if name in pins:
-            raise ReleaseError(f"{lock_path}:{number} pins {name} a second time.")
-        current = Pin(version=match.group("version"), line=number)
+        marker = (match.group("marker") or "").strip()
+        branches = pins.setdefault(name, [])
+        if any(existing.marker == marker for existing in branches):
+            raise ReleaseError(
+                f"{lock_path}:{number} pins {name} twice under the same marker "
+                f"({marker or 'no marker'}); pip would install whichever came last."
+            )
+        current = Pin(
+            version=match.group("version"),
+            url=match.group("url"),
+            marker=marker,
+            line=number,
+        )
         in_via = False
-        pins[name] = current
+        branches.append(current)
 
     if not pins:
         raise ReleaseError(f"{lock_path} contains no pins.")
@@ -187,6 +302,31 @@ def _direct_marker(target: LockTarget, *, distribution: str) -> tuple[str, ...]:
     return (f"-r {target.source}",)
 
 
+def _declaration_problems(target: LockTarget, lock_path: Path, expected: list[str]) -> list[str]:
+    recorded = recorded_declarations(lock_path)
+    if recorded is None:
+        return [
+            f"{target.lock} records no declaration block; regenerate it with "
+            "scripts/update_locks.py so what it was compiled from is reviewable and checkable."
+        ]
+    if recorded == expected:
+        return []
+    added = [text for text in expected if text not in recorded]
+    removed = [text for text in recorded if text not in expected]
+    detail = "; ".join(
+        part
+        for part in (
+            f"{target.source} now declares {', '.join(added)}" if added else "",
+            f"{target.lock} was compiled with {', '.join(removed)}" if removed else "",
+        )
+        if part
+    )
+    return [
+        f"{target.lock} was not compiled from the current declarations ({detail}). "
+        "Regenerate it with scripts/update_locks.py."
+    ]
+
+
 def verify_lock_target(
     target: LockTarget, *, root: Path = REPO_ROOT, distribution: str = "agents-shipgate"
 ) -> list[str]:
@@ -195,9 +335,14 @@ def verify_lock_target(
     lock_path = root / target.lock
     pins = parse_lock(lock_path)
     requirements = declared_requirements(target, root=root)
-    problems: list[str] = []
+    problems = _declaration_problems(target, lock_path, sorted_declarations(requirements))
 
-    unhashed = sorted(name for name, pin in pins.items() if pin.hashes == 0)
+    unhashed = sorted(
+        f"{name}{branch.describe()}"
+        for name, branches in pins.items()
+        for branch in branches
+        if branch.hashes == 0
+    )
     if unhashed:
         problems.append(
             f"{target.lock} pins {', '.join(unhashed)} without a hash; "
@@ -208,31 +353,79 @@ def verify_lock_target(
     for requirement in requirements:
         name = canonicalize_name(requirement.name)
         declared.add(name)
-        pin = pins.get(name)
-        if pin is None:
+        branches = pins.get(name)
+        if not branches:
+            if requirement.marker is not None:
+                # A declaration that no supported environment selects is
+                # legitimately absent from the resolution. The declaration
+                # block above still binds it, so a change cannot hide here.
+                continue
             problems.append(
                 f"{target.source} declares {requirement} but {target.lock} pins no {name}; "
                 "the lock is stale. Regenerate it with scripts/update_locks.py."
             )
             continue
-        if requirement.specifier and not requirement.specifier.contains(
-            pin.version, prereleases=True
-        ):
-            problems.append(
-                f"{target.lock} pins {name}=={pin.version} (line {pin.line}), which does not "
-                f"satisfy the declared {requirement}. Regenerate the lock with "
-                "scripts/update_locks.py."
-            )
+        for branch in branches:
+            if branch.version is None:
+                if requirement.specifier:
+                    problems.append(
+                        f"{target.lock} resolves {name}{branch.describe()} to a direct URL, "
+                        f"but {target.source} declares the range {requirement}."
+                    )
+                continue
+            if requirement.specifier and not requirement.specifier.contains(
+                branch.version, prereleases=True
+            ):
+                problems.append(
+                    f"{target.lock} pins {name}{branch.describe()}, which does not satisfy "
+                    f"the declared {requirement}. Regenerate the lock with "
+                    "scripts/update_locks.py."
+                )
 
     markers = _direct_marker(target, distribution=distribution)
-    for name, pin in sorted(pins.items()):
+    for name, branches in sorted(pins.items()):
         if name in declared:
             continue
-        if any(requester in markers for requester in pin.requesters):
-            problems.append(
-                f"{target.lock} carries {name}=={pin.version} (line {pin.line}) as a direct "
-                f"requirement, but {target.source} no longer declares it."
-            )
+        for branch in branches:
+            if any(requester in markers for requester in branch.requesters):
+                problems.append(
+                    f"{target.lock} carries {name}{branch.describe()} as a direct "
+                    f"requirement, but {target.source} no longer declares it."
+                )
+    return problems
+
+
+def co_installed_problems(
+    *,
+    root: Path = REPO_ROOT,
+    targets: tuple[LockTarget, ...] = LOCK_TARGETS,
+    groups: tuple[tuple[str, ...], ...] = CO_INSTALLED,
+) -> list[str]:
+    """Locks installed side by side must not pin one distribution twice over."""
+
+    known = {target.lock for target in targets}
+    problems: list[str] = []
+    for group in groups:
+        missing = [lock for lock in group if lock not in known]
+        if missing:
+            problems.append(f"Co-installed group names unknown locks: {', '.join(missing)}.")
+            continue
+        versions: dict[str, dict[str, set[str]]] = {}
+        for lock in group:
+            for name, branches in parse_lock(root / lock).items():
+                for branch in branches:
+                    if branch.version is not None:
+                        versions.setdefault(name, {}).setdefault(branch.version, set()).add(lock)
+        for name, by_version in sorted(versions.items()):
+            if len(by_version) > 1:
+                spread = "; ".join(
+                    f"{version} in {', '.join(sorted(locks))}"
+                    for version, locks in sorted(by_version.items())
+                )
+                problems.append(
+                    f"{name} is pinned at different versions by locks installed together "
+                    f"({spread}); the later install would move the earlier closure."
+                )
     return problems
 
 
@@ -240,6 +433,7 @@ def verify_all(*, root: Path = REPO_ROOT, targets: tuple[LockTarget, ...] = LOCK
     problems: list[str] = []
     for target in targets:
         problems.extend(verify_lock_target(target, root=root))
+    problems.extend(co_installed_problems(root=root, targets=targets))
     if problems:
         raise ReleaseError("\n  - ".join(["Dependency locks are out of date:", *problems]))
 

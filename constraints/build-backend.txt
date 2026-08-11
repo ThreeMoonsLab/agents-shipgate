@@ -1,0 +1,58 @@
+# Hash-locked closure of the build backend, for installs that must not resolve.
+#
+# `--no-deps` does not disable PEP 517 build isolation, and `PIP_CONSTRAINT`
+# does not reach an isolated build environment on current pip: constraining
+# hatchling to a version that does not exist still built successfully. So the
+# editable install that CI and release verification perform was resolving its
+# backend — and the backend's own dependencies — fresh from the index on every
+# run, which is exactly the drift constraints/dev.txt exists to remove.
+#
+# This file is that backend's whole closure, pinned and hashed. Installing it
+# first is what makes `--no-build-isolation` possible:
+#
+#     python -m pip install --require-hashes --requirement constraints/dev.txt
+#     python -m pip install --require-hashes --requirement constraints/build-backend.txt
+#     python -m pip install -e . --no-deps --no-build-isolation
+#
+# Compiled from constraints/release-build.txt, so the backend version lives in
+# exactly one hand-maintained place and the reproducibility argument recorded
+# there governs this file too. Every distribution named here that is also in
+# constraints/dev.txt must be pinned to the same version, or the second install
+# would silently move the first one's closure;
+# scripts/verify_dependency_lock.py enforces that.
+#
+# Regenerate with:
+#
+#     python scripts/update_locks.py constraints/build-backend.txt
+#     python scripts/verify_dependency_lock.py
+#
+# (that runs `uv pip compile --universal --generate-hashes` and restores this
+# header, which the compiler would otherwise overwrite.)
+#
+# --- generated: the declarations this lock was compiled from ---
+#
+# Compared against the source by scripts/verify_dependency_lock.py, so a
+# changed extra, marker, URL or range cannot slip past without recompiling.
+#
+#   declares: hatchling==1.31.0
+#
+hatchling==1.31.0 \
+    --hash=sha256:6b48ad4068a482ed7239b3a8215bc55b47aad3345d58dfc94e553c5d2d46211b \
+    --hash=sha256:aac80bec8b6fe35e8480f1c335be8910fa210a0e6f735a139be205dadcacb544
+    # via -r constraints/release-build.txt
+packaging==26.3 \
+    --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+    # via hatchling
+pathspec==1.1.1 \
+    --hash=sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a \
+    --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189
+    # via hatchling
+pluggy==1.6.0 \
+    --hash=sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3 \
+    --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
+    # via hatchling
+trove-classifiers==2026.6.1.19 \
+    --hash=sha256:ab4c4ec93cc4a4e7815fa759906e05e6bb3f2fbd92ea0f897288c6a43efd15b3 \
+    --hash=sha256:c5132b4b61a829d11cfbd2d72e97f20a45ed6edb95e45c5efdeb5e00836b2745
+    # via hatchling

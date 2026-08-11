@@ -170,22 +170,36 @@
   runs, so it is caught while the tag does not yet exist — and `## Unreleased`
   never matches a tag, which is what makes promoting that heading a step the
   pipeline enforces. A body over GitHub's 125,000-character limit is refused
-  there too, rather than by a 422 after tagging. Separately,
-  `pip install -e ".[dev]"` resolved fresh at release time, so the run that
-  decided whether to publish could install different packages than the CI run
-  that approved the commit, and a release-only failure was not reproducible
-  from the same tree. CI and release verification now install the identical
-  hash-locked closure in `constraints/dev.txt`, with the project added
-  separately (`--no-deps`, backend pinned by `constraints/release-build.txt`)
-  because an editable install cannot be hashed, and `python -m pip check`
-  proving the closure satisfies what the project declares. Regeneration is one
-  command for every lock in the repository (`scripts/update_locks.py`, which
-  restores the headers `uv` would overwrite), and
-  `scripts/verify_dependency_lock.py` — run in CI and before publication —
-  fails on a declared requirement with no pin, a pin outside the declared
-  range, a direct requirement the declarations no longer contain, or a pin
-  without a hash. It never re-resolves against the index, so an unrelated
-  upload cannot turn the build red.
+  there too, rather than by a 422 after tagging. Verification, staging and
+  finalisation each extract the section, so verification publishes its SHA-256
+  and the other two must land on it; finalisation reapplies the body **in the
+  same API call that undrafts**, because the window between staging and
+  publication — the environment approval included — is time in which a
+  release-write actor can edit a draft's text that nothing downstream re-reads.
+  Every job writes the file under `$RUNNER_TEMP`, so a candidate cannot decide
+  where the write lands. Separately, `pip install -e ".[dev]"` resolved fresh
+  at release time, so the run that decided whether to publish could install
+  different packages than the CI run that approved the commit, and a
+  release-only failure was not reproducible from the same tree. CI and release
+  verification now install the identical hash-locked closure in
+  `constraints/dev.txt`, add the project with `--no-deps` (an editable install
+  cannot be hashed) **and `--no-build-isolation` against the hashed backend
+  closure in `constraints/build-backend.txt`** — `--no-deps` does not disable
+  PEP 517 build isolation, and current pip does not apply `PIP_CONSTRAINT` to
+  an isolated build environment, so the backend and its own dependencies were
+  still being resolved from the index on every run — and finish with
+  `python -m pip check` proving the closure satisfies what the project
+  declares. Regeneration is one command for every lock in the repository
+  (`scripts/update_locks.py`, which restores the headers `uv` would
+  overwrite), and each lock now records the normalized PEP 508 declarations it
+  was compiled from, so a declaration that grows an extra, moves behind a
+  marker or becomes a direct URL invalidates it even though every name and
+  range still matches. `scripts/verify_dependency_lock.py` — run in CI and
+  before publication — checks that binding plus a declared requirement with no
+  pin, a pin outside the declared range, a direct requirement the declarations
+  no longer contain, a pin without a hash, and locks installed together that
+  disagree on a shared version. It never re-resolves against the index, so an
+  unrelated upload cannot turn the build red.
   ([#345](https://github.com/ThreeMoonsLab/agents-shipgate/issues/345))
 - **Insufficient-evidence remediation now stays framework-aware from the
   decision engine through every primary short-form surface.** Semantic
