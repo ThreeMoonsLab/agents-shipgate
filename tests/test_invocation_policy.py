@@ -22,6 +22,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from agents_shipgate.invocation import (
     CANONICAL_CONSOLE_SCRIPT,
@@ -192,28 +193,62 @@ def test_env_assignment_prefixes_keep_their_assignments() -> None:
     assert f"{join_argv(_module_prefix())} scan" in rendered
 
 
-def test_windows_renders_commands_with_windows_quoting(monkeypatch) -> None:
-    """POSIX single quotes are not quoting on Windows — they are characters.
+@pytest.mark.parametrize("windows", [False, True])
+def test_windows_paths_round_trip_through_render_and_split(monkeypatch, windows: bool) -> None:
+    """One renderer and one parser, so a value cannot change in transit.
 
-    ``shlex.join`` would spell a Windows interpreter as
-    ``'C:\\Python312\\python.exe'``, which ``cmd.exe`` and PowerShell cannot
-    run, and which stops containing a metacharacter in any argument it quotes.
-    The package declares OS independence, so the rendering follows the host.
+    Rendering with ``subprocess.list2cmdline`` and parsing with POSIX ``shlex``
+    turned ``C:\\repo`` into ``C:repo`` — not an unrunnable command but a
+    *runnable* one against the wrong workspace. Uniform POSIX quoting
+    round-trips Windows paths exactly, because a single-quoted ``'C:\\repo'``
+    keeps its backslashes.
     """
 
+    monkeypatch.setattr("agents_shipgate.invocation._WINDOWS", windows)
+    arguments = ["verify", "--workspace", r"C:\repo", "--config", r"C:\repo\shipgate.yaml"]
+
+    rendered = render_command(arguments, prefix=("agents-shipgate",))
+    assert split_invocation(rendered, prefix=("agents-shipgate",)) == (
+        ["agents-shipgate"],
+        arguments,
+    )
+
+
+def test_a_windows_interpreter_prefix_survives_the_round_trip(monkeypatch) -> None:
     monkeypatch.setattr("agents_shipgate.invocation._WINDOWS", True)
     windows_prefix = (r"C:\Program Files\Python312\python.exe", "-m", "agents_shipgate")
 
     rendered = retarget_command("agents-shipgate verify --json", prefix=windows_prefix)
-    assert rendered == (
-        r'"C:\Program Files\Python312\python.exe" -m agents_shipgate verify --json'
-    )
     # The entry point is recovered from the resolved invocation, never by
-    # parsing the string back — a POSIX parse would eat those backslashes.
+    # parsing the string back.
     assert split_invocation(rendered, prefix=windows_prefix) == (
         list(windows_prefix),
         ["verify", "--json"],
     )
+
+
+def test_a_windows_cli_override_keeps_its_backslashes(monkeypatch) -> None:
+    """POSIX ``shlex`` reads ``C:\\Tools\\x.exe`` as ``C:Toolsx.exe``.
+
+    The operator wrote a correct path; parsing it with the wrong rules produced
+    one that does not exist, which silently undid the absolute-override fix on
+    the only platform where backslashes are normal.
+    """
+
+    monkeypatch.setattr("agents_shipgate.invocation._WINDOWS", True)
+    bare = invocation_prefix(
+        argv=["x"],
+        env={CLI_OVERRIDE_ENV_VAR: r"C:\Tools\agents-shipgate.exe"},
+        main_module=_CONSOLE,
+    )
+    assert bare == (r"C:\Tools\agents-shipgate.exe",)
+
+    quoted = invocation_prefix(
+        argv=["x"],
+        env={CLI_OVERRIDE_ENV_VAR: r'"C:\Program Files\ags\agents-shipgate.exe" --flag'},
+        main_module=_CONSOLE,
+    )
+    assert quoted == (r"C:\Program Files\ags\agents-shipgate.exe", "--flag")
 
 
 def test_commands_belonging_to_other_programs_are_left_alone() -> None:
@@ -303,9 +338,7 @@ def test_split_invocation_agrees_with_the_string_it_was_derived_from() -> None:
 
 def test_split_invocation_refuses_shell_only_commands() -> None:
     assert split_invocation("VAR=1 agents-shipgate scan", prefix=("shipgate",)) is None
-    assert (
-        split_invocation("agents-shipgate scan --config 'oops", prefix=("shipgate",)) is None
-    )
+    assert split_invocation("agents-shipgate scan --config 'oops", prefix=("shipgate",)) is None
 
 
 @pytest.mark.parametrize(
@@ -366,19 +399,45 @@ def test_non_command_actions_carry_no_structured_pair() -> None:
     assert action.args is None
 
 
-def test_structured_pair_is_derived_not_accepted(monkeypatch) -> None:
+def test_structured_pair_cannot_be_supplied(monkeypatch) -> None:
     """A caller cannot publish an argv that disagrees with the string."""
 
     monkeypatch.delenv(CLI_OVERRIDE_ENV_VAR, raising=False)
-    action = NextAction(
-        kind="command",
-        command="agents-shipgate verify --json",
-        why="because",
-        executable=["rm"],
-        args=["-rf", "/"],
-    )
-    assert action.executable == ["agents-shipgate"]
-    assert action.args == ["verify", "--json"]
+    with pytest.raises(ValidationError) as excinfo:
+        NextAction(
+            kind="command",
+            command="agents-shipgate verify --json",
+            why="because",
+            executable=["rm"],
+            args=["-rf", "/"],
+        )
+    assert [error["type"] for error in excinfo.value.errors()] == [
+        "extra_forbidden",
+        "extra_forbidden",
+    ]
+
+
+@pytest.mark.parametrize("mutate", ["copy", "assign"])
+def test_the_structured_pair_cannot_go_stale(monkeypatch, mutate: str) -> None:
+    """Deriving at construction is not enough to make the guarantee true.
+
+    ``model_copy(update=...)`` skips validation and the model is mutable, so a
+    pair fixed once could outlive the command it described — serializing an
+    argv for a command the action no longer holds.
+    """
+
+    monkeypatch.delenv(CLI_OVERRIDE_ENV_VAR, raising=False)
+    action = NextAction(kind="command", command="agents-shipgate verify --json", why="x")
+    replacement = "agents-shipgate scan -c shipgate.yaml --format json"
+
+    if mutate == "copy":
+        action = action.model_copy(update={"command": replacement})
+    else:
+        action.command = replacement
+
+    payload = action.model_dump(mode="json")
+    assert payload["command"] == replacement
+    assert payload["args"] == ["scan", "-c", "shipgate.yaml", "--format", "json"]
 
 
 def test_structured_pair_is_omitted_when_the_string_needs_a_shell(monkeypatch) -> None:

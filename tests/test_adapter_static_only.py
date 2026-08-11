@@ -396,21 +396,6 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
         ),
     ),
     AllowedException(
-        relative_path="invocation.py",
-        surface="import:subprocess",
-        line=66,
-        snippet="from subprocess import list2cmdline",
-        rationale=(
-            "list2cmdline is a pure string function: it renders an argv list "
-            "with Windows quoting rules and starts no process. Emitted "
-            "commands must be runnable where they are emitted, and POSIX "
-            "single quotes are not quoting on Windows. The from-import is "
-            "narrow on purpose — no process-spawning name is bound in this "
-            "module, so a future subprocess.run here would be a different "
-            "import line with a different snippet and would fail this test."
-        ),
-    ),
-    AllowedException(
         relative_path="triggers.py",
         surface="attr_call:importlib.resources.files",
         line=118,

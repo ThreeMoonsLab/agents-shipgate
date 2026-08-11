@@ -117,10 +117,11 @@ def emit_agent_mode_error(
     if exit_code is not None:
         payload["exit_code"] = exit_code
     payload["command"] = command or _command_string()
+    normalized_actions = _normalized_actions(next_actions) if next_actions is not None else None
     if next_action is not None:
-        payload["next_action"] = _normalized_legacy_action(next_action)
-    if next_actions is not None:
-        payload["next_actions"] = _normalized_actions(next_actions)
+        payload["next_action"] = _legacy_action(next_action, normalized_actions)
+    if normalized_actions is not None:
+        payload["next_actions"] = normalized_actions
     if diagnostics is not None:
         payload["diagnostics"] = diagnostics
     if artifacts is not None:
@@ -163,17 +164,43 @@ def _normalized_action(action: object) -> object:
     return normalized
 
 
-def _normalized_legacy_action(next_action: object) -> object:
-    """The single-string form, kept in step with the ranked array.
+def _legacy_action(next_action: object, normalized_actions: object) -> object:
+    """The single-string form, kept from contradicting the ranked array.
 
-    ``next_action`` is prose for every kind but ``command``, and
-    :func:`retarget_command` only ever rewrites a leading token that names one
-    of our console scripts — so a sentence passes through untouched.
+    ``docs/diagnostics.md`` says a rank-1 `command` action projects to this
+    field *verbatim*. Normalizing the two independently broke that: on the
+    ``apply-patches`` pre-v0.6 path the array's rank-1 was a retargeted scan
+    command while the legacy field stayed a sentence, so a caller reading the
+    documented back-compat field got prose where a runnable command existed —
+    and, worse, a field that could still name a console script the array had
+    already retargeted away from.
+
+    A rank-1 command therefore wins outright. The other kinds are deliberately
+    left alone: there is no program to disagree about, and the documented
+    ``Edit <path>`` / ``Review: <why>`` projections are a lossy formatting of
+    what a caller often says better ("Remove <path> and re-run scan" carries an
+    instruction that ``Edit <path>`` drops). Prose is still retargeted so it
+    cannot name a stale entry point either.
     """
 
+    command = _rank_one_command(normalized_actions)
+    if command is not None:
+        return command
     if isinstance(next_action, str) and next_action:
         return retarget_command(next_action)
     return next_action
+
+
+def _rank_one_command(normalized_actions: object) -> str | None:
+    """The rank-1 action's command, when it has one."""
+
+    if not isinstance(normalized_actions, list) or not normalized_actions:
+        return None
+    first = normalized_actions[0]
+    if not isinstance(first, dict) or first.get("kind") != "command":
+        return None
+    command = first.get("command")
+    return command if isinstance(command, str) and command else None
 
 
 def _command_string() -> str:

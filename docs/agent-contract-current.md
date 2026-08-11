@@ -15,9 +15,12 @@ produced it. A run started with `python -m agents_shipgate` now proposes
 `<sys.executable> -m agents_shipgate ...` instead of a console script its
 environment may not have; a console-script run is unchanged. Actions with
 `kind="command"` in `next_actions[]` also carry `executable[]` and `args[]` —
-run them as `[*executable, *args]` with no shell. The pair is derived from
-`command`, so the two forms cannot disagree, and it is omitted (not `null`)
-whenever the command has no faithful argv form. Set `AGENTS_SHIPGATE_CLI` to
+**the authoritative runnable form on every platform**; run them as
+`[*executable, *args]` with no shell. The pair is computed from `command` and
+cannot be supplied, so the two forms cannot disagree, and it is omitted (not
+`null`) whenever the command has no faithful argv form. `command` itself is a
+POSIX rendering for display and POSIX shells. When the rank-1 action is a
+command, the legacy `next_action` string is that command verbatim. Set `AGENTS_SHIPGATE_CLI` to
 name the entry point explicitly. Durable evidence artifacts (`report.json`,
 `packet.*`) stay canonical: "same inputs, same report" outranks runnability
 there, and process-entry spelling is not an input.

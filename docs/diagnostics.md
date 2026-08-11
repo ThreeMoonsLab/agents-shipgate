@@ -64,17 +64,26 @@ recovery loop stays runnable in the environment that produced it:
 | `python -m agents_shipgate …`         | `<sys.executable> -m agents_shipgate …`. The interpreter is spelled by path, not as a bare `python`, because a bare name resolves through `PATH` and can land on a different interpreter. |
 | Anything else                         | The canonical `agents-shipgate`. An unrecognised argv is not evidence of a better spelling. |
 
-Commands are quoted for the host shell: POSIX rules elsewhere, Windows rules on
-Windows, where `'C:\Python312\python.exe'` is not quoting at all but four
-literal characters and a path `cmd.exe` cannot run.
-
 `command` never contains `__main__.py`.
 
-**Structured argv.** `executable` and `args` are a shell-independent projection
-of `command` — `subprocess.run([*executable, *args])` runs the same thing the
-string does. They are derived from `command` rather than supplied, so the two
-cannot disagree, and the entry point is taken from the resolved invocation
-rather than parsed back out of the string.
+**`command` is a POSIX-shell rendering, not a host-shell promise.** It is
+quoted with POSIX rules on every platform, deliberately: one renderer and one
+parser must agree, or a value changes in transit. (`subprocess.list2cmdline`
+looks like the Windows answer but is MS C-runtime *argv* quoting — it leaves
+`feature&whoami` unquoted for `cmd.exe`, and pairing it with a POSIX parse
+turned `C:\repo` into `C:repo`: a runnable command against the wrong
+workspace.) Uniform POSIX quoting round-trips Windows paths exactly, since a
+single-quoted `'C:\repo'` keeps its backslashes. **Do not paste `command`
+into `cmd.exe` or PowerShell** — single quotes are not quoting there. Use the
+structured pair.
+
+**Structured argv is the authoritative runnable form**, on every platform.
+`executable` and `args` need no shell at all: `subprocess.run([*executable,
+*args])` runs exactly what the string describes. They are *computed* from
+`command`, never supplied — passing them is a validation error, and they are
+recomputed on every read, so no mutation can leave them describing a command
+the action no longer holds. The entry point comes from the resolved invocation
+rather than from parsing the string back.
 
 Both keys are **omitted**, not `null`, whenever the command has no faithful
 argv form:
@@ -85,7 +94,8 @@ argv form:
   (`>`, and therefore a `<report.json>` placeholder), substitution (`$VAR`,
   backticks), or a glob. `shlex.split` returns `&&` as an ordinary token, so
   publishing its output would advertise a call that does something other than
-  what the string says;
+  what the string says. Only **single** quotes make these inert: double quotes
+  suppress word splitting but not substitution, so `"$HOME"` is withheld too;
 - any action whose `kind` is not `command`.
 
 The rendered string stays authoritative in all of those cases.
@@ -110,12 +120,20 @@ agent-mode error JSON is the rank-1 action projected to a single string:
 | Rank-1 kind | Legacy projection                  |
 | ----------- | ---------------------------------- |
 | command     | the `command` value verbatim       |
-| edit        | `Edit <path>`                      |
-| review      | `Review: <why>`                    |
-| stop        | `Stop: <why>`                      |
+| edit        | `Edit <path>`, or a caller-written sentence naming the same file |
+| review      | `Review: <why>`, or a caller-written sentence |
+| stop        | `Stop: <why>`, or a caller-written sentence |
 
 This keeps `next_action` string-typed even for negative-control
 diagnostics where no command should run.
+
+A rank-1 `command` is authoritative: the legacy field is that command
+verbatim, spelled for the same invocation, so the two can never route a caller
+to different programs. For the other kinds there is no program to disagree
+about, and a command emitter may supply a more specific sentence than the
+generic projection (`Remove <path> and re-run scan` rather than
+`Edit <path>`); those are still retargeted, so prose cannot name a stale entry
+point either.
 
 ## Catalog
 

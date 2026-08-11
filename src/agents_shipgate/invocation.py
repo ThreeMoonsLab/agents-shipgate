@@ -63,7 +63,6 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePath
-from subprocess import list2cmdline
 from typing import Literal
 
 __all__ = [
@@ -111,6 +110,10 @@ _ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=[^\s]*")
 # does. Only occurrences outside quotes count — ``--base 'HEAD~1'`` is argv.
 _SHELL_METACHARACTERS = frozenset("|&;<>()$`*?[]{}~!#\n\r")
 
+# The subset that a double quote does *not* neutralize: parameter expansion and
+# command substitution both still happen inside ``"..."``.
+_EXPANSION_CHARACTERS = frozenset("$`")
+
 # Fallback when the interpreter cannot name itself (embedded interpreters
 # leave ``sys.executable`` empty).
 _FALLBACK_INTERPRETER = "python3"
@@ -157,28 +160,62 @@ def _interpreter() -> str:
 
 
 def join_argv(tokens: Sequence[str]) -> str:
-    """Render argv as a string the *local* shell would parse back to it.
+    """Render argv as one POSIX-shell string. **Not** a host-shell promise.
 
-    ``shlex.join`` is POSIX-only: it quotes with single quotes, which
-    ``cmd.exe`` treats as ordinary characters rather than as quoting. A Windows
-    interpreter path is exactly the case that needs quoting (backslashes, often
-    a space in ``Program Files``), so rendering it POSIX-style produces a string
-    Windows cannot run — and, worse, one where a metacharacter in an argument
-    is no longer contained.
+    There is deliberately one renderer and one parser, both POSIX, because the
+    two must agree: a string rendered one way and parsed another silently
+    changes the values it carries. ``subprocess.list2cmdline`` looked like the
+    Windows answer and is not — it implements MS C-runtime *argv* quoting, so
+    it leaves ``feature&whoami`` unquoted (a ``cmd.exe`` command separator) and
+    produces a quoted path PowerShell will not invoke without ``&``. Rendering
+    with it and parsing with POSIX ``shlex`` also turned ``C:\\repo`` into
+    ``C:repo``, which is worse than an unrunnable string: it is a *runnable*
+    command against the wrong workspace.
+
+    Uniform POSIX quoting round-trips Windows paths exactly, because a
+    single-quoted ``'C:\\repo'`` preserves backslashes literally. What it does
+    not do is make the string safe to paste into ``cmd.exe`` — nothing would,
+    since single quotes are not quoting there. So the promise is narrowed
+    rather than faked: ``command`` is a POSIX rendering for display and for
+    POSIX shells, and ``[*executable, *args]`` is the authoritative runnable
+    form on every platform. That pair is exact by construction and needs no
+    shell at all.
     """
 
-    if _WINDOWS:
-        return list2cmdline(list(tokens))
     return shlex.join(tokens)
+
+
+def _split_override(raw: str) -> list[str] | None:
+    """Parse ``AGENTS_SHIPGATE_CLI`` with the host's own rules.
+
+    POSIX ``shlex`` treats a backslash as an escape, so the ordinary Windows
+    value ``C:\\Tools\\agents-shipgate.exe`` collapses to
+    ``C:Toolsagents-shipgate.exe`` — a path that does not exist, produced from
+    a value the operator wrote correctly. Non-POSIX mode splits on whitespace
+    and keeps backslashes; it also keeps the quote characters, so surrounding
+    quotes are stripped here rather than left in the token.
+    """
+
+    try:
+        if _WINDOWS:
+            return [_strip_outer_quotes(token) for token in shlex.split(raw, posix=False)]
+        return shlex.split(raw)
+    except ValueError:
+        return None
+
+
+def _strip_outer_quotes(token: str) -> str:
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "'\"":
+        return token[1:-1]
+    return token
 
 
 def _override_prefix(env: Mapping[str, str]) -> tuple[str, ...] | None:
     raw = env.get(CLI_OVERRIDE_ENV_VAR, "").strip()
     if not raw:
         return None
-    try:
-        tokens = shlex.split(raw)
-    except ValueError:
+    tokens = _split_override(raw)
+    if tokens is None:
         return None
     return tuple(tokens) or None
 
@@ -344,10 +381,15 @@ def _program_token_span(command: str) -> tuple[int, int] | None:
 def _has_shell_syntax(text: str) -> bool:
     """Whether ``text`` needs a shell to mean what it says.
 
-    Quoted regions are exempt: ``--base 'HEAD~1'`` is one argv token, while a
-    bare ``&&`` is a control operator no ``[*executable, *args]`` call can
-    reproduce. Backslash escapes are honoured so an escaped metacharacter is
-    read as the literal it is.
+    Single quotes are the only construct that makes every metacharacter inert:
+    ``--base 'HEAD~1'`` is one argv token. Double quotes suppress word
+    splitting and globbing but **not** substitution, so ``printf "$HOME"`` and
+    ``"$(id)"`` still expand — a structured argv would pass the dollar sign
+    through literally and do something the string does not. Those forms are
+    therefore detected inside double quotes too.
+
+    Backslash escapes are honoured so an escaped metacharacter is read as the
+    literal it is.
     """
 
     quote: str | None = None
@@ -357,12 +399,17 @@ def _has_shell_syntax(text: str) -> bool:
         if quote is None and char == "\\":
             index += 2
             continue
-        if quote is not None:
-            if char == quote:
+        if quote == "'":
+            if char == "'":
                 quote = None
-            elif quote == '"' and char == "\\":
+        elif quote == '"':
+            if char == "\\":
                 index += 2
                 continue
+            if char == '"':
+                quote = None
+            elif char in _EXPANSION_CHARACTERS:
+                return True
         elif char in "'\"":
             quote = char
         elif char in _SHELL_METACHARACTERS:

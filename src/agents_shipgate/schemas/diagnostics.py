@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    model_serializer,
+    model_validator,
+)
 from pydantic.functional_serializers import SerializerFunctionWrapHandler
 
 from agents_shipgate.invocation import retarget_command, split_invocation
@@ -30,11 +37,13 @@ class NextAction(BaseModel):
     * It is retargeted to however *this* process entered the CLI. Emitting
       ``agents-shipgate`` from a ``python -m agents_shipgate`` run hands the
       caller a command its environment may have no wrapper for (#322).
-    * ``executable`` and ``args`` are derived from the retargeted string, so a
-      caller that would rather not parse a shell string does not have to. They
-      are a *projection*, never independent input: deriving them from the same
-      value the string is rendered from is what makes it impossible for the
-      two forms to disagree.
+    * ``executable`` and ``args`` are *computed* from the retargeted string, so
+      a caller that would rather not parse a shell string does not have to.
+      They are a projection and never independent input — supplying them is an
+      ``extra_forbidden`` error, and because they are recomputed on every read
+      no mutation path can leave them describing a command the action no longer
+      holds. "The two forms cannot disagree" is a property of the type rather
+      than a claim about one code path.
 
     This model is published with ``extra="forbid"``, so the two properties are
     not additive for a strict consumer validating against the pre-v23 shape —
@@ -50,8 +59,40 @@ class NextAction(BaseModel):
     path: str | None = None
     why: str
     expects: str | None = None
-    executable: list[str] | None = None
-    args: list[str] | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def executable(self) -> list[str] | None:
+        """Entry-point argv tokens for :attr:`command`, or ``None``.
+
+        Computed rather than stored, which is what makes "the two forms cannot
+        disagree" a property of the type instead of a claim about one code
+        path. Setting the pair once during validation left it stale after
+        ``model_copy(update={"command": ...})`` — which skips validation — and
+        after a plain attribute assignment, so a mutated action could serialize
+        an argv belonging to the command it used to hold. Deriving on every
+        read closes both, and ``extra="forbid"`` now rejects a caller trying to
+        supply the pair at all.
+        """
+
+        return self._argv[0]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def args(self) -> list[str] | None:
+        """The remaining argv tokens. See :attr:`executable`."""
+
+        return self._argv[1]
+
+    @property
+    def _argv(self) -> tuple[list[str], list[str]] | tuple[None, None]:
+        if self.kind != "command" or not self.command:
+            return (None, None)
+        # ``None`` means the string has no faithful argv form — a leading
+        # ``NAME=VALUE`` assignment, or unquoted shell syntax. Withholding the
+        # pair is the honest answer; the rendered string carries the whole
+        # instruction either way.
+        return split_invocation(self.command) or (None, None)
 
     @model_serializer(mode="wrap")
     def _drop_absent_argv(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -80,15 +121,6 @@ class NextAction(BaseModel):
             raise ValueError("kind='stop' must not carry a command")
         if self.kind == "command" and self.command:
             self.command = retarget_command(self.command)
-            split = split_invocation(self.command)
-            # ``None`` means the string has no faithful argv form — a leading
-            # ``NAME=VALUE`` assignment is shell syntax, not an argv token.
-            # Leaving the structured pair unset is the honest answer; the
-            # rendered string still carries the whole instruction.
-            self.executable, self.args = split if split is not None else (None, None)
-        else:
-            self.executable = None
-            self.args = None
         return self
 
     def to_legacy_string(self) -> str:
