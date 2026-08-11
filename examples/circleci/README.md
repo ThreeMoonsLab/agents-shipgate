@@ -11,4 +11,5 @@ artifacts.
 | `02-strict-with-baseline.yml` | Fail only on new critical/high findings after saving a baseline. |
 | `03-sarif-artifact-retention.yml` | Generate Markdown, JSON, and SARIF reports as artifacts. |
 | `04-multi-config-workspace.yml` | Monorepo with multiple `shipgate.yaml` files. |
-| `05-on-tool-source-changes.yml` | Skip the scan when the manifest/tool surface did not change. |
+
+> **Retired:** the `on-tool-source-changes` recipe was removed. A change-prefilter cannot gate Shipgate safely. `TRIGGER-EXISTING-MANIFEST-PRESENT` is `force_run`, so an adopted repo (one with `shipgate.yaml`) is contracted to run on **every** PR — the prefilter was not saving the scan it claimed to save. Worse, every prefilter language here matches paths case-sensitively while the trigger catalog does not, so an allowlist silently drops governance edits such as `services/foo/Policies/refund.yaml` — with no job, no check, and no signal. Run the advisory recipe on every PR and let the in-job trigger evaluator decide.

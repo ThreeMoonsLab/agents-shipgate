@@ -9,7 +9,6 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`03-strict-with-baseline.yml`](03-strict-with-baseline.yml) | When you have existing findings and want to fail only on net-new ones. |
 | [`04-multi-config-workspace.yml`](04-multi-config-workspace.yml) | Monorepo with several agents (each with its own `shipgate.yaml`). |
 | [`05-sarif-to-code-scanning.yml`](05-sarif-to-code-scanning.yml) | Surface findings in GitHub's Security tab and as PR annotations. |
-| [`06-on-tool-source-changes.yml`](06-on-tool-source-changes.yml) | Skip the scan when the tool surface didn't change, using the trigger evaluator rather than an `on.pull_request.paths` prefilter (which is case-sensitive, and drops PRs before any check reports). |
 | [`07-block-on-blocked-verdict.yml`](07-block-on-blocked-verdict.yml) | Intermediate verifier policy: allow human-review PRs, but fail blocked verdicts. |
 | [`08-require-mergeable.yml`](08-require-mergeable.yml) | Strict verifier policy: fail unless no human authority gap remains. |
 | [`09-risk-labels-and-reviewers.yml`](09-risk-labels-and-reviewers.yml) | Label PRs by risk signal (`agent-capability-change`, `trust-root-touched`, `shipgate-blocked`) and request boundary owners as reviewers. |
@@ -17,6 +16,8 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`11-fail-on-insufficient-evidence.yml`](11-fail-on-insufficient-evidence.yml) | Evidence policy: fail when static evidence is too weak to gate confidently. |
 | [`12-host-grant-drift.yml`](12-host-grant-drift.yml) | Scheduled drift gate: fail when current coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes) no longer match the acknowledged `.agents-shipgate/host-grants.json` baseline. Catches authority changes that land outside PR review. |
 | [`13-org-governance.yml`](13-org-governance.yml) | Scheduled organization governance gate: exception hygiene, policy-pack pinning, and host-grant drift. Does not create a second release verdict. |
+
+> **Retired:** the `on-tool-source-changes` recipe was removed. A change-prefilter cannot gate Shipgate safely. `TRIGGER-EXISTING-MANIFEST-PRESENT` is `force_run`, so an adopted repo (one with `shipgate.yaml`) is contracted to run on **every** PR — the prefilter was not saving the scan it claimed to save. Worse, every prefilter language here matches paths case-sensitively while the trigger catalog does not, so an allowlist silently drops governance edits such as `services/foo/Policies/refund.yaml` — with no job, no check, and no signal. Run the advisory recipe on every PR and let the in-job trigger evaluator decide.
 
 ## Permissions
 

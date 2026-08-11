@@ -233,19 +233,16 @@ ACTION_PIN_FILES = (
     "examples/github-actions/03-strict-with-baseline.yml",
     "examples/github-actions/04-multi-config-workspace.yml",
     "examples/github-actions/05-sarif-to-code-scanning.yml",
-    "examples/github-actions/06-on-tool-source-changes.yml",
     "examples/github-actions/07-block-on-blocked-verdict.yml",
     "examples/github-actions/08-require-mergeable.yml",
     "examples/circleci/01-advisory.yml",
     "examples/circleci/02-strict-with-baseline.yml",
     "examples/circleci/03-sarif-artifact-retention.yml",
     "examples/circleci/04-multi-config-workspace.yml",
-    "examples/circleci/05-on-tool-source-changes.yml",
     "examples/gitlab-ci/01-advisory.yml",
     "examples/gitlab-ci/02-strict-with-baseline.yml",
     "examples/gitlab-ci/03-sarif-or-artifact.yml",
     "examples/gitlab-ci/04-multi-config-workspace.yml",
-    "examples/gitlab-ci/05-on-tool-source-changes.yml",
     "prompts/stabilize-strict-mode.md",
     "skills/agents-shipgate/prompts/stabilize-strict-mode.md",
     "skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml",
@@ -2714,43 +2711,50 @@ def test_hook_regex_fixtures_cover_every_path_based_trigger():
 
 
 def _representative_paths(pattern: str) -> set[str]:
-    """Concrete paths a glob is meant to match, including the two witnesses a
-    naive expansion drops.
+    """Concrete paths a glob is meant to match, at every globstar arity.
 
-    `**` becomes a directory segment and `*` a filename fragment, mirroring
-    the synthesis in `trust_roots._registry_trust_root_surfaces`. On top of
-    that:
+    `**` matches zero or more path segments, so a generator that expands each
+    one to a single fixed directory is not a sweep — it is one sample. Each
+    `**` segment here independently takes 0, 1 or 2 segments and the cartesian
+    product is emitted, which produces the three witnesses a naive expansion
+    drops:
 
-    - **Zero-segment witness.** `**` matches zero segments, so `**/.app.json`
-      must yield repo-root `.app.json`, not only `nested/.app.json`. Without
-      it a hook clause narrowed from `.*\\.app\\.json` to `.+/\\.app\\.json`
-      passes the sweep while dropping every root-level match.
-    - **Bare-directory witness.** `dir/**` matches `dir` itself, so the
-      directory path is generated at every depth too. `dir/*` deliberately
-      does not get one — that glob requires a segment after the slash, and
-      the bare form is contributed by its sibling `dir/**` where one exists.
+    - **Zero segments at a leading `**`.** `**/.app.json` must yield repo-root
+      `.app.json`. Without it, narrowing a hook clause from `.*\\.app\\.json`
+      to `.+/\\.app\\.json` passes while dropping every root-level match.
+    - **Zero segments at an *internal* `**`.** `**/conductor/**/*.json` must
+      yield `service/conductor/job.json`, not only `.../conductor/<dir>/...`.
+    - **Bare directory.** `dir/**` at arity 0 is `dir` itself, which this
+      project's globstar matches. `dir/*` correctly gets no such form — that
+      glob requires a segment after the slash.
 
     Every path is checked against its own source glob by
     `test_representative_paths_are_matched_by_their_source_glob`, so a
     synthesis bug cannot quietly emit paths that pass the sweep by never
     being run-worthy in the first place.
     """
-    body = pattern[3:] if pattern.startswith("**/") else pattern
-    # "" is the zero-segment expansion of a leading `**/`.
-    prefixes = ("", "nested/", "svc/deep/") if pattern.startswith("**/") else ("",)
+    fillers = ("alpha", "beta")
+    arities = (0, 1, 2)
 
-    def expand(text: str) -> str:
-        return (
-            text.replace("**/", "nested/")
-            .replace("/**", "/nested")
-            .replace("**", "nested")
-            .replace("*", "item")
-        )
+    def literal(segment: str) -> str:
+        return segment.replace("*", "item").replace("?", "x")
 
-    out = {prefix + expand(body) for prefix in prefixes}
-    if body.endswith("/**"):
-        out |= {prefix + expand(body[: -len("/**")]) for prefix in prefixes}
-    return {path for path in out if path and not path.endswith("/")}
+    # Every `**` segment independently takes 0, 1 or 2 path segments, and the
+    # cartesian product is generated. A single fixed expansion per globstar is
+    # what let `**/conductor/**/*.json` produce `conductor/nested/item.json`
+    # but never `service/conductor/job.json`, so a narrowed Conductor clause
+    # stayed green.
+    results: set[str] = {""}
+    for segment in pattern.replace("\\", "/").split("/"):
+        if segment == "**":
+            results = {
+                "/".join(filter(None, (prefix, *fillers[:arity])))
+                for prefix in results
+                for arity in arities
+            }
+        else:
+            results = {"/".join(filter(None, (prefix, literal(segment)))) for prefix in results}
+    return {path for path in results if path and not path.endswith("/")}
 
 
 # Both hooks gate on the same trigger surface; they differ only in
@@ -2812,11 +2816,16 @@ def test_hook_regex_stages_every_path_the_evaluator_would_run_on(hook_id: str):
     patterns = _hook_regex_source_patterns()
     assert len(patterns) > 40, f"Only swept {len(patterns)} patterns; synthesis broke."
 
+    # Pass the catalog explicitly: `evaluate` re-reads and re-parses
+    # docs/triggers.json on every call otherwise, and the arity sweep makes
+    # hundreds of calls.
+    catalog = _load_triggers_json()
     missed = [
         (source, path)
         for source in sorted(patterns)
         for path in sorted(_representative_paths(source))
-        if evaluate_triggers(paths=[path])["run_shipgate"] and not pattern.match(path)
+        if evaluate_triggers(paths=[path], triggers=catalog)["run_shipgate"]
+        and not pattern.match(path)
     ]
     assert not missed, (
         "The pre-commit `files:` regex is narrower than the trigger catalog for:\n"
@@ -2842,41 +2851,184 @@ def _hook_files_regex(hook_id: str = "agents-shipgate") -> re.Pattern[str]:
     return re.compile(pattern, re.VERBOSE)
 
 
-def test_shipped_workflow_examples_do_not_prefilter_on_paths():
-    """No shipped GitHub Actions recipe may gate Shipgate with
-    `on.pull_request.paths`.
+# Directories holding shipped, copy-pasteable CI recipes, per provider.
+_CI_RECIPE_DIRS = ("github-actions", "gitlab-ci", "circleci")
 
-    GitHub evaluates `paths:` before the workflow starts, so a filtered-out
-    PR produces no run and no check — indistinguishable from a repo that
-    never adopted the gate. Worse, GitHub's filter patterns are
-    case-sensitive with no case-insensitive form, while the trigger catalog
-    matches governance paths case-insensitively: a `- 'policies/**'` entry
-    silently drops `services/foo/Policies/refund.yaml`, a policy trust root.
-    The in-job trigger evaluator is the filter, and it fails closed.
+# Provider-specific ways to say "only run this job when these paths changed".
+# Every one of them is an allowlist evaluated against changed paths, and every
+# one matches case-sensitively, so none can express what the trigger catalog
+# routes. Values are (key, human-readable location) probes applied to any
+# mapping in the document.
+_CHANGE_PREFILTER_KEYS = (
+    "paths",  # GitHub Actions on.<event>.paths
+    "paths-ignore",  # GitHub Actions on.<event>.paths-ignore
+    "changes",  # GitLab CI rules[].changes / only.changes
+)
+
+# CircleCI has no declarative form, so recipes express it as a shell diff-gate
+# that exits before the scan. Detected textually.
+_CHANGE_PREFILTER_SHELL_MARKERS = ("git diff --name-only",)
+
+
+def _yaml_mappings(node: object):
+    """Every mapping in a parsed YAML document, depth-first."""
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _yaml_mappings(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _yaml_mappings(item)
+
+
+def test_shipped_ci_recipes_do_not_prefilter_on_changed_paths():
+    """No shipped CI recipe, on any provider, may gate Shipgate behind a
+    changed-path allowlist.
+
+    Two independent reasons, and each alone is disqualifying:
+
+    1. `TRIGGER-EXISTING-MANIFEST-PRESENT` is `force_run`, so a repo with a
+       `shipgate.yaml` is contracted to run on every PR. A prefilter does not
+       save the scan it claims to save; it silently opts the repo out of its
+       own gate.
+    2. Every prefilter language here — GitHub `paths`/`paths-ignore`, GitLab
+       `changes`, a CircleCI shell diff-gate — matches case-sensitively, while
+       the trigger catalog matches governance paths case-insensitively on
+       purpose. `- 'policies/**'` therefore drops
+       `services/foo/Policies/refund.yaml`, a policy trust root, with no job,
+       no check and no signal at all.
+
+    Covers `.yml` and `.yaml`, since a recipe added under the other extension
+    would otherwise skip this guard entirely.
     """
     import yaml
 
-    examples = sorted((REPO_ROOT / "examples" / "github-actions").glob("*.yml"))
-    assert examples, "No workflow examples found; the glob or directory moved."
+    recipes = sorted(
+        path
+        for directory in _CI_RECIPE_DIRS
+        for suffix in ("*.yml", "*.yaml")
+        for path in (REPO_ROOT / "examples" / directory).glob(suffix)
+    )
+    assert len(recipes) > 10, (
+        f"Only found {len(recipes)} CI recipes; the directories or globs moved "
+        "and this guard would pass vacuously."
+    )
 
-    offenders = []
-    for path in examples:
-        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
-        # PyYAML resolves the unquoted `on:` key to the boolean True.
-        triggers_block = workflow.get("on", workflow.get(True)) or {}
-        if not isinstance(triggers_block, dict):
-            continue
-        for event, config in triggers_block.items():
-            if isinstance(config, dict) and "paths" in config:
-                offenders.append(f"{path.name}: on.{event}.paths")
+    offenders: list[str] = []
+    for path in recipes:
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(REPO_ROOT)
+        document = yaml.safe_load(text)
+        for mapping in _yaml_mappings(document):
+            for key in _CHANGE_PREFILTER_KEYS:
+                # GitHub Actions `jobs.<id>.steps[].uses`-style keys never
+                # collide with these; `artifacts.paths` (GitLab) is an output
+                # path list, not a filter, so scope `paths` to filter context.
+                if key not in mapping:
+                    continue
+                if key == "paths" and not _is_change_filter_context(mapping):
+                    continue
+                offenders.append(f"{relative}: {key}")
+        for marker in _CHANGE_PREFILTER_SHELL_MARKERS:
+            if marker in text:
+                offenders.append(f"{relative}: shell diff-gate ({marker!r})")
 
     assert not offenders, (
-        "Workflow example(s) gate Shipgate behind a path prefilter: "
-        f"{offenders}. A filtered-out PR never starts the workflow, so a "
-        "governance edit the catalog would route is dropped with no check "
-        "and no signal. Remove the `paths:` block and let the in-job trigger "
-        "evaluator decide."
+        "CI recipe(s) gate Shipgate behind a changed-path prefilter: "
+        f"{sorted(set(offenders))}. An adopted repo is contracted to run on "
+        "every PR (force_run), and no prefilter language can express the "
+        "catalog's case-insensitive governance matching — so the filter only "
+        "drops changes the gate most needs to see. Remove it and let the "
+        "in-job trigger evaluator decide."
     )
+
+
+def _is_change_filter_context(mapping: dict) -> bool:
+    """Whether a `paths` key is a changed-path filter rather than an output
+    path list.
+
+    GitLab's `artifacts.paths` and CircleCI's `store_artifacts.path` name
+    outputs to retain; only GitHub Actions event filters and GitLab
+    `rules[].changes.paths` gate on what changed. Filters never carry the
+    artifact keys.
+    """
+    return not ({"when", "expire_in", "reports"} & set(mapping))
+
+
+def _hook_selects(hook: dict, path: str, tags: set[str]) -> bool:
+    """Model pre-commit's file selection for one hook.
+
+    pre-commit applies, in order: the `files` regex (and `exclude`), then
+    `tags >= types` (AND), then `tags & types_or` (OR, when set), then
+    `tags & exclude_types` must be empty. `types` defaults to `["file"]`,
+    which is exactly the default that silently drops symlinks — testing the
+    compiled `files` regex alone cannot see that.
+    """
+    if not re.compile(hook["files"], re.VERBOSE).match(path):
+        return False
+    exclude = hook.get("exclude")
+    if exclude and re.compile(exclude, re.VERBOSE).match(path):
+        return False
+    if not set(hook.get("types", ["file"])) <= tags:
+        return False
+    types_or = set(hook.get("types_or", []))
+    if types_or and not types_or & tags:
+        return False
+    return not set(hook.get("exclude_types", [])) & tags
+
+
+# identify's tags for the two shapes a tracked Git entry can take. A symlink
+# is tagged `symlink` and is NOT tagged `file`.
+_REGULAR_FILE_TAGS = {"file", "text"}
+_SYMLINK_TAGS = {"symlink"}
+
+
+@pytest.mark.parametrize("hook_id", _GATING_HOOK_IDS)
+@pytest.mark.parametrize(
+    "path",
+    ["prompts", "policies", "services/foo/policies", "AGENTS.md", ".cursor/rules"],
+)
+def test_gating_hooks_select_governance_symlinks(hook_id: str, path: str):
+    """A governance path that is a tracked symlink must still invoke the hook.
+
+    `files:` is not the whole filter. pre-commit's default `types: [file]` is
+    an AND-filter applied first, and a tracked symlink carries the `symlink`
+    tag rather than `file` — so a symlinked `prompts` directory was dropped
+    before the regex ran, despite the regex matching it and the catalog
+    routing it. This asserts effective selection, not just the regex.
+    """
+    import yaml
+
+    hook = next(
+        h for h in yaml.safe_load(_read(".pre-commit-hooks.yaml")) if h["id"] == hook_id
+    )
+    assert _hook_selects(hook, path, _REGULAR_FILE_TAGS), (
+        f"{hook_id} does not select regular file {path!r}; the regex or the "
+        "type filter regressed."
+    )
+    assert _hook_selects(hook, path, _SYMLINK_TAGS), (
+        f"{hook_id} does not select {path!r} when it is a tracked symlink. "
+        "pre-commit applies `types` (default `[file]`) before `files:`, and a "
+        "symlink is tagged `symlink`, not `file`. Set `types: []` with "
+        "`types_or: [file, symlink]` on the hook."
+    )
+
+
+@pytest.mark.parametrize("hook_id", _GATING_HOOK_IDS)
+def test_gating_hooks_still_reject_non_trigger_paths_for_both_tag_shapes(hook_id: str):
+    """Negative control for the widened type filter: accepting the `symlink`
+    tag must not turn the hook into `always_run`."""
+    import yaml
+
+    hook = next(
+        h for h in yaml.safe_load(_read(".pre-commit-hooks.yaml")) if h["id"] == hook_id
+    )
+    for path in ("README.md", "src/agents_shipgate/cli/main.py", "myprompts/foo.md"):
+        for tags in (_REGULAR_FILE_TAGS, _SYMLINK_TAGS):
+            assert not _hook_selects(hook, path, tags), (
+                f"{hook_id} selects {path!r} (tags={sorted(tags)}); it is not a "
+                "trigger surface."
+            )
 
 
 def test_both_gating_hooks_share_one_files_expression():
@@ -3015,6 +3167,13 @@ def test_pre_commit_local_docs_show_same_path_trigger_clauses(doc: str):
         "case-sensitive snippet misses `Policies/` on a case-insensitive "
         "filesystem."
     )
+    for declaration in ("types: []", "types_or: [file, symlink]"):
+        assert declaration in text, (
+            f"{doc} pre-commit snippet is missing `{declaration}`. pre-commit's "
+            "default `types: [file]` is applied before `files:` and drops a "
+            "tracked symlink, so a symlinked governance path would invoke "
+            "neither hook."
+        )
 
 
 def test_pre_commit_docs_do_not_reference_missing_trigger_subcommand():

@@ -43,6 +43,10 @@ repos:
         entry: agents-shipgate verify --config shipgate.yaml --ci-mode advisory --format text
         language: system
         pass_filenames: false
+        # pre-commit's default `types: [file]` drops a tracked symlink
+        # before `files:` runs; governance paths can be symlinks.
+        types: []
+        types_or: [file, symlink]
         files: |
           (?ix)^(
             shipgate\.yaml|

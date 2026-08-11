@@ -42,6 +42,14 @@
   language: python
   pass_filenames: false
   always_run: false
+  # pre-commit defaults to `types: [file]`, and a tracked symlink carries
+  # the `symlink` tag instead of `file` — so the default filter drops it
+  # before `files:` is ever evaluated. A governance surface can be a
+  # symlink (a `prompts` or `policies` directory linked into a workspace,
+  # a shared `AGENTS.md`), and the catalog routes those paths, so clear
+  # the AND-filter and accept either tag.
+  types: []
+  types_or: [file, symlink]
   stages: [pre-commit, pre-push]
   files: |
     (?ix)^(
@@ -82,6 +90,14 @@
   language: python
   pass_filenames: false
   always_run: false
+  # pre-commit defaults to `types: [file]`, and a tracked symlink carries
+  # the `symlink` tag instead of `file` — so the default filter drops it
+  # before `files:` is ever evaluated. A governance surface can be a
+  # symlink (a `prompts` or `policies` directory linked into a workspace,
+  # a shared `AGENTS.md`), and the catalog routes those paths, so clear
+  # the AND-filter and accept either tag.
+  types: []
+  types_or: [file, symlink]
   stages: [pre-push]
   files: |
     (?ix)^(

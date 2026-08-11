@@ -66,6 +66,28 @@
   `.github/workflows/Agents-Shipgate.yaml` was a `ci_gate` trust root that
   missed the critical gate-removal finding entirely. Preflight's three inline
   copies of the same retry are folded into the one helper.
+
+  Both pre-commit hooks now declare `types: []` with
+  `types_or: [file, symlink]`. pre-commit's default `types: [file]` is an
+  AND-filter applied *before* `files:`, and a tracked symlink carries the
+  `symlink` tag rather than `file` — so a governance directory symlinked into
+  a workspace invoked neither hook no matter what the regex said.
+
+- **The `on-tool-source-changes` CI recipes are retired**, on GitHub Actions,
+  GitLab CI and CircleCI alike. They gated Shipgate behind a changed-path
+  allowlist, which cannot work for two independent reasons. First,
+  `TRIGGER-EXISTING-MANIFEST-PRESENT` is `force_run`: a repo with a
+  `shipgate.yaml` is contracted to run on every PR, so the prefilter never
+  saved the scan it advertised. Second, every prefilter language involved —
+  GitHub `paths`/`paths-ignore`, GitLab `rules.changes`, a CircleCI shell
+  diff-gate — matches case-sensitively, while the trigger catalog matches
+  governance paths case-insensitively on purpose; an allowlist therefore drops
+  `services/foo/Policies/refund.yaml` with no job, no check and no signal at
+  all, which is indistinguishable from a repo that never adopted the gate. Run
+  the advisory recipe on every PR and let the in-job trigger evaluator decide;
+  `verify` short-circuits before the scan on a skip verdict. A contract test
+  now rejects any of those prefilter forms in any shipped recipe, across both
+  `.yml` and `.yaml`.
 - **One compact object now answers "what may I do next?", instead of four
   artifacts and a guess.** A verify run could simultaneously report `execution:
   "succeeded"`, exit code `0`, `release_decision.decision: "review_required"`,
