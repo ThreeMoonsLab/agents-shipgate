@@ -14,14 +14,26 @@
   `<sys.executable> -m agents_shipgate …` (by interpreter path, since a bare
   `python` resolves through `PATH` and can land on a different one), and
   `AGENTS_SHIPGATE_CLI` — already the operator override for the Claude Code
-  hook command — overrides both. One policy covers preview, init, doctor,
-  scan, verify, detect, check, preflight, and the control and repair commands
-  the verifier and boundary publish. `next_actions[]` entries with
+  hook command — takes precedence over both, including when the path it names
+  happens to end in a console-script name. Quoting follows the host shell, so a
+  Windows interpreter path is not spelled with POSIX single quotes that
+  `cmd.exe` would treat as four literal characters. One policy covers preview,
+  init, doctor, scan, verify, detect, check, preflight, apply-patches, and the
+  control and repair commands the verifier and boundary publish; it is applied
+  at the emission boundary, so a route built as a plain dict rather than as a
+  `NextAction` cannot opt out. Contract `23`. `next_actions[]` entries with
   `kind="command"` additionally carry a shell-independent
   `executable[]` / `args[]` pair, runnable as `[*executable, *args]`, derived
   from the same value the string is rendered from so the two forms cannot
-  disagree; `command` remains for existing consumers. This is the path used to
-  evaluate external PRs, where the recovery loop breaking is worst. ([#322](https://github.com/ThreeMoonsLab/agents-shipgate/issues/322))
+  disagree; the pair is omitted rather than emitted as `null`, so every action
+  that cannot carry an argv is unchanged on the wire, and it is withheld
+  entirely when the command needs a shell — an operator, a redirection, a
+  substitution, or a `<placeholder>` — rather than advertising an argv that
+  would do something else. Durable evidence stays canonical: `report.json`,
+  `report.md`, and `packet.*` are byte-identical however the process was
+  started, because "same inputs, same report" outranks runnability there and
+  process entry is not an input. This is the path used to evaluate external
+  PRs, where the recovery loop breaking is worst. ([#322](https://github.com/ThreeMoonsLab/agents-shipgate/issues/322))
 
 - **One compact object now answers "what may I do next?", instead of four
   artifacts and a guess.** A verify run could simultaneously report `execution:

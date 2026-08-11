@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 from pathlib import Path
 from typing import Any
 
@@ -297,7 +296,7 @@ def _recovery_verify_command(workspace: Path, reports_dir: Path) -> str:
     return verify_command_for(
         workspace,
         None,
-        extra=("--out", shlex.quote(str(reports_dir))),
+        extra=("--out", str(reports_dir)),
     )
 
 

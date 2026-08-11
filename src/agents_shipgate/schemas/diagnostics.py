@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic.functional_serializers import SerializerFunctionWrapHandler
 
 from agents_shipgate.invocation import retarget_command, split_invocation
 
@@ -34,6 +35,12 @@ class NextAction(BaseModel):
       are a *projection*, never independent input: deriving them from the same
       value the string is rendered from is what makes it impossible for the
       two forms to disagree.
+
+    This model is published with ``extra="forbid"``, so the two properties are
+    not additive for a strict consumer validating against the pre-v23 shape —
+    contract v23 carries the change, and they are omitted entirely rather than
+    serialized as ``null`` so that every non-command action stays byte-for-byte
+    what it was.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -45,6 +52,23 @@ class NextAction(BaseModel):
     expects: str | None = None
     executable: list[str] | None = None
     args: list[str] | None = None
+
+    @model_serializer(mode="wrap")
+    def _drop_absent_argv(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Emit ``executable``/``args`` only where they carry something.
+
+        Every other optional field on this model serializes as ``null`` when
+        unset, and these deliberately do not. A ``review``/``edit``/``stop``
+        action can never carry an argv, so emitting the keys there would widen
+        the wire shape for every consumer to describe an absence they could
+        already infer from ``kind``.
+        """
+
+        data = handler(self)
+        for field in ("executable", "args"):
+            if data.get(field) is None:
+                data.pop(field, None)
+        return data
 
     @model_validator(mode="after")
     def _check_kind_fields(self) -> NextAction:

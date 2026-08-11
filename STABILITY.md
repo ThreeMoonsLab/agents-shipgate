@@ -1322,6 +1322,14 @@ tests on every CI run, not by convention:
     trigger catalog. Optional Git-backed trigger input delegates to the
     verifier's audited collector described below; this module has no
     subprocess surface of its own.
+  - **`invocation.py`** — one `from subprocess import list2cmdline`
+    from-import. `list2cmdline` is a pure string function that renders an argv
+    list using Windows quoting rules; it starts no process and touches no
+    process API. The narrow from-import is deliberate: the process-spawning
+    names are never bound in this module, so a future `subprocess.run` here
+    would need its own import line, its own snippet, and its own review. Used
+    only to render an emitted command string on Windows, where POSIX
+    single-quote syntax is not quoting at all.
   - **`cli/verify/git.py`** — one shared `subprocess.run` boundary invokes
     local Git plumbing for exact base/head and working-tree orchestration,
     plus `pack-objects`, `index-pack`, and `fsck` to materialize an isolated,

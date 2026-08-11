@@ -595,10 +595,9 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
                 "path": None,
                 "why": "check",
                 "expects": None,
-                # Additive since #322. Carried on every action so consumers can
-                # read one shape; only populated for kind="command".
-                "executable": None,
-                "args": None,
+                # No executable/args. Contract v23 omits the pair rather than
+                # emitting nulls, so an action that can never carry an argv is
+                # byte-for-byte what it was before #322.
             }
         ],
     }

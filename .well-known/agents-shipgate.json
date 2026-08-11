@@ -211,7 +211,7 @@
   "agent_handoff_schema_version": "shipgate.agent_handoff/v7",
   "agent_handoff_schema_path": "docs/agent-handoff-schema.v7.json",
   "agent_handoff_artifact": "agents-shipgate-reports/agent-handoff.json",
-  "contract_version": "22",
+  "contract_version": "23",
   "minimum_control_contract_version": "21",
   "local_agent_contract_schema_version": "10",
   "inputs": [

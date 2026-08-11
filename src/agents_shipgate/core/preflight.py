@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import posixpath
-import shlex
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -46,7 +45,7 @@ from agents_shipgate.core.trust_roots import (
     is_portable_repo_path,
     read_identity_bound_text,
 )
-from agents_shipgate.invocation import retarget_command
+from agents_shipgate.invocation import render_command, retarget_command
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -1093,9 +1092,8 @@ def signals_for_host_grant_drift(
             if baseline_path.is_absolute()
             else workspace / baseline_path
         )
-        rerun = shlex.join(
+        rerun = render_command(
             [
-                "shipgate",
                 "audit",
                 "--host",
                 "--workspace",
@@ -1106,7 +1104,8 @@ def signals_for_host_grant_drift(
                 "--baseline-file",
                 str(exact_baseline),
                 "--fail-on-drift",
-            ]
+            ],
+            program="shipgate",
         )
     recommendation = (
         "Route the host-grant comparison to a human. After review, "

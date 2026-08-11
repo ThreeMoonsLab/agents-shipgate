@@ -65,12 +65,21 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 
 # v20 published the current-control pointer and the refresh protocol; v21 adds
 # action-scoped ``control.permissions`` and the ``review_publishable`` state;
-# v22 publishes the compact ``shipgate.agent_control/v1`` control envelope.
+# v22 publishes the compact ``shipgate.agent_control/v1`` control envelope;
+# v23 spells every emitted command for the invocation that produced it and adds
+# the ``executable``/``args`` pair to ``next_actions[]``.
+#
+# v23 carries a version because ``NextAction`` is published with
+# ``extra="forbid"``: two new properties are *not* additive for a consumer
+# validating against the v22 shape, even though they are optional. They are
+# omitted rather than emitted as ``null``, so an action that cannot carry an
+# argv is unchanged on the wire.
 #
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21: v22 adds a projection of the
-# ``AgentControl`` union and does not change the union itself, so a consumer
-# written against v21 control fields keeps reading them unchanged.
-CONTRACT_VERSION: Literal["22"] = "22"
+# ``AgentControl`` union and v23 changes only how commands inside it are
+# spelled, so a consumer written against v21 control fields keeps reading them
+# unchanged.
+CONTRACT_VERSION: Literal["23"] = "23"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

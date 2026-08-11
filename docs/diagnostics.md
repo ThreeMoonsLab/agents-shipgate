@@ -49,8 +49,8 @@ the rank, no separate `rank` field):
 | path       | `string \| null`                          | Required when `kind="edit"`. May be `shipgate.yaml:<line>`. |
 | why        | `string`                                  | One-sentence rationale.                                       |
 | expects    | `string \| null`                          | Optional: what the next run should output if the action worked. |
-| executable | `string[] \| null`                        | Entry-point argv tokens. Present only when `kind="command"`, and only when the command has a faithful argv form. |
-| args       | `string[] \| null`                        | The remaining argv tokens. Same presence rule as `executable`. |
+| executable | `string[]` (absent when N/A)              | Entry-point argv tokens (contract v23+). Present only when `kind="command"` and the command has a faithful argv form; **omitted**, never `null`. |
+| args       | `string[]` (absent when N/A)              | The remaining argv tokens. Same presence rule as `executable`. |
 
 ### Invocation policy
 
@@ -59,22 +59,50 @@ recovery loop stays runnable in the environment that produced it:
 
 | How Shipgate was started              | What emitted commands say                       |
 | ------------------------------------- | ----------------------------------------------- |
+| `AGENTS_SHIPGATE_CLI` set             | That value, split with `shlex` — highest precedence. The same override the Claude Code hook installer honours. An explicit entry point is always spliced in, including `AGENTS_SHIPGATE_CLI=/private/venv/bin/agents-shipgate`: the program *name* matches a console script, but the operator named that wrapper, not whichever one `PATH` resolves. |
 | `agents-shipgate …` / `shipgate …`    | The same console script the command was written with — unchanged. |
 | `python -m agents_shipgate …`         | `<sys.executable> -m agents_shipgate …`. The interpreter is spelled by path, not as a bare `python`, because a bare name resolves through `PATH` and can land on a different interpreter. |
-| `AGENTS_SHIPGATE_CLI` set             | That value, split with `shlex`. Same override the Claude Code hook installer honours. |
+| Anything else                         | The canonical `agents-shipgate`. An unrecognised argv is not evidence of a better spelling. |
 
-`command` never contains `__main__.py`. The `executable` / `args` pair is a
-shell-independent projection of `command` — `subprocess.run([*executable,
-*args])` runs the same thing the string does — and is derived from it rather
-than supplied, so the two can never disagree. Both are `null` when the command
-needs a shell to be faithful (a leading `NAME=VALUE` assignment); the string
-remains complete in that case.
+Commands are quoted for the host shell: POSIX rules elsewhere, Windows rules on
+Windows, where `'C:\Python312\python.exe'` is not quoting at all but four
+literal characters and a path `cmd.exe` cannot run.
 
-The policy governs *executable* fields: `command` on next actions, agent-mode
-error routes, and the control/repair commands the verifier and boundary
-publish. Published contract vocabulary (`primary_commands` in the discovery
-surfaces, `.well-known/agents-shipgate.json`) and prose remediation text stay
-canonical — they describe the installed CLI rather than route this run.
+`command` never contains `__main__.py`.
+
+**Structured argv.** `executable` and `args` are a shell-independent projection
+of `command` — `subprocess.run([*executable, *args])` runs the same thing the
+string does. They are derived from `command` rather than supplied, so the two
+cannot disagree, and the entry point is taken from the resolved invocation
+rather than parsed back out of the string.
+
+Both keys are **omitted**, not `null`, whenever the command has no faithful
+argv form:
+
+- a leading `NAME=VALUE` assignment, which is shell syntax rather than an argv
+  token;
+- any unquoted shell metacharacter — an operator (`&&`, `|`, `;`), redirection
+  (`>`, and therefore a `<report.json>` placeholder), substitution (`$VAR`,
+  backticks), or a glob. `shlex.split` returns `&&` as an ordinary token, so
+  publishing its output would advertise a call that does something other than
+  what the string says;
+- any action whose `kind` is not `command`.
+
+The rendered string stays authoritative in all of those cases.
+
+### What the policy does *not* touch
+
+| Surface | Why it stays canonical |
+| ------- | ---------------------- |
+| `report.json`, `report.md`, `packet.*` | [`docs/architecture.md`](architecture.md) makes **same inputs → same report** a non-negotiable invariant. Process entry is not an input: the same scan through a wrapper and through `python -m` must produce the same bytes, or one semantic `run_id` acquires several artifact bodies and the packet hash stops meaning anything. Live routes carry the runnable spelling instead. |
+| `primary_commands`, `.well-known/agents-shipgate.json` | Published vocabulary describing the installed CLI, not a route for one run — and its generator must never bake an interpreter path into a committed file. |
+| Prose (`why`, `recommendation`, report Markdown) | Documentation of the canonical CLI rather than a field a caller executes. |
+
+Everything else that *is* a command to run — `command` on next actions,
+agent-mode error routes, preflight `related_command`, and the control and
+repair commands the verifier and boundary publish — follows the policy. It is
+applied at the emission boundary, not at each call site, so a route built as a
+plain dict rather than as a `NextAction` cannot opt out.
 
 The legacy `next_action: str` field on `detect`, `doctor`, and
 agent-mode error JSON is the rank-1 action projected to a single string:

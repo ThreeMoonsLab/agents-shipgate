@@ -52,7 +52,13 @@ def verify_command_for(
 ) -> str:
     """The verify invocation that evaluates the given target.
 
-    Two things make this less obvious than it looks:
+    Every argument — including each element of ``extra`` — is one **raw** argv
+    token, quoted here exactly once. Callers must not pre-quote: a value that
+    arrives already shell-quoted is quoted a second time, and the reader that
+    follows the command gets the quote characters as part of the value (a
+    ``--out`` path that names a directory literally called ``'/tmp/x y'``).
+
+    Two more things make this less obvious than it looks:
 
     ``verify`` resolves a relative ``--config`` against the repository root,
     not against ``--workspace``. Echoing the caller's own relative spelling

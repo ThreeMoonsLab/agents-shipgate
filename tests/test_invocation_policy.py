@@ -26,9 +26,11 @@ import pytest
 from agents_shipgate.invocation import (
     CANONICAL_CONSOLE_SCRIPT,
     CLI_OVERRIDE_ENV_VAR,
+    Invocation,
     invocation_prefix,
-    is_console_script_invocation,
+    join_argv,
     render_command,
+    resolve_invocation,
     retarget_command,
     split_invocation,
 )
@@ -57,9 +59,9 @@ def test_console_script_invocation_reports_that_script(script: str) -> None:
         argv=[f"/opt/venv/bin/{script}", "scan"], env={}, main_module=_CONSOLE
     )
     assert prefix == (script,)
-    assert is_console_script_invocation(
+    assert resolve_invocation(
         argv=[f"/opt/venv/bin/{script}", "scan"], env={}, main_module=_CONSOLE
-    )
+    ).keeps_written_spelling
 
 
 def test_windows_console_script_wrapper_is_recognised() -> None:
@@ -167,7 +169,7 @@ def test_module_runs_replace_only_the_program_token() -> None:
     rendered = retarget_command(
         "agents-shipgate verify --workspace '/a b/c' --json", prefix=_module_prefix()
     )
-    assert rendered.startswith(f"{sys.executable} -m agents_shipgate verify")
+    assert rendered.startswith(f"{join_argv(_module_prefix())} verify")
     # Everything after the program token is spliced through verbatim, so
     # deliberately unquoted placeholders and pre-quoted paths both survive.
     assert rendered.endswith("verify --workspace '/a b/c' --json")
@@ -187,7 +189,31 @@ def test_env_assignment_prefixes_keep_their_assignments() -> None:
         prefix=_module_prefix(),
     )
     assert rendered.startswith("AGENTS_SHIPGATE_ENABLE_PLUGINS=1 ")
-    assert f"{sys.executable} -m agents_shipgate scan" in rendered
+    assert f"{join_argv(_module_prefix())} scan" in rendered
+
+
+def test_windows_renders_commands_with_windows_quoting(monkeypatch) -> None:
+    """POSIX single quotes are not quoting on Windows — they are characters.
+
+    ``shlex.join`` would spell a Windows interpreter as
+    ``'C:\\Python312\\python.exe'``, which ``cmd.exe`` and PowerShell cannot
+    run, and which stops containing a metacharacter in any argument it quotes.
+    The package declares OS independence, so the rendering follows the host.
+    """
+
+    monkeypatch.setattr("agents_shipgate.invocation._WINDOWS", True)
+    windows_prefix = (r"C:\Program Files\Python312\python.exe", "-m", "agents_shipgate")
+
+    rendered = retarget_command("agents-shipgate verify --json", prefix=windows_prefix)
+    assert rendered == (
+        r'"C:\Program Files\Python312\python.exe" -m agents_shipgate verify --json'
+    )
+    # The entry point is recovered from the resolved invocation, never by
+    # parsing the string back — a POSIX parse would eat those backslashes.
+    assert split_invocation(rendered, prefix=windows_prefix) == (
+        list(windows_prefix),
+        ["verify", "--json"],
+    )
 
 
 def test_commands_belonging_to_other_programs_are_left_alone() -> None:
@@ -208,7 +234,42 @@ def test_render_command_quotes_arguments() -> None:
         "shipgate detect"
     )
     assert render_command(["detect"], prefix=_module_prefix()) == (
-        f"{sys.executable} -m agents_shipgate detect"
+        f"{join_argv(_module_prefix())} detect"
+    )
+
+
+def test_an_explicit_override_is_never_treated_as_the_written_spelling() -> None:
+    """An absolute override names *that* wrapper, not whatever ``PATH`` finds.
+
+    The program name matches a console script, so a no-op keyed on the name
+    alone silently reverted the operator's entry point — while the top-level
+    ``command`` field, which does not go through this path, kept it. The two
+    then disagreed inside one emitted error.
+    """
+
+    override = "/private/venv/bin/agents-shipgate"
+    invocation = resolve_invocation(
+        argv=["/usr/local/bin/agents-shipgate", "scan"],
+        env={CLI_OVERRIDE_ENV_VAR: override},
+        main_module=_CONSOLE,
+    )
+    assert invocation == Invocation((override,), "override")
+    assert not invocation.keeps_written_spelling
+
+    rewritten = retarget_command("agents-shipgate verify --json", prefix=invocation)
+    assert rewritten == f"{override} verify --json"
+    assert split_invocation(rewritten, prefix=invocation) == ([override], ["verify", "--json"])
+
+
+def test_a_detected_console_script_still_keeps_the_written_spelling() -> None:
+    """The other side of the same rule: the shipped path must not churn."""
+
+    invocation = resolve_invocation(
+        argv=["/usr/local/bin/agents-shipgate", "scan"], env={}, main_module=_CONSOLE
+    )
+    assert invocation.keeps_written_spelling
+    assert retarget_command("shipgate detect --json", prefix=invocation) == (
+        "shipgate detect --json"
     )
 
 
@@ -242,7 +303,41 @@ def test_split_invocation_agrees_with_the_string_it_was_derived_from() -> None:
 
 def test_split_invocation_refuses_shell_only_commands() -> None:
     assert split_invocation("VAR=1 agents-shipgate scan", prefix=("shipgate",)) is None
-    assert split_invocation("agents-shipgate scan --config 'oops", prefix=()) is None
+    assert (
+        split_invocation("agents-shipgate scan --config 'oops", prefix=("shipgate",)) is None
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "printf left ' ' && printf right",  # control operator
+        "agents-shipgate scan --format json | tee log",  # pipeline
+        "agents-shipgate scan > out.json",  # redirection
+        "agents-shipgate scan -c $CONFIG",  # parameter expansion
+        "agents-shipgate scan -c `cat name`",  # command substitution
+        "agents-shipgate apply-patches --from <report.json>",  # placeholder
+        "agents-shipgate scan -c *.yaml",  # glob
+    ],
+)
+def test_split_invocation_refuses_strings_that_need_a_shell(command: str) -> None:
+    """``shlex.split`` succeeding does not prove a string is plain argv.
+
+    It happily returns ``&&`` as an ordinary token, so publishing its output as
+    ``executable``/``args`` would advertise a subprocess call that does not do
+    what the string does. Refusing is the honest answer; the string stays
+    authoritative.
+    """
+
+    assert split_invocation(command, prefix=("agents-shipgate",)) is None
+
+
+def test_split_invocation_keeps_quoted_metacharacters() -> None:
+    """A quoted metacharacter is one argv token, not shell syntax."""
+
+    assert split_invocation(
+        "agents-shipgate verify --base 'HEAD~1' --head HEAD", prefix=("agents-shipgate",)
+    ) == (["agents-shipgate"], ["verify", "--base", "HEAD~1", "--head", "HEAD"])
 
 
 # --------------------------------------------------------------------------
@@ -330,13 +425,13 @@ def test_module_run_reports_a_runnable_command_not_dunder_main(tmp_path: Path) -
     payload = _agent_mode_line(result.stderr)
 
     assert "__main__" not in result.stderr
-    assert payload["command"].startswith(f"{sys.executable} -m agents_shipgate scan")
+    assert payload["command"].startswith(f"{join_argv(_module_prefix())} scan")
 
 
 def test_module_run_recovery_commands_stay_on_python_m(tmp_path: Path) -> None:
     result = _run_module("scan", "-c", "missing.yaml", "--format", "json", cwd=tmp_path)
     payload = _agent_mode_line(result.stderr)
-    prefix = f"{sys.executable} -m agents_shipgate "
+    prefix = f"{join_argv(_module_prefix())} "
 
     assert payload["next_action"].startswith(prefix)
     for action in payload["next_actions"]:
@@ -435,6 +530,12 @@ def _json_documents(text: str) -> list[object]:
             "verify --preview",
             ["verify", "--preview", "--base", "HEAD~1", "--head", "HEAD", "--json"],
         ),
+        ("apply-patches", ["apply-patches", "--from", "missing-report.json"]),
+        ("detect", ["detect", "--workspace", ".", "--json"]),
+        ("explain-finding", ["explain-finding", "--from", "missing.json", "--fingerprint", "x"]),
+        ("findings", ["findings", "--from", "missing.json", "--json"]),
+        ("explain", ["explain", "no-such-check-id", "--json"]),
+        ("audit --host", ["audit", "--host", "--json"]),
     ],
 )
 def test_no_surface_emits_a_console_script_command_under_python_m(
@@ -474,6 +575,86 @@ def test_the_sweep_would_notice_a_missed_emitter() -> None:
     assert offenders == ["agents-shipgate verify --json"]
 
 
+def test_a_hand_built_action_dict_is_normalized_at_the_wire(tmp_path: Path) -> None:
+    """``apply-patches`` builds ``next_actions[]`` as plain dicts.
+
+    A dict cannot opt into the model's normalization, so this route published a
+    bare ``agents-shipgate scan ...`` with no structured argv no matter how the
+    process was started. Enforcing at the emission boundary is what makes the
+    policy hold for constructions nobody has written yet.
+    """
+
+    report = tmp_path / "report.json"
+    # A report without ``manifest_dir`` is the pre-v0.6 shape whose recovery
+    # route is the hand-built command dict.
+    report.write_text(json.dumps({"findings": []}), encoding="utf-8")
+
+    result = _run_module("apply-patches", "--from", str(report), cwd=tmp_path)
+    payload = _agent_mode_line(result.stderr)
+    action = next(item for item in payload["next_actions"] if item["kind"] == "command")
+
+    prefix = f"{join_argv(_module_prefix())} "
+    assert action["command"].startswith(prefix)
+    assert action["executable"] == list(_module_prefix())
+    assert action["args"][0] == "scan"
+
+
+def test_preflight_host_grant_route_is_spelled_for_this_invocation(tmp_path: Path) -> None:
+    """Preflight signals carry ``related_command``, not ``command``.
+
+    A differently-named field is exactly how an emitter escapes a policy keyed
+    on one field name, so the sweep's key set covers it and this exercises the
+    surface end to end.
+    """
+
+    plan = json.dumps(
+        {
+            "schema_version": "preflight_plan_v1",
+            "changed_files": ["AGENTS.md", "shipgate.yaml"],
+            "capability_requests": [
+                {
+                    "schema_version": "capability_request_v1",
+                    "tool_name": "refund",
+                    "effect": "financial_write",
+                }
+            ],
+            "host_permission_requests": [],
+        }
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+    env["AGENTS_SHIPGATE_AGENT_MODE"] = "1"
+    env.pop("AGENTS_SHIPGATE_CLI", None)
+    result = subprocess.run(
+        [
+            *_module_prefix(),
+            "preflight",
+            "--workspace",
+            str(REPO_ROOT),
+            "--config",
+            "shipgate.yaml",
+            "--plan",
+            "-",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+        cwd=str(REPO_ROOT),
+        input=plan,
+    )
+    assert result.returncode == 0, result.stderr
+
+    commands = [
+        value
+        for document in _json_documents(result.stdout)
+        for _where, value in _command_values(document)
+    ]
+    assert commands, "preflight published no commands to check"
+    assert not [value for value in commands if _CONSOLE_SCRIPT_COMMAND.match(value)]
+
+
 def test_console_script_invocation_still_emits_the_console_script(
     tmp_path: Path,
 ) -> None:
@@ -499,3 +680,78 @@ def test_console_script_invocation_still_emits_the_console_script(
     payload = _agent_mode_line(result.stderr)
     assert payload["command"].startswith("agents-shipgate scan")
     assert payload["next_action"].startswith("agents-shipgate ")
+
+
+def test_durable_artifacts_do_not_depend_on_how_the_process_started(
+    tmp_path: Path,
+) -> None:
+    """``docs/architecture.md``: same inputs → same report.
+
+    Process-entry spelling is not an input. Retargeting commands that land in
+    ``report.json``/``packet.json`` gave one semantic run identity — the same
+    ``run_id`` — two different artifact bodies, which is exactly the property
+    the packet hash exists to rule out. Live routes carry the runnable
+    spelling; durable evidence stays canonical.
+    """
+
+    script = Path(sys.executable).parent / "agents-shipgate"
+    if not script.exists():  # pragma: no cover - depends on the local install
+        pytest.skip("no console script installed alongside this interpreter")
+
+    manifest = REPO_ROOT / "samples" / "support_refund_agent" / "shipgate.yaml"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+    env["AGENTS_SHIPGATE_AGENT_MODE"] = "0"
+    # One output directory for both runs. Reports record their own artifact
+    # paths, so scanning into two directories would differ for a reason that
+    # has nothing to do with the invocation and would make this test pass
+    # regardless of what it is meant to catch.
+    out = tmp_path / "reports"
+
+    def scan(argv: list[str]) -> dict[str, bytes]:
+        result = subprocess.run(
+            [
+                *argv,
+                "scan",
+                "-c",
+                str(manifest),
+                "--out",
+                str(out),
+                "--format",
+                "json",
+                "--ci-mode",
+                "advisory",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            env=env,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode == 0, result.stderr
+        return {
+            path.name: path.read_bytes()
+            for path in sorted(out.iterdir())
+            if path.suffix in {".json", ".md"}
+        }
+
+    through_wrapper = scan([str(script)])
+    through_module = scan(list(_module_prefix()))
+
+    assert through_wrapper.keys() == through_module.keys()
+    differing = [name for name in through_wrapper if through_wrapper[name] != through_module[name]]
+    assert not differing, f"invocation-dependent bytes in durable artifacts: {differing}"
+
+
+def test_the_determinism_check_would_notice_a_leak() -> None:
+    """Negative control for the test above.
+
+    The rule it enforces is not "these files never change" — it is "process
+    entry is not an input to them". A canonical command string is what keeps
+    that true, so this pins the property the durable producers rely on:
+    ``retarget_command`` is what would have to be applied for a leak to occur,
+    and applying it does change the bytes.
+    """
+
+    canonical = "agents-shipgate verify --workspace . --ci-mode advisory --json"
+    assert retarget_command(canonical, prefix=_module_prefix()) != canonical

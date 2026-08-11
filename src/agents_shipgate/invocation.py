@@ -28,11 +28,30 @@ This module is the single answer to "what tokens re-enter this CLI *here*":
   (:mod:`agents_shipgate.cli.install_hooks`), and an operator who has told
   Shipgate how to invoke itself there means it everywhere.
 
+:class:`Invocation` carries *how* the prefix was chosen, not only what it is.
+The distinction matters: leaving a written ``agents-shipgate ...`` string alone
+is right when a console script really is the way in, and wrong when an operator
+has said the entry point is ``/private/venv/bin/agents-shipgate`` — same
+program name, different program.
+
 Reconstructing an invocation is only ever a best effort — ``sys.argv[0]`` can
 be an absolute path, a symlink, or a lie — so every fallback in
-:func:`invocation_prefix` lands on the canonical console script rather than on
+:func:`resolve_invocation` lands on the canonical console script rather than on
 anything derived from an untrusted argv. The worst case is therefore today's
 behaviour, never a newly-invented one.
+
+**Scope.** The policy governs values that are *commands to run*. It stops at
+two borders on purpose:
+
+* Durable evidence artifacts (``report.json``, ``report.md``, ``packet.*``)
+  stay canonical. ``docs/architecture.md`` makes "same inputs → same report" a
+  non-negotiable invariant, and process-entry spelling is not an input — the
+  same scan through a wrapper and through ``python -m`` must produce the same
+  bytes. Live routes carry the runnable spelling instead.
+* Published contract vocabulary (``primary_commands``,
+  ``.well-known/agents-shipgate.json``) describes the installed CLI rather than
+  routing one run, and its generator must never bake an interpreter path into a
+  committed file.
 """
 
 from __future__ import annotations
@@ -42,16 +61,22 @@ import re
 import shlex
 import sys
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import PurePath
+from subprocess import list2cmdline
+from typing import Literal
 
 __all__ = [
     "CANONICAL_CONSOLE_SCRIPT",
     "CLI_OVERRIDE_ENV_VAR",
     "CONSOLE_SCRIPTS",
     "MODULE_ENTRY_POINT",
+    "Invocation",
+    "InvocationSource",
     "invocation_prefix",
-    "is_console_script_invocation",
+    "join_argv",
     "render_command",
+    "resolve_invocation",
     "retarget_command",
     "split_invocation",
 ]
@@ -71,15 +96,47 @@ MODULE_ENTRY_POINT = "agents_shipgate"
 #: Operator override, shared with the Claude Code hook installer.
 CLI_OVERRIDE_ENV_VAR = "AGENTS_SHIPGATE_CLI"
 
+InvocationSource = Literal["console_script", "module", "override", "fallback"]
+
 # Leading ``NAME=VALUE`` assignments in a command string. These are shell
 # syntax, not argv, so a command carrying them has no shell-independent
 # ``executable``/``args`` form — but the program token *after* them is still
 # ours to retarget.
 _ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=[^\s]*")
 
+# Characters that make a string a *shell* command rather than an argv: control
+# operators, redirection, substitution, expansion, and globbing. ``shlex.split``
+# happily returns ``&&`` as an ordinary token, so a command containing one would
+# otherwise be published as structured argv that does not do what the string
+# does. Only occurrences outside quotes count — ``--base 'HEAD~1'`` is argv.
+_SHELL_METACHARACTERS = frozenset("|&;<>()$`*?[]{}~!#\n\r")
+
 # Fallback when the interpreter cannot name itself (embedded interpreters
 # leave ``sys.executable`` empty).
 _FALLBACK_INTERPRETER = "python3"
+
+_WINDOWS = os.name == "nt"
+
+
+@dataclass(frozen=True)
+class Invocation:
+    """The entry point that re-enters this CLI, and how it was determined."""
+
+    tokens: tuple[str, ...]
+    source: InvocationSource
+
+    @property
+    def keeps_written_spelling(self) -> bool:
+        """Whether hand-written ``agents-shipgate ...`` strings are already right.
+
+        True only when a console script really is the way in — the shipped
+        path, where rewriting would churn every emitted string to say the same
+        thing. An operator override is excluded even when it *names* a console
+        script: ``AGENTS_SHIPGATE_CLI=/private/venv/bin/agents-shipgate`` means
+        that wrapper, not whichever one ``PATH`` happens to resolve.
+        """
+
+        return self.source in {"console_script", "fallback"}
 
 
 def _program_name(token: str) -> str:
@@ -97,6 +154,22 @@ def _program_name(token: str) -> str:
 
 def _interpreter() -> str:
     return sys.executable or _FALLBACK_INTERPRETER
+
+
+def join_argv(tokens: Sequence[str]) -> str:
+    """Render argv as a string the *local* shell would parse back to it.
+
+    ``shlex.join`` is POSIX-only: it quotes with single quotes, which
+    ``cmd.exe`` treats as ordinary characters rather than as quoting. A Windows
+    interpreter path is exactly the case that needs quoting (backslashes, often
+    a space in ``Program Files``), so rendering it POSIX-style produces a string
+    Windows cannot run — and, worse, one where a metacharacter in an argument
+    is no longer contained.
+    """
+
+    if _WINDOWS:
+        return list2cmdline(list(tokens))
+    return shlex.join(tokens)
 
 
 def _override_prefix(env: Mapping[str, str]) -> tuple[str, ...] | None:
@@ -133,79 +206,91 @@ def _entered_via_module(argv0: str, main_module: object) -> bool:
     return path.name == "__main__.py" and path.parent.name == MODULE_ENTRY_POINT
 
 
-def invocation_prefix(
+def resolve_invocation(
     *,
     argv: Sequence[str] | None = None,
     env: Mapping[str, str] | None = None,
     main_module: object | None = None,
-) -> tuple[str, ...]:
-    """The argv tokens that re-enter this CLI in the current environment.
+) -> Invocation:
+    """The entry point that re-enters this CLI in the current environment.
 
-    The returned tuple is always directly executable: no shell is required to
+    ``tokens`` is always directly executable: no shell is required to
     interpret it, and it never contains ``__main__.py``.
     """
 
     source_env = os.environ if env is None else env
     override = _override_prefix(source_env)
     if override is not None:
-        return override
+        return Invocation(override, "override")
 
     source_argv = sys.argv if argv is None else argv
     argv0 = source_argv[0] if source_argv else ""
 
     if _program_name(argv0) in CONSOLE_SCRIPTS:
-        return (_program_name(argv0),)
+        return Invocation((_program_name(argv0),), "console_script")
 
     module = sys.modules.get("__main__") if main_module is None else main_module
     if _entered_via_module(argv0, module):
-        return (_interpreter(), "-m", MODULE_ENTRY_POINT)
+        return Invocation((_interpreter(), "-m", MODULE_ENTRY_POINT), "module")
 
     # Anything else — a test runner driving the Typer app in-process, an
     # embedding host, a launcher that rewrote argv — keeps the documented
     # spelling. Guessing from an unrecognised argv would emit a command that is
     # merely differently wrong.
-    return (CANONICAL_CONSOLE_SCRIPT,)
+    return Invocation((CANONICAL_CONSOLE_SCRIPT,), "fallback")
 
 
-def is_console_script_invocation(
+def invocation_prefix(
     *,
     argv: Sequence[str] | None = None,
     env: Mapping[str, str] | None = None,
     main_module: object | None = None,
-) -> bool:
-    """Whether emitted commands should keep their hand-written spelling.
+) -> tuple[str, ...]:
+    """The argv tokens that re-enter this CLI. See :func:`resolve_invocation`."""
 
-    True for the shipped path (and for the fallback), which is what keeps
-    ``retarget_command`` a no-op wherever a console script really is the way
-    in.
+    return resolve_invocation(argv=argv, env=env, main_module=main_module).tokens
+
+
+def _as_invocation(prefix: Sequence[str] | Invocation | None) -> Invocation:
+    """Normalize the ``prefix`` argument the rewriting helpers accept.
+
+    A bare token sequence carries no provenance, so it is read the way a
+    caller passing one means it: a single console-script name is the shipped
+    spelling, anything else is an explicit entry point to splice in.
     """
 
-    prefix = invocation_prefix(argv=argv, env=env, main_module=main_module)
-    return len(prefix) == 1 and _program_name(prefix[0]) in CONSOLE_SCRIPTS
+    if prefix is None:
+        return resolve_invocation()
+    if isinstance(prefix, Invocation):
+        return prefix
+    tokens = tuple(prefix)
+    if len(tokens) == 1 and tokens[0] in CONSOLE_SCRIPTS:
+        return Invocation(tokens, "console_script")
+    return Invocation(tokens, "override")
 
 
 def render_command(
     args: Sequence[str],
     *,
     program: str = CANONICAL_CONSOLE_SCRIPT,
-    prefix: Sequence[str] | None = None,
+    prefix: Sequence[str] | Invocation | None = None,
 ) -> str:
-    """Render one Shipgate invocation as a runnable shell string.
+    """Render one Shipgate invocation as a runnable command string.
 
     ``args`` are the subcommand and its options *without* the program name;
-    each element is one argv token and is quoted as needed. The result is the
-    canonical ``program`` spelling under a console-script run — byte for byte
-    what these call sites emitted before — and the current invocation
-    otherwise.
+    each element is one raw argv token and is quoted here, so callers must not
+    pre-quote them. The result is the canonical ``program`` spelling under a
+    console-script run — byte for byte what these call sites emitted before —
+    and the current invocation otherwise.
     """
 
-    return retarget_command(shlex.join([program, *args]), prefix=prefix)
+    return retarget_command(join_argv([program, *args]), prefix=prefix)
 
 
 def retarget_command(
     command: str,
     *,
-    prefix: Sequence[str] | None = None,
+    prefix: Sequence[str] | Invocation | None = None,
 ) -> str:
     """Rewrite a hand-written Shipgate command for the current invocation.
 
@@ -220,8 +305,8 @@ def retarget_command(
     whose program token cannot be located are returned unchanged.
     """
 
-    tokens = tuple(prefix) if prefix is not None else invocation_prefix()
-    if len(tokens) == 1 and _program_name(tokens[0]) in CONSOLE_SCRIPTS:
+    invocation = _as_invocation(prefix)
+    if invocation.keeps_written_spelling:
         # A console script is already what the string says. Rewriting
         # ``agents-shipgate`` to ``shipgate`` would churn every emitted string
         # for no gain: both names resolve to the same entry point.
@@ -233,7 +318,7 @@ def retarget_command(
     start, end = span
     if _program_name(command[start:end]) not in CONSOLE_SCRIPTS:
         return command
-    return command[:start] + shlex.join(tokens) + command[end:]
+    return command[:start] + join_argv(invocation.tokens) + command[end:]
 
 
 def _program_token_span(command: str) -> tuple[int, int] | None:
@@ -256,46 +341,75 @@ def _program_token_span(command: str) -> tuple[int, int] | None:
         return index, end
 
 
+def _has_shell_syntax(text: str) -> bool:
+    """Whether ``text`` needs a shell to mean what it says.
+
+    Quoted regions are exempt: ``--base 'HEAD~1'`` is one argv token, while a
+    bare ``&&`` is a control operator no ``[*executable, *args]`` call can
+    reproduce. Backslash escapes are honoured so an escaped metacharacter is
+    read as the literal it is.
+    """
+
+    quote: str | None = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote is None and char == "\\":
+            index += 2
+            continue
+        if quote is not None:
+            if char == quote:
+                quote = None
+            elif quote == '"' and char == "\\":
+                index += 2
+                continue
+        elif char in "'\"":
+            quote = char
+        elif char in _SHELL_METACHARACTERS:
+            return True
+        index += 1
+    return False
+
+
 def split_invocation(
     command: str,
     *,
-    prefix: Sequence[str] | None = None,
+    prefix: Sequence[str] | Invocation | None = None,
 ) -> tuple[list[str], list[str]] | None:
     """Split a rendered command into shell-independent ``(executable, args)``.
 
+    The entry point is never recovered by parsing: for our own commands it is
+    the resolved invocation itself, spliced in by :func:`retarget_command`.
+    That matters on Windows, where the rendered prefix is double-quoted and a
+    POSIX parse would eat the backslashes in ``C:\\Python312\\python.exe``.
+
     Returns ``None`` when the string has no faithful argv form — an unbalanced
-    quote, or a leading ``NAME=VALUE`` assignment, which is shell syntax rather
-    than an argv token and so cannot be represented without inventing a field
-    to hold it. The rendered string stays authoritative in those cases.
+    quote, a leading ``NAME=VALUE`` assignment, or any unquoted shell
+    metacharacter. Publishing an argv that runs something other than what the
+    string says would be worse than publishing no argv at all; the rendered
+    string stays authoritative in those cases.
     """
 
-    if _has_env_assignment_prefix(command):
+    if _has_shell_syntax(command):
         return None
+
+    invocation = _as_invocation(prefix)
+    rendered = join_argv(invocation.tokens)
+
+    if rendered and command == rendered:
+        return list(invocation.tokens), []
+    if rendered and command.startswith(rendered) and command[len(rendered) :][:1].isspace():
+        head, tail = list(invocation.tokens), command[len(rendered) :]
+    else:
+        span = _program_token_span(command)
+        if span is None or span[0] != 0:
+            # Either nothing to split, or leading ``NAME=VALUE`` assignments,
+            # which are shell syntax rather than argv tokens.
+            return None
+        head, tail = [command[span[0] : span[1]]], command[span[1] :]
+
     try:
-        tokens = shlex.split(command)
+        args = shlex.split(tail)
     except ValueError:
         return None
-    if not tokens:
-        return None
-
-    resolved = tuple(prefix) if prefix is not None else invocation_prefix()
-    if _program_name(tokens[0]) in CONSOLE_SCRIPTS:
-        # Ours. Under a console-script invocation ``retarget_command`` leaves
-        # the written spelling alone, so the structured form must agree with
-        # the string rather than normalise it to the canonical name behind the
-        # reader's back.
-        if len(resolved) == 1 and _program_name(resolved[0]) in CONSOLE_SCRIPTS:
-            return [tokens[0]], tokens[1:]
-        return list(resolved), tokens[1:]
-    if len(tokens) >= len(resolved) and tokens[: len(resolved)] == list(resolved):
-        return list(resolved), tokens[len(resolved) :]
-    # Another program entirely (``pip install ...``). Its argv[0] is still a
-    # perfectly good executable; only the split point differs.
-    return [tokens[0]], tokens[1:]
-
-
-def _has_env_assignment_prefix(command: str) -> bool:
-    span = _program_token_span(command)
-    if span is None:
-        return False
-    return command[: span[0]].strip() != ""
+    return head, args

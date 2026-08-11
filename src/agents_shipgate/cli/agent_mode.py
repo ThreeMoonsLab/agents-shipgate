@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import sys
 from collections.abc import Mapping
 from typing import Any
 
-from agents_shipgate.invocation import invocation_prefix
+from agents_shipgate.invocation import (
+    invocation_prefix,
+    join_argv,
+    retarget_command,
+    split_invocation,
+)
 
 AGENT_MODE_ENV_VAR = "AGENTS_SHIPGATE_AGENT_MODE"
 
@@ -114,15 +118,62 @@ def emit_agent_mode_error(
         payload["exit_code"] = exit_code
     payload["command"] = command or _command_string()
     if next_action is not None:
-        payload["next_action"] = next_action
+        payload["next_action"] = _normalized_legacy_action(next_action)
     if next_actions is not None:
-        payload["next_actions"] = next_actions
+        payload["next_actions"] = _normalized_actions(next_actions)
     if diagnostics is not None:
         payload["diagnostics"] = diagnostics
     if artifacts is not None:
         payload["artifacts"] = artifacts
     payload.update(fields)
     print(json.dumps(payload, default=str), file=sys.stderr)
+
+
+def _normalized_actions(next_actions: object) -> object:
+    """Apply the invocation policy at the wire, not at the call site.
+
+    Most callers build :class:`~agents_shipgate.schemas.diagnostics.NextAction`
+    objects, which normalize themselves. Some build the same shape as a plain
+    dict — ``apply-patches`` does — and a hand-built dict has no way to opt
+    into the policy, so it silently published a bare ``agents-shipgate ...``
+    with no structured argv. Normalizing here means a surface cannot opt out by
+    choosing a different construction, which is the only version of this that
+    stays true as new surfaces are written.
+    """
+
+    if not isinstance(next_actions, list):
+        return next_actions
+    return [_normalized_action(item) for item in next_actions]
+
+
+def _normalized_action(action: object) -> object:
+    if not isinstance(action, dict):
+        return action
+    command = action.get("command")
+    if action.get("kind") != "command" or not isinstance(command, str) or not command:
+        return action
+    normalized = dict(action)
+    normalized["command"] = retarget_command(command)
+    split = split_invocation(normalized["command"])
+    if split is not None:
+        normalized["executable"], normalized["args"] = split
+    else:
+        normalized.pop("executable", None)
+        normalized.pop("args", None)
+    return normalized
+
+
+def _normalized_legacy_action(next_action: object) -> object:
+    """The single-string form, kept in step with the ranked array.
+
+    ``next_action`` is prose for every kind but ``command``, and
+    :func:`retarget_command` only ever rewrites a leading token that names one
+    of our console scripts — so a sentence passes through untouched.
+    """
+
+    if isinstance(next_action, str) and next_action:
+        return retarget_command(next_action)
+    return next_action
 
 
 def _command_string() -> str:
@@ -136,4 +187,4 @@ def _command_string() -> str:
     surface that has to name the CLI.
     """
 
-    return shlex.join([*invocation_prefix(), *sys.argv[1:]])
+    return join_argv([*invocation_prefix(), *sys.argv[1:]])
