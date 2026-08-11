@@ -305,22 +305,28 @@ repos:
             shipgate\.yaml|
             .*tools.*\.json|
             .*mcp.*\.json|
+            .*n8n.*\.json|
+            (.*/)?\.n8n(/.*)?|
+            (.*/)?conductor/.*\.json|
+            (.*/)?ai/examples/.*\.json|
             (.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)|
             (.*/)?\.claude/(settings(\.local)?\.json|commands/.*)|
             (.*/)?\.cursor/(cli\.json|mcp\.json|rules/.*)|
             (.*/)?\.vscode/mcp\.json|
             (.*/)?\.shipgate/agent-contract\.json|
-            .*\.codex-plugin/.*|
-            .*\.agents/plugins/.*|
+            (.*/)?(AGENTS(\.override)?|CLAUDE)\.md|
+            \.(agents|claude)/skills/.*|
+            (.*/)?\.codex-plugin(/.*)?|
+            (.*/)?\.agents/plugins(/.*)?|
             .*\.app\.json|
             (.*/)?SKILL\.md|
             .*openapi.*\.(yaml|yml|json)|
             .*swagger.*\.(yaml|yml|json)|
             \.agents-shipgate/.*\.json|
-            prompts/.*|
-            policies/.*|
+            (.*/)?prompts(/.*)?|
+            (.*/)?policies(/.*)?|
             (.*/)?\.github/workflows/.*\.(yaml|yml)
           )$
 ```
 
-The hook fires when a staged change touches a **path-based** trigger from [`docs/triggers.json`](triggers.json): `shipgate.yaml`, MCP/OpenAPI/Swagger exports, `**/*tools*.json` inventories, Codex repo config and static requirements, Claude settings and commands, Cursor permissions and rules, VS Code MCP, the downstream local contract, Codex plugin package files, `prompts/**`, `policies/**`, and GitHub workflows. Matching is case-insensitive; `prompts/` and `policies/` match at any depth (`services/foo/policies/refund.yaml`), as do the nested protected copies covered by the boundary registry. Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`, `TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED`, and the diff-leg of `TRIGGER-SHIPGATE-CI-WORKFLOW`) are not covered by the regex pre-gate — pre-commit's `files:` regex is purely path-based. `TRIGGER-FRAMEWORK-VERSION-BUMP` needs a framework package token in the diff *in addition to* a changed dependency manifest, so the path-only regex cannot decide it either. Once the hook fires, the `verify` entry runs the full trigger evaluator (including diff rules) and base auto-detection itself. Use the GitHub Action for coverage on commits whose paths don't match the regex at all, or `python -m agents_shipgate.triggers --git-diff HEAD` for diff-aware local checks. The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.
+The hook fires when a staged change touches a **path-based** trigger from [`docs/triggers.json`](triggers.json): `shipgate.yaml`, MCP/OpenAPI/Swagger exports, `**/*tools*.json` inventories, n8n and Conductor workflow JSON, Codex repo config and static requirements, Claude settings and commands, Cursor permissions and rules, VS Code MCP, the downstream local contract, agent instructions (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`), Codex plugin package files, `prompts/**`, `policies/**`, and GitHub workflows. Matching is case-insensitive, and every clause whose catalog glob is recursive is recursive too — `services/foo/policies/refund.yaml`, `enterprise/lib/captain/Prompts/system.md`, and a nested `AGENTS.md` all stage the same as a repo-root copy, as do the nested protected copies covered by the boundary registry. A `dir/**` glob also matches a tracked path named exactly `dir`. Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`, `TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED`, and the diff-leg of `TRIGGER-SHIPGATE-CI-WORKFLOW`) are not covered by the regex pre-gate — pre-commit's `files:` regex is purely path-based. `TRIGGER-FRAMEWORK-VERSION-BUMP` needs a framework package token in the diff *in addition to* a changed dependency manifest, so the path-only regex cannot decide it either. Once the hook fires, the `verify` entry runs the full trigger evaluator (including diff rules) and base auto-detection itself. Use the GitHub Action for coverage on commits whose paths don't match the regex at all, or `python -m agents_shipgate.triggers --git-diff HEAD` for diff-aware local checks. The canonical hook manifest pre-commit reads from the repo root is [`/.pre-commit-hooks.yaml`](../.pre-commit-hooks.yaml) — it exposes `agents-shipgate`, `agents-shipgate-strict`, and `agents-shipgate-validate`. See [`examples/pre-commit/`](../examples/pre-commit/) for the longer write-up on advisory vs. strict modes and which hook ID to pick.

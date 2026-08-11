@@ -370,7 +370,7 @@ Do NOT use it for:
 
 One known gap in the Google ADK row: an edit that *modifies* a tools list on the `Agent` alias (rather than `LlmAgent`) is not matched, because a bare `Agent(..., tools=[...])` hunk with no ADK import in it cannot be distinguished from CrewAI's by diff text alone. `LlmAgent` changes and whole-file additions in either spelling are covered.
 
-`prompts/` and `policies/` in that row match at any depth: an edit under `services/foo/policies/` or `enterprise/lib/captain/prompts/` routes exactly like a repo-root one. That is parity with the verifier, whose trust-root classification has always read those two surfaces as `**/policies/**` and `**/prompts/**`.
+`prompts/` and `policies/` in that row match at any depth and case-insensitively: an edit under `services/foo/policies/` or `enterprise/lib/captain/Prompts/` routes exactly like a repo-root one. That is parity with the verifier, whose trust-root classification has always read those two surfaces as `**/policies/**` and `**/prompts/**` and has always tolerated the case variant a case-insensitive filesystem resolves to the canonical name. Every `glob`, `every_file_matches` and `none_match_glob` predicate in the catalog now matches the same way, so a path cannot be a trust root to the verifier and a `no_match` to the router. The three surfaces that copy this routing — the pre-commit `files:` regex, the `.cursor/rules/agents-shipgate.mdc` activation globs, and the documented copy-paste hook snippets — follow, so a nested governance edit also activates the host instructions and stages the local hook.
 
 Two implicit triggers also fire even when no row above matches:
 

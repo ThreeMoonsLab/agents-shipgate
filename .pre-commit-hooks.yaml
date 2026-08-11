@@ -6,12 +6,19 @@
 #       hooks:
 #         - id: <hook id below>
 #
-# Scope: the `files:` regex below covers every **path-based** trigger from
-# `docs/triggers.json` — manifest, MCP/OpenAPI/Swagger exports, static tool
-# inventories, coding-agent host configuration/instructions, plugin package
-# files, prompts/policies, AND GitHub workflow files. `prompts/` and
-# `policies/` match at any depth, mirroring the catalog's `**/prompts/**` and
-# `**/policies/**` globs, so a nested workspace stages the same as the root.
+# Scope: the `files:` regex below covers the path leg of every trigger in
+# `docs/triggers.json` that can be decided from a path alone — manifest,
+# MCP/OpenAPI/Swagger exports, static tool inventories, n8n and Conductor
+# workflow JSON, coding-agent host configuration/instructions, plugin package
+# files, prompts/policies, AND GitHub workflow files. That claim is pinned
+# exhaustively by `test_hook_regex_fixtures_cover_every_path_based_trigger`:
+# a catalog rule with a `glob` leg must appear in the test's fixture table or
+# in its documented exclusion set, so a new rule cannot land here uncovered.
+# Matching is case-insensitive and, where the catalog glob is recursive, so is
+# the clause: `prompts/`, `policies/`, `.codex-plugin/`, `.agents/plugins/`,
+# `.n8n/`, nested `AGENTS.md`/`CLAUDE.md` and nested workflow directories all
+# stage the same from a sub-workspace as from the repo root, and a `dir/**`
+# glob also matches a tracked path named exactly `dir`.
 # Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`,
 # `TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED`) are not covered by the regex
 # pre-gate — pre-commit's `files:` regex is purely path-based and cannot
@@ -41,22 +48,26 @@
       shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
+      .*n8n.*\.json|
+      (.*/)?\.n8n(/.*)?|
+      (.*/)?conductor/.*\.json|
+      (.*/)?ai/examples/.*\.json|
       (.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)|
       (.*/)?\.claude/(settings(\.local)?\.json|commands/.*)|
       (.*/)?\.cursor/(cli\.json|mcp\.json|rules/.*)|
       (.*/)?\.vscode/mcp\.json|
       (.*/)?\.shipgate/agent-contract\.json|
-      (AGENTS(\.override)?|CLAUDE)\.md|
+      (.*/)?(AGENTS(\.override)?|CLAUDE)\.md|
       \.(agents|claude)/skills/.*|
-      .*\.codex-plugin/.*|
-      .*\.agents/plugins/.*|
+      (.*/)?\.codex-plugin(/.*)?|
+      (.*/)?\.agents/plugins(/.*)?|
       .*\.app\.json|
       (.*/)?SKILL\.md|
       .*openapi.*\.(yaml|yml|json)|
       .*swagger.*\.(yaml|yml|json)|
       \.agents-shipgate/.*\.json|
-      (.*/)?prompts/.*|
-      (.*/)?policies/.*|
+      (.*/)?prompts(/.*)?|
+      (.*/)?policies(/.*)?|
       (.*/)?\.github/workflows/.*\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"
@@ -77,22 +88,26 @@
       shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
+      .*n8n.*\.json|
+      (.*/)?\.n8n(/.*)?|
+      (.*/)?conductor/.*\.json|
+      (.*/)?ai/examples/.*\.json|
       (.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)|
       (.*/)?\.claude/(settings(\.local)?\.json|commands/.*)|
       (.*/)?\.cursor/(cli\.json|mcp\.json|rules/.*)|
       (.*/)?\.vscode/mcp\.json|
       (.*/)?\.shipgate/agent-contract\.json|
-      (AGENTS(\.override)?|CLAUDE)\.md|
+      (.*/)?(AGENTS(\.override)?|CLAUDE)\.md|
       \.(agents|claude)/skills/.*|
-      .*\.codex-plugin/.*|
-      .*\.agents/plugins/.*|
+      (.*/)?\.codex-plugin(/.*)?|
+      (.*/)?\.agents/plugins(/.*)?|
       .*\.app\.json|
       (.*/)?SKILL\.md|
       .*openapi.*\.(yaml|yml|json)|
       .*swagger.*\.(yaml|yml|json)|
       \.agents-shipgate/.*\.json|
-      (.*/)?prompts/.*|
-      (.*/)?policies/.*|
+      (.*/)?prompts(/.*)?|
+      (.*/)?policies(/.*)?|
       (.*/)?\.github/workflows/.*\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"

@@ -269,7 +269,9 @@ globs:
   - "**/*workflow*.json"
   - ".agents-shipgate/*.json"
   - "prompts/**"
+  - "**/prompts/**"
   - "policies/**"
+  - "**/policies/**"
   - ".github/workflows/agents-shipgate.yml"
   - ".github/workflows/agents-shipgate.yaml"
 alwaysApply: false

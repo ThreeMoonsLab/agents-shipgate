@@ -19,7 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
-from agents_shipgate.core.globbing import glob_match
+from agents_shipgate.core.globbing import glob_match, glob_match_ci
 
 # Ordered (class, glob) classification of a repo's release trust roots —
 # the surfaces that define the gate in any repo that has adopted
@@ -116,7 +116,7 @@ def trust_root_class_for(path: str) -> str | None:
     """
 
     for trust_root_class, pattern in TRUST_ROOT_SURFACES:
-        if glob_match(pattern, path) or glob_match(pattern.casefold(), path.casefold()):
+        if glob_match_ci(pattern, path):
             return trust_root_class
     return None
 

@@ -122,11 +122,54 @@ def test_cursor_renders_full_mdc_with_frontmatter() -> None:
         "**/*workflow*.json",
         ".agents-shipgate",
         "prompts/**",
+        "**/prompts/**",
         "policies/**",
+        "**/policies/**",
         ".github/workflows/agents-shipgate",
     ):
         assert token in out
     assert '"**/*.py"' not in out
+
+
+def _cursor_rule_globs(text: str) -> list[str]:
+    """The ordered `globs:` list from a Cursor `.mdc` frontmatter block."""
+    body = text.split("globs:", 1)[1]
+    globs: list[str] = []
+    for line in body.splitlines()[1:]:
+        stripped = line.strip()
+        if not stripped.startswith('- "'):
+            break
+        globs.append(stripped[3:-1])
+    return globs
+
+
+def test_cursor_activation_globs_are_mirrored_everywhere_they_are_copied() -> None:
+    """The Cursor rule is `alwaysApply: false`, so its `globs:` list is what
+    decides whether Shipgate's instructions activate at all. Three copies of
+    that list ship outside the renderer — the adoption harness's lint
+    constant and the benchmark setup variant, plus the committed
+    `.cursor/rules/agents-shipgate.mdc` (pinned byte-for-byte elsewhere).
+    Nothing enforced the first two, so a glob added to the renderer could
+    leave the harness passing rules the real Cursor rule would never
+    activate on, and the benchmark measuring a narrower rule than we ship.
+    """
+    canonical = _cursor_rule_globs(render_cursor_file())
+    assert canonical, "Could not parse the renderer's globs: block."
+
+    template = REPO_ROOT / "benchmark/setup-variants/30-cursor-rule/agents-shipgate.mdc.template"
+    assert _cursor_rule_globs(template.read_text(encoding="utf-8")) == canonical, (
+        f"{template.relative_to(REPO_ROOT)} globs drifted from the Cursor renderer. "
+        "The benchmark would measure adoption against a rule we do not ship."
+    )
+
+    driver = (REPO_ROOT / "harness/adoption/drivers/cursor.py").read_text(encoding="utf-8")
+    block = driver.split("CANONICAL_GLOBS_REQUIRED: tuple[str, ...] = (", 1)[1]
+    harness_globs = re.findall(r'"([^"]+)"', block.split("\n)", 1)[0])
+    assert harness_globs == canonical, (
+        "harness/adoption/drivers/cursor.py CANONICAL_GLOBS_REQUIRED drifted from "
+        "the Cursor renderer; the cursor-static driver would pass rules the real "
+        "Cursor rule would not activate on."
+    )
 
 
 def test_agent_instruction_surfaces_name_phase1_control_fields() -> None:

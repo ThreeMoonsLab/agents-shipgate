@@ -31,7 +31,7 @@ from agents_shipgate.core.boundary_registry import (
     is_agent_boundary_path,
 )
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.globbing import glob_match as _glob_match
+from agents_shipgate.core.globbing import glob_match_ci as _glob_match
 
 _TRIGGERS_FILENAME = "triggers.json"
 
@@ -252,6 +252,14 @@ def _next_action(
 def _eval_predicate(
     pred: dict[str, Any] | None,
     *,
+    # Every glob predicate below matches through ``_glob_match``, which is
+    # ``glob_match_ci`` — case-tolerant, like the trust-root classifier and the
+    # boundary-adapter registry. A case-sensitive matcher here would route
+    # ``services/foo/Policies/refund.yaml`` as ``no_match`` while
+    # ``SHIP-VERIFY-TRUST-ROOT-TOUCHED`` classifies the same path as a policy
+    # trust root, and would let a ``Prompts/*.md`` edit skip through the
+    # docs-only negative rule. The catalog's ``predicate_vocabulary`` states
+    # this, so third-party consumers apply the same semantics.
     paths: list[str],
     diff_text: str,
     manifest_present: bool,

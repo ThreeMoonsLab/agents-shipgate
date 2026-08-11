@@ -66,7 +66,9 @@ CANONICAL_GLOBS_REQUIRED: tuple[str, ...] = (
     "**/*workflow*.json",
     ".agents-shipgate/*.json",
     "prompts/**",
+    "**/prompts/**",
     "policies/**",
+    "**/policies/**",
     ".github/workflows/agents-shipgate.yml",
     ".github/workflows/agents-shipgate.yaml",
 )
