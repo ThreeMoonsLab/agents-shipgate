@@ -55,17 +55,34 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    would classify `is_agent_project: false`; look for `suggested_sources` and
    `codex_plugin_candidates` when those fields are present.
 
-4. **Generate a starter manifest + GitHub Actions workflow:**
+   Run the emitted command **verbatim, including its `--workspace`**. When the
+   changed paths all sit inside one self-contained project, preview scopes
+   setup to that project instead of the repository root; re-spelling the
+   command with `--workspace .` in a monorepo writes one manifest covering
+   every unrelated agent in the repo. If that project already carries its own
+   `shipgate.yaml`, preview routes you to `verify` there rather than to setup.
+
+4. **Generate a starter manifest + GitHub Actions workflow** — at the workspace preview named:
    ```bash
    $SG init --workspace . --write --ci --json
    ```
    The `--json` form returns:
-   - `manifest_status`: `"written"` | `"skipped_existing"` | `"not_attempted"`
+   - `manifest_status`: `"written"` | `"skipped_existing"` | `"refused_ambiguous_scope"` | `"not_attempted"`
    - `workflow.status` (with `--ci`): `"written"` | `"skipped_existing_target"` | `"skipped_cross_reference"`
    - `placeholders[]` — entries the template intentionally left as `CHANGE_ME` because no high-confidence signal was available
    - `auto_detected.agent_name` — the value the manifest carries (`null` when the template fell back to `CHANGE_ME`)
+   - `auto_detected.agent_scope`: `"single"` | `"ambiguous"`, with `auto_detected.agent_project_candidates[]` naming every self-contained project that defines an agent
 
    `--ci` writes `.github/workflows/agents-shipgate.yml` orthogonally to `--write`. Each gets its own overwrite-refusal check; existing workflows that already call `ThreeMoonsLab/agents-shipgate` skip with a distinct `cross_reference_path`.
+
+   `refused_ambiguous_scope` (exit 2) means the workspace defines agents in
+   more than one project, so no single `agent.name`, `declared_purpose`, or
+   tool surface describes it. Nothing was written — not the manifest, not the
+   workflow, not the reports `.gitignore` block. Do not retry the same command:
+   pick the project this change belongs to from `agent_project_candidates[]`
+   and re-run with `--workspace <that directory>`. `--allow-ambiguous-scope`
+   writes one manifest for all of them, and is right only when a single agent
+   surface genuinely spans them.
 
 5. **Replace placeholders.** Walk `placeholders[]` from the JSON output. On a fresh workspace the template typically leaves two:
    - `agent.name: CHANGE_ME` — replace with the agent's actual role (no strong `Agent(name="…")` literal was found in the source).

@@ -28,9 +28,11 @@
       "additional_fields": [
         "message",
         "next_action",
-        "next_actions"
+        "next_actions",
+        "agent_scope",
+        "agent_project_candidates"
       ],
-      "recovery_hint": "Follow the emitted ranked `next_actions[]`; do not assume every config_error is a manifest problem. For manifests, distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run the emitted preview/setup route; `SHIP-DIAG-INVALID-MANIFEST` → edit the existing manifest and do NOT re-run `init`. For flag, preflight, and host-audit errors, preserve the original workspace and request context, and stop for review whenever no exact safe command is emitted."
+      "recovery_hint": "Follow the emitted ranked `next_actions[]`; do not assume every config_error is a manifest problem. For manifests, distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run the emitted preview/setup route; `SHIP-DIAG-INVALID-MANIFEST` → edit the existing manifest and do NOT re-run `init`. When `agent_scope` is `ambiguous`, `init --write` refused because the workspace defines agents in several self-contained projects and wrote nothing; re-run it with `--workspace` pointed at one of `agent_project_candidates[].path` instead of retrying the same command. For flag, preflight, and host-audit errors, preserve the original workspace and request context, and stop for review whenever no exact safe command is emitted."
     },
     {
       "id": "config_already_exists",

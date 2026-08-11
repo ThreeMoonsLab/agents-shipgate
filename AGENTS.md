@@ -233,7 +233,10 @@ agents-shipgate bootstrap --json
 `bootstrap` runs `detect → init --write --ci → scan --suggest-patches → apply-patches --confidence high` against the current workspace, stopping on the first non-recoverable error and emitting a structured per-step summary. Use it for first-time adoption; for ongoing CI keep using the GitHub Action. Flags: `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json`.
 
 - **`detect`** — read-only; classifies the workspace. `is_agent_project: false`
-  means stop early.
+  means stop early. `agent_scope` says whether one manifest can describe this
+  workspace at all: on `"ambiguous"`, `agent_project_candidates[]` lists each
+  self-contained project that defines an agent, and the manifest belongs in one
+  of them rather than at the workspace root.
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
@@ -249,6 +252,15 @@ agents-shipgate bootstrap --json
   bundles under `.agents/skills/agents-shipgate/` and
   `.claude/skills/agents-shipgate/` respectively. Strict CI and baselines remain
   opt-in human decisions; generated CI stays advisory by default.
+  `--write` **refuses** a workspace whose agents live in more than one
+  self-contained project — `manifest_status: "refused_ambiguous_scope"`, exit
+  `2`, nothing written at all (no manifest, no workflow, no snippets, no
+  `.gitignore` block) — rather than adopting the first `Agent(name=…)` literal
+  it parsed for a manifest that would cover unrelated agents. Re-run with
+  `--workspace` pointed at one of
+  `auto_detected.agent_project_candidates[].path`; `--allow-ambiguous-scope`
+  overrides when one agent surface genuinely spans them, and `--minimal`
+  (which adopts no detected name or tool surface) is never scope-gated.
 - **`scan --suggest-patches`** — attaches Patch objects to every active
   finding. `Finding.patches` is absent without the flag.
 - **`apply-patches`** — file-grouped, dry-run by default. Containment-

@@ -30,6 +30,8 @@ from agents_shipgate.cli.discovery.gitignore_block import (
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.detect import AgentProjectCandidate
 from agents_shipgate.schemas.diagnostics import NextAction
 
 
@@ -140,6 +142,100 @@ def _detect_json_indent(text: str) -> int:
     return 2
 
 
+# A monorepo can hold hundreds of agent projects. The refusal lists enough
+# of them to route on and points at the JSON payload for the rest.
+_MAX_LISTED_SCOPE_CANDIDATES = 10
+
+
+def _describe_candidate(candidate: AgentProjectCandidate) -> str:
+    """One candidate as a line a human can choose from.
+
+    Not every project names its agent in a string literal — a config-driven
+    ``LlmAgent(name=CONFIG.agent_name)`` has none to parse — so the marker
+    that made the directory a project stands in for it rather than leaving
+    an empty pair of brackets.
+    """
+
+    detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
+    return f"{candidate.path} ({detail})"
+
+
+def _ambiguous_scope_message(
+    workspace: Path, candidates: list[AgentProjectCandidate]
+) -> str:
+    lines = [
+        f"Refusing to write shipgate.yaml: {workspace} holds "
+        f"{len(candidates)} self-contained projects that define agents, and "
+        "one manifest describes one agent surface.",
+        "Candidate project directories:",
+    ]
+    for candidate in candidates[:_MAX_LISTED_SCOPE_CANDIDATES]:
+        lines.append(f"  - {_describe_candidate(candidate)}")
+    remaining = len(candidates) - _MAX_LISTED_SCOPE_CANDIDATES
+    if remaining > 0:
+        lines.append(
+            f"  - ... ({remaining} more; see auto_detected.agent_project_candidates "
+            "in --json)"
+        )
+    lines.append(
+        "Re-run init with --workspace pointed at the project you are changing, "
+        "or pass --allow-ambiguous-scope to write one manifest for all of them."
+    )
+    return "\n".join(lines)
+
+
+def _ambiguous_scope_actions(
+    workspace: Path, candidates: list[AgentProjectCandidate]
+) -> list[NextAction]:
+    """Rank the decision above the commands that carry it out.
+
+    Rank 1 is deliberately not a command: promoting one candidate would
+    make the same arbitrary pick this refusal exists to prevent. The
+    per-candidate commands follow, in path order, so a caller that knows
+    which project it is changing can match on the path rather than trust
+    an ordering.
+    """
+
+    actions = [
+        NextAction(
+            kind="review",
+            why=(
+                f"{workspace} defines agents in {len(candidates)} separate "
+                "projects; pick the one this change belongs to. Shipgate will "
+                "not choose for you — the manifest declares one agent's name, "
+                "purpose, and tool surface."
+            ),
+            expects=(
+                "One project directory chosen from "
+                "auto_detected.agent_project_candidates."
+            ),
+        )
+    ]
+    # The workspace root is never offered as a command: it is the scope this
+    # run just refused, so running it again returns here. `.` stays in the
+    # reported candidate list because agent files that belong to no
+    # sub-project are real evidence of why the answer is ambiguous, and
+    # `--allow-ambiguous-scope` is the route that accepts them.
+    routable = [candidate for candidate in candidates if candidate.path != "."]
+    for candidate in routable[:_MAX_LISTED_SCOPE_CANDIDATES]:
+        target = workspace / candidate.path
+        defines = ", ".join(candidate.agent_names)
+        actions.append(
+            NextAction(
+                kind="command",
+                command=render_command(
+                    ["init", "--workspace", str(target), "--write", "--json"]
+                ),
+                why=(
+                    f"Initialize only {candidate.path}"
+                    + (f", which defines {defines}." if defines else ".")
+                ),
+                expects=f"shipgate.yaml is created in {candidate.path}.",
+            )
+        )
+    return actions
+
+
 def _claude_code_outcome_lines(outcome: dict[str, object]) -> list[str]:
     lines: list[str] = []
     hooks = outcome.get("hooks")
@@ -189,6 +285,16 @@ def register(app: typer.Typer) -> None:
             False,
             "--minimal",
             help="Use the legacy CHANGE_ME-heavy template instead of auto-detection.",
+        ),
+        allow_ambiguous_scope: bool = typer.Option(
+            False,
+            "--allow-ambiguous-scope",
+            help=(
+                "Write one manifest for a workspace whose agents live in "
+                "several self-contained projects. Without this, --write "
+                "refuses and lists the candidate project directories instead "
+                "of adopting the first agent name it parsed."
+            ),
         ),
         auto: bool = typer.Option(
             False,
@@ -296,6 +402,11 @@ def register(app: typer.Typer) -> None:
             requested_targets = parse_selector("claude-md,claude-code-skill")
 
         excluded_sources: list[dict[str, str]] = []
+        # Manifest scope, decided before anything is written. `--minimal`
+        # never adopts a detected agent name or tool surface, so its output
+        # cannot be silently mis-scoped and the refusal does not apply.
+        scope_candidates: list[AgentProjectCandidate] = []
+        ambiguous_scope = False
         if minimal:
             template = render_manifest_template(workspace_resolved)
             placeholders = collect_placeholders(template)
@@ -388,7 +499,17 @@ def register(app: typer.Typer) -> None:
                     {"value": c.value, "source": c.source}
                     for c in detect_result.agent_name_candidates
                 ],
+                # Which directory this manifest is entitled to describe. On
+                # "ambiguous", `chosen_agent_name` above is one of several
+                # unrelated agents, so --write refuses (#363).
+                "agent_scope": detect_result.agent_scope,
+                "agent_project_candidates": [
+                    candidate.model_dump(mode="json")
+                    for candidate in detect_result.agent_project_candidates
+                ],
             }
+            scope_candidates = list(detect_result.agent_project_candidates)
+            ambiguous_scope = detect_result.agent_scope == "ambiguous"
             excluded_sources = detect_result.excluded_sources
             if excluded_sources:
                 # Glob-matched files the input adapters reject — dropped from
@@ -441,6 +562,12 @@ def register(app: typer.Typer) -> None:
         manifest_exit = 0
         manifest_message: str | None = None
         manifest_skip_pending = False
+        # A refused run writes nothing at all — not the workflow, not the
+        # agent-instruction snippets, not the reports .gitignore block. The
+        # scope it would have used is exactly what is in question, so leaving
+        # managed edits behind in a directory Shipgate declined to adopt
+        # would put unrelated modifications in the pull request (#363).
+        scope_refused = False
         if write:
             if target.exists():
                 manifest_status = "skipped_existing"
@@ -450,6 +577,13 @@ def register(app: typer.Typer) -> None:
                 # set the user's primary intent is refreshing snippets, and an
                 # already-existing manifest is informational, not a failure.
                 manifest_skip_pending = True
+            elif ambiguous_scope and not allow_ambiguous_scope:
+                manifest_status = "refused_ambiguous_scope"
+                manifest_exit = 2
+                manifest_message = _ambiguous_scope_message(
+                    workspace_resolved, scope_candidates
+                )
+                scope_refused = True
             else:
                 target.write_text(template, encoding="utf-8")
                 manifest_status = "written"
@@ -457,7 +591,7 @@ def register(app: typer.Typer) -> None:
 
         # Workflow action — independent of manifest action.
         workflow_outcome: dict[str, object] | None = None
-        workflow_requested = ci
+        workflow_requested = ci and not scope_refused
         if workflow_requested:
             result = write_ci_workflow(workspace_resolved)
             workflow_outcome = {
@@ -472,7 +606,7 @@ def register(app: typer.Typer) -> None:
         agent_instructions_outcome: dict[str, object] | None = None
         agent_instructions_exit = 0
         agent_instructions_targets: list[object] = []
-        if requested_targets is not None:
+        if requested_targets is not None and not scope_refused:
             ai_result = apply_agent_instructions(
                 workspace_resolved,
                 requested_targets,
@@ -498,7 +632,9 @@ def register(app: typer.Typer) -> None:
         # Shipgate before this CLI version was released get the line on their
         # next `init --write`.
         gitignore_outcome = (
-            ensure_reports_gitignore(workspace_resolved, write=write) if write else None
+            ensure_reports_gitignore(workspace_resolved, write=write)
+            if write and not scope_refused
+            else None
         )
 
         # Claude Code extras — hooks plus a conventional verify alias.
@@ -506,7 +642,7 @@ def register(app: typer.Typer) -> None:
         # never as an init exit code (the instructions/manifest actions
         # above carry the contract).
         claude_code_outcome: dict[str, object] | None = None
-        if claude_code:
+        if claude_code and not scope_refused:
             claude_code_outcome = _apply_claude_code_extras(workspace_resolved, write=write)
 
         # Idempotency reconciliation: when --agent-instructions selects at least
@@ -521,6 +657,21 @@ def register(app: typer.Typer) -> None:
         if requested_targets and manifest_status == "skipped_existing":
             manifest_exit = 0
             manifest_skip_pending = False
+        scope_actions: list[NextAction] = []
+        if scope_refused:
+            scope_actions = _ambiguous_scope_actions(workspace_resolved, scope_candidates)
+            _emit_agent_mode_error(
+                "config_error",
+                path=str(target),
+                message=manifest_message,
+                exit_code=manifest_exit,
+                next_action=scope_actions[0].to_legacy_string(),
+                next_actions=[action.model_dump(mode="json") for action in scope_actions],
+                agent_scope="ambiguous",
+                agent_project_candidates=[
+                    candidate.model_dump(mode="json") for candidate in scope_candidates
+                ],
+            )
         if manifest_skip_pending:
             _emit_agent_mode_error(
                 "config_already_exists",
@@ -555,6 +706,14 @@ def register(app: typer.Typer) -> None:
             if not write:
                 payload["template"] = template
                 payload["next_action"] = next_action_dry
+            elif scope_refused:
+                # The manifest this run would have written describes a scope
+                # nobody chose, so the routable answer is the choice — not the
+                # scan command that assumes it was already made.
+                payload["next_action"] = scope_actions[0].to_legacy_string()
+                payload["next_actions"] = [
+                    action.model_dump(mode="json") for action in scope_actions
+                ]
             else:
                 # Projected from the action rather than written twice, so the
                 # recovery command is spelled for this invocation and carries
@@ -602,7 +761,7 @@ def register(app: typer.Typer) -> None:
                             f"Replace these placeholders before scanning: "
                             f"{', '.join(sorted({entry['path'] for entry in placeholders}))}"
                         )
-                elif manifest_status == "skipped_existing":
+                elif manifest_status in ("skipped_existing", "refused_ambiguous_scope"):
                     typer.echo(manifest_message, err=True)
             if workflow_outcome is not None:
                 stream = (

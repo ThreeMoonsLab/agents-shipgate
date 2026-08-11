@@ -122,7 +122,8 @@ Auto-detection runs again inside `init` and writes:
 
 Key response fields:
 
-- `manifest_status`: `"written"` | `"skipped_existing"` | `"not_attempted"`.
+- `manifest_status`: `"written"` | `"skipped_existing"` |
+  `"refused_ambiguous_scope"` | `"not_attempted"`.
 - `workflow.status` (when `--ci`): `"written"` | `"skipped_existing_target"`
   | `"skipped_cross_reference"`.
 - `placeholders[]` — entries the template intentionally leaves as
@@ -132,10 +133,23 @@ Key response fields:
 - `auto_detected.agent_name` — the value the manifest carries
   (`null` when the template fell back to `CHANGE_ME`; matches the YAML
   exactly).
+- `auto_detected.agent_scope`: `"single"` | `"ambiguous"`, with
+  `auto_detected.agent_project_candidates[]` naming every self-contained
+  project (project-marker directory) that defines an agent.
 
 `--ci` is orthogonal to `--write`: each gets its own overwrite-refusal.
 Exit code is the max of per-action outcomes; manifest-error and
 workflow-skip can co-occur.
+
+`refused_ambiguous_scope` (exit `2`) is the one outcome where **nothing**
+is written — not the manifest, not the workflow, not the agent-instruction
+snippets, not the reports `.gitignore` block. It fires when agents live in
+more than one project under this workspace, because one `agent.name` and
+one `declared_purpose` cannot describe them all. Re-run with `--workspace`
+pointed at one of `agent_project_candidates[].path` rather than retrying
+the same command; `--allow-ambiguous-scope` accepts a single manifest for
+all of them, and `--minimal` is never scope-gated because it adopts no
+detected name or tool surface.
 
 ### Step 3 · `scan -c shipgate.yaml --suggest-patches --format json`
 

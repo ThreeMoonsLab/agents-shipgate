@@ -60,11 +60,13 @@ from agents_shipgate.cli.discovery.artifacts import (
     _relative,
     probe_suggested_source,
 )
+from agents_shipgate.cli.discovery.scope import find_project_root, project_marker
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.detect import (
+    AgentProjectCandidate,
     CodexPluginCandidate,
     DetectResult,
     FrameworkDetection,
@@ -226,13 +228,23 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
     project_name_candidates = _project_name_candidates(workspace)
     suggested_sources, excluded_sources = _suggested_sources(workspace)
     codex_plugin_candidates = _codex_plugin_candidates(workspace)
+    agent_project_candidates = _agent_project_candidates(py_facts, detections, workspace)
+    agent_scope = "ambiguous" if len(agent_project_candidates) > 1 else "single"
 
     is_agent_project = bool(detections)
-    next_action = (
-        render_command(["init", "--workspace", str(workspace)])
-        if is_agent_project or suggested_sources or codex_plugin_candidates
-        else "Workspace does not appear to be an agent project. No action."
-    )
+    if agent_scope == "ambiguous":
+        # Naming one of the candidates here would be the same arbitrary pick
+        # `init` refuses to make. The routable answer is the candidate list.
+        next_action = (
+            f"Agents were found in {len(agent_project_candidates)} separate "
+            "projects; this workspace is not one manifest's scope. Run "
+            "`init --workspace <agent_project_candidates[].path> --write` for "
+            "the project you are changing."
+        )
+    elif is_agent_project or suggested_sources or codex_plugin_candidates:
+        next_action = render_command(["init", "--workspace", str(workspace)])
+    else:
+        next_action = "Workspace does not appear to be an agent project. No action."
 
     present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
     workspace_signals = WorkspaceSignals(
@@ -251,6 +263,8 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         frameworks=detections,
         agent_name_candidates=agent_name_candidates,
         project_name_candidates=project_name_candidates,
+        agent_scope=agent_scope,
+        agent_project_candidates=agent_project_candidates,
         suggested_sources=suggested_sources,
         excluded_sources=excluded_sources,
         codex_plugin_candidates=codex_plugin_candidates,
@@ -577,6 +591,80 @@ def _agent_name_candidates(facts: list[_PyFacts], workspace: Path) -> list[NameC
     if workspace_name and workspace_name not in seen:
         candidates.append(NameCandidate(value=workspace_name, source="workspace_dir"))
     return candidates
+
+
+def _agent_project_candidates(
+    facts: list[_PyFacts],
+    detections: list[FrameworkDetection],
+    workspace: Path,
+) -> list[AgentProjectCandidate]:
+    """Group the agent evidence in this workspace by the project it sits in.
+
+    A file's project is the nearest directory at or above it that carries a
+    project marker, bounded by the workspace; a file with no marker above it
+    belongs to the workspace itself. Several agents inside *one* project are
+    one manifest's business — a crew, a router and its sub-agents. Agents in
+    *separate* projects are not: one ``agent.name``, one ``declared_purpose``,
+    and one ``tool_sources`` list cannot describe both, which is what makes
+    the scope ambiguous (#363).
+
+    Evidence is the file set the frameworks actually fired on, plus every
+    ``Agent(name=…)`` literal. Both matter and neither alone is enough: the
+    literal is the value ``init`` adopts for ``agent.name`` without asking,
+    while the candidate files are what it turns into ``tool_sources``. The
+    pull request in #363 is why the file set is included — its agent is
+    constructed as ``LlmAgent(name=CONFIG.agent_name)``, so a name-literal
+    rule would have left the very project under review out of the list of
+    directories the refusal offers.
+    """
+
+    names: dict[Path, set[str]] = {}
+    markers: dict[Path, str | None] = {}
+    paths: list[Path] = [
+        workspace / relative
+        for detection in detections
+        for relative in detection.candidate_files
+    ]
+    paths.extend(fact.path for fact in facts if fact.agent_name_literals)
+
+    def _project_of(path: Path) -> Path:
+        directory = path.parent
+        try:
+            directory.relative_to(workspace)
+        except ValueError:
+            # A source reached through a symlink out of the workspace cannot
+            # name a project inside it, so attribute it to the workspace
+            # rather than to a directory nobody asked about.
+            found = None
+        else:
+            found = find_project_root(directory, root=workspace)
+        project = found.directory if found is not None else workspace
+        if project not in markers:
+            markers[project] = (
+                found.marker if found is not None else project_marker(workspace)
+            )
+            names.setdefault(project, set())
+        return project
+
+    for path in paths:
+        _project_of(path)
+    for fact in facts:
+        if fact.agent_name_literals:
+            names[_project_of(fact.path)].update(fact.agent_name_literals)
+
+    candidates = [
+        AgentProjectCandidate(
+            path=(
+                project.relative_to(workspace).as_posix()
+                if project != workspace
+                else "."
+            ),
+            marker=markers[project],
+            agent_names=sorted(found_names),
+        )
+        for project, found_names in names.items()
+    ]
+    return sorted(candidates, key=lambda candidate: candidate.path)
 
 
 def _project_name_candidates(workspace: Path) -> list[NameCandidate]:

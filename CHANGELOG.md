@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+- **First adoption inside a monorepo no longer starts by writing the wrong
+  manifest.** `verify --preview` routed setup to the workspace root, so on a
+  repository holding many self-contained agent projects the command it handed
+  back produced a manifest covering all of them: on `google/adk-samples` that
+  was 252 `tool_sources` and an `agent.name` taken from the first of 160+
+  `Agent(name=…)` literals, unrelated to the pull request under review. Nothing
+  in the output said so — the JSON reported `manifest_status: "written"`,
+  `is_agent_project: true`, `confidence: "high"`, and a *higher* framework
+  score than the correct sub-directory — and the alignment layer that compares
+  a declared purpose against the observed capability surface has nothing left
+  to compare when one declaration covers many agents. The changed paths already
+  answer the question, so preview now derives `--workspace` from them: each is
+  attributed to the nearest directory at or above it carrying a project marker
+  (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`, …), and the scope
+  is that project when exactly one is claimed. The workspace root is left
+  unchanged whenever the paths do not narrow it — a root-level change, or one
+  spanning two projects, which narrows to *nothing* rather than to their common
+  parent, because the parent of two projects is not itself a project.
+  Documentation and tests cannot outvote code: when more than one project is
+  claimed, the projects claimed *only* by documentation or test paths drop out,
+  and the trigger catalog's own docs-only rule decides which paths those are so
+  the two surfaces cannot drift. That leg is load-bearing — the reported PR
+  edits `python/agents/README.md` one directory above the project it adds, and
+  counting that README as a competing claim sends the answer straight back to
+  the repository root. When that project already carries its own
+  `shipgate.yaml`, preview
+  routes to `verify` there instead of to setup, so following the suggestion
+  once does not turn the next preview into a loop against a manifest that now
+  exists. `init --write` closes the same gap from the other side: a workspace
+  whose agents live in more than one project reports
+  `manifest_status: "refused_ambiguous_scope"` (exit 2) with
+  `auto_detected.agent_scope` and `agent_project_candidates[]` naming each one,
+  rather than adopting the first agent name it parsed. A refused run writes
+  *nothing* — not the manifest, not the CI workflow, not the agent-instruction
+  snippets, not the reports `.gitignore` block — so a workspace Shipgate
+  declined to adopt carries no Shipgate edits into the diff. Rank 1 of the
+  emitted recovery is deliberately not a command: promoting one candidate would
+  make the same arbitrary pick the refusal exists to prevent. `--minimal`
+  adopts no detected name or tool surface and is unaffected; a repository that
+  really is one agent surface across several projects passes
+  `--allow-ambiguous-scope`; and re-running `init --write
+  --agent-instructions=…` on an adopted repository is untouched, because its
+  scope was settled when its manifest was written.
+  ([#363](https://github.com/ThreeMoonsLab/agents-shipgate/issues/363))
+
 - **The recommended next command now runs where it was recommended.** Every
   emitted command was written as the console script the wheel installs
   (`agents-shipgate …`), so a run started from a source checkout with

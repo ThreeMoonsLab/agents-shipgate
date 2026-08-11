@@ -26,10 +26,50 @@ Use this before reading the full manifest schema.
 | SDK/framework extractor finds no tools | `SHIP-DIAG-DYNAMIC-TOOLSETS-ONLY` | Add an explicit MCP export, OpenAPI spec, or local tool inventory instead of relying on dynamic code discovery. |
 | `shipgate.yaml` still has `CHANGE_ME` | `SHIP-DIAG-CHANGE-ME-PLACEHOLDERS` | Replace `agent.name` and `agent.declared_purpose` from prompt, main agent file, or README context before scanning. |
 | Required `tool_sources[].path` does not resolve | `SHIP-DIAG-MISSING-SOURCE-FILE` | `doctor --json` reports `unresolved_sources: [...]` and a diagnostic with `kind="edit", path="shipgate.yaml:<line>"`. Fix the path. (`scan` still exits 3 on the same condition — fix it before scanning.) |
+| `init --write` exits 2 with `manifest_status: "refused_ambiguous_scope"` | — | Agents live in more than one self-contained project here, so no single manifest describes the workspace. Re-run with `--workspace` pointed at one of `auto_detected.agent_project_candidates[].path`. See [One repo, several agent projects](#one-repo-several-agent-projects). |
 | Install fails in an older project environment | — | Agents Shipgate requires Python 3.12+. Install with `pipx` or `uv` using a Python 3.12+ interpreter. |
 | Reports show up as untracked files | — | Add `agents-shipgate-reports/` to `.gitignore`; do not commit reports by default. |
 
 When run under `AGENTS_SHIPGATE_AGENT_MODE=1`, errors carry a `next_actions: [...]` array alongside the legacy `next_action: str`. The full catalog and schema is in [diagnostics.md](diagnostics.md).
+
+## One Repo, Several Agent Projects
+
+A `shipgate.yaml` describes **one** agent surface: one `agent.name`, one
+`declared_purpose`, one set of `tool_sources`. In a repository that holds
+several self-contained agent projects — the `python/agents/<name>/` layout of
+a samples monorepo, an `apps/*` or `packages/*` workspace — a manifest written
+at the repository root declares all of them at once, and the alignment layer
+that compares what an agent says it does against what it can do has nothing
+left to compare.
+
+So Shipgate scopes rather than guesses:
+
+- `verify --preview` derives the `--workspace` it recommends from the changed
+  paths. Each is attributed to the nearest directory at or above it that
+  carries a project marker (`pyproject.toml`, `package.json`, `go.mod`,
+  `Cargo.toml`, `pom.xml`, …), and the recommendation is that project when
+  exactly one is claimed. Run its command verbatim. Changes spanning two
+  projects, or sitting at the repository root, keep recommending the root as
+  before. Documentation and tests cannot outvote code: where two projects are
+  claimed, one claimed only by documentation or test paths drops out — the
+  trigger catalog's docs-only rule decides which those are — so a README edited
+  beside a sibling project does not send the answer back to the root. When the
+  changed project already carries its own `shipgate.yaml`, preview routes you
+  to `verify` there instead of to setup.
+- `init --write` refuses a workspace whose agents live in more than one
+  project: `manifest_status: "refused_ambiguous_scope"`, exit `2`, and
+  **nothing written** — no manifest, no CI workflow, no agent-instruction
+  snippets, no `.gitignore` block. `auto_detected.agent_project_candidates[]`
+  lists each project and the agent names inside it; pick the one your change
+  belongs to and re-run with `--workspace <that path>`.
+- `--allow-ambiguous-scope` writes the single root manifest anyway. Use it only
+  when one agent surface genuinely spans those directories.
+- `agents-shipgate detect --json` answers the same question without writing
+  anything: read `agent_scope` and `agent_project_candidates[]`.
+
+One manifest per project directory is the supported monorepo shape; each is
+verified with `verify --workspace <project> --config shipgate.yaml` from
+anywhere in the repository.
 
 ## `doctor` Shows Zero Tools
 

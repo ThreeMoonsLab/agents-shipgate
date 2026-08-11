@@ -20,6 +20,7 @@ from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.cli._helpers import _apply_strict_plugins
+from agents_shipgate.cli.discovery.scope import ChangeScope, resolve_change_scope
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
@@ -3566,8 +3567,8 @@ def _shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in parts)
 
 
-def _preview_init_command(workspace: Path) -> str:
-    command_workspace = workspace if workspace.is_absolute() else Path.cwd() / workspace
+def _preview_init_command(workspace: Path, *, scope: ChangeScope | None = None) -> str:
+    command_workspace = _preview_command_workspace(workspace, scope=scope)
     return retarget_command(
         _shell_join(
             [
@@ -3582,6 +3583,19 @@ def _preview_init_command(workspace: Path) -> str:
     )
 
 
+def _preview_command_workspace(workspace: Path, *, scope: ChangeScope | None) -> Path:
+    """Absolute workspace to spell into an emitted command.
+
+    Without a narrowed scope this keeps the caller's own spelling of
+    ``--workspace``, so the routed command stays the one they would have
+    written themselves.
+    """
+
+    if scope is not None:
+        return scope.directory
+    return workspace if workspace.is_absolute() else Path.cwd() / workspace
+
+
 def _preview_verify_command(
     *,
     workspace: Path,
@@ -3591,15 +3605,19 @@ def _preview_verify_command(
     out: Path | None,
     pr_comment_style: str = "capability-review",
     preview: bool = False,
+    scope: ChangeScope | None = None,
 ) -> str:
-    command_workspace = workspace if workspace.is_absolute() else Path.cwd() / workspace
+    command_workspace = _preview_command_workspace(workspace, scope=scope)
+    # A scoped run reads the manifest that was found *in* that directory,
+    # so the config spelling narrows with the workspace.
+    command_config = Path(config.name) if scope is not None else config
     parts = [
         "agents-shipgate",
         "verify",
         "--workspace",
         str(command_workspace),
         "--config",
-        str(config),
+        str(command_config),
     ]
     if preview:
         parts.append("--preview")
@@ -3700,12 +3718,24 @@ def run_preview(
         input_status=_trigger_input_status(diff_input),
     )
 
+    # The changed paths already say which project this pull request is
+    # about. Routing setup to the workspace root instead would hand a
+    # monorepo one manifest for every agent in it, so the adoption command
+    # below is scoped to the project the diff actually touches (#363).
+    scope = resolve_change_scope(
+        root=root,
+        changed_files=changed_files,
+        limit=requested_root,
+    )
+    scoped_config = scope.directory / config_path.name if scope is not None else None
+    scoped_manifest_present = scoped_config is not None and scoped_config.is_file()
+
     # Trigger previews may recommend detect/init as a generic recovery path.
     # Verify preview deliberately returns the exact one-shot init command that
     # installs the local contract, default agent kit, and advisory CI workflow
     # for unconfigured workspaces so cold-start agents do not need to infer the
     # next command from README prose.
-    init_command = _preview_init_command(workspace)
+    init_command = _preview_init_command(workspace, scope=scope)
     verify_command = _preview_verify_command(
         workspace=workspace,
         config=config,
@@ -3713,6 +3743,25 @@ def run_preview(
         head=head,
         out=out,
         pr_comment_style=pr_comment_style,
+    )
+    scoped_verify_command = _preview_verify_command(
+        workspace=workspace,
+        config=config,
+        base=base,
+        head=head,
+        out=out,
+        pr_comment_style=pr_comment_style,
+        scope=scope,
+    )
+    scope_note = (
+        (
+            f"Every changed path that carries a capability surface belongs to "
+            f"{scope.relative}, which is its own project root ({scope.marker}); "
+            "a manifest at the workspace root would instead cover every "
+            "unrelated project in this repository."
+        )
+        if scope is not None
+        else ""
     )
 
     # A diff Shipgate could not read outranks every adoption route below it,
@@ -3767,6 +3816,24 @@ def run_preview(
             why="Shipgate is already set up here; run verify on the PR diff.",
         )
         headline = "Shipgate is configured; run verify on the PR to get a merge verdict."
+    elif scope is not None and scoped_manifest_present:
+        # The changed project is already adopted, one directory down. Routing
+        # to init here would be a loop: init refuses to overwrite a manifest
+        # that exists, and the workspace root still has none to run against.
+        next_action = CodingAgentCommandAction(
+            kind="verify",
+            command=scoped_verify_command,
+            why=(
+                f"Every changed path that carries a capability surface belongs "
+                f"to {scope.relative}, which has its own shipgate.yaml; run "
+                "verify there on the PR diff. The workspace root has no "
+                "manifest of its own to run against."
+            ),
+        )
+        headline = (
+            f"Shipgate is configured for the changed project ({scope.relative}); "
+            "run verify there to get a merge verdict."
+        )
     elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
         next_action = CodingAgentCommandAction(
             kind="initialize",
@@ -3774,6 +3841,7 @@ def run_preview(
             why=(
                 "This unconfigured workspace looks agent-related; initialize "
                 "the local Shipgate contract and advisory agent workflow."
+                + (f" {scope_note}" if scope_note else "")
             ),
         )
         headline = "Shipgate is relevant to this diff; initialize the local agent workflow."
@@ -3794,6 +3862,7 @@ def run_preview(
             why=(
                 "No shipgate.yaml was found. Initialize the local Shipgate "
                 "contract if this workspace contains an agent."
+                + (f" {scope_note}" if scope_note else "")
             ),
         )
         headline = "Shipgate is not configured in this workspace."
