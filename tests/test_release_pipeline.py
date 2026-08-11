@@ -10,7 +10,8 @@ verifiable rather than merely automated:
 * verification and publication are separate, and a partial publish is
   recoverable (#343);
 * the correctness suite is deterministic and matches CI's selection (#344);
-* the whole path is rehearsable without any publication authority (#355).
+* the whole path is rehearsable without any publication authority (#355);
+* the release publishes the changelog and installs a reviewed lock (#345).
 """
 
 from __future__ import annotations
@@ -25,8 +26,30 @@ import pytest
 import yaml
 
 from scripts._release_support import ReleaseError
+from scripts.release_notes import (
+    MAX_BODY_CHARACTERS,
+    assert_body_matches,
+    assert_expected_digest,
+    extract_release_notes,
+    notes_digest,
+)
 from scripts.release_publication import pypi_state, verify_manifest
 from scripts.release_sbom import dev_only_distributions, verify_release_sbom
+from scripts.update_locks import compile_command, prose_header
+from scripts.verify_dependency_lock import (
+    DECLARATION_SENTINEL,
+    LOCK_TARGETS,
+    SUPPORTED_ENVIRONMENTS,
+    LockTarget,
+    applicable_environments,
+    build_system_problems,
+    co_installed_problems,
+    normalize_requirement,
+    parse_lock,
+    render_declarations,
+    verify_all,
+    verify_lock_target,
+)
 from scripts.verify_wheel_provenance import compare_wheels, verify_wheel_provenance
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -81,6 +104,16 @@ def _step_index(job: dict[str, Any], needle: str) -> int:
 
 def _job_commands(job: dict[str, Any]) -> str:
     return "\n".join(step["run"] for step in (job.get("steps") or []) if "run" in step)
+
+
+def _requirement_lines(lockfile: str) -> list[str]:
+    """The pins themselves, without the prose header or the declaration block.
+
+    Comment text is not evidence about what pip will install, and the recorded
+    declarations legitimately contain the ranges those pins resolve.
+    """
+
+    return [line for line in lockfile.splitlines() if line.strip() and not line.startswith("#")]
 
 
 # --------------------------------------------------------------------------
@@ -413,8 +446,16 @@ def test_the_token_bearing_job_installs_no_project_code() -> None:
         "install-release-toolchain" in str(step.get("uses", "")) for step in publish["steps"]
     )
     assert "constraints/release-publish.txt" in json.dumps(publish)
-    # No checkout of the repository at all.
-    assert not any("actions/checkout" in str(step.get("uses", "")) for step in publish["steps"])
+    # The only thing checked out is the installer action itself, sparsely: a
+    # local action must exist in the workspace to be loadable at all, and cone
+    # mode would drag every repository-root file in with it. Nothing under
+    # `src/`, `tests/` or `scripts/` reaches this job.
+    checkouts = [
+        step for step in publish["steps"] if "actions/checkout" in str(step.get("uses", ""))
+    ]
+    assert len(checkouts) == 1
+    assert checkouts[0]["with"]["sparse-checkout"] == ".github/actions/install-release-toolchain"
+    assert checkouts[0]["with"]["sparse-checkout-cone-mode"] is False
 
 
 def test_the_publication_toolchain_is_hash_locked() -> None:
@@ -424,7 +465,7 @@ def test_the_publication_toolchain_is_hash_locked() -> None:
     assert "uv==" in lockfile
     assert lockfile.count("--hash=sha256:") > 10
     # No ranged requirements: every line pins an exact version.
-    assert ">=" not in lockfile.replace("# ", "")
+    assert not [line for line in _requirement_lines(lockfile) if ">=" in line]
 
 
 def test_release_concurrency_is_serialised_across_the_pypi_project() -> None:
@@ -1039,7 +1080,13 @@ def test_finalisation_runs_no_project_code_either() -> None:
     finalize = _load_workflow("release.yml")["jobs"]["finalize"]
     commands = _job_commands(finalize)
 
-    assert not any("actions/checkout" in str(step.get("uses", "")) for step in finalize["steps"])
+    checkouts = [
+        step for step in finalize["steps"] if "actions/checkout" in str(step.get("uses", ""))
+    ]
+    # Only the installer action, sparsely; see the matching check on `publish`.
+    assert len(checkouts) == 1
+    assert checkouts[0]["with"]["sparse-checkout"] == ".github/actions/install-release-toolchain"
+    assert checkouts[0]["with"]["sparse-checkout-cone-mode"] is False
     assert "pip install -e" not in commands
     assert any(
         "install-release-toolchain" in str(step.get("uses", "")) for step in finalize["steps"]
@@ -1067,7 +1114,7 @@ def test_the_sealer_installs_only_a_hash_locked_toolchain() -> None:
     # target interpreter; the sealer's trusted surface shrank with it.
     assert "cyclonedx" not in lockfile
     assert lockfile.count("--hash=sha256:") > 20
-    assert ">=" not in lockfile.replace("# ", "")
+    assert not [line for line in _requirement_lines(lockfile) if ">=" in line]
 
 
 def test_the_sealer_and_the_build_pin_agree_on_the_backend() -> None:
@@ -1424,3 +1471,1061 @@ def test_every_publication_side_job_constrains_what_it_installs() -> None:
     }
     allowed = set(_re.findall(r"[a-z0-9][a-z0-9-]*", install.split("grep -oE")[0]))
     assert locked <= allowed, f"not allowlisted: {sorted(locked - allowed)}"
+
+
+# --------------------------------------------------------------------------
+# #345 — the release page carries the CHANGELOG section, not a placeholder
+# --------------------------------------------------------------------------
+
+
+CHANGELOG_FIXTURE = """\
+# Changelog
+
+## Unreleased
+
+- Something not shipped yet.
+
+## 2.0.0 - 2026-08-11
+
+- **Headline.** Body with `code`, a [link](https://example.com/x), and a
+  continuation line.
+- Nested:
+  - inner item
+  - another inner item
+
+```text
+## 1.0.0 - looks like a heading, but is inside a fence
+```
+
+Closing paragraph.
+
+## 1.0.0 - 2026-01-01
+
+- The first release.
+"""
+
+SECTION_2_0_0 = """\
+- **Headline.** Body with `code`, a [link](https://example.com/x), and a
+  continuation line.
+- Nested:
+  - inner item
+  - another inner item
+
+```text
+## 1.0.0 - looks like a heading, but is inside a fence
+```
+
+Closing paragraph.
+"""
+
+
+def _changelog(tmp_path: Path, text: str = CHANGELOG_FIXTURE) -> Path:
+    path = tmp_path / "CHANGELOG.md"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_the_section_a_tag_names_is_extracted_verbatim(tmp_path: Path) -> None:
+    """Markdown is reproduced, not reflowed: the release page is the changelog
+    entry contributors reviewed, character for character."""
+
+    notes = extract_release_notes(changelog_path=_changelog(tmp_path), tag="v2.0.0")
+
+    assert notes == SECTION_2_0_0
+    # A fenced `## 1.0.0` line is content, not a section boundary — and the real
+    # 1.0.0 section further down is still found.
+    assert "inside a fence" in notes
+    assert (
+        extract_release_notes(changelog_path=_changelog(tmp_path), tag="v1.0.0")
+        == "- The first release.\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "heading",
+    ["## 2.0.0", "## v2.0.0", "## 2.0.0 - 2026-08-11", "## [2.0.0] - 2026-08-11"],
+)
+def test_the_conventional_heading_spellings_all_match(tmp_path: Path, heading: str) -> None:
+    changelog = _changelog(tmp_path, f"# Changelog\n\n{heading}\n\n- Only entry.\n")
+
+    assert extract_release_notes(changelog_path=changelog, tag="v2.0.0") == "- Only entry.\n"
+
+
+def test_a_missing_section_fails_while_the_tag_can_still_be_fixed(tmp_path: Path) -> None:
+    """The check runs in verification, which the rehearsal also runs, so this is
+    reached before a tag exists — and always before publication."""
+
+    changelog = _changelog(tmp_path)
+
+    with pytest.raises(ReleaseError, match="no section for v3.0.0"):
+        extract_release_notes(changelog_path=changelog, tag="v3.0.0")
+    # The message says what to do, and lists what the file does describe.
+    with pytest.raises(ReleaseError, match=r"'## 3.0.0 - <date>'"):
+        extract_release_notes(changelog_path=changelog, tag="v3.0.0")
+
+
+def test_unreleased_is_never_published_as_a_release_section(tmp_path: Path) -> None:
+    """Promoting `## Unreleased` to the version being cut is part of cutting a
+    release; if it were matched by fallback, nothing would enforce that."""
+
+    changelog = _changelog(tmp_path, "# Changelog\n\n## Unreleased\n\n- Pending work.\n")
+
+    with pytest.raises(ReleaseError, match="no section for v2.0.0"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_an_empty_section_is_not_a_description(tmp_path: Path) -> None:
+    changelog = _changelog(tmp_path, "# Changelog\n\n## 2.0.0 - 2026-08-11\n\n## 1.0.0\n\n- x\n")
+
+    with pytest.raises(ReleaseError, match="is empty"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_two_sections_for_one_version_are_not_silently_merged(tmp_path: Path) -> None:
+    changelog = _changelog(
+        tmp_path, "# Changelog\n\n## 2.0.0\n\n- a\n\n## 2.0.0 - 2026-08-11\n\n- b\n"
+    )
+
+    with pytest.raises(ReleaseError, match="ambiguous"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_a_body_github_would_reject_fails_before_the_tag_is_pushed(tmp_path: Path) -> None:
+    """`gh release create` 422s on an oversized body. The 0.16 development
+    section is already ~75,000 characters, so this bound is a live constraint on
+    this changelog, not a hypothetical one."""
+
+    oversized = "- " + "x" * MAX_BODY_CHARACTERS + "\n"
+    changelog = _changelog(tmp_path, f"# Changelog\n\n## 2.0.0 - 2026-08-11\n\n{oversized}")
+
+    with pytest.raises(ReleaseError, match="GitHub rejects a body"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_an_unterminated_fence_is_reported_rather_than_guessed_at(tmp_path: Path) -> None:
+    changelog = _changelog(tmp_path, "# Changelog\n\n## 2.0.0\n\n```\nnever closed\n")
+
+    with pytest.raises(ReleaseError, match="unterminated code fence"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+@pytest.mark.parametrize("closer", ["```", "```   ", "```\t", "````"])
+def test_a_closing_fence_may_carry_trailing_whitespace(tmp_path: Path, closer: str) -> None:
+    """CommonMark allows spaces and tabs after a closing fence. Requiring an
+    exactly empty suffix left the fence open and failed the whole release with
+    "unterminated code fence" — blocking rehearsal on a valid changelog."""
+
+    changelog = _changelog(
+        tmp_path,
+        f"# Changelog\n\n## 2.0.0\n\n```text\nfenced\n{closer}\n\nAfter.\n\n## 1.0.0\n\n- old\n",
+    )
+
+    notes = extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+    assert notes.endswith("After.\n")
+    assert "fenced" in notes
+    # The 1.0.0 section is still reachable, i.e. the fence really did close.
+    assert extract_release_notes(changelog_path=changelog, tag="v1.0.0") == "- old\n"
+
+
+def test_the_notes_are_bound_to_the_digest_verification_published(tmp_path: Path) -> None:
+    """Three jobs extract independently — verification, staging, finalisation —
+    so the digest is what makes them one value rather than three reads that
+    happen to agree."""
+
+    changelog = _changelog(tmp_path)
+    notes = extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+    assert assert_expected_digest(notes, notes_digest(notes)) == notes_digest(notes)
+    with pytest.raises(ReleaseError, match="does not match the verified"):
+        assert_expected_digest(notes, "0" * 64)
+
+
+@pytest.mark.parametrize("supplied", ["", "not-a-digest", "ABC123"])
+def test_a_missing_or_malformed_notes_digest_never_passes(tmp_path: Path, supplied: str) -> None:
+    """A truthiness check would fail open: an absent or redacted job output
+    arrives as the empty string and the workflow still passes the flag."""
+
+    notes = extract_release_notes(changelog_path=_changelog(tmp_path), tag="v2.0.0")
+
+    with pytest.raises(ReleaseError, match="not a 64-character lowercase SHA-256"):
+        assert_expected_digest(notes, supplied)
+
+
+def test_every_released_section_of_the_real_changelog_is_publishable() -> None:
+    """A format drift in CHANGELOG.md must fail here, in the suite, rather than
+    in the staging job of a release that has already been tagged."""
+
+    import re as _re
+
+    changelog = REPO_ROOT / "CHANGELOG.md"
+    versions = _re.findall(r"^## (\d[^\s]*)", changelog.read_text(encoding="utf-8"), _re.MULTILINE)
+
+    assert len(versions) > 5, "the fixture-free guard needs real sections to check"
+    for version in versions:
+        notes = extract_release_notes(changelog_path=changelog, tag=f"v{version}")
+        assert notes.strip(), version
+        # Section boundaries: a released section never swallows the next one.
+        assert not notes.startswith("## "), version
+        assert "\n## " not in notes, version
+
+
+def test_verification_requires_the_section_so_the_rehearsal_catches_it() -> None:
+    """Requiring it only in `stage` would mean discovering an undescribed
+    release after the tag exists. The check lives in the shared verification
+    workflow, unconditionally, so a rehearsal fails on it first."""
+
+    artifact = _load_workflow("release-verify.yml")["jobs"]["artifact"]
+    step = artifact["steps"][_step_index(artifact, "scripts/release_notes.py")]
+
+    # Not rehearsal-only and not release-only: both modes run it.
+    assert "if" not in step
+    assert _step_index(artifact, "scripts/release_notes.py") < _step_index(
+        artifact, "python -m build --wheel"
+    )
+
+
+def test_the_release_body_is_the_changelog_section_not_a_placeholder() -> None:
+    release = _load_workflow("release.yml")
+    stage = release["jobs"]["stage"]
+    commands = _job_commands(stage)
+
+    assert '--notes-file "${RUNNER_TEMP}/release-notes.md"' in commands
+    assert "--notes " not in commands, "a placeholder body would say nothing about the release"
+    # Extracted before anything is created, from the checkout pinned to the
+    # verified commit rather than from the tag.
+    assert _step_index(stage, "scripts/release_notes.py") < _step_index(stage, "gh release create")
+    assert stage["steps"][0]["with"]["ref"] == "${{ needs.verify.outputs.source_sha }}"
+
+
+def test_the_notes_are_written_to_a_path_no_candidate_controls() -> None:
+    """Guarding a checkout-relative path in `stage` alone would let a candidate
+    that commits its own `release-notes.md` pass the mandatory pre-tag
+    rehearsal and fail only once the tag exists. Every job writes to the
+    runner-owned temp directory instead, so the rehearsal exercises the
+    identical write."""
+
+    release = _load_workflow("release.yml")
+    verify = _load_workflow("release-verify.yml")
+
+    writers = [
+        _job_commands(verify["jobs"]["artifact"]),
+        _job_commands(release["jobs"]["stage"]),
+        _job_commands(release["jobs"]["finalize"]),
+    ]
+    for commands in writers:
+        assert '--output "${RUNNER_TEMP}/release-notes.md"' in commands
+        assert "--output release-notes.md" not in commands
+
+
+def test_all_three_extractions_are_bound_to_one_digest() -> None:
+    """Verification, staging and finalisation each read the changelog. The
+    digest published by verification is what makes them one value."""
+
+    release = _load_workflow("release.yml")
+    verify = _load_workflow("release-verify.yml")
+
+    exported = verify["on"]["workflow_call"]["outputs"]
+    assert "release_notes_sha256" in exported
+    assert (
+        verify["jobs"]["artifact"]["outputs"]["release_notes_sha256"]
+        == "${{ steps.notes.outputs.release_notes_sha256 }}"
+    )
+    for job in ("stage", "finalize"):
+        commands = _job_commands(release["jobs"][job])
+        assert '--expected-sha256 "${NOTES_SHA256}"' in commands, job
+        assert "needs.verify.outputs.release_notes_sha256" in json.dumps(release["jobs"][job]), job
+
+
+def test_the_published_body_is_reapplied_in_the_call_that_undrafts() -> None:
+    """The remote assets are content-bound before publication; the body was
+    not. Between staging and finalisation — the environment approval window
+    included — a release-write actor can edit the draft's text, and nothing
+    downstream re-read it."""
+
+    finalize = _load_workflow("release.yml")["jobs"]["finalize"]
+    commands = _job_commands(finalize)
+
+    # Re-derived from the changelog at the verified commit, fetched by
+    # immutable SHA like the other stdlib-only scripts this job runs.
+    assert "CHANGELOG.md" in commands
+    assert "tools/release_notes.py" in commands
+    assert _step_index(finalize, "tools/release_notes.py") < _step_index(finalize, "--draft=false")
+    # One PATCH sets body and draft together: a compare-then-fix would leave a
+    # window of its own, and reapplying afterwards would publish the tampered
+    # text first.
+    undraft = finalize["steps"][_step_index(finalize, "--draft=false")]["run"]
+    assert "--draft=false" in undraft
+    assert '--notes-file "${RUNNER_TEMP}/release-notes.md"' in undraft
+    assert undraft.count("gh release edit") == 1
+
+
+def test_a_repaired_draft_gets_the_notes_and_a_published_release_is_untouched() -> None:
+    """Draft repair rewrites assets; leaving a superseded body beside them would
+    publish notes no one re-derived. Finalisation never reads release text, so
+    this is the last point at which it can be corrected."""
+
+    commands = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
+    draft_branch = commands.split("Repaired existing draft", 1)[0].split("Created draft", 1)[-1]
+    published_branch = commands.split("Published already", 1)[-1]
+
+    assert "gh release edit" in draft_branch
+    assert '--notes-file "${RUNNER_TEMP}/release-notes.md"' in draft_branch
+    assert "gh release edit" not in published_branch
+
+
+# --------------------------------------------------------------------------
+# #345 — the release installs the closure CI approved
+# --------------------------------------------------------------------------
+
+
+def _install_command(workflow: str, job: str) -> str:
+    return _test_step_command(_load_workflow(workflow)["jobs"][job], "Install")
+
+
+def test_ci_and_release_install_byte_for_byte_the_same_environment() -> None:
+    """`pip install -e ".[dev]"` resolved fresh in both places, so the release
+    could test a different set of packages than the run that approved the
+    commit — and a release-only failure was not reproducible from the tree."""
+
+    release_install = _install_command("release-verify.yml", "tests")
+
+    assert release_install == _install_command("ci.yml", "test")
+    assert "--require-hashes --requirement constraints/dev.txt" in release_install
+    assert '".[dev]"' not in release_install
+
+
+def test_the_project_install_cannot_smuggle_in_an_unlocked_resolve() -> None:
+    """An editable install cannot be hashed, so it is installed with
+    `--no-deps` against the locked closure; `pip check` is what proves the
+    closure actually satisfies the project's declared dependencies."""
+
+    install = _install_command("ci.yml", "test")
+
+    assert "pip install -e . --no-deps" in install
+    assert "python -m pip check" in install
+
+
+def test_the_editable_install_resolves_no_build_backend() -> None:
+    """`--no-deps` does not disable PEP 517 build isolation, and `PIP_CONSTRAINT`
+    does not reach an isolated build environment on current pip — constraining
+    hatchling to a version that does not exist still built successfully. The
+    backend and its own dependencies were therefore resolved from the index on
+    every run, which is the drift this issue exists to remove."""
+
+    for workflow, job in (("ci.yml", "test"), ("release-verify.yml", "tests")):
+        install = _install_command(workflow, job)
+        assert "--no-build-isolation" in install, workflow
+        assert "--require-hashes --requirement constraints/build-backend.txt" in install, workflow
+        # The inert constraint must not survive as reassurance.
+        assert "PIP_CONSTRAINT" not in install, workflow
+        assert install.index("constraints/build-backend.txt") < install.index("pip install -e .")
+
+
+def test_the_backend_closure_is_locked_against_the_hand_maintained_pin() -> None:
+    """One backend version, in one reviewed place. `release-build.txt` states
+    the reproducibility argument and constrains the wheel build;
+    `build-backend.txt` is its resolved, hashed closure."""
+
+    backend = next(
+        target for target in LOCK_TARGETS if target.lock == "constraints/build-backend.txt"
+    )
+    assert backend.source == "constraints/release-build.txt"
+
+    def _hatchling(path: str) -> str:
+        for line in (REPO_ROOT / path).read_text(encoding="utf-8").splitlines():
+            if line.startswith("hatchling=="):
+                return line.split()[0].split(";")[0].strip()
+        raise AssertionError(f"no hatchling pin in {path}")
+
+    pinned = {
+        _hatchling(path)
+        for path in (
+            "constraints/release-build.txt",
+            "constraints/build-backend.txt",
+            "constraints/release-seal.txt",
+        )
+    }
+    assert len(pinned) == 1, f"backend versions disagree: {sorted(pinned)}"
+
+
+def test_locks_installed_together_cannot_move_each_other() -> None:
+    """Two `pip install` invocations into one environment: a distribution
+    pinned at different versions by each would leave the second one silently
+    replacing part of the first one's closure."""
+
+    assert co_installed_problems() == []
+    # The guard is real, not vacuous: the two locks do share distributions.
+    dev = set(parse_lock(REPO_ROOT / "constraints/dev.txt"))
+    backend = set(parse_lock(REPO_ROOT / "constraints/build-backend.txt"))
+    assert dev & backend
+
+
+def test_the_lock_gate_runs_in_both_pipelines_before_the_suite() -> None:
+    for workflow, job in (("ci.yml", "test"), ("release-verify.yml", "tests")):
+        parsed = _load_workflow(workflow)["jobs"][job]
+        assert _step_index(parsed, "scripts/verify_dependency_lock.py") < _step_index(
+            parsed, "--cov-fail-under=85"
+        ), workflow
+
+
+def test_the_committed_locks_still_describe_the_declared_requirements() -> None:
+    """The gate, run against this repository: a lock that stopped matching
+    pyproject.toml fails here rather than at install time in a release."""
+
+    verify_all()
+
+
+def test_the_dev_lock_pins_and_hashes_the_whole_closure() -> None:
+    lockfile = (REPO_ROOT / "constraints/dev.txt").read_text(encoding="utf-8")
+
+    for pinned in ("pytest==", "ruff==", "pydantic==", "twine=="):
+        assert pinned in lockfile
+    assert lockfile.count("--hash=sha256:") > 100
+    # No ranged requirement outside the header prose.
+    assert not [line for line in _requirement_lines(lockfile) if ">=" in line]
+
+
+def _lock_pair(
+    tmp_path: Path, *, declared: str, pins: str, compiled_from: str | None = None
+) -> tuple[Path, LockTarget]:
+    """A synthetic source/lock pair.
+
+    ``compiled_from`` defaults to ``declared``, i.e. a lock whose recorded
+    declaration block is honest; pass a different string to model a lock
+    compiled before the declarations changed.
+    """
+
+    from packaging.requirements import Requirement
+
+    (tmp_path / "constraints").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "constraints/toolchain.in").write_text(declared, encoding="utf-8")
+    block = render_declarations(
+        [Requirement(line) for line in (compiled_from or declared).splitlines() if line.strip()]
+    )
+    (tmp_path / "constraints/toolchain.txt").write_text(block + pins, encoding="utf-8")
+    target = LockTarget(lock="constraints/toolchain.txt", source="constraints/toolchain.in")
+    return tmp_path, target
+
+
+HONEST_PINS = """\
+# Toolchain lock.
+ruff==0.16.2 \\
+    --hash=sha256:aaaa
+    # via -r constraints/toolchain.in
+pytest==9.1.1 \\
+    --hash=sha256:bbbb
+    # via
+    #   -r constraints/toolchain.in
+    #   pytest-cov
+"""
+
+
+@pytest.mark.parametrize(
+    ("declared", "pins", "expected"),
+    [
+        ("ruff>=0.16.1,<1\npytest>=9,<10\n", HONEST_PINS, None),
+        # Stale: a requirement was added and nobody recompiled.
+        (
+            "ruff>=0.16.1,<1\npytest>=9,<10\nhypothesis>=6,<7\n",
+            HONEST_PINS,
+            "pins no hypothesis",
+        ),
+        # Inconsistent: the declared range moved past the pin.
+        ("ruff>=0.17\npytest>=9,<10\n", HONEST_PINS, "does not satisfy"),
+        # Removed: the lock still installs a direct requirement nobody declares.
+        ("ruff>=0.16.1,<1\n", HONEST_PINS, "no longer declares it"),
+        # Unhashed: `pip install --require-hashes` would refuse the file.
+        (
+            "ruff>=0.16.1,<1\n",
+            "ruff==0.16.2\n    # via -r constraints/toolchain.in\n",
+            "without a hash",
+        ),
+    ],
+)
+def test_the_gate_names_each_way_a_lock_goes_wrong(
+    tmp_path: Path, declared: str, pins: str, expected: str | None
+) -> None:
+    root, target = _lock_pair(tmp_path, declared=declared, pins=pins)
+
+    problems = verify_lock_target(target, root=root)
+
+    if expected is None:
+        assert problems == []
+    else:
+        assert any(expected in problem for problem in problems), problems
+
+
+def test_a_transitive_pin_is_not_mistaken_for_an_undeclared_requirement(tmp_path: Path) -> None:
+    """`uv` records who asked for each pin. Only a pin the source file itself
+    requested is evidence of a stale declaration; everything else is closure."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="ruff>=0.16.1,<1\n",
+        pins=(
+            "ruff==0.16.2 \\\n    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n"
+            "pluggy==1.6.0 \\\n    --hash=sha256:bbbb\n    # via ruff\n"
+        ),
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_a_lock_that_resolves_at_install_time_is_not_a_lock(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path, declared="ruff>=0.16.1,<1\n", pins="ruff>=0.16.1\n    --hash=sha256:aaaa\n"
+    )
+
+    with pytest.raises(ReleaseError, match="neither an exact pin nor a direct URL"):
+        verify_lock_target(target, root=root)
+
+
+# --------------------------------------------------------------------------
+# #345 / review — full PEP 508 declarations, and marker-qualified pins
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("was", "now"),
+    [
+        # An extra changes what gets installed while the name and range hold.
+        ("demo>=1", "demo[feature]>=1"),
+        # So does moving the declaration behind a marker.
+        ("demo>=1", "demo>=1 ; sys_platform == 'linux'"),
+        # And so does switching to a direct URL.
+        ("demo>=1", "demo @ https://example.invalid/demo-1.0-py3-none-any.whl"),
+        # The ordinary case, for completeness.
+        ("demo>=1", "demo>=2"),
+    ],
+)
+def test_a_declaration_change_of_any_kind_invalidates_the_lock(
+    tmp_path: Path, was: str, now: str
+) -> None:
+    """A name-and-range comparison accepts the first three of these silently:
+    every name matches and every range still contains the pin."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared=f"{now}\n",
+        compiled_from=f"{was}\n",
+        pins="demo==1.0 \\\n    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n",
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("not compiled from the current declarations" in problem for problem in problems), (
+        problems
+    )
+
+
+def test_the_recorded_declarations_are_canonical_not_as_typed(tmp_path: Path) -> None:
+    """`ruamel.yaml` and `ruamel-yaml` are one distribution, and `>=1,<2` and
+    `<2,>=1` are one range; neither spelling may look like a change."""
+
+    from packaging.requirements import Requirement
+
+    assert normalize_requirement(Requirement("ruamel.yaml>=0.19.1,<1")) == normalize_requirement(
+        Requirement("ruamel-yaml<1,>=0.19.1")
+    )
+    assert normalize_requirement(Requirement("demo[b,a]>=1")) == "demo[a,b]>=1"
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="ruamel.yaml>=0.19.1,<1\n",
+        compiled_from="ruamel-yaml<1,>=0.19.1\n",
+        pins="ruamel-yaml==0.19.1 \\\n    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n",
+    )
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_a_lock_without_a_declaration_block_is_not_trusted(tmp_path: Path) -> None:
+    (tmp_path / "constraints").mkdir(parents=True)
+    (tmp_path / "constraints/toolchain.in").write_text("demo>=1\n", encoding="utf-8")
+    (tmp_path / "constraints/toolchain.txt").write_text(
+        "demo==1.0 \\\n    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n",
+        encoding="utf-8",
+    )
+    target = LockTarget(lock="constraints/toolchain.txt", source="constraints/toolchain.in")
+
+    problems = verify_lock_target(target, root=tmp_path)
+
+    assert any("records no declaration block" in problem for problem in problems), problems
+
+
+def test_one_name_may_be_pinned_under_disjoint_markers(tmp_path: Path) -> None:
+    """`uv pip compile --universal` legitimately forks a dependency across
+    Python or platform versions. Rejecting the second pin would make the
+    verifier refuse a lock update_locks.py itself generated."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1,<3\n",
+        pins=(
+            "demo==1.0 ; python_full_version < '3.13' \\\n"
+            "    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n"
+            "demo==2.0 ; python_full_version >= '3.13' \\\n"
+            "    --hash=sha256:bbbb\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_every_marker_branch_must_satisfy_the_declaration(tmp_path: Path) -> None:
+    """One branch out of range means some environment installs something the
+    declarations do not allow, so checking only the first would fail open."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=2\n",
+        pins=(
+            "demo==1.0 ; python_full_version < '3.13' \\\n"
+            "    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n"
+            "demo==2.0 ; python_full_version >= '3.13' \\\n"
+            "    --hash=sha256:bbbb\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("does not satisfy" in problem for problem in problems), problems
+    assert any("1.0" in problem for problem in problems), problems
+
+
+def test_the_same_name_under_the_same_marker_is_still_a_duplicate(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo==1.0 \\\n    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n"
+            "demo==2.0 \\\n    --hash=sha256:bbbb\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="under the same marker"):
+        verify_lock_target(target, root=root)
+
+
+def test_co_installed_locks_that_disagree_are_reported(tmp_path: Path) -> None:
+    for name, version in (("first", "1.0"), ("second", "2.0")):
+        (tmp_path / "constraints").mkdir(parents=True, exist_ok=True)
+        (tmp_path / f"constraints/{name}.txt").write_text(
+            f"shared=={version} \\\n    --hash=sha256:aaaa\n    # via -r constraints/{name}.in\n",
+            encoding="utf-8",
+        )
+    targets = (
+        LockTarget(lock="constraints/first.txt", source="constraints/first.in"),
+        LockTarget(lock="constraints/second.txt", source="constraints/second.in"),
+    )
+
+    problems = co_installed_problems(
+        root=tmp_path,
+        targets=targets,
+        groups=(("constraints/first.txt", "constraints/second.txt"),),
+    )
+
+    assert any("resolves differently" in item for item in problems), problems
+
+
+def test_every_compiled_lock_is_gated_and_regenerated_by_one_command() -> None:
+    """A lock the generator writes but the gate ignores — or the reverse — is
+    how a file quietly stops matching its declarations."""
+
+    compiled = {
+        f"constraints/{path.name}"
+        for path in (REPO_ROOT / "constraints").glob("*.txt")
+        # Not a lock but a source: one hand-chosen version supporting a
+        # reproducibility argument, which build-backend.txt resolves.
+        if path.name != "release-build.txt"
+    }
+
+    assert compiled == {target.lock for target in LOCK_TARGETS}
+    for target in LOCK_TARGETS:
+        header = prose_header(REPO_ROOT / target.lock)
+        assert "scripts/update_locks.py" in header, target.lock
+        # The generated block is written below the prose, so regenerating
+        # replaces it instead of stacking a second copy on every run.
+        assert DECLARATION_SENTINEL not in header, target.lock
+        command = compile_command(target)
+        assert "--generate-hashes" in command
+        assert "--universal" in command
+        # The header is preserved across regeneration, so uv's own banner must
+        # not be re-emitted on top of it.
+        assert "--no-header" in command
+    dev = next(target for target in LOCK_TARGETS if target.lock == "constraints/dev.txt")
+    assert compile_command(dev)[-3:] == ["--extra", "dev", "pyproject.toml"]
+
+
+# --------------------------------------------------------------------------
+# #345 / re-review — the publication jobs must be able to start at all
+# --------------------------------------------------------------------------
+
+
+def _checkout_steps(job: dict[str, Any]) -> list[dict[str, Any]]:
+    return [step for step in job["steps"] if "actions/checkout" in str(step.get("uses", ""))]
+
+
+def test_every_job_using_a_local_action_checks_the_workspace_out() -> None:
+    """A `./.github/actions/...` action is loaded from the workspace, so a job
+    that uses one and checks out nothing fails while *preparing* the action —
+    before any step runs, and only on a real tag. `publish` and `finalize` were
+    both in that state, so the first release to reach publication would have
+    broken there."""
+
+    release = _load_workflow("release.yml")
+
+    for name, job in release["jobs"].items():
+        uses = [str(step.get("uses", "")) for step in job.get("steps") or []]
+        if not any(item.startswith("./") for item in uses):
+            continue
+        assert _checkout_steps(job), f"{name} uses a local action but checks nothing out"
+
+
+def test_the_token_bearing_jobs_check_out_the_installer_and_nothing_else() -> None:
+    """The checkout that makes the local action loadable must not become a way
+    for project code to enter a job holding `id-token: write` or
+    `contents: write`. Sparse, cone mode off — cone mode would also materialise
+    every file at the repository root."""
+
+    release = _load_workflow("release.yml")
+
+    for name in ("publish", "finalize"):
+        checkouts = _checkout_steps(release["jobs"][name])
+        assert len(checkouts) == 1, name
+        with_ = checkouts[0]["with"]
+        assert with_["sparse-checkout"] == ".github/actions/install-release-toolchain", name
+        assert with_["sparse-checkout-cone-mode"] is False, name
+        assert with_["persist-credentials"] is False, name
+        assert with_["ref"] == "${{ needs.verify.outputs.source_sha }}", name
+
+
+# --------------------------------------------------------------------------
+# #345 / re-review — the publication allowlist is fail-closed and tested
+# --------------------------------------------------------------------------
+
+
+def _allowlist_script() -> str:
+    action = yaml.safe_load(
+        (REPO_ROOT / ".github/actions/install-release-toolchain/action.yml").read_text("utf-8")
+    )
+    step = next(
+        step
+        for step in action["runs"]["steps"]
+        if step["name"] == "Allow only reviewed distributions"
+    )
+    return str(step["run"])
+
+
+def _run_allowlist(tmp_path: Path, lockfile: str) -> tuple[int, str]:
+    import subprocess
+    import sys
+
+    (tmp_path / "release-toolchain.txt").write_text(lockfile, encoding="utf-8")
+    script = tmp_path / "allowlist.sh"
+    script.write_text(_allowlist_script(), encoding="utf-8")
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    del sys
+    return result.returncode, result.stdout + result.stderr
+
+
+def test_the_committed_publication_lockfile_passes_the_allowlist(tmp_path: Path) -> None:
+    code, output = _run_allowlist(
+        tmp_path, (REPO_ROOT / "constraints/release-publish.txt").read_text("utf-8")
+    )
+
+    assert code == 0, output
+    assert "every locked distribution is on the allowlist" in output
+
+
+@pytest.mark.parametrize(
+    ("lockfile", "expected"),
+    [
+        # The hole: pip installs `name @ URL`, but a grep for `name==` omitted
+        # it from the comparison entirely, so it was installed unreviewed in a
+        # job that can mint a PyPI token.
+        (
+            "uv==0.11.7 \\\n    --hash=sha256:aa\nevil @ https://x.invalid/e.whl \\\n"
+            "    --hash=sha256:bb\n",
+            "not an exact name==version pin",
+        ),
+        ("uv==0.11.7 \\\n    --hash=sha256:aa\n-e .\n", "contains a pip option"),
+        ("uv>=0.11.7\n", "not an exact name==version pin"),
+        (
+            "uv==0.11.7 \\\n    --hash=sha256:aa\nrequests-evil==1.0 \\\n    --hash=sha256:bb\n",
+            "not on the allowlist",
+        ),
+        # An empty or comment-only lockfile must not be read as "nothing to check".
+        ("# nothing here\n", "requests nothing"),
+    ],
+)
+def test_the_allowlist_refuses_every_requirement_form_it_cannot_review(
+    tmp_path: Path, lockfile: str, expected: str
+) -> None:
+    code, output = _run_allowlist(tmp_path, lockfile)
+
+    assert code != 0, output
+    assert expected in output
+
+
+def test_the_allowlist_still_accepts_marker_qualified_pins(tmp_path: Path) -> None:
+    code, output = _run_allowlist(
+        tmp_path,
+        "cffi==2.1.1 ; platform_python_implementation != 'PyPy' \\\n    --hash=sha256:aa\n",
+    )
+
+    assert code == 0, output
+
+
+# --------------------------------------------------------------------------
+# #345 / re-review — pins are matched by environment, URL and marker
+# --------------------------------------------------------------------------
+
+
+def test_the_environment_matrix_covers_what_the_project_supports() -> None:
+    """Marker comparison is only as good as the environments it evaluates."""
+
+    pythons = {env["python_version"] for env in SUPPORTED_ENVIRONMENTS}
+    platforms = {env["sys_platform"] for env in SUPPORTED_ENVIRONMENTS}
+
+    assert "3.12" in pythons, "requires-python floor must be represented"
+    assert {"linux", "darwin", "win32"} <= platforms
+    assert applicable_environments(None) == frozenset(range(len(SUPPORTED_ENVIRONMENTS)))
+    assert applicable_environments("sys_platform == 'linux'") < applicable_environments(None)
+    # An unsatisfiable marker selects nothing, which is what makes "legitimately
+    # unpinned" a provable statement rather than an assumption.
+    assert applicable_environments("sys_platform == 'plan9'") == frozenset()
+
+
+def test_a_conditional_declaration_must_still_be_pinned_where_it_applies(
+    tmp_path: Path,
+) -> None:
+    """Waiving every marked declaration meant a requirement that installs on
+    Linux could be missing from the lock entirely, unreported."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1 ; sys_platform == 'linux'\n",
+        pins="other==1.0 \\\n    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n",
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("pins no demo that applies" in problem for problem in problems), problems
+    assert any("linux" in problem for problem in problems), problems
+
+
+def test_a_declaration_no_supported_environment_selects_is_not_required(
+    tmp_path: Path,
+) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1 ; sys_platform == 'plan9'\n",
+        pins="other==1.0 \\\n    --hash=sha256:aa\n    # via something-else\n",
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_a_pin_that_applies_nowhere_the_declaration_does_is_caught(tmp_path: Path) -> None:
+    """The wrong-platform case: the pin exists, the name matches, the version
+    satisfies the range — and no environment that needs it can install it."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo==1.0 ; sys_platform == 'win32' \\\n"
+            "    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("pins no demo that applies" in problem for problem in problems), problems
+
+
+def test_branches_that_overlap_are_rejected_even_with_different_marker_text(
+    tmp_path: Path,
+) -> None:
+    """Two markers can differ as strings and still both select Linux, in which
+    case which version installs there is undetermined — a syntactic
+    same-marker check accepts it."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo==1.0 ; sys_platform == 'linux' \\\n"
+            "    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n"
+            "demo==2.0 ; os_name == 'posix' \\\n"
+            "    --hash=sha256:bb\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("more than one demo branch applying" in problem for problem in problems), problems
+
+
+def test_a_direct_url_pin_must_be_the_url_the_declaration_names(tmp_path: Path) -> None:
+    """A URL declaration has no version range, so range checking says nothing:
+    without comparing the URL itself, the lock could fetch anything."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo @ https://example.invalid/demo-1.0-py3-none-any.whl\n",
+        pins=(
+            "demo @ https://elsewhere.invalid/demo-9.9-py3-none-any.whl \\\n"
+            "    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any("elsewhere.invalid" in problem for problem in problems), problems
+
+    root, target = _lock_pair(
+        tmp_path / "honest",
+        declared="demo @ https://example.invalid/demo-1.0-py3-none-any.whl\n",
+        pins=(
+            "demo @ https://example.invalid/demo-1.0-py3-none-any.whl \\\n"
+            "    --hash=sha256:aa\n    # via -r constraints/toolchain.in\n"
+        ),
+    )
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_co_installed_locks_may_carry_different_halves_of_one_fork(tmp_path: Path) -> None:
+    """Comparing the *set* of versions each lock mentions rejects a valid
+    universal fork; in any single environment only one branch of each applies,
+    and only those have to agree."""
+
+    (tmp_path / "constraints").mkdir(parents=True)
+    (tmp_path / "constraints/first.txt").write_text(
+        "shared==1.0 ; python_full_version < '3.13' \\\n    --hash=sha256:aa\n"
+        "shared==2.0 ; python_full_version >= '3.13' \\\n    --hash=sha256:bb\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "constraints/second.txt").write_text(
+        "shared==2.0 ; python_full_version >= '3.13' \\\n    --hash=sha256:bb\n",
+        encoding="utf-8",
+    )
+    targets = (
+        LockTarget(lock="constraints/first.txt", source="constraints/first.in"),
+        LockTarget(lock="constraints/second.txt", source="constraints/second.in"),
+    )
+    group = (("constraints/first.txt", "constraints/second.txt"),)
+
+    assert co_installed_problems(root=tmp_path, targets=targets, groups=group) == []
+
+    # But a real disagreement inside one environment is still reported.
+    (tmp_path / "constraints/second.txt").write_text(
+        "shared==3.0 ; python_full_version >= '3.13' \\\n    --hash=sha256:cc\n",
+        encoding="utf-8",
+    )
+    problems = co_installed_problems(root=tmp_path, targets=targets, groups=group)
+    assert any("resolves differently" in problem for problem in problems), problems
+
+
+# --------------------------------------------------------------------------
+# #345 / re-review — the backend is bound to [build-system]
+# --------------------------------------------------------------------------
+
+
+def test_the_locked_backend_satisfies_the_declared_build_system() -> None:
+    assert build_system_problems() == []
+
+
+@pytest.mark.parametrize(
+    ("requires", "backend", "expected"),
+    [
+        # A raised floor the pinned closure cannot satisfy.
+        (['"hatchling>=99"'], '"hatchling.build"', "does not satisfy"),
+        # A different backend entirely: every existing check stays green.
+        (['"setuptools>=70"'], '"setuptools.build_meta"', "pins no setuptools"),
+        (['"hatchling>=1.31.0"'], '"flit_core.buildapi"', "which constraints"),
+    ],
+)
+def test_a_build_system_change_the_lock_cannot_serve_is_rejected(
+    tmp_path: Path, requires: list[str], backend: str, expected: str
+) -> None:
+    """`release-build.txt` and its closure can be perfectly consistent with
+    each other and still not be the backend `[build-system]` names."""
+
+    (tmp_path / "constraints").mkdir(parents=True)
+    (tmp_path / "constraints/build-backend.txt").write_text(
+        (REPO_ROOT / "constraints/build-backend.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        f"[build-system]\nrequires = [{', '.join(requires)}]\nbuild-backend = {backend}\n",
+        encoding="utf-8",
+    )
+
+    problems = build_system_problems(root=tmp_path)
+
+    assert any(expected in problem for problem in problems), problems
+
+
+def test_the_ci_build_uses_the_locked_backend_too() -> None:
+    """The hosted run created two isolated environments and re-resolved
+    `hatchling>=1.31.0`, despite the hashed closure already being installed —
+    so the artifact CI checked came from a backend nothing pinned."""
+
+    for workflow, job, step in (
+        ("ci.yml", "test", "Build package"),
+        ("release-verify.yml", "artifact", "Build a wheel from the checked-out source"),
+    ):
+        command = _test_step_command(_load_workflow(workflow)["jobs"][job], step)
+        assert "python -m build" in command, workflow
+        assert "--no-isolation" in command, workflow
+
+
+def test_a_published_rerun_certifies_the_body_as_well_as_the_bytes() -> None:
+    """Declaring the transaction complete makes `publish` and `finalize` skip,
+    so a re-run over a release whose notes were edited afterwards would
+    certify text nobody reviewed. Assets are content-addressed; the body is
+    not, so it is compared."""
+
+    stage = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
+    published_branch = stage.split("Published already", 1)[-1]
+
+    assert "--json body" in published_branch
+    assert "--published-body" in published_branch
+    assert '--expected-sha256 "${NOTES_SHA256}"' in published_branch
+    # Still read-only about the release itself.
+    assert "gh release edit" not in published_branch
+    assert "gh release upload" not in published_branch
+
+
+def test_a_published_body_is_compared_modulo_line_endings_only(tmp_path: Path) -> None:
+    """GitHub stores bodies with CRLF and no guaranteed trailing newline, so a
+    raw comparison would fail on every release; anything else must differ."""
+
+    notes = extract_release_notes(changelog_path=_changelog(tmp_path), tag="v2.0.0")
+
+    assert_body_matches(notes, notes.replace("\n", "\r\n").rstrip("\r\n"))
+    with pytest.raises(ReleaseError, match="not the changelog section"):
+        assert_body_matches(notes, notes + "\nInjected line.\n")
+
+
+def test_a_non_ascii_space_does_not_close_a_fence(tmp_path: Path) -> None:
+    """CommonMark permits only spaces and tabs after a closing fence, but
+    `str.strip()` also removes NBSP — which would end the block early and read
+    the next heading as content."""
+
+    nbsp = " "
+    changelog = _changelog(
+        tmp_path,
+        f"# Changelog\n\n## 2.0.0\n\n```text\nfenced\n```{nbsp}\nstill fenced\n",
+    )
+
+    with pytest.raises(ReleaseError, match="unterminated code fence"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")

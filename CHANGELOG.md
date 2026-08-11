@@ -288,6 +288,65 @@
   its own fail-fast step, and the coverage floor stays at CI's 85. The timeout
   is derived from measurement rather than estimate, with the basis recorded in
   `docs/release-runbook.md`.
+- **The release page carries the changelog, and the release runs the
+  environment CI approved.** Two loose ends from the release-workflow review.
+  The GitHub Release body was the placeholder `Agents Shipgate <tag>` while
+  `CHANGELOG.md` held the entry describing what actually shipped, so the one
+  artifact users read said nothing; `scripts/release_notes.py` now extracts the
+  section matching the tag and publishes it through `--notes-file`, verbatim
+  and from the checkout pinned to the verified commit rather than retyped at
+  tag time. A missing section fails **verification**, which the rehearsal also
+  runs, so it is caught while the tag does not yet exist — and `## Unreleased`
+  never matches a tag, which is what makes promoting that heading a step the
+  pipeline enforces. A body over GitHub's 125,000-character limit is refused
+  there too, rather than by a 422 after tagging. Verification, staging and
+  finalisation each extract the section, so verification publishes its SHA-256
+  and the other two must land on it; finalisation reapplies the body **in the
+  same API call that undrafts**, because the window between staging and
+  publication — the environment approval included — is time in which a
+  release-write actor can edit a draft's text that nothing downstream re-reads.
+  Every job writes the file under `$RUNNER_TEMP`, so a candidate cannot decide
+  where the write lands. Separately, `pip install -e ".[dev]"` resolved fresh
+  at release time, so the run that decided whether to publish could install
+  different packages than the CI run that approved the commit, and a
+  release-only failure was not reproducible from the same tree. CI and release
+  verification now install the identical hash-locked closure in
+  `constraints/dev.txt`, add the project with `--no-deps` (an editable install
+  cannot be hashed) **and `--no-build-isolation` against the hashed backend
+  closure in `constraints/build-backend.txt`** — `--no-deps` does not disable
+  PEP 517 build isolation, and current pip does not apply `PIP_CONSTRAINT` to
+  an isolated build environment, so the backend and its own dependencies were
+  still being resolved from the index on every run — and finish with
+  `python -m pip check` proving the closure satisfies what the project
+  declares. Regeneration is one command for every lock in the repository
+  (`scripts/update_locks.py`, which restores the headers `uv` would
+  overwrite), and each lock now records the normalized PEP 508 declarations it
+  was compiled from, so a declaration that grows an extra, moves behind a
+  marker or becomes a direct URL invalidates it even though every name and
+  range still matches. `scripts/verify_dependency_lock.py` — run in CI and
+  before publication — checks that binding plus a declared requirement with no
+  pin, a pin outside the declared range, a direct requirement the declarations
+  no longer contain, a pin without a hash, and locks installed together that
+  disagree. Markers are compared by *evaluating* them over the environments the
+  project supports (CPython 3.12–3.14 × linux/darwin/win32 × x86-64/aarch64)
+  rather than as text, so a conditional declaration that is genuinely missing is
+  distinguished from one no supported environment selects, a pin whose own
+  marker excludes the platform that needs it is caught, and a valid universal
+  fork is not mistaken for a conflict. `[build-system]` is bound to the same
+  closure, so a raised backend floor or a switch to another backend can no
+  longer leave every file consistent and the wheel built by something nobody
+  pinned. CI builds the package with `--no-isolation` for the same reason. It
+  never re-resolves against the index, so an unrelated upload cannot turn the
+  build red. Two release-only defects found in review are fixed here as well:
+  `publish` and `finalize` used a local composite action without checking the
+  repository out, which fails while *preparing* the action — the first release
+  to reach publication would have broken there, so both now check out that one
+  action directory sparsely, at the verified commit, with cone mode off; and the
+  publication allowlist matched only `name==version` lines, so a `name @ URL`
+  requirement was installed in the token-bearing jobs without ever being
+  compared against it — every requirement form it cannot review is now refused,
+  and the check runs as its own step against crafted lockfiles in the suite.
+  ([#345](https://github.com/ThreeMoonsLab/agents-shipgate/issues/345))
 - **Insufficient-evidence remediation now stays framework-aware from the
   decision engine through every primary short-form surface.** Semantic
   `incomplete_surface` gaps for frameworks with explicit inventory support now

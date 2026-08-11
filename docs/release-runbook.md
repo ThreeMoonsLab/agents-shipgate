@@ -13,11 +13,11 @@ A release runs as five jobs with an explicit, content-addressed handoff.
 
 | Job | Permissions | What it does |
 |---|---|---|
-| `verify` → `tests` | `contents: read` | Lint, compile, schema check, the correctness suite, dependency audit |
-| `verify` → `artifact` | `contents: read` | Builds from the tagged source, validates the signed qualification, binds wheel to source, produces the wheel-scoped SBOM, seals and uploads the candidate bundle |
-| `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, classifies the index, creates or repairs the **draft** release |
+| `verify` → `tests` | `contents: read` | Installs the locked closure, checks the locks against the declarations, lints, compiles, schema check, the correctness suite, dependency audit |
+| `verify` → `artifact` | `contents: read` | Requires a changelog section for the tag, builds from the tagged source, validates the signed qualification, binds wheel to source, produces the wheel-scoped SBOM, seals and uploads the candidate bundle |
+| `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, extracts the release notes, classifies the index, creates or repairs the **draft** release |
 | `publish` | `id-token: write`, `environment: pypi` | Signs and uploads to PyPI once |
-| `finalize` | `contents: write` | Attaches signatures, re-verifies the remote bytes, undrafts |
+| `finalize` | `contents: write` | Attaches signatures, re-verifies the remote bytes, reapplies the notes and undrafts in one call |
 
 The sealing job installs no project code — only the hash-locked toolchain in
 `constraints/release-seal.txt` — and executes nothing from the wheel's runtime
@@ -42,6 +42,15 @@ checks out **no project code**, and installs only the hash-locked toolchain in
 `constraints/release-publish.txt` with `--require-hashes`. Conversely `stage`
 and `finalize` can write to the repository but cannot mint a token. A
 dependency compromised in any single job therefore cannot reach both registries.
+
+"No project code" is exact rather than approximate: `publish` and `finalize`
+check out `.github/actions/install-release-toolchain` and nothing else, with
+`sparse-checkout-cone-mode: false` because cone mode would also materialise
+every file at the repository root. That checkout is not optional — a local
+`./.github/actions/...` action is loaded from the workspace, so a job that uses
+one without checking out fails while *preparing* the action, before any step
+runs. The file it makes available is the one the job already executes as an
+action, at the verified commit, with no credentials persisted.
 
 Verification holds no write or OIDC authority at all, so the expensive
 read-only work cannot mutate anything. The `pypi` environment's
@@ -101,17 +110,132 @@ record `Generator: hatchling <version>` inside `.dist-info/WHEEL`, so an
 unpinned backend makes two machines produce different bytes from identical
 source.
 
-**The qualification promotion flow must build with the same constraint file:**
+**The qualification promotion flow must build with the same backend:**
 
 ```bash
-PIP_CONSTRAINT=constraints/release-build.txt python -m build --wheel
+python -m pip install --require-hashes -r constraints/build-backend.txt
+python -m build --wheel --no-isolation
 ```
+
+Install the backend closure, then build without isolation. Setting
+`PIP_CONSTRAINT` alone does **not** pin it: current pip does not apply
+constraints to an isolated build environment, so a constrained build still
+resolves whatever the index offers — verified by constraining hatchling to a
+version that does not exist and watching the build succeed.
 
 If a backend bump lands between qualification and release, the provenance gate
 fails. The fix is to re-run qualification against a wheel built with the current
 pin — not to relax the comparison. `--allow-payload-equivalent` exists as a
 pre-approved interim control for genuine reproducibility gaps; using it requires
 opening an issue to track the gap, and it still rejects any content difference.
+
+### The environment is locked, and it is CI's
+
+`pip install -e ".[dev]"` resolves fresh every time it runs, so the release
+tested the candidate against a different set of packages than the CI run that
+approved the commit — a ruff, pytest or plugin release landing in between was
+enough. Both now install the same hash-locked closure, with the identical
+command:
+
+```bash
+python -m pip install --require-hashes --requirement constraints/dev.txt
+python -m pip install --require-hashes --requirement constraints/build-backend.txt
+python -m pip install -e . --no-deps --no-build-isolation
+python -m pip check
+```
+
+The project is installed separately because an editable install cannot be
+hashed, and `pip check` is what proves the locked closure actually satisfies the
+project's declared dependencies.
+
+`--no-build-isolation` is load-bearing. `--no-deps` does not disable PEP 517
+build isolation, and current pip does not apply `PIP_CONSTRAINT` to an isolated
+build environment, so an editable install resolves its backend — and the
+backend's own dependencies — from the index unless the closure is already
+present. That is why the backend has a lock of its own.
+
+| Lock | Installed by | Contains |
+|---|---|---|
+| [`constraints/dev.txt`](../constraints/dev.txt) | CI and `verify` → `tests` | The development closure: runtime dependencies plus the `dev` extra |
+| [`constraints/build-backend.txt`](../constraints/build-backend.txt) | CI, `verify` → `tests`, qualification promotion | The build backend's closure, so builds need no isolation |
+| [`constraints/release-seal.txt`](../constraints/release-seal.txt) | `verify` → `artifact` | `build`, `hatchling`, `sigstore` |
+| [`constraints/release-publish.txt`](../constraints/release-publish.txt) | `stage`, `publish`, `finalize` | `uv`, `sigstore` |
+| [`constraints/release-build.txt`](../constraints/release-build.txt) | — | Not a lock: the one hand-maintained backend pin the closure above resolves |
+
+Locks installed into the same environment must pin every shared distribution to
+the same version, or the second `pip install` moves part of the first one's
+closure; that is checked too.
+
+Updating a dependency is two commands, and the second one is the gate:
+
+```bash
+python scripts/update_locks.py            # or a single lock path
+python scripts/verify_dependency_lock.py
+```
+
+`scripts/update_locks.py` recompiles with `uv` and restores each lock's header,
+which the compiler would otherwise overwrite — the reason regenerating used to
+be a per-file ritual nobody wanted to perform.
+
+`scripts/verify_dependency_lock.py` runs in CI **and** in release verification,
+and fails when a lock stops describing its declarations. Each lock records the
+normalized PEP 508 requirements it was compiled from:
+
+```
+#   declares: pytest<10,>=9.1.1
+```
+
+so a declaration that grows an extra, moves behind a marker, or becomes a direct
+URL invalidates the lock even though every name and every range still matches —
+a name-and-range comparison accepts all three silently. On top of that it fails
+on a declared requirement with no pin, a pin outside the declared range, a
+direct requirement the declarations no longer contain, and a pin without a hash.
+
+Pins are matched **per environment**, not by comparing marker text. Markers are
+evaluated over CPython 3.12–3.14 × linux/darwin/win32 × x86-64/aarch64, and for
+every environment a declaration selects there must be exactly one applicable
+pin, satisfying the declared range or naming the declared URL. That is what
+distinguishes a conditional requirement that is legitimately unpinned (no
+supported environment selects it) from one that is simply missing, catches a pin
+whose own marker excludes the platform that needs it, and rejects two branches
+whose markers differ as strings but both apply somewhere. The same comparison
+runs across locks installed together, so a universal fork split between two
+locks is fine while a genuine disagreement inside one environment is not.
+
+`[build-system]` is bound too: the backend `pyproject.toml` actually builds with
+must be the one `constraints/build-backend.txt` pins. Otherwise a raised floor
+or a switch to another backend leaves the hand-maintained pin, its closure, and
+this gate perfectly consistent with each other and wrong about the wheel.
+
+It deliberately does not re-resolve against the index — "stale" means
+*inconsistent with the declarations*, not *older than the newest release on
+PyPI*, or every unrelated upload would turn the build red.
+
+### The release notes are the changelog
+
+The release body is the `CHANGELOG.md` section matching the tag, extracted from
+the checkout — which is pinned to the verified commit, not to the tag — so the
+published notes are the reviewed text rather than something retyped at tag time.
+Earlier releases published `Agents Shipgate v0.15.0` as their entire body.
+
+A tag matches a `##` heading whose first token is the version, with or without a
+`v`, in `[brackets]` or not, and anything after it (conventionally the date) is
+ignored. **`## Unreleased` never matches**, which is what makes "promote the
+heading" a step the pipeline enforces rather than one an operator remembers.
+Verification requires the section, so a rehearsal fails on a missing one while
+the tag still does not exist. A body over GitHub's 125,000-character limit is
+also refused there rather than by a 422 from `gh release create`.
+
+Three jobs extract the notes — verification, `stage`, and `finalize` — so
+verification publishes their SHA-256 as a job output and the other two pass it
+back with `--expected-sha256`. `finalize` re-derives them from `CHANGELOG.md`
+fetched at the verified commit and reapplies the body **in the same API call
+that undrafts**, because everything between staging and finalisation, the
+environment approval window included, is time in which a release-write actor
+can edit the draft's text; asset digests are re-derived there but the body was
+not. Each job writes the file under `$RUNNER_TEMP`, never into the checkout, so
+a candidate that commits its own `release-notes.md` cannot decide where the
+write lands — and cannot pass the rehearsal only to fail after the tag exists.
 
 ## Before tagging: rehearse
 
@@ -178,13 +302,17 @@ hung step than an undersized budget.
 
 ## Cutting the release
 
-1. Confirm `pyproject.toml` has the release version and a rehearsal is green.
-2. Push the tag: `git tag v0.16.0 && git push origin v0.16.0`.
-3. The `verify` job runs unattended.
-4. Approve the `pypi` environment gate on the `publish` job, using the readiness
+1. Promote the `## Unreleased` heading in `CHANGELOG.md` to
+   `## <version> - <date>`. This is the release body; verification refuses a tag
+   with no matching section.
+2. Confirm `pyproject.toml` has the release version and a rehearsal is green.
+3. Push the tag: `git tag v0.16.0 && git push origin v0.16.0`.
+4. The `verify` job runs unattended.
+5. Approve the `pypi` environment gate on the `publish` job, using the readiness
    summary as the evidence.
-5. Confirm the GitHub Release is published (not draft) with all assets, then run
-   the fan-out checks in [`distribution.md`](distribution.md).
+6. Confirm the GitHub Release is published (not draft) with all assets and the
+   changelog section as its body, then run the fan-out checks in
+   [`distribution.md`](distribution.md).
 
 ## Recovery
 
@@ -218,6 +346,14 @@ downloads the published assets, proves they are the verified ones, records
 Re-signing would mint fresh, non-reproducible Sigstore bundles and replace the
 public attestations for no benefit; clobbering assets would replace public bytes
 that immutable PyPI can no longer be made to match.
+
+Because that declaration makes both signature-verifying jobs skip, the **body**
+is checked there too, not only the assets. Release notes stay editable after
+publication and nothing else re-reads them, so a re-run over a release whose
+text was changed afterwards would otherwise certify it. A divergent body fails
+the run rather than being rewritten — mutating a published release is exactly
+what this branch refuses to do — and the fix is to restore the changelog section
+by hand, or to investigate who edited it.
 
 The index is also reclassified *inside* the publish attempt rather than reusing
 the decision `stage` made before environment approval. A stale `absent` would

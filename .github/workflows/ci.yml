@@ -23,9 +23,38 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            constraints/dev.txt
+            constraints/build-backend.txt
 
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        # The hash-locked closure, not a fresh resolve of `.[dev]`. Release
+        # verification installs these same files with these same commands, so
+        # "CI was green" is a statement about the packages the release will
+        # actually use.
+        #
+        # The project is installed separately with `--no-deps` because an
+        # editable install cannot be hashed; `pip check` then proves the locked
+        # closure really satisfies its declared dependencies.
+        #
+        # `--no-build-isolation` is load-bearing, not tidiness. `--no-deps`
+        # does not disable PEP 517 build isolation, and `PIP_CONSTRAINT` does
+        # not reach an isolated build environment on current pip — constraining
+        # hatchling to a version that does not exist still built successfully —
+        # so this step used to resolve its backend and the backend's own
+        # dependencies from the index on every run. The backend closure is
+        # installed above instead, hashed, and no build environment is created.
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          python -m pip install --require-hashes --requirement constraints/build-backend.txt
+          python -m pip install -e . --no-deps --no-build-isolation
+          python -m pip check
+
+      - name: Verify the dependency locks match the declared requirements
+        # Fails fast and by name when pyproject.toml and a lock disagree, rather
+        # than letting a stale lock surface as a confusing ImportError or as a
+        # release that installed something CI never tested.
+        run: python scripts/verify_dependency_lock.py
 
       - name: Lint
         run: python -m ruff check .
@@ -88,8 +117,13 @@ jobs:
         run: python -m pytest tests/test_latency_budget.py -m perf -v
 
       - name: Build package
+        # `--no-isolation` for the same reason the release build uses it: with
+        # isolation, `build` creates a fresh environment and re-resolves
+        # `hatchling>=1.31.0` from the index — twice, once per distribution —
+        # so the artifact CI checks was produced by a backend nothing pinned,
+        # even though the hashed closure is already installed in this job.
         run: |
-          python -m build
+          python -m build --no-isolation
           python -m twine check dist/*
 
       - name: Dependency audit

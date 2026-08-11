@@ -5,9 +5,15 @@ Yes, please contribute.
 ## Local Setup
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install --require-hashes --requirement constraints/dev.txt
+python -m pip install --require-hashes --requirement constraints/build-backend.txt
+python -m pip install -e . --no-deps --no-build-isolation
 pytest
 ```
+
+`python -m pip install -e ".[dev]"` still works and is fine for a quick look,
+but it resolves fresh, so it is not the environment CI and the release run. The
+locked closure above is; reproducing a CI failure locally starts with it.
 
 After the editable install, the `agents-shipgate` / `shipgate` console scripts
 run from your working tree. **Beware a stale shadow install.** If you run a bare
@@ -21,6 +27,29 @@ makes new subcommands look "missing"). To stay honest:
   `pipx run agents-shipgate==<version> ...`.
 - When in doubt, `agents-shipgate contract --json` prints the running build's
   version and contract, so you never reason against a version you don't have.
+
+## Changing dependencies
+
+`pyproject.toml` declares the ranges; `constraints/*.txt` pin what actually gets
+installed, with hashes. After editing a requirement — in `pyproject.toml` or in
+a `constraints/*.in` — regenerate and check:
+
+```bash
+python scripts/update_locks.py
+python scripts/verify_dependency_lock.py
+```
+
+The second command also runs in CI and in release verification, so a lock left
+stale fails there by name rather than as a puzzling import error. See
+[`docs/release-runbook.md`](docs/release-runbook.md#the-environment-is-locked-and-it-is-cis)
+for which job installs which lock.
+
+## Changing the CHANGELOG
+
+Entries go under `## Unreleased`. Cutting a release renames that heading to
+`## <version> - <date>`, and **that section becomes the GitHub Release body** —
+release verification refuses a tag with no matching section, so the changelog is
+part of the release, not documentation about it.
 
 ## Useful Commands
 

@@ -1,20 +1,20 @@
 name: Install release toolchain
 description: >-
   Fetch, constrain, and hash-verify the publication-side Python toolchain
-  without checking out or executing any project code.
+  without executing any project code.
 
 inputs:
   lockfile-url:
     description: >-
       Raw URL of the hash-locked requirements file, pinned to an immutable
       commit SHA. Fetched rather than read from a checkout so the jobs that
-      hold write or OIDC authority need no repository checkout at all.
+      hold write or OIDC authority need no project code in the workspace.
     required: true
 
 runs:
   using: composite
   steps:
-    - name: Fetch and constrain the locked toolchain
+    - name: Fetch the locked toolchain
       shell: bash
       env:
         LOCKFILE_URL: ${{ inputs.lockfile-url }}
@@ -22,6 +22,15 @@ runs:
         set -euo pipefail
         curl --fail --location --proto '=https' --proto-redir '=https' \
           --output release-toolchain.txt "${LOCKFILE_URL}"
+
+    - name: Allow only reviewed distributions
+      # Kept as its own step, reading `release-toolchain.txt` from the working
+      # directory and nothing else, so the release-pipeline suite can execute
+      # this exact script against crafted lockfiles. A guard that is only ever
+      # exercised by a real release is a guard nobody has tested.
+      shell: bash
+      run: |
+        set -euo pipefail
 
         # `--require-hashes` proves the downloaded bytes match the digests in
         # the lockfile — but the lockfile itself comes from the candidate
@@ -44,8 +53,48 @@ runs:
         allowed="${allowed} sigstore-rekor-types tuf typing-extensions"
         allowed="${allowed} typing-inspection urllib3 uv"
 
-        grep -oE '^[A-Za-z0-9][A-Za-z0-9._-]*==' release-toolchain.txt \
-          | sed 's/==$//' | tr 'A-Z_.' 'a-z--' | sort -u > requested-toolchain.txt
+        # Every requirement line is classified, and anything that is not an
+        # exact `name==version` pin is rejected rather than skipped. Matching
+        # only `^name==` left a hole: pip installs `name @ https://...` and
+        # `--editable` requirements too, and a grep for `==` silently omitted
+        # them from the comparison — so a candidate could add a direct URL to
+        # the lockfile and have it installed, unreviewed, next to the token.
+        : > requested-toolchain.txt
+        while IFS= read -r line || [ -n "${line}" ]; do
+          # Blank lines, comments, hash continuations and pip options are not
+          # requirements.
+          case "${line}" in
+            ''|'#'*) continue ;;
+          esac
+          case "${line}" in
+            [[:space:]]*) continue ;;
+            -*) echo "::error::Release toolchain lockfile contains a pip option (${line}); the publication jobs install a plain pinned closure only."; exit 1 ;;
+          esac
+          requirement="${line%%;*}"
+          requirement="${requirement%\\}"
+          requirement="$(echo "${requirement}" | tr -d '[:space:]')"
+          case "${requirement}" in
+            *'=='*)
+              name="${requirement%%==*}"
+              version="${requirement#*==}"
+              if [ -z "${name}" ] || [ -z "${version}" ]; then
+                echo "::error::Release toolchain lockfile has a malformed pin: ${line}"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Release toolchain lockfile requests ${requirement}, which is not an exact name==version pin. Direct URLs, editable installs and ranges are refused in the jobs that can mint a token or rewrite a release."
+              exit 1
+              ;;
+          esac
+          printf '%s\n' "${name}" | tr 'A-Z_.' 'a-z--' >> requested-toolchain.txt
+        done < release-toolchain.txt
+
+        sort -u -o requested-toolchain.txt requested-toolchain.txt
+        if [ ! -s requested-toolchain.txt ]; then
+          echo "::error::Release toolchain lockfile requests nothing; refusing to continue with an unverified install."
+          exit 1
+        fi
         while read -r name; do
           case " ${allowed} " in
             *" ${name} "*) ;;
@@ -57,4 +106,8 @@ runs:
         done < requested-toolchain.txt
         echo "OK: every locked distribution is on the allowlist."
 
+    - name: Install the locked toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
         python -m pip install --require-hashes --requirement release-toolchain.txt

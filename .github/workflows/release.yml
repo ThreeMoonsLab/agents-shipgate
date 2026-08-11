@@ -139,6 +139,28 @@ jobs:
             --wheel "dist/${WHEEL_FILENAME}" \
             --sbom dist/agents-shipgate-sbom.json
 
+      - name: Extract the release notes from the CHANGELOG
+        # The release page used to say "Agents Shipgate v0.16.0" while
+        # CHANGELOG.md held the entry describing what actually changed. The
+        # body is now that section, taken from this checkout — which is pinned
+        # to the commit verification approved, not to the tag — and bound to
+        # the digest verification published, so the published notes are the
+        # reviewed text rather than something retyped at tag time.
+        #
+        # Written under `$RUNNER_TEMP`, never into the checkout: a candidate
+        # that committed its own `release-notes.md` would otherwise decide
+        # where this write lands, and guarding the path in this job alone would
+        # let such a candidate pass the mandatory rehearsal and fail only after
+        # the tag was pushed.
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          NOTES_SHA256: ${{ needs.verify.outputs.release_notes_sha256 }}
+        run: |
+          python scripts/release_notes.py \
+            --tag "${RELEASE_TAG}" \
+            --expected-sha256 "${NOTES_SHA256}" \
+            --output "${RUNNER_TEMP}/release-notes.md"
+
       - name: Classify index state
         id: index
         # Runs *before* anything mutates the GitHub Release, so a divergent
@@ -167,6 +189,7 @@ jobs:
           RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
           WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
           MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
+          NOTES_SHA256: ${{ needs.verify.outputs.release_notes_sha256 }}
           INDEX_STATE: ${{ steps.index.outputs.state }}
         run: |
           set -euo pipefail
@@ -200,14 +223,18 @@ jobs:
               --verify-tag \
               "${create_maturity}" \
               --title "${RELEASE_TAG}" \
-              --notes "Agents Shipgate ${RELEASE_TAG}"
+              --notes-file "${RUNNER_TEMP}/release-notes.md"
             echo "release_state=absent" >> "${GITHUB_OUTPUT}"
             echo "Created draft release ${RELEASE_TAG}."
             exit 0
           fi
 
           if [ "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" = "true" ]; then
+            # Repair replaces the notes too. A draft left by an earlier attempt
+            # can carry a body from a superseded changelog, and finalisation
+            # re-derives every asset but never looks at the release text.
             gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
+            gh release edit "${RELEASE_TAG}" --notes-file "${RUNNER_TEMP}/release-notes.md"
             echo "release_state=draft" >> "${GITHUB_OUTPUT}"
             echo "Repaired existing draft ${RELEASE_TAG}."
             exit 0
@@ -240,6 +267,17 @@ jobs:
               --cert-oidc-issuer https://token.actions.githubusercontent.com \
               "published/${target}"
           done
+          # The body is evidence too, and it is the one part of a published
+          # release that stays editable. Declaring the transaction complete
+          # makes `publish` and `finalize` skip, so a re-run would otherwise
+          # certify text that was changed after publication and never
+          # re-derived. Assets are content-addressed; this is not, so it is
+          # compared here.
+          gh release view "${RELEASE_TAG}" --json body --jq .body > published-body.md
+          python scripts/release_notes.py \
+            --tag "${RELEASE_TAG}" \
+            --expected-sha256 "${NOTES_SHA256}" \
+            --published-body published-body.md
           echo "release_state=published" >> "${GITHUB_OUTPUT}"
           echo "Release ${RELEASE_TAG} is already published, complete and signed; leaving it untouched."
 
@@ -262,6 +300,26 @@ jobs:
     permissions:
       id-token: write
     steps:
+      - name: Check out only the toolchain installer
+        # A local `./.github/actions/...` action is loaded from the workspace,
+        # so a job that uses one and checks out nothing fails while *preparing*
+        # the action — before any step runs. This job and `finalize` did
+        # exactly that, which would have broken the first release to reach
+        # publication.
+        #
+        # Sparse and cone-mode off, so the workspace contains the installer
+        # directory and nothing else: cone mode would also materialise every
+        # file at the repository root. The trust boundary is unchanged — the
+        # only file checked out is the one this job already executes as an
+        # action, at the commit verification approved, with no credentials
+        # persisted.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.verify.outputs.source_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/actions/install-release-toolchain
+          sparse-checkout-cone-mode: false
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -404,6 +462,19 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out only the toolchain installer
+        # Same reason as in `publish`: a local action must exist in the
+        # workspace or the job fails while preparing it. Sparse, cone-mode off,
+        # pinned to the verified commit, no credentials persisted — the
+        # workspace holds the installer and nothing else, so this job still
+        # runs no project code.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.verify.outputs.source_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/actions/install-release-toolchain
+          sparse-checkout-cone-mode: false
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -416,14 +487,21 @@ jobs:
 
       - name: Fetch the standard-library verification scripts
         # Fetched by immutable SHA rather than checked out: this job mutates a
-        # public release, so it runs no project code. These two modules import
-        # nothing beyond the standard library.
+        # public release, so it runs no project code. These modules import
+        # nothing beyond the standard library. CHANGELOG.md comes from the same
+        # immutable commit, so re-deriving the notes here reads exactly the
+        # bytes verification read.
         env:
           RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}
         run: |
           set -euo pipefail
           mkdir -p tools
-          for path in scripts/release_publication.py scripts/_release_support.py; do
+          for path in \
+            scripts/release_publication.py \
+            scripts/_release_support.py \
+            scripts/release_notes.py \
+            CHANGELOG.md
+          do
             curl --fail --location --proto '=https' --proto-redir '=https' \
               --output "tools/$(basename "${path}")" "${RAW_BASE}/${path}"
           done
@@ -523,6 +601,25 @@ jobs:
           done
           echo "OK: attached signatures verify against ${identity}."
 
+      - name: Re-derive the release notes from the verified commit
+        # The remote *assets* are content-bound before undrafting; the release
+        # *body* was not. Everything between staging and here — including the
+        # protected-environment approval window — is time in which a
+        # release-write actor or an integration can edit the draft's text, and
+        # nothing downstream re-read it. The notes are therefore re-extracted
+        # from CHANGELOG.md at the verified commit, bound to the digest
+        # verification published, and reapplied in the same API call that
+        # undrafts, so whatever the body says in the meantime cannot survive.
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          NOTES_SHA256: ${{ needs.verify.outputs.release_notes_sha256 }}
+        run: |
+          python tools/release_notes.py \
+            --changelog tools/CHANGELOG.md \
+            --tag "${RELEASE_TAG}" \
+            --expected-sha256 "${NOTES_SHA256}" \
+            --output "${RUNNER_TEMP}/release-notes.md"
+
       - name: Finalise GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -549,4 +646,10 @@ jobs:
           else
             maturity="--prerelease"
           fi
-          gh release edit "${RELEASE_TAG}" --draft=false "${maturity}"
+          # Body and draft flag move together, in one PATCH: a compare-then-fix
+          # would leave a window of its own, and reapplying afterwards would
+          # publish the tampered text first.
+          gh release edit "${RELEASE_TAG}" \
+            --draft=false \
+            "${maturity}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md"
