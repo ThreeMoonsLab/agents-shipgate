@@ -1310,6 +1310,142 @@ def test_triggers_code_plus_test_does_not_skip():
     )
 
 
+# --- Trust-root surfaces <-> trigger-catalog parity -------------------------
+#
+# Two lists describe the same governance surfaces from opposite ends.
+# `SHIP-VERIFY-POLICY-WEAKENED`'s fail-safe (`_POLICY_SURFACES`) and the
+# trust-root graph (`TRUST_ROOT_SURFACES`) classify them recursively; the
+# trigger catalog decides whether Shipgate runs on the diff at all. When the
+# two disagree, the verifier calls a path a trust root while the catalog
+# reports `no_match` — "nothing in this PR signals a tool-surface change" —
+# about that same path.
+#
+# Every governance trust-root pattern below gets a representative path at the
+# repo root AND one under a nested workspace. A pattern added to either source
+# list without an entry here fails the mapping test, so the lists cannot drift
+# apart again unnoticed.
+_GOVERNANCE_TRUST_ROOT_CLASSES = frozenset(
+    {"manifest", "shipgate_state", "policy", "prompts", "ci_gate"}
+)
+
+_TRUST_ROOT_TRIGGER_SAMPLES: dict[str, tuple[str, ...]] = {
+    "**/shipgate.yaml": ("shipgate.yaml", "services/foo/shipgate.yaml"),
+    "**/.agents-shipgate/**": (
+        ".agents-shipgate/baseline.json",
+        "services/foo/.agents-shipgate/baseline.json",
+    ),
+    "**/policies/**": ("policies/refund.yaml", "services/foo/policies/refund.yaml"),
+    "**/prompts/**": ("prompts/system.md", "enterprise/lib/captain/prompts/system.md"),
+    "**/.github/workflows/agents-shipgate.yml": (
+        ".github/workflows/agents-shipgate.yml",
+        "services/foo/.github/workflows/agents-shipgate.yml",
+    ),
+    "**/.github/workflows/agents-shipgate.yaml": (
+        ".github/workflows/agents-shipgate.yaml",
+        "services/foo/.github/workflows/agents-shipgate.yaml",
+    ),
+}
+
+# Samples the catalog does not route today. Both surfaces are anchored at the
+# repo root by the boundary registry's `exact_paths`, which check, verify,
+# preflight and audit all share, so widening them is a registry change rather
+# than a catalog edit. This set is a tripwire, not an endorsement: close one of
+# these gaps and the parity test below tells you to promote it out of the set.
+_TRUST_ROOT_TRIGGER_GAPS = frozenset(
+    {
+        "services/foo/shipgate.yaml",
+        "services/foo/.agents-shipgate/baseline.json",
+    }
+)
+
+
+def test_governance_trust_root_surfaces_all_have_trigger_parity_samples():
+    """Both trust-root lists must be fully represented in
+    `_TRUST_ROOT_TRIGGER_SAMPLES`. Adding a governance surface to
+    `_POLICY_SURFACES` or `TRUST_ROOT_SURFACES` without deciding how the
+    trigger catalog routes it is exactly the drift that let
+    `**/policies/**` be a trust root while the catalog matched only
+    `policies/**`."""
+    from agents_shipgate.checks.verify_policy import _POLICY_SURFACES
+    from agents_shipgate.core.trust_roots import TRUST_ROOT_SURFACES
+
+    governance = {
+        pattern
+        for kind, pattern in TRUST_ROOT_SURFACES
+        if kind in _GOVERNANCE_TRUST_ROOT_CLASSES
+    }
+    missing = (set(_POLICY_SURFACES) | governance) - set(_TRUST_ROOT_TRIGGER_SAMPLES)
+    assert not missing, (
+        f"Governance trust-root surface(s) {sorted(missing)} have no trigger "
+        "parity sample. Add a repo-root and a nested representative path to "
+        "_TRUST_ROOT_TRIGGER_SAMPLES and decide which docs/triggers.json rule "
+        "routes them."
+    )
+
+
+@pytest.mark.parametrize(
+    "pattern,path",
+    [
+        (pattern, path)
+        for pattern, paths in _TRUST_ROOT_TRIGGER_SAMPLES.items()
+        for path in paths
+    ],
+)
+def test_trigger_catalog_routes_governance_trust_root_paths(pattern: str, path: str):
+    """A path the verifier treats as a governance trust root must not be
+    reported as `no_match` by the trigger catalog."""
+    result = evaluate(paths=[path])
+
+    if path in _TRUST_ROOT_TRIGGER_GAPS:
+        assert result["run_shipgate"] is False, (
+            f"{path!r} (trust root {pattern!r}) is now routed by the trigger "
+            f"catalog via {[m['id'] for m in result['matched_rules']]}. That "
+            "closes a known gap — remove it from _TRUST_ROOT_TRIGGER_GAPS."
+        )
+        return
+
+    assert result["run_shipgate"] is True, (
+        f"{path!r} matches trust-root surface {pattern!r} but the trigger "
+        f"catalog does not route it (skip_reason={result['skip_reason']!r}). "
+        "The verifier would call this a trust-root edit while the catalog "
+        "says nothing in the PR signals a tool-surface change."
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "enterprise/lib/captain/prompts/system.md",
+        "services/foo/policies/refund.yaml",
+    ],
+)
+def test_nested_prompt_and_policy_edits_beat_the_docs_only_negative(path: str):
+    """`TRIGGER-DOCS-ONLY-NEGATIVE` carries the same glob list as
+    `TRIGGER-PROMPTS-OR-POLICIES`. If only the positive rule went
+    recursive, a nested prompt edit bundled with a docs edit would still
+    classify as docs-only and skip — and a nested `prompts/*.md` edit on
+    its own would skip via `every_file_matches: **/*.md`."""
+    alone = evaluate(paths=[path])
+    assert alone["run_shipgate"] is True, (
+        f"A lone nested governance edit {path!r} must run; got {alone!r}."
+    )
+
+    bundled = evaluate(paths=["README.md", path])
+    assert bundled["run_shipgate"] is True, (
+        f"{path!r} bundled with a docs edit must still run, not classify as "
+        f"docs-only; got {bundled!r}."
+    )
+    matched_ids = {m["id"] for m in bundled["matched_rules"]}
+    assert "TRIGGER-DOCS-ONLY-NEGATIVE" not in matched_ids, (
+        "TRIGGER-DOCS-ONLY-NEGATIVE must not fire when a nested prompts/ or "
+        f"policies/ path is in the change set; got {bundled!r}."
+    )
+    assert "TRIGGER-PROMPTS-OR-POLICIES" in matched_ids, (
+        f"Expected TRIGGER-PROMPTS-OR-POLICIES to route {path!r}; got "
+        f"{bundled!r}."
+    )
+
+
 def test_every_file_matches_predicate_accepts_list():
     """The `every_file_matches` predicate must accept either a string
     or a list (any-of within the predicate). Pin the contract so a
@@ -2341,6 +2477,8 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
     "TRIGGER-PROMPTS-OR-POLICIES": [
         "prompts/system.md",
         "policies/refund.md",
+        "enterprise/lib/captain/prompts/system.md",
+        "services/foo/policies/refund.yaml",
     ],
     "TRIGGER-SHIPGATE-MANIFEST": [
         "shipgate.yaml",

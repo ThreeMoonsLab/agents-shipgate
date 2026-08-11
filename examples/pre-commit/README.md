@@ -55,8 +55,8 @@ repos:
             .*openapi.*\.(yaml|yml|json)|
             .*swagger.*\.(yaml|yml|json)|
             \.agents-shipgate/.*\.json|
-            prompts/.*|
-            policies/.*|
+            (.*/)?prompts/.*|
+            (.*/)?policies/.*|
             \.github/workflows/agents-shipgate\.(yaml|yml)
           )$
 ```
@@ -70,7 +70,7 @@ The `files:` regex in [`/.pre-commit-hooks.yaml`](../../.pre-commit-hooks.yaml) 
 - OpenAPI/Swagger specs — `**/*openapi*.{yaml,yml,json}`, `**/*swagger*.{yaml,yml,json}` (`TRIGGER-OPENAPI-SPEC-CHANGED`)
 - Static tool inventories — `**/*tools*.json` (`TRIGGER-STATIC-TOOL-INVENTORY-CHANGED`)
 - Codex plugin package files — `.codex-plugin/**`, `.agents/plugins/**`, `**/.app.json`, `**/.mcp.json`, `**/SKILL.md` (`TRIGGER-CODEX-PLUGIN-CHANGED`)
-- Prompts and policies — `prompts/**`, `policies/**` (`TRIGGER-PROMPTS-OR-POLICIES`)
+- Prompts and policies — `prompts/**`, `policies/**` at any depth, so `services/foo/policies/refund.yaml` stages the same as a repo-root one (`TRIGGER-PROMPTS-OR-POLICIES`)
 - Shipgate CI workflow — `.github/workflows/agents-shipgate.{yml,yaml}` (`TRIGGER-SHIPGATE-CI-WORKFLOW`, path leg)
 
 ### What the hook can't catch

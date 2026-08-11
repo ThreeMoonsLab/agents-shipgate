@@ -9,7 +9,9 @@
 # Scope: the `files:` regex below covers every **path-based** trigger from
 # `docs/triggers.json` — manifest, MCP/OpenAPI/Swagger exports, static tool
 # inventories, coding-agent host configuration/instructions, plugin package
-# files, prompts/policies, AND GitHub workflow files.
+# files, prompts/policies, AND GitHub workflow files. `prompts/` and
+# `policies/` match at any depth, mirroring the catalog's `**/prompts/**` and
+# `**/policies/**` globs, so a nested workspace stages the same as the root.
 # Diff-only triggers (`TRIGGER-FUNCTION-TOOL-DECORATOR`,
 # `TRIGGER-GOOGLE-ADK-AGENT-TOOLS-CHANGED`) are not covered by the regex
 # pre-gate — pre-commit's `files:` regex is purely path-based and cannot
@@ -53,8 +55,8 @@
       .*openapi.*\.(yaml|yml|json)|
       .*swagger.*\.(yaml|yml|json)|
       \.agents-shipgate/.*\.json|
-      prompts/.*|
-      policies/.*|
+      (.*/)?prompts/.*|
+      (.*/)?policies/.*|
       (.*/)?\.github/workflows/.*\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"
@@ -89,8 +91,8 @@
       .*openapi.*\.(yaml|yml|json)|
       .*swagger.*\.(yaml|yml|json)|
       \.agents-shipgate/.*\.json|
-      prompts/.*|
-      policies/.*|
+      (.*/)?prompts/.*|
+      (.*/)?policies/.*|
       (.*/)?\.github/workflows/.*\.(yaml|yml)
     )$
   minimum_pre_commit_version: "3.0.0"

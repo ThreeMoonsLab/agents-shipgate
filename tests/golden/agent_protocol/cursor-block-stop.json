@@ -139,7 +139,7 @@
       {
         "id": "TRIGGER-PROMPTS-OR-POLICIES",
         "action": "run_shipgate",
-        "rationale": "Prompts and policy YAML carry approval / confirmation evidence. Trace findings reference these surfaces.",
+        "rationale": "Prompts and policy YAML carry approval / confirmation evidence. Trace findings reference these surfaces. The globs match at any depth so a nested workspace (`services/foo/policies/**`, `enterprise/lib/captain/prompts/**`) routes exactly like a repo-root one. That is parity with the trust-root surface list this rule mirrors \u2014 `SHIP-VERIFY-POLICY-WEAKENED` and the trust-root graph have always classified `**/policies/**` and `**/prompts/**` recursively, so a root-only trigger reported a governance-bearing edit as `no_match`. The `**/`-prefixed and bare forms are both listed because a consumer applying this catalog with a glob engine where `**/` requires at least one leading segment would otherwise lose the repo-root match.",
         "command": null
       }
     ],

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **A prompt or policy edit outside the repository root no longer reports as
+  "nothing in this PR signals a tool-surface change."**
+  `TRIGGER-PROMPTS-OR-POLICIES` matched `prompts/**` and `policies/**` only at
+  the root, while the verifier's trust-root classification has always read the
+  same two surfaces at any depth (`**/prompts/**`, `**/policies/**`). The two
+  lists disagreed about the same paths: a PR touching
+  `services/foo/policies/refund.yaml` reached `skip_reason: "no_match"` for a
+  path `SHIP-VERIFY-POLICY-WEAKENED` treats as a policy trust root. Prompts
+  failed worse than that — a nested `prompts/*.md` edit satisfies the docs-only
+  negative rule's `**/*.md` leg, so it did not merely fail to match, it
+  actively *skipped*. Both globs now match at any depth, in the positive rule
+  and in `TRIGGER-DOCS-ONLY-NEGATIVE`'s `none_match_glob` list, so a nested
+  prompt edit bundled with a docs edit is no longer classified as docs-only;
+  the pre-commit `files:` regex follows. A new parity test pins every
+  governance trust-root surface — the manifest, `.agents-shipgate/`,
+  `policies/`, `prompts/`, and the Shipgate CI workflow — to a representative
+  repo-root path and a nested one, so the trust-root list and the trigger
+  catalog cannot drift apart again unnoticed; it records that a nested
+  `shipgate.yaml` and a nested `.agents-shipgate/` are still routed at the root
+  only, because those two are anchored there by the boundary registry that
+  check, verify, preflight and audit share rather than by the catalog. The
+  catalog stays at `schema_version` 0.3: this widens an existing rule's globs,
+  adds no rule ID and no state, and moves outcomes only toward evaluating
+  more, never less.
 - **One compact object now answers "what may I do next?", instead of four
   artifacts and a guess.** A verify run could simultaneously report `execution:
   "succeeded"`, exit code `0`, `release_decision.decision: "review_required"`,
