@@ -53,6 +53,16 @@ DESTINATION_REF = "refs/heads/codex/human-authorization-state"
 LEASE_OID = "e" * 40
 REPOSITORY_ID = "example.test/acme/review-agent"
 PUSH_URL = "https://example.test/acme/review-agent.git"
+# Grants minted here are evaluated against real wall time: neither ``run_verify``
+# nor ``authorization execute`` passes an evaluation clock, and expiry is
+# deliberately strict (clock skew never extends authority). A fixture TTL sized
+# like a real host policy therefore raced the test itself under ``pytest -n
+# auto``, where the gap between minting a grant and the assertions that consume
+# it is bounded only by machine load. This TTL outlives any plausible run; the
+# strictness of expiry is covered by the "expired" case below and by the
+# clock-pinned tests in tests/test_human_authorization.py.
+FIXTURE_GRANT_TTL = timedelta(hours=12)
+FIXTURE_KEY_VALIDITY = FIXTURE_GRANT_TTL * 2
 runner = CliRunner()
 
 
@@ -249,8 +259,8 @@ def _trusted_key(
         public_key=_b64url(public_key),
         provider="github",
         principal="github:user:release-reviewer",
-        valid_from=now - timedelta(days=1),
-        valid_until=now + timedelta(days=1),
+        valid_from=now - FIXTURE_KEY_VALIDITY,
+        valid_until=now + FIXTURE_KEY_VALIDITY,
     )
 
 
@@ -295,7 +305,7 @@ def _write_host_policy(
     policy = build_human_authorization_trust_policy(
         repository_ids=[request.repository_id],
         keys=[key],
-        max_ttl_seconds=900,
+        max_ttl_seconds=int(FIXTURE_GRANT_TTL.total_seconds()) + 60,
         clock_skew_seconds=30,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -367,7 +377,7 @@ def test_signed_authorization_overlays_one_exact_command_and_binds_artifact(
         request,
         issued_at=now - timedelta(seconds=1),
         not_before=now - timedelta(seconds=1),
-        expires_at=now + timedelta(minutes=5),
+        expires_at=now + FIXTURE_GRANT_TTL,
     )
     grant_path = tmp_path / "host" / "authorization.json"
     _write_grant(grant_path, grant)
@@ -387,6 +397,8 @@ def test_signed_authorization_overlays_one_exact_command_and_binds_artifact(
     assert authorized_report is not None
     assert _static_gate(authorized) == _static_gate(initial)
     assert authorized_report.release_decision.decision == report.release_decision.decision
+    # Asserted before the status so a rejection reports why it was rejected.
+    assert authorized.authorization.reason_codes == []
     assert authorized.authorization.status == "accepted"
     assert authorized.authorization.authorization_id == grant.authorization_id
     out = repo / "agents-shipgate-reports"
@@ -733,7 +745,7 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
         )
     issued_at = now - timedelta(seconds=1)
     not_before = now - timedelta(seconds=1)
-    expires_at = now + timedelta(minutes=5)
+    expires_at = now + FIXTURE_GRANT_TTL
     if failure == "expired":
         issued_at = now - timedelta(minutes=10)
         not_before = issued_at
@@ -786,6 +798,10 @@ def test_invalid_authorization_keeps_human_stop_and_receipt_valid(
         "missing_trust": {"trust_policy_unavailable"},
     }
     assert expected_reasons[failure] <= set(rejected.authorization.reason_codes)
+    # Every other case must be rejected for its own reason, never because the
+    # fixture grant aged out while the test ran.
+    if failure != "expired":
+        assert "authorization_expired" not in rejected.authorization.reason_codes
     # A rejected grant falls back to the ordinary review route: merge and
     # completion stay denied, and no authorized operation command is exposed.
     assert rejected.control.state == "review_publishable"
