@@ -903,37 +903,66 @@ def test_the_published_schema_documents_the_computed_pair() -> None:
     assert properties["executable"]["readOnly"] is True
 
 
+def _boundary_fixture_repo(tmp_path: Path) -> Path:
+    """A two-commit repo whose head changes a recognised agent surface.
+
+    The control surfaces only publish commands when the change reaches them, so
+    running them against the Shipgate repository itself made the assertions
+    depend on whatever that working tree happened to look like — they passed
+    locally and found nothing in CI. This fixture is the subject instead, and
+    it reliably produces an `allowed_next_commands` entry, which the repo-root
+    runs never reached.
+    """
+
+    workspace = tmp_path / "boundary"
+    workspace.mkdir()
+    run = lambda *argv: subprocess.run(  # noqa: E731 - local helper
+        argv, cwd=workspace, check=True, capture_output=True, text=True
+    )
+    run("git", "init", "-q", ".")
+    run("git", "config", "user.email", "tests@example.invalid")
+    run("git", "config", "user.name", "tests")
+    (workspace / ".mcp.json").write_text("{}\n", encoding="utf-8")
+    run("git", "add", "-A")
+    run("git", "commit", "-qm", "base")
+    (workspace / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"x": {"command": "node", "args": ["server.js"]}}}) + "\n",
+        encoding="utf-8",
+    )
+    run("git", "add", "-A")
+    run("git", "commit", "-qm", "head")
+    return workspace
+
+
 @pytest.mark.parametrize(
-    ("label", "args"),
-    [
-        ("verify --json", ["verify", "--preview", "--base", "HEAD~1", "--head", "HEAD", "--json"]),
-        (
-            "check agent-boundary-json",
-            ["check", "--base", "HEAD~1", "--head", "HEAD", "--format", "agent-boundary-json"],
-        ),
-        (
-            "check agent-control-json",
-            ["check", "--base", "HEAD~1", "--head", "HEAD", "--format", "agent-control-json"],
-        ),
-    ],
+    "output_format", ["agent-boundary-json", "agent-control-json", "codex-boundary-json"]
 )
-def test_every_control_surface_command_recovers_exact_argv(label: str, args: list[str]) -> None:
+def test_every_control_surface_command_recovers_exact_argv(
+    tmp_path: Path, output_format: str
+) -> None:
     """The documented recovery for surfaces that carry no structured pair.
 
     `executable`/`args` are scoped to `next_actions[]`; the operational control
-    contracts publish the string alone. Because every command is rendered with
-    POSIX quoting on every platform, `shlex.split` recovers the exact argv
-    there — this pins that as a guarantee rather than an accident, so a future
-    renderer change cannot quietly strand a control consumer.
+    contracts — including `allowed_next_commands` — publish the string alone.
+    Because every command is rendered with POSIX quoting on every platform,
+    `shlex.split` recovers the exact argv there. This pins that as a guarantee
+    rather than an accident, so a future renderer change cannot quietly strand
+    a control consumer.
     """
 
-    result = _run_module(*args, cwd=REPO_ROOT)
+    workspace = _boundary_fixture_repo(tmp_path)
+    result = _run_module(
+        "check", "--base", "HEAD~1", "--head", "HEAD", "--format", output_format, cwd=workspace
+    )
     commands = [
         value
         for document in _json_documents(result.stdout + "\n" + result.stderr)
-        for _where, value in _command_values(document, label)
+        for _where, value in _command_values(document, output_format)
     ]
-
+    # No per-format non-vacuity assertion: a format may legitimately publish no
+    # command in a given state — the compact envelope carries a human review
+    # action here, and a human action never exposes one. Coverage of the
+    # control contract is pinned once, below, where it is deterministic.
     for command in commands:
         tokens = shlex.split(command)
         assert tokens, command
@@ -942,9 +971,15 @@ def test_every_control_surface_command_recovers_exact_argv(label: str, args: lis
         assert shlex.split(join_argv(tokens)) == tokens, command
 
 
-def test_the_control_surface_recovery_check_sees_real_commands() -> None:
-    """Negative control: the sweep above must not be vacuous."""
+def test_the_control_surface_fixture_reaches_allowed_next_commands(tmp_path: Path) -> None:
+    """Negative control: the recovery test must cover the control contract.
 
+    Without this, a fixture that stopped triggering the boundary would leave
+    the test above asserting over `trigger.matched_rules` alone and quietly
+    stop covering what it names.
+    """
+
+    workspace = _boundary_fixture_repo(tmp_path)
     result = _run_module(
         "check",
         "--base",
@@ -953,14 +988,10 @@ def test_the_control_surface_recovery_check_sees_real_commands() -> None:
         "HEAD",
         "--format",
         "agent-boundary-json",
-        cwd=REPO_ROOT,
+        cwd=workspace,
     )
-    commands = [
-        value
-        for document in _json_documents(result.stdout)
-        for _where, value in _command_values(document)
-    ]
-    assert commands, "the boundary result published no command to recover"
+    document = json.loads(result.stdout)
+    assert document["control"]["allowed_next_commands"]
 
 
 def test_successful_init_routes_to_a_runnable_scan(tmp_path: Path) -> None:
