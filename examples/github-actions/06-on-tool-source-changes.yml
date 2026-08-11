@@ -1,24 +1,30 @@
-# Run only when the tool surface or manifest actually changed. Saves CI
-# minutes on PRs that don't touch agent configuration.
-name: Agents Shipgate (path-filtered)
+# Run cheaply on PRs that don't touch agent configuration, without a
+# `paths:` prefilter deciding that for you.
+#
+# The obvious way to save CI minutes is `on.pull_request.paths`. Do not use it
+# to gate Shipgate. GitHub evaluates `paths:` *before* the workflow starts, so
+# a filtered-out PR produces no run, no check, and no signal at all — it looks
+# identical to a repo that has not adopted the gate. And GitHub's filter
+# patterns are case-sensitive with no case-insensitive form, while the trigger
+# catalog matches governance paths case-insensitively on purpose (Git can
+# carry a spelling that resolves to the canonical file on a case-insensitive
+# filesystem). A `paths:` list is therefore strictly narrower than the
+# catalog: `services/foo/Policies/refund.yaml` is a policy trust root that a
+# `- 'policies/**'` filter silently drops.
+#
+# So the filter lives inside the job instead, where it can fail closed. The
+# action evaluates docs/triggers.json against the real diff and returns a skip
+# verdict in seconds when nothing agent-related changed — the expensive scan
+# never runs. You pay one short runner start per PR and keep a green check on
+# every PR, which is also what branch protection wants.
+#
+# If you must prefilter at the `paths:` level for cost reasons, prefilter only
+# surfaces that are not trust roots, and never `prompts/`, `policies/`,
+# `shipgate.yaml`, `.agents-shipgate/`, agent instructions, or CI workflows.
+name: Agents Shipgate (trigger-gated)
 
 on:
   pull_request:
-    paths:
-      - 'shipgate.yaml'
-      - 'tools/**'
-      - 'specs/**'
-      - 'prompts/**'
-      - '**/*.openapi.yaml'
-      - '**/*.openapi.yml'
-      - '**/*.openapi.json'
-      - '**/mcp_tools.json'
-      - '**/.codex-plugin/**'
-      - '**/.agents/plugins/**'
-      - '**/.app.json'
-      - '**/.mcp.json'
-      - '**/SKILL.md'
-      - '**/agent.py'
 
 permissions:
   contents: read

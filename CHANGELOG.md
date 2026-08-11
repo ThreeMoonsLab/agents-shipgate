@@ -18,10 +18,13 @@
   fail to match, it actively *skipped*. Both globs now match at any depth, in
   the positive rule and in `TRIGGER-DOCS-ONLY-NEGATIVE`'s `none_match_glob`
   list, so a nested prompt edit bundled with a docs edit is no longer
-  classified as docs-only; and `glob`, `every_file_matches` and
-  `none_match_glob` all now route through the same case-tolerant matcher as
-  the trust-root classifier and the boundary registry, which the catalog's
-  `predicate_vocabulary` documents.
+  classified as docs-only; and the routing predicates — `glob` and
+  `none_match_glob` — now use the same case-tolerant matcher as the
+  trust-root classifier and the boundary registry. `every_file_matches`
+  deliberately does not: it is the docs-only rule's own classifier, so
+  folding it would *subtract* evaluation rather than add it. The catalog's
+  `predicate_vocabulary` documents both sides of that split; see the
+  directional rule below.
 
   The surfaces that copy this routing follow, so the fix is end-to-end rather
   than evaluator-only. The pre-commit `files:` regex now matches
