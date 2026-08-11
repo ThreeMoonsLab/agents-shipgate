@@ -290,7 +290,9 @@ The full set of error kinds emitted in agent mode: `config_error`, `config_alrea
 
 The machine-readable catalog of error kinds — exit codes, typical causes, additional fields per kind, recovery hints — lives at [`docs/errors.json`](docs/errors.json). Pre-fetch it once and pattern-match the `error` field instead of re-deriving the recovery vocabulary from this prose.
 
-`detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, and `expects` fields. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
+`detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, `expects`, and the structured `executable[]` / `args[]` pair. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
+
+Every emitted command names the entry point that started the running process, so it is runnable where it was produced: a console-script run emits `agents-shipgate …`, and a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate …`. Set `AGENTS_SHIPGATE_CLI` to override. Prefer `[*executable, *args]` over parsing `command` — it needs no shell, and it is derived from the same value the string is rendered from. See [docs/diagnostics.md](docs/diagnostics.md#invocation-policy).
 
 ### Doctor behavior change for unresolved tool_sources
 

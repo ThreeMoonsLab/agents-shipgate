@@ -46,6 +46,7 @@ from agents_shipgate.core.trust_roots import (
     is_portable_repo_path,
     read_identity_bound_text,
 )
+from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -186,7 +187,7 @@ def _verify_command(workspace: Path | None, config: Path | None) -> str:
     """The verify invocation for *this* preflight's target."""
 
     if workspace is None or config is None:
-        return _VERIFY_COMMAND
+        return retarget_command(_VERIFY_COMMAND)
     return _shared_verify_command_for(workspace, config, extra=("--ci-mode", "advisory"))
 
 
@@ -902,6 +903,7 @@ def signals_for_capability_requests(
     requests: list[CapabilityRequestV1],
     verify_command: str = _VERIFY_COMMAND,
 ) -> list[PreflightSignalV1]:
+    verify_command = retarget_command(verify_command)
     signals: list[PreflightSignalV1] = []
     for request in requests:
         subject = _capability_subject(request)
@@ -1027,6 +1029,7 @@ def signals_for_policy_drift(
     *,
     manifest_path: str = "shipgate.yaml",
 ) -> list[PreflightSignalV1]:
+    verify_command = retarget_command(verify_command)
     signals: list[PreflightSignalV1] = []
     if policy_drift is not None and policy_drift.changed:
         signals.append(
@@ -1650,6 +1653,7 @@ def _sorted_signals(signals: list[PreflightSignalV1]) -> list[PreflightSignalV1]
 
 
 def _verify_required_signal(verify_command: str = _VERIFY_COMMAND) -> PreflightSignalV1:
+    verify_command = retarget_command(verify_command)
     return PreflightSignalV1(
         id="verify_required:diff",
         kind="verify_required",
@@ -1754,6 +1758,7 @@ def _first_next_action(
     signals: list[PreflightSignalV1],
     verify_command: str = _VERIFY_COMMAND,
 ) -> PreflightNextAction:
+    verify_command = retarget_command(verify_command)
     human_signals = [signal for signal in signals if signal.actor == "human"]
     if human_signals:
         first = human_signals[0]

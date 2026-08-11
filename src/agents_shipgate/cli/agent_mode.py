@@ -5,8 +5,9 @@ import os
 import shlex
 import sys
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
+
+from agents_shipgate.invocation import invocation_prefix
 
 AGENT_MODE_ENV_VAR = "AGENTS_SHIPGATE_AGENT_MODE"
 
@@ -125,5 +126,14 @@ def emit_agent_mode_error(
 
 
 def _command_string() -> str:
-    argv = [Path(sys.argv[0]).name, *sys.argv[1:]]
-    return shlex.join(argv)
+    """The command that produced this error, spelled so it can be re-run.
+
+    ``sys.argv[0]`` is not a program name in general: under
+    ``python -m agents_shipgate`` it is the package's ``__main__.py``, which is
+    neither executable on its own nor even safe to display — the double
+    underscores turn it into ``**main**.py`` in any consumer that renders the
+    field as Markdown. The invocation policy answers this once, for every
+    surface that has to name the CLI.
+    """
+
+    return shlex.join([*invocation_prefix(), *sys.argv[1:]])

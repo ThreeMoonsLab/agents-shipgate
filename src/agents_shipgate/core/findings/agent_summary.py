@@ -3,6 +3,7 @@ from __future__ import annotations
 import shlex
 
 from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
+from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.report import (
     AgentSummary,
     AgentSummaryAction,
@@ -367,7 +368,7 @@ def _build_first_recommended_action(
             quoted_path = shlex.quote(json_report_path)
             return AgentSummaryAction(
                 kind="command",
-                command=(
+                command=retarget_command(
                     f"agents-shipgate apply-patches --from "
                     f"{quoted_path} --confidence high --apply"
                 ),

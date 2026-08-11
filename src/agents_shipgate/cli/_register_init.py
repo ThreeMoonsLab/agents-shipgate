@@ -334,24 +334,23 @@ def register(app: typer.Typer) -> None:
                 _validate_manifest_text(template)
             except Exception as exc:  # noqa: BLE001 - validation surface
                 typer.echo(f"Generated manifest failed validation: {exc}", err=True)
+                minimal_action = NextAction(
+                    kind="command",
+                    command="agents-shipgate init --minimal",
+                    why=(
+                        "Auto-detected manifest failed schema validation. "
+                        "Fall back to the legacy CHANGE_ME-heavy template."
+                    ),
+                    expects=(
+                        "shipgate.yaml renders with placeholder fields "
+                        "you fill in manually."
+                    ),
+                )
                 _emit_agent_mode_error(
                     "internal_error",
                     message=f"Generated manifest failed validation: {exc}",
-                    next_action="agents-shipgate init --minimal",
-                    next_actions=[
-                        NextAction(
-                            kind="command",
-                            command="agents-shipgate init --minimal",
-                            why=(
-                                "Auto-detected manifest failed schema validation. "
-                                "Fall back to the legacy CHANGE_ME-heavy template."
-                            ),
-                            expects=(
-                                "shipgate.yaml renders with placeholder fields "
-                                "you fill in manually."
-                            ),
-                        ).model_dump(mode="json")
-                    ],
+                    next_action=minimal_action.to_legacy_string(),
+                    next_actions=[minimal_action.model_dump(mode="json")],
                 )
                 raise typer.Exit(4) from exc
             placeholders = collect_placeholders(template)

@@ -63,6 +63,7 @@ from agents_shipgate.cli.discovery.artifacts import (
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
+from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.detect import (
     CodexPluginCandidate,
     DetectResult,
@@ -228,7 +229,7 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
 
     is_agent_project = bool(detections)
     next_action = (
-        f"agents-shipgate init --workspace {workspace}"
+        render_command(["init", "--workspace", str(workspace)])
         if is_agent_project or suggested_sources or codex_plugin_candidates
         else "Workspace does not appear to be an agent project. No action."
     )

@@ -595,6 +595,34 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
                 "path": None,
                 "why": "check",
                 "expects": None,
+                # Additive since #322. Carried on every action so consumers can
+                # read one shape; only populated for kind="command".
+                "executable": None,
+                "args": None,
             }
         ],
     }
+
+    command_action = Diagnostic(
+        id="SHIP-DIAG-EXAMPLE",
+        title="Example",
+        severity="info",
+        next_actions=[
+            NextAction(
+                kind="command",
+                command="agents-shipgate detect --workspace . --json",
+                why="check",
+            )
+        ],
+    )
+    assert command_action.model_dump(mode="json")["next_actions"] == [
+        {
+            "kind": "command",
+            "command": "agents-shipgate detect --workspace . --json",
+            "path": None,
+            "why": "check",
+            "expects": None,
+            "executable": ["agents-shipgate"],
+            "args": ["detect", "--workspace", ".", "--json"],
+        }
+    ]

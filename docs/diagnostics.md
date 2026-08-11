@@ -42,13 +42,39 @@ do not change the exit code.
 `NextAction` (ranked recovery step; ordered list — array position is
 the rank, no separate `rank` field):
 
-| Field    | Type                                      | Notes                                                         |
-| -------- | ----------------------------------------- | ------------------------------------------------------------- |
-| kind     | `command \| edit \| review \| stop`       | Action category.                                              |
-| command  | `string \| null`                          | Required when `kind="command"`. Always `null` when `"stop"`. |
-| path     | `string \| null`                          | Required when `kind="edit"`. May be `shipgate.yaml:<line>`. |
-| why      | `string`                                  | One-sentence rationale.                                       |
-| expects  | `string \| null`                          | Optional: what the next run should output if the action worked. |
+| Field      | Type                                      | Notes                                                         |
+| ---------- | ----------------------------------------- | ------------------------------------------------------------- |
+| kind       | `command \| edit \| review \| stop`       | Action category.                                              |
+| command    | `string \| null`                          | Required when `kind="command"`. Always `null` when `"stop"`. |
+| path       | `string \| null`                          | Required when `kind="edit"`. May be `shipgate.yaml:<line>`. |
+| why        | `string`                                  | One-sentence rationale.                                       |
+| expects    | `string \| null`                          | Optional: what the next run should output if the action worked. |
+| executable | `string[] \| null`                        | Entry-point argv tokens. Present only when `kind="command"`, and only when the command has a faithful argv form. |
+| args       | `string[] \| null`                        | The remaining argv tokens. Same presence rule as `executable`. |
+
+### Invocation policy
+
+Emitted commands name the entry point that started *this* process, so the
+recovery loop stays runnable in the environment that produced it:
+
+| How Shipgate was started              | What emitted commands say                       |
+| ------------------------------------- | ----------------------------------------------- |
+| `agents-shipgate …` / `shipgate …`    | The same console script the command was written with — unchanged. |
+| `python -m agents_shipgate …`         | `<sys.executable> -m agents_shipgate …`. The interpreter is spelled by path, not as a bare `python`, because a bare name resolves through `PATH` and can land on a different interpreter. |
+| `AGENTS_SHIPGATE_CLI` set             | That value, split with `shlex`. Same override the Claude Code hook installer honours. |
+
+`command` never contains `__main__.py`. The `executable` / `args` pair is a
+shell-independent projection of `command` — `subprocess.run([*executable,
+*args])` runs the same thing the string does — and is derived from it rather
+than supplied, so the two can never disagree. Both are `null` when the command
+needs a shell to be faithful (a leading `NAME=VALUE` assignment); the string
+remains complete in that case.
+
+The policy governs *executable* fields: `command` on next actions, agent-mode
+error routes, and the control/repair commands the verifier and boundary
+publish. Published contract vocabulary (`primary_commands` in the discovery
+surfaces, `.well-known/agents-shipgate.json`) and prose remediation text stay
+canonical — they describe the installed CLI rather than route this run.
 
 The legacy `next_action: str` field on `detect`, `doctor`, and
 agent-mode error JSON is the rank-1 action projected to a single string:

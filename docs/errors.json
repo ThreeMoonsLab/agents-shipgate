@@ -86,6 +86,12 @@
     "review": "Read a file or output and decide; no machine-applicable change.",
     "stop": "Negative-control action: stop this flow because the workspace or input is intentionally out of scope."
   },
+  "invocation_policy": {
+    "description": "Every emitted `command` names the entry point that started the running process, so a recovery command is runnable in the environment that produced it. A console-script run emits `agents-shipgate ...` or `shipgate ...` unchanged; a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate ...`. `command` never contains `__main__.py`.",
+    "override_env_var": "AGENTS_SHIPGATE_CLI",
+    "structured_fields": "Actions with `kind=\"command\"` also carry `executable` (entry-point argv tokens) and `args` (the rest). Run them as `[*executable, *args]` with no shell. Both are derived from `command` rather than supplied, so they cannot disagree with it, and both are null when the command needs a shell to be faithful (a leading NAME=VALUE assignment).",
+    "scope": "Executable fields only. Published contract vocabulary (`primary_commands`, `.well-known/agents-shipgate.json`) and prose remediation text name the canonical installed CLI."
+  },
   "see_also": {
     "agent_instructions": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/AGENTS.md",
     "agent_contract": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agent-contract-current.md",

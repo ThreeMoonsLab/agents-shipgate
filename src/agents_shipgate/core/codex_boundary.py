@@ -58,6 +58,7 @@ from agents_shipgate.core.trust_roots import (
     read_absolute_identity_bound_text,
     trust_root_class_for,
 )
+from agents_shipgate.invocation import render_command, retarget_command
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
@@ -481,9 +482,9 @@ def evaluate_codex_boundary_result(
     # Keep this local diff projector aligned with
     # agents_shipgate.ci.agent_result.build_agent_result; both produce
     # boundary-result routing fields for different substrates.
-    resolved_verify_command = verify_command or _VERIFY_COMMAND
-    resolved_detect_command = detect_command or _DETECT_COMMAND
-    resolved_preview_command = preview_command or _VERIFY_PREVIEW_COMMAND
+    resolved_verify_command = retarget_command(verify_command or _VERIFY_COMMAND)
+    resolved_detect_command = retarget_command(detect_command or _DETECT_COMMAND)
+    resolved_preview_command = retarget_command(preview_command or _VERIFY_PREVIEW_COMMAND)
     workspace = workspace.resolve()
     diff_files = (
         diff_files_override
@@ -887,8 +888,8 @@ def _control_for_result(
 
     # Resolved here rather than as a default: the constant is defined further
     # down the module.
-    verify_command = verify_command or _VERIFY_COMMAND
-    detect_command = detect_command or _DETECT_COMMAND
+    verify_command = retarget_command(verify_command or _VERIFY_COMMAND)
+    detect_command = retarget_command(detect_command or _DETECT_COMMAND)
 
     # One fact for every route below. The boundary read a real diff, but that
     # only counts as an evaluated subject when it is bound to a checkout verify
@@ -2049,6 +2050,8 @@ def _undeclared_next_action(
     preview_command: str = _VERIFY_PREVIEW_COMMAND,
     manifest_label: str = "shipgate.yaml",
 ) -> AgentResultNextAction:
+    detect_command = retarget_command(detect_command)
+    preview_command = retarget_command(preview_command)
     if manifest_present:
         return AgentResultNextAction(
             actor="coding_agent",
@@ -2134,7 +2137,7 @@ def _coverage_next_action(
     return AgentResultNextAction(
         actor="coding_agent",
         kind="warn",
-        command=verify_command,
+        command=retarget_command(verify_command),
         why=(
             "shipgate check is boundary-only and did not evaluate the changed tool "
             "surface; run verify for the capability merge gate before completing."
@@ -2262,7 +2265,10 @@ def _repair_for(
     )
     safe_to_attempt = _agent_safe_repairable(decision, violations)
     command = (
-        f"shipgate check --agent {agent} --workspace . --format agent-boundary-json"
+        render_command(
+            ["check", "--agent", agent, "--workspace", ".", "--format", "agent-boundary-json"],
+            program="shipgate",
+        )
         if safe_to_attempt
         else None
     )

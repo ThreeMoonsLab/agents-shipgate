@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **The recommended next command now runs where it was recommended.** Every
+  emitted command was written as the console script the wheel installs
+  (`agents-shipgate …`), so a run started from a source checkout with
+  `python -m agents_shipgate` handed the caller a command its environment may
+  have had no wrapper for — and agent-mode errors reported the running command
+  as `__main__.py`, which is not a program and which any consumer rendering the
+  field as Markdown silently corrupts to `**main**.py`. Commands are now
+  spelled for the entry point that started the process: a console-script run
+  emits exactly what it emitted before, a `python -m agents_shipgate` run emits
+  `<sys.executable> -m agents_shipgate …` (by interpreter path, since a bare
+  `python` resolves through `PATH` and can land on a different one), and
+  `AGENTS_SHIPGATE_CLI` — already the operator override for the Claude Code
+  hook command — overrides both. One policy covers preview, init, doctor,
+  scan, verify, detect, check, preflight, and the control and repair commands
+  the verifier and boundary publish. `next_actions[]` entries with
+  `kind="command"` additionally carry a shell-independent
+  `executable[]` / `args[]` pair, runnable as `[*executable, *args]`, derived
+  from the same value the string is rendered from so the two forms cannot
+  disagree; `command` remains for existing consumers. This is the path used to
+  evaluate external PRs, where the recovery loop breaking is worst. ([#322](https://github.com/ThreeMoonsLab/agents-shipgate/issues/322))
+
 - **One compact object now answers "what may I do next?", instead of four
   artifacts and a guess.** A verify run could simultaneously report `execution:
   "succeeded"`, exit code `0`, `release_decision.decision: "review_required"`,

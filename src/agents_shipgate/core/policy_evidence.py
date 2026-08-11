@@ -5,6 +5,7 @@ import json
 from collections.abc import Iterable
 from typing import Any, cast
 
+from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.common import Confidence, confidence_rank
 from agents_shipgate.schemas.report import (
     EvidenceGap,
@@ -174,7 +175,7 @@ def policy_evidence_gap(
         why=f"{policy_id}: {why}",
         next_action=EvidenceGapAction(
             kind=cast(Any, action_kind),
-            command=rerun_command,
+            command=retarget_command(rerun_command),
             path=manifest_path,
             why="Heuristic or unknown evidence cannot create a blocking policy finding.",
             expects="Provide reviewed or structural evidence for every indeterminate predicate.",

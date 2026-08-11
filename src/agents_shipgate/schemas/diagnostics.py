@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agents_shipgate.invocation import retarget_command, split_invocation
+
 NextActionKind = Literal["command", "edit", "review", "stop"]
 DiagnosticSeverity = Literal["block", "warn", "info"]
 
@@ -18,6 +20,20 @@ class NextAction(BaseModel):
       ``shipgate.yaml:<line>``).
     - ``kind="review"`` → no command, just a sentence in ``why``.
     - ``kind="stop"`` → negative-control; ``command`` is None.
+
+    Call sites write ``command`` as the console-script spelling
+    (``agents-shipgate ...``). Two things happen to it here, and both happen
+    here rather than at the ~40 construction sites so that no surface can opt
+    out of the policy by being written later:
+
+    * It is retargeted to however *this* process entered the CLI. Emitting
+      ``agents-shipgate`` from a ``python -m agents_shipgate`` run hands the
+      caller a command its environment may have no wrapper for (#322).
+    * ``executable`` and ``args`` are derived from the retargeted string, so a
+      caller that would rather not parse a shell string does not have to. They
+      are a *projection*, never independent input: deriving them from the same
+      value the string is rendered from is what makes it impossible for the
+      two forms to disagree.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -27,6 +43,8 @@ class NextAction(BaseModel):
     path: str | None = None
     why: str
     expects: str | None = None
+    executable: list[str] | None = None
+    args: list[str] | None = None
 
     @model_validator(mode="after")
     def _check_kind_fields(self) -> NextAction:
@@ -36,6 +54,17 @@ class NextAction(BaseModel):
             raise ValueError("kind='edit' requires a non-empty path")
         if self.kind == "stop" and self.command is not None:
             raise ValueError("kind='stop' must not carry a command")
+        if self.kind == "command" and self.command:
+            self.command = retarget_command(self.command)
+            split = split_invocation(self.command)
+            # ``None`` means the string has no faithful argv form — a leading
+            # ``NAME=VALUE`` assignment is shell syntax, not an argv token.
+            # Leaving the structured pair unset is the honest answer; the
+            # rendered string still carries the whole instruction.
+            self.executable, self.args = split if split is not None else (None, None)
+        else:
+            self.executable = None
+            self.args = None
         return self
 
     def to_legacy_string(self) -> str:

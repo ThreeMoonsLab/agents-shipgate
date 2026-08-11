@@ -351,27 +351,24 @@ def explain_finding(
         raise typer.Exit(2) from exc
     except ValueError as exc:
         typer.echo(f"explain-finding: {exc}", err=True)
+        rescan_action = NextAction(
+            kind="command",
+            command="agents-shipgate scan -c shipgate.yaml --format json",
+            why=(
+                f"Could not load {source}. Generate a fresh "
+                "report.json with the canonical 4-call flow."
+            ),
+            expects=(
+                "agents-shipgate-reports/report.json on disk, "
+                "validatable against the current report schema."
+            ),
+        )
         emit_agent_mode_error(
             "input_parse_error",
             message=str(exc),
             source_report=str(source),
-            next_action="agents-shipgate scan -c shipgate.yaml --format json",
-            next_actions=[
-                NextAction(
-                    kind="command",
-                    command=(
-                        "agents-shipgate scan -c shipgate.yaml --format json"
-                    ),
-                    why=(
-                        f"Could not load {source}. Generate a fresh "
-                        "report.json with the canonical 4-call flow."
-                    ),
-                    expects=(
-                        "agents-shipgate-reports/report.json on disk, "
-                        "validatable against the current report schema."
-                    ),
-                ).model_dump(mode="json")
-            ],
+            next_action=rescan_action.to_legacy_string(),
+            next_actions=[rescan_action.model_dump(mode="json")],
         )
         raise typer.Exit(3) from exc
 

@@ -32,6 +32,7 @@ from agents_shipgate.core.boundary_registry import (
 )
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.globbing import glob_match as _glob_match
+from agents_shipgate.invocation import render_command, retarget_command
 
 _TRIGGERS_FILENAME = "triggers.json"
 
@@ -212,15 +213,18 @@ def _next_action(
         if manifest_present:
             return {
                 "kind": "command",
-                "command": "agents-shipgate verify --base origin/main --head HEAD --json",
+                "command": render_command(
+                    ["verify", "--base", "origin/main", "--head", "HEAD", "--json"]
+                ),
                 "why": (
                     "This change affects an agent tool or release-policy "
                     "surface; verify whether the PR can merge."
                 ),
             }
-        command = next(
-            (m["command"] for m in matched if m.get("command")), None
-        ) or default_command
+        command = retarget_command(
+            next((m["command"] for m in matched if m.get("command")), None)
+            or default_command
+        )
         return {
             "kind": "command",
             "command": command,
@@ -230,7 +234,7 @@ def _next_action(
             ),
         }
     if dry_run_recommended:
-        command = (
+        command = retarget_command(
             "agents-shipgate verify --base origin/main --head HEAD "
             "--ci-mode advisory --json"
             if manifest_present
@@ -432,13 +436,22 @@ def evaluate(
             detect_result=detect_result,
             user_requested=user_requested,
         ):
+            rule_command = rule.get("command")
             matched.append(
                 {
                     "id": rule["id"],
                     "action": rule["action"],
                     "surface_class": rule.get("surface_class"),
                     "rationale": rule.get("rationale", ""),
-                    "command": rule.get("command"),
+                    # The bundled catalog spells commands as the installed
+                    # console script. A matched row is a route for *this* run,
+                    # not catalog documentation, so it is retargeted like every
+                    # other emitted command.
+                    "command": (
+                        retarget_command(rule_command)
+                        if isinstance(rule_command, str)
+                        else rule_command
+                    ),
                 }
             )
 
