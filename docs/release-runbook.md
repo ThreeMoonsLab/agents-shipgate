@@ -13,9 +13,9 @@ A release runs as five jobs with an explicit, content-addressed handoff.
 
 | Job | Permissions | What it does |
 |---|---|---|
-| `verify` → `tests` | `contents: read` | Lint, compile, schema check, the correctness suite, dependency audit |
-| `verify` → `artifact` | `contents: read` | Builds from the tagged source, validates the signed qualification, binds wheel to source, produces the wheel-scoped SBOM, seals and uploads the candidate bundle |
-| `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, classifies the index, creates or repairs the **draft** release |
+| `verify` → `tests` | `contents: read` | Installs the locked closure, checks the locks against the declarations, lints, compiles, schema check, the correctness suite, dependency audit |
+| `verify` → `artifact` | `contents: read` | Requires a changelog section for the tag, builds from the tagged source, validates the signed qualification, binds wheel to source, produces the wheel-scoped SBOM, seals and uploads the candidate bundle |
+| `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, extracts the release notes, classifies the index, creates or repairs the **draft** release |
 | `publish` | `id-token: write`, `environment: pypi` | Signs and uploads to PyPI once |
 | `finalize` | `contents: write` | Attaches signatures, re-verifies the remote bytes, undrafts |
 
@@ -113,6 +113,66 @@ pin — not to relax the comparison. `--allow-payload-equivalent` exists as a
 pre-approved interim control for genuine reproducibility gaps; using it requires
 opening an issue to track the gap, and it still rejects any content difference.
 
+### The environment is locked, and it is CI's
+
+`pip install -e ".[dev]"` resolves fresh every time it runs, so the release
+tested the candidate against a different set of packages than the CI run that
+approved the commit — a ruff, pytest or plugin release landing in between was
+enough. Both now install the same hash-locked closure, with the identical
+command:
+
+```bash
+python -m pip install --require-hashes --requirement constraints/dev.txt
+PIP_CONSTRAINT=constraints/release-build.txt python -m pip install -e . --no-deps
+python -m pip check
+```
+
+The project is installed separately because an editable install cannot be
+hashed. `pip check` is what proves the locked closure actually satisfies the
+project's declared dependencies, and the backend is pinned by the same file that
+makes the released wheel byte-reproducible.
+
+| Lock | Installed by | Contains |
+|---|---|---|
+| [`constraints/dev.txt`](../constraints/dev.txt) | CI and `verify` → `tests` | The development closure: runtime dependencies plus the `dev` extra |
+| [`constraints/release-seal.txt`](../constraints/release-seal.txt) | `verify` → `artifact` | `build`, `hatchling`, `sigstore` |
+| [`constraints/release-publish.txt`](../constraints/release-publish.txt) | `stage`, `publish`, `finalize` | `uv`, `sigstore` |
+| [`constraints/release-build.txt`](../constraints/release-build.txt) | Every wheel build | The pinned build backend, hand-maintained |
+
+Updating a dependency is two commands, and the second one is the gate:
+
+```bash
+python scripts/update_locks.py            # or a single lock path
+python scripts/verify_dependency_lock.py
+```
+
+`scripts/update_locks.py` recompiles with `uv` and restores each lock's header,
+which the compiler would otherwise overwrite — the reason regenerating used to
+be a per-file ritual nobody wanted to perform.
+
+`scripts/verify_dependency_lock.py` runs in CI **and** in release verification,
+and fails when a lock stops describing its declarations: a declared requirement
+with no pin, a pin outside the declared range, a direct requirement the
+declarations no longer contain, or a pin without a hash. It deliberately does
+not re-resolve against the index — "stale" means *inconsistent with the
+declarations*, not *older than the newest release on PyPI*, or every unrelated
+upload would turn the build red.
+
+### The release notes are the changelog
+
+The release body is the `CHANGELOG.md` section matching the tag, extracted from
+the checkout — which is pinned to the verified commit, not to the tag — so the
+published notes are the reviewed text rather than something retyped at tag time.
+Earlier releases published `Agents Shipgate v0.15.0` as their entire body.
+
+A tag matches a `##` heading whose first token is the version, with or without a
+`v`, in `[brackets]` or not, and anything after it (conventionally the date) is
+ignored. **`## Unreleased` never matches**, which is what makes "promote the
+heading" a step the pipeline enforces rather than one an operator remembers.
+Verification requires the section, so a rehearsal fails on a missing one while
+the tag still does not exist. A body over GitHub's 125,000-character limit is
+also refused there rather than by a 422 from `gh release create`.
+
 ## Before tagging: rehearse
 
 **A rehearsal on the candidate commit is a prerequisite for pushing a tag, and
@@ -178,13 +238,17 @@ hung step than an undersized budget.
 
 ## Cutting the release
 
-1. Confirm `pyproject.toml` has the release version and a rehearsal is green.
-2. Push the tag: `git tag v0.16.0 && git push origin v0.16.0`.
-3. The `verify` job runs unattended.
-4. Approve the `pypi` environment gate on the `publish` job, using the readiness
+1. Promote the `## Unreleased` heading in `CHANGELOG.md` to
+   `## <version> - <date>`. This is the release body; verification refuses a tag
+   with no matching section.
+2. Confirm `pyproject.toml` has the release version and a rehearsal is green.
+3. Push the tag: `git tag v0.16.0 && git push origin v0.16.0`.
+4. The `verify` job runs unattended.
+5. Approve the `pypi` environment gate on the `publish` job, using the readiness
    summary as the evidence.
-5. Confirm the GitHub Release is published (not draft) with all assets, then run
-   the fan-out checks in [`distribution.md`](distribution.md).
+6. Confirm the GitHub Release is published (not draft) with all assets and the
+   changelog section as its body, then run the fan-out checks in
+   [`distribution.md`](distribution.md).
 
 ## Recovery
 

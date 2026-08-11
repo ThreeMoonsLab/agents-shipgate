@@ -159,6 +159,34 @@
   its own fail-fast step, and the coverage floor stays at CI's 85. The timeout
   is derived from measurement rather than estimate, with the basis recorded in
   `docs/release-runbook.md`.
+- **The release page carries the changelog, and the release runs the
+  environment CI approved.** Two loose ends from the release-workflow review.
+  The GitHub Release body was the placeholder `Agents Shipgate <tag>` while
+  `CHANGELOG.md` held the entry describing what actually shipped, so the one
+  artifact users read said nothing; `scripts/release_notes.py` now extracts the
+  section matching the tag and publishes it through `--notes-file`, verbatim
+  and from the checkout pinned to the verified commit rather than retyped at
+  tag time. A missing section fails **verification**, which the rehearsal also
+  runs, so it is caught while the tag does not yet exist — and `## Unreleased`
+  never matches a tag, which is what makes promoting that heading a step the
+  pipeline enforces. A body over GitHub's 125,000-character limit is refused
+  there too, rather than by a 422 after tagging. Separately,
+  `pip install -e ".[dev]"` resolved fresh at release time, so the run that
+  decided whether to publish could install different packages than the CI run
+  that approved the commit, and a release-only failure was not reproducible
+  from the same tree. CI and release verification now install the identical
+  hash-locked closure in `constraints/dev.txt`, with the project added
+  separately (`--no-deps`, backend pinned by `constraints/release-build.txt`)
+  because an editable install cannot be hashed, and `python -m pip check`
+  proving the closure satisfies what the project declares. Regeneration is one
+  command for every lock in the repository (`scripts/update_locks.py`, which
+  restores the headers `uv` would overwrite), and
+  `scripts/verify_dependency_lock.py` — run in CI and before publication —
+  fails on a declared requirement with no pin, a pin outside the declared
+  range, a direct requirement the declarations no longer contain, or a pin
+  without a hash. It never re-resolves against the index, so an unrelated
+  upload cannot turn the build red.
+  ([#345](https://github.com/ThreeMoonsLab/agents-shipgate/issues/345))
 - **Insufficient-evidence remediation now stays framework-aware from the
   decision engine through every primary short-form surface.** Semantic
   `incomplete_surface` gaps for frameworks with explicit inventory support now

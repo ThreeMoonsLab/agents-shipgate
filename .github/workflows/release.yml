@@ -139,6 +139,28 @@ jobs:
             --wheel "dist/${WHEEL_FILENAME}" \
             --sbom dist/agents-shipgate-sbom.json
 
+      - name: Extract the release notes from the CHANGELOG
+        # The release page used to say "Agents Shipgate v0.16.0" while
+        # CHANGELOG.md held the entry describing what actually changed. The
+        # body is now that section, taken from this checkout — which is pinned
+        # to the commit verification approved, not to the tag — so the
+        # published notes are the reviewed text rather than something retyped
+        # at tag time. Verification already required the section to exist, so
+        # failing here means the two jobs read different trees.
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          # The same pre-existence rule the verification job applies to the
+          # directories it creates: a path a job writes must not already exist
+          # in the candidate tree, or a committed symlink decides where the
+          # write lands.
+          if [ -e release-notes.md ] || [ -L release-notes.md ]; then
+            echo "::error::release-notes.md must not pre-exist in the release checkout."
+            exit 1
+          fi
+          python scripts/release_notes.py --tag "${RELEASE_TAG}" --output release-notes.md
+
       - name: Classify index state
         id: index
         # Runs *before* anything mutates the GitHub Release, so a divergent
@@ -200,14 +222,18 @@ jobs:
               --verify-tag \
               "${create_maturity}" \
               --title "${RELEASE_TAG}" \
-              --notes "Agents Shipgate ${RELEASE_TAG}"
+              --notes-file release-notes.md
             echo "release_state=absent" >> "${GITHUB_OUTPUT}"
             echo "Created draft release ${RELEASE_TAG}."
             exit 0
           fi
 
           if [ "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" = "true" ]; then
+            # Repair replaces the notes too. A draft left by an earlier attempt
+            # can carry a body from a superseded changelog, and finalisation
+            # re-derives every asset but never looks at the release text.
             gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
+            gh release edit "${RELEASE_TAG}" --notes-file release-notes.md
             echo "release_state=draft" >> "${GITHUB_OUTPUT}"
             echo "Repaired existing draft ${RELEASE_TAG}."
             exit 0

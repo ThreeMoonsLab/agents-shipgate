@@ -18,4 +18,10 @@
 #
 # Bumping this pin changes the wheel bytes. A qualified wheel produced before
 # the bump will no longer match, so re-run qualification after any change here.
+#
+# Deliberately hand-maintained: this is one pin chosen for a reproducibility
+# argument, not a resolved closure, so scripts/update_locks.py leaves it alone.
+# The same version is pinned inside constraints/release-seal.txt, which is what
+# the sealing job actually installs; scripts/verify_dependency_lock.py and the
+# release-pipeline suite keep the two in agreement.
 hatchling==1.31.0

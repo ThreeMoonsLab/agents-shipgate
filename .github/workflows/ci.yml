@@ -23,9 +23,28 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: constraints/dev.txt
 
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        # The hash-locked closure, not a fresh resolve of `.[dev]`. Release
+        # verification installs this same file, so "CI was green" is a
+        # statement about the packages the release will actually use.
+        #
+        # The project is installed separately with `--no-deps` because an
+        # editable install cannot be hashed; `pip check` then proves the locked
+        # closure really satisfies its declared dependencies. The build backend
+        # is pinned by the same constraint that makes the released wheel
+        # byte-reproducible.
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          PIP_CONSTRAINT=constraints/release-build.txt python -m pip install -e . --no-deps
+          python -m pip check
+
+      - name: Verify the dependency locks match the declared requirements
+        # Fails fast and by name when pyproject.toml and a lock disagree, rather
+        # than letting a stale lock surface as a confusing ImportError or as a
+        # release that installed something CI never tested.
+        run: python scripts/verify_dependency_lock.py
 
       - name: Lint
         run: python -m ruff check .

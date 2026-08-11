@@ -98,9 +98,25 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: constraints/dev.txt
 
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        # Byte-for-byte the environment CI installs — the same hash-locked
+        # closure, installed the same way. `pip install -e ".[dev]"` resolved
+        # fresh at tag time, so the run that decided whether to publish could
+        # differ from the run that approved the commit, and a release-only
+        # failure could not be reproduced from the same tree.
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          PIP_CONSTRAINT=constraints/release-build.txt python -m pip install -e . --no-deps
+          python -m pip check
+
+      - name: Verify the dependency locks match the declared requirements
+        # A lock that no longer matches pyproject.toml means the release is
+        # testing something other than what it declares. Checked here, before
+        # the suite, so it fails as a named precondition rather than as a
+        # mystery import error inside the release.
+        run: python scripts/verify_dependency_lock.py
 
       - name: Lint
         run: python -m ruff check .
@@ -319,6 +335,20 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+
+      - name: Require a CHANGELOG section for this tag
+        # The release body is the changelog section, so an absent section is a
+        # release nobody described. Required here, in the shared verification
+        # workflow, which means the rehearsal fails on it while the tag does
+        # not yet exist — the only point at which "rename `## Unreleased`" is
+        # still a cheap fix. `stage` extracts the same section from the same
+        # commit; this is what guarantees it will find one.
+        #
+        # Standard library only, so it needs no installed toolchain and runs
+        # before the build, the downloads, and the qualification checks.
+        env:
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+        run: python scripts/release_notes.py --tag "${RELEASE_TAG}"
 
       - name: Install the hash-locked sealing toolchain
         # No editable install and no `dev` extra. An unlocked
@@ -558,6 +588,8 @@ jobs:
             echo "| Control | Result |"
             echo "| --- | --- |"
             echo "| Tag matches pyproject version | pass |"
+            echo "| CHANGELOG section for the tag | pass |"
+            echo "| Dependency locks match declarations | pass |"
             echo "| Qualification signature identity | pass |"
             echo "| Production qualification policy | pass |"
             echo "| Wheel bound to tagged source | $(python -c 'import json,sys; sys.stdout.write(json.load(open("provenance.json"))["provenance_mode"])') |"

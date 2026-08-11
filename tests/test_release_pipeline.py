@@ -10,7 +10,8 @@ verifiable rather than merely automated:
 * verification and publication are separate, and a partial publish is
   recoverable (#343);
 * the correctness suite is deterministic and matches CI's selection (#344);
-* the whole path is rehearsable without any publication authority (#355).
+* the whole path is rehearsable without any publication authority (#355);
+* the release publishes the changelog and installs a reviewed lock (#345).
 """
 
 from __future__ import annotations
@@ -25,8 +26,16 @@ import pytest
 import yaml
 
 from scripts._release_support import ReleaseError
+from scripts.release_notes import MAX_BODY_CHARACTERS, extract_release_notes
 from scripts.release_publication import pypi_state, verify_manifest
 from scripts.release_sbom import dev_only_distributions, verify_release_sbom
+from scripts.update_locks import compile_command, prose_header
+from scripts.verify_dependency_lock import (
+    LOCK_TARGETS,
+    LockTarget,
+    verify_all,
+    verify_lock_target,
+)
 from scripts.verify_wheel_provenance import compare_wheels, verify_wheel_provenance
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1424,3 +1433,369 @@ def test_every_publication_side_job_constrains_what_it_installs() -> None:
     }
     allowed = set(_re.findall(r"[a-z0-9][a-z0-9-]*", install.split("grep -oE")[0]))
     assert locked <= allowed, f"not allowlisted: {sorted(locked - allowed)}"
+
+
+# --------------------------------------------------------------------------
+# #345 — the release page carries the CHANGELOG section, not a placeholder
+# --------------------------------------------------------------------------
+
+
+CHANGELOG_FIXTURE = """\
+# Changelog
+
+## Unreleased
+
+- Something not shipped yet.
+
+## 2.0.0 - 2026-08-11
+
+- **Headline.** Body with `code`, a [link](https://example.com/x), and a
+  continuation line.
+- Nested:
+  - inner item
+  - another inner item
+
+```text
+## 1.0.0 - looks like a heading, but is inside a fence
+```
+
+Closing paragraph.
+
+## 1.0.0 - 2026-01-01
+
+- The first release.
+"""
+
+SECTION_2_0_0 = """\
+- **Headline.** Body with `code`, a [link](https://example.com/x), and a
+  continuation line.
+- Nested:
+  - inner item
+  - another inner item
+
+```text
+## 1.0.0 - looks like a heading, but is inside a fence
+```
+
+Closing paragraph.
+"""
+
+
+def _changelog(tmp_path: Path, text: str = CHANGELOG_FIXTURE) -> Path:
+    path = tmp_path / "CHANGELOG.md"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_the_section_a_tag_names_is_extracted_verbatim(tmp_path: Path) -> None:
+    """Markdown is reproduced, not reflowed: the release page is the changelog
+    entry contributors reviewed, character for character."""
+
+    notes = extract_release_notes(changelog_path=_changelog(tmp_path), tag="v2.0.0")
+
+    assert notes == SECTION_2_0_0
+    # A fenced `## 1.0.0` line is content, not a section boundary — and the real
+    # 1.0.0 section further down is still found.
+    assert "inside a fence" in notes
+    assert (
+        extract_release_notes(changelog_path=_changelog(tmp_path), tag="v1.0.0")
+        == "- The first release.\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "heading",
+    ["## 2.0.0", "## v2.0.0", "## 2.0.0 - 2026-08-11", "## [2.0.0] - 2026-08-11"],
+)
+def test_the_conventional_heading_spellings_all_match(tmp_path: Path, heading: str) -> None:
+    changelog = _changelog(tmp_path, f"# Changelog\n\n{heading}\n\n- Only entry.\n")
+
+    assert extract_release_notes(changelog_path=changelog, tag="v2.0.0") == "- Only entry.\n"
+
+
+def test_a_missing_section_fails_while_the_tag_can_still_be_fixed(tmp_path: Path) -> None:
+    """The check runs in verification, which the rehearsal also runs, so this is
+    reached before a tag exists — and always before publication."""
+
+    changelog = _changelog(tmp_path)
+
+    with pytest.raises(ReleaseError, match="no section for v3.0.0"):
+        extract_release_notes(changelog_path=changelog, tag="v3.0.0")
+    # The message says what to do, and lists what the file does describe.
+    with pytest.raises(ReleaseError, match=r"'## 3.0.0 - <date>'"):
+        extract_release_notes(changelog_path=changelog, tag="v3.0.0")
+
+
+def test_unreleased_is_never_published_as_a_release_section(tmp_path: Path) -> None:
+    """Promoting `## Unreleased` to the version being cut is part of cutting a
+    release; if it were matched by fallback, nothing would enforce that."""
+
+    changelog = _changelog(tmp_path, "# Changelog\n\n## Unreleased\n\n- Pending work.\n")
+
+    with pytest.raises(ReleaseError, match="no section for v2.0.0"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_an_empty_section_is_not_a_description(tmp_path: Path) -> None:
+    changelog = _changelog(tmp_path, "# Changelog\n\n## 2.0.0 - 2026-08-11\n\n## 1.0.0\n\n- x\n")
+
+    with pytest.raises(ReleaseError, match="is empty"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_two_sections_for_one_version_are_not_silently_merged(tmp_path: Path) -> None:
+    changelog = _changelog(
+        tmp_path, "# Changelog\n\n## 2.0.0\n\n- a\n\n## 2.0.0 - 2026-08-11\n\n- b\n"
+    )
+
+    with pytest.raises(ReleaseError, match="ambiguous"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_a_body_github_would_reject_fails_before_the_tag_is_pushed(tmp_path: Path) -> None:
+    """`gh release create` 422s on an oversized body. The 0.16 development
+    section is already ~75,000 characters, so this bound is a live constraint on
+    this changelog, not a hypothetical one."""
+
+    oversized = "- " + "x" * MAX_BODY_CHARACTERS + "\n"
+    changelog = _changelog(tmp_path, f"# Changelog\n\n## 2.0.0 - 2026-08-11\n\n{oversized}")
+
+    with pytest.raises(ReleaseError, match="GitHub rejects a body"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_an_unterminated_fence_is_reported_rather_than_guessed_at(tmp_path: Path) -> None:
+    changelog = _changelog(tmp_path, "# Changelog\n\n## 2.0.0\n\n```\nnever closed\n")
+
+    with pytest.raises(ReleaseError, match="unterminated code fence"):
+        extract_release_notes(changelog_path=changelog, tag="v2.0.0")
+
+
+def test_every_released_section_of_the_real_changelog_is_publishable() -> None:
+    """A format drift in CHANGELOG.md must fail here, in the suite, rather than
+    in the staging job of a release that has already been tagged."""
+
+    import re as _re
+
+    changelog = REPO_ROOT / "CHANGELOG.md"
+    versions = _re.findall(r"^## (\d[^\s]*)", changelog.read_text(encoding="utf-8"), _re.MULTILINE)
+
+    assert len(versions) > 5, "the fixture-free guard needs real sections to check"
+    for version in versions:
+        notes = extract_release_notes(changelog_path=changelog, tag=f"v{version}")
+        assert notes.strip(), version
+        # Section boundaries: a released section never swallows the next one.
+        assert not notes.startswith("## "), version
+        assert "\n## " not in notes, version
+
+
+def test_verification_requires_the_section_so_the_rehearsal_catches_it() -> None:
+    """Requiring it only in `stage` would mean discovering an undescribed
+    release after the tag exists. The check lives in the shared verification
+    workflow, unconditionally, so a rehearsal fails on it first."""
+
+    artifact = _load_workflow("release-verify.yml")["jobs"]["artifact"]
+    step = artifact["steps"][_step_index(artifact, "scripts/release_notes.py")]
+
+    # Not rehearsal-only and not release-only: both modes run it.
+    assert "if" not in step
+    assert _step_index(artifact, "scripts/release_notes.py") < _step_index(
+        artifact, "python -m build --wheel"
+    )
+
+
+def test_the_release_body_is_the_changelog_section_not_a_placeholder() -> None:
+    release = _load_workflow("release.yml")
+    stage = release["jobs"]["stage"]
+    commands = _job_commands(stage)
+
+    assert "--notes-file release-notes.md" in commands
+    assert "--notes " not in commands, "a placeholder body would say nothing about the release"
+    # Extracted before anything is created, from the checkout pinned to the
+    # verified commit rather than from the tag.
+    assert _step_index(stage, "scripts/release_notes.py") < _step_index(stage, "gh release create")
+    assert stage["steps"][0]["with"]["ref"] == "${{ needs.verify.outputs.source_sha }}"
+    # Same rule the other job-written paths follow: a committed symlink must
+    # not get to decide where this job writes.
+    notes_step = stage["steps"][_step_index(stage, "scripts/release_notes.py")]["run"]
+    assert "release-notes.md must not pre-exist" in notes_step
+
+
+def test_a_repaired_draft_gets_the_notes_and_a_published_release_is_untouched() -> None:
+    """Draft repair rewrites assets; leaving a superseded body beside them would
+    publish notes no one re-derived. Finalisation never reads release text, so
+    this is the last point at which it can be corrected."""
+
+    commands = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
+    draft_branch = commands.split("Repaired existing draft", 1)[0].split("Created draft", 1)[-1]
+    published_branch = commands.split("Published already", 1)[-1]
+
+    assert "gh release edit" in draft_branch
+    assert "--notes-file release-notes.md" in draft_branch
+    assert "gh release edit" not in published_branch
+
+
+# --------------------------------------------------------------------------
+# #345 — the release installs the closure CI approved
+# --------------------------------------------------------------------------
+
+
+def _install_command(workflow: str, job: str) -> str:
+    return _test_step_command(_load_workflow(workflow)["jobs"][job], "Install")
+
+
+def test_ci_and_release_install_byte_for_byte_the_same_environment() -> None:
+    """`pip install -e ".[dev]"` resolved fresh in both places, so the release
+    could test a different set of packages than the run that approved the
+    commit — and a release-only failure was not reproducible from the tree."""
+
+    release_install = _install_command("release-verify.yml", "tests")
+
+    assert release_install == _install_command("ci.yml", "test")
+    assert "--require-hashes --requirement constraints/dev.txt" in release_install
+    assert '".[dev]"' not in release_install
+
+
+def test_the_project_install_cannot_smuggle_in_an_unlocked_resolve() -> None:
+    """An editable install cannot be hashed, so it is installed with
+    `--no-deps` against the locked closure; `pip check` is what proves the
+    closure actually satisfies the project's declared dependencies, and the
+    backend is pinned by the same file that makes the wheel reproducible."""
+
+    install = _install_command("ci.yml", "test")
+
+    assert "pip install -e . --no-deps" in install
+    assert "PIP_CONSTRAINT=constraints/release-build.txt" in install
+    assert "python -m pip check" in install
+
+
+def test_the_lock_gate_runs_in_both_pipelines_before_the_suite() -> None:
+    for workflow, job in (("ci.yml", "test"), ("release-verify.yml", "tests")):
+        parsed = _load_workflow(workflow)["jobs"][job]
+        assert _step_index(parsed, "scripts/verify_dependency_lock.py") < _step_index(
+            parsed, "--cov-fail-under=85"
+        ), workflow
+
+
+def test_the_committed_locks_still_describe_the_declared_requirements() -> None:
+    """The gate, run against this repository: a lock that stopped matching
+    pyproject.toml fails here rather than at install time in a release."""
+
+    verify_all()
+
+
+def test_the_dev_lock_pins_and_hashes_the_whole_closure() -> None:
+    lockfile = (REPO_ROOT / "constraints/dev.txt").read_text(encoding="utf-8")
+
+    for pinned in ("pytest==", "ruff==", "pydantic==", "twine=="):
+        assert pinned in lockfile
+    assert lockfile.count("--hash=sha256:") > 100
+    # No ranged requirement outside the header prose.
+    assert ">=" not in lockfile.replace("# ", "")
+
+
+def _lock_pair(tmp_path: Path, *, declared: str, pins: str) -> tuple[Path, LockTarget]:
+    (tmp_path / "constraints").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "constraints/toolchain.in").write_text(declared, encoding="utf-8")
+    (tmp_path / "constraints/toolchain.txt").write_text(pins, encoding="utf-8")
+    target = LockTarget(lock="constraints/toolchain.txt", source="constraints/toolchain.in")
+    return tmp_path, target
+
+
+HONEST_PINS = """\
+# Toolchain lock.
+ruff==0.16.2 \\
+    --hash=sha256:aaaa
+    # via -r constraints/toolchain.in
+pytest==9.1.1 \\
+    --hash=sha256:bbbb
+    # via
+    #   -r constraints/toolchain.in
+    #   pytest-cov
+"""
+
+
+@pytest.mark.parametrize(
+    ("declared", "pins", "expected"),
+    [
+        ("ruff>=0.16.1,<1\npytest>=9,<10\n", HONEST_PINS, None),
+        # Stale: a requirement was added and nobody recompiled.
+        (
+            "ruff>=0.16.1,<1\npytest>=9,<10\nhypothesis>=6,<7\n",
+            HONEST_PINS,
+            "pins no hypothesis",
+        ),
+        # Inconsistent: the declared range moved past the pin.
+        ("ruff>=0.17\npytest>=9,<10\n", HONEST_PINS, "does not satisfy"),
+        # Removed: the lock still installs a direct requirement nobody declares.
+        ("ruff>=0.16.1,<1\n", HONEST_PINS, "no longer declares it"),
+        # Unhashed: `pip install --require-hashes` would refuse the file.
+        (
+            "ruff>=0.16.1,<1\n",
+            "ruff==0.16.2\n    # via -r constraints/toolchain.in\n",
+            "without a hash",
+        ),
+    ],
+)
+def test_the_gate_names_each_way_a_lock_goes_wrong(
+    tmp_path: Path, declared: str, pins: str, expected: str | None
+) -> None:
+    root, target = _lock_pair(tmp_path, declared=declared, pins=pins)
+
+    problems = verify_lock_target(target, root=root)
+
+    if expected is None:
+        assert problems == []
+    else:
+        assert any(expected in problem for problem in problems), problems
+
+
+def test_a_transitive_pin_is_not_mistaken_for_an_undeclared_requirement(tmp_path: Path) -> None:
+    """`uv` records who asked for each pin. Only a pin the source file itself
+    requested is evidence of a stale declaration; everything else is closure."""
+
+    root, target = _lock_pair(
+        tmp_path,
+        declared="ruff>=0.16.1,<1\n",
+        pins=(
+            "ruff==0.16.2 \\\n    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n"
+            "pluggy==1.6.0 \\\n    --hash=sha256:bbbb\n    # via ruff\n"
+        ),
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_a_lock_that_resolves_at_install_time_is_not_a_lock(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path, declared="ruff>=0.16.1,<1\n", pins="ruff>=0.16.1\n    --hash=sha256:aaaa\n"
+    )
+
+    with pytest.raises(ReleaseError, match="not an exact pin"):
+        verify_lock_target(target, root=root)
+
+
+def test_every_compiled_lock_is_gated_and_regenerated_by_one_command() -> None:
+    """A lock the generator writes but the gate ignores — or the reverse — is
+    how a file quietly stops matching its declarations."""
+
+    compiled = {
+        f"constraints/{path.name}"
+        for path in (REPO_ROOT / "constraints").glob("*.txt")
+        # The build-backend pin is one hand-chosen version supporting a
+        # reproducibility argument, not a resolved closure.
+        if path.name != "release-build.txt"
+    }
+
+    assert compiled == {target.lock for target in LOCK_TARGETS}
+    for target in LOCK_TARGETS:
+        header = prose_header(REPO_ROOT / target.lock)
+        assert "scripts/update_locks.py" in header, target.lock
+        command = compile_command(target)
+        assert "--generate-hashes" in command
+        assert "--universal" in command
+        # The header is preserved across regeneration, so uv's own banner must
+        # not be re-emitted on top of it.
+        assert "--no-header" in command
+    dev = next(target for target in LOCK_TARGETS if target.lock == "constraints/dev.txt")
+    assert compile_command(dev)[-3:] == ["--extra", "dev", "pyproject.toml"]
