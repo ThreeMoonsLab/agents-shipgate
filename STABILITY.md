@@ -17,10 +17,29 @@ for reproducible CI.
 
 ## Migration Note: unreleased — one control vocabulary across the setup commands
 
-Runtime contract `23 → 24`. `minimum_control_contract_version` **stays at 21**.
-Nothing an existing consumer reads changed value or shape: the additions are a
-new field on three payloads, a new action variant only the new producers emit,
-and a decision that was previously reported as absent.
+Runtime contract `23 → 24`, and `minimum_control_contract_version` **moves to
+24** with it. The first reading of this change was that no *producer* emits the
+new `edit` route outside setup output, so a contract-21 consumer could never
+observe it. That is a claim about which code paths run, not about what the
+contract permits: `CodingAgentAction` is the union every control producer
+embeds, so a verifier, handoff, preflight, boundary, or verify-run payload
+carrying an `edit` route validates here and is rejected by a contract-21
+consumer's copy of the same schemas. A consumer switching exhaustively on
+`next_action.kind` has to be told, and the floor is how it is told.
+
+**Two routing behaviours change**, and neither is additive:
+
+- `init --write` no longer names a runnable `scan` in `next_action` when the
+  manifest it wrote still holds an unresolved human-owned declaration. Both
+  `next_action` and `next_actions[0]` now carry the same human review route the
+  control envelope does. This is the point of the change: the previous pairing
+  published an executable command that would carry an unfilled
+  `agent.declared_purpose` into a release decision, beside a control state that
+  authorized nothing (#325).
+- `agents-shipgate agent control` after a `scan` reports that scan's release
+  decision only while the manifest it read still hashes to what the pointer
+  recorded. Where it does not, `decision` is `null` and `reason` says which of
+  the two reasons applies. See below.
 
 **`detect --json`, `init --json`, and every `doctor --json` payload gain a
 `control` field.** It holds the same `shipgate.agent_control/v1` envelope that
@@ -58,20 +77,45 @@ name — stay coding-agent work.
 
 **`next_action` gains `kind: "edit"`.** A typed coding-agent step carrying
 `path` and `expects` and no `command`, for work that is unambiguously the
-agent's and has no executable form. Only setup output can contain it: `verify`,
-`check`, and `agent control` cannot return one, which is why the control floor
-does not move. The frozen `shipgate.codex_boundary_result/v2` schema is
-unchanged — it now snapshots its own action union instead of tracking the live
-one, and an `edit` route reaching it collapses to the universal human stop.
+agent's and has no executable form. It widens the shared coding-agent action
+union, which is why the control floor moves. The frozen
+`shipgate.codex_boundary_result/v2` schema is unchanged — it now snapshots its
+own action union instead of tracking the live one, and an `edit` route reaching
+it collapses to the universal human stop.
 
-**`agent control` on a `scan` generation now reports that generation's release
-decision.** `scan` runs the release engine and binds its `report.json`, but the
-envelope previously published `decision: null` / `decision_source: "none"`,
-which made it indistinguishable from output produced before any engine had run.
-The verdict is now lifted from the bound report inside the same generation-safe
-read that validates the pointer. Authority is unchanged: the control state and
-`permissions` still come from the pointer, and `scan` still cannot authorize a
-merge.
+**Human-owned declarations cover every `do_not_auto_assert` surface with a
+manifest spelling.** Unresolved placeholders under `agent_bindings`,
+`tool_identity`, `action_surface`, `permissions`, `policies`, `checks`,
+`baseline`, `human_ack`, `risk_overrides`, and `organization`, and the leaf
+fields `declared_purpose`, `prohibited_actions`, `owner`, `reason`, `expires`,
+`approval`, `approval_required`, `authority`, `effect`, `safeguards`,
+`confirmation`, and `idempotency`, all route to a human. Anything else — a
+tool-source path, a project name — stays coding-agent work.
+
+**`agent control` on a `scan` generation reports that generation's release
+decision, and only while it is current.** `scan` runs the release engine and
+binds its `report.json`, but the envelope previously published `decision: null`
+/ `decision_source: "none"`, which made it indistinguishable from output
+produced before any engine had run. The verdict is lifted from the bound report
+inside the same generation-safe read that validates the pointer.
+
+Byte integrity is not currency, and a `scan` pointer binds no HEAD or worktree
+identity, so the generic comparison had nothing to compare: a clean scan
+reported `passed`, the manifest was edited, and the same pointer still read
+cleanly with the same verdict. `scan` therefore now records
+`workspace_identity.policy_snapshot_path` — the manifest it read, relative to the
+repository root — beside the digest it already recorded, and the verdict is
+lifted only when that file still hashes to it. When it cannot be reconfirmed, or
+when a format-limited scan (`--format markdown`, `--format sarif`) bound no
+machine-readable report, `decision` is `null` and `reason` states which of the
+two applies, so a withheld verdict is never mistaken for an absent one.
+Authority is unchanged throughout: the control state and `permissions` still
+come from the pointer, and `scan` still cannot authorize a merge.
+
+`policy_snapshot_path` is an additive, nullable field on
+`shipgate.current_control/v1`; a pointer written by an older release simply
+cannot have its snapshot reconfirmed, which withholds the verdict rather than
+fabricating one.
 
 ---
 

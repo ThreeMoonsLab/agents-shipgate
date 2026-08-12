@@ -222,7 +222,11 @@ class RequiredHumanReview(BaseModel):
         return self
 
 
-_PERMISSION_FIELDS = (
+# The six action-scoped authorities, in publication order. Public because the
+# envelope schema has to name every one of them to pin a vector to all-false in
+# generated JSON Schema, and a second hand-written list there would be one more
+# thing to keep in step.
+PERMISSION_FIELDS = (
     "edit",
     "commit",
     "push",
@@ -243,7 +247,7 @@ class _AgentPermissionsBase(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"required": list(_PERMISSION_FIELDS)},
+        json_schema_extra={"required": list(PERMISSION_FIELDS)},
     )
 
     edit: bool
@@ -848,6 +852,7 @@ __all__ = [
     "HumanReviewAction",
     "HumanReviewRequiredControl",
     "NoAgentPermissions",
+    "PERMISSION_FIELDS",
     "NoHumanReview",
     "PublishOnlyPermissions",
     "RequiredHumanReview",

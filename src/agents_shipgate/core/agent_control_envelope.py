@@ -320,6 +320,7 @@ def envelope_from_routeless_pointer(
     *,
     verify_command: str,
     decision: str | None = None,
+    decision_withheld: str | None = None,
     artifact_root: str | None = None,
 ) -> AgentControlEnvelope:
     """Project a *current* generation that reaches no verifier route.
@@ -338,6 +339,12 @@ def envelope_from_routeless_pointer(
     and it is still not the route: `permissions` and the state come from the
     pointer exactly as before.
 
+    ``decision_withheld`` is the sentence explaining an *absent* verdict, appended
+    to ``reason``. Two very different situations produce ``decision: null`` here —
+    this generation reached no recoverable decision, or it reached one that can no
+    longer be shown to describe the workspace — and without saying which, both are
+    once again indistinguishable from output produced before any engine ran.
+
     The route is not invented. `scan` is not the gate, so "run verify on this
     workspace" is the step this generation is actually short of, and it is
     derived from the caller's own workspace and reports directory rather than a
@@ -350,6 +357,8 @@ def envelope_from_routeless_pointer(
 
     projected = pointer.control
     reason = projected.reason
+    if decision is None and decision_withheld:
+        reason = f"{reason} {decision_withheld}"
     if projected.state == "human_review_required":
         control: AgentControl = _human_stop(reason)
     else:

@@ -324,9 +324,12 @@ supply them.
 step with `path` and `expects` and no command. It appears only on setup output;
 `verify`, `check`, and `agent control` never return it.
 
-The command-specific `next_action` / `next_actions[]` fields are unchanged and
-remain supported. Agent-mode *error* lines still carry those fields rather than
-a `control` object.
+`next_action` and `next_actions[0]` are **derived from the same selected route**
+as `control.next_action`, so the compact envelope and the ranked list can never
+send you to different work. Where the route is human-owned, that list holds
+exactly one action and no command: an alternative would be a way around the
+obligation. Agent-mode *error* lines still carry `next_action`/`next_actions`
+rather than a `control` object.
 
 Every emitted command names the entry point that started the running process, so it is runnable where it was produced: a console-script run emits `agents-shipgate …`, and a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate …`. Set `AGENTS_SHIPGATE_CLI` to name the entry point explicitly; it wins over detection. **On `next_actions[]`, run `[*executable, *args]` (contract v23+) rather than parsing `command`** — it needs no shell and is computed from `command`, so it cannot disagree with it; it is omitted, never `null`, when the command has no faithful argv form. The operational control contracts (`control.next_action`, `allowed_next_commands`, verifier repairs) carry the string only: recover argv there with `shlex.split(command)`, which is exact on every platform because every emitted command is POSIX-rendered. Never use `shell=True`, and do not paste `command` into `cmd.exe` or PowerShell. Durable artifacts (`report.json`, `packet.*`) stay canonical so that same inputs still produce the same report. See [docs/diagnostics.md](docs/diagnostics.md#invocation-policy).
 

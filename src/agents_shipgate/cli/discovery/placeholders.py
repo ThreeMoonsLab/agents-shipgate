@@ -20,23 +20,66 @@ from collections.abc import Mapping, Sequence
 # same reason: they are the record of a person having decided something, so a
 # value an agent supplied is not merely a guess, it is a forged approval.
 #
-# Matched against *every* segment of the reported path, not just its leaf.
-# ``collect_placeholders`` names a list item by its own text, so the manifest's
-# ``agent.declared_purpose: [CHANGE_ME]`` is reported as
-# ``agent.declared_purpose.CHANGE_ME`` — and a leaf-only rule read that as the
-# agent's own to fill in, which is exactly the routing #325 exists to stop.
-# Whole blocks belong here too: what an agent is permitted to do, and the policy
-# governing it, are not the governed agent's call.
-HUMAN_OWNED_PLACEHOLDER_FIELDS = frozenset(
+# Manifest blocks that are *entirely* human-owned, and the contract entry each
+# one carries. The contract already publishes this boundary in
+# ``do_not_auto_assert``; the mapping from those names to manifest surfaces is
+# spelled out here because it is not mechanical, and pinned by
+# ``tests/test_setup_control.py`` so a new ``do_not_auto_assert`` entry with a
+# manifest surface cannot be added without landing here too.
+#
+# These are reviewed closed-world claims about deployed wiring, or records of a
+# person having decided something. A value a coding agent supplied is not a
+# guess to be corrected later — it is a declaration nobody made, and Shipgate
+# will treat it as evidence.
+HUMAN_OWNED_MANIFEST_BLOCKS: dict[str, str] = {
+    # Which agent is wired to which tools, and which agent is the root.
+    "agent_bindings": "agent_binding",
+    # Which extracted tools are one tool. Same closed-world claim, stated from
+    # the tool side.
+    "tool_identity": "agent_binding",
+    # What each action does and on whose authority, plus the approval and
+    # confirmation safeguards around it.
+    "action_surface": "action_effect",
+    # What the agent is permitted to do, and the policy governing it.
+    "permissions": "action_authority",
+    "policies": "action_authority",
+    # Accepted debt and its owner: suppressions, waivers, acknowledgements.
+    "checks": "suppression",
+    "baseline": "baseline",
+    "human_ack": "human-ack",
+    # Reclassifying a risk downward is a policy-weakening decision.
+    "risk_overrides": "policy-weakening",
+    # Organization governance is not the governed agent's to set.
+    "organization": "action_authority",
+}
+
+# Leaf field names that are human-owned wherever they appear, including inside
+# blocks that are otherwise ordinary. ``owner``/``reason``/``expires`` are the
+# accepted-debt record that ``baseline save`` already refuses to invent.
+HUMAN_OWNED_PLACEHOLDER_LEAVES = frozenset(
     {
         "declared_purpose",
         "prohibited_actions",
         "owner",
-        "approval_required",
         "reason",
-        "policies",
-        "permissions",
+        "expires",
+        "approval",
+        "approval_required",
+        "authority",
+        "effect",
+        "safeguards",
+        "confirmation",
+        "idempotency",
     }
+)
+
+# The union, matched against *every* segment of the reported path rather than
+# just its leaf. ``collect_placeholders`` names a list item by its own text, so
+# the manifest's ``agent.declared_purpose: [CHANGE_ME]`` is reported as
+# ``agent.declared_purpose.CHANGE_ME`` — and a leaf-only rule read that as the
+# agent's own to fill in, which is exactly the routing #325 exists to stop.
+HUMAN_OWNED_PLACEHOLDER_FIELDS = frozenset(
+    HUMAN_OWNED_PLACEHOLDER_LEAVES | set(HUMAN_OWNED_MANIFEST_BLOCKS)
 )
 
 

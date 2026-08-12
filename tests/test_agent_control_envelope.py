@@ -1509,3 +1509,84 @@ def test_all_human_text_escapes_repository_derived_values(repo: Path, capsys):
     assert sum(1 for line in lines if line.startswith("Control: ")) == 1, lines
     assert sum(1 for line in lines if line.startswith("You may: ")) == 1, lines
     assert any("\\x0a" in line for line in lines), "hostile value was not escaped"
+
+
+def test_a_scan_verdict_is_withheld_once_its_manifest_moves(repo: Path):
+    """Byte integrity is not currency (PR #372 review).
+
+    A `scan` pointer binds no HEAD or worktree identity, so the generic currency
+    comparison had nothing to compare and passed vacuously. Reporting the bound
+    report's verdict on top of that turned a silent gap into an affirmative
+    *stale* release decision: a clean scan said `passed`, the manifest was
+    edited, and the same pointer still read cleanly with the same verdict.
+
+    The verdict now rests on the one identity a scan does record — the manifest
+    it read — and is withheld when that can no longer be reconfirmed. The read
+    still succeeds: what is current is a generation, and what is withheld is a
+    claim about it.
+    """
+
+    reports = repo / "agents-shipgate-reports"
+    assert runner.invoke(
+        app,
+        [
+            "scan", "--workspace", str(repo),
+            "--config", str(repo / "shipgate.yaml"),
+            "--out", str(reports),
+        ],
+    ).exit_code == 0
+
+    def read() -> dict:
+        result = runner.invoke(
+            app, ["agent", "control", "--workspace", str(repo), "--reports-dir", str(reports)]
+        )
+        assert result.exit_code == 0, result.output
+        return json.loads(result.stdout)
+
+    fresh = read()
+    assert fresh["decision"] == "passed"
+    assert fresh["decision_source"] == "release_decision"
+
+    manifest = repo / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + "\n# edited after the scan\n", encoding="utf-8"
+    )
+
+    stale = read()
+    assert stale["decision"] is None
+    assert stale["decision_source"] == "none"
+    # And it is distinguishable from output produced before any engine ran: a
+    # bare `decision: null` reads identically either way.
+    assert "cannot be reconfirmed" in stale["reason"]
+    # Authority never depended on the verdict and is unchanged.
+    assert stale["permissions"]["merge"] is False
+    assert stale["current_control_id"] == fresh["current_control_id"]
+
+
+def test_a_format_limited_scan_says_why_it_has_no_verdict(repo: Path):
+    """`--format markdown` binds no machine-readable report.
+
+    The scan still reached a release decision; this generation simply cannot
+    show it. Publishing a bare `decision: null` for that was the same ambiguity
+    in a second costume.
+    """
+
+    reports = repo / "agents-shipgate-reports"
+    assert runner.invoke(
+        app,
+        [
+            "scan", "--workspace", str(repo),
+            "--config", str(repo / "shipgate.yaml"),
+            "--out", str(reports), "--format", "markdown",
+        ],
+    ).exit_code == 0
+
+    result = runner.invoke(
+        app, ["agent", "control", "--workspace", str(repo), "--reports-dir", str(reports)]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["decision"] is None
+    assert "no machine-readable report" in payload["reason"]
+    assert "report" not in payload["artifacts"]

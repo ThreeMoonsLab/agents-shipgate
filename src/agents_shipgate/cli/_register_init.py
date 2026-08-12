@@ -174,6 +174,40 @@ def _claude_code_outcome_lines(outcome: dict[str, object]) -> list[str]:
     return lines
 
 
+def _manifest_placeholders(
+    target: Path,
+    *,
+    template: str,
+    placeholders: list[dict[str, object]],
+    write: bool,
+) -> tuple[list[dict[str, object]], bytes | None]:
+    """The placeholders of the manifest a caller would actually be routed to.
+
+    Returns them together with the exact bytes they were read from, so the
+    identity of this answer and the answer itself come from one snapshot rather
+    than two reads that an edit could land between.
+
+    When a manifest exists on disk it is the authority, whether this run wrote it
+    or found it.
+
+    A dry run carries no routing obligation at all: nothing was written, so there
+    is no manifest for a person to review and the honest next step is to write
+    one. The template's own placeholders stay in the payload's ``placeholders``
+    field, where they always were — they describe what the caller will owe *after*
+    writing, not what anyone owes now.
+    """
+
+    if write or target.exists():
+        try:
+            data = target.read_bytes()
+        except OSError:
+            # Unreadable is not "clean". Fall back to the template's obligations
+            # rather than reporting an unverified all-clear.
+            return placeholders, None
+        return collect_placeholders(data.decode("utf-8", errors="replace")), data
+    return [], None
+
+
 def _init_reason(manifest_status: str, *, target: Path, write: bool) -> str:
     if manifest_status == "written":
         return f"Wrote {target}."
@@ -417,7 +451,6 @@ def register(app: typer.Typer) -> None:
                 ),
                 expects="A readiness report under agents-shipgate-reports/.",
             )
-            next_action_dry = "Inspect the template, then re-run with --write to commit it."
         else:
             try:
                 detect_result = detect_workspace(workspace_resolved)
@@ -512,7 +545,6 @@ def register(app: typer.Typer) -> None:
                 ),
                 expects="A readiness report under agents-shipgate-reports/.",
             )
-            next_action_dry = "Inspect the template, then re-run with --write to commit it."
 
         kit_config = None
         if agent_instructions_kit is not None or requested_targets is not None:
@@ -650,6 +682,55 @@ def register(app: typer.Typer) -> None:
                 ],
             )
 
+        # Routing. Computed from the manifest that is *on disk*, not from the
+        # template: on `skipped_existing` the template was never written, so its
+        # placeholders describe a file that does not exist while the real
+        # manifest — which may still hold an unresolved human-owned declaration
+        # — goes uninspected. Dropping them there turned
+        # `init --write --agent-instructions=...` into a route around the human
+        # ownership boundary: the same unedited manifest reported
+        # `setup_complete -> verify`.
+        control_placeholders, control_manifest_bytes = _manifest_placeholders(
+            target, template=template, placeholders=placeholders, write=write
+        )
+        advance, advance_kind, advance_decision = _init_advance(
+            workspace=workspace,
+            target=target,
+            write=write,
+            manifest_status=manifest_status,
+            manifest_exit=manifest_exit,
+            next_action_create=next_action_create,
+            skipped_target=next(
+                (t for t in agent_instructions_targets if t.status.startswith("skipped")),
+                None,
+            )
+            if agent_instructions_exit
+            else None,
+        )
+        routing = setup_control_envelope(
+            operation="init",
+            input_id=setup_input_id(
+                operation="init",
+                workspace=workspace_resolved,
+                manifest_path=target if control_manifest_bytes is not None else None,
+                manifest_bytes=control_manifest_bytes,
+                routing_facts=(
+                    manifest_status,
+                    manifest_exit,
+                    agent_instructions_exit,
+                    control_placeholders,
+                    advance_decision,
+                ),
+            ),
+            reason=_init_reason(manifest_status, target=target, write=write),
+            advance=advance,
+            advance_kind=advance_kind,
+            advance_decision=advance_decision,
+            placeholders=control_placeholders,
+            manifest_display_path=str(target),
+            exit_code=max(manifest_exit, agent_instructions_exit) or None,
+        )
+
         # Output
         if json_output:
             payload: dict[str, object] = {
@@ -662,13 +743,6 @@ def register(app: typer.Typer) -> None:
                 payload["manifest_message"] = manifest_message
             if not write:
                 payload["template"] = template
-                payload["next_action"] = next_action_dry
-            else:
-                # Projected from the action rather than written twice, so the
-                # recovery command is spelled for this invocation and carries
-                # its structured argv (#322).
-                payload["next_action"] = next_action_create.to_legacy_string()
-                payload["next_actions"] = [next_action_create.model_dump(mode="json")]
             if auto_detected:
                 payload["auto_detected"] = auto_detected
             if workflow_outcome is not None:
@@ -681,40 +755,9 @@ def register(app: typer.Typer) -> None:
                 payload["gitignore"] = gitignore_outcome.to_json()
             if claude_code_outcome is not None:
                 payload["claude_code"] = claude_code_outcome
-            advance, advance_kind, advance_decision = _init_advance(
-                workspace=workspace,
-                target=target,
-                write=write,
-                manifest_status=manifest_status,
-                manifest_exit=manifest_exit,
-                next_action_create=next_action_create,
-                skipped_target=next(
-                    (t for t in agent_instructions_targets if t.status.startswith("skipped")),
-                    None,
-                )
-                if agent_instructions_exit
-                else None,
-            )
-            payload["control"] = setup_control_envelope(
-                operation="init",
-                input_id=setup_input_id(
-                    operation="init",
-                    workspace=workspace_resolved,
-                    manifest_path=target if target.exists() else None,
-                ),
-                reason=_init_reason(manifest_status, target=target, write=write),
-                advance=advance,
-                advance_kind=advance_kind,
-                advance_decision=advance_decision,
-                # Only the manifest this run actually wrote. On
-                # ``skipped_existing`` these placeholders come from the template
-                # that was *not* written, so their line numbers name positions in
-                # a file that does not exist — routing a human to them would be
-                # routing them to nothing.
-                placeholders=placeholders if manifest_status == "written" else None,
-                manifest_display_path=str(target),
-                exit_code=max(manifest_exit, agent_instructions_exit) or None,
-            ).model_dump(mode="json")
+            payload["next_action"] = routing.legacy_next_action
+            payload["next_actions"] = routing.json_actions()
+            payload["control"] = routing.envelope.model_dump(mode="json")
             typer.echo(json.dumps(payload, indent=2))
         else:
             if not write:

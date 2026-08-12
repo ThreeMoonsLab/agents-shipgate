@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -14,14 +15,16 @@ from agents_shipgate.core.agent_control_envelope import (
     envelope_from_routeless_pointer,
     render_agent_control_envelope,
 )
-from agents_shipgate.core.agent_controls import verify_command_for
+from agents_shipgate.core.agent_controls import git_root_for, verify_command_for
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.current_control import (
+    MAX_BOUND_ARTIFACT_BYTES,
     CurrentControlRead,
     CurrentControlUnavailable,
     read_current_control,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.verification_identity import read_regular_file_beneath
 from agents_shipgate.schemas.contract import COMMANDS, DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
@@ -251,10 +254,12 @@ def control(
         # authorize a merge"; only the first justifies a non-zero exit. Scoped
         # to `scan`: a verify or preview pointer that binds no verifier lost an
         # artifact it must have written, which is an inconsistent generation.
+        decision, withheld = _bound_release_decision(result, workspace)
         envelope = envelope_from_routeless_pointer(
             result.pointer,
             verify_command=_recovery_verify_command(workspace, reports_dir),
-            decision=_bound_release_decision(result),
+            decision=decision,
+            decision_withheld=withheld,
             artifact_root=reports_dir.as_posix(),
         )
     elif result.pointer.lifecycle_state == "terminal":
@@ -379,8 +384,16 @@ def _bound_verifier(result: CurrentControlRead) -> VerifierArtifact | None:
     return verifier
 
 
-def _bound_release_decision(result: CurrentControlRead) -> str | None:
+def _bound_release_decision(
+    result: CurrentControlRead, workspace: Path
+) -> tuple[str | None, str | None]:
     """Lift ``release_decision.decision`` from the report this pointer bound.
+
+    Returns the verdict, or ``None`` together with a sentence saying *why* there
+    is none. A bare ``decision: null`` is the one shape this rollout set out to
+    remove: it reads exactly like output produced before any engine ran, so a
+    reader cannot tell "no decision exists" from "a decision exists and is not
+    being shown to you". The note is carried into the envelope's ``reason``.
 
     Same sourcing rule as :func:`_bound_verifier`: the bytes come from the
     generation-safe read, hashed against the pointer in the pass that confirmed
@@ -389,26 +402,85 @@ def _bound_release_decision(result: CurrentControlRead) -> str | None:
     design — a second copy of the verdict is a second verdict — so this is the
     only place a `scan` generation's verdict survives.
 
-    Unlike the verifier, an unreadable report degrades to ``None`` rather than
-    refusing the whole read. The verifier carries the *route*, so a malformed one
-    leaves nothing to answer with; the decision is context beside a route that
-    comes from the pointer either way, and withholding it denies nothing.
+    **Byte integrity is not currency.** The artifact hashes prove the report is
+    the one this pointer published; they say nothing about whether it still
+    describes the repository. A `scan` pointer binds no HEAD or worktree
+    identity, so the generic currency comparison has nothing to compare and
+    passes vacuously: a clean scan reported `passed`, the manifest was then
+    edited, and the same pointer still read cleanly with the same verdict. That
+    was survivable while the envelope published `decision: null`; publishing an
+    affirmative *stale* release verdict is not.
+
+    So the verdict is lifted only when the one identity a scan does record — the
+    manifest it read — can be reconfirmed byte for byte against the live file.
+    When it cannot be (an older pointer that names no manifest, a manifest that
+    has moved or is unreadable), the decision is withheld and the envelope falls
+    back to `decision_source: "none"`. Withholding a verdict costs a reader
+    context; publishing a stale one costs them the decision itself.
+
+    Unlike the verifier, an unreadable report also degrades to ``None`` rather
+    than refusing the whole read. The verifier carries the *route*, so a
+    malformed one leaves nothing to answer with; the decision is context beside a
+    route that comes from the pointer either way, and withholding it denies
+    nothing.
     """
 
+    if not _policy_snapshot_is_current(result, workspace):
+        return None, (
+            "The manifest this generation read cannot be reconfirmed against the "
+            "workspace as it stands now, so its release decision is withheld "
+            "rather than reported stale."
+        )
     data = result.artifacts.get(REPORT_ARTIFACT_KEY)
     if data is None:
-        return None
+        return None, (
+            "This generation bound no machine-readable report, so the release "
+            "decision it reached is not recoverable here. Re-run the scan with a "
+            "`json` output format, or run verify."
+        )
+    unreadable = "This generation's bound report could not be read as a release decision."
     try:
         payload = json.loads(data)
     except ValueError:
-        return None
+        return None, unreadable
     if not isinstance(payload, dict):
-        return None
+        return None, unreadable
     release_decision = payload.get("release_decision")
     if not isinstance(release_decision, dict):
-        return None
+        return None, unreadable
     decision = release_decision.get("decision")
-    return decision if isinstance(decision, str) and decision.strip() else None
+    if isinstance(decision, str) and decision.strip():
+        return decision, None
+    return None, unreadable
+
+
+def _policy_snapshot_is_current(result: CurrentControlRead, workspace: Path) -> bool:
+    """Whether the manifest this generation read is still byte-identical.
+
+    Read through :func:`read_regular_file_beneath` rather than ``open`` so the
+    same containment and size rules the bound artifacts get apply here: the
+    relative path comes out of an artifact on disk, and a pointer naming
+    ``../../etc/passwd`` or a symlink out of the tree must fail rather than be
+    honoured. Anchored on the repository root the caller asked about, which is
+    also the root the recorded path was taken against.
+    """
+
+    identity = result.pointer.workspace_identity
+    recorded = identity.policy_snapshot_sha256
+    relative = identity.policy_snapshot_path
+    if not recorded or not relative:
+        return False
+    root = git_root_for(workspace.resolve()) or workspace.resolve()
+    try:
+        data = read_regular_file_beneath(
+            root,
+            relative,
+            max_size=MAX_BOUND_ARTIFACT_BYTES,
+            label="policy snapshot",
+        )
+    except (OSError, ValueError):
+        return False
+    return f"sha256:{hashlib.sha256(data).hexdigest()}" == recorded
 
 
 def _load_required_json(path: Path, label: str) -> dict[str, Any]:

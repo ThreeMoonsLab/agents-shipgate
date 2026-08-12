@@ -76,7 +76,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "10"
     assert payload["agents_shipgate_version"] == __version__
     assert payload["contract_version"] == CONTRACT_VERSION == "24"
-    assert payload["minimum_control_contract_version"] == "21"
+    assert payload["minimum_control_contract_version"] == "24"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
     assert set(payload["primary_commands"]) == {

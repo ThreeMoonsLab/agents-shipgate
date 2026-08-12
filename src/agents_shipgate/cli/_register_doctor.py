@@ -11,10 +11,7 @@ from agents_shipgate.cli._helpers import (
     _resolve_config_paths,
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
-from agents_shipgate.cli.diagnostics import (
-    diagnose_doctor,
-    top_next_actions,
-)
+from agents_shipgate.cli.diagnostics import diagnose_doctor, top_next_actions
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.scan.inspect import inspect_sources
 from agents_shipgate.cli.setup_control import (
@@ -37,7 +34,7 @@ def _doctor_reason(payload: dict[str, object], manifest_path: Path) -> str:
     )
 
 
-def _doctor_advance(manifest_path: Path) -> NextAction:
+def _doctor_advance(manifest_path: Path, *, workspace: Path) -> NextAction:
     """The stage a clean manifest hands off to.
 
     ``doctor`` validates configuration; it never decides a release, so even a
@@ -45,11 +42,29 @@ def _doctor_advance(manifest_path: Path) -> NextAction:
     what keeps the setup envelope from looking like a finish line — and
     ``verify``, not ``scan``, because ``scan`` is the engine rather than the
     command an adopter runs.
+
+    ``--workspace`` is carried explicitly. Without it the command was runnable
+    only from a directory that happened to be the workspace: run from anywhere
+    else, ``verify`` resolved the repository from the *caller's* cwd and exited 2
+    with "Workspace is not inside a git checkout". The invocation policy makes
+    emitted commands runnable where they were produced (#322), and a command
+    that silently depends on the caller's cwd is the same failure by another
+    route. Doctor already knows the workspace — the explicit ``--workspace`` when
+    one was supplied, the manifest's own directory otherwise.
     """
 
     return NextAction(
         kind="command",
-        command=render_command(["verify", "--config", str(manifest_path), "--json"]),
+        command=render_command(
+            [
+                "verify",
+                "--workspace",
+                str(workspace),
+                "--config",
+                str(manifest_path),
+                "--json",
+            ]
+        ),
         why=(
             "The manifest validates and its declared sources resolve. The "
             "outstanding step is the release gate, which doctor does not run."
@@ -137,10 +152,14 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(3) from exc
         enriched_payloads: list[dict[str, object]] = []
         for path, payload in zip(paths, payloads, strict=True):
+            # One read, used for the diagnostics, the placeholders, and the
+            # identity of the answer. Reopening the file for the hash would let
+            # an edit land between the inspection and the identity of it.
             try:
-                manifest_text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                manifest_text = ""
+                manifest_bytes = path.read_bytes()
+            except OSError:
+                manifest_bytes = b""
+            manifest_text = manifest_bytes.decode("utf-8", errors="replace")
             placeholders = collect_placeholders(manifest_text)
             diagnostics = diagnose_doctor(
                 payload,
@@ -148,25 +167,31 @@ def register(app: typer.Typer) -> None:
                 manifest_text=manifest_text,
                 placeholders=placeholders,
             )
-            flattened = top_next_actions(diagnostics)
-            enriched = dict(payload)
-            enriched["diagnostics"] = [d.model_dump(mode="json") for d in diagnostics]
-            enriched["next_actions"] = [a.model_dump(mode="json") for a in flattened]
-            enriched["next_action"] = (
-                flattened[0].to_legacy_string() if flattened else ""
-            )
-            enriched["control"] = setup_control_envelope(
+            manifest_workspace = (workspace or path.parent).resolve()
+            routing = setup_control_envelope(
                 operation="doctor",
                 input_id=setup_input_id(
                     operation="doctor",
-                    workspace=(workspace or path.parent).resolve(),
+                    workspace=manifest_workspace,
                     manifest_path=path,
+                    manifest_bytes=manifest_bytes,
+                    # `doctor` routes on the *inspection* of the declared
+                    # sources, not only on the manifest text: deleting a
+                    # declared source file moved the route from a verify
+                    # handoff to an edit while the manifest bytes were
+                    # unchanged, and the identity did not move with it.
+                    routing_facts=(
+                        payload.get("unresolved_sources"),
+                        payload.get("total_tools"),
+                        payload.get("warnings"),
+                        placeholders,
+                    ),
                 ),
                 reason=_doctor_reason(payload, path),
                 diagnostics=diagnostics,
                 placeholders=placeholders,
                 manifest_display_path=str(path),
-                advance=_doctor_advance(path),
+                advance=_doctor_advance(path, workspace=manifest_workspace),
                 advance_kind="verify",
                 advance_decision=SETUP_COMPLETE,
                 # `doctor` exits 3 for a human on unresolved sources but 0 for a
@@ -174,7 +199,15 @@ def register(app: typer.Typer) -> None:
                 # Publishing the human exit code here would contradict the
                 # process status the caller actually observed.
                 exit_code=0,
-            ).model_dump(mode="json")
+            )
+            enriched = dict(payload)
+            enriched["diagnostics"] = [d.model_dump(mode="json") for d in diagnostics]
+            # Both routing fields come from the one selected route, so a caller
+            # reading the legacy string and a caller reading `control` are never
+            # sent to different work.
+            enriched["next_actions"] = routing.json_actions()
+            enriched["next_action"] = routing.legacy_next_action
+            enriched["control"] = routing.envelope.model_dump(mode="json")
             enriched_payloads.append(enriched)
         payloads = enriched_payloads
         if json_output:

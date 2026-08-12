@@ -35,8 +35,10 @@ exists to prevent (#325).
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from agents_shipgate.cli.diagnostics import ranked_diagnostics
@@ -52,6 +54,7 @@ from agents_shipgate.schemas.agent_control import (
     HumanControlAction,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
+    MAX_ENVELOPE_PROSE_BYTES,
     AgentControlEnvelope,
     AgentControlExecution,
 )
@@ -74,6 +77,29 @@ from agents_shipgate.schemas.diagnostics import (
 )
 
 SetupOperation = Literal["detect", "init", "doctor"]
+
+
+@dataclass(frozen=True)
+class SetupRouting:
+    """One selected route, projected onto both surfaces a setup command publishes.
+
+    ``actions`` is the ranked list for ``next_actions[]``, and ``actions[0]`` is
+    the same route ``envelope.next_action`` carries. They are returned together
+    because a caller that could take one without the other is a caller that can
+    publish two rank-one answers.
+    """
+
+    envelope: AgentControlEnvelope
+    actions: list[NextAction]
+
+    @property
+    def legacy_next_action(self) -> str:
+        """The back-compat single-string field, from the same selected route."""
+
+        return self.actions[0].to_legacy_string()
+
+    def json_actions(self) -> list[dict[str, object]]:
+        return [action.model_dump(mode="json") for action in self.actions]
 
 # Which coding-agent action kind each diagnostic's route is, when that route is
 # an executable command. Kept as one table rather than derived from the command
@@ -116,34 +142,54 @@ def setup_input_id(
     operation: SetupOperation,
     workspace: Path,
     manifest_path: Path | None = None,
+    manifest_bytes: bytes | None = None,
+    routing_facts: object = None,
 ) -> str:
     """Content-address the subject this setup answer was computed against.
 
     ``check`` binds its authority to an ``audit_id`` and ``verify`` to a
     ``request_id`` for the same reason: an answer that cannot name its own
-    subject is one a reader has no way to check, and two unrelated workspaces
-    would otherwise produce byte-identical envelopes.
+    subject is one a reader has no way to check.
 
-    The manifest bytes are folded in when one exists, so editing
-    ``shipgate.yaml`` changes the identity of the answer about it — which is
-    precisely the event after which a cached setup route must not be reused.
+    ``routing_facts`` is the load-bearing argument. Hashing only the operation,
+    the workspace path, and the manifest bytes covered none of what actually
+    selects the route: adding a real agent moved ``detect`` from
+    ``setup_not_applicable`` to ``setup_incomplete`` under an *identical*
+    ``input_id``, and deleting a declared source moved ``doctor`` from a verify
+    handoff to an edit under another. An identity that does not change when the
+    answer changes is worse than no identity, because it invites exactly the
+    cached reuse the field exists to prevent. Callers pass the facts they routed
+    on — the detection result, the inspection payload, the placeholder set.
+
+    ``manifest_bytes`` lets a caller fold in the *same* bytes it inspected. The
+    alternative — reopening the file here — is a second read of something the
+    caller may have already acted on, so an edit landing between the two would
+    produce an id for a manifest state no answer was ever computed from.
     """
 
     digest = hashlib.sha256()
-    digest.update(operation.encode("utf-8"))
-    digest.update(b"\0")
-    digest.update(str(workspace).encode("utf-8"))
-    digest.update(b"\0")
-    if manifest_path is not None:
-        digest.update(str(manifest_path).encode("utf-8"))
+
+    def absorb(value: object) -> None:
+        digest.update(
+            json.dumps(value, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
+        )
         digest.update(b"\0")
+
+    absorb(operation)
+    absorb(str(workspace))
+    absorb(str(manifest_path) if manifest_path is not None else None)
+    if manifest_bytes is not None:
+        digest.update(hashlib.sha256(manifest_bytes).digest())
+    elif manifest_path is not None:
         try:
-            digest.update(manifest_path.read_bytes())
+            digest.update(hashlib.sha256(manifest_path.read_bytes()).digest())
         except OSError:
             # An unreadable manifest is a real state (`doctor` reports it), and
             # it is *not* the same state as an absent one. Mark it rather than
             # silently hashing to the no-manifest identity.
             digest.update(b"<unreadable>")
+    digest.update(b"\0")
+    absorb(routing_facts)
     return f"sha256:{digest.hexdigest()}"
 
 
@@ -160,13 +206,20 @@ def setup_control_envelope(
     manifest_display_path: str | None = None,
     execution: AgentControlExecution = "succeeded",
     exit_code: int | None = None,
-) -> AgentControlEnvelope:
-    """Project one setup command's already-published facts onto the envelope.
+) -> SetupRouting:
+    """Select one route for a setup command, and project it onto both surfaces.
+
+    Returns the envelope *and* the ranked ``NextAction`` list the command
+    publishes, both derived from one selected route. That is the point of
+    returning a pair rather than an envelope: adding ``control`` beside an
+    independently-computed ``next_action`` left ``init --minimal --write --json``
+    publishing an executable ``scan`` command at the top level while its control
+    envelope said ``human_review_required`` and offered no command at all. Two
+    rank-one answers in one document is worse than the single ambiguous one it
+    replaced, because the unsafe route is the one a pre-#323 consumer reads.
 
     ``diagnostics`` is exactly what the command puts in its ``diagnostics[]``
-    field, and ``advance`` is the step it already names when nothing is wrong —
-    so ``control.next_action`` and ``next_actions[0]`` describe the same work by
-    construction rather than by two authors agreeing.
+    field, and ``advance`` is the step it already names when nothing is wrong.
 
     Precedence, most urgent first:
 
@@ -191,115 +244,83 @@ def setup_control_envelope(
 
     ordered = ranked_diagnostics(list(diagnostics))
     pending_human = human_owned_placeholders(placeholders)
+    alternatives = [diag.next_actions[0] for diag in ordered]
 
     blocking = next((diag for diag in ordered if diag.severity == "block"), None)
     if blocking is not None:
-        return _from_diagnostic(
-            blocking,
-            operation=operation,
-            input_id=input_id,
-            reason=reason,
-            execution=execution,
-            exit_code=exit_code,
-            alternatives=ordered,
+        selected, kind, decision = _route_for(blocking)
+    elif pending_human:
+        selected = NextAction(
+            kind="review",
+            why=_placeholder_review_why(pending_human, manifest_display_path),
+            expects="Every human-owned field above holds a value a person supplied.",
         )
-    if pending_human:
-        return _emit(
-            _human_route(_placeholder_review_why(pending_human, manifest_display_path)),
-            operation=operation,
-            decision=SETUP_INCOMPLETE,
-            input_id=input_id,
-            execution=execution,
-            exit_code=exit_code,
-        )
-    if ordered:
-        return _from_diagnostic(
-            ordered[0],
-            operation=operation,
-            input_id=input_id,
-            reason=reason,
-            execution=execution,
-            exit_code=exit_code,
-            alternatives=ordered,
-        )
-    if advance is None:
+        kind, decision = "configure", SETUP_INCOMPLETE
+    elif ordered:
+        selected, kind, decision = _route_for(ordered[0])
+    elif advance is not None:
+        selected, kind, decision = advance, advance_kind, advance_decision
+    else:
         # No obligation and no onward step is not "done": setup never completes
         # a task, so the honest answer is that a person decides what happens
         # next. Synthesizing a plausible command here is how a routing surface
         # starts inventing work.
-        return _emit(
-            _human_route(reason),
-            operation=operation,
-            decision=advance_decision,
-            input_id=input_id,
-            execution=execution,
-            exit_code=exit_code,
-        )
-    return _emit(
-        derive_agent_control(
+        selected = NextAction(kind="review", why=reason)
+        kind, decision = "configure", advance_decision
+
+    if selected.kind in {"review", "stop"}:
+        # A human route publishes exactly one action. Keeping the ranked
+        # alternatives here would re-offer the very obligation being routed to a
+        # person as an agent-executable edit one position down the list — the
+        # bypass this precedence exists to close.
+        actions = [selected]
+        control: AgentControl = _human_route(selected.why, stop=selected.kind == "stop")
+    else:
+        actions = [selected, *(item for item in alternatives if item is not selected)][:3]
+        control = derive_agent_control(
             reason=reason,
-            next_action=_agent_route(advance, advance_kind),
-            verify_required=advance_kind == "verify",
-            allowed_next_commands=_commands(advance),
-        ),
-        operation=operation,
-        decision=advance_decision,
-        input_id=input_id,
-        execution=execution,
-        exit_code=exit_code,
-    )
-
-
-def _from_diagnostic(
-    diagnostic: Diagnostic,
-    *,
-    operation: SetupOperation,
-    input_id: str,
-    reason: str,
-    execution: AgentControlExecution,
-    exit_code: int | None,
-    alternatives: Sequence[Diagnostic],
-) -> AgentControlEnvelope:
-    action = diagnostic.next_actions[0]
-    why = action.why
-    if diagnostic.id in HUMAN_OWNED_SETUP_DIAGNOSTICS or action.kind in {"review", "stop"}:
-        control = _human_route(why, stop=action.kind == "stop")
-        decision = SETUP_NOT_APPLICABLE if action.kind == "stop" else SETUP_INCOMPLETE
-        return _emit(
+            next_action=_agent_route(selected, kind),
+            verify_required=kind == "verify",
+            # Deduplicated here rather than left to the union's uniqueness
+            # validator to reject: two diagnostics naming the same rerun is
+            # ordinary, not a malformed control object.
+            allowed_next_commands=list(
+                dict.fromkeys(command for item in actions for command in _commands(item))
+            ),
+        )
+    return SetupRouting(
+        envelope=_emit(
             control,
             operation=operation,
             decision=decision,
             input_id=input_id,
             execution=execution,
             exit_code=exit_code,
-        )
-    kind = SETUP_ACTION_KINDS.get(diagnostic.id, "configure")
-    # Alternatives are the *other* diagnostics' rank-1 commands, so an agent
-    # that cannot take the primary route still sees what else this run found.
-    # Only commands: `allowed_next_commands` is a list of runnable strings, and
-    # an edit path put in it would be handed to a shell.
-    commands = [
-        command
-        for other in alternatives
-        if other is not diagnostic
-        for command in _commands(other.next_actions[0])
-    ]
-    return _emit(
-        derive_agent_control(
-            reason=reason,
-            next_action=_agent_route(action, kind),
-            verify_required=kind == "verify",
-            # Deduplicated here rather than left to the union's uniqueness
-            # validator to reject: two diagnostics naming the same rerun is
-            # ordinary, not a malformed control object.
-            allowed_next_commands=list(dict.fromkeys([*_commands(action), *commands])),
         ),
-        operation=operation,
-        decision=SETUP_INCOMPLETE,
-        input_id=input_id,
-        execution=execution,
-        exit_code=exit_code,
+        actions=actions,
     )
+
+
+def _route_for(diagnostic: Diagnostic) -> tuple[NextAction, AgentActionKind, str]:
+    """The one route this diagnostic asks for, with its owner already applied.
+
+    A human-owned diagnostic's remediation is a file edit, and publishing it as
+    an ``edit`` action would tell the governed agent to write the declaration.
+    It is restated as a ``review`` so that *both* the legacy field and the
+    control envelope carry the human route; converting only the envelope would
+    have left the executable one in ``next_actions[0]``.
+    """
+
+    action = diagnostic.next_actions[0]
+    if diagnostic.id in HUMAN_OWNED_SETUP_DIAGNOSTICS and action.kind != "stop":
+        location = f" ({action.path})" if action.path else ""
+        action = NextAction(
+            kind="review",
+            why=f"{action.why}{location} This is a declaration a person makes.",
+            expects=action.expects,
+        )
+    decision = SETUP_NOT_APPLICABLE if action.kind == "stop" else SETUP_INCOMPLETE
+    return action, SETUP_ACTION_KINDS.get(diagnostic.id, "configure"), decision
 
 
 def _agent_route(action: NextAction, kind: AgentActionKind) -> AgentControlAction:
@@ -332,6 +353,13 @@ def _human_route(why: str, *, stop: bool = False) -> AgentControl:
     )
 
 
+_PLACEHOLDER_REVIEW_TAIL = (
+    " must be supplied by a human. These fields declare what this agent is for "
+    "and what it is permitted to do; Shipgate never invents them, and a value a "
+    "coding agent supplied is a declaration nobody made."
+)
+
+
 def _placeholder_review_why(
     entries: Sequence[Mapping[str, object]],
     manifest_display_path: str | None,
@@ -341,20 +369,67 @@ def _placeholder_review_why(
     Exact locations rather than a count: the point of routing this to a human is
     that they can act on it without reading the manifest to find out what is
     being asked, and #325 requires the paths and source lines explicitly.
+
+    The list is fitted to the envelope's prose budget rather than written out in
+    full and left to be cut. ``truncate_prose`` caps this field at
+    ``MAX_ENVELOPE_PROSE_BYTES``, so a manifest with a dozen unresolved
+    declarations — or one very long field path — silently lost the later
+    locations and could lose the sentence explaining what they were. What is
+    dropped here is dropped *visibly*, with a count and a pointer at the
+    ``placeholders[]`` field of the same payload, which carries every location
+    in full and is never truncated.
     """
 
+    def size(text: str) -> int:
+        return len(text.encode("utf-8"))
+
+    budget = MAX_ENVELOPE_PROSE_BYTES - size(_PLACEHOLDER_REVIEW_TAIL)
     manifest = manifest_display_path or "shipgate.yaml"
-    located = ", ".join(
-        f"{manifest}:{entry['line']} ({_field_path(entry)})"
-        if entry.get("line") is not None
-        else f"{manifest} ({_field_path(entry)})"
-        for entry in entries
-    )
-    return (
-        f"{located} must be supplied by a human. These fields declare what this "
-        "agent is for and what it is permitted to do; Shipgate never invents "
-        "them, and a value a coding agent supplied is a declaration nobody made."
-    )
+    # The manifest is named once and the lines refer to it, rather than repeated
+    # per entry. Repeating it spent the whole budget on a deep absolute path
+    # before the first line number was reached.
+    prefix = f"In {manifest}: "
+    if size(prefix) > budget // 2:
+        # A path this long leaves no room for what it is a path to. The payload
+        # carries the full spelling in its own `path` / `config` field, so the
+        # basename here is a label, not the only copy.
+        prefix = f"In {PurePosixPath(manifest).name} (full path in this payload): "
+
+    def render(entry: Mapping[str, object], allowance: int) -> str:
+        line = entry.get("line")
+        where = f"line {line}" if line is not None else "unlocated"
+        # The location is what a person acts on, so it is never shortened; the
+        # field name is context and is elided when the two together do not fit.
+        # An entry that loses its own line has lost the whole point.
+        field = _field_path(entry)
+        ellipsis = "…"
+        # What is left for the field name, after the " (" and ")" wrapper. The
+        # ellipsis is counted in *bytes*: it is three of them, and reserving one
+        # put a single very long path two bytes over the cap.
+        room = allowance - size(where) - size(" ()")
+        if room <= size(ellipsis):
+            return where
+        if size(field) > room:
+            keep = room - size(ellipsis)
+            field = field.encode("utf-8")[:keep].decode("utf-8", errors="ignore") + ellipsis
+        return f"{where} ({field})"
+
+    # Share what remains across the entries actually named, so one long field
+    # path cannot spend what the others need.
+    remaining_budget = budget - size(prefix)
+    allowance = max(1, remaining_budget // min(max(len(entries), 1), 3))
+    shown: list[str] = []
+    used = 0
+    for index, entry in enumerate(entries):
+        candidate = render(entry, allowance)
+        overflow = f", and {len(entries) - index} more in placeholders[]"
+        cost = used + (2 if shown else 0) + size(candidate) + size(overflow)
+        if shown and cost > remaining_budget:
+            shown.append(overflow.removeprefix(", "))
+            break
+        used += (2 if shown else 0) + size(candidate)
+        shown.append(candidate)
+    return prefix + ", ".join(shown) + _PLACEHOLDER_REVIEW_TAIL
 
 
 def _field_path(entry: Mapping[str, object]) -> str:
@@ -405,6 +480,7 @@ __all__ = [
     "SETUP_INCOMPLETE",
     "SETUP_NOT_APPLICABLE",
     "SetupOperation",
+    "SetupRouting",
     "setup_control_envelope",
     "setup_input_id",
 ]

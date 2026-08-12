@@ -69,6 +69,7 @@ from pydantic import (
 )
 
 from agents_shipgate.schemas.agent_control import (
+    PERMISSION_FIELDS,
     CodingAgentAction,
     FullAgentPermissions,
     HumanControlAction,
@@ -202,6 +203,12 @@ _COMPLETE_PROVENANCE_RULE = [
     }
 ]
 
+# `strip_whitespace` has no JSON Schema representation, so a schema-only
+# consumer accepted `input_id=" "` on a merge-authorizing envelope that Pydantic
+# rejected. A pattern requiring one non-whitespace character *is* published, so
+# both layers agree on what counts as present.
+_NON_BLANK = r"\S"
+
 # Setup-derived and release-decision-derived control states must not be
 # confusable, in either direction — the whole point of rolling one vocabulary
 # across six commands is that `control_state` cannot mean "the gate says" on one
@@ -210,10 +217,23 @@ _COMPLETE_PROVENANCE_RULE = [
 # Published as if/then rules rather than left to the ``operation`` field alone,
 # because a reader that switches on `decision_source` (which is what it is for)
 # would otherwise have to know the operation table by heart to tell the two
-# apart. The second half also fixes the provenance: setup evaluates no diff,
-# publishes no pointer, and binds no artifact, so an envelope claiming both a
-# setup operation and a bound artifact set is describing something no producer
-# can be.
+# apart.
+#
+# The rules also carry the *authority* half, and that is the load-bearing part.
+# Fixing provenance alone left `permissions` unconstrained, so a setup envelope
+# with the publish-only vector — edit/commit/push/update_pr granted — was
+# accepted by both Pydantic and the published document. A schema-driven consumer
+# would have read publication authority out of a command that never opened a
+# diff. Setup authority is therefore pinned to *all false* here, and
+# ``review_publishable`` (whose whole meaning is "the evidence may be
+# published") is made unreachable, rather than being left to the projection to
+# refuse.
+_ALL_PERMISSIONS_DENIED = {
+    "type": "object",
+    "properties": {name: {"const": False} for name in PERMISSION_FIELDS},
+    "required": list(PERMISSION_FIELDS),
+}
+
 _SETUP_PROVENANCE_RULE = [
     {
         "if": {
@@ -234,8 +254,32 @@ _SETUP_PROVENANCE_RULE = [
                 "source": {"const": "run"},
                 "current_control_id": {"type": "null"},
                 "artifacts": {"maxProperties": 0},
-            }
+                # Setup read no change, so no route may authorize acting on one.
+                "permissions": _ALL_PERMISSIONS_DENIED,
+                # `complete` is already unreachable via the variant's own
+                # `operation` Literal; `review_publishable` needed saying.
+                "control_state": {
+                    "enum": ["agent_action_required", "human_review_required"]
+                },
+                # Authority that cannot name the subject it was assessed against
+                # is authority no reader can check — the same rule `complete`
+                # carries. `\\S` because `minLength` counts whitespace.
+                "input_id": {"type": "string", "minLength": 1, "pattern": _NON_BLANK},
+            },
+            "required": ["input_id"],
         },
+    },
+    # The inverse value/source pairing, which the two rules above do not cover:
+    # they constrain `decision` when the *operation* is setup, leaving
+    # `operation: "verify"` + `decision_source: "release_decision"` +
+    # `decision: "setup_complete"` accepted by both layers. A setup verdict must
+    # be unreadable as a gate verdict from either end.
+    {
+        "if": {
+            "properties": {"decision": {"enum": list(SETUP_DECISIONS)}},
+            "required": ["decision"],
+        },
+        "then": {"properties": {"decision_source": {"const": "setup"}}},
     },
 ]
 
@@ -273,12 +317,6 @@ _ENVELOPE_FIELDS = [
     "current_control_id",
     "artifacts",
 ]
-
-# `strip_whitespace` has no JSON Schema representation, so a schema-only
-# consumer accepted `input_id=" "` on a merge-authorizing envelope that Pydantic
-# rejected. A pattern requiring one non-whitespace character *is* published, so
-# both layers agree on what counts as present.
-_NON_BLANK = r"\S"
 
 BoundedProse = Annotated[
     str,
@@ -401,6 +439,10 @@ class _AgentControlEnvelopeBase(BaseModel):
                 "decision_source='setup' and a setup operation "
                 f"({', '.join(SETUP_OPERATIONS)}) imply each other"
             )
+        # The inverse pairing, which the check above does not cover: a *value*
+        # from the setup vocabulary must not appear under any other source.
+        if self.decision in SETUP_DECISIONS and self.decision_source != "setup":
+            raise ValueError(f"{self.decision!r} is a setup verdict and requires decision_source='setup'")
         if not is_setup_operation:
             return self
         if self.decision not in SETUP_DECISIONS:
@@ -409,6 +451,17 @@ class _AgentControlEnvelopeBase(BaseModel):
             raise ValueError("setup control is only ever read from the run that produced it")
         if self.current_control_id is not None or self.artifacts:
             raise ValueError("setup publishes no control pointer and binds no artifact")
+        if not (self.input_id or "").strip():
+            raise ValueError("a setup control must name the workspace state it answered about")
+        if self.control_state == "review_publishable":
+            raise ValueError(
+                "setup evaluated no change, so there is no evidence for a human to review"
+            )
+        if self.permissions.authorizes_anything:
+            raise ValueError(
+                "setup read no change, so it authorizes none of "
+                f"{', '.join(PERMISSION_FIELDS)}"
+            )
         return self
 
 

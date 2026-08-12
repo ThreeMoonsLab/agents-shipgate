@@ -28,30 +28,48 @@
   breath, told the caller to scan — inviting the agent to invent an
   `agent.declared_purpose`, which is exactly the class of claim
   `do_not_auto_assert` exists to protect. When a human-owned placeholder is
-  unresolved, the setup control state is now `human_review_required` and the
-  action names the exact file, line, and field. A placeholder an agent can
-  legitimately resolve from the repository — a tool-source path, a project
-  name — stays coding-agent work, and once the human-owned values are supplied
-  `doctor` advances deterministically to `verify`.
+  unresolved, the setup control state is now `human_review_required`, the action
+  names the exact file, line, and field, and **`next_action` / `next_actions[]`
+  carry that same route** — publishing the control state beside an unchanged
+  executable `scan` command would have left the unsafe answer exactly where a
+  pre-#323 consumer reads it. Ownership covers every `do_not_auto_assert`
+  surface with a manifest spelling, `agent_bindings` and `action_surface`
+  included, not only `declared_purpose`. A placeholder an agent can legitimately
+  resolve from the repository — a tool-source path, a project name — stays
+  coding-agent work, and once the human-owned values are supplied `doctor`
+  advances deterministically to `verify`. `init --write --agent-instructions=…`
+  over an existing manifest now inspects *that* manifest rather than the
+  template it did not write, so the documented refresh command is not a route
+  around the boundary.
 - **`next_action` gains a typed `edit` route** (`kind: "edit"`, with `path` and
   `expects`). Setup reaches steps that are unambiguously the agent's and have
   no executable form — a manifest the loader rejected, a `tool_sources[].path`
   that does not resolve — and the union previously forced a choice between
   hiding the instruction in another command's prose or stopping the turn for
   work the agent owns. Only setup output can contain it, so
-  `minimum_control_contract_version` stays at `21`. The frozen
+  `minimum_control_contract_version` moves to `24`: the union is the one every
+  control producer embeds, so "no producer emits it" is a claim about code paths
+  rather than about what the contract permits. The frozen
   `shipgate.codex_boundary_result/v2` projection is byte-unchanged and now
   snapshots its own action union rather than tracking the live one — it had
   been silently widening with every variant added to `AgentControl`, which is
   what "frozen" was supposed to prevent.
-- **`agent control` after a `scan` now reports that scan's release decision.**
-  `scan` runs the release engine and binds its `report.json`, but the envelope
-  published `decision: null` / `decision_source: "none"`, making a completed
-  scan indistinguishable from output produced before any engine had run. The
-  verdict is lifted from the bound report inside the same generation-safe read
-  that validates the pointer, never recomputed. Authority is unchanged: the
-  control state and permissions still come from the pointer, and a scan still
-  cannot authorize a merge.
+- **`agent control` after a `scan` now reports that scan's release decision —
+  and withholds it once it is no longer current.** `scan` runs the release
+  engine and binds its `report.json`, but the envelope published
+  `decision: null` / `decision_source: "none"`, making a completed scan
+  indistinguishable from output produced before any engine had run. The verdict
+  is lifted from the bound report inside the same generation-safe read that
+  validates the pointer, never recomputed. Byte integrity is not currency,
+  though: a `scan` pointer binds no HEAD or worktree identity, so the generic
+  comparison passed vacuously and an edited manifest still read cleanly with the
+  old verdict. `scan` now records the manifest it read beside the digest it
+  already recorded, and the verdict is published only while that file still
+  hashes to it. Where it cannot be reconfirmed — or where a format-limited scan
+  bound no machine-readable report — `decision` is `null` and `reason` says
+  which, so a withheld verdict is never read as an absent one. Authority is
+  unchanged throughout: the control state and permissions still come from the
+  pointer, and a scan still cannot authorize a merge.
 
 - **The recommended next command now runs where it was recommended.** Every
   emitted command was written as the console script the wheel installs

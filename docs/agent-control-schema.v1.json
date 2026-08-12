@@ -73,6 +73,12 @@
               "artifacts": {
                 "maxProperties": 0
               },
+              "control_state": {
+                "enum": [
+                  "agent_action_required",
+                  "human_review_required"
+                ]
+              },
               "current_control_id": {
                 "type": "null"
               },
@@ -86,8 +92,70 @@
               "decision_source": {
                 "const": "setup"
               },
+              "input_id": {
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "permissions": {
+                "properties": {
+                  "commit": {
+                    "const": false
+                  },
+                  "edit": {
+                    "const": false
+                  },
+                  "merge": {
+                    "const": false
+                  },
+                  "push": {
+                    "const": false
+                  },
+                  "report_complete": {
+                    "const": false
+                  },
+                  "update_pr": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "edit",
+                  "commit",
+                  "push",
+                  "update_pr",
+                  "merge",
+                  "report_complete"
+                ],
+                "type": "object"
+              },
               "source": {
                 "const": "run"
+              }
+            },
+            "required": [
+              "input_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
               }
             }
           }
@@ -597,6 +665,12 @@
               "artifacts": {
                 "maxProperties": 0
               },
+              "control_state": {
+                "enum": [
+                  "agent_action_required",
+                  "human_review_required"
+                ]
+              },
               "current_control_id": {
                 "type": "null"
               },
@@ -610,8 +684,70 @@
               "decision_source": {
                 "const": "setup"
               },
+              "input_id": {
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "permissions": {
+                "properties": {
+                  "commit": {
+                    "const": false
+                  },
+                  "edit": {
+                    "const": false
+                  },
+                  "merge": {
+                    "const": false
+                  },
+                  "push": {
+                    "const": false
+                  },
+                  "report_complete": {
+                    "const": false
+                  },
+                  "update_pr": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "edit",
+                  "commit",
+                  "push",
+                  "update_pr",
+                  "merge",
+                  "report_complete"
+                ],
+                "type": "object"
+              },
               "source": {
                 "const": "run"
+              }
+            },
+            "required": [
+              "input_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
               }
             }
           }
@@ -1028,6 +1164,12 @@
               "artifacts": {
                 "maxProperties": 0
               },
+              "control_state": {
+                "enum": [
+                  "agent_action_required",
+                  "human_review_required"
+                ]
+              },
               "current_control_id": {
                 "type": "null"
               },
@@ -1041,8 +1183,70 @@
               "decision_source": {
                 "const": "setup"
               },
+              "input_id": {
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "permissions": {
+                "properties": {
+                  "commit": {
+                    "const": false
+                  },
+                  "edit": {
+                    "const": false
+                  },
+                  "merge": {
+                    "const": false
+                  },
+                  "push": {
+                    "const": false
+                  },
+                  "report_complete": {
+                    "const": false
+                  },
+                  "update_pr": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "edit",
+                  "commit",
+                  "push",
+                  "update_pr",
+                  "merge",
+                  "report_complete"
+                ],
+                "type": "object"
+              },
               "source": {
                 "const": "run"
+              }
+            },
+            "required": [
+              "input_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
               }
             }
           }
@@ -1462,6 +1666,12 @@
               "artifacts": {
                 "maxProperties": 0
               },
+              "control_state": {
+                "enum": [
+                  "agent_action_required",
+                  "human_review_required"
+                ]
+              },
               "current_control_id": {
                 "type": "null"
               },
@@ -1475,8 +1685,70 @@
               "decision_source": {
                 "const": "setup"
               },
+              "input_id": {
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "permissions": {
+                "properties": {
+                  "commit": {
+                    "const": false
+                  },
+                  "edit": {
+                    "const": false
+                  },
+                  "merge": {
+                    "const": false
+                  },
+                  "push": {
+                    "const": false
+                  },
+                  "report_complete": {
+                    "const": false
+                  },
+                  "update_pr": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "edit",
+                  "commit",
+                  "push",
+                  "update_pr",
+                  "merge",
+                  "report_complete"
+                ],
+                "type": "object"
+              },
               "source": {
                 "const": "run"
+              }
+            },
+            "required": [
+              "input_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
               }
             }
           }

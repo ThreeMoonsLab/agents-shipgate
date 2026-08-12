@@ -998,23 +998,39 @@ def test_the_control_surface_fixture_reaches_allowed_next_commands(tmp_path: Pat
     assert document["control"]["allowed_next_commands"]
 
 
-def test_successful_init_routes_to_a_runnable_scan(tmp_path: Path) -> None:
+def test_successful_init_routes_to_a_runnable_command(tmp_path: Path) -> None:
     """The success path had no error to normalize, so it kept the canonical name.
 
     Every earlier fix landed on failure routes; a source checkout that ran
-    `init --write` successfully still dead-ended on the very next step it was
-    told to take.
+    `init` successfully still dead-ended on the very next step it was told to
+    take.
+
+    Contract v24 changed *which* step a written manifest routes to, not whether
+    it is runnable: `init --write` always leaves an unresolved
+    `agent.declared_purpose`, and that is a declaration a person makes, so the
+    rank-1 route is a human review carrying no command (#325). Both halves are
+    asserted here — the dry run still emits a runnable command, and the written
+    one emits no command at all rather than an unrunnable string.
     """
 
-    result = _run_module("init", "--minimal", "--write", "--json", cwd=tmp_path)
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
+    dry = _run_module("init", "--minimal", "--json", cwd=tmp_path)
+    assert dry.returncode == 0, dry.stderr
+    payload = json.loads(dry.stdout)
 
     prefix = f"{join_argv(_module_prefix())} "
     assert payload["next_action"].startswith(prefix)
     action = payload["next_actions"][0]
     assert action["kind"] == "command"
     assert action["executable"] == list(_module_prefix())
-    assert action["args"][0] == "scan"
+    assert action["args"][0] == "init"
     # The legacy string is the rank-1 command verbatim, as documented.
     assert payload["next_action"] == action["command"]
+    # And the compact envelope names the same step.
+    assert payload["control"]["next_action"]["command"] == action["command"]
+
+    written = _run_module("init", "--minimal", "--write", "--json", cwd=tmp_path)
+    assert written.returncode == 0, written.stderr
+    document = json.loads(written.stdout)
+    assert document["control"]["control_state"] == "human_review_required"
+    assert document["next_actions"][0]["kind"] == "review"
+    assert document["next_actions"][0].get("command") is None

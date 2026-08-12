@@ -17,10 +17,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
-from agents_shipgate.cli.diagnostics import (
-    diagnose_detect,
-    top_next_actions,
-)
+from agents_shipgate.cli.diagnostics import diagnose_detect
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.setup_control import (
     SETUP_COMPLETE,
@@ -82,39 +79,35 @@ def detect(
     diagnostics: list[Diagnostic] = diagnose_detect(
         result, has_manifest=has_manifest, workspace=workspace_resolved
     )
-    flattened = top_next_actions(diagnostics)
-    if diagnostics:
-        # Override the legacy single-string field with the rank-1 projection
-        # so callers that read `next_action` get a routable answer when a
-        # diagnostic fires (otherwise keep the existing classification text).
-        result = result.model_copy(
-            update={"next_action": flattened[0].to_legacy_string()}
-        )
+    advance, advance_kind, advance_decision = _detect_advance(
+        result, has_manifest=has_manifest, workspace=workspace_resolved
+    )
+    routing = setup_control_envelope(
+        operation="detect",
+        input_id=setup_input_id(
+            operation="detect",
+            workspace=workspace_resolved,
+            manifest_path=(workspace_resolved / "shipgate.yaml" if has_manifest else None),
+            routing_facts=(result.model_dump(mode="json"), advance_decision),
+        ),
+        reason=_detect_reason(result, has_manifest=has_manifest),
+        diagnostics=diagnostics,
+        advance=advance,
+        advance_kind=advance_kind,
+        advance_decision=advance_decision,
+        # `detect` classifies; it never fails a gate. This JSON path always
+        # exits 0, and reporting the fact beats leaving a reader to infer it.
+        exit_code=0,
+    )
+    # One selected route reaches every field a caller can route on. Deriving the
+    # legacy string independently is what let an executable command sit beside a
+    # control state that authorized nothing.
+    result = result.model_copy(update={"next_action": routing.legacy_next_action})
     if json_output:
         payload = result.model_dump(mode="json")
         payload["diagnostics"] = [d.model_dump(mode="json") for d in diagnostics]
-        payload["next_actions"] = [a.model_dump(mode="json") for a in flattened]
-        advance, advance_kind, advance_decision = _detect_advance(
-            result, has_manifest=has_manifest, workspace=workspace_resolved
-        )
-        payload["control"] = setup_control_envelope(
-            operation="detect",
-            input_id=setup_input_id(
-                operation="detect",
-                workspace=workspace_resolved,
-                manifest_path=(
-                    workspace_resolved / "shipgate.yaml" if has_manifest else None
-                ),
-            ),
-            reason=_detect_reason(result, has_manifest=has_manifest),
-            diagnostics=diagnostics,
-            advance=advance,
-            advance_kind=advance_kind,
-            advance_decision=advance_decision,
-            # `detect` classifies; it never fails a gate. This JSON path always
-            # exits 0, and reporting the fact beats leaving a reader to infer it.
-            exit_code=0,
-        ).model_dump(mode="json")
+        payload["next_actions"] = routing.json_actions()
+        payload["control"] = routing.envelope.model_dump(mode="json")
         typer.echo(json.dumps(payload, indent=2))
         return
 

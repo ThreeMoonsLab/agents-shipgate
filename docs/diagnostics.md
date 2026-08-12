@@ -263,17 +263,35 @@ test), `edit` becomes the contract-v24 `CodingAgentEditAction`, and
 `review`/`stop` become human routes.
 
 **Human-owned placeholders.** A placeholder is human-owned when any segment of
-its reported field path is one of `declared_purpose`, `prohibited_actions`,
-`owner`, `approval_required`, `reason`, `policies`, or `permissions` — the
-values that record a person having decided something, where an invented value
-is not a guess but a forged declaration. Every other placeholder (a tool-source
-path, a project name) is ordinary repository reading and stays coding-agent
-work. Matching is on every segment, not the leaf, because
-`collect_placeholders` names a list item by its own text: a `CHANGE_ME` under
-`declared_purpose: [...]` is reported as `agent.declared_purpose.CHANGE_ME`.
+its reported field path names a declaration a person makes. Two sets, both in
+`agents_shipgate.cli.discovery.placeholders`:
+
+- whole manifest blocks — `agent_bindings`, `tool_identity`, `action_surface`,
+  `permissions`, `policies`, `checks`, `baseline`, `human_ack`,
+  `risk_overrides`, `organization` — each mapped to the `do_not_auto_assert`
+  entry it carries, in `HUMAN_OWNED_MANIFEST_BLOCKS`;
+- leaf fields wherever they appear — `declared_purpose`, `prohibited_actions`,
+  `owner`, `reason`, `expires`, `approval`, `approval_required`, `authority`,
+  `effect`, `safeguards`, `confirmation`, `idempotency`.
+
+These are reviewed closed-world claims about deployed wiring, or the record of a
+person having decided something. A value a coding agent supplied is not a guess
+to be corrected later — it is a declaration nobody made, and Shipgate treats it
+as evidence. Every other placeholder (a tool-source path, a project name) is
+ordinary repository reading and stays coding-agent work.
+
+Matching is on every segment, not the leaf, because `collect_placeholders` names
+a list item by its own text: a `CHANGE_ME` under `declared_purpose: [...]` is
+reported as `agent.declared_purpose.CHANGE_ME`.
+
+**One route reaches every field.** `next_action`, `next_actions[0]`, and
+`control.next_action` are all projections of the one selected route, so a
+consumer reading the legacy string and a consumer reading `control` cannot be
+sent to different work. A human route publishes exactly one action and no
+command; the ranked alternatives appear only behind a coding-agent route.
 
 The `control` field never carries authority: setup reads no diff, so all six
-`permissions` are `false`, no artifact or `current_control_id` is bound, and
-`control_state: "complete"` is unreachable for these operations in the published
-schema. `next_action` is the single typed rank-1 step; `next_actions[]` beside
-it keeps the ranked alternatives, unchanged.
+`permissions` are `false`, `review_publishable` is unreachable, no artifact or
+`current_control_id` is bound, and `control_state: "complete"` is unreachable
+for these operations. Every one of those is enforced in the published JSON
+Schema as well as in Pydantic.

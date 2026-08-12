@@ -44,57 +44,24 @@ ALL_RENDERERS = {
 }
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
-    ".claude/skills/agents-shipgate/SKILL.md": (
-        "3e10877198eead17338d54810ef7dc32317fa1b1013b54acccc1c2e9a94f53e4"
-    ),
-    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": (
-        # Renders {{ shipgate_version }}; changes on every version bump.
-        "1f6ef3e51a09e824a98d6e5b33f2bf61282c62e2ae859e234da9f56161fa4a87"
-    ),
-    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": (
-        "44606ff86cc48c6532b5503a479a8a821874246b47b7abd54a23ffd280e0caba"
-    ),
-    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": (
-        "341253ed61e5ce9e4f42fc7d1ab0c4c72edd32aacf941cb8d08e49d95493c59d"
-    ),
-    ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": (
-        "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829"
-    ),
-    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": (
-        "90d36fbe91668fdc64e5e73727ec8285ee62c584d695b866261ef569fea07074"
-    ),
-    ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": (
-        "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475"
-    ),
-    ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": (
-        "00da293e63792ccaf980f82d525ac12073807f41fd2d78c5a95498054053e364"
-    ),
-    ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": (
-        "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada"
-    ),
-    ".claude/skills/agents-shipgate/prompts/upgrade-shipgate-version.md": (
-        "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68"
-    ),
-    ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": (
-        "1e0279c7b6beae88f468f478b4e3b7401d7cc53bead5c53b6edcc256f59e159c"
-    ),
+    ".claude/skills/agents-shipgate/SKILL.md": "3e10877198eead17338d54810ef7dc32317fa1b1013b54acccc1c2e9a94f53e4",
+    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "1f6ef3e51a09e824a98d6e5b33f2bf61282c62e2ae859e234da9f56161fa4a87",
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "7c2a96c58fe9065652f5550ed7e77b47372b4e0f193ea32fce7b6db44b8b7722",
+    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "1bb20389af89f16ac68569b06ccd4248572163a90fc006f30eafa71191383b10",
+    ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
+    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "90d36fbe91668fdc64e5e73727ec8285ee62c584d695b866261ef569fea07074",
+    ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475",
+    ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": "00da293e63792ccaf980f82d525ac12073807f41fd2d78c5a95498054053e364",
+    ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada",
+    ".claude/skills/agents-shipgate/prompts/upgrade-shipgate-version.md": "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68",
+    ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": "1e0279c7b6beae88f468f478b4e3b7401d7cc53bead5c53b6edcc256f59e159c",
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
-    ".agents/skills/agents-shipgate/SKILL.md": (
-        "34ef4bdac90ff7b409eb2254f6b73c52888e92bd9ba44824d6f056c44c2a50ff"
-    ),
-    ".agents/skills/agents-shipgate/agents/openai.yaml": (
-        "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef"
-    ),
-    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": (
-        "89580914407edd5516db10c8d7725f22c1a919e827e9b820115007a7a6caab31"
-    ),
-    ".agents/skills/agents-shipgate/references/recipes.md": (
-        "49f71ac4f5b6c83f34caa1e5a7126cf4550d95188725ce37d93b558c6bfae17a"
-    ),
-    ".agents/skills/agents-shipgate/references/report-reading.md": (
-        "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a"
-    ),
+    ".agents/skills/agents-shipgate/SKILL.md": "fe9d567e77740d279e6f79c7f3df6e4b9bf879a2aa39ad35c98803a900e615f3",
+    ".agents/skills/agents-shipgate/agents/openai.yaml": "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef",
+    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "89580914407edd5516db10c8d7725f22c1a919e827e9b820115007a7a6caab31",
+    ".agents/skills/agents-shipgate/references/recipes.md": "50c32d8ccc4c28dd40bdd326ed3249e387af28b974a4cd030fc37d6667839703",
+    ".agents/skills/agents-shipgate/references/report-reading.md": "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a",
 }
 
 
@@ -207,7 +174,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
     assert payload["contract_version"] == "24"
-    assert payload["minimum_control_contract_version"] == "21"
+    assert payload["minimum_control_contract_version"] == "24"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
@@ -425,7 +392,7 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "agents-shipgate contract --json" in skill
     assert "install or upgrade `agents-shipgate`" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
-    assert "minimum_control_contract_version: 21" in recipes
+    assert "minimum_control_contract_version: 24" in recipes
     assert "shipgate.agent_boundary_result/v2" in recipes
 
 
