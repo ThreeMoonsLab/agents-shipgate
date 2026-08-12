@@ -20,7 +20,11 @@ from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.cli._helpers import _apply_strict_plugins
-from agents_shipgate.cli.discovery.scope import ChangeScope, resolve_change_scope
+from agents_shipgate.cli.discovery.scope import (
+    ChangeScope,
+    ScopeResolution,
+    resolve_change_scope,
+)
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
@@ -3583,6 +3587,33 @@ def _preview_init_command(workspace: Path, *, scope: ChangeScope | None = None) 
     )
 
 
+def _head_is_current_worktree(root: Path, head: str | None) -> bool:
+    """Whether the evaluated head is the commit the worktree has checked out.
+
+    Manifest-scope evidence is read from the working tree, so a preview of
+    some *other* ref would authorize a directory the diff never described.
+    An absent ``--head`` is the working tree by definition.
+    """
+
+    if head is None:
+        return True
+    try:
+        head_sha = commit_sha(root, head)
+        worktree_sha = commit_sha(root, "HEAD")
+    except Exception:  # noqa: BLE001 - preview must never crash.
+        return False
+    return head_sha is not None and head_sha == worktree_sha
+
+
+def _preview_detect_command(workspace: Path) -> str:
+    command_workspace = _preview_command_workspace(workspace, scope=None)
+    return retarget_command(
+        _shell_join(
+            ["shipgate", "detect", "--workspace", str(command_workspace), "--json"]
+        )
+    )
+
+
 def _preview_command_workspace(workspace: Path, *, scope: ChangeScope | None) -> Path:
     """Absolute workspace to spell into an emitted command.
 
@@ -3654,8 +3685,17 @@ def run_preview(
     head: str | None,
     out: Path | None,
     pr_comment_style: str = "capability-review",
+    auto_base: bool = False,
 ) -> tuple[VerifierArtifact, None, int]:
-    """Lightweight relevance check for ``agents-shipgate verify --preview``."""
+    """Lightweight relevance check for ``agents-shipgate verify --preview``.
+
+    ``auto_base`` mirrors the verifier: with no explicit ``--base`` and
+    detection enabled, the default branch is discovered the same way. The
+    promoted adoption command is the bare ``verify --preview --json``, so
+    without it the preview that every first adoption runs would evaluate an
+    empty change set — no relevance evidence, and no way to tell which
+    project a monorepo pull request is about (#363).
+    """
     requested_root = workspace.resolve()
     try:
         root = ensure_git_workspace(requested_root)
@@ -3698,6 +3738,19 @@ def run_preview(
     diff_text = ""
     notes: list[str] = []
     diff_input: DiffContext | None = None
+    if base is None and auto_base:
+        try:
+            detection = detect_default_base_with_notes(root, head or "HEAD")
+        except Exception:  # noqa: BLE001 - preview must never crash.
+            detection = None
+        if detection is not None:
+            notes.extend(detection.notes)
+            if detection.base is not None:
+                base = detection.base
+                notes.append(
+                    f"Auto-detected base {detection.base!r} for diff context; "
+                    "pass --base to override or --no-base to disable."
+                )
     if base:
         try:
             git_root = ensure_git_workspace(root)
@@ -3710,25 +3763,39 @@ def run_preview(
             diff_input = collected
             notes.append(f"Preview diff unavailable: {collected.note}")
 
-    trigger = evaluate(
-        paths=changed_files,
-        diff_text=diff_text,
-        manifest_present=manifest_present,
-        user_requested=True,
-        input_status=_trigger_input_status(diff_input),
-    )
-
     # The changed paths already say which project this pull request is
     # about. Routing setup to the workspace root instead would hand a
     # monorepo one manifest for every agent in it, so the adoption command
     # below is scoped to the project the diff actually touches (#363).
-    scope = resolve_change_scope(
-        root=root,
-        changed_files=changed_files,
-        limit=requested_root,
+    #
+    # Project markers are read from the working tree, because that is what
+    # `init` will run against. When the evaluated head is some other commit,
+    # the two disagree — the same refs would recommend different directories
+    # depending on what happens to be checked out — so no scope is claimed.
+    resolution = (
+        resolve_change_scope(
+            root=root,
+            changed_files=changed_files,
+            limit=requested_root,
+        )
+        if _head_is_current_worktree(root, head)
+        else ScopeResolution()
     )
+    scope = resolution.scope
     scoped_config = scope.directory / config_path.name if scope is not None else None
     scoped_manifest_present = scoped_config is not None and scoped_config.is_file()
+
+    trigger = evaluate(
+        paths=changed_files,
+        diff_text=diff_text,
+        # A manifest one directory down is an opt-in too. Reading only the
+        # workspace root reported an adopted monorepo project as unadopted,
+        # so a docs-only change to it skipped the gate its own manifest asks
+        # for (#363).
+        manifest_present=manifest_present or scoped_manifest_present,
+        user_requested=True,
+        input_status=_trigger_input_status(diff_input),
+    )
 
     # Trigger previews may recommend detect/init as a generic recovery path.
     # Verify preview deliberately returns the exact one-shot init command that
@@ -3809,6 +3876,26 @@ def run_preview(
             f"Shipgate preview {read} the requested PR diff "
             f"({diff_input.reason}); {outcome}."
         )
+    elif scope is not None and scoped_manifest_present:
+        # The changed project carries its own manifest, so that is the gate
+        # for this diff — ahead of any root manifest, which governs a
+        # different boundary and would answer for code this PR never touched.
+        # It also breaks a loop when the root has none: init refuses to
+        # overwrite the manifest that already exists one directory down.
+        next_action = CodingAgentCommandAction(
+            kind="verify",
+            command=scoped_verify_command,
+            why=(
+                f"Every changed path that carries a capability surface belongs "
+                f"to {scope.relative}, which has its own shipgate.yaml; run "
+                "verify there on the PR diff. That manifest, not the "
+                "workspace root, is the governance boundary for this change."
+            ),
+        )
+        headline = (
+            f"Shipgate is configured for the changed project ({scope.relative}); "
+            "run verify there to get a merge verdict."
+        )
     elif manifest_present:
         next_action = CodingAgentCommandAction(
             kind="verify",
@@ -3816,23 +3903,24 @@ def run_preview(
             why="Shipgate is already set up here; run verify on the PR diff.",
         )
         headline = "Shipgate is configured; run verify on the PR to get a merge verdict."
-    elif scope is not None and scoped_manifest_present:
-        # The changed project is already adopted, one directory down. Routing
-        # to init here would be a loop: init refuses to overwrite a manifest
-        # that exists, and the workspace root still has none to run against.
+    elif resolution.contested:
+        # Several projects own part of this change. `init` at the root would
+        # refuse deterministically, so recommending it would be recommending
+        # a failure; ask discovery to name the projects instead.
+        contested = ", ".join(resolution.contested)
         next_action = CodingAgentCommandAction(
-            kind="verify",
-            command=scoped_verify_command,
+            kind="discover",
+            command=_preview_detect_command(workspace),
             why=(
-                f"Every changed path that carries a capability surface belongs "
-                f"to {scope.relative}, which has its own shipgate.yaml; run "
-                "verify there on the PR diff. The workspace root has no "
-                "manifest of its own to run against."
+                f"This change spans {len(resolution.contested)} self-contained "
+                f"projects ({contested}), so no single manifest describes it "
+                "and initializing the workspace root would refuse. Read the "
+                "project list, then initialize the one this change belongs to."
             ),
         )
         headline = (
-            f"Shipgate is configured for the changed project ({scope.relative}); "
-            "run verify there to get a merge verdict."
+            f"This change spans {len(resolution.contested)} projects; "
+            "choose the one to set up before verifying."
         )
     elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
         next_action = CodingAgentCommandAction(

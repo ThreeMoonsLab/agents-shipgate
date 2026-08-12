@@ -22,6 +22,7 @@ def render_file() -> str:
 description: Run Agents Shipgate as the deterministic merge gate for AI-generated agent capability changes.
 globs:
   - "shipgate.yaml"
+  - "**/shipgate.yaml"
   - "**/*openapi*.yaml"
   - "**/*openapi*.yml"
   - "**/*openapi*.json"

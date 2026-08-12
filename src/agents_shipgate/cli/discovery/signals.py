@@ -60,7 +60,11 @@ from agents_shipgate.cli.discovery.artifacts import (
     _relative,
     probe_suggested_source,
 )
-from agents_shipgate.cli.discovery.scope import find_project_root, project_marker
+from agents_shipgate.cli.discovery.scope import (
+    PROJECT_MARKERS,
+    find_project_root,
+    project_marker,
+)
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
@@ -170,7 +174,14 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
     scan bounded on large monorepos.
     """
     workspace = workspace.resolve()
-    py_files = _collect_python_files(workspace, max_files=max_python_files)
+    # One inventory walk feeds the Python parse, the Codex plugin scan, and
+    # the project-marker census below. The walk is unbounded; only the AST
+    # parse is capped, and the census has to see the whole repository to
+    # know whether the cap could have hidden a second project.
+    inventory = _candidate_files(workspace)
+    py_files, parse_truncated = _collect_python_files(
+        inventory, max_files=max_python_files
+    )
     py_facts = [_parse_python_facts(path, workspace) for path in py_files]
     py_facts = [fact for fact in py_facts if fact is not None]
 
@@ -205,6 +216,13 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
     for framework, hits in glob_hits.items():
         for hit in hits:
             scores[framework].add(hit.points, hit.signal_class, hit.evidence)
+            # Artifact-defined frameworks (Anthropic, OpenAI API, n8n,
+            # Conductor) have no Python file to attribute a project from, so
+            # the artifact itself is their candidate file. This does not reach
+            # the manifest: `_tool_sources_block` reads `candidate_files` only
+            # for the Python-AST frameworks, and these four are not in that
+            # set — their sources come from `suggested_sources` instead.
+            scores[framework].add_file(hit.path)
 
     for framework, dirs in dir_hits.items():
         for d in dirs:
@@ -227,9 +245,26 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
     agent_name_candidates = _agent_name_candidates(py_facts, workspace)
     project_name_candidates = _project_name_candidates(workspace)
     suggested_sources, excluded_sources = _suggested_sources(workspace)
-    codex_plugin_candidates = _codex_plugin_candidates(workspace)
-    agent_project_candidates = _agent_project_candidates(py_facts, detections, workspace)
-    agent_scope = "ambiguous" if len(agent_project_candidates) > 1 else "single"
+    codex_plugin_candidates = _codex_plugin_candidates(workspace, inventory)
+    agent_project_candidates = _agent_project_candidates(
+        py_facts,
+        detections,
+        # An artifact-only project — an OpenAPI spec, an MCP export, a Codex
+        # plugin package — fires no framework detection at all, so its
+        # directory would otherwise be invisible to scope resolution while
+        # `init` happily folds it into one root manifest. A nested
+        # `shipgate.yaml` is the strongest form of the same evidence: a scope
+        # somebody already drew by hand.
+        [source["path"] for source in suggested_sources]
+        + [candidate.path for candidate in codex_plugin_candidates]
+        + _nested_manifest_paths(inventory, workspace),
+        workspace,
+    )
+    agent_scope = _agent_scope(
+        agent_project_candidates,
+        parse_truncated=parse_truncated,
+        project_roots=_project_root_count(inventory, workspace),
+    )
 
     is_agent_project = bool(detections)
     if agent_scope == "ambiguous":
@@ -240,6 +275,14 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
             "projects; this workspace is not one manifest's scope. Run "
             "`init --workspace <agent_project_candidates[].path> --write` for "
             "the project you are changing."
+        )
+    elif agent_scope == "unknown":
+        next_action = (
+            f"Discovery stopped at {max_python_files} Python files in a "
+            "workspace holding several project roots, so whether one manifest "
+            "describes it was not established. Re-run with a higher "
+            "--max-python-files, or run init in the project directory you are "
+            "changing."
         )
     elif is_agent_project or suggested_sources or codex_plugin_candidates:
         next_action = render_command(["init", "--workspace", str(workspace)])
@@ -276,15 +319,25 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
 # --- Internals --------------------------------------------------------------
 
 
-def _collect_python_files(workspace: Path, *, max_files: int) -> list[Path]:
+def _collect_python_files(
+    inventory: list[Path], *, max_files: int
+) -> tuple[list[Path], bool]:
+    """Python files to parse, and whether the cap cut the list short.
+
+    The caller needs the second half of that answer: a scope verdict
+    computed from a truncated parse is a verdict about part of the
+    repository, and saying "one project" about part of a repository is
+    exactly the mistake this module exists to prevent.
+    """
+
     files: list[Path] = []
-    for path in _candidate_files(workspace):
+    for path in inventory:
         if path.suffix != ".py":
             continue
-        files.append(path)
         if len(files) >= max_files:
-            break
-    return files
+            return files, True
+        files.append(path)
+    return files, False
 
 
 @dataclass
@@ -467,6 +520,10 @@ class _GlobHit:
     points: float
     signal_class: str  # "strong" | "medium" | "weak"
     evidence: str
+    #: Workspace-relative path that produced the signal. Artifact-defined
+    #: frameworks have no Python file to attribute a project from, so this
+    #: is the only evidence that says which directory they live in.
+    path: str
 
 
 def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
@@ -496,34 +553,34 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
     }
     for path in _discover_patterns(workspace, ANTHROPIC_TOOL_PATTERNS):
         hits["anthropic"].append(
-            _GlobHit(2.0, "strong", f"anthropic tool file: {path}")
+            _GlobHit(2.0, "strong", f"anthropic tool file: {path}", path)
         )
     for path in _discover_patterns(workspace, ANTHROPIC_POLICY_PATTERNS):
         hits["anthropic"].append(
-            _GlobHit(2.0, "strong", f"anthropic policy file: {path}")
+            _GlobHit(2.0, "strong", f"anthropic policy file: {path}", path)
         )
     # openai-config.json is the OpenAI Messages API model-config marker —
     # belongs to openai_api, not the agents SDK (manifest.openai_api.model_config).
     for path in _discover_patterns(workspace, MODEL_CONFIG_PATTERNS):
         hits["openai_api"].append(
-            _GlobHit(2.0, "strong", f"openai-config marker: {path}")
+            _GlobHit(2.0, "strong", f"openai-config marker: {path}", path)
         )
     for path in _discover_patterns(workspace, OPENAI_TOOL_PATTERNS):
         hits["openai_api"].append(
-            _GlobHit(2.0, "strong", f"openai tool file: {path}")
+            _GlobHit(2.0, "strong", f"openai tool file: {path}", path)
         )
     for path in _discover_patterns(workspace, POLICY_RULE_PATTERNS):
         hits["openai_api"].append(
-            _GlobHit(2.0, "strong", f"openai-api policy file: {path}")
+            _GlobHit(2.0, "strong", f"openai-api policy file: {path}", path)
         )
     for path in _discover_patterns(workspace, TEST_CASE_PATTERNS):
         hits["openai_api"].append(
-            _GlobHit(2.0, "strong", f"openai-api test cases: {path}")
+            _GlobHit(2.0, "strong", f"openai-api test cases: {path}", path)
         )
     for path in _discover_patterns(workspace, N8N_WORKFLOW_PATTERNS):
         full_path = (workspace / path).resolve()
         if _looks_like_n8n_workflow(full_path):
-            hits["n8n"].append(_GlobHit(2.0, "strong", f"n8n workflow: {path}"))
+            hits["n8n"].append(_GlobHit(2.0, "strong", f"n8n workflow: {path}", path))
     for path in _discover_patterns(workspace, CONDUCTOR_WORKFLOW_PATTERNS):
         full_path = (workspace / path).resolve()
         try:
@@ -537,6 +594,7 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
                     2.0,
                     "strong",
                     f"Conductor AI/MCP workflow: {path} ({', '.join(sorted(markers))})",
+                    path,
                 )
             )
     return hits
@@ -593,9 +651,71 @@ def _agent_name_candidates(facts: list[_PyFacts], workspace: Path) -> list[NameC
     return candidates
 
 
+def _agent_scope(
+    candidates: list[AgentProjectCandidate],
+    *,
+    parse_truncated: bool,
+    project_roots: int,
+) -> str:
+    """Whether one manifest can describe this workspace.
+
+    ``"unknown"`` is not a softer ``"single"``. Python parsing stops at
+    ``max_python_files``, so on a large repository the evidence behind a
+    ``"single"`` verdict may simply be the part of the tree that got read
+    first — and filesystem ordering is not a safety property. When the
+    parse was cut short *and* the workspace holds more than one project
+    root, a second agent project could be sitting in the unread remainder,
+    so the answer is that no answer was established.
+
+    Truncation alone is not enough to say that: a repository with one
+    project root has nowhere for a second project to hide, however many
+    files it holds, so large single-project repositories keep their
+    ``"single"`` verdict and their working ``init``.
+    """
+
+    if len(candidates) > 1:
+        return "ambiguous"
+    if parse_truncated and project_roots > 1:
+        return "unknown"
+    return "single"
+
+
+def _nested_manifest_paths(inventory: list[Path], workspace: Path) -> list[str]:
+    """Manifests below the workspace root, as workspace-relative paths.
+
+    A `shipgate.yaml` in a sub-directory is a manifest scope somebody has
+    already drawn. Two of them mean the workspace is demonstrably not one
+    scope, whatever the framework signals say — and unlike every other
+    signal here, that conclusion needs no heuristic at all.
+    """
+
+    return [
+        _relative(path, workspace)
+        for path in inventory
+        if path.name == "shipgate.yaml" and path.parent != workspace
+    ]
+
+
+def _project_root_count(inventory: list[Path], workspace: Path) -> int:
+    """How many project roots the workspace holds, counted from the walk.
+
+    Filename matching over the inventory the walk already produced — no
+    parsing, no cap — so this stays trustworthy exactly where the AST pass
+    stops being trustworthy.
+    """
+
+    roots = {
+        path.parent for path in inventory if path.name in PROJECT_MARKERS
+    }
+    if project_marker(workspace) is not None:
+        roots.add(workspace)
+    return len(roots)
+
+
 def _agent_project_candidates(
     facts: list[_PyFacts],
     detections: list[FrameworkDetection],
+    artifact_paths: list[str],
     workspace: Path,
 ) -> list[AgentProjectCandidate]:
     """Group the agent evidence in this workspace by the project it sits in.
@@ -608,14 +728,16 @@ def _agent_project_candidates(
     and one ``tool_sources`` list cannot describe both, which is what makes
     the scope ambiguous (#363).
 
-    Evidence is the file set the frameworks actually fired on, plus every
-    ``Agent(name=…)`` literal. Both matter and neither alone is enough: the
-    literal is the value ``init`` adopts for ``agent.name`` without asking,
-    while the candidate files are what it turns into ``tool_sources``. The
-    pull request in #363 is why the file set is included — its agent is
-    constructed as ``LlmAgent(name=CONFIG.agent_name)``, so a name-literal
-    rule would have left the very project under review out of the list of
-    directories the refusal offers.
+    Evidence is everything ``init`` would turn into a manifest: the file set
+    the frameworks fired on, every ``Agent(name=…)`` literal, and the
+    artifact paths (``suggested_sources``, Codex plugin packages and
+    marketplaces) that become ``tool_sources`` on their own. No single one
+    of those is enough. The literal is the value ``init`` adopts for
+    ``agent.name`` without asking — but the #363 agent is constructed as
+    ``LlmAgent(name=CONFIG.agent_name)`` and has none. The framework file
+    set covers that — but an OpenAPI- or MCP-only project fires no framework
+    detection at all, and two of those under one root is the same
+    one-manifest-for-two-agents outcome with none of the Python evidence.
     """
 
     names: dict[Path, set[str]] = {}
@@ -625,10 +747,13 @@ def _agent_project_candidates(
         for detection in detections
         for relative in detection.candidate_files
     ]
+    paths.extend(workspace / relative for relative in artifact_paths)
     paths.extend(fact.path for fact in facts if fact.agent_name_literals)
 
     def _project_of(path: Path) -> Path:
-        directory = path.parent
+        # A Codex plugin package is named by its directory, not by a file
+        # inside it; everything else is a file whose directory we want.
+        directory = path if path.is_dir() else path.parent
         try:
             directory.relative_to(workspace)
         except ValueError:
@@ -742,8 +867,10 @@ def _suggested_sources(
     return suggested, excluded
 
 
-def _codex_plugin_candidates(workspace: Path) -> list[CodexPluginCandidate]:
-    files = _candidate_files(workspace)
+def _codex_plugin_candidates(
+    workspace: Path, inventory: list[Path]
+) -> list[CodexPluginCandidate]:
+    files = inventory
     covered_roots: set[Path] = set()
     for path in files:
         if not (

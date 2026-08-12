@@ -29,6 +29,7 @@ from agents_shipgate.cli.discovery.gitignore_block import (
 )
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+from agents_shipgate.cli.discovery.scope import repository_root
 from agents_shipgate.core.errors import DiscoveryError
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.detect import AgentProjectCandidate
@@ -160,17 +161,58 @@ def _describe_candidate(candidate: AgentProjectCandidate) -> str:
     return f"{candidate.path} ({detail})"
 
 
-def _ambiguous_scope_message(
-    workspace: Path, candidates: list[AgentProjectCandidate]
+def _requested_setup_flags(
+    *,
+    ci: bool,
+    claude_code: bool,
+    agent_instructions: str | None,
+    agent_instructions_kit: Path | None,
+) -> list[str]:
+    """The setup this invocation asked for, as flags a rerun must repeat.
+
+    A recovery command that drops ``--ci`` or an agent-instruction
+    selection completes with less than the caller requested and reports
+    success for it. Mirrors ``_rerun_options`` in the verifier, for the
+    same reason.
+    """
+
+    flags: list[str] = []
+    if ci:
+        flags.append("--ci")
+    if claude_code:
+        flags.append("--claude-code")
+    if agent_instructions is not None:
+        flags.append(f"--agent-instructions={agent_instructions}")
+    if agent_instructions_kit is not None:
+        flags.extend(["--agent-instructions-kit", str(agent_instructions_kit)])
+    return flags
+
+
+def _unresolved_scope_message(
+    workspace: Path,
+    candidates: list[AgentProjectCandidate],
+    *,
+    scope: str,
 ) -> str:
-    lines = [
-        f"Refusing to write shipgate.yaml: {workspace} holds "
-        f"{len(candidates)} self-contained projects that define agents, and "
-        "one manifest describes one agent surface.",
-        "Candidate project directories:",
-    ]
-    for candidate in candidates[:_MAX_LISTED_SCOPE_CANDIDATES]:
-        lines.append(f"  - {_describe_candidate(candidate)}")
+    if scope == "unknown":
+        lines = [
+            f"Refusing to write shipgate.yaml: discovery stopped at the "
+            f"Python-file cap while {workspace} holds several project roots, "
+            "so whether one manifest describes it was not established.",
+        ]
+        if candidates:
+            lines.append("Projects found before the cap:")
+            for candidate in candidates[:_MAX_LISTED_SCOPE_CANDIDATES]:
+                lines.append(f"  - {_describe_candidate(candidate)}")
+    else:
+        lines = [
+            f"Refusing to write shipgate.yaml: {workspace} holds "
+            f"{len(candidates)} self-contained projects that define agents, "
+            "and one manifest describes one agent surface.",
+            "Candidate project directories:",
+        ]
+        for candidate in candidates[:_MAX_LISTED_SCOPE_CANDIDATES]:
+            lines.append(f"  - {_describe_candidate(candidate)}")
     remaining = len(candidates) - _MAX_LISTED_SCOPE_CANDIDATES
     if remaining > 0:
         lines.append(
@@ -179,13 +221,23 @@ def _ambiguous_scope_message(
         )
     lines.append(
         "Re-run init with --workspace pointed at the project you are changing, "
-        "or pass --allow-ambiguous-scope to write one manifest for all of them."
+        "or pass --allow-unresolved-scope to write one manifest for this "
+        "workspace as a whole."
     )
+    if scope == "unknown":
+        lines.append(
+            "`agents-shipgate detect --max-python-files <n> --json` reports the "
+            "full picture when the repository is larger than the default cap."
+        )
     return "\n".join(lines)
 
 
-def _ambiguous_scope_actions(
-    workspace: Path, candidates: list[AgentProjectCandidate]
+def _unresolved_scope_actions(
+    workspace: Path,
+    candidates: list[AgentProjectCandidate],
+    *,
+    scope: str,
+    setup_flags: list[str],
 ) -> list[NextAction]:
     """Rank the decision above the commands that carry it out.
 
@@ -193,18 +245,27 @@ def _ambiguous_scope_actions(
     make the same arbitrary pick this refusal exists to prevent. The
     per-candidate commands follow, in path order, so a caller that knows
     which project it is changing can match on the path rather than trust
-    an ordering.
+    an ordering. Each repeats the setup flags this invocation asked for —
+    a recovery that silently drops ``--ci`` or an agent-instruction
+    selection completes with less than the caller requested.
     """
 
+    why = (
+        f"{workspace} defines agents in {len(candidates)} separate projects; "
+        "pick the one this change belongs to. Shipgate will not choose for "
+        "you — the manifest declares one agent's name, purpose, and tool "
+        "surface."
+        if scope != "unknown"
+        else (
+            f"Discovery of {workspace} was capped before it could tell whether "
+            "one manifest describes it. Name the project you are changing, or "
+            "re-run detection with a higher cap."
+        )
+    )
     actions = [
         NextAction(
             kind="review",
-            why=(
-                f"{workspace} defines agents in {len(candidates)} separate "
-                "projects; pick the one this change belongs to. Shipgate will "
-                "not choose for you — the manifest declares one agent's name, "
-                "purpose, and tool surface."
-            ),
+            why=why,
             expects=(
                 "One project directory chosen from "
                 "auto_detected.agent_project_candidates."
@@ -214,8 +275,8 @@ def _ambiguous_scope_actions(
     # The workspace root is never offered as a command: it is the scope this
     # run just refused, so running it again returns here. `.` stays in the
     # reported candidate list because agent files that belong to no
-    # sub-project are real evidence of why the answer is ambiguous, and
-    # `--allow-ambiguous-scope` is the route that accepts them.
+    # sub-project are real evidence of why the answer is unresolved, and
+    # `--allow-unresolved-scope` is the route that accepts them.
     routable = [candidate for candidate in candidates if candidate.path != "."]
     for candidate in routable[:_MAX_LISTED_SCOPE_CANDIDATES]:
         target = workspace / candidate.path
@@ -224,7 +285,14 @@ def _ambiguous_scope_actions(
             NextAction(
                 kind="command",
                 command=render_command(
-                    ["init", "--workspace", str(target), "--write", "--json"]
+                    [
+                        "init",
+                        "--workspace",
+                        str(target),
+                        "--write",
+                        *setup_flags,
+                        "--json",
+                    ]
                 ),
                 why=(
                     f"Initialize only {candidate.path}"
@@ -286,12 +354,13 @@ def register(app: typer.Typer) -> None:
             "--minimal",
             help="Use the legacy CHANGE_ME-heavy template instead of auto-detection.",
         ),
-        allow_ambiguous_scope: bool = typer.Option(
+        allow_unresolved_scope: bool = typer.Option(
             False,
-            "--allow-ambiguous-scope",
+            "--allow-unresolved-scope",
             help=(
-                "Write one manifest for a workspace whose agents live in "
-                "several self-contained projects. Without this, --write "
+                "Write one manifest for a workspace whose manifest scope is "
+                "unresolved — agents in several self-contained projects, or "
+                "discovery capped before it could tell. Without this, --write "
                 "refuses and lists the candidate project directories instead "
                 "of adopting the first agent name it parsed."
             ),
@@ -406,7 +475,7 @@ def register(app: typer.Typer) -> None:
         # never adopts a detected agent name or tool surface, so its output
         # cannot be silently mis-scoped and the refusal does not apply.
         scope_candidates: list[AgentProjectCandidate] = []
-        ambiguous_scope = False
+        detected_scope = "single"
         if minimal:
             template = render_manifest_template(workspace_resolved)
             placeholders = collect_placeholders(template)
@@ -509,7 +578,7 @@ def register(app: typer.Typer) -> None:
                 ],
             }
             scope_candidates = list(detect_result.agent_project_candidates)
-            ambiguous_scope = detect_result.agent_scope == "ambiguous"
+            detected_scope = detect_result.agent_scope
             excluded_sources = detect_result.excluded_sources
             if excluded_sources:
                 # Glob-matched files the input adapters reject — dropped from
@@ -577,11 +646,11 @@ def register(app: typer.Typer) -> None:
                 # set the user's primary intent is refreshing snippets, and an
                 # already-existing manifest is informational, not a failure.
                 manifest_skip_pending = True
-            elif ambiguous_scope and not allow_ambiguous_scope:
-                manifest_status = "refused_ambiguous_scope"
+            elif detected_scope != "single" and not allow_unresolved_scope:
+                manifest_status = "refused_unresolved_scope"
                 manifest_exit = 2
-                manifest_message = _ambiguous_scope_message(
-                    workspace_resolved, scope_candidates
+                manifest_message = _unresolved_scope_message(
+                    workspace_resolved, scope_candidates, scope=detected_scope
                 )
                 scope_refused = True
             else:
@@ -593,7 +662,13 @@ def register(app: typer.Typer) -> None:
         workflow_outcome: dict[str, object] | None = None
         workflow_requested = ci and not scope_refused
         if workflow_requested:
-            result = write_ci_workflow(workspace_resolved)
+            # GitHub loads workflows from the repository root only, so a
+            # scoped adoption still wires CI there — with a config path
+            # relative to that root (#363).
+            result = write_ci_workflow(
+                workspace_resolved,
+                repository_root=repository_root(workspace_resolved),
+            )
             workflow_outcome = {
                 "status": result.status,
                 "path": result.path,
@@ -659,7 +734,17 @@ def register(app: typer.Typer) -> None:
             manifest_skip_pending = False
         scope_actions: list[NextAction] = []
         if scope_refused:
-            scope_actions = _ambiguous_scope_actions(workspace_resolved, scope_candidates)
+            scope_actions = _unresolved_scope_actions(
+                workspace_resolved,
+                scope_candidates,
+                scope=detected_scope,
+                setup_flags=_requested_setup_flags(
+                    ci=ci,
+                    claude_code=claude_code,
+                    agent_instructions=agent_instructions,
+                    agent_instructions_kit=agent_instructions_kit,
+                ),
+            )
             _emit_agent_mode_error(
                 "config_error",
                 path=str(target),
@@ -667,7 +752,7 @@ def register(app: typer.Typer) -> None:
                 exit_code=manifest_exit,
                 next_action=scope_actions[0].to_legacy_string(),
                 next_actions=[action.model_dump(mode="json") for action in scope_actions],
-                agent_scope="ambiguous",
+                agent_scope=detected_scope,
                 agent_project_candidates=[
                     candidate.model_dump(mode="json") for candidate in scope_candidates
                 ],
@@ -761,7 +846,7 @@ def register(app: typer.Typer) -> None:
                             f"Replace these placeholders before scanning: "
                             f"{', '.join(sorted({entry['path'] for entry in placeholders}))}"
                         )
-                elif manifest_status in ("skipped_existing", "refused_ambiguous_scope"):
+                elif manifest_status in ("skipped_existing", "refused_unresolved_scope"):
                     typer.echo(manifest_message, err=True)
             if workflow_outcome is not None:
                 stream = (

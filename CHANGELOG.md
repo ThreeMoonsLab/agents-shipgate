@@ -16,35 +16,77 @@
   answer the question, so preview now derives `--workspace` from them: each is
   attributed to the nearest directory at or above it carrying a project marker
   (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`, …), and the scope
-  is that project when exactly one is claimed. The workspace root is left
-  unchanged whenever the paths do not narrow it — a root-level change, or one
-  spanning two projects, which narrows to *nothing* rather than to their common
-  parent, because the parent of two projects is not itself a project.
-  Documentation and tests cannot outvote code: when more than one project is
-  claimed, the projects claimed *only* by documentation or test paths drop out,
-  and the trigger catalog's own docs-only rule decides which paths those are so
-  the two surfaces cannot drift. That leg is load-bearing — the reported PR
-  edits `python/agents/README.md` one directory above the project it adds, and
-  counting that README as a competing claim sends the answer straight back to
-  the repository root. When that project already carries its own
-  `shipgate.yaml`, preview
-  routes to `verify` there instead of to setup, so following the suggestion
-  once does not turn the next preview into a loop against a manifest that now
-  exists. `init --write` closes the same gap from the other side: a workspace
-  whose agents live in more than one project reports
-  `manifest_status: "refused_ambiguous_scope"` (exit 2) with
-  `auto_detected.agent_scope` and `agent_project_candidates[]` naming each one,
-  rather than adopting the first agent name it parsed. A refused run writes
-  *nothing* — not the manifest, not the CI workflow, not the agent-instruction
-  snippets, not the reports `.gitignore` block — so a workspace Shipgate
-  declined to adopt carries no Shipgate edits into the diff. Rank 1 of the
-  emitted recovery is deliberately not a command: promoting one candidate would
-  make the same arbitrary pick the refusal exists to prevent. `--minimal`
-  adopts no detected name or tool surface and is unaffected; a repository that
-  really is one agent surface across several projects passes
-  `--allow-ambiguous-scope`; and re-running `init --write
+  is that project when exactly one is claimed **and** every capability-bearing
+  changed path was claimed by it. A capability path no project owns — a root
+  `prompts/system.md` travelling with a change to `services/b` — vetoes the
+  answer rather than being dropped, because "this change belongs to
+  `services/b`" would then be a false statement about the diff. The workspace
+  root is likewise left unchanged whenever the paths do not narrow it — a
+  root-level change, or one spanning two projects, which narrows to *nothing*
+  rather than to their common parent, because the parent of two projects is not
+  itself a project. Documentation and tests cannot outvote code: when more than
+  one project is claimed, the projects claimed *only* by documentation or test
+  paths drop out, and the trigger catalog's own docs-only rule decides which
+  paths those are so the two surfaces cannot drift. That leg is load-bearing —
+  the reported PR edits `python/agents/README.md` one directory above the
+  project it adds, and counting that README as a competing claim sends the
+  answer straight back to the repository root. Base detection now runs in
+  preview exactly as it does in `verify` (honoring `--no-base`), because the
+  promoted adoption command is the bare `verify --preview --json`: without it
+  the preview every first adoption runs evaluates an empty change set and
+  nothing below it can fire. Markers are read from the working tree — what
+  `init` will run against — so a preview of a head that is not the current
+  checkout claims no scope at all rather than recommending a directory that
+  depends on what happens to be checked out. When the changed project already
+  carries its own `shipgate.yaml`, preview routes to `verify` **there**, ahead
+  of any root manifest, which governs a different boundary; that also stops the
+  next preview from looping against a manifest that now exists. A change
+  spanning several projects routes to `detect` instead of to an `init` that
+  would deterministically refuse.
+
+  `init --write` closes the same gap from the other side: a workspace whose
+  manifest scope is unresolved reports
+  `manifest_status: "refused_unresolved_scope"` (exit 2) with
+  `auto_detected.agent_scope` and `agent_project_candidates[]`, rather than
+  adopting the first agent name it parsed. Two things make a scope unresolved.
+  `agent_scope: "ambiguous"` is agents in several self-contained projects —
+  evidenced by everything `init` would turn into a manifest, so an
+  OpenAPI-only or MCP-only project with no Python at all counts, as does a
+  nested `shipgate.yaml` somebody already scoped by hand. `agent_scope:
+  "unknown"` is discovery capped before it could tell: Python parsing stops at
+  `--max-python-files`, and in a workspace with several project roots a
+  "single project" verdict would just be whichever files were read first.
+  Truncation alone is not enough to withhold an answer — a repository with one
+  project root has nowhere for a second project to hide, so large
+  single-project repositories keep their verdict and their working `init`. A
+  refused run writes *nothing* — not the manifest, not the CI workflow, not the
+  agent-instruction snippets, not the reports `.gitignore` block — so a
+  workspace Shipgate declined to adopt carries no Shipgate edits into the diff.
+  Rank 1 of the emitted recovery is deliberately not a command: promoting one
+  candidate would make the same arbitrary pick the refusal exists to prevent,
+  and the refused workspace itself is never offered back. The per-candidate
+  commands repeat the setup flags the caller passed, so a recovery cannot
+  silently complete with less than `--ci` or an agent-instruction selection
+  asked for. `--minimal` adopts no detected name or tool surface and is
+  unaffected; a repository that really is one agent surface across several
+  projects passes `--allow-unresolved-scope`; and re-running `init --write
   --agent-instructions=…` on an adopted repository is untouched, because its
   scope was settled when its manifest was written.
+
+  Two surfaces around it were wrong in the same direction. `init --ci` scoped
+  to a sub-directory wrote `<project>/.github/workflows/agents-shipgate.yml`,
+  which GitHub never loads — a gate reported as written that could not run; the
+  workflow now lands at the repository root with a `config:` naming the
+  manifest relative to that root. And `TRIGGER-SHIPGATE-MANIFEST` matched
+  `shipgate.yaml` only at the repository root, so an edit to
+  `services/refund/shipgate.yaml` — the file that declares that project's
+  agent, purpose, and tool surface — reported `no_match`; it now matches at any
+  depth, as do the pre-commit `files:` regex and the Cursor activation globs
+  that copy the catalog, and a nested manifest counts as the repo-already-opted-in
+  signal. `tools/shipgate-detect.py` (`script_version` `0.3.0`) carries
+  `agent_scope` and `agent_project_candidates[]` too, pinned against the CLI by
+  the parity test: an agent that consults the zero-install path must not adopt
+  a scope the CLI refuses.
   ([#363](https://github.com/ThreeMoonsLab/agents-shipgate/issues/363))
 
 - **The recommended next command now runs where it was recommended.** Every

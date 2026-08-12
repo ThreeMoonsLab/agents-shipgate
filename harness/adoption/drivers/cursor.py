@@ -46,6 +46,7 @@ the adoption-guidance fingerprint. If the canonical block in
 
 CANONICAL_GLOBS_REQUIRED: tuple[str, ...] = (
     "shipgate.yaml",
+    "**/shipgate.yaml",
     "**/*openapi*.yaml",
     "**/*openapi*.yml",
     "**/*openapi*.json",

@@ -73,6 +73,52 @@ class ChangeScope:
     marker: str
 
 
+@dataclass(frozen=True)
+class ScopeResolution:
+    """What the changed paths say about which project they belong to.
+
+    Three answers, and the difference between the last two is the point:
+
+    * ``scope`` set — one project owns the capability-bearing change.
+    * ``scope`` unset with ``contested`` populated — several projects do,
+      and *which* they are is worth reporting, because "run init at the
+      root" is a command that will refuse.
+    * both empty — nothing narrows the workspace the caller already named.
+    """
+
+    scope: ChangeScope | None = None
+    #: Workspace-relative paths of the competing projects, sorted.
+    contested: tuple[str, ...] = ()
+
+
+def repository_root(start: Path) -> Path | None:
+    """Nearest enclosing Git checkout root, or ``None``.
+
+    Found by walking up for a ``.git`` entry — a directory in a normal
+    checkout, a file in a worktree or submodule — rather than by asking
+    git. This module is stat-only by contract (see
+    ``tests/test_adapter_static_only.py``), and the question it answers
+    does not need git's opinion: GitHub Actions loads workflows from the
+    repository root's ``.github/workflows`` and nowhere else, so what
+    matters is which directory that is.
+    """
+
+    try:
+        current = start.resolve()
+    except OSError:  # pragma: no cover - unreadable path
+        return None
+    while True:
+        try:
+            if (current / ".git").exists():
+                return current
+        except OSError:  # pragma: no cover - unreadable directory
+            return None
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
 def project_marker(directory: Path) -> str | None:
     """Name the project marker in ``directory``, if it carries one."""
 
@@ -111,30 +157,35 @@ def resolve_change_scope(
     root: Path,
     changed_files: Iterable[str],
     limit: Path | None = None,
-) -> ChangeScope | None:
-    """The one project the changed paths belong to, or ``None``.
+) -> ScopeResolution:
+    """Which project the changed paths belong to.
 
-    Each changed path is attributed to the nearest project root at or above
-    it, and the scope is that project when exactly one is claimed this way.
-    Paths no project claims are simply silent: a repository-level file
-    travelling with a change does not erase the answer its companions give.
+    Every changed path is attributed to the nearest project root at or
+    above it. The scope is that project when exactly one is claimed and
+    every capability-bearing path in the change set was claimed by it.
 
-    Documentation and tests cannot outvote code. When more than one project
-    is claimed, the projects claimed *only* by documentation or test paths
-    drop out — the trigger catalog's own docs-only rule decides which paths
-    those are, so this cannot drift from what ``trigger`` reports. It
-    matters because such paths travel with real work: the pull request in
-    #363 edits a `README.md` one directory above the project it adds, and
-    counting that README as a competing claim would return the answer to
-    the repository root, which is the routing the issue is about.
+    Two rules decide the rest, and both fail towards the workspace the
+    caller already named:
 
-    Returns ``None`` — meaning "no better answer than the workspace you
-    already named" — for an empty change set, for a change no project
-    claims, for a single claim that is ``root`` (or ``limit``) itself, and
-    for paths that still span two projects after documentation drops out.
-    Two projects deliberately narrow to nothing rather than to their common
-    parent: the parent of two projects is not itself a project, and a
-    manifest written there would describe both.
+    * **An unclaimed capability path vetoes the answer.** A changed path
+      that carries a capability surface and sits under no project root
+      cannot be described by a manifest in some sibling directory. Saying
+      "this change belongs to `services/b`" while a root `prompts/system.md`
+      changed too would be a false statement about the diff, so nothing is
+      suggested instead.
+    * **Documentation and tests cannot outvote code.** They carry no
+      capability surface, so a project claimed *only* by documentation or
+      test paths drops out of a contest — the trigger catalog's own
+      docs-only rule decides which paths those are, so this cannot drift
+      from what ``trigger`` reports. It matters because such paths travel
+      with real work: the pull request in #363 edits a `README.md` one
+      directory above the project it adds, and counting that README as a
+      competing claim would return the answer to the repository root,
+      which is the routing the issue is about.
+
+    When several projects survive, the resolution carries them in
+    :attr:`ScopeResolution.contested` rather than silently collapsing:
+    "run init at the root" is a command that would refuse.
 
     ``limit`` is the workspace the caller asked about. The suggestion never
     leaves it, so a preview scoped to a sub-directory cannot be answered
@@ -144,65 +195,83 @@ def resolve_change_scope(
     try:
         root_resolved = root.resolve()
     except OSError:  # pragma: no cover - unreadable workspace
-        return None
+        return ScopeResolution()
     try:
         limit_resolved = limit.resolve() if limit is not None else root_resolved
     except OSError:  # pragma: no cover - unreadable workspace
-        return None
+        return ScopeResolution()
 
+    # Paths are used verbatim. A file name may legally begin or end with a
+    # space, and trimming one here would attribute the change to a directory
+    # that does not exist.
+    entries = [entry for entry in changed_files if entry]
     # project directory -> (marker, the changed paths that claimed it)
     claims: dict[Path, tuple[str, list[str]]] = {}
+    unclaimed: list[str] = []
     seen: dict[Path, ProjectRoot | None] = {}
-    for entry in changed_files:
-        text = (entry or "").strip()
-        if not text:
-            continue
+    for text in entries:
         path = PurePosixPath(text)
         if path.is_absolute() or ".." in path.parts:
             # Outside anything ``git diff --name-only`` emits. A scope
             # derived from a path this module cannot reason about could name
             # a directory outside the repository, so abandon the answer
             # rather than skip the path and answer from the rest.
-            return None
+            return ScopeResolution()
         directory = root_resolved.joinpath(*path.parts[:-1])
         if directory not in seen:
             seen[directory] = find_project_root(directory, root=root_resolved)
         found = seen[directory]
         if found is None:
-            continue  # no project claims this path
+            unclaimed.append(text)
+            continue
         claims.setdefault(found.directory, (found.marker, []))[1].append(text)
 
-    if len(claims) > 1:
-        # Only a contest needs the docs-only rule evaluated at all, which is
-        # also what keeps a large diff cheap: the ordinary single-project
-        # change never pays for it.
+    if len(claims) > 1 or unclaimed:
+        # Only a contest — or a path no project owns — needs the docs-only
+        # rule evaluated at all, which is what keeps a large single-project
+        # diff from paying for it.
         silent = paths_without_capability_surface(
-            [text for _marker, texts in claims.values() for text in texts]
+            [text for _marker, texts in claims.values() for text in texts] + unclaimed
         )
+        if any(text not in silent for text in unclaimed):
+            return ScopeResolution()
         claims = {
             directory: claim
             for directory, claim in claims.items()
             if any(text not in silent for text in claim[1])
         }
 
-    if len(claims) != 1:
-        return None
+    if len(claims) > 1:
+        return ScopeResolution(
+            contested=tuple(
+                sorted(
+                    directory.relative_to(root_resolved).as_posix()
+                    if directory != root_resolved
+                    else "."
+                    for directory in claims
+                )
+            )
+        )
+    if not claims:
+        return ScopeResolution()
     directory, (marker, _texts) = next(iter(claims.items()))
     # A claim on the root — or on the workspace the caller already named —
     # is the scope they have. Say nothing rather than restate it.
     if directory in (root_resolved, limit_resolved):
-        return None
+        return ScopeResolution()
     if not _is_within(directory, limit_resolved):
-        return None
+        return ScopeResolution()
     try:
         if not _is_within(directory.resolve(), root_resolved):
-            return None  # a symlinked directory leading out of the repository
+            return ScopeResolution()  # a symlink leading out of the repository
     except OSError:  # pragma: no cover - unreadable directory
-        return None
-    return ChangeScope(
-        directory=directory,
-        relative=directory.relative_to(root_resolved).as_posix(),
-        marker=marker,
+        return ScopeResolution()
+    return ScopeResolution(
+        scope=ChangeScope(
+            directory=directory,
+            relative=directory.relative_to(root_resolved).as_posix(),
+            marker=marker,
+        )
     )
 
 
@@ -215,8 +284,10 @@ def _is_within(candidate: Path, root: Path) -> bool:
 __all__ = [
     "PROJECT_MARKERS",
     "ChangeScope",
+    "ScopeResolution",
     "ProjectRoot",
     "find_project_root",
     "project_marker",
+    "repository_root",
     "resolve_change_scope",
 ]

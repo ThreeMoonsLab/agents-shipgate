@@ -69,7 +69,7 @@ jobs:
       - name: Run Agents Shipgate
         uses: ThreeMoonsLab/agents-shipgate@{ref}
         with:
-          config: shipgate.yaml
+          config: {config}
           ci_mode: advisory       # change to "strict" once findings are clean
           diff_base: target
           check_annotations: "true"
@@ -81,8 +81,11 @@ jobs:
 """
 
 
-def _render_workflow_template() -> str:
-    return _WORKFLOW_TEMPLATE.format(ref=_action_ref())
+DEFAULT_MANIFEST_PATH = "shipgate.yaml"
+
+
+def _render_workflow_template(config: str = DEFAULT_MANIFEST_PATH) -> str:
+    return _WORKFLOW_TEMPLATE.format(ref=_action_ref(), config=config)
 
 
 # Backwards-compat: tests and external callers may import the constant.
@@ -104,16 +107,35 @@ class CiWorkflowResult:
     cross_reference_path: str | None = None
 
 
-def write_ci_workflow(workspace: Path) -> CiWorkflowResult:
+def write_ci_workflow(
+    workspace: Path, *, repository_root: Path | None = None
+) -> CiWorkflowResult:
     """Write ``.github/workflows/agents-shipgate.yml`` if absent.
 
     Refuses to overwrite. Also refuses if any existing workflow already
     calls ``ThreeMoonsLab/agents-shipgate`` — surfacing the cross-reference
     so users don't accidentally double-wire CI.
+
+    ``repository_root`` is where the workflow goes when the manifest lives
+    in a sub-directory. GitHub Actions loads workflows from the repository
+    root and nowhere else, so a workflow written beside a nested manifest
+    is a file that never runs — reported as success while no gate exists
+    (#363). The workflow's ``config:`` then names the manifest relative to
+    that root, because the action runs with ``--workspace "."`` there.
     """
     workspace = workspace.resolve()
-    workflows_dir = workspace / ".github" / "workflows"
-    target = workspace / WORKFLOW_RELATIVE_PATH
+    root = (repository_root or workspace).resolve()
+    try:
+        manifest_relative = (workspace / DEFAULT_MANIFEST_PATH).relative_to(root)
+    except ValueError:
+        # The manifest is not under the named root; keep the workflow and its
+        # config beside the manifest rather than pointing CI at a path that
+        # does not exist from the root.
+        root = workspace
+        manifest_relative = Path(DEFAULT_MANIFEST_PATH)
+    config_value = manifest_relative.as_posix()
+    workflows_dir = root / ".github" / "workflows"
+    target = root / WORKFLOW_RELATIVE_PATH
 
     cross_ref = _detect_cross_reference(workflows_dir, exclude=target)
     if cross_ref is not None:
@@ -140,7 +162,7 @@ def write_ci_workflow(workspace: Path) -> CiWorkflowResult:
     workflows_dir.mkdir(parents=True, exist_ok=True)
     # Re-render at write time so the ref reflects the current package
     # version (or the AGENTS_SHIPGATE_WORKFLOW_REF override).
-    target.write_text(_render_workflow_template(), encoding="utf-8")
+    target.write_text(_render_workflow_template(config_value), encoding="utf-8")
     return CiWorkflowResult(
         status="written",
         path=str(target),

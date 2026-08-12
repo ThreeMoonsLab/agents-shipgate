@@ -1432,14 +1432,16 @@ _TRUST_ROOT_TRIGGER_SAMPLES: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# Samples the catalog does not route today. Both surfaces are anchored at the
+# Samples the catalog does not route today. The surface is anchored at the
 # repo root by the boundary registry's `exact_paths`, which check, verify,
-# preflight and audit all share, so widening them is a registry change rather
+# preflight and audit all share, so widening it is a registry change rather
 # than a catalog edit. This set is a tripwire, not an endorsement: close one of
 # these gaps and the parity test below tells you to promote it out of the set.
+# `services/foo/shipgate.yaml` was promoted out in #363 — a monorepo keeps one
+# manifest per project directory, so an edit to the file declaring that
+# project's agent, purpose, and tool surface has to route.
 _TRUST_ROOT_TRIGGER_GAPS = frozenset(
     {
-        "services/foo/shipgate.yaml",
         "services/foo/.agents-shipgate/baseline.json",
     }
 )
@@ -2650,6 +2652,10 @@ _HOOK_PATH_TRIGGER_FIXTURES = {
     ],
     "TRIGGER-SHIPGATE-MANIFEST": [
         "shipgate.yaml",
+        # A monorepo keeps one manifest per project directory; an edit to
+        # the file that declares that project's agent, purpose, and tool
+        # surface has to route like a root-level one (#363).
+        "services/refund/shipgate.yaml",
     ],
     "TRIGGER-SHIPGATE-CI-WORKFLOW": [
         ".github/workflows/agents-shipgate.yml",

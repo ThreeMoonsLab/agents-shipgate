@@ -79,9 +79,12 @@ class DetectResult(BaseModel):
     # were found in more than one self-contained project, so the workspace as
     # a whole is not a manifest scope: `agent.name`, `declared_purpose`, and
     # the declared tool surface would each describe several unrelated agents.
-    # `init --write` refuses on "ambiguous" rather than adopting the first
-    # agent name it parsed.
-    agent_scope: Literal["single", "ambiguous"] = "single"
+    # "unknown" means discovery was capped before it could tell — a truncated
+    # parse in a workspace with several project roots, where the evidence
+    # behind "single" would just be whichever files were read first.
+    # `init --write` refuses on both rather than adopting the first agent
+    # name it parsed.
+    agent_scope: Literal["single", "ambiguous", "unknown"] = "single"
     agent_project_candidates: list[AgentProjectCandidate] = Field(default_factory=list)
     suggested_sources: list[dict[str, str]] = Field(default_factory=list)
     # Glob-matched OpenAPI/MCP candidates the real input adapters reject

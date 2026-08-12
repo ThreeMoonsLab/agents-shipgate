@@ -306,7 +306,7 @@ repos:
         types_or: [file, symlink]
         files: |
           (?ix)^(
-            shipgate\.yaml|
+            (.*/)?shipgate\.yaml|
             .*tools.*\.json|
             .*mcp.*\.json|
             .*n8n.*\.json|

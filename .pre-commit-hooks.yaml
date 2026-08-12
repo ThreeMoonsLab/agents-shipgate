@@ -53,7 +53,7 @@
   stages: [pre-commit, pre-push]
   files: |
     (?ix)^(
-      shipgate\.yaml|
+      (.*/)?shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
       .*n8n.*\.json|
@@ -101,7 +101,7 @@
   stages: [pre-push]
   files: |
     (?ix)^(
-      shipgate\.yaml|
+      (.*/)?shipgate\.yaml|
       .*tools.*\.json|
       .*mcp.*\.json|
       .*n8n.*\.json|
