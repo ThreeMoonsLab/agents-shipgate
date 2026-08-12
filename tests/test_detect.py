@@ -606,11 +606,15 @@ def test_adk_root_name_resolves_one_hop_through_adjacent_config(
     )
 
 
-def test_root_name_from_unresolvable_expression_falls_back(tmp_path: Path) -> None:
-    """The static-only boundary. An f-string root name is not resolvable
-    without running user code, so the root contributes no candidate at all
-    and the sub-agents are all that is left — better a demotable worker name
-    plus visible roles than a fabricated identity."""
+def test_unresolvable_root_name_blocks_selection_entirely(tmp_path: Path) -> None:
+    """#324's fail-closed criterion, and the sharpest case for it.
+
+    An f-string root name cannot be resolved without running user code. The
+    tempting behaviour is to drop the root and let the remaining candidates
+    rank — but everything remaining is, by construction, *not* the root, so
+    that silently declares a worker as the reviewed identity. When a
+    declared root cannot be resolved, nothing is selectable.
+    """
     project = tmp_path / "dynamic"
     project.mkdir()
     (project / "agent.py").write_text(
@@ -633,7 +637,239 @@ def test_root_name_from_unresolvable_expression_falls_back(tmp_path: Path) -> No
     result = detect_workspace(project)
     values = [c.value for c in result.agent_name_candidates]
     assert not any("coordinator" in value for value in values)
-    assert values[0] == "WorkerAgent"
+    assert select_agent_name(result.agent_name_candidates) is None
+    worker = next(c for c in result.agent_name_candidates if c.value == "WorkerAgent")
+    assert worker.selectable is False
+    assert any("application root" in reason for reason in worker.rationale)
+    assert "name: CHANGE_ME" in render_auto_manifest(project, result)
+
+
+def test_root_reference_resolves_to_the_reaching_assignment(tmp_path: Path) -> None:
+    """`App(root_agent=agent)` names the binding live at that point, not
+    every construction that ever used the identifier. Classifying both as
+    roots put source order back in charge of the tie and picked the
+    overwritten one."""
+    project = tmp_path / "rebound"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from google.adk.agents import Agent
+            from google.adk.apps import App
+
+            agent = Agent(name="OldWorker")
+            agent = Agent(name="ActualRoot")
+            app = App(name="a", root_agent=agent)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    roles = {c.value: c.role for c in result.agent_name_candidates}
+    assert roles["ActualRoot"] == "root_agent"
+    assert roles["OldWorker"] == "agent"
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "ActualRoot"
+
+
+def test_function_local_root_agent_is_not_an_application_root(tmp_path: Path) -> None:
+    """The ADK convention is about the *module* symbol `adk run` imports. A
+    local variable that happens to be spelled `root_agent` is just a local,
+    and promoting it outranks every real module-level agent."""
+    project = tmp_path / "local"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from google.adk.agents import Agent
+
+            def build():
+                root_agent = Agent(name="LocalHelper")
+                return root_agent
+
+            top = Agent(name="RealTopLevel")
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    roles = {c.value: c.role for c in result.agent_name_candidates}
+    assert roles["LocalHelper"] == "agent"
+    assert roles["RealTopLevel"] == "agent"
+    assert not any(c.role == "root_agent" for c in result.agent_name_candidates)
+
+
+def test_root_reference_to_an_undefined_symbol_fails_closed(tmp_path: Path) -> None:
+    """A root bound to something no single construction defines is still a
+    declared root. Selection declines rather than falling through."""
+    project = tmp_path / "dangling"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from google.adk.agents import Agent
+            from google.adk.apps import App
+            from factory import build_root
+
+            worker = Agent(name="WorkerAgent")
+            app = App(name="a", root_agent=build_root())
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_rebound_constant_is_never_resolved(tmp_path: Path) -> None:
+    """`NAME = "Old"` then `NAME = "Current"` passes `Current` at runtime.
+    Taking the first static assignment asserts a value Python never uses, so
+    any second binding of the symbol leaves it unresolved."""
+    project = tmp_path / "rebound_const"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from google.adk.agents import Agent
+
+            NAME = "OldAgent"
+            NAME = "CurrentAgent"
+            root_agent = Agent(name=NAME)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    values = {c.value for c in result.agent_name_candidates}
+    assert "OldAgent" not in values and "CurrentAgent" not in values
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_conditionally_rebound_constant_is_never_resolved(tmp_path: Path) -> None:
+    """The same rule covers the write a module-body-only scan cannot see: a
+    conditional reassignment is a second binding, so the top-level literal
+    stops being authoritative."""
+    project = tmp_path / "conditional_const"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            import os
+            from google.adk.agents import Agent
+
+            NAME = "DefaultAgent"
+            if os.environ.get("TIER"):
+                NAME = "TierAgent"
+            root_agent = Agent(name=NAME)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    assert "DefaultAgent" not in {c.value for c in result.agent_name_candidates}
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_child_keywords_only_count_on_agent_constructors(tmp_path: Path) -> None:
+    """`sub_agents=`/`handoffs=` mean "these are my children" only when the
+    surrounding call builds an agent. Reading them off any call let an
+    unrelated helper demote a coordinator and hand the identity to a
+    worker."""
+    project = tmp_path / "unrelated"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from agents import Agent
+
+            coordinator = Agent(name="CoordinatorAgent")
+            worker = Agent(name="SomeWorkerAgent")
+            configure(handoffs=[coordinator])
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    roles = {c.value: c.role for c in result.agent_name_candidates}
+    assert roles["CoordinatorAgent"] == "agent"
+    assert roles["SomeWorkerAgent"] == "agent"
+
+
+def test_helper_local_import_does_not_resolve_a_module_level_name(
+    tmp_path: Path,
+) -> None:
+    """Import bindings are per scope. A helper importing `AGENT_NAME` from
+    somewhere else must not supply the value a module-level construction
+    reads from a different module."""
+    project = tmp_path / "scoped_import"
+    project.mkdir()
+    (project / "other.py").write_text('AGENT_NAME = "HelperAgent"\n', encoding="utf-8")
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from google.adk.agents import Agent
+
+            def helper():
+                from other import AGENT_NAME
+                return AGENT_NAME
+
+            root_agent = Agent(name=AGENT_NAME)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    assert "HelperAgent" not in {c.value for c in result.agent_name_candidates}
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_aliased_import_resolves_the_imported_name(tmp_path: Path) -> None:
+    """`from config import AGENT_NAME as NAME` defines `AGENT_NAME` in the
+    target module; looking up the alias there finds nothing."""
+    project = tmp_path / "aliased"
+    project.mkdir()
+    (project / "config.py").write_text('AGENT_NAME = "AliasedAgent"\n', encoding="utf-8")
+    (project / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from config import AGENT_NAME as NAME
+            from google.adk.agents import Agent
+
+            root_agent = Agent(name=NAME)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "AliasedAgent"
+
+
+def test_conflicting_import_roots_leave_the_name_unresolved(tmp_path: Path) -> None:
+    """`from config import AGENT_NAME` resolves against the agent directory
+    or the workspace root depending on `sys.path`. When both exist in the
+    workspace and disagree, which one Python picks is not ours to assume."""
+    project = tmp_path / "ambiguous"
+    (project / "pkg").mkdir(parents=True)
+    (project / "config.py").write_text('AGENT_NAME = "WorkspaceRoot"\n', encoding="utf-8")
+    (project / "pkg" / "config.py").write_text(
+        'AGENT_NAME = "SiblingRoot"\n', encoding="utf-8"
+    )
+    (project / "pkg" / "agent.py").write_text(
+        textwrap.dedent(
+            """
+            from config import AGENT_NAME
+            from google.adk.agents import Agent
+
+            root_agent = Agent(name=AGENT_NAME)
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    values = {c.value for c in result.agent_name_candidates}
+    assert "SiblingRoot" not in values and "WorkspaceRoot" not in values
+    assert select_agent_name(result.agent_name_candidates) is None
 
 
 def test_one_character_literal_never_becomes_the_agent_name(tmp_path: Path) -> None:
@@ -765,3 +1001,27 @@ def test_constant_lookup_stays_inside_the_workspace(tmp_path: Path) -> None:
     )
     result = detect_workspace(project)
     assert "OutsideAgent" not in {c.value for c in result.agent_name_candidates}
+
+
+def test_detect_human_output_reports_what_init_will_write(tmp_path: Path) -> None:
+    """`detect`'s human line and `init`'s manifest must not disagree.
+    Printing candidate zero regardless of selectability told a reader the
+    agent was named `t` while `init` wrote CHANGE_ME."""
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    project = tmp_path / "scaffold"
+    project.mkdir()
+    (project / "main.py").write_text(
+        "from agents import Agent, function_tool\n\n"
+        "@function_tool\ndef ping() -> str:\n    return 'pong'\n\n"
+        'agent = Agent(name="t", tools=[ping])\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["detect", "--workspace", str(project)])
+    assert result.exit_code == 0, result.output
+    assert "Agent name candidate: t " not in result.output
+    assert "init will write CHANGE_ME" in result.output
+    assert "context-poor" in result.output

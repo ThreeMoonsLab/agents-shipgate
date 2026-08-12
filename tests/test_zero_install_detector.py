@@ -21,6 +21,7 @@ test catches drift between the script and the CLI immediately.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -521,3 +522,98 @@ def test_script_agent_name_ranking_matches_cli(script_module, tmp_path):
     assert [
         c["value"] for c in cli_result["agent_name_candidates"] if not c["selectable"]
     ] == ["t", "smart_closer"]
+
+
+def _git_init(root: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+    for key, value in (("user.email", "t@example.test"), ("user.name", "T")):
+        subprocess.run(
+            ["git", "-C", str(root), "config", key, value],
+            check=True,
+            capture_output=True,
+        )
+
+
+def test_script_ignores_gitignored_files_like_the_cli(script_module, tmp_path):
+    """Canonical detection lists the workspace through Git, so a
+    `.gitignore`d module is invisible to `init`. A script that walked it
+    anyway would rank a name `init` can never write — the parity claim has
+    to cover the inventory, not just the ranking rules."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / ".gitignore").write_text("ignored_agent.py\n", encoding="utf-8")
+    (repo / "real.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n',
+        encoding="utf-8",
+    )
+    # Sorts before real.py, so source order alone would have preferred it.
+    (repo / "ignored_agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="AAAIgnoredAgent")\n',
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "init"], check=True, capture_output=True
+    )
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    assert "AAAIgnoredAgent" not in {
+        c["value"] for c in script_result["agent_name_candidates"]
+    }
+
+
+def test_script_drops_python_symlinks_that_escape_the_workspace(script_module, tmp_path):
+    """A symlink pointing outside is not part of the workspace no matter
+    what its name says. Ranking a name out of one also leaks the outside
+    absolute path into `path`."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "escaped.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="AAAEscapedAgent")\n',
+        encoding="utf-8",
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "real.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n',
+        encoding="utf-8",
+    )
+    (repo / "escaped.py").symlink_to(outside / "escaped.py")
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    values = {c["value"] for c in script_result["agent_name_candidates"]}
+    assert "AAAEscapedAgent" not in values
+    assert all(
+        c["path"] is None or not c["path"].startswith("/")
+        for c in script_result["agent_name_candidates"]
+    )
+
+
+def test_script_reaches_python_sources_behind_many_assets(script_module, tmp_path):
+    """The bound belongs on Python *parses*, not on the file inventory. A
+    global file cap lets an asset-heavy repository exhaust its budget before
+    the walk reaches any source at all, and the script then reports a
+    different agent than `init` — or none."""
+    repo = tmp_path / "assets"
+    blobs = repo / "assets"
+    # Deeper than the assets, so `os.walk` is guaranteed to enumerate all
+    # 5200 blobs before it can reach the source — the old global cap
+    # returned mid-directory and never descended.
+    deep = blobs / "deep"
+    deep.mkdir(parents=True)
+    for index in range(5200):
+        (blobs / f"{index:05d}.bin").write_bytes(b"x")
+    (deep / "agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="BuriedAgent")\n',
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    assert "BuriedAgent" in {c["value"] for c in script_result["agent_name_candidates"]}

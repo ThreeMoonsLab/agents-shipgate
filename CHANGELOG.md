@@ -33,9 +33,42 @@
   future ordering regression is visible in `detect --json` instead of
   silently changing what the manifest claims. The rule itself now exists once
   (`select_agent_name`) rather than as a `source in {…}` set literal copied
-  into the renderer and the JSON summary, and
-  `tools/shipgate-detect.py` (`script_version` `0.3.0`) is pinned to the
+  into the renderer, the JSON summary, and `detect`'s human-readable line,
+  and `tools/shipgate-detect.py` (`script_version` `0.3.0`) is pinned to the
   CLI's ranking byte for byte by the parity suite.
+
+  Because the ranking reads Python name binding, it reads it the way Python
+  does or else declines. Scopes are not flattened: a helper's local
+  `root_agent`, and a helper's local import, belong to that helper and never
+  stand in for the module's. A reference resolves to the assignment that
+  actually reaches it — nearest scope, latest line before the reference —
+  rather than to every assignment sharing the identifier. A symbol bound
+  more than once anywhere in a file is never resolved, which is what makes
+  reading module-level constants safe at all: a second write, whether later,
+  conditional, computed, or in another scope, means the value Python passes
+  is not the one visible statically. `from config import AGENT_NAME as NAME`
+  looks up `AGENT_NAME` in the target module, not the alias. And when an
+  import could resolve to two different in-workspace modules — the agent
+  directory's `config.py` and the workspace root's — which one Python picks
+  depends on `sys.path`, so the identity stays unresolved.
+
+  **A declared application root that cannot be resolved statically now
+  blocks selection entirely.** Dropping it and letting the rest of the field
+  rank looks conservative but is the #324 failure again: everything
+  remaining is by construction *not* the root, so the manifest would declare
+  a worker. A dynamic name, a factory call, or a symbol no single
+  construction defines all produce `CHANGE_ME` plus the reason.
+
+  The zero-install detector now takes the same workspace inventory as the
+  CLI — `git ls-files` when Git can read the workspace, a contained
+  filesystem walk otherwise — because that is what makes the parity claim
+  true rather than merely tested on tidy fixtures. A `.gitignore`d module is
+  invisible to `init`, so walking it anyway let the script name an agent
+  `init` would never write; a symlink escaping the workspace both
+  contributed a name and leaked its outside absolute path into the output.
+  Its file bound also moved from the whole inventory onto Python parses, so
+  an asset-heavy repository can no longer exhaust the budget before the walk
+  reaches any source.
 
 - **The recommended next command now runs where it was recommended.** Every
   emitted command was written as the console script the wheel installs

@@ -27,6 +27,15 @@ directories (for example ``fixtures/``, ``testdata/``, and ``golden/``) when
 those directories are below the selected workspace. Point ``--workspace``
 directly at a fixture project to detect that fixture itself.
 
+The workspace inventory matches the canonical CLI's: ``git ls-files`` when
+the workspace is a repository Git can read, a contained filesystem walk
+otherwise. That is not a performance detail — a ``.gitignore``d module is
+invisible to ``init``, so a script that walked it anyway could name an agent
+``init`` will never write. Paths that escape the workspace through a symlink
+are dropped for the same reason. The bound is on Python *parses*
+(``MAX_PYTHON_FILES``), never on the inventory, so an asset-heavy repository
+cannot exhaust the budget before the walk reaches any source.
+
 Like the canonical CLI, glob-matched MCP/OpenAPI candidates are
 parse-probed before they are suggested: a filename is a glob match, not a
 guarantee. A Cursor plugin ``mcp.json`` is an ``mcpServers``-style host
@@ -39,7 +48,6 @@ Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
-- No git-ls-files fast path; ``os.walk`` only.
 - Descriptive (not byte-identical) ``evidence`` / ``reason`` strings.
 - Absolute scores may differ by ±0.5 in edge cases.
 - The parse probe is **JSON-only** (stdlib has no YAML parser). A
@@ -63,12 +71,17 @@ import fnmatch
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 SCRIPT_VERSION = "0.3.0"
 MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
+# Matches ``detect_workspace``'s ``max_python_files``. The bound is on
+# parses, not on the inventory: capping the inventory lets an asset-heavy
+# repository exhaust the budget before the walk reaches any source.
+MAX_PYTHON_FILES = 1000
 
 # Framework signal vocabulary (mirror of cli/discovery/signals.py).
 LANGCHAIN_IMPORTS = {
@@ -158,7 +171,86 @@ PYPROJECT_NAME_RE = re.compile(r'^\s*name\s*=\s*["\']([^"\']+)["\']', re.MULTILI
 REQ_TOKEN_RE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
 
 
-def _walk_files(workspace: Path, max_files: int = 5000) -> list[Path]:
+MAX_GIT_INVENTORY_BYTES = 16 * 1024 * 1024
+
+
+def _contained(path: Path, workspace: Path) -> Path | None:
+    """The resolved path, or ``None`` if it does not live in the workspace.
+
+    A symlink pointing outside is not part of the workspace no matter what
+    its name suggests. Canonical detection drops these; ranking a name out
+    of one would also leak the outside absolute path into the output.
+    """
+    try:
+        resolved = path.resolve()
+        rel = resolved.relative_to(workspace)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if any(p in SKIP_DIRS or p.startswith(".venv") for p in rel.parts):
+        return None
+    try:
+        if not resolved.is_file():
+            return None
+    except OSError:
+        return None
+    return resolved
+
+
+def _git_files(workspace: Path) -> list[Path] | None:
+    """The workspace inventory as Git sees it, or ``None`` if Git cannot.
+
+    Canonical detection prefers this, and matching it is what makes the
+    ranking parity claim true: without it a `.gitignore`d file is invisible
+    to `init` but visible here, so the two would name different agents.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update({
+        "GIT_ATTR_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_OPTIONAL_LOCKS": "0", "GIT_PAGER": "cat",
+        "GIT_PROTOCOL_FROM_USER": "0", "GIT_TERMINAL_PROMPT": "0",
+    })
+    def _run(args: list[str]) -> subprocess.CompletedProcess[bytes] | None:
+        try:
+            return subprocess.run(
+                ["git", "--no-replace-objects", "-C", str(workspace), *args],
+                check=False, capture_output=True, env=env, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    root = _run(["rev-parse", "--show-toplevel"])
+    if root is None or root.returncode != 0:
+        return None
+    try:
+        git_root = Path(root.stdout.decode("utf-8").strip()).resolve()
+    except (UnicodeDecodeError, OSError, RuntimeError, ValueError):
+        return None
+    listed = _run([
+        "-c", "core.fsmonitor=false", "-c", "submodule.recurse=false",
+        "-c", "core.quotePath=false",
+        "ls-files", "-co", "--exclude-standard", "--full-name", "-z", "--", ".",
+    ])
+    if listed is None or listed.returncode != 0:
+        return None
+    if len(listed.stdout) > MAX_GIT_INVENTORY_BYTES:
+        return None
+    out: list[Path] = []
+    for raw in listed.stdout.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            rel = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        contained = _contained(git_root / rel, workspace)
+        if contained is not None:
+            out.append(contained)
+    return sorted(set(out))
+
+
+def _walk_files(workspace: Path) -> list[Path]:
     out: list[Path] = []
     for root, dirs, files in os.walk(workspace):
         dirs[:] = [
@@ -166,10 +258,22 @@ def _walk_files(workspace: Path, max_files: int = 5000) -> list[Path]:
             if d not in SKIP_DIRS and not d.startswith(".venv")
         ]
         for fn in files:
-            out.append(Path(root) / fn)
-            if len(out) >= max_files:
-                return sorted(out)
-    return sorted(out)
+            contained = _contained(Path(root) / fn, workspace)
+            if contained is not None:
+                out.append(contained)
+    return sorted(set(out))
+
+
+def _inventory(workspace: Path) -> list[Path]:
+    """Mirror of ``artifacts._candidate_files``: Git when it can answer,
+    a contained filesystem walk otherwise. Deliberately uncapped — the cap
+    that matters is on Python *parses* (see ``MAX_PYTHON_FILES``), and a
+    global file cap could exhaust itself on assets before reaching any
+    source at all."""
+    git_files = _git_files(workspace)
+    if git_files is not None:
+        return git_files
+    return _walk_files(workspace)
 
 
 def _rel(path: Path, workspace: Path) -> str:
@@ -345,88 +449,222 @@ def _parse_py(path: Path) -> dict[str, Any] | None:
     except (OSError, UnicodeDecodeError, SyntaxError):
         return None
     imports, decos, ctors, names = set(), set(), set(), []
-    constant_imports: dict[str, tuple[str, int]] = {}
+    constant_imports: dict[tuple[int, str], tuple[str, int, str]] = {}
+    counts: dict[str, int] = {}
     hierarchy = _new_hierarchy()
-    agent_calls: list[ast.Call] = []
-    for node in ast.walk(tree):
+    agent_calls: list[tuple[ast.Call, int]] = []
+
+    def _count(name: str) -> None:
+        counts[name] = counts.get(name, 0) + 1
+
+    for node, scope in _walk_scoped(tree):
         if isinstance(node, ast.Import):
-            imports.update(a.name for a in node.names)
+            for a in node.names:
+                imports.add(a.name)
+                _count((a.asname or a.name).split(".")[0])
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 imports.add(node.module)
                 for a in node.names:
                     imports.add(f"{node.module}.{a.name}")
-            if node.module or node.level:
-                for a in node.names:
-                    constant_imports[a.asname or a.name] = (node.module or "", node.level)
+            for a in node.names:
+                bound = a.asname or a.name
+                _count(bound)
+                if node.module or node.level:
+                    constant_imports[(scope, bound)] = (
+                        node.module or "", node.level, a.name,
+                    )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _count(node.name)
             for d in node.decorator_list:
                 n = _name(d)
                 if n:
                     decos.add(n)
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
-                    hierarchy["assign_targets"][id(node.value)] = target.id
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and isinstance(node.value, ast.Call):
-                hierarchy["assign_targets"][id(node.value)] = node.target.id
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            _count(node.id)
+        elif isinstance(node, ast.arg):
+            _count(node.arg)
+        elif isinstance(node, ast.Global):
+            for n in node.names:
+                _count(n)
         elif isinstance(node, ast.Call):
             ctor = _name(node.func)
             if ctor:
                 ctors.add(ctor)
                 tail = ctor.split(".")[-1]
-                _observe_call(hierarchy, node, tail)
+                _observe_call(hierarchy, node, tail, scope)
                 if tail in AGENT_NAME_CLASSES:
-                    agent_calls.append(node)
+                    agent_calls.append((node, scope))
+
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = (
+                list(node.targets) if isinstance(node, ast.Assign) else [node.target]
+            )
+            for target in targets:
+                if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
+                    hierarchy["bindings"].setdefault(target.id, []).append(
+                        {
+                            "call_id": id(node.value),
+                            "scope": scope,
+                            "lineno": node.value.lineno,
+                        }
+                    )
+
     # Roles are assigned only once the whole module has been seen: an
     # App(root_agent=…) binding can appear after the construction it names.
-    for call in agent_calls:
-        evidence = _agent_name_evidence(call, hierarchy)
+    _resolve_references(hierarchy)
+    agent_calls.sort(key=lambda item: (item[0].lineno, item[0].col_offset))
+    unresolved_root = ""
+    for call, scope in agent_calls:
+        evidence = _agent_name_evidence(call, scope, hierarchy)
         if evidence is not None:
             names.append(evidence)
+        elif id(call) in hierarchy["resolved_root_calls"]:
+            unresolved_root = "the application root's name is not a static value"
+    if hierarchy["dangling_root"]:
+        unresolved_root = (
+            f"App({ROOT_AGENT_SYMBOL}=…) names `{hierarchy['dangling_root']}`, "
+            "which no single agent construction defines"
+        )
     return {
         "imports": imports,
         "decorators": decos,
         "constructors": ctors,
         "names": names,
-        "constants": _module_constants(tree),
+        "constants": _module_constants(tree, counts),
         "constant_imports": constant_imports,
+        "binding_counts": counts,
+        "unresolved_root": unresolved_root,
     }
+
+
+_MODULE_SCOPE = 0
+_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _walk_scoped(tree: ast.AST) -> list[tuple[ast.AST, int]]:
+    """Every node paired with the lexical scope enclosing it.
+
+    ``ast.walk`` flattens scopes, which is wrong for anything modelling name
+    binding: a helper's local ``root_agent`` is not the module's, and a
+    helper's local import is not the one a module-level construction reads.
+    """
+    out: list[tuple[ast.AST, int]] = []
+    stack: list[tuple[ast.AST, int]] = [(tree, _MODULE_SCOPE)]
+    while stack:
+        node, scope = stack.pop()
+        out.append((node, scope))
+        inner = id(node) if isinstance(node, _SCOPE_NODES) else scope
+        for child in ast.iter_child_nodes(node):
+            stack.append((child, inner))
+    return out
 
 
 def _new_hierarchy() -> dict[str, Any]:
     """Structural relationships between agent constructions in one module,
-    accumulated during the single parse walk. Call nodes are keyed by
-    ``id()``; the tree stays alive for the duration of the parse."""
+    accumulated during the single parse walk, then resolved once the module
+    is fully seen. References are matched to the *reaching* assignment —
+    nearest scope, latest line before the reference — not to every
+    assignment sharing the identifier. Call nodes are keyed by ``id()``."""
     return {
-        "assign_targets": {},
-        "root_symbols": set(),
+        "bindings": {},
+        "root_refs": [],
+        "child_refs": [],
         "root_calls": set(),
-        "child_symbols": set(),
         "child_calls": set(),
+        "resolved_root_calls": {},
+        "resolved_child_calls": {},
+        "dangling_root": "",
     }
 
 
-def _observe_call(hierarchy: dict[str, Any], call: ast.Call, tail: str) -> None:
+def _observe_call(hierarchy: dict[str, Any], call: ast.Call, tail: str,
+                  scope: int) -> None:
     """Record what one call says about the agents around it."""
+    is_app = tail in APP_ROOT_CLASSES
+    is_agent = tail in AGENT_NAME_CLASSES
+    if not (is_app or is_agent):
+        # A child list only means "these are my sub-agents" when the
+        # surrounding call actually builds an agent; an unrelated
+        # `configure(handoffs=[coordinator])` must not demote anything.
+        return
     for kw in call.keywords:
-        if tail in APP_ROOT_CLASSES and kw.arg == ROOT_AGENT_SYMBOL:
+        if is_app and kw.arg == ROOT_AGENT_SYMBOL:
             if isinstance(kw.value, ast.Name):
-                hierarchy["root_symbols"].add(kw.value.id)
-            elif isinstance(kw.value, ast.Call):
+                hierarchy["root_refs"].append(
+                    (kw.value.id, scope, getattr(kw.value, "lineno", 0))
+                )
+            elif isinstance(kw.value, ast.Call) and _constructs_agent(kw.value):
                 hierarchy["root_calls"].add(id(kw.value))
-        elif kw.arg in CHILD_AGENT_KEYWORDS and isinstance(
+            else:
+                # A factory call or any other expression: the root is
+                # declared but not statically readable, and dropping that
+                # silently is how a sub-agent becomes the declared identity.
+                hierarchy["dangling_root"] = "a non-static expression"
+        elif is_agent and kw.arg in CHILD_AGENT_KEYWORDS and isinstance(
             kw.value, (ast.List, ast.Tuple, ast.Set)
         ):
             for element in kw.value.elts:
                 if isinstance(element, ast.Name):
-                    hierarchy["child_symbols"].add(element.id)
+                    hierarchy["child_refs"].append(
+                        (element.id, scope, getattr(element, "lineno", 0))
+                    )
                 elif isinstance(element, ast.Call):
                     hierarchy["child_calls"].add(id(element))
 
 
-def _agent_name_evidence(call: ast.Call, hierarchy: dict[str, Any]) -> dict[str, Any] | None:
+def _constructs_agent(call: ast.Call) -> bool:
+    ctor = _name(call.func)
+    return bool(ctor) and ctor.split(".")[-1] in AGENT_NAME_CLASSES
+
+
+def _reaching(hierarchy: dict[str, Any], name: str, scope: int,
+              lineno: int) -> dict[str, Any] | None:
+    """The assignment a reference to ``name`` sees at ``lineno``: same scope
+    first, then the module scope a nested reference falls through to; within
+    a scope the latest assignment before the reference wins."""
+    candidates = hierarchy["bindings"].get(name, [])
+    for candidate_scope in (scope, _MODULE_SCOPE):
+        reaching = [
+            b for b in candidates
+            if b["scope"] == candidate_scope and b["lineno"] < lineno
+        ]
+        if reaching:
+            return max(reaching, key=lambda b: b["lineno"])
+    return None
+
+
+def _resolve_references(hierarchy: dict[str, Any]) -> None:
+    for name, scope, lineno in hierarchy["root_refs"]:
+        binding = _reaching(hierarchy, name, scope, lineno)
+        if binding is None:
+            hierarchy["dangling_root"] = name
+            continue
+        hierarchy["resolved_root_calls"].setdefault(
+            binding["call_id"], f"bound as App({ROOT_AGENT_SYMBOL}={name})"
+        )
+    for name, scope, lineno in hierarchy["child_refs"]:
+        binding = _reaching(hierarchy, name, scope, lineno)
+        if binding is not None:
+            hierarchy["resolved_child_calls"].setdefault(
+                binding["call_id"], f"listed in another agent's children as `{name}`"
+            )
+    # The ADK convention: the `root_agent` that `adk run`/`adk web` discover
+    # is the *module* symbol. A function-local of that name is just a local.
+    module_level = [
+        b for b in hierarchy["bindings"].get(ROOT_AGENT_SYMBOL, [])
+        if b["scope"] == _MODULE_SCOPE
+    ]
+    if module_level:
+        last = max(module_level, key=lambda b: b["lineno"])
+        hierarchy["resolved_root_calls"].setdefault(
+            last["call_id"],
+            f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` module symbol",
+        )
+
+
+def _agent_name_evidence(call: ast.Call, scope: int,
+                         hierarchy: dict[str, Any]) -> dict[str, Any] | None:
     value = None
     for kw in call.keywords:
         if kw.arg == "name":
@@ -434,35 +672,40 @@ def _agent_name_evidence(call: ast.Call, hierarchy: dict[str, Any]) -> dict[str,
             break
     if value is None:
         return None
-    target = hierarchy["assign_targets"].get(id(call))
     if id(call) in hierarchy["root_calls"]:
         role, why = "root_agent", f"constructed inline as App({ROOT_AGENT_SYMBOL}=…)"
-    elif target and target in hierarchy["root_symbols"]:
-        role, why = "root_agent", f"bound as App({ROOT_AGENT_SYMBOL}={target})"
-    elif target == ROOT_AGENT_SYMBOL:
-        role = "root_agent"
-        why = f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` symbol"
+    elif id(call) in hierarchy["resolved_root_calls"]:
+        role, why = "root_agent", hierarchy["resolved_root_calls"][id(call)]
     elif id(call) in hierarchy["child_calls"]:
         role, why = "sub_agent", "constructed inline inside another agent's children"
-    elif target and target in hierarchy["child_symbols"]:
-        role, why = "sub_agent", f"listed in another agent's children as `{target}`"
+    elif id(call) in hierarchy["resolved_child_calls"]:
+        role, why = "sub_agent", hierarchy["resolved_child_calls"][id(call)]
     else:
         role, why = "agent", ""
     if isinstance(value, ast.Constant):
         if not isinstance(value.value, str) or not value.value.strip():
             return None
-        return {"literal": value.value.strip(), "symbol": None, "role": role, "why": why}
+        return {
+            "literal": value.value.strip(), "symbol": None,
+            "role": role, "why": why, "scope": scope,
+        }
     if isinstance(value, ast.Name):
-        return {"literal": None, "symbol": value.id, "role": role, "why": why}
+        return {
+            "literal": None, "symbol": value.id,
+            "role": role, "why": why, "scope": scope,
+        }
     return None
 
 
-def _module_constants(tree: ast.AST) -> dict[str, tuple[str, str]]:
+def _module_constants(tree: ast.AST,
+                      binding_counts: dict[str, int]) -> dict[str, tuple[str, str]]:
     """Module-level ``NAME = <str>`` and ``NAME = os.environ.get(…, <str>)``.
 
-    Module level and these two forms only. Anything conditional or computed
-    stays unresolved so the caller fails closed rather than partially
-    evaluating user code.
+    Module level, these two forms, and only for names bound exactly once in
+    the whole file. That last rule is what makes the other two safe: any
+    second write — later, conditional, computed, or in a function — means
+    the value Python passes is not the one visible here, so the name stays
+    unresolved and the caller fails closed.
     """
     constants: dict[str, tuple[str, str]] = {}
     for node in getattr(tree, "body", []):
@@ -476,8 +719,8 @@ def _module_constants(tree: ast.AST) -> dict[str, tuple[str, str]]:
         if constant is None:
             continue
         for target in targets:
-            if isinstance(target, ast.Name):
-                constants.setdefault(target.id, constant)
+            if isinstance(target, ast.Name) and binding_counts.get(target.id, 0) == 1:
+                constants[target.id] = constant
     return constants
 
 
@@ -507,6 +750,9 @@ def _is_test_path(rel: str) -> bool:
 
 def _constant_module_paths(importer: Path, module: str, level: int,
                            workspace: Path) -> list[Path]:
+    """Every in-workspace file the import could refer to. All of them, not
+    the first hit: the caller has to see a disagreement to fail closed on
+    it. Packages precede modules, as Python's own finder orders them."""
     parts = [p for p in module.split(".") if p]
     bases: list[Path] = []
     if level:
@@ -520,7 +766,7 @@ def _constant_module_paths(importer: Path, module: str, level: int,
     for base in bases:
         suffixes = [(*parts, "__init__.py")]
         if parts:
-            suffixes.insert(0, (*parts[:-1], f"{parts[-1]}.py"))
+            suffixes.append((*parts[:-1], f"{parts[-1]}.py"))
         for suffix in suffixes:
             candidate = base.joinpath(*suffix)
             try:
@@ -539,29 +785,40 @@ def _resolve_agent_name(evidence: dict[str, Any], path: Path, facts: dict[str, A
 
     A bare symbol resolves through **one** hop: a module-level constant in
     the same file, or one in a module this file imports the symbol from
-    directly. The hop never chains, and the target module must already be a
-    parsed file inside the workspace.
+    directly. The hop never chains, the target module must already be a
+    parsed file inside the workspace, and every rule fails to ``None``
+    rather than guessing.
     """
     if evidence["literal"] is not None:
         return evidence["literal"], "literal", ""
     symbol = evidence["symbol"]
     if not symbol:
         return None
+    if facts["binding_counts"].get(symbol, 0) != 1:
+        return None
     local = facts["constants"].get(symbol)
     if local is not None:
         return local[0], local[1], _rel(path, workspace)
-    imported = facts["constant_imports"].get(symbol)
+    imported = (
+        facts["constant_imports"].get((evidence["scope"], symbol))
+        or facts["constant_imports"].get((_MODULE_SCOPE, symbol))
+    )
     if imported is None:
         return None
-    module, level = imported
+    module, level, original = imported
+    found: list[tuple[str, str, str]] = []
     for candidate in _constant_module_paths(path, module, level, workspace):
         target = by_path.get(candidate)
         if target is None:
             continue
-        constant = target["constants"].get(symbol)
+        constant = target["constants"].get(original)
         if constant is not None:
-            return constant[0], constant[1], _rel(candidate, workspace)
-    return None
+            found.append((constant[0], constant[1], _rel(candidate, workspace)))
+    if not found or len({v for v, _, _ in found}) > 1:
+        # Nothing found, or two supported execution roots disagree: which
+        # one Python picks depends on sys.path, which is not ours to assume.
+        return None
+    return found[0]
 
 
 def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Path,
@@ -647,6 +904,24 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
             previous = best.get(value)
             if previous is None or ranked["rank_score"] > previous["rank_score"]:
                 best[value] = ranked
+
+    unresolved = [
+        f"{_rel(p, workspace)}: {f['unresolved_root']}"
+        for p, f in py_facts
+        if f["unresolved_root"]
+    ]
+    if unresolved:
+        # A declared application root whose identity is not statically
+        # resolvable. Anything still standing is by construction not the
+        # root, so nothing may be selected.
+        blocked = (
+            "an application root is declared here but its name is not statically "
+            f"resolvable ({unresolved[0]}); any other name would declare a worker "
+            "as the reviewed identity"
+        )
+        for ranked in best.values():
+            ranked["selectable"] = False
+            ranked["rationale"].append(f"rejected: {blocked}")
 
     ordered = sorted(
         best.values(),
@@ -753,8 +1028,8 @@ def _local_marketplace_roots(workspace: Path, paths: list[Path]) -> set[Path]:
 
 def detect(workspace: Path) -> dict[str, Any]:
     workspace = workspace.resolve()
-    files = _walk_files(workspace)
-    py_files = [p for p in files if p.suffix == ".py"][:1000]
+    files = _inventory(workspace)
+    py_files = [p for p in files if p.suffix == ".py"][:MAX_PYTHON_FILES]
     py_facts = [(p, f) for p in py_files if (f := _parse_py(p)) is not None]
 
     scores = {fw: {"score": 0.0, "has_strong": False, "evidence": [], "candidate_files": []}

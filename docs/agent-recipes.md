@@ -100,13 +100,23 @@ Consume the response to decide whether to proceed. Key fields:
     generic scaffolding names (`agent`, `foo`, `test`, …), are ranked last
     and marked `selectable: false`.
 
+  One rule overrides all four: if the workspace declares an application root
+  whose name cannot be resolved statically — a dynamic expression, a factory
+  call, a symbol bound more than once — then **nothing** is selectable, and
+  the `rationale[]` says why. Anything still ranked is by construction not
+  the root, so writing it would declare a worker as the reviewed identity.
+
   `rationale[]` states which of those applied, so a ranking change is
   visible in the output rather than silently changing what the manifest
   claims. `name=` values that come from a module constant or an
   `os.environ.get("…", "…")` default in the same package are resolved
-  statically (one hop, no code executed) and say so in `rationale[]`.
-- `project_name_candidates[]` — same shape; `pyproject` source seeds
-  `project.name` only.
+  statically (one hop, no code executed) and say so in `rationale[]`. That
+  resolution is deliberately conservative: a symbol bound more than once
+  anywhere in the file, or one whose import could resolve to two different
+  in-workspace modules, is left unresolved rather than guessed.
+- `project_name_candidates[]` — `{value, source}` only. Project names have
+  no hierarchy to rank, so they carry none of the fields above. The
+  `pyproject` source seeds `project.name`, never `agent.name`.
 - `suggested_sources[]` — MCP/OpenAPI files matched by glob AND accepted
   by the real input adapters, so `init` never writes a `tool_sources`
   entry that `scan` rejects at parse time. These do NOT bump

@@ -45,7 +45,9 @@ The script and the canonical CLI are pinned to **structural verdict parity** by 
 
 **When to use this:** you're a coding agent (Claude Code, Codex, Cursor) deciding *whether* to propose Shipgate. The script tells you in one fetch + one Python invocation. The full flow (`init`, `scan`, `apply-patches`) requires the actual install.
 
-**Constraints:** Python 3.12+ on the runner. No git fast path (uses `os.walk` only). Evidence/reason strings and absolute scores are simplified — the verdict is what's pinned, not the prose.
+**Constraints:** Python 3.12+ on the runner. Evidence/reason strings and absolute framework scores are simplified — the verdict is what's pinned, not the prose.
+
+The workspace inventory does match the canonical CLI's — `git ls-files` when Git can read the workspace, a contained filesystem walk otherwise. That is a correctness requirement, not a speed one: a `.gitignore`d module is invisible to `init`, so a script that walked it anyway could name an agent `init` will never write. Paths escaping the workspace through a symlink are dropped for the same reason.
 
 ## 2. `uvx` (no permanent install)
 
