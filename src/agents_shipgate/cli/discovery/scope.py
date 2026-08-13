@@ -27,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Literal
 
 from agents_shipgate.triggers import paths_without_capability_surface
 
@@ -53,6 +54,16 @@ PROJECT_MARKERS: tuple[str, ...] = (
     "Gemfile",
 )
 
+# Markers that name a project only where the caller has already found agent
+# evidence in that same directory. On their own they travel with directories
+# that are not project roots, which is why they are not in the set above; with
+# an agent beside them they are the whole boundary a plain
+# ``requirements.txt`` + ``agent.py`` layout has.
+WEAK_PROJECT_MARKERS: tuple[str, ...] = (
+    "requirements.txt",
+    "requirements.in",
+)
+
 
 @dataclass(frozen=True)
 class ProjectRoot:
@@ -77,18 +88,45 @@ class ChangeScope:
 class ScopeResolution:
     """What the changed paths say about which project they belong to.
 
-    Three answers, and the difference between the last two is the point:
+    ``status`` is the load-bearing field, because "no scope" is not one
+    answer but several, and only one of them means the workspace the
+    caller named is the right place to write a manifest:
 
-    * ``scope`` set — one project owns the capability-bearing change.
-    * ``scope`` unset with ``contested`` populated — several projects do,
-      and *which* they are is worth reporting, because "run init at the
-      root" is a command that will refuse.
-    * both empty — nothing narrows the workspace the caller already named.
+    * ``resolved`` — one project owns the capability-bearing change.
+    * ``not_narrowed`` — nothing in the change set points below the
+      workspace. A single-project repository lives here, so this is the
+      only state in which initializing that workspace is right.
+    * ``contested`` — several projects own part of the change;
+      :attr:`contested` names them.
+    * ``unclaimed`` — a capability-bearing path belongs to no project
+      while another project claimed part of the change. The workspace
+      demonstrably holds sub-projects, so it is not itself a scope.
+    * ``not_evaluated`` — the evidence could not be read at all.
+
+    The last three are *unresolved*, and unresolved must never be spent as
+    permission to initialize the root (#363 review): that turns "Shipgate
+    could not tell" into a manifest for whichever agent happens to be in
+    the current checkout.
     """
 
+    status: Literal[
+        "resolved",
+        "not_narrowed",
+        "contested",
+        "unclaimed",
+        "not_evaluated",
+    ] = "not_narrowed"
     scope: ChangeScope | None = None
     #: Workspace-relative paths of the competing projects, sorted.
     contested: tuple[str, ...] = ()
+    #: Why the scope is unresolved, for the routing surface to quote.
+    detail: str = ""
+
+    @property
+    def unresolved(self) -> bool:
+        """Whether initializing the caller's workspace would be a guess."""
+
+        return self.status in ("contested", "unclaimed", "not_evaluated")
 
 
 def repository_root(start: Path) -> Path | None:
@@ -119,29 +157,60 @@ def repository_root(start: Path) -> Path | None:
         current = parent
 
 
-def project_marker(directory: Path) -> str | None:
-    """Name the project marker in ``directory``, if it carries one."""
+def project_marker(
+    directory: Path, *, extra: tuple[str, ...] = ()
+) -> str | None:
+    """Name the project marker in ``directory``, if it carries one.
 
-    for name in PROJECT_MARKERS:
+    A symlink is not a marker. ``Path.is_file()`` follows one, so a
+    ``shipgate.yaml`` linked in from outside the repository would satisfy
+    this check and preview would emit a scoped ``verify`` command that the
+    verifier then rejects: config validation forbids symlink components in
+    a manifest path. Refusing here keeps preview from promising a command
+    that cannot run (#363 review).
+
+    ``extra`` adds weaker marker names the caller has independent evidence
+    for — see :func:`find_project_root`.
+    """
+
+    for name in (*PROJECT_MARKERS, *extra):
+        candidate = directory / name
         try:
-            if (directory / name).is_file():
+            if candidate.is_symlink():
+                continue
+            if candidate.is_file():
                 return name
         except OSError:  # pragma: no cover - unreadable directory
             return None
     return None
 
 
-def find_project_root(directory: Path, *, root: Path) -> ProjectRoot | None:
+def find_project_root(
+    directory: Path,
+    *,
+    root: Path,
+    evidence_dirs: frozenset[Path] = frozenset(),
+) -> ProjectRoot | None:
     """Deepest project root at or above ``directory``, bounded by ``root``.
 
     ``directory`` and ``root`` must both be resolved, and ``directory``
     must be at or below ``root``; callers that build ``directory`` from
     untrusted path text check containment first.
+
+    ``evidence_dirs`` unlocks :data:`WEAK_PROJECT_MARKERS` for exactly the
+    directories the caller has already found agent evidence in. A bare
+    ``requirements.txt`` is not a project boundary — it travels with
+    ``tests/`` and ``docs/`` — but two sibling agents whose only marker is
+    ``requirements.txt`` beside ``agent.py`` are two projects, and reading
+    them as one root scope lets ``init`` pick one of their names (#363
+    review). Callers that cannot establish evidence pass nothing and get
+    the strong markers alone.
     """
 
     current = directory
     while True:
-        marker = project_marker(current)
+        extra = WEAK_PROJECT_MARKERS if current in evidence_dirs else ()
+        marker = project_marker(current, extra=extra)
         if marker is not None:
             return ProjectRoot(directory=current, marker=marker)
         if current == root:
@@ -152,11 +221,56 @@ def find_project_root(directory: Path, *, root: Path) -> ProjectRoot | None:
         current = parent
 
 
+def manifest_opt_in(
+    workspace: Path,
+    *,
+    changed_paths: Iterable[str] = (),
+    name: str = "shipgate.yaml",
+) -> bool:
+    """Whether this workspace has opted in to Shipgate.
+
+    A manifest at the workspace root is the historical answer. A monorepo
+    keeps one manifest per project, so a change inside an adopted project
+    is an opted-in change even though the root carries nothing — reading
+    only the root reported `apps/a/README.md` as a docs-only skip while
+    `apps/a/shipgate.yaml` sat right beside it (#363 review).
+
+    Only manifests *above the changed paths* count. Scanning the tree for
+    any manifest anywhere would make an unrelated project's adoption opt
+    in a change that has nothing to do with it.
+    """
+
+    try:
+        root = workspace.resolve()
+    except OSError:  # pragma: no cover - unreadable workspace
+        return False
+    if (root / name).is_file():
+        return True
+    for entry in changed_paths:
+        if not entry:
+            continue
+        path = PurePosixPath(entry)
+        if path.is_absolute() or ".." in path.parts:
+            continue
+        current = root.joinpath(*path.parts[:-1])
+        while _is_within(current, root):
+            if (current / name).is_file():
+                return True
+            if current == root:
+                break
+            parent = current.parent
+            if parent == current:  # pragma: no cover - defensive
+                break
+            current = parent
+    return False
+
+
 def resolve_change_scope(
     *,
     root: Path,
     changed_files: Iterable[str],
     limit: Path | None = None,
+    evidence_dirs: frozenset[Path] = frozenset(),
 ) -> ScopeResolution:
     """Which project the changed paths belong to.
 
@@ -164,15 +278,15 @@ def resolve_change_scope(
     above it. The scope is that project when exactly one is claimed and
     every capability-bearing path in the change set was claimed by it.
 
-    Two rules decide the rest, and both fail towards the workspace the
-    caller already named:
+    The states this can end in are documented on :class:`ScopeResolution`;
+    the two that matter here are why it refuses to answer:
 
-    * **An unclaimed capability path vetoes the answer.** A changed path
-      that carries a capability surface and sits under no project root
-      cannot be described by a manifest in some sibling directory. Saying
-      "this change belongs to `services/b`" while a root `prompts/system.md`
-      changed too would be a false statement about the diff, so nothing is
-      suggested instead.
+    * **An unclaimed capability path vetoes the answer** (``unclaimed``).
+      A changed path that carries a capability surface and sits under no
+      project root cannot be described by a manifest in some sibling
+      directory. Saying "this change belongs to `services/b`" while a root
+      `prompts/system.md` changed too would be a false statement about the
+      diff.
     * **Documentation and tests cannot outvote code.** They carry no
       capability surface, so a project claimed *only* by documentation or
       test paths drops out of a contest — the trigger catalog's own
@@ -180,12 +294,11 @@ def resolve_change_scope(
       from what ``trigger`` reports. It matters because such paths travel
       with real work: the pull request in #363 edits a `README.md` one
       directory above the project it adds, and counting that README as a
-      competing claim would return the answer to the repository root,
-      which is the routing the issue is about.
+      competing claim would return the answer to the repository root.
 
-    When several projects survive, the resolution carries them in
-    :attr:`ScopeResolution.contested` rather than silently collapsing:
-    "run init at the root" is a command that would refuse.
+    Two projects narrow to ``contested`` rather than to their common
+    parent: the parent of two projects is not itself a project, and a
+    manifest written there would describe both.
 
     ``limit`` is the workspace the caller asked about. The suggestion never
     leaves it, so a preview scoped to a sub-directory cannot be answered
@@ -195,11 +308,15 @@ def resolve_change_scope(
     try:
         root_resolved = root.resolve()
     except OSError:  # pragma: no cover - unreadable workspace
-        return ScopeResolution()
+        return ScopeResolution(
+            status="not_evaluated", detail="the workspace could not be read"
+        )
     try:
         limit_resolved = limit.resolve() if limit is not None else root_resolved
     except OSError:  # pragma: no cover - unreadable workspace
-        return ScopeResolution()
+        return ScopeResolution(
+            status="not_evaluated", detail="the workspace could not be read"
+        )
 
     # Paths are used verbatim. A file name may legally begin or end with a
     # space, and trimming one here would attribute the change to a directory
@@ -216,25 +333,38 @@ def resolve_change_scope(
             # derived from a path this module cannot reason about could name
             # a directory outside the repository, so abandon the answer
             # rather than skip the path and answer from the rest.
-            return ScopeResolution()
+            return ScopeResolution(
+                status="not_evaluated",
+                detail=f"changed path {text!r} is not repository-relative",
+            )
         directory = root_resolved.joinpath(*path.parts[:-1])
         if directory not in seen:
-            seen[directory] = find_project_root(directory, root=root_resolved)
+            seen[directory] = find_project_root(
+                directory, root=root_resolved, evidence_dirs=evidence_dirs
+            )
         found = seen[directory]
         if found is None:
             unclaimed.append(text)
             continue
         claims.setdefault(found.directory, (found.marker, []))[1].append(text)
 
-    if len(claims) > 1 or unclaimed:
-        # Only a contest — or a path no project owns — needs the docs-only
-        # rule evaluated at all, which is what keeps a large single-project
-        # diff from paying for it.
+    if len(claims) > 1 or (unclaimed and claims):
+        # Only a contest — or a path no project owns alongside one that is
+        # owned — needs the docs-only rule evaluated at all, which is what
+        # keeps a large single-project diff from paying for it.
         silent = paths_without_capability_surface(
             [text for _marker, texts in claims.values() for text in texts] + unclaimed
         )
-        if any(text not in silent for text in unclaimed):
-            return ScopeResolution()
+        loud_unclaimed = [text for text in unclaimed if text not in silent]
+        if loud_unclaimed:
+            return ScopeResolution(
+                status="unclaimed",
+                detail=(
+                    f"{len(loud_unclaimed)} changed path(s) carrying a "
+                    "capability surface belong to no project in this "
+                    f"workspace, starting with {loud_unclaimed[0]!r}"
+                ),
+            )
         claims = {
             directory: claim
             for directory, claim in claims.items()
@@ -243,6 +373,7 @@ def resolve_change_scope(
 
     if len(claims) > 1:
         return ScopeResolution(
+            status="contested",
             contested=tuple(
                 sorted(
                     directory.relative_to(root_resolved).as_posix()
@@ -250,29 +381,61 @@ def resolve_change_scope(
                     else "."
                     for directory in claims
                 )
-            )
+            ),
+            detail="the change spans more than one self-contained project",
         )
     if not claims:
-        return ScopeResolution()
+        return ScopeResolution(status="not_narrowed")
     directory, (marker, _texts) = next(iter(claims.items()))
     # A claim on the root — or on the workspace the caller already named —
     # is the scope they have. Say nothing rather than restate it.
     if directory in (root_resolved, limit_resolved):
-        return ScopeResolution()
+        return ScopeResolution(status="not_narrowed")
     if not _is_within(directory, limit_resolved):
-        return ScopeResolution()
+        return ScopeResolution(status="not_narrowed")
     try:
         if not _is_within(directory.resolve(), root_resolved):
-            return ScopeResolution()  # a symlink leading out of the repository
+            return ScopeResolution(
+                status="not_evaluated",
+                detail=f"{directory} leaves the repository through a symlink",
+            )
     except OSError:  # pragma: no cover - unreadable directory
-        return ScopeResolution()
+        return ScopeResolution(
+            status="not_evaluated", detail=f"{directory} could not be read"
+        )
+    if _has_symlinked_component(directory, root=root_resolved):
+        # The verifier resolves a manifest path without following symlinks
+        # and refuses one whose components are links. Suggesting this
+        # directory would promise a command that exits 2.
+        return ScopeResolution(
+            status="not_evaluated",
+            detail=f"{directory} is reached through a symlinked directory",
+        )
     return ScopeResolution(
+        status="resolved",
         scope=ChangeScope(
             directory=directory,
             relative=directory.relative_to(root_resolved).as_posix(),
             marker=marker,
-        )
+        ),
     )
+
+
+def _has_symlinked_component(directory: Path, *, root: Path) -> bool:
+    """Whether any directory between ``root`` and ``directory`` is a link."""
+
+    current = directory
+    while current != root:
+        try:
+            if current.is_symlink():
+                return True
+        except OSError:  # pragma: no cover - unreadable directory
+            return True
+        parent = current.parent
+        if parent == current:  # pragma: no cover - defensive
+            return False
+        current = parent
+    return False
 
 
 def _is_within(candidate: Path, root: Path) -> bool:
@@ -283,10 +446,12 @@ def _is_within(candidate: Path, root: Path) -> bool:
 
 __all__ = [
     "PROJECT_MARKERS",
+    "WEAK_PROJECT_MARKERS",
     "ChangeScope",
     "ScopeResolution",
     "ProjectRoot",
     "find_project_root",
+    "manifest_opt_in",
     "project_marker",
     "repository_root",
     "resolve_change_scope",

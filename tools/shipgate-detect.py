@@ -149,6 +149,13 @@ PROJECT_MARKERS = (
     "Gemfile",
 )
 
+# Markers that name a project only where agent evidence sits in the same
+# directory. Mirrors ``scope.WEAK_PROJECT_MARKERS``.
+WEAK_PROJECT_MARKERS = (
+    "requirements.txt",
+    "requirements.in",
+)
+
 SKIP_DIRS = {
     ".agents-private", ".cache", ".claude", ".direnv", ".git", ".hg",
     ".nox", ".svn", ".mypy_cache", ".next", ".pnpm-store", ".pytest_cache",
@@ -162,31 +169,56 @@ REQ_TOKEN_RE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
 
 
 def _walk_files(workspace: Path, max_files: int = 5000) -> list[Path]:
+    """Inventory the workspace, capping only the *general* file list.
+
+    Structural markers are never dropped. The manifest-scope verdict is
+    computed from where project markers sit, so a cap that truncates the
+    inventory truncates that verdict too: with enough filler ahead of them,
+    two nested agent projects vanished and this script reported a single
+    scope while the canonical CLI reported ambiguity (#363 review). Marker
+    files are cheap to keep — there are a handful per project — so they are
+    collected in full and the cap applies to everything else.
+    """
     out: list[Path] = []
+    markers: list[Path] = []
     for root, dirs, files in os.walk(workspace):
         dirs[:] = [
             d for d in dirs
             if d not in SKIP_DIRS and not d.startswith(".venv")
         ]
         for fn in files:
-            out.append(Path(root) / fn)
-            if len(out) >= max_files:
-                return sorted(out)
-    return sorted(out)
+            path = Path(root) / fn
+            if fn in PROJECT_MARKERS or fn in WEAK_PROJECT_MARKERS:
+                markers.append(path)
+                continue
+            if len(out) < max_files:
+                out.append(path)
+    return sorted({*out, *markers})
 
 
-def _project_marker(directory: Path) -> str | None:
-    for name in PROJECT_MARKERS:
-        if (directory / name).is_file():
+def _project_marker(directory: Path, extra: tuple[str, ...] = ()) -> str | None:
+    for name in (*PROJECT_MARKERS, *extra):
+        candidate = directory / name
+        # A symlink is not a marker: the verifier refuses a manifest path
+        # with symlink components, so accepting one here would name a
+        # directory whose scoped command cannot run.
+        if candidate.is_symlink():
+            continue
+        if candidate.is_file():
             return name
     return None
 
 
-def _project_of(path: Path, workspace: Path) -> tuple[str, str | None] | None:
+def _project_of(
+    path: Path,
+    workspace: Path,
+    evidence_dirs: frozenset[Path] = frozenset(),
+) -> tuple[str, str | None] | None:
     """Nearest project root at or above ``path``, as (relative, marker)."""
     directory = path if path.is_dir() else path.parent
     while True:
-        marker = _project_marker(directory)
+        extra = WEAK_PROJECT_MARKERS if directory in evidence_dirs else ()
+        marker = _project_marker(directory, extra)
         if marker is not None:
             rel = _rel(directory, workspace) if directory != workspace else "."
             return rel, marker
@@ -210,9 +242,17 @@ def _agent_project_candidates(
     """
     names: dict[str, set[str]] = {}
     markers: dict[str, str | None] = {}
+    evidence_dirs = frozenset(
+        (workspace / rel) if (workspace / rel).is_dir() else (workspace / rel).parent
+        for rel in evidence_paths
+    )
     for rel in evidence_paths:
-        found = _project_of(workspace / rel, workspace)
-        project, marker = found if found is not None else (".", _project_marker(workspace))
+        found = _project_of(workspace / rel, workspace, evidence_dirs)
+        project, marker = (
+            found
+            if found is not None
+            else (".", _project_marker(workspace, WEAK_PROJECT_MARKERS))
+        )
         names.setdefault(project, set()).update(literals_by_path.get(rel, []))
         markers.setdefault(project, marker)
     return [
@@ -723,8 +763,9 @@ def detect(workspace: Path) -> dict[str, Any]:
         workspace, evidence_paths, literals_by_path
     )
     project_roots = {
-        p.parent for p in files if p.name in PROJECT_MARKERS
-    } | ({workspace} if _project_marker(workspace) else set())
+        p.parent for p in files
+        if p.name in PROJECT_MARKERS or p.name in WEAK_PROJECT_MARKERS
+    } | ({workspace} if _project_marker(workspace, WEAK_PROJECT_MARKERS) else set())
     if len(agent_project_candidates) > 1:
         agent_scope = "ambiguous"
     elif py_truncated and len(project_roots) > 1:

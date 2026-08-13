@@ -161,12 +161,29 @@ def _describe_candidate(candidate: AgentProjectCandidate) -> str:
     return f"{candidate.path} ({detail})"
 
 
+def _scan_command_config(target: Path) -> str:
+    """How the follow-up ``scan`` should name the manifest just written.
+
+    ``scan -c shipgate.yaml`` resolves against the working directory, so a
+    manifest written into ``apps/a`` is not found from the repository root
+    and the emitted next action exits 2 (#363 review). The bare spelling is
+    kept when the manifest really is in the current directory, so the
+    ordinary root adoption emits exactly what it always emitted.
+    """
+
+    try:
+        if target.parent == Path.cwd().resolve():
+            return target.name
+    except OSError:  # pragma: no cover - unreadable cwd
+        pass
+    return str(target)
+
+
 def _requested_setup_flags(
     *,
     ci: bool,
     claude_code: bool,
     agent_instructions: str | None,
-    agent_instructions_kit: Path | None,
 ) -> list[str]:
     """The setup this invocation asked for, as flags a rerun must repeat.
 
@@ -174,6 +191,10 @@ def _requested_setup_flags(
     selection completes with less than the caller requested and reports
     success for it. Mirrors ``_rerun_options`` in the verifier, for the
     same reason.
+
+    ``--agent-instructions-kit`` is deliberately not here: it is a path,
+    and a path is only meaningful relative to a workspace. See
+    :func:`_rebased_kit_flags`.
     """
 
     flags: list[str] = []
@@ -183,9 +204,29 @@ def _requested_setup_flags(
         flags.append("--claude-code")
     if agent_instructions is not None:
         flags.append(f"--agent-instructions={agent_instructions}")
-    if agent_instructions_kit is not None:
-        flags.extend(["--agent-instructions-kit", str(agent_instructions_kit)])
     return flags
+
+
+def _rebased_kit_flags(
+    kit: Path | None, *, source: Path, target: Path
+) -> list[str] | None:
+    """``--agent-instructions-kit`` for a command run in ``target``.
+
+    Returns ``None`` when the kit cannot be named from there, which is a
+    refusal rather than a fallback: a kit path is resolved *under the
+    workspace*, so copying a root-relative ``.agents-shipgate/kit.yaml``
+    into a command that runs in ``apps/a`` points at a file that does not
+    exist, and the emitted command exits 2 (#363 review).
+    """
+
+    if kit is None:
+        return []
+    resolved = kit if kit.is_absolute() else (source / kit)
+    try:
+        relative = resolved.resolve().relative_to(target.resolve())
+    except (OSError, ValueError):
+        return None
+    return ["--agent-instructions-kit", relative.as_posix()]
 
 
 def _unresolved_scope_message(
@@ -238,6 +279,7 @@ def _unresolved_scope_actions(
     *,
     scope: str,
     setup_flags: list[str],
+    kit: Path | None,
 ) -> list[NextAction]:
     """Rank the decision above the commands that carry it out.
 
@@ -281,6 +323,22 @@ def _unresolved_scope_actions(
     for candidate in routable[:_MAX_LISTED_SCOPE_CANDIDATES]:
         target = workspace / candidate.path
         defines = ", ".join(candidate.agent_names)
+        kit_flags = _rebased_kit_flags(kit, source=workspace, target=target)
+        if kit_flags is None:
+            actions.append(
+                NextAction(
+                    kind="review",
+                    why=(
+                        f"{candidate.path} is a candidate, but the adoption kit "
+                        f"at {kit} sits outside it and a kit path is resolved "
+                        "under the workspace. Relocate the kit into the project "
+                        "or drop --agent-instructions-kit before initializing "
+                        "there."
+                    ),
+                    expects=f"An adoption kit reachable from {candidate.path}.",
+                )
+            )
+            continue
         actions.append(
             NextAction(
                 kind="command",
@@ -291,6 +349,7 @@ def _unresolved_scope_actions(
                         str(target),
                         "--write",
                         *setup_flags,
+                        *kit_flags,
                         "--json",
                     ]
                 ),
@@ -482,7 +541,9 @@ def register(app: typer.Typer) -> None:
             auto_detected: dict[str, object] = {}
             next_action_create = NextAction(
                 kind="command",
-                command="agents-shipgate scan -c shipgate.yaml",
+                command=render_command(
+                    ["scan", "-c", _scan_command_config(target.resolve())]
+                ),
                 why=(
                     "Replace every value listed in placeholders[] in shipgate.yaml, "
                     "then scan the declared tool surface."
@@ -587,7 +648,14 @@ def register(app: typer.Typer) -> None:
                 auto_detected["excluded_sources"] = excluded_sources
             next_action_create = NextAction(
                 kind="command",
-                command="agents-shipgate scan -c shipgate.yaml --suggest-patches",
+                command=render_command(
+                    [
+                        "scan",
+                        "-c",
+                        _scan_command_config(target.resolve()),
+                        "--suggest-patches",
+                    ]
+                ),
                 why=(
                     "Review the auto-detected manifest, then scan the declared "
                     "tool surface with patch suggestions."
@@ -742,8 +810,8 @@ def register(app: typer.Typer) -> None:
                     ci=ci,
                     claude_code=claude_code,
                     agent_instructions=agent_instructions,
-                    agent_instructions_kit=agent_instructions_kit,
                 ),
+                kit=agent_instructions_kit,
             )
             _emit_agent_mode_error(
                 "config_error",

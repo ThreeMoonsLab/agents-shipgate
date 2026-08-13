@@ -28,7 +28,10 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.discovery import detect_workspace
-from agents_shipgate.cli.discovery.scope import resolve_change_scope
+from agents_shipgate.cli.discovery.scope import (
+    manifest_opt_in,
+    resolve_change_scope,
+)
 from agents_shipgate.cli.main import app
 
 runner = CliRunner()
@@ -424,9 +427,9 @@ def test_preview_routes_to_discovery_when_the_change_spans_projects(
 def test_preview_claims_no_scope_for_a_head_that_is_not_checked_out(
     monorepo: Path,
 ) -> None:
-    """Markers are read from the working tree. Evaluating another ref would
-    let the same two refs recommend different directories depending on what
-    happens to be checked out."""
+    """Markers are read from the working tree, so evaluating another ref
+    establishes nothing — and "nothing established" must not become a
+    manifest for whichever agent the current checkout happens to hold."""
 
     _touch_one_project(monorepo)
     subprocess.run(["git", "branch", "feature"], cwd=monorepo, check=True)
@@ -450,8 +453,9 @@ def test_preview_claims_no_scope_for_a_head_that_is_not_checked_out(
 
     assert result.exit_code == 0, result.output
     action = json.loads(result.output)["control"]["next_action"]
-    assert action["kind"] == "initialize"
-    assert action["command"].endswith(f"init --workspace {monorepo} --write --json")
+    assert action["kind"] == "discover"
+    assert "not the commit this worktree has checked out" in action["why"]
+    assert "init --workspace" not in action["command"]
 
 
 def test_preview_prefers_the_changed_project_manifest_over_the_root_one(
@@ -528,6 +532,308 @@ def test_preview_keeps_the_workspace_root_for_a_single_project_repo(
     action = payload["control"]["next_action"]
     assert action["kind"] == "initialize"
     assert action["command"].endswith(f"init --workspace {repo} --write --json")
+
+
+def test_preview_sees_uncommitted_work(monorepo: Path) -> None:
+    """The command preview emits runs against the worktree, so preview has to
+    scope from the worktree — an uncommitted-only capability change read as an
+    empty diff and authorized root init (#363 review)."""
+
+    target = monorepo / "python/agents/crypto-payroll-agent/app/agent.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + '\n\ndef refund(target: str) -> str:\n    """Refund."""\n    return "ok"\n',
+        encoding="utf-8",
+    )
+
+    payload = _preview(monorepo, refs=False)
+
+    assert payload["changed_files"] == [
+        "python/agents/crypto-payroll-agent/app/agent.py"
+    ]
+    action = payload["control"]["next_action"]
+    assert action["kind"] == "initialize"
+    assert str(monorepo / "python/agents/crypto-payroll-agent") in action["command"]
+
+
+def test_preview_sees_untracked_work(monorepo: Path) -> None:
+    """A brand-new project directory is untracked, which is exactly the shape
+    of a first adoption."""
+
+    project = _write_agent_project(
+        monorepo, "python/agents/new-agent", name="new_agent", tool="ship"
+    )
+
+    payload = _preview(monorepo, refs=False)
+
+    assert "python/agents/new-agent/app/agent.py" in payload["changed_files"]
+    action = payload["control"]["next_action"]
+    assert action["kind"] == "initialize"
+    assert str(project) in action["command"]
+
+
+def test_preview_routes_contested_configured_projects_to_review(
+    monorepo: Path,
+) -> None:
+    """Two configured projects are two governance boundaries; a root manifest
+    is not a substitute for either (#363 review)."""
+
+    for name in ("crypto-payroll-agent", "RAG"):
+        init = runner.invoke(
+            app,
+            ["init", "--workspace", str(monorepo / "python/agents" / name), "--write"],
+        )
+        assert init.exit_code == 0, init.output
+    root_init = runner.invoke(
+        app,
+        ["init", "--workspace", str(monorepo), "--write", "--allow-unresolved-scope"],
+    )
+    assert root_init.exit_code == 0, root_init.output
+    _commit_all(monorepo, "adopt everywhere")
+    _set_origin_main(monorepo)
+    for name, tool in (("crypto-payroll-agent", "refund"), ("RAG", "reindex")):
+        target = monorepo / "python/agents" / name / "app/agent.py"
+        target.write_text(
+            target.read_text(encoding="utf-8")
+            + f'\n\ndef {tool}(x: str) -> str:\n    """Do."""\n    return "ok"\n',
+            encoding="utf-8",
+        )
+    _commit_all(monorepo, "touch both")
+
+    payload = _preview(monorepo)
+
+    action = payload["control"]["next_action"]
+    assert action["actor"] == "human"
+    assert action["kind"] == "review"
+    # One command cannot honor two gates, so the boundaries are named in the
+    # route a human reads rather than authorized as a pick among them.
+    assert payload["control"]["allowed_next_commands"] == []
+    for name in ("crypto-payroll-agent", "RAG"):
+        assert f"python/agents/{name} --config" in action["why"]
+
+
+def test_preview_ignores_a_symlinked_manifest(monorepo: Path) -> None:
+    """The verifier refuses a manifest path with symlink components, so
+    routing to one would promise a command that exits 2."""
+
+    project = monorepo / "python/agents/crypto-payroll-agent"
+    external = monorepo.parent / "external-shipgate.yaml"
+    external.write_text("schema_version: 0.1\n", encoding="utf-8")
+    (project / "shipgate.yaml").symlink_to(external)
+    _touch_one_project(monorepo)
+
+    payload = _preview(monorepo)
+
+    action = payload["control"]["next_action"]
+    assert action["kind"] != "verify"
+
+
+def test_scoped_reports_land_beside_the_manifest_that_ignores_them(
+    monorepo: Path,
+) -> None:
+    """init installs the managed ignore in the project; the verifier must
+    write the reports it covers there too (#363 review)."""
+
+    project = monorepo / "python/agents/crypto-payroll-agent"
+    init = runner.invoke(app, ["init", "--workspace", str(project), "--write"])
+    assert init.exit_code == 0, init.output
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(project),
+            "--config",
+            "shipgate.yaml",
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (project / "agents-shipgate-reports").is_dir()
+    assert not (monorepo / "agents-shipgate-reports").exists()
+    assert "agents-shipgate-reports/" in (project / ".gitignore").read_text("utf-8")
+
+
+def test_an_explicit_out_still_resolves_against_the_repository_root(
+    monorepo: Path,
+) -> None:
+    """Only the default moved. A caller that names a directory keeps writing
+    exactly where it wrote before."""
+
+    project = monorepo / "python/agents/crypto-payroll-agent"
+    init = runner.invoke(app, ["init", "--workspace", str(project), "--write"])
+    assert init.exit_code == 0, init.output
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(project),
+            "--config",
+            "shipgate.yaml",
+            "--out",
+            "shared-reports",
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (monorepo / "shared-reports").is_dir()
+
+
+def test_the_scan_command_init_emits_finds_the_manifest_it_wrote(
+    monorepo: Path,
+) -> None:
+    """`scan -c shipgate.yaml` resolves against the working directory, so a
+    scoped manifest needs a qualified path in the emitted next action."""
+
+    project = monorepo / "python/agents/crypto-payroll-agent"
+
+    result = runner.invoke(
+        app, ["init", "--workspace", str(project), "--write", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    command = json.loads(result.output)["next_actions"][0]["command"]
+    assert str(project / "shipgate.yaml") in command
+
+
+def test_a_relative_adoption_kit_is_not_copied_into_a_candidate(
+    monorepo: Path,
+) -> None:
+    """A kit path resolves under the workspace, so copying a root-relative one
+    into a command that runs elsewhere emits a command that exits 2."""
+
+    kit_dir = monorepo / ".agents-shipgate"
+    kit_dir.mkdir(exist_ok=True)
+    (kit_dir / "kit.yaml").write_text("schema_version: 1\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(monorepo),
+            "--write",
+            "--agent-instructions=agents-md",
+            "--agent-instructions-kit",
+            ".agents-shipgate/kit.yaml",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    commands = [
+        action["command"]
+        for action in payload["next_actions"]
+        if action["kind"] == "command"
+    ]
+    assert not any(".agents-shipgate/kit.yaml" in command for command in commands)
+    assert any(
+        action["kind"] == "review" and "adoption kit" in action["why"]
+        for action in payload["next_actions"][1:]
+    )
+
+
+def test_requirements_only_siblings_are_two_projects(tmp_path: Path) -> None:
+    """A bare requirements.txt is not a project boundary; one beside an agent
+    is the only boundary that layout has (#363 review)."""
+
+    repo = tmp_path / "reqs"
+    for name in ("one", "two"):
+        project = repo / f"agent_{name}"
+        project.mkdir(parents=True)
+        (project / "requirements.txt").write_text("google-adk\n", encoding="utf-8")
+        (project / "agent.py").write_text(
+            _ADK_AGENT_MODULE.format(name=f"agent_{name}", tool="act"),
+            encoding="utf-8",
+        )
+
+    result = detect_workspace(repo)
+
+    assert result.agent_scope == "ambiguous"
+    assert [candidate.path for candidate in result.agent_project_candidates] == [
+        "agent_one",
+        "agent_two",
+    ]
+    assert {c.marker for c in result.agent_project_candidates} == {"requirements.txt"}
+
+
+def test_a_bare_requirements_file_is_not_a_project_boundary(tmp_path: Path) -> None:
+    """The weak marker needs evidence in the same directory, or every
+    `tests/requirements.txt` would become a project root."""
+
+    repo = tmp_path / "solo"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text(
+        _PYPROJECT.format(name="solo"), encoding="utf-8"
+    )
+    (repo / "agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="solo_agent", tool="act"), encoding="utf-8"
+    )
+    (repo / "tests" / "requirements.txt").write_text("pytest\n", encoding="utf-8")
+
+    result = detect_workspace(repo)
+
+    assert result.agent_scope == "single"
+    assert [candidate.path for candidate in result.agent_project_candidates] == ["."]
+
+
+def test_an_unrelated_agent_class_does_not_define_a_project(tmp_path: Path) -> None:
+    """A module with no framework import that constructs its own `Agent` is
+    not an agent project, and reading it as one refuses `init` on a repository
+    that has exactly one (#363 review)."""
+
+    repo = tmp_path / "mixed"
+    (repo / "adk").mkdir(parents=True)
+    (repo / "adk" / "pyproject.toml").write_text(
+        _PYPROJECT.format(name="adk"), encoding="utf-8"
+    )
+    (repo / "adk" / "agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="real_agent", tool="act"), encoding="utf-8"
+    )
+    (repo / "crm").mkdir()
+    (repo / "crm" / "pyproject.toml").write_text(
+        _PYPROJECT.format(name="crm"), encoding="utf-8"
+    )
+    (repo / "crm" / "models.py").write_text(
+        "class Agent:\n"
+        "    def __init__(self, name: str) -> None:\n"
+        "        self.name = name\n\n\n"
+        'sales = Agent(name="crm_rep")\n',
+        encoding="utf-8",
+    )
+
+    result = detect_workspace(repo)
+
+    assert result.agent_scope == "single"
+    assert [candidate.path for candidate in result.agent_project_candidates] == ["adk"]
+    # Still offered as a low-confidence name suggestion.
+    assert "crm_rep" in [candidate.value for candidate in result.agent_name_candidates]
+
+
+def test_a_nested_manifest_opts_the_change_in(tmp_path: Path) -> None:
+    """The documented nested-manifest opt-in has to hold outside preview too:
+    `trigger` computed it from the workspace root alone (#363 review)."""
+
+    repo = tmp_path / "apps-repo"
+    project = repo / "apps" / "a"
+    project.mkdir(parents=True)
+    (project / "shipgate.yaml").write_text("schema_version: 0.1\n", encoding="utf-8")
+
+    assert manifest_opt_in(repo, changed_paths=["apps/a/README.md"]) is True
+    # An unrelated change is not opted in by somebody else's adoption.
+    assert manifest_opt_in(repo, changed_paths=["docs/guide.md"]) is False
 
 
 # --- detect -----------------------------------------------------------------
@@ -756,8 +1062,9 @@ def test_scoped_ci_lands_at_the_repository_root(monorepo: Path) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["workflow"]["status"] == "written"
-    workflow = monorepo / ".github/workflows/agents-shipgate.yml"
+    workflow = Path(payload["workflow"]["path"])
     assert workflow.is_file()
+    assert workflow.parent == monorepo / ".github/workflows"
     assert not (project / ".github").exists()
     # The action runs at the repository root, so the manifest it gates has
     # to be named from there.
@@ -765,6 +1072,56 @@ def test_scoped_ci_lands_at_the_repository_root(monorepo: Path) -> None:
         "config: python/agents/crypto-payroll-agent/shipgate.yaml"
         in workflow.read_text(encoding="utf-8")
     )
+
+
+def test_every_scoped_project_gets_its_own_gate(monorepo: Path) -> None:
+    """The action takes one `config` scalar, so a shared workflow gates
+    whichever project ran first and leaves the rest ungated while `--ci`
+    reports a skip (#363 review)."""
+
+    written: dict[str, str] = {}
+    for name in ("crypto-payroll-agent", "RAG"):
+        result = runner.invoke(
+            app,
+            [
+                "init",
+                "--workspace",
+                str(monorepo / "python/agents" / name),
+                "--write",
+                "--ci",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["workflow"]["status"] == "written", name
+        written[name] = payload["workflow"]["path"]
+
+    assert written["crypto-payroll-agent"] != written["RAG"]
+    for name, path in written.items():
+        assert f"python/agents/{name}/shipgate.yaml" in Path(path).read_text("utf-8")
+
+
+def test_a_second_run_still_refuses_to_double_wire_one_project(
+    monorepo: Path,
+) -> None:
+    """Per-project workflows must not weaken the double-wiring guard for the
+    project they gate."""
+
+    project = monorepo / "python/agents/crypto-payroll-agent"
+    first = runner.invoke(
+        app, ["init", "--workspace", str(project), "--write", "--ci", "--json"]
+    )
+    assert first.exit_code == 0, first.output
+    (project / "shipgate.yaml").unlink()
+
+    second = runner.invoke(
+        app, ["init", "--workspace", str(project), "--write", "--ci", "--json"]
+    )
+
+    assert second.exit_code == 0, second.output
+    status = json.loads(second.output)["workflow"]["status"]
+    assert status in ("skipped_existing_target", "skipped_cross_reference")
 
 
 def test_root_scoped_ci_is_unchanged(tmp_path: Path) -> None:

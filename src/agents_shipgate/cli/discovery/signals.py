@@ -62,6 +62,7 @@ from agents_shipgate.cli.discovery.artifacts import (
 )
 from agents_shipgate.cli.discovery.scope import (
     PROJECT_MARKERS,
+    WEAK_PROJECT_MARKERS,
     find_project_root,
     project_marker,
 )
@@ -348,6 +349,10 @@ class _PyFacts:
     decorators: set[str] = field(default_factory=set)
     constructors: set[str] = field(default_factory=set)
     agent_name_literals: list[str] = field(default_factory=list)
+    #: Whether this file carries a supported framework signal. A name
+    #: literal only draws a project boundary when it does — an unrelated
+    #: module defining its own ``Agent`` class is not an agent project.
+    framework: bool = False
 
 
 def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
@@ -412,6 +417,25 @@ def _name_keyword(call: ast.Call) -> str | None:
 
 
 def _score_python_signals(fact: _PyFacts, scores: dict[str, _FrameworkScore]) -> None:
+    """Score one file, and record whether any framework claimed it.
+
+    ``fact.framework`` is set here rather than recomputed elsewhere so the
+    "is this an agent file" question has exactly one answer in this module.
+    """
+
+    before = {
+        framework: len(state.candidate_files) for framework, state in scores.items()
+    }
+    _score_python_signals_inner(fact, scores)
+    fact.framework = any(
+        len(state.candidate_files) > before[framework]
+        for framework, state in scores.items()
+    )
+
+
+def _score_python_signals_inner(
+    fact: _PyFacts, scores: dict[str, _FrameworkScore]
+) -> None:
     # LangChain
     if fact.imports & LANGCHAIN_IMPORT_MODULES:
         scores["langchain"].add(2.0, "strong", f"{fact.rel_path}: langchain import")
@@ -704,10 +728,13 @@ def _project_root_count(inventory: list[Path], workspace: Path) -> int:
     stops being trustworthy.
     """
 
-    roots = {
-        path.parent for path in inventory if path.name in PROJECT_MARKERS
-    }
-    if project_marker(workspace) is not None:
+    markers = (*PROJECT_MARKERS, *WEAK_PROJECT_MARKERS)
+    # Weak markers are counted here even though they need evidence to draw a
+    # boundary: this number only decides whether a *second* project could be
+    # hiding in the part of the tree the parse never reached, so counting one
+    # that turns out not to be a project fails closed.
+    roots = {path.parent for path in inventory if path.name in markers}
+    if project_marker(workspace, extra=WEAK_PROJECT_MARKERS) is not None:
         roots.add(workspace)
     return len(roots)
 
@@ -729,26 +756,42 @@ def _agent_project_candidates(
     the scope ambiguous (#363).
 
     Evidence is everything ``init`` would turn into a manifest: the file set
-    the frameworks fired on, every ``Agent(name=…)`` literal, and the
-    artifact paths (``suggested_sources``, Codex plugin packages and
-    marketplaces) that become ``tool_sources`` on their own. No single one
-    of those is enough. The literal is the value ``init`` adopts for
-    ``agent.name`` without asking — but the #363 agent is constructed as
+    the frameworks fired on, every framework-attributed ``Agent(name=…)``
+    literal, and the artifact paths (``suggested_sources``, Codex plugin
+    packages and marketplaces) that become ``tool_sources`` on their own. No
+    single one of those is enough. The literal is the value ``init`` adopts
+    for ``agent.name`` without asking — but the #363 agent is constructed as
     ``LlmAgent(name=CONFIG.agent_name)`` and has none. The framework file
     set covers that — but an OpenAPI- or MCP-only project fires no framework
     detection at all, and two of those under one root is the same
     one-manifest-for-two-agents outcome with none of the Python evidence.
+
+    *Framework-attributed* is the operative word for the literals. A file
+    with no supported framework import that happens to construct its own
+    ``Agent(name="crm")`` is not an agent project, and reading it as one
+    would refuse ``init`` on a repository that has exactly one (#363
+    review). Those literals stay in ``agent_name_candidates`` as name
+    suggestions; they just do not draw a boundary.
     """
 
-    names: dict[Path, set[str]] = {}
-    markers: dict[Path, str | None] = {}
-    paths: list[Path] = [
+    # Directories holding agent evidence, which is what lets a weak marker
+    # (a bare ``requirements.txt``) count as a project root there and only
+    # there. Collected before attribution because the walk up needs it.
+    evidence_paths: list[Path] = [
         workspace / relative
         for detection in detections
         for relative in detection.candidate_files
     ]
-    paths.extend(workspace / relative for relative in artifact_paths)
-    paths.extend(fact.path for fact in facts if fact.agent_name_literals)
+    evidence_paths.extend(workspace / relative for relative in artifact_paths)
+    evidence_paths.extend(
+        fact.path for fact in facts if fact.agent_name_literals and fact.framework
+    )
+    evidence_dirs = frozenset(
+        path if path.is_dir() else path.parent for path in evidence_paths
+    )
+
+    names: dict[Path, set[str]] = {}
+    markers: dict[Path, str | None] = {}
 
     def _project_of(path: Path) -> Path:
         # A Codex plugin package is named by its directory, not by a file
@@ -762,7 +805,9 @@ def _agent_project_candidates(
             # rather than to a directory nobody asked about.
             found = None
         else:
-            found = find_project_root(directory, root=workspace)
+            found = find_project_root(
+                directory, root=workspace, evidence_dirs=evidence_dirs
+            )
         project = found.directory if found is not None else workspace
         if project not in markers:
             markers[project] = (
@@ -771,10 +816,10 @@ def _agent_project_candidates(
             names.setdefault(project, set())
         return project
 
-    for path in paths:
+    for path in evidence_paths:
         _project_of(path)
     for fact in facts:
-        if fact.agent_name_literals:
+        if fact.agent_name_literals and fact.framework:
             names[_project_of(fact.path)].update(fact.agent_name_literals)
 
     candidates = [

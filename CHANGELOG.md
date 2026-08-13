@@ -87,6 +87,46 @@
   `agent_scope` and `agent_project_candidates[]` too, pinned against the CLI by
   the parity test: an agent that consults the zero-install path must not adopt
   a scope the CLI refuses.
+
+  Review found the routing could still be spent on evidence that did not
+  support it, so three things changed shape. Preview now evaluates the same
+  effective change set the full verifier does — committed range unioned with
+  uncommitted and untracked work — because the command it emits runs against
+  the working tree: an uncommitted-only capability change previously read as an
+  empty diff, and an empty diff read as "nothing narrows the scope". "Scope not
+  established" is now a state of its own rather than an absence: a head that is
+  not checked out, a capability path no project claims, or a change spanning
+  several projects each route to discovery or to human review, and never to
+  initializing the repository root, which would turn "Shipgate could not tell"
+  into a manifest for whichever agent the current checkout happens to hold.
+  When the contested projects are already configured, each is its own gate and
+  a human decides — a root manifest is not a substitute for either boundary.
+
+  Three more surfaces followed the same distinction. Reports now default to the
+  workspace the caller named, so `verify --workspace apps/a` writes
+  `apps/a/agents-shipgate-reports/` — the directory that project's managed
+  `.gitignore` block actually covers, and one that two projects cannot
+  overwrite for each other; an explicit `--out` still resolves against the
+  repository root. `--ci` writes one workflow per gated manifest
+  (`agents-shipgate-<project>.yml` beside the root's `agents-shipgate.yml`),
+  because the action takes a single `config` scalar and one shared file gated
+  whichever project initialized first while reporting a skip for the rest; that
+  scalar is now YAML-quoted when the path needs it, so a directory named
+  `apps/agent #1` no longer renders a comment. And the `trigger` command reads
+  the nested-manifest opt-in through the same resolver preview uses, so
+  `apps/a/README.md` beside `apps/a/shipgate.yaml` stops reporting a docs-only
+  skip.
+
+  Detection got two corrections in opposite directions. A bare
+  `requirements.txt` still is not a project boundary, but one sitting beside an
+  agent is the only boundary that layout has — two sibling ADK agents were
+  reported as one root scope, and `init` picked one of their names. And an
+  `Agent(name=…)` literal only draws a boundary when its file carries a
+  supported framework import: an unrelated module defining its own `Agent`
+  class made a single-agent repository refuse. Those literals remain name
+  suggestions. `tools/shipgate-detect.py` keeps its marker census complete
+  rather than truncating it with the general file cap, so heavy filler no
+  longer hides the projects it is supposed to find.
   ([#363](https://github.com/ThreeMoonsLab/agents-shipgate/issues/363))
 
 - **The recommended next command now runs where it was recommended.** Every

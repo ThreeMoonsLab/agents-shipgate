@@ -45,7 +45,8 @@ left to compare.
 So Shipgate scopes rather than guesses:
 
 - `verify --preview` derives the `--workspace` it recommends from the changed
-  paths. Each is attributed to the nearest directory at or above it that
+  paths — committed *and* uncommitted, because the command it emits runs
+  against the working tree. Each is attributed to the nearest directory at or above it that
   carries a project marker (`pyproject.toml`, `package.json`, `go.mod`,
   `Cargo.toml`, `pom.xml`, …), and the recommendation is that project when
   exactly one is claimed. Run its command verbatim. Changes spanning two
@@ -64,6 +65,16 @@ So Shipgate scopes rather than guesses:
   belongs to and re-run with `--workspace <that path>`.
 - `--allow-unresolved-scope` writes the single root manifest anyway. Use it
   only when one agent surface genuinely spans those directories.
+- Reports follow the workspace: `verify --workspace apps/a` writes
+  `apps/a/agents-shipgate-reports/`, which is what the managed `.gitignore`
+  block in that project covers, and two projects in one repository never
+  overwrite each other's results. An explicit `--out` still resolves against
+  the repository root.
+- With `--ci`, each manifest gets its own workflow — `agents-shipgate.yml` for
+  a repository-root manifest, `agents-shipgate-<project>.yml` for a scoped one.
+  The action takes a single `config`, so one shared file would gate whichever
+  project initialized first and leave the rest ungated. Read `workflow.path`
+  rather than assuming the name.
 - `agent_scope: "unknown"` is the same refusal for a different reason:
   discovery stopped at its Python-file cap in a workspace with several project
   roots, so a "single project" answer would just be whichever files were read

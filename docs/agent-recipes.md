@@ -142,7 +142,11 @@ Key response fields:
 
 `--ci` is orthogonal to `--write`: each gets its own overwrite-refusal.
 Exit code is the max of per-action outcomes; manifest-error and
-workflow-skip can co-occur.
+workflow-skip can co-occur. The workflow lands at the repository root —
+GitHub loads workflows from nowhere else — named `agents-shipgate.yml` for a
+root manifest and `agents-shipgate-<project>.yml` for a scoped one, because
+the action takes a single `config` scalar and one shared file would leave
+every project after the first ungated. Read `workflow.path`.
 
 `refused_unresolved_scope` (exit `2`) is the one outcome where **nothing**
 is written — not the manifest, not the workflow, not the agent-instruction

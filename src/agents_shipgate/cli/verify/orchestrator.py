@@ -23,6 +23,7 @@ from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.discovery.scope import (
     ChangeScope,
     ScopeResolution,
+    manifest_opt_in,
     resolve_change_scope,
 )
 from agents_shipgate.cli.scan.orchestrator import run_scan
@@ -212,7 +213,9 @@ def run_verify(
         config,
         requested_workspace=workspace,
     )
-    out_dir = _resolve_under_workspace(git_root, out or DEFAULT_OUT_DIR)
+    out_dir = _resolve_out_dir(
+        git_root=git_root, requested_workspace=workspace.resolve(), out=out
+    )
     baseline_path = (
         _resolve_static_input_path(
             git_root,
@@ -3254,6 +3257,27 @@ def _load_base_capability_lock(
         return None
 
 
+def _resolve_out_dir(
+    *, git_root: Path, requested_workspace: Path, out: Path | None
+) -> Path:
+    """Where this run writes its artifacts.
+
+    The *default* follows the workspace the caller named, not the repository
+    root. With one manifest per project — the layout this release makes
+    routable — root-shared reports mean project A's run replaces project B's
+    control pointer, and `init`'s managed ignore lands in the project while
+    the reports it is meant to cover land somewhere else (#363 review).
+
+    An explicit ``--out`` keeps resolving against the repository root, so
+    every existing invocation that names a directory still writes exactly
+    where it wrote before.
+    """
+
+    if out is not None:
+        return _resolve_under_workspace(git_root, out)
+    return _resolve_under_workspace(requested_workspace, DEFAULT_OUT_DIR)
+
+
 def _resolve_under_workspace(workspace: Path, path: Path) -> Path:
     if path.is_absolute():
         return path.resolve()
@@ -3587,6 +3611,23 @@ def _preview_init_command(workspace: Path, *, scope: ChangeScope | None = None) 
     )
 
 
+def _scoped_manifest_path(directory: Path, name: str) -> Path | None:
+    """The manifest in ``directory``, when one exists that verify would accept.
+
+    ``Path.is_file()`` follows symlinks, and the verifier refuses a manifest
+    path with symlink components. Routing to a symlinked manifest would
+    promise a ``verify`` command that exits 2 (#363 review).
+    """
+
+    candidate = directory / name
+    try:
+        if candidate.is_symlink() or not candidate.is_file():
+            return None
+    except OSError:  # pragma: no cover - unreadable directory
+        return None
+    return candidate
+
+
 def _head_is_current_worktree(root: Path, head: str | None) -> bool:
     """Whether the evaluated head is the commit the worktree has checked out.
 
@@ -3709,7 +3750,9 @@ def run_preview(
         config,
         requested_workspace=workspace,
     )
-    out_dir = _resolve_under_workspace(root, out or DEFAULT_OUT_DIR)
+    out_dir = _resolve_out_dir(
+        git_root=root, requested_workspace=requested_root, out=out
+    )
     _reject_output_input_overlap(
         git_root=root,
         out_dir=out_dir,
@@ -3763,6 +3806,42 @@ def run_preview(
             diff_input = collected
             notes.append(f"Preview diff unavailable: {collected.note}")
 
+    # The action preview emits runs against the *worktree*, so preview has to
+    # see the same effective change set the full verifier would: committed
+    # range unioned with uncommitted and untracked work. Without this an
+    # uncommitted-only capability change reads as an empty diff, and the empty
+    # diff reads as "nothing here narrows the scope" (#363 review). Skipped
+    # when an explicit --head names another tree, which is the one case where
+    # the worktree is not what is being evaluated — verify archives the head
+    # there for the same reason.
+    if head is None:
+        try:
+            # The merge base, not the base ref: comparing against the tip of
+            # the base branch would report its own commits as this change.
+            comparison_ref = (
+                require_merge_base_sha(root, base, "HEAD") if base else "HEAD"
+            )
+            worktree_paths, worktree_diff = working_tree_context(
+                root,
+                comparison_ref=comparison_ref,
+                exclude=out_dir,
+            )
+        except Exception:  # noqa: BLE001 - preview must never crash.
+            worktree_paths, worktree_diff = [], ""
+            notes.append(
+                "Preview could not read the working tree; the scope below "
+                "rests on committed evidence alone."
+            )
+        if worktree_paths or worktree_diff:
+            if base and diff_input is None:
+                # One comparison, exactly as the verifier does it: overlapping
+                # paths must appear once at their effective content, not twice.
+                changed_files = list(worktree_paths)
+                diff_text = worktree_diff
+            else:
+                changed_files = _dedupe_paths([*changed_files, *worktree_paths])
+                diff_text = _join_diff_text(diff_text, worktree_diff)
+
     # The changed paths already say which project this pull request is
     # about. Routing setup to the workspace root instead would hand a
     # monorepo one manifest for every agent in it, so the adoption command
@@ -3779,11 +3858,34 @@ def run_preview(
             limit=requested_root,
         )
         if _head_is_current_worktree(root, head)
-        else ScopeResolution()
+        else ScopeResolution(
+            status="not_evaluated",
+            detail=(
+                f"the evaluated head {head!r} is not the commit this worktree "
+                "has checked out, and project markers are read from the "
+                "worktree that init would run against"
+            ),
+        )
     )
     scope = resolution.scope
-    scoped_config = scope.directory / config_path.name if scope is not None else None
-    scoped_manifest_present = scoped_config is not None and scoped_config.is_file()
+    scoped_config = (
+        _scoped_manifest_path(scope.directory, config_path.name)
+        if scope is not None
+        else None
+    )
+    scoped_manifest_present = scoped_config is not None
+    # Which of the contested projects already carry their own manifest. A
+    # change spanning two configured projects has two governance boundaries
+    # and no single command that honors both; a root manifest is not a
+    # substitute for either (#363 review).
+    contested_configured = tuple(
+        relative
+        for relative in resolution.contested
+        if _scoped_manifest_path(
+            root if relative == "." else root / relative, config_path.name
+        )
+        is not None
+    )
 
     trigger = evaluate(
         paths=changed_files,
@@ -3791,8 +3893,11 @@ def run_preview(
         # A manifest one directory down is an opt-in too. Reading only the
         # workspace root reported an adopted monorepo project as unadopted,
         # so a docs-only change to it skipped the gate its own manifest asks
-        # for (#363).
-        manifest_present=manifest_present or scoped_manifest_present,
+        # for (#363). One resolver answers this for preview and for the
+        # `trigger` command, so the two cannot disagree about what "the repo
+        # already opted in" means.
+        manifest_present=manifest_present
+        or manifest_opt_in(root, changed_paths=changed_files, name=config_path.name),
         user_requested=True,
         input_status=_trigger_input_status(diff_input),
     )
@@ -3896,6 +4001,47 @@ def run_preview(
             f"Shipgate is configured for the changed project ({scope.relative}); "
             "run verify there to get a merge verdict."
         )
+    elif contested_configured:
+        # The change spans projects that are already configured. Each carries
+        # its own gate and no single command honors both, so a root manifest
+        # must not stand in for either: it would answer for a boundary this
+        # change never crossed (#363 review).
+        listed = ", ".join(resolution.contested)
+        # One command cannot honor two gates, and the control contract will
+        # not let a routing surface authorize two. Naming them in prose and
+        # stopping is the honest form of "each of these is its own boundary".
+        commands = "; ".join(
+            _preview_verify_command(
+                workspace=workspace,
+                config=config,
+                base=base,
+                head=head,
+                out=out,
+                pr_comment_style=pr_comment_style,
+                scope=ChangeScope(
+                    directory=root / relative,
+                    relative=relative,
+                    marker=config_path.name,
+                ),
+            )
+            for relative in contested_configured
+        )
+        next_action = HumanControlAction(
+            kind="review",
+            why=(
+                f"This change spans {len(resolution.contested)} self-contained "
+                f"projects ({listed}), and {len(contested_configured)} of them "
+                "carry their own shipgate.yaml. Each is a separate governance "
+                "boundary and no single run covers both, so a human decides "
+                "here: run every one of these and read the results together — "
+                f"{commands} — rather than letting one manifest answer for all."
+            ),
+        )
+        headline = (
+            f"This change spans {len(resolution.contested)} projects, "
+            f"{len(contested_configured)} of them separately configured; "
+            "each is its own gate."
+        )
     elif manifest_present:
         next_action = CodingAgentCommandAction(
             kind="verify",
@@ -3921,6 +4067,24 @@ def run_preview(
         headline = (
             f"This change spans {len(resolution.contested)} projects; "
             "choose the one to set up before verifying."
+        )
+    elif resolution.unresolved:
+        # "Shipgate could not tell which project this is" is not permission to
+        # write a manifest for whichever agent happens to be in the current
+        # checkout. Route to discovery and say what was missing (#363 review).
+        next_action = CodingAgentCommandAction(
+            kind="discover",
+            command=_preview_detect_command(workspace),
+            why=(
+                "The project this change belongs to could not be established "
+                f"({resolution.detail}), so initializing the workspace root "
+                "would adopt a scope nobody chose. Read the project list, then "
+                "initialize the project this change belongs to."
+            ),
+        )
+        headline = (
+            "Shipgate could not establish which project this change belongs "
+            "to; discover the projects before setting one up."
         )
     elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
         next_action = CodingAgentCommandAction(
