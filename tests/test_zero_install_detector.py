@@ -724,3 +724,92 @@ def test_script_cli_reports_inventory_failure_as_nonzero_exit(
     exit_code = script_module.main(["--workspace", str(repo), "--json"])
     assert exit_code == 1
     assert "static output bounds" in capsys.readouterr().err
+
+
+def test_script_keeps_the_logical_path_of_contained_symlinks(script_module, tmp_path):
+    """Resolution proves containment; it must not rename the entry. With
+    `agent.py -> source.txt` both entries collapse onto `source.txt`, the
+    `.py` suffix disappears, and the script reports zero Python files and
+    `is_agent_project: false` where the CLI reports an agent project — the
+    go/no-go verdict itself, not just the ranking."""
+    repo = tmp_path / "aliased"
+    repo.mkdir()
+    (repo / "source.txt").write_text(
+        "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n\n"
+        'root_agent = Agent(name="AliasRoot")\n'
+        'app = App(name="a", root_agent=root_agent)\n',
+        encoding="utf-8",
+    )
+    (repo / "agent.py").symlink_to("source.txt")
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+    assert script_result["is_agent_project"] == cli_result["is_agent_project"] is True
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    assert "AliasRoot" in {c["value"] for c in script_result["agent_name_candidates"]}
+
+
+def test_script_fallback_walk_refuses_an_unbounded_inventory(
+    script_module, tmp_path, monkeypatch
+):
+    """Without Git there is nothing bounding the walk, so a downloaded tree
+    of millions of unrelated assets would consume unbounded time and memory
+    before detection saw one Python file. The ceiling refuses rather than
+    truncating: a partial inventory is a partial scope verdict."""
+    repo = tmp_path / "huge"
+    (repo / "assets").mkdir(parents=True)
+    for index in range(40):
+        (repo / "assets" / f"{index:03d}.bin").write_bytes(b"x")
+    (repo / "agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n', encoding="utf-8"
+    )
+
+    monkeypatch.setattr(script_module, "MAX_WALK_FILES", 5)
+    monkeypatch.setattr(script_module, "_git_files", lambda _w: None)
+    with pytest.raises(script_module.DiscoveryError):
+        script_module.detect(repo)
+
+
+def test_script_binding_rules_match_the_cli(script_module, tmp_path):
+    """The binding model decides which agent a manifest names, so the two
+    implementations have to read Python the same way — a shadowed
+    constructor, a late global rebinding, a conditional inline root, a
+    retired root, and a wildcard import all have to land identically."""
+    cases = {
+        "shadowed": "from google.adk.agents import LlmAgent as RealAgent\n"
+        "from google.adk.apps import App as RealApp\n\n"
+        "def Agent(name):\n    return object()\n\n"
+        'fake = Agent(name="FabricatedRoot")\n'
+        'app = RealApp(name="a", root_agent=RealAgent(name="ActualRoot"))\n',
+        "late_global": "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n\n"
+        'root = Agent(name="StaleGlobalRoot")\n'
+        "def make_app():\n    return App(name='a', root_agent=root)\n"
+        'root = Agent(name="ActualGlobalRoot")\n'
+        "app = make_app()\n",
+        "inline_branch": "import os\nfrom google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n\n"
+        "if os.getenv('TIER'):\n"
+        "    app = App(name='a', root_agent=Agent(name='BranchOne'))\n"
+        "else:\n"
+        "    app = App(name='a', root_agent=Agent(name='BranchTwo'))\n",
+        "retired": "from google.adk.agents import Agent\n"
+        'root_agent = Agent(name="StaleRoot")\ndel root_agent\n',
+        "star": "from google.adk.agents import Agent\nfrom replacement import *\n"
+        'root_agent = Agent(name="StaleRoot")\n',
+        "global_decl": "from google.adk.agents import Agent\n"
+        'root_agent = Agent(name="OldRoot")\n'
+        "def install():\n    global root_agent\n"
+        "    root_agent = Agent(name='NewRoot')\ninstall()\n",
+    }
+    for label, body in cases.items():
+        project = tmp_path / label
+        project.mkdir()
+        (project / "agent.py").write_text(body, encoding="utf-8")
+        script_result = script_module.detect(project)
+        cli_result = detect_workspace(project.resolve()).model_dump(mode="json")
+        assert (
+            script_result["agent_name_candidates"]
+            == cli_result["agent_name_candidates"]
+        ), f"{label}: binding resolution diverged from the CLI"

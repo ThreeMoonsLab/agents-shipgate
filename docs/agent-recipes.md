@@ -112,15 +112,22 @@ Consume the response to decide whether to proceed. Key fields:
   visible in the output rather than silently changing what the manifest
   claims. `name=` values that come from a module constant or an
   `os.environ.get("…", "…")` default in the same package are resolved
-  statically (one hop, no code executed) and say so in `rationale[]`. That
-  resolution is deliberately conservative — it reads Python's binding rules
-  or declines. A symbol bound more than once anywhere in the file, one
-  assigned under an `if`/`try`/loop, one whose import could resolve to two
-  different in-workspace modules, and an `os.getenv` spelling that is not a
-  provably unshadowed stdlib import are all left unresolved rather than
-  guessed. A reference resolves against enclosing function scopes before the
-  module, and a `root_agent` later rebound to something that is not an agent
-  construction retires the earlier one rather than keeping it.
+  statically (one hop, no code executed) and say so in `rationale[]`.
+
+  All of this reads Python's binding rules or declines — a spelling is never
+  taken as provenance. `Agent`/`LlmAgent`/`App` are resolved through the
+  binding that reaches them, so a framework constructor imported under an
+  alias is recognised and one shadowed by a local `def`/`class` is not.
+  Left unresolved rather than guessed: a symbol bound more than once
+  anywhere in the file; one assigned under an `if`/`try`/loop; one rebound
+  in an enclosing scope (a function body executes when it is called, not
+  where it is written);
+  one whose import could resolve to two different in-workspace modules; an
+  `os.getenv` spelling that is not a provably unshadowed stdlib import; and
+  anything at all in a file carrying `from x import *`. Bindings that carry
+  no assignment count too — `del`, `class`, `except … as`, `case`, and a
+  `global`/`nonlocal` store routed to another scope all retire the agent a
+  name used to hold.
 - `project_name_candidates[]` — `{value, source}` only. Project names have
   no hierarchy to rank, so they carry none of the fields above. The
   `pyproject` source seeds `project.name`, never `agent.name`.

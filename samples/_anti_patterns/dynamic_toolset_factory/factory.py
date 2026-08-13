@@ -48,10 +48,13 @@ TOOLS = [
 ]
 
 
-# Pretend this is from `agents` (the OpenAI Agents SDK). The static
-# extractor sees `Agent(name="dynamic-toolset-agent")` and reports the
-# agent name candidate, but it can't follow the `tools=TOOLS` reference
-# back to the wrapped functions. Result: zero tools enumerated.
+# Pretend this is from `agents` (the OpenAI Agents SDK), but note that it
+# is a locally defined class, not an import. Name extraction resolves the
+# callee through its binding, so this `Agent` is *not* read as a framework
+# constructor and contributes no agent-name candidate. The failure this
+# fixture isolates is still the one below: nothing can follow the
+# `tools=TOOLS` reference back to the wrapped functions, so zero tools are
+# enumerated.
 class Agent:
     def __init__(self, name: str, tools: list) -> None:
         self.name = name

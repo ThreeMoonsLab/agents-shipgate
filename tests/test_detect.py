@@ -1241,3 +1241,260 @@ def test_class_body_binding_is_not_visible_to_a_method(tmp_path: Path) -> None:
         "reference; Python raises NameError there"
     )
     assert select_agent_name(result.agent_name_candidates) is None
+
+
+# --- Round-3 review: the binding table is the answer, or there isn't one ----
+#
+# Each case below produced a confident, wrong identity because recognition
+# trusted a spelling, or because a binding form was invisible to the model.
+
+
+def test_shadowed_constructor_does_not_fabricate_an_identity(tmp_path: Path) -> None:
+    """A spelling is not provenance. With `Agent` bound to a local function
+    and the real constructors imported under aliases, trusting the terminal
+    name reads the decoy as the agent and misses the actual root."""
+    project = _adk(
+        tmp_path / "shadowed_ctor",
+        """
+        from google.adk.agents import LlmAgent as RealAgent
+        from google.adk.apps import App as RealApp
+
+        def Agent(name):
+            return object()
+
+        fake = Agent(name="FabricatedRoot")
+        app = RealApp(name="a", root_agent=RealAgent(name="ActualRoot"))
+        """,
+    )
+    result = detect_workspace(project)
+    values = [c.value for c in result.agent_name_candidates]
+    assert "FabricatedRoot" not in values
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "ActualRoot"
+    assert selected.role == "root_agent"
+
+
+def test_dotted_and_reexported_constructors_stay_recognised(tmp_path: Path) -> None:
+    """Proving provenance must not shrink to "one spelling". An unbound
+    dotted access and a third-party re-export have nothing in the file
+    contradicting the terminal name, so both still count."""
+    project = _adk(
+        tmp_path / "reexport",
+        """
+        import google.adk.agents as adk
+        agent = adk.LlmAgent(name="DottedAgent")
+        """,
+    )
+    result = detect_workspace(project)
+    assert "DottedAgent" in [c.value for c in result.agent_name_candidates]
+
+    other = _adk(
+        tmp_path / "wrapper",
+        """
+        from google.adk.agents import Agent
+        from mypkg.agents import Agent as Wrapped
+        agent = Wrapped(name="WrappedAgent")
+        """,
+    )
+    result = detect_workspace(other)
+    assert "WrappedAgent" not in [c.value for c in result.agent_name_candidates], (
+        "an import that renames something else must not inherit Agent's meaning"
+    )
+
+
+def test_enclosing_writes_are_not_ordered_by_the_nested_reference(
+    tmp_path: Path,
+) -> None:
+    """A function body does not execute where it is written. A module-level
+    rebinding below a nested reference still happens before the call, so
+    comparing enclosing writes against the nested node's line reads the
+    stale value as the live one."""
+    project = _adk(
+        tmp_path / "late_global",
+        """
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        root = Agent(name="StaleGlobalRoot")
+
+        def make_app():
+            return App(name="a", root_agent=root)
+
+        root = Agent(name="ActualGlobalRoot")
+        app = make_app()
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    assert not any(c.role == "root_agent" for c in result.agent_name_candidates)
+
+
+def test_conditional_inline_roots_are_unresolved(tmp_path: Path) -> None:
+    """Which branch built the app decides which agent is the root, and that
+    is a runtime fact. Both constructions were selectable roots and the
+    first one seen won."""
+    project = _adk(
+        tmp_path / "inline_branch",
+        """
+        import os
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        if os.getenv("TIER"):
+            app = App(name="a", root_agent=Agent(name="BranchOne"))
+        else:
+            app = App(name="a", root_agent=Agent(name="BranchTwo"))
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    assert not any(c.role == "root_agent" for c in result.agent_name_candidates)
+
+
+@pytest.mark.parametrize(
+    ("label", "body"),
+    [
+        ("del", "root_agent = Agent(name='StaleRoot')\ndel root_agent\n"),
+        ("class", "root_agent = Agent(name='StaleRoot')\nclass root_agent:\n    pass\n"),
+        (
+            "except",
+            "root_agent = Agent(name='StaleRoot')\n"
+            "try:\n    pass\nexcept ValueError as root_agent:\n    pass\n",
+        ),
+        (
+            "match",
+            "root_agent = Agent(name='StaleRoot')\n"
+            "match object():\n    case root_agent:\n        pass\n",
+        ),
+    ],
+)
+def test_binding_forms_without_a_store_name_retire_the_root(
+    tmp_path: Path, label: str, body: str
+) -> None:
+    """`del`, `class`, `except … as`, and `case` all rebind or unbind the
+    module symbol without producing a Store `Name`. A model that only sees
+    assignments keeps a root that no longer exists."""
+    project = _adk(
+        tmp_path / f"form_{label}", "from google.adk.agents import Agent\n" + body
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_wildcard_import_makes_bindings_unprovable(tmp_path: Path) -> None:
+    """`from x import *` binds an unknowable set of names, so nothing in the
+    file can be shown to still hold what it was assigned."""
+    project = _adk(
+        tmp_path / "star",
+        """
+        from google.adk.agents import Agent
+        from replacement import *
+
+        root_agent = Agent(name="StaleRoot")
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_global_declaration_routes_the_write_to_the_module(tmp_path: Path) -> None:
+    """`global root_agent` means a store in that function rebinds the module
+    symbol. Recorded as a local write it was invisible, and a stale
+    module-level root kept the role while the runtime had moved on."""
+    project = _adk(
+        tmp_path / "global_decl",
+        """
+        from google.adk.agents import Agent
+
+        root_agent = Agent(name="OldRoot")
+
+        def install():
+            global root_agent
+            root_agent = Agent(name="NewRoot")
+
+        install()
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    assert not any(c.role == "root_agent" for c in result.agent_name_candidates)
+
+
+def test_nonlocal_declaration_routes_the_write_to_the_enclosing_scope(
+    tmp_path: Path,
+) -> None:
+    """Same rule one scope in: a `nonlocal` store rebinds the enclosing
+    function's name, not a fresh local."""
+    project = _adk(
+        tmp_path / "nonlocal_decl",
+        """
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        def outer():
+            root = Agent(name="EnclosingRoot")
+
+            def swap():
+                nonlocal root
+                root = Agent(name="SwappedRoot")
+
+            swap()
+            return App(name="a", root_agent=root)
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_top_level_test_modules_count_as_test_code(tmp_path: Path) -> None:
+    """`tests.py` and `test.py` are conventional test modules with no
+    `test_` prefix; missing them let a fixture root outrank product code."""
+    project = tmp_path / "toplevel"
+    project.mkdir()
+    (project / "service.py").write_text(
+        'from google.adk.agents import Agent\n\nhelper = Agent(name="ProductionAgent")\n',
+        encoding="utf-8",
+    )
+    (project / "tests.py").write_text(
+        "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n\n"
+        'root_agent = Agent(name="TestFixtureRoot")\n'
+        'app = App(name="a", root_agent=root_agent)\n',
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "ProductionAgent"
+
+
+def test_detect_result_still_accepts_plain_name_candidates() -> None:
+    """`NameCandidate` is a public export and was the declared element type
+    before ranking existed. Narrowing the annotation turned working calls
+    into a ValidationError; a legacy dict parsed but silently landed on
+    `selectable=False`, changing which name `init` writes."""
+    from agents_shipgate.schemas.detect import AgentNameCandidate, NameCandidate
+
+    result = DetectResult(
+        is_agent_project=True,
+        agent_name_candidates=[
+            NameCandidate(value="GoodAgent", source="Agent_name_literal"),
+            NameCandidate(value="ws", source="workspace_dir"),
+        ],
+    )
+    assert all(isinstance(c, AgentNameCandidate) for c in result.agent_name_candidates)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "GoodAgent"
+
+    parsed = DetectResult.model_validate(
+        {
+            "is_agent_project": True,
+            "agent_name_candidates": [
+                {"value": "GoodAgent", "source": "Agent_name_literal"},
+                {"value": "ws", "source": "workspace_dir"},
+            ],
+        }
+    )
+    assert [(c.value, c.selectable) for c in parsed.agent_name_candidates] == [
+        ("GoodAgent", True),
+        ("ws", False),
+    ]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class FrameworkDetection(BaseModel):
@@ -64,6 +64,25 @@ class AgentNameCandidate(NameCandidate):
     rationale: list[str] = Field(default_factory=list)
 
 
+# Fields that only a ranked candidate carries. An entry holding none of
+# them predates the ranking and is upgraded rather than read as "ranked
+# last, not selectable".
+_RANKED_FIELDS = frozenset({"role", "path", "rank_score", "selectable", "rationale"})
+# The sources selection accepted before ranking existed. A legacy candidate
+# keeps exactly the meaning it had.
+_LEGACY_SELECTABLE_SOURCES = frozenset({"Agent_name_literal", "ADK_name_field"})
+
+
+def _upgrade_legacy_candidate(data: dict[str, object]) -> AgentNameCandidate:
+    source = data.get("source")
+    return AgentNameCandidate(
+        value=str(data.get("value", "")),
+        source=str(source),
+        selectable=source in _LEGACY_SELECTABLE_SOURCES,
+        rationale=["carried over from an unranked NameCandidate"],
+    )
+
+
 class AgentProjectCandidate(BaseModel):
     """One self-contained project that defines at least one agent.
 
@@ -118,6 +137,7 @@ class DetectResult(BaseModel):
     # Ranked best-first. The first entry with ``selectable`` true is the one
     # ``init`` writes; see ``signals.select_agent_name``.
     agent_name_candidates: list[AgentNameCandidate] = Field(default_factory=list)
+
     project_name_candidates: list[NameCandidate] = Field(default_factory=list)
     # Which directory one manifest should describe. "ambiguous" means agents
     # were found in more than one self-contained project, so the workspace as
@@ -139,3 +159,31 @@ class DetectResult(BaseModel):
     codex_plugin_candidates: list[CodexPluginCandidate] = Field(default_factory=list)
     next_action: str = ""
     workspace_signals: WorkspaceSignals = Field(default_factory=WorkspaceSignals)
+
+    @field_validator("agent_name_candidates", mode="before")
+    @classmethod
+    def _accept_legacy_name_candidates(cls, value: object) -> object:
+        """Upgrade plain ``NameCandidate`` entries rather than rejecting them.
+
+        ``NameCandidate`` is a public export and was the declared element
+        type before ranking existed, so callers construct ``DetectResult``
+        with it. Narrowing the annotation turned those calls into a
+        ``ValidationError``, and a legacy dict would have parsed but landed
+        on ``selectable=False`` — silently changing which name ``init``
+        writes. Both are upgraded here with the rule that used to decide
+        selection, so old callers keep the behaviour they had.
+        """
+        if not isinstance(value, list):
+            return value
+        upgraded: list[object] = []
+        for entry in value:
+            if isinstance(entry, AgentNameCandidate):
+                upgraded.append(entry)
+            elif isinstance(entry, NameCandidate):
+                upgraded.append(_upgrade_legacy_candidate(entry.model_dump()))
+            elif isinstance(entry, dict) and not _RANKED_FIELDS & set(entry):
+                upgraded.append(_upgrade_legacy_candidate(entry))
+            else:
+                upgraded.append(entry)
+        return upgraded
+

@@ -62,6 +62,23 @@
   which one Python picks depends on `sys.path`, so the identity stays
   unresolved.
 
+  Provenance is resolved, never assumed. `Agent`/`LlmAgent`/`App` are read
+  through the binding that reaches them, so a constructor imported under an
+  alias counts and one shadowed by a local `def`/`class` does not — matching
+  a terminal spelling let a decoy `def Agent(...)` supply a fabricated
+  identity while the real aliased root went unseen. Every binding form is
+  modelled, not just assignments: `del`, `class`, `except … as`, `case`, and
+  a `global`/`nonlocal` store routed to the scope it actually rebinds all
+  retire the agent a name used to hold, and a file carrying
+  `from x import *` can prove nothing about any of its names. Lookups into
+  an enclosing or module scope no longer compare writes against the nested
+  reference's line number: a function body does not execute where it is
+  written, so a module-level rebinding *below* a nested reference still
+  happens before the call, and only a single unconditional binding there is
+  provable. An `App(root_agent=Agent(…))` built inside a branch is
+  unresolved rather than whichever arm came first, and `tests.py` / `test.py`
+  now count as test code like every other conventional test module.
+
   Origin now dominates the score rather than competing with it. The
   documented contract is that product code outranks test code, but additive
   scoring let a test fixture that builds an `App(root_agent=…)` outrank a
@@ -86,6 +103,22 @@
   invisible to `init`, so walking it anyway let the script name an agent
   `init` would never write; a symlink escaping the workspace both
   contributed a name and leaked its outside absolute path into the output.
+  Two further detector fixes: a contained symlink keeps its *logical* path,
+  because resolving `agent.py -> source.txt` renamed the entry, dropped the
+  `.py` suffix, and reported zero Python files where the CLI reported an
+  agent project — the go/no-go verdict, not just the ranking. And the
+  non-Git fallback walk now has a documented ceiling that *raises* rather
+  than truncating, so a downloaded tree of unrelated assets cannot consume
+  unbounded time and memory before detection sees a single source file.
+
+  `DetectResult(agent_name_candidates=[NameCandidate(...)])` keeps working.
+  `NameCandidate` is a public export and was the declared element type
+  before ranking existed; narrowing the annotation turned working calls into
+  a `ValidationError`, and a legacy dict parsed but silently landed on
+  `selectable: false`, changing which name `init` writes. Both are now
+  upgraded at the model boundary using the rule that decided selection
+  before this change, so old callers keep the behaviour they had.
+
   Its file bound also moved from the whole inventory onto Python parses, so
   an asset-heavy repository can no longer exhaust the budget before the walk
   reaches any source. Git's output is read incrementally against that bound
