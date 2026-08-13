@@ -77,24 +77,24 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 #
 # v24 rolls the control envelope across the setup commands (#323): ``detect``,
 # ``init``, and ``doctor`` publish ``shipgate.agent_control/v1`` under
-# ``decision_source: "setup"``, and the coding-agent action union gains the
-# typed ``edit`` route those commands need.
+# ``decision_source: "setup"``, with new ``operation`` values and closed
+# per-source ``decision`` vocabularies.
 #
-# ``MINIMUM_CONTROL_CONTRACT_VERSION`` moves to 24 with it. The first reading of
-# this change was that no *producer* emits the new ``edit`` route outside setup
-# output, so a v21 consumer could never observe it. That is a claim about which
-# code paths run, not about what the contract permits: ``CodingAgentAction`` is
-# the union every control producer embeds, so a verifier, handoff, preflight,
-# boundary, or verify-run payload carrying an ``edit`` route validates against
-# this branch's schemas and is rejected by a v21 consumer's copy of them. A
-# consumer switching exhaustively on ``next_action.kind`` therefore has to be
-# told, and the honest way to tell it is the floor.
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21, and this time the argument is
+# about the type rather than about which code paths run. The ``AgentControl``
+# union is byte-identical to v21: a typed ``edit`` action was added and then
+# removed, because that union is embedded by six durable published schemas —
+# verifier, agent-handoff, preflight, agent-result, agent-boundary-result, and
+# verify-run — so widening it widened all six under unchanged identifiers, and
+# five of those artifacts carry no ``contract_version`` for a consumer holding a
+# stored payload to disambiguate with.
 #
-# The alternative — a second, narrower action union for the release producers —
-# was rejected: two control vocabularies is the outcome #333 and #323 were
-# merged to prevent, and it would have to be maintained in step forever.
+# What v24 does widen is ``shipgate.agent_control/v1`` itself, which is emitted
+# on stdout and never written as an artifact. There are no stored envelopes to
+# disambiguate, and its new operations cannot appear in any artifact a v21
+# consumer holds.
 CONTRACT_VERSION: Literal["24"] = "24"
-MINIMUM_CONTROL_CONTRACT_VERSION: Literal["24"] = "24"
+MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v3.json"] = (

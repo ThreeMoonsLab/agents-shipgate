@@ -17,17 +17,25 @@ for reproducible CI.
 
 ## Migration Note: unreleased — one control vocabulary across the setup commands
 
-Runtime contract `23 → 24`, and `minimum_control_contract_version` **moves to
-24** with it. The first reading of this change was that no *producer* emits the
-new `edit` route outside setup output, so a contract-21 consumer could never
-observe it. That is a claim about which code paths run, not about what the
-contract permits: `CodingAgentAction` is the union every control producer
-embeds, so a verifier, handoff, preflight, boundary, or verify-run payload
-carrying an `edit` route validates here and is rejected by a contract-21
-consumer's copy of the same schemas. A consumer switching exhaustively on
-`next_action.kind` has to be told, and the floor is how it is told.
+Runtime contract `23 → 24`. `minimum_control_contract_version` **stays at 21**,
+and the `AgentControl` union is byte-identical to v21.
 
-**Two routing behaviours change**, and neither is additive:
+A typed `edit` action was added to that union for setup routing and then
+removed. The union is embedded by six durable published schemas — verifier,
+agent-handoff, preflight, agent-result, agent-boundary-result, and verify-run —
+so widening it widened all six under unchanged identifiers, and five of those
+artifacts record no `contract_version` for a consumer holding a stored payload to
+disambiguate with. A setup step that needs a file changed routes as a `configure`
+command naming the check that confirms it, with the file in `why` and
+structurally in `next_actions[].path`.
+
+What v24 does widen is `shipgate.agent_control/v1` itself — new `operation`
+values, `decision_source: "setup"`, and closed per-source `decision`
+vocabularies. That document is emitted on stdout and never written as an
+artifact, so there are no stored envelopes to disambiguate and its new
+operations cannot appear in anything a v21 consumer holds.
+
+**One routing behaviour changes**, and it is not additive:
 
 - `init --write` no longer names a runnable `scan` in `next_action` when the
   manifest it wrote still holds an unresolved human-owned declaration. Both
@@ -36,10 +44,6 @@ consumer's copy of the same schemas. A consumer switching exhaustively on
   published an executable command that would carry an unfilled
   `agent.declared_purpose` into a release decision, beside a control state that
   authorized nothing (#325).
-- `detect --json` reports `setup_incomplete` and hands off to `doctor` on a
-  workspace that already has a manifest, where it previously said `init`.
-  `detect` never opens the manifest, so it can neither run `init` usefully there
-  nor establish that setup is done. See below.
 
 **`detect --json`, `init --json`, and every `doctor --json` payload gain a
 `control` field.** It holds the same `shipgate.agent_control/v1` envelope that
@@ -92,24 +96,16 @@ fields `declared_purpose`, `prohibited_actions`, `owner`, `reason`, `expires`,
 `confirmation`, and `idempotency`, all route to a human. Anything else — a
 tool-source path, a project name — stays coding-agent work.
 
-**`agent control` on a `scan` generation publishes no release verdict.** `scan`
-runs the release engine and binds its `report.json`, but its pointer records no
-HEAD, no worktree overlay, and no input set, so the generic currency comparison
-has nothing to compare and passes vacuously. Reporting the bound verdict on top
-of that published a *stale* decision: a clean scan said `passed`, an input
-changed, and the same pointer still read cleanly with the same verdict. Binding
-the manifest digest alone did not close it either — the manifest is one input
-among several, and editing a `tools.json` it references moved the real decision
-from `passed` to `insufficient_evidence` while the pointer stayed intact.
-
-So the envelope reports `decision: null` / `decision_source: "none"` for every
-scan generation, as it did before this release, and `reason` now states which of
-two things is true: the scan binds no reconfirmable snapshot of the inputs it
-read, or it bound no machine-readable report at all. That part is worth having —
-a bare `decision: null` reads exactly like output produced before any engine ran.
-A verdict a reader can check comes from `verify`. Publishing one from `scan`
-needs a complete, reconfirmable input snapshot threaded through report generation
-and pointer publication; that is a separate change.
+**`scan` is not part of this rollout.** `agent control` on a `scan` generation
+reports `decision: null` / `decision_source: "none"`, exactly as it did before,
+with a `reason` stating that the verdict is *withheld* rather than absent. A
+scan pointer records no HEAD, no worktree overlay, and no input set, so no
+artifact in that directory can show its verdict still describes the workspace —
+editing the manifest, a `tools.json` it references, a policy pack, or a baseline
+leaves the pointer reading cleanly. Publishing a verdict from `scan` needs a
+complete, reconfirmable input snapshot threaded through report generation and
+pointer publication; that is a separate change, and #323's scan half stays open
+until it lands. `verify` is where a verdict a reader can check comes from.
 
 **`shipgate.current_control/v1` is unchanged.** An earlier revision of this
 branch added an optional `policy_snapshot_path` to `workspace_identity`.

@@ -86,6 +86,63 @@ def _doctor_advance(manifest_path: Path, *, workspace: Path) -> NextAction:
     )
 
 
+def _doctor_failure_routing(
+    *,
+    manifest_path: Path | str,
+    workspace: Path,
+    diagnostics: list,
+    reason: str,
+    exit_code: int,
+):
+    """The shared envelope for a doctor run that never reached inspection.
+
+    ``doctor --json`` promises a ``control`` field, and these paths did not
+    carry one: an invalid manifest printed nothing on stdout and a legacy error
+    line on stderr, and a manifest whose declared trace path is still
+    ``CHANGE_ME`` raised while *opening* that literal path, before ownership was
+    ever evaluated — so the caller got generic "inspect the file" guidance
+    instead of the field, the line, and the fact that a person owes the value.
+
+    Fail-closed by construction: setup authorizes nothing, and a run that could
+    not inspect anything reports ``setup_incomplete``.
+    """
+
+    from agents_shipgate.cli.setup_control import SETUP_INCOMPLETE
+
+    path = Path(manifest_path)
+    try:
+        manifest_bytes = path.read_bytes()
+    except OSError:
+        manifest_bytes = b""
+    text = manifest_bytes.decode("utf-8", errors="replace")
+    placeholders = collect_placeholders(text)
+    return setup_control_envelope(
+        operation="doctor",
+        input_id=setup_input_id(
+            operation="doctor",
+            workspace=workspace,
+            manifest_path=path,
+            manifest_bytes=manifest_bytes,
+            routing_facts=(reason, exit_code, placeholders),
+        ),
+        reason=reason,
+        diagnostics=diagnostics,
+        # An unresolved *human-owned* declaration outranks the loader's
+        # complaint about it: `validation.evidence...path: CHANGE_ME` fails to
+        # open precisely because nobody has supplied it yet, and telling the
+        # agent to inspect a file named `CHANGE_ME` is not the answer.
+        placeholders=placeholders,
+        manifest_display_path=str(path),
+        advance=None,
+        advance_decision=SETUP_INCOMPLETE,
+        recheck_command=render_command(
+            ["doctor", "--config", str(path.resolve()), "--json"]
+        ),
+        execution="failed",
+        exit_code=exit_code,
+    )
+
+
 def register(app: typer.Typer) -> None:
     @app.command(hidden=True)
     def doctor(
@@ -128,15 +185,21 @@ def register(app: typer.Typer) -> None:
                     diagnostics = _diagnose_config_error(
                         config=str(path), workspace=None, exc=exc
                     )
-                    flattened = top_next_actions(diagnostics)
-                    _echo_next_action_hint(flattened)
+                    _echo_next_action_hint(top_next_actions(diagnostics))
+                    routing = _doctor_failure_routing(
+                        manifest_path=path,
+                        workspace=(workspace or path.parent).resolve(),
+                        diagnostics=diagnostics,
+                        reason=str(exc),
+                        exit_code=2,
+                    )
                     _emit_agent_mode_error(
                         "config_error",
                         message=str(exc),
-                        next_action=flattened[0].to_legacy_string(),
-                        next_actions=[
-                            a.model_dump(mode="json") for a in flattened
-                        ],
+                        exit_code=2,
+                        next_action=routing.legacy_next_action,
+                        next_actions=routing.json_actions(),
+                        control=routing.envelope.model_dump(mode="json"),
                     )
                     raise typer.Exit(2) from exc
         except typer.Exit:
@@ -147,20 +210,21 @@ def register(app: typer.Typer) -> None:
                 "Inspect the file referenced in the error; ensure it exists, "
                 "is valid, and resolves under the manifest directory."
             )
+            failed = paths[len(payloads)] if len(payloads) < len(paths) else paths[0]
+            routing = _doctor_failure_routing(
+                manifest_path=failed,
+                workspace=(workspace or failed.parent).resolve(),
+                diagnostics=[],
+                reason=f"{guidance} {exc}",
+                exit_code=3,
+            )
             _emit_agent_mode_error(
                 "input_parse_error",
                 message=str(exc),
-                next_action=guidance,
-                next_actions=[
-                    NextAction(
-                        kind="review",
-                        why=guidance,
-                        expects=(
-                            "Referenced file is present, parseable, and inside "
-                            "the manifest directory."
-                        ),
-                    ).model_dump(mode="json")
-                ],
+                exit_code=3,
+                next_action=routing.legacy_next_action,
+                next_actions=routing.json_actions(),
+                control=routing.envelope.model_dump(mode="json"),
             )
             raise typer.Exit(3) from exc
         enriched_payloads: list[dict[str, object]] = []
@@ -213,6 +277,11 @@ def register(app: typer.Typer) -> None:
                 manifest_display_path=str(path),
                 advance=_doctor_advance(path, workspace=manifest_workspace),
                 advance_kind="verify",
+                # A diagnostic that asks for a file edit routes as the command
+                # that confirms it — doctor itself, on this manifest.
+                recheck_command=render_command(
+                    ["doctor", "--config", str(path.resolve()), "--json"]
+                ),
                 advance_decision=SETUP_COMPLETE,
                 # `doctor` exits 3 for a human on unresolved sources but 0 for a
                 # JSON consumer, and the control envelope is read by the latter.

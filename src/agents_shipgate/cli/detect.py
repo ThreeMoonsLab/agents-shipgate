@@ -205,6 +205,11 @@ def _detect_advance(
     which is a route around the human stop. Handing off to the command that does
     read the manifest keeps one answer per obligation.
 
+    An adopted manifest is checked first, and that ordering is the point: a
+    person who ran ``init --allow-unresolved-scope`` chose the root as the
+    boundary, and asking again on the next ``detect`` would make that decision
+    impossible to keep.
+
     An unresolved *scope* is the same shape as an unresolved manifest, one step
     earlier. When a workspace defines agents in several projects (#363/#370),
     ``DetectResult.next_action`` is prose rather than a command precisely because
@@ -217,23 +222,13 @@ def _detect_advance(
     diagnostics own that route and end in a human stop.
     """
 
-    if result.agent_scope != "single":
-        return (
-            NextAction(
-                kind="review",
-                # `DetectResult.next_action` already states the situation and
-                # names the field holding the candidates; restating it here
-                # would be a second wording of one fact.
-                why=result.next_action,
-                expects=(
-                    "One project directory chosen from agent_project_candidates, "
-                    "then init --workspace <that path> --write."
-                ),
-            ),
-            "discover",
-            SETUP_INCOMPLETE,
-        )
     if has_manifest:
+        # An adopted root settles the scope question, including when discovery
+        # still sees several candidate projects. `init --allow-unresolved-scope`
+        # exists precisely so a person can accept the root as the boundary, and
+        # re-asking on the next `detect` made that decision unrepeatable — the
+        # flow could never hand the accepted manifest on. A manifest on disk is
+        # evidence a choice was made; re-litigating it is not detect's to do.
         return (
             NextAction(
                 kind="command",
@@ -250,6 +245,22 @@ def _detect_advance(
                 ),
             ),
             "configure",
+            SETUP_INCOMPLETE,
+        )
+    if result.agent_scope != "single":
+        return (
+            NextAction(
+                kind="review",
+                # `DetectResult.next_action` already states the situation and
+                # names the field holding the candidates; restating it here
+                # would be a second wording of one fact.
+                why=result.next_action,
+                expects=(
+                    "One project directory chosen from agent_project_candidates, "
+                    "then init --workspace <that path> --write."
+                ),
+            ),
+            "discover",
             SETUP_INCOMPLETE,
         )
     adoptable = bool(

@@ -18,7 +18,6 @@ from agents_shipgate.schemas.agent_control import (
     AgentControl,
     AgentControlAction,
     CodingAgentCommandAction,
-    CodingAgentEditAction,
     CodingAgentFetchBaseAction,
     CompleteAgentControl,
     HumanControlAction,
@@ -174,20 +173,12 @@ def _validate_action(
         # control is needlessly circular.  Its three variants have disjoint
         # ``kind`` values, so direct model selection stays deterministic.
         if isinstance(
-            value,
-            (
-                CodingAgentCommandAction,
-                CodingAgentFetchBaseAction,
-                CodingAgentEditAction,
-                HumanControlAction,
-            ),
+            value, (CodingAgentCommandAction, CodingAgentFetchBaseAction, HumanControlAction)
         ):
             return value
         kind = value.get("kind")
         if kind == "fetch_base":
             return CodingAgentFetchBaseAction.model_validate(value)
-        if kind == "edit":
-            return CodingAgentEditAction.model_validate(value)
         if kind in {"review", "stop"}:
             return HumanControlAction.model_validate(value)
         return CodingAgentCommandAction.model_validate(value)

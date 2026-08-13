@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.config.loader import load_manifest_text
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -51,16 +51,17 @@ def inspect_sources(
 
     from agents_shipgate.inputs.protocol import discover_third_party_adapters
 
-    manifest = load_manifest(config_path)
-    # The exact bytes this inspection was computed from. `doctor` derives the
-    # placeholder set and the identity of its answer from them, and reading the
-    # file again afterwards is a second read of something an edit can land
-    # between: it published a route selected from state A under an `input_id`
-    # hashing state B, and an unchanged rerun then produced a different route.
+    # One read, and the parse comes from it. Loading the path and then reopening
+    # it for the bytes was two generations: an edit landing between them let
+    # doctor route from manifest A while the identity of that answer hashed
+    # manifest B, so the payload described no single filesystem state.
     try:
         manifest_bytes = config_path.read_bytes()
     except OSError:
         manifest_bytes = b""
+    manifest = load_manifest_text(
+        manifest_bytes.decode("utf-8", errors="replace"), source=config_path
+    )
     base_dir = config_path.resolve().parent
     unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)
     if unresolved_sources:

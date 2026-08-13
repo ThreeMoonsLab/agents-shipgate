@@ -25,7 +25,6 @@ from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.contract import COMMANDS, DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
-    REPORT_ARTIFACT_KEY,
     VERIFIER_ARTIFACT_KEY,
 )
 from agents_shipgate.schemas.diagnostics import NextAction
@@ -253,7 +252,7 @@ def control(
         envelope = envelope_from_routeless_pointer(
             result.pointer,
             verify_command=_recovery_verify_command(workspace, reports_dir),
-            decision_withheld=_scan_verdict_unavailable(result),
+            decision_withheld=_scan_verdict_unavailable(),
             artifact_root=reports_dir.as_posix(),
         )
     elif result.pointer.lifecycle_state == "terminal":
@@ -378,7 +377,7 @@ def _bound_verifier(result: CurrentControlRead) -> VerifierArtifact | None:
     return verifier
 
 
-def _scan_verdict_unavailable(result: CurrentControlRead) -> str:
+def _scan_verdict_unavailable() -> str:
     """Why a `scan` generation publishes no release decision here.
 
     `scan` runs the release engine and binds its `report.json`, so the verdict
@@ -395,22 +394,22 @@ def _scan_verdict_unavailable(result: CurrentControlRead) -> str:
     reconfirmable snapshot of everything it read (tracked separately).
 
     What *is* published is the reason, so this stays distinguishable from output
-    produced before any engine ran — the ambiguity #323 set out to remove.
+    produced before any engine ran — the ambiguity #323 set out to remove. The
+    reason says the verdict was *withheld*, never that none exists: a
+    format-limited scan still reached one, and `report.sarif` even carries it
+    under `runs[0].properties.release_decision`. Which artifact holds it is not
+    the point; none of them can show it is still current.
+
     Authority is untouched either way: the state and `permissions` come from the
     pointer, and a scan authorizes no merge.
     """
 
-    if REPORT_ARTIFACT_KEY not in result.pointer.artifacts:
-        return (
-            "This generation bound no machine-readable report, and a scan binds "
-            "no reconfirmable snapshot of the inputs it read, so no release "
-            "decision is published here. Run verify to obtain one."
-        )
     return (
-        "A scan binds no reconfirmable snapshot of the inputs it read — the "
-        "manifest, its tool sources, policy packs, and baselines can all change "
-        "without moving this pointer — so the release decision it reached is not "
-        "published here. Run verify to obtain one."
+        "This scan reached a release decision and it is withheld here: a scan "
+        "binds no reconfirmable snapshot of the inputs it read — the manifest, "
+        "its tool sources, policy packs, and baselines can all change without "
+        "moving this pointer — so nothing in this directory can show the verdict "
+        "still describes the workspace. Run verify to obtain one that can."
     )
 
 

@@ -1573,10 +1573,14 @@ def test_a_scan_never_publishes_a_release_verdict(repo: Path):
     assert after["current_control_id"] == fresh["current_control_id"]
 
 
-def test_a_format_limited_scan_says_why_it_has_no_verdict(repo: Path):
-    """`--format markdown` binds no machine-readable report.
+def test_a_format_limited_scan_says_the_verdict_is_withheld_not_absent(repo: Path):
+    """`--format markdown` still reached a decision; it is withheld, not missing.
 
-    Same absent verdict, a different reason for it, and the envelope says which.
+    Saying "this generation bound no machine-readable report" was wrong twice
+    over: a SARIF-only scan *does* bind one, carrying the verdict under
+    `runs[0].properties.release_decision`, and in both cases the scan reached a
+    decision that is being withheld rather than one that never existed. Which
+    artifact holds it is not the point — none of them can show it is current.
     """
 
     reports = repo / "agents-shipgate-reports"
@@ -1596,7 +1600,7 @@ def test_a_format_limited_scan_says_why_it_has_no_verdict(repo: Path):
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert payload["decision"] is None
-    assert "bound no machine-readable report" in payload["reason"]
+    assert "reached a release decision and it is withheld" in payload["reason"]
     assert "report" not in payload["artifacts"]
 
 

@@ -91,43 +91,6 @@ class CodingAgentFetchBaseAction(BaseModel):
     why: NonEmptyText
 
 
-class CodingAgentEditAction(BaseModel):
-    """A file the coding agent must change, when no command can make the change.
-
-    Setup routing (``detect`` / ``init`` / ``doctor``) reaches steps that are
-    unambiguously coding-agent work and have no executable form: a manifest the
-    loader rejected, a ``tool_sources[].path`` that does not resolve, a
-    ``type:`` that names no adapter.  Before this variant existed the union
-    offered two bad projections for them — hide the instruction inside the
-    ``why`` of some *other* command, or route agent-owned work to a human and
-    end the turn.  Both were wrong in a way the union is supposed to prevent,
-    so the typed form is the third option.
-
-    ``path`` carries the same ``<file>`` or ``<file>:<line>`` spelling that
-    :class:`~agents_shipgate.schemas.diagnostics.NextAction` uses, so a caller
-    can open exactly what it was handed.  ``expects`` is required rather than
-    optional: an edit route that does not say what "done" looks like cannot be
-    checked by the agent that follows it, and every producer already states it.
-
-    Ownership is *not* encoded here.  A human-owned declaration is never
-    published as a coding-agent action at all — it routes to
-    :class:`HumanControlAction` — so the presence of this type already means
-    the agent may perform the edit.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={"required": ["actor", "kind", "command", "path", "expects", "why"]},
-    )
-
-    actor: Literal["coding_agent"] = "coding_agent"
-    kind: Literal["edit"]
-    command: None = None
-    path: NonEmptyText
-    expects: NonEmptyText
-    why: NonEmptyText
-
-
 class HumanControlAction(BaseModel):
     """A human-owned route.  Human actions never expose executable commands."""
 
@@ -155,38 +118,30 @@ class HumanReviewAction(HumanControlAction):
 
 
 type CodingAgentAction = Annotated[
-    CodingAgentCommandAction | CodingAgentFetchBaseAction | CodingAgentEditAction,
-    Field(discriminator="kind"),
-]
-type AgentControlAction = Annotated[
-    CodingAgentCommandAction
-    | CodingAgentFetchBaseAction
-    | CodingAgentEditAction
-    | HumanControlAction,
-    Field(discriminator="kind"),
-]
-
-# The routes that carry no executable command.  Grouped once because three
-# separate places have to treat them alike — the union's own
-# ``allowed_next_commands`` check, the control derivation, and the envelope's
-# prose cap — and an ``isinstance`` tuple written out at each of them is how the
-# next variant gets handled in two of the three.
-COMMANDLESS_CODING_AGENT_ACTIONS = (CodingAgentFetchBaseAction, CodingAgentEditAction)
-
-# The snapshot of the action union as the frozen pre-contract-20 surfaces were
-# promised it.  ``_FrozenControlBase`` used to reference the live aliases above,
-# which meant the "frozen" ``shipgate.codex_boundary_result/v2`` schema widened
-# every time the live union gained a variant — the exact thing its own comment
-# says must never happen.  Adding ``edit`` is what made that observable, so the
-# freeze is now real.
-type FrozenCodingAgentAction = Annotated[
     CodingAgentCommandAction | CodingAgentFetchBaseAction,
     Field(discriminator="kind"),
 ]
-type FrozenControlAction = Annotated[
+type AgentControlAction = Annotated[
     CodingAgentCommandAction | CodingAgentFetchBaseAction | HumanControlAction,
     Field(discriminator="kind"),
 ]
+
+# The routes that carry no executable command.  Grouped once because the union's
+# own ``allowed_next_commands`` check and the control derivation both have to
+# treat them alike, and an ``isinstance`` tuple written out at each is how the
+# next variant gets handled in one of the two.
+#
+# A typed ``edit`` route lived here briefly, for setup steps that are
+# unambiguously coding-agent work and have no executable form. It is gone: this
+# union is embedded by ``verifier``, ``agent-handoff``, ``preflight``,
+# ``agent-result``, ``agent-boundary-result``, and ``verify-run``, so widening it
+# widens six durable published schemas under unchanged identifiers — and five of
+# those artifacts carry no ``contract_version``, so a consumer holding a stored
+# payload cannot use the runtime floor to tell which shape it has. Setup edits
+# route as a ``configure`` command naming the check that confirms them, with the
+# file in ``why`` and structurally in ``next_actions[].path``, which is where
+# ``docs/diagnostics.md`` has always published a path.
+COMMANDLESS_CODING_AGENT_ACTIONS = (CodingAgentFetchBaseAction,)
 
 
 class NoHumanReview(BaseModel):
@@ -686,7 +641,7 @@ class _FrozenControlBase(BaseModel):
     completion_allowed: bool
     must_stop: bool
     verify_required: bool
-    next_action: FrozenControlAction | None
+    next_action: AgentControlAction | None
     allowed_next_commands: list[ExactCommand]
     human_review: NoHumanReview | RequiredHumanReview
     stop_reason: NonEmptyText | None
@@ -708,7 +663,7 @@ class FrozenAgentActionRequiredControl(_FrozenControlBase):
     completion_allowed: Literal[False] = False
     must_stop: Literal[False] = False
     verify_required: bool = False
-    next_action: FrozenCodingAgentAction
+    next_action: CodingAgentAction
     allowed_next_commands: list[ExactCommand] = Field(default_factory=list)
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
     stop_reason: None = None
@@ -749,32 +704,13 @@ def project_legacy_agent_control(control: AgentControl) -> dict[str, Any]:
 
     The projection is deliberately *restrictive*: ``permissions`` is dropped,
     ``review_publishable`` collapses back onto ``human_review_required`` with
-    the universal stop, and so does an ``edit`` route, whose action type the
-    frozen union does not know. A consumer that has not been taught the
+    the universal stop. A consumer that has not been taught the
     publication/merge split therefore keeps the conservative reading it always
     had, and can never mistake the absence of ``permissions`` for permission.
-
-    No current producer of a frozen surface emits an ``edit`` route — those come
-    only from setup routing, which builds no boundary result — so the collapse
-    is a guard rather than a live path. It is here because the alternative when
-    one does appear is a raised ``ValidationError`` at the moment a caller is
-    asking what it is allowed to do, and an exception is not an answer.
     """
 
     payload = control.model_dump(mode="json")
     payload.pop("permissions", None)
-    if isinstance(control.next_action, CodingAgentEditAction):
-        why = control.next_action.why
-        return {
-            **payload,
-            "state": "human_review_required",
-            "completion_allowed": False,
-            "must_stop": True,
-            "next_action": HumanControlAction(kind="review", why=why).model_dump(mode="json"),
-            "allowed_next_commands": [],
-            "human_review": RequiredHumanReview(why=why).model_dump(mode="json"),
-            "stop_reason": why,
-        }
     if payload.get("state") != "review_publishable":
         return payload
     review = control.human_review
@@ -833,9 +769,6 @@ __all__ = [
     "AgentControlAction",
     "AgentControlState",
     "COMMANDLESS_CODING_AGENT_ACTIONS",
-    "CodingAgentEditAction",
-    "FrozenCodingAgentAction",
-    "FrozenControlAction",
     "CodingAgentAction",
     "CodingAgentCommandAction",
     "CodingAgentFetchBaseAction",

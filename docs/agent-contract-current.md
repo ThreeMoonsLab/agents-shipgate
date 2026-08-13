@@ -39,17 +39,20 @@ baseline leaves the pointer reading cleanly. What the envelope carries instead i
 distinguishable from an envelope produced before any engine ran, and is the
 ambiguity #323 set out to remove. Run `verify` for a verdict a reader can check.
 
-`next_action` gains one coding-agent variant, `kind: "edit"`, carrying `path`
-and `expects`. It is the typed form of "change this file", which setup routing
-needs. It widens `CodingAgentAction`, the union every control producer embeds —
-the verifier, the handoff, preflight, the agent result, the boundary result, and
-verify-run all admit it structurally, whether or not any of them emits one
-today — so `minimum_control_contract_version` moves to `24` with the contract.
-A consumer that switches exhaustively on `next_action.kind` has to be told, and
-the floor is how it is told. The frozen `shipgate.codex_boundary_result/v2`
-projection is the exception and is unchanged: it now snapshots its own action
-union rather than tracking the live one, and an `edit` route reaching it
-collapses to the universal human stop.
+The `AgentControl` union is **unchanged**, and `minimum_control_contract_version`
+stays at `21`. A typed `edit` action was added for setup routing and then
+removed: that union is embedded by the verifier, the handoff, preflight, the
+agent result, the boundary result, and verify-run, so widening it widens six
+durable published schemas under unchanged identifiers — and five of those
+artifacts record no `contract_version`, so a consumer holding a stored payload
+could not use the floor to tell which shape it has. A setup step that needs a
+file changed routes as a `configure` command naming the check that confirms it,
+with the file in `why` and structurally in `next_actions[].path`.
+
+What v24 widens is `shipgate.agent_control/v1` itself, which is emitted on
+stdout and never written as an artifact: there are no stored envelopes to
+disambiguate, and its new operations cannot appear in anything a v21 consumer
+holds.
 
 A human-owned manifest declaration is never published as a coding-agent edit.
 When `shipgate.yaml` still holds an unresolved `declared_purpose`, policy, or

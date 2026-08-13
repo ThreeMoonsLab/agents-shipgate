@@ -517,7 +517,6 @@
         "mapping": {
           "configure": "#/$defs/CodingAgentCommandAction",
           "discover": "#/$defs/CodingAgentCommandAction",
-          "edit": "#/$defs/CodingAgentEditAction",
           "fetch_base": "#/$defs/CodingAgentFetchBaseAction",
           "initialize": "#/$defs/CodingAgentCommandAction",
           "install": "#/$defs/CodingAgentCommandAction",
@@ -533,9 +532,6 @@
         },
         {
           "$ref": "#/$defs/CodingAgentFetchBaseAction"
-        },
-        {
-          "$ref": "#/$defs/CodingAgentEditAction"
         }
       ]
     },
@@ -586,53 +582,6 @@
         "why"
       ],
       "title": "CodingAgentCommandAction",
-      "type": "object"
-    },
-    "CodingAgentEditAction": {
-      "additionalProperties": false,
-      "description": "A file the coding agent must change, when no command can make the change.\n\nSetup routing (``detect`` / ``init`` / ``doctor``) reaches steps that are\nunambiguously coding-agent work and have no executable form: a manifest the\nloader rejected, a ``tool_sources[].path`` that does not resolve, a\n``type:`` that names no adapter.  Before this variant existed the union\noffered two bad projections for them \u2014 hide the instruction inside the\n``why`` of some *other* command, or route agent-owned work to a human and\nend the turn.  Both were wrong in a way the union is supposed to prevent,\nso the typed form is the third option.\n\n``path`` carries the same ``<file>`` or ``<file>:<line>`` spelling that\n:class:`~agents_shipgate.schemas.diagnostics.NextAction` uses, so a caller\ncan open exactly what it was handed.  ``expects`` is required rather than\noptional: an edit route that does not say what \"done\" looks like cannot be\nchecked by the agent that follows it, and every producer already states it.\n\nOwnership is *not* encoded here.  A human-owned declaration is never\npublished as a coding-agent action at all \u2014 it routes to\n:class:`HumanControlAction` \u2014 so the presence of this type already means\nthe agent may perform the edit.",
-      "properties": {
-        "actor": {
-          "const": "coding_agent",
-          "default": "coding_agent",
-          "title": "Actor",
-          "type": "string"
-        },
-        "command": {
-          "default": null,
-          "title": "Command",
-          "type": "null"
-        },
-        "expects": {
-          "minLength": 1,
-          "title": "Expects",
-          "type": "string"
-        },
-        "kind": {
-          "const": "edit",
-          "title": "Kind",
-          "type": "string"
-        },
-        "path": {
-          "minLength": 1,
-          "title": "Path",
-          "type": "string"
-        },
-        "why": {
-          "minLength": 1,
-          "title": "Why",
-          "type": "string"
-        }
-      },
-      "required": [
-        "actor",
-        "kind",
-        "command",
-        "path",
-        "expects",
-        "why"
-      ],
-      "title": "CodingAgentEditAction",
       "type": "object"
     },
     "CodingAgentFetchBaseAction": {

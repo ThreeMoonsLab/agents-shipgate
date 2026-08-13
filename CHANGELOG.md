@@ -1,15 +1,3 @@
-- **`agent control` after a `scan` publishes no release verdict, and says why.**
-  `scan` runs the release engine and binds its `report.json`, but its pointer
-  records no HEAD, no worktree overlay, and no input set, so nothing about that
-  verdict can be reconfirmed: an edit to the manifest, to a `tools.json` it
-  references, to a policy pack, or to a baseline leaves the pointer reading
-  cleanly with the old answer. Reporting it anyway published a stale `passed`.
-  The envelope therefore reports `decision: null` as it did before, and `reason`
-  now states which of two things is true — the scan binds no reconfirmable
-  input snapshot, or it bound no machine-readable report at all. That is the
-  part that was actually missing: a bare `decision: null` reads exactly like
-  output produced before any engine ran. A verdict a reader can check comes from
-  `verify`.
 # Changelog
 
 ## Unreleased
@@ -179,35 +167,28 @@
   over an existing manifest now inspects *that* manifest rather than the
   template it did not write, so the documented refresh command is not a route
   around the boundary.
-- **`next_action` gains a typed `edit` route** (`kind: "edit"`, with `path` and
-  `expects`). Setup reaches steps that are unambiguously the agent's and have
-  no executable form — a manifest the loader rejected, a `tool_sources[].path`
-  that does not resolve — and the union previously forced a choice between
-  hiding the instruction in another command's prose or stopping the turn for
-  work the agent owns. Only setup output can contain it, so
-  `minimum_control_contract_version` moves to `24`: the union is the one every
-  control producer embeds, so "no producer emits it" is a claim about code paths
-  rather than about what the contract permits. The frozen
-  `shipgate.codex_boundary_result/v2` projection is byte-unchanged and now
-  snapshots its own action union rather than tracking the live one — it had
-  been silently widening with every variant added to `AgentControl`, which is
-  what "frozen" was supposed to prevent.
-- **`agent control` after a `scan` now reports that scan's release decision —
-  and withholds it once it is no longer current.** `scan` runs the release
-  engine and binds its `report.json`, but the envelope published
-  `decision: null` / `decision_source: "none"`, making a completed scan
-  indistinguishable from output produced before any engine had run. The verdict
-  is lifted from the bound report inside the same generation-safe read that
-  validates the pointer, never recomputed. Byte integrity is not currency,
-  though: a `scan` pointer binds no HEAD or worktree identity, so the generic
-  comparison passed vacuously and an edited manifest still read cleanly with the
-  old verdict. `scan` now records the manifest it read beside the digest it
-  already recorded, and the verdict is published only while that file still
-  hashes to it. Where it cannot be reconfirmed — or where a format-limited scan
-  bound no machine-readable report — `decision` is `null` and `reason` says
-  which, so a withheld verdict is never read as an absent one. Authority is
-  unchanged throughout: the control state and permissions still come from the
-  pointer, and a scan still cannot authorize a merge.
+- **The `AgentControl` union is unchanged, and the compatibility floor stays at
+  `21`.** A typed `edit` route was added for setup steps that are the agent's
+  own and have no executable form — a manifest the loader rejected, a
+  `tool_sources[].path` that does not resolve — and then removed. That union is
+  embedded by the verifier, the handoff, preflight, the agent result, the
+  boundary result, and verify-run, so widening it widened six durable published
+  schemas under unchanged identifiers, and five of those artifacts record no
+  `contract_version` for a consumer holding a stored payload to disambiguate
+  with. Such a step now routes as a `configure` command naming the check that
+  confirms it, with the file named in `why` and structurally in
+  `next_actions[].path`. Contract `24` covers what did widen:
+  `shipgate.agent_control/v1`, which is emitted on stdout and never stored.
+- **`scan` is outside this rollout, and now says so.** `agent control` after a
+  scan reports `decision: null` with a `reason` stating the verdict is
+  *withheld*, not absent: the scan reached one — `report.sarif` even carries it
+  — but a scan pointer binds no reconfirmable snapshot of the inputs it read, so
+  no artifact in that directory can show the verdict still describes the
+  workspace. An edit to the manifest, a referenced `tools.json`, a policy pack,
+  or a baseline leaves the pointer reading cleanly with the old answer.
+  Publishing a verdict from `scan` needs a complete input snapshot threaded
+  through report generation and pointer publication; until that lands, `verify`
+  is where a checkable verdict comes from, and #323's scan half stays open.
 
 - **The recommended next command now runs where it was recommended.** Every
   emitted command was written as the console script the wheel installs

@@ -403,7 +403,7 @@ def _manifest_placeholders(
     template: str,
     placeholders: list[dict[str, object]],
     write: bool,
-) -> tuple[list[dict[str, object]], bytes | None]:
+) -> tuple[list[dict[str, object]], bytes | None, str | None]:
     """The placeholders of the manifest a caller would actually be routed to.
 
     Returns them together with the exact bytes they were read from, so the
@@ -418,17 +418,52 @@ def _manifest_placeholders(
     one. The template's own placeholders stay in the payload's ``placeholders``
     field, where they always were — they describe what the caller will owe *after*
     writing, not what anyone owes now.
+
+    The third element is the loader's objection to those bytes, or ``None`` when
+    they load. Scanning only for placeholders treated *any* existing file as a
+    configured manifest: an empty ``shipgate.yaml`` has no ``CHANGE_ME`` in it,
+    so ``init --write --agent-instructions=...`` reported ``setup_complete`` and
+    handed back a verify command that exits 2. Manifest validity is a setup fact
+    in #323, and this is where the setup route learns it.
     """
 
     if write or target.exists():
         try:
             data = target.read_bytes()
-        except OSError:
+        except OSError as exc:
+            # A *refused* write leaves no file at all — an ambiguous scope, for
+            # instance — and that is not a defective manifest, it is the absence
+            # of one, which the caller's own status already describes. Only a
+            # file that exists and cannot be read is a defect.
+            if not target.exists():
+                return [], None, None
             # Unreadable is not "clean". Fall back to the template's obligations
             # rather than reporting an unverified all-clear.
-            return placeholders, None
-        return collect_placeholders(data.decode("utf-8", errors="replace")), data
-    return [], None
+            return placeholders, None, str(exc)
+        text = data.decode("utf-8", errors="replace")
+        return collect_placeholders(text), data, _manifest_defect(text)
+    return [], None, None
+
+
+def _manifest_defect(text: str) -> str | None:
+    """The loader's objection to this manifest, or ``None`` when it loads.
+
+    Deliberately the same loader the rest of the CLI uses, rather than a
+    lighter-weight parse: a route that declares setup complete is asserting the
+    next command will run, and the only thing that can support that is what the
+    next command will do.
+    """
+
+    from agents_shipgate.config.loader import load_manifest_text
+    from agents_shipgate.core.errors import ConfigError
+
+    try:
+        load_manifest_text(text)
+    except ConfigError as exc:
+        return str(exc)
+    except Exception as exc:  # noqa: BLE001 - any loader objection routes the same way.
+        return str(exc)
+    return None
 
 
 def _init_reason(manifest_status: str, *, target: Path, write: bool) -> str:
@@ -451,6 +486,8 @@ def _init_advance(
     next_action_create: NextAction,
     skipped_target: object | None,
     scope_actions: Sequence[NextAction] = (),
+    manifest_defect: str | None = None,
+    setup_flags: Sequence[str] = (),
 ) -> tuple[NextAction, AgentActionKind, str, bool]:
     """The step init already names, typed for the control envelope.
 
@@ -464,8 +501,34 @@ def _init_advance(
     A refused instruction target outranks the manifest route: init reports a
     non-zero exit for it, and a control state that pointed past it would call a
     failed run's onward step the next thing to do.
+
+    ``setup_flags`` repeats what this invocation asked for. A dry run advanced to
+    a bare ``init --write``, which silently drops ``--ci``, an
+    ``--agent-instructions`` selection, and ``--allow-unresolved-scope`` — the
+    last of which makes the emitted command exit 2 in the very monorepo that
+    needed it. The scoped-refusal recovery already threads them; the dry run has
+    the same obligation, and for the same reason ``_requested_setup_flags``
+    states: a recovery that completes with less than the caller requested
+    reports success for work it did not do.
     """
 
+    if manifest_defect is not None and manifest_status != "written":
+        # A file that exists is not a configured manifest. Scanning it for
+        # placeholders found none in an *empty* `shipgate.yaml`, so the refresh
+        # path called it `setup_complete` and handed back a verify command that
+        # exits 2 on the same file. Route to the repair, and let doctor confirm
+        # it — the same command that would have reported the defect.
+        return (
+            NextAction(
+                kind="edit",
+                path=str(target),
+                why=f"{target} exists but does not load: {manifest_defect}",
+                expects="doctor loads the manifest without a config error.",
+            ),
+            "configure",
+            SETUP_INCOMPLETE,
+            True,
+        )
     if scope_actions:
         # `init --write` refused to write anything: the workspace defines agents
         # in several projects, so no single manifest describes it. That is an
@@ -533,8 +596,13 @@ def _init_advance(
         return (
             NextAction(
                 kind="command",
-                command=render_command(["init", "--workspace", str(workspace), "--write"]),
-                why="Nothing was written. Re-run with --write to commit the rendered manifest.",
+                command=render_command(
+                    ["init", "--workspace", str(workspace), "--write", *setup_flags]
+                ),
+                why=(
+                    "Nothing was written. Re-run with --write to commit the rendered "
+                    "manifest and the setup this invocation asked for."
+                ),
                 expects=f"{target} exists.",
             ),
             "initialize",
@@ -975,7 +1043,7 @@ def register(app: typer.Typer) -> None:
         # `init --write --agent-instructions=...` into a route around the human
         # ownership boundary: the same unedited manifest reported
         # `setup_complete -> verify`.
-        control_placeholders, control_manifest_bytes = _manifest_placeholders(
+        control_placeholders, control_manifest_bytes, manifest_defect = _manifest_placeholders(
             target, template=template, placeholders=placeholders, write=write
         )
         advance, advance_kind, advance_decision, advance_blocking = _init_advance(
@@ -992,6 +1060,20 @@ def register(app: typer.Typer) -> None:
             if agent_instructions_exit
             else None,
             scope_actions=scope_actions,
+            manifest_defect=manifest_defect,
+            setup_flags=[
+                *_requested_setup_flags(
+                    ci=ci,
+                    claude_code=claude_code,
+                    agent_instructions=agent_instructions,
+                ),
+                # Only for the dry run, which re-runs *this* workspace: an
+                # accepted root scope is part of what the caller asked for, and
+                # dropping it makes the emitted command exit 2 in the monorepo
+                # that needed it. The scoped-refusal recovery deliberately does
+                # not repeat it — there the point is to choose a project.
+                *(["--allow-unresolved-scope"] if allow_unresolved_scope else []),
+            ],
         )
         routing = setup_control_envelope(
             operation="init",
@@ -1005,7 +1087,15 @@ def register(app: typer.Typer) -> None:
                     manifest_exit,
                     agent_instructions_exit,
                     control_placeholders,
+                    manifest_defect,
                     advance_decision,
+                    # The #370 scope facts select this route whenever the
+                    # workspace holds more than one project; without them the
+                    # candidate list could change while the identity of the
+                    # answer about it did not.
+                    detected_scope,
+                    [candidate.model_dump(mode="json") for candidate in scope_candidates],
+                    [action.model_dump(mode="json") for action in scope_actions],
                 ),
             ),
             reason=_init_reason(manifest_status, target=target, write=write),
@@ -1014,6 +1104,9 @@ def register(app: typer.Typer) -> None:
             advance_decision=advance_decision,
             advance_blocking=advance_blocking,
             advance_alternatives=scope_actions[1:],
+            recheck_command=render_command(
+                ["doctor", "--config", str(target.resolve()), "--json"]
+            ),
             placeholders=control_placeholders,
             manifest_display_path=str(target),
             exit_code=max(manifest_exit, agent_instructions_exit) or None,

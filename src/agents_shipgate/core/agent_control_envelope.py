@@ -41,7 +41,6 @@ from agents_shipgate.schemas.agent_control import (
     AgentControl,
     AgentControlAction,
     CodingAgentCommandAction,
-    CodingAgentEditAction,
     CodingAgentFetchBaseAction,
     HumanControlAction,
     HumanReviewAction,
@@ -362,7 +361,8 @@ def envelope_from_routeless_pointer(
                 command=verify_command,
                 why=(
                     "This directory's current control was published by a command "
-                    "that reaches no release decision. Run verify to obtain one."
+                    "whose release decision cannot be shown to still describe the "
+                    "workspace. Run verify to obtain one that can."
                 ),
             ),
             verify_required=True,
@@ -453,9 +453,6 @@ def control_headline_lines(envelope: AgentControlEnvelope) -> list[str]:
             # these headline lines print first — reusing the prefix would put a
             # `Run:` above the remediation it is not the remediation for.
             lines.append(f"Next command: {single_line_text(action.command)}")
-        elif isinstance(action, CodingAgentEditAction):
-            lines.append(f"Next edit: {single_line_text(action.path)}")
-            lines.append(f"Expected: {single_line_text(action.expects)}")
         elif isinstance(action, CodingAgentFetchBaseAction):
             lines.append(f"Provide: {single_line_text(action.expects)}")
     return lines
@@ -552,8 +549,8 @@ def _bounded_action(action: AgentControlAction | None) -> AgentControlAction | N
     if why == action.why:
         return action
     if isinstance(action, (CodingAgentCommandAction, *COMMANDLESS_CODING_AGENT_ACTIONS)):
-        # ``path`` and ``expects`` are opened and checked, not read, so the cap
-        # applies to ``why`` alone — exactly as it leaves ``command`` alone.
+        # ``command`` and ``expects`` are executed and checked, not read, so the
+        # cap applies to ``why`` alone.
         return action.model_copy(update={"why": why})
     if isinstance(action, HumanReviewAction):
         return HumanReviewAction(why=why)

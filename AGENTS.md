@@ -318,7 +318,15 @@ The machine-readable catalog of error kinds — exit codes, typical causes, addi
 `agents-shipgate agent control` emit. Switch on `control.control_state` and
 `control.permissions` for the whole adoption walk instead of learning a
 different result shape per command; `control.next_action` is the one typed
-rank-1 step, and `next_actions[]` beside it keeps the ranked alternatives.
+rank-1 step, and `next_actions[]` beside it keeps the ranked alternatives —
+including the exact `path` when the step is a file edit, which the control
+action names in `why`.
+
+`scan` is **not** part of this: `agents-shipgate agent control` after a scan
+reports `decision: null` with a `reason` saying the verdict is withheld. A scan
+pointer binds no reconfirmable snapshot of the inputs it read, so no artifact in
+that directory can show its verdict still describes the workspace. Run `verify`
+for one that can.
 
 Read `control.decision_source` before `control.decision`. Setup commands run
 before a release decision exists, so they report `setup` and a verdict from

@@ -36,9 +36,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Literal
 
 from agents_shipgate.cli.diagnostics import ranked_diagnostics
@@ -50,7 +51,6 @@ from agents_shipgate.schemas.agent_control import (
     AgentControl,
     AgentControlAction,
     CodingAgentCommandAction,
-    CodingAgentEditAction,
     HumanControlAction,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
@@ -204,6 +204,7 @@ def setup_control_envelope(
     advance_decision: str = SETUP_COMPLETE,
     advance_blocking: bool = False,
     advance_alternatives: Sequence[NextAction] = (),
+    recheck_command: str | None = None,
     placeholders: Sequence[Mapping[str, object]] | None = None,
     manifest_display_path: str | None = None,
     execution: AgentControlExecution = "succeeded",
@@ -238,6 +239,10 @@ def setup_control_envelope(
     manifest the loader rejects has to be repaired before anyone can usefully
     review what it declares, and the obligation is not lost — the next run
     surfaces it, because it is derived from the manifest rather than remembered.
+
+    ``recheck_command`` is the command that confirms a file edit this command
+    routes to — ``doctor`` for a manifest, and required whenever a diagnostic's
+    rank-1 action is an ``edit``.
 
     ``advance_decision`` is the caller's own statement about whether that onward
     step *finishes* setup or merely continues it. ``detect`` pointing at ``init``
@@ -299,7 +304,7 @@ def setup_control_envelope(
         actions = [selected, *(item for item in alternatives if item is not selected)][:3]
         control = derive_agent_control(
             reason=reason,
-            next_action=_agent_route(selected, kind),
+            next_action=_agent_route(selected, kind, recheck_command),
             verify_required=kind == "verify",
             # Deduplicated here rather than left to the union's uniqueness
             # validator to reject: two diagnostics naming the same rerun is
@@ -343,20 +348,37 @@ def _route_for(diagnostic: Diagnostic) -> tuple[NextAction, AgentActionKind, str
     return action, SETUP_ACTION_KINDS.get(diagnostic.id, "configure"), decision
 
 
-def _agent_route(action: NextAction, kind: AgentActionKind) -> AgentControlAction:
-    """Type the command's own rank-1 step as a coding-agent control action."""
+def _agent_route(
+    action: NextAction, kind: AgentActionKind, recheck_command: str | None
+) -> AgentControlAction:
+    """Type the command's own rank-1 step as a coding-agent control action.
+
+    An ``edit`` diagnostic becomes a command action naming the check that
+    confirms the edit, with the file named in ``why``. A typed ``edit`` variant
+    lived in the union briefly and was removed: that union is embedded by six
+    durable published schemas, so widening it widened all of them under
+    unchanged identifiers. The exact path is not lost — it stays structural in
+    ``next_actions[].path``, which is where ``docs/diagnostics.md`` has always
+    published one, and the ranked list travels in the same payload.
+
+    The command is deliberately the *check* rather than the fix, because there
+    is no command that performs the fix. Running it before editing re-reports
+    the same route; ``why`` names the file first, so an agent following the
+    action in order edits and then confirms. Every other producer in this
+    system routes agent work the same way — a verifier repair is always a
+    command with its instruction in prose.
+    """
 
     if action.kind == "command" and action.command:
         return CodingAgentCommandAction(kind=kind, command=action.command, why=action.why)
     if action.kind == "edit" and action.path:
-        return CodingAgentEditAction(
-            kind="edit",
-            path=action.path,
-            # ``expects`` is required on the control action and optional on the
-            # diagnostic. Falling back to ``why`` reuses what the author wrote
-            # rather than inventing an acceptance criterion they did not state.
-            expects=action.expects or action.why,
-            why=action.why,
+        if recheck_command is None:
+            raise ValueError("an edit route needs the command that confirms it")
+        expects = f" {action.expects}" if action.expects else ""
+        return CodingAgentCommandAction(
+            kind=kind,
+            command=recheck_command,
+            why=f"Edit {action.path}. {action.why}{expects}",
         )
     # A ``review``/``stop`` action reaching here would already have been routed
     # to a human by the caller; anything else is a malformed diagnostic.
@@ -416,8 +438,14 @@ def _placeholder_review_why(
     if size(prefix) > budget // 2:
         # A path this long leaves no room for what it is a path to. The payload
         # carries the full spelling in its own `path` / `config` field, so the
-        # basename here is a label, not the only copy.
-        prefix = f"In {PurePosixPath(manifest).name} (full path in this payload): "
+        # short form here is a label, not the only copy.
+        prefix = f"In {_basename(manifest)} (full path in this payload): "
+    # ...and a "basename" can itself be unbounded. Whatever survives, the
+    # location must: an unshortened prefix consumed the whole budget and the
+    # 400-byte envelope cap then removed the line number and the field name from
+    # the only human action, which is the one thing this sentence exists to say.
+    if size(prefix) > budget // 2:
+        prefix = "In the manifest at the path in this payload: "
 
     def render(entry: Mapping[str, object], allowance: int) -> str:
         line = entry.get("line")
@@ -454,6 +482,19 @@ def _placeholder_review_why(
         used += (2 if shown else 0) + size(candidate)
         shown.append(candidate)
     return prefix + ", ".join(shown) + _PLACEHOLDER_REVIEW_TAIL
+
+
+def _basename(path: str) -> str:
+    """The last component of ``path`` under POSIX *or* Windows rules.
+
+    ``PurePosixPath`` does not split on backslashes, so a Windows manifest path
+    was one enormous "basename" and shortening it did nothing. The host running
+    Shipgate is not necessarily the host the path came from — a manifest path
+    reaches here from a payload, a config flag, or a repository checked out
+    elsewhere — so both separators are honoured regardless of ``os.sep``.
+    """
+
+    return re.split(r"[\\/]", str(path))[-1] or str(path)
 
 
 def _field_path(entry: Mapping[str, object]) -> str:

@@ -54,9 +54,6 @@ from agents_shipgate.core.agent_control_envelope import (
 )
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
-    CodingAgentEditAction,
-    freeze_agent_control,
-    project_legacy_agent_control,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
     SETUP_DECISIONS,
@@ -219,6 +216,7 @@ def test_every_setup_envelope_authorizes_nothing():
         diagnose_invalid_manifest(Path("shipgate.yaml"), message="bad yaml"),
     ):
         payload = _setup_envelope(
+            recheck_command="agents-shipgate doctor --json",
             diagnostics=diagnostics,
             advance=top_next_actions(diagnose_missing_manifest(Path("/ws")))[0],
             advance_kind="verify",
@@ -242,24 +240,33 @@ def test_every_diagnostic_states_the_kind_of_step_it_asks_for():
     assert set(SETUP_ACTION_KINDS) == set(ALL_DIAGNOSTIC_IDS)
 
 
-def test_an_agent_owned_edit_is_a_typed_coding_agent_route():
+def test_an_agent_owned_edit_routes_to_the_check_that_confirms_it():
     """A manifest the loader rejected is the agent's to fix, not a human's.
 
-    Before the ``edit`` variant existed this had two bad projections: bury the
-    instruction in some other command's ``why``, or end the turn for work the
-    agent owns.
+    There is no command that performs the fix, so the control action names the
+    command that *confirms* it and puts the file in ``why``. The exact path stays
+    structural in ``next_actions[].path``, which is where ``docs/diagnostics.md``
+    publishes one — the control union deliberately has no ``edit`` variant,
+    because six durable schemas embed it.
     """
 
-    payload = _setup_envelope(
-        diagnostics=diagnose_invalid_manifest(Path("shipgate.yaml"), message="bad yaml")
+    routing = setup_control_envelope(
+        operation="doctor",
+        input_id="sha256:" + "0" * 64,
+        reason="Manifest exists but failed to load",
+        diagnostics=diagnose_invalid_manifest(Path("shipgate.yaml"), message="bad yaml"),
+        recheck_command="agents-shipgate doctor -c shipgate.yaml --json",
     )
+    payload = json.loads(render_agent_control_envelope(routing.envelope))
 
     assert payload["control_state"] == "agent_action_required"
     assert payload["next_actor"] == "coding_agent"
-    assert payload["next_action"]["kind"] == "edit"
-    assert payload["next_action"]["path"] == "shipgate.yaml"
-    assert payload["next_action"]["command"] is None
-    assert payload["next_action"]["expects"]
+    assert payload["next_action"]["kind"] == "configure"
+    assert payload["next_action"]["command"] == "agents-shipgate doctor -c shipgate.yaml --json"
+    assert payload["next_action"]["why"].startswith("Edit shipgate.yaml.")
+    # The structured location travels in the ranked list beside it.
+    assert routing.actions[0].kind == "edit"
+    assert routing.actions[0].path == "shipgate.yaml"
 
 
 def test_an_unresolved_human_owned_placeholder_routes_to_a_human():
@@ -319,10 +326,11 @@ def test_a_blocking_diagnostic_outranks_the_placeholder_obligation():
         placeholders=[
             {"path": "agent.declared_purpose[0]", "current": "CHANGE_ME", "line": 13}
         ],
+        recheck_command="agents-shipgate doctor --json",
     )
 
     assert payload["control_state"] == "agent_action_required"
-    assert payload["next_action"]["kind"] == "edit"
+    assert payload["next_action"]["kind"] == "configure"
 
 
 def test_a_workspace_with_no_agent_surface_is_reported_as_not_applicable():
@@ -392,39 +400,34 @@ def test_setup_input_id_tracks_the_manifest_it_answered_about(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_the_frozen_codex_projection_collapses_an_edit_route():
-    """``FrozenAgentControl`` knows three states and two action kinds.
+def test_no_published_schema_knows_an_edit_action():
+    """The union stays out of the six durable schemas that embed it.
 
-    It referenced the *live* action union, so it silently widened every time a
-    variant was added — the exact thing its own comment says must never happen.
-    An ``edit`` route reaching it now collapses to the universal human stop
-    rather than raising at the moment a caller asks what it may do.
+    A typed ``edit`` action lived here briefly and was removed: ``AgentControl``
+    is carried by the verifier, the handoff, preflight, the agent result, the
+    boundary result, and verify-run, so widening it widened all six under
+    unchanged identifiers — and five of those artifacts record no
+    ``contract_version``, so a consumer holding a stored payload cannot use the
+    runtime floor to tell which shape it has.
     """
 
-    control = derive_agent_control(
-        reason="The manifest must be repaired.",
-        next_action=CodingAgentEditAction(
-            kind="edit",
-            path="shipgate.yaml:3",
-            expects="doctor runs without ConfigError",
-            why="Loader rejected shipgate.yaml.",
-        ),
-    )
-    assert control.state == "agent_action_required"
-
-    projected = project_legacy_agent_control(control)
-    assert projected["state"] == "human_review_required"
-    assert projected["must_stop"] is True
-    assert projected["next_action"]["kind"] == "review"
-    assert freeze_agent_control(control).state == "human_review_required"
-
-
-def test_the_frozen_codex_schema_does_not_know_the_edit_action():
-    """Pinned against the committed document, which is the published promise."""
-
-    schema = json.loads((REPO_ROOT / "docs/codex-boundary-result-schema.v2.json").read_text())
-    assert "CodingAgentEditAction" not in schema.get("$defs", {})
-    assert "CodingAgentEditAction" not in json.dumps(schema)
+    for name in (
+        "codex-boundary-result-schema.v2",
+        "verifier-schema.v0.8",
+        "agent-handoff-schema.v7",
+        "preflight-schema.v0.4",
+        "agent-result-schema.v3",
+        "agent-boundary-result-schema.v2",
+        "verify-run-schema.v4",
+        # The envelope's own document. It is emitted on stdout and never written
+        # as an artifact, so it carries the setup rollout — but not an `edit`.
+        "agent-control-schema.v1",
+    ):
+        schema = (REPO_ROOT / f"docs/{name}.json").read_text()
+        assert "CodingAgentEditAction" not in schema, name
+        # `"edit"` also names a *permission*, so match the shape a Literal kind
+        # is emitted as rather than the bare string.
+        assert '{"const": "edit"' not in schema.replace(" ", ""), name
 
 
 # ---------------------------------------------------------------------------
@@ -635,7 +638,7 @@ def test_an_instruction_refresh_over_an_existing_manifest_is_not_an_obligation(
 
     plain = _control(["init", "--workspace", str(unadopted), "--write", "--json"])
     assert plain["decision"] == "setup_incomplete"
-    assert plain["next_action"]["kind"] == "edit"
+    assert plain["next_action"]["kind"] == "configure"
     assert plain["exit_code"] == 2
 
 
@@ -1053,8 +1056,11 @@ def test_a_refused_instruction_target_still_reports_what_failed(unadopted: Path)
     payload = json.loads(result.stdout)
 
     assert result.exit_code != 0
-    assert payload["control"]["next_action"]["kind"] == "edit"
-    assert "agents-shipgate.mdc" in payload["control"]["next_action"]["path"]
+    assert payload["control"]["next_action"]["kind"] == "configure"
+    assert "agents-shipgate.mdc" in payload["control"]["next_action"]["why"]
+    # And the structured location rides in the ranked list.
+    assert payload["next_actions"][0]["kind"] == "edit"
+    assert "agents-shipgate.mdc" in payload["next_actions"][0]["path"]
     # And the deferred human obligation is still the answer on the next run.
     cursor.unlink()
     again = _control(
@@ -1230,3 +1236,162 @@ def test_a_refused_scope_publishes_one_rank_one_across_both_streams(
     # ...and #370's per-candidate routes are not dropped.
     assert [action["kind"] for action in payload["next_actions"][1:]] == ["command", "command"]
     assert error["agent_scope"] == "ambiguous"
+
+
+# ---------------------------------------------------------------------------
+# Third and fourth review rounds (PR #372).
+# ---------------------------------------------------------------------------
+
+
+def test_an_existing_manifest_must_load_before_setup_is_called_complete(tmp_path: Path):
+    """A file that exists is not a configured manifest.
+
+    Scanning it for placeholders found none in an *empty* `shipgate.yaml`, so the
+    instruction-refresh path reported `setup_complete` and handed back a verify
+    command that exits 2 on the same file. Manifest validity is a setup fact.
+    """
+
+    (tmp_path / "shipgate.yaml").write_text("", encoding="utf-8")
+
+    control = _control(
+        [
+            "init", "--workspace", str(tmp_path), "--write",
+            "--agent-instructions=agents-md", "--json",
+        ]
+    )
+
+    assert control["decision"] == "setup_incomplete"
+    assert control["control_state"] == "agent_action_required"
+    assert "does not load" in control["next_action"]["why"]
+
+
+def test_doctor_error_paths_carry_the_shared_envelope(tmp_path: Path):
+    """`doctor --json` promises a control field; these paths did not carry one.
+
+    An invalid manifest printed nothing on stdout and a legacy error line on
+    stderr, so the all-six-commands claim did not hold for the most common
+    doctor failure there is.
+    """
+
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text("", encoding="utf-8")
+
+    with mock.patch.dict(os.environ, {"AGENTS_SHIPGATE_AGENT_MODE": "1"}):
+        result = runner.invoke(app, ["doctor", "--config", str(manifest), "--json"])
+
+    assert result.exit_code == 2
+    error = json.loads(
+        [line for line in result.stderr.splitlines() if line.strip().startswith("{")][-1]
+    )
+    control = error["control"]
+    assert control["decision_source"] == "setup"
+    assert control["decision"] == "setup_incomplete"
+    assert control["execution"] == "failed"
+    assert not any(control["permissions"].values())
+    assert not list(_PUBLISHED_SCHEMA.iter_errors(control))
+
+
+def test_an_unresolved_trace_declaration_keeps_its_location_on_the_error_path(
+    tmp_path: Path,
+):
+    """`runtime-trace` evidence fails to open *because* nobody supplied it.
+
+    The manifest is valid, so the failure surfaces while opening a file literally
+    named `CHANGE_ME` — before ownership was ever evaluated. The caller got
+    generic "inspect the file" guidance instead of the field, the line, and the
+    fact that a person owes the value.
+    """
+
+    import yaml
+
+    for name in ("shipgate.yaml", "tools.json"):
+        (tmp_path / name).write_text((SAMPLE / name).read_text(encoding="utf-8"), encoding="utf-8")
+    manifest = tmp_path / "shipgate.yaml"
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    data["validation"] = {
+        "mode": "human_in_the_loop",
+        "evidence": {"approval_traces": [{"path": "CHANGE_ME"}]},
+    }
+    manifest.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    with mock.patch.dict(os.environ, {"AGENTS_SHIPGATE_AGENT_MODE": "1"}):
+        result = runner.invoke(app, ["doctor", "--config", str(manifest), "--json"])
+
+    assert result.exit_code == 3
+    error = json.loads(
+        [line for line in result.stderr.splitlines() if line.strip().startswith("{")][-1]
+    )
+    control = error["control"]
+    assert control["control_state"] == "human_review_required"
+    assert control["next_actor"] == "human"
+    why = control["next_action"]["why"]
+    assert "validation.evidence.approval_traces[0].path" in why
+    assert "line " in why
+
+
+def test_an_adopted_root_settles_an_ambiguous_scope(ambiguous_monorepo: Path):
+    """`--allow-unresolved-scope` is a decision, and it has to survive.
+
+    A person who accepted the root as the boundary wrote a manifest there. Asking
+    them to choose a subproject on the next `detect` made that decision
+    unrepeatable — the flow could never hand the accepted manifest to doctor.
+    """
+
+    runner.invoke(
+        app,
+        [
+            "init", "--workspace", str(ambiguous_monorepo),
+            "--allow-unresolved-scope", "--write", "--json",
+        ],
+    )
+    assert (ambiguous_monorepo / "shipgate.yaml").is_file()
+
+    control = _control(["detect", "--workspace", str(ambiguous_monorepo), "--json"])
+
+    assert control["control_state"] == "agent_action_required"
+    assert "doctor" in control["next_action"]["command"]
+
+
+def test_the_dry_run_advance_repeats_the_setup_it_was_asked_for(
+    ambiguous_monorepo: Path,
+):
+    """A recovery that drops flags completes with less than the caller wanted.
+
+    The bare `init --write` it emitted also *fails*: without
+    `--allow-unresolved-scope` it exits 2 in the very monorepo that needed it.
+    """
+
+    control = _control(
+        [
+            "init", "--workspace", str(ambiguous_monorepo), "--ci",
+            "--allow-unresolved-scope", "--agent-instructions=agents-md", "--json",
+        ]
+    )
+    command = control["next_action"]["command"]
+
+    assert "--write" in command
+    assert "--ci" in command
+    assert "--agent-instructions=agents-md" in command
+    assert "--allow-unresolved-scope" in command
+
+
+def test_the_setup_identity_moves_when_the_scope_facts_move(ambiguous_monorepo: Path):
+    """The #370 facts select the route, so they belong in the identity."""
+
+    def refusal_identity() -> str:
+        return _control(
+            ["init", "--workspace", str(ambiguous_monorepo), "--write", "--json"]
+        )["input_id"]
+
+    before = refusal_identity()
+    third = ambiguous_monorepo / "apps" / "c"
+    third.mkdir(parents=True)
+    (third / "pyproject.toml").write_text('[project]\nname = "c"\n', encoding="utf-8")
+    (third / "agent.py").write_text(
+        "from google.adk.agents import LlmAgent\n"
+        "def act_c(x: str) -> str:\n    return x\n"
+        'root_agent = LlmAgent(name="agent_c", tools=[act_c])\n',
+        encoding="utf-8",
+    )
+
+    assert refusal_identity() != before
