@@ -30,7 +30,10 @@ from agents_shipgate.cli.discovery.gitignore_block import (
 )
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+from agents_shipgate.cli.discovery.scope import repository_root
 from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.detect import AgentProjectCandidate
 from agents_shipgate.schemas.diagnostics import NextAction
 
 
@@ -141,6 +144,226 @@ def _detect_json_indent(text: str) -> int:
     return 2
 
 
+# A monorepo can hold hundreds of agent projects. The refusal lists enough
+# of them to route on and points at the JSON payload for the rest.
+_MAX_LISTED_SCOPE_CANDIDATES = 10
+
+
+def _describe_candidate(candidate: AgentProjectCandidate) -> str:
+    """One candidate as a line a human can choose from.
+
+    Not every project names its agent in a string literal — a config-driven
+    ``LlmAgent(name=CONFIG.agent_name)`` has none to parse — so the marker
+    that made the directory a project stands in for it rather than leaving
+    an empty pair of brackets.
+    """
+
+    detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
+    return f"{candidate.path} ({detail})"
+
+
+def _scan_command_config(target: Path) -> str:
+    """How the follow-up ``scan`` should name the manifest just written.
+
+    ``scan -c shipgate.yaml`` resolves against the working directory, so a
+    manifest written into ``apps/a`` is not found from the repository root
+    and the emitted next action exits 2 (#363 review). The bare spelling is
+    kept when the manifest really is in the current directory, so the
+    ordinary root adoption emits exactly what it always emitted.
+    """
+
+    try:
+        if target.parent == Path.cwd().resolve():
+            return target.name
+    except OSError:  # pragma: no cover - unreadable cwd
+        pass
+    return str(target)
+
+
+def _requested_setup_flags(
+    *,
+    ci: bool,
+    claude_code: bool,
+    agent_instructions: str | None,
+) -> list[str]:
+    """The setup this invocation asked for, as flags a rerun must repeat.
+
+    A recovery command that drops ``--ci`` or an agent-instruction
+    selection completes with less than the caller requested and reports
+    success for it. Mirrors ``_rerun_options`` in the verifier, for the
+    same reason.
+
+    ``--agent-instructions-kit`` is deliberately not here: it is a path,
+    and a path is only meaningful relative to a workspace. See
+    :func:`_rebased_kit_flags`.
+    """
+
+    flags: list[str] = []
+    if ci:
+        flags.append("--ci")
+    if claude_code:
+        flags.append("--claude-code")
+    if agent_instructions is not None:
+        flags.append(f"--agent-instructions={agent_instructions}")
+    return flags
+
+
+def _rebased_kit_flags(
+    kit: Path | None, *, source: Path, target: Path
+) -> list[str] | None:
+    """``--agent-instructions-kit`` for a command run in ``target``.
+
+    Returns ``None`` when the kit cannot be named from there, which is a
+    refusal rather than a fallback: a kit path is resolved *under the
+    workspace*, so copying a root-relative ``.agents-shipgate/kit.yaml``
+    into a command that runs in ``apps/a`` points at a file that does not
+    exist, and the emitted command exits 2 (#363 review).
+    """
+
+    if kit is None:
+        return []
+    resolved = kit if kit.is_absolute() else (source / kit)
+    try:
+        relative = resolved.resolve().relative_to(target.resolve())
+    except (OSError, ValueError):
+        return None
+    return ["--agent-instructions-kit", relative.as_posix()]
+
+
+def _unresolved_scope_message(
+    workspace: Path,
+    candidates: list[AgentProjectCandidate],
+    *,
+    scope: str,
+) -> str:
+    if scope == "unknown":
+        lines = [
+            f"Refusing to write shipgate.yaml: discovery stopped at the "
+            f"Python-file cap while {workspace} holds several project roots, "
+            "so whether one manifest describes it was not established.",
+        ]
+        if candidates:
+            lines.append("Projects found before the cap:")
+            for candidate in candidates[:_MAX_LISTED_SCOPE_CANDIDATES]:
+                lines.append(f"  - {_describe_candidate(candidate)}")
+    else:
+        lines = [
+            f"Refusing to write shipgate.yaml: {workspace} holds "
+            f"{len(candidates)} self-contained projects that define agents, "
+            "and one manifest describes one agent surface.",
+            "Candidate project directories:",
+        ]
+        for candidate in candidates[:_MAX_LISTED_SCOPE_CANDIDATES]:
+            lines.append(f"  - {_describe_candidate(candidate)}")
+    remaining = len(candidates) - _MAX_LISTED_SCOPE_CANDIDATES
+    if remaining > 0:
+        lines.append(
+            f"  - ... ({remaining} more; see auto_detected.agent_project_candidates "
+            "in --json)"
+        )
+    lines.append(
+        "Re-run init with --workspace pointed at the project you are changing, "
+        "or pass --allow-unresolved-scope to write one manifest for this "
+        "workspace as a whole."
+    )
+    if scope == "unknown":
+        lines.append(
+            "`agents-shipgate detect --max-python-files <n> --json` reports the "
+            "full picture when the repository is larger than the default cap."
+        )
+    return "\n".join(lines)
+
+
+def _unresolved_scope_actions(
+    workspace: Path,
+    candidates: list[AgentProjectCandidate],
+    *,
+    scope: str,
+    setup_flags: list[str],
+    kit: Path | None,
+) -> list[NextAction]:
+    """Rank the decision above the commands that carry it out.
+
+    Rank 1 is deliberately not a command: promoting one candidate would
+    make the same arbitrary pick this refusal exists to prevent. The
+    per-candidate commands follow, in path order, so a caller that knows
+    which project it is changing can match on the path rather than trust
+    an ordering. Each repeats the setup flags this invocation asked for —
+    a recovery that silently drops ``--ci`` or an agent-instruction
+    selection completes with less than the caller requested.
+    """
+
+    why = (
+        f"{workspace} defines agents in {len(candidates)} separate projects; "
+        "pick the one this change belongs to. Shipgate will not choose for "
+        "you — the manifest declares one agent's name, purpose, and tool "
+        "surface."
+        if scope != "unknown"
+        else (
+            f"Discovery of {workspace} was capped before it could tell whether "
+            "one manifest describes it. Name the project you are changing, or "
+            "re-run detection with a higher cap."
+        )
+    )
+    actions = [
+        NextAction(
+            kind="review",
+            why=why,
+            expects=(
+                "One project directory chosen from "
+                "auto_detected.agent_project_candidates."
+            ),
+        )
+    ]
+    # The workspace root is never offered as a command: it is the scope this
+    # run just refused, so running it again returns here. `.` stays in the
+    # reported candidate list because agent files that belong to no
+    # sub-project are real evidence of why the answer is unresolved, and
+    # `--allow-unresolved-scope` is the route that accepts them.
+    routable = [candidate for candidate in candidates if candidate.path != "."]
+    for candidate in routable[:_MAX_LISTED_SCOPE_CANDIDATES]:
+        target = workspace / candidate.path
+        defines = ", ".join(candidate.agent_names)
+        kit_flags = _rebased_kit_flags(kit, source=workspace, target=target)
+        if kit_flags is None:
+            actions.append(
+                NextAction(
+                    kind="review",
+                    why=(
+                        f"{candidate.path} is a candidate, but the adoption kit "
+                        f"at {kit} sits outside it and a kit path is resolved "
+                        "under the workspace. Relocate the kit into the project "
+                        "or drop --agent-instructions-kit before initializing "
+                        "there."
+                    ),
+                    expects=f"An adoption kit reachable from {candidate.path}.",
+                )
+            )
+            continue
+        actions.append(
+            NextAction(
+                kind="command",
+                command=render_command(
+                    [
+                        "init",
+                        "--workspace",
+                        str(target),
+                        "--write",
+                        *setup_flags,
+                        *kit_flags,
+                        "--json",
+                    ]
+                ),
+                why=(
+                    f"Initialize only {candidate.path}"
+                    + (f", which defines {defines}." if defines else ".")
+                ),
+                expects=f"shipgate.yaml is created in {candidate.path}.",
+            )
+        )
+    return actions
+
+
 def _claude_code_outcome_lines(outcome: dict[str, object]) -> list[str]:
     lines: list[str] = []
     hooks = outcome.get("hooks")
@@ -190,6 +413,17 @@ def register(app: typer.Typer) -> None:
             False,
             "--minimal",
             help="Use the legacy CHANGE_ME-heavy template instead of auto-detection.",
+        ),
+        allow_unresolved_scope: bool = typer.Option(
+            False,
+            "--allow-unresolved-scope",
+            help=(
+                "Write one manifest for a workspace whose manifest scope is "
+                "unresolved — agents in several self-contained projects, or "
+                "discovery capped before it could tell. Without this, --write "
+                "refuses and lists the candidate project directories instead "
+                "of adopting the first agent name it parsed."
+            ),
         ),
         auto: bool = typer.Option(
             False,
@@ -297,13 +531,20 @@ def register(app: typer.Typer) -> None:
             requested_targets = parse_selector("claude-md,claude-code-skill")
 
         excluded_sources: list[dict[str, str]] = []
+        # Manifest scope, decided before anything is written. `--minimal`
+        # never adopts a detected agent name or tool surface, so its output
+        # cannot be silently mis-scoped and the refusal does not apply.
+        scope_candidates: list[AgentProjectCandidate] = []
+        detected_scope = "single"
         if minimal:
             template = render_manifest_template(workspace_resolved)
             placeholders = collect_placeholders(template)
             auto_detected: dict[str, object] = {}
             next_action_create = NextAction(
                 kind="command",
-                command="agents-shipgate scan -c shipgate.yaml",
+                command=render_command(
+                    ["scan", "-c", _scan_command_config(target.resolve())]
+                ),
                 why=(
                     "Replace every value listed in placeholders[] in shipgate.yaml, "
                     "then scan the declared tool surface."
@@ -390,7 +631,17 @@ def register(app: typer.Typer) -> None:
                     c.model_dump(mode="json")
                     for c in detect_result.agent_name_candidates
                 ],
+                # Which directory this manifest is entitled to describe. On
+                # "ambiguous", `chosen_agent_name` above is one of several
+                # unrelated agents, so --write refuses (#363).
+                "agent_scope": detect_result.agent_scope,
+                "agent_project_candidates": [
+                    candidate.model_dump(mode="json")
+                    for candidate in detect_result.agent_project_candidates
+                ],
             }
+            scope_candidates = list(detect_result.agent_project_candidates)
+            detected_scope = detect_result.agent_scope
             excluded_sources = detect_result.excluded_sources
             if excluded_sources:
                 # Glob-matched files the input adapters reject — dropped from
@@ -399,7 +650,14 @@ def register(app: typer.Typer) -> None:
                 auto_detected["excluded_sources"] = excluded_sources
             next_action_create = NextAction(
                 kind="command",
-                command="agents-shipgate scan -c shipgate.yaml --suggest-patches",
+                command=render_command(
+                    [
+                        "scan",
+                        "-c",
+                        _scan_command_config(target.resolve()),
+                        "--suggest-patches",
+                    ]
+                ),
                 why=(
                     "Review the auto-detected manifest, then scan the declared "
                     "tool surface with patch suggestions."
@@ -443,6 +701,12 @@ def register(app: typer.Typer) -> None:
         manifest_exit = 0
         manifest_message: str | None = None
         manifest_skip_pending = False
+        # A refused run writes nothing at all — not the workflow, not the
+        # agent-instruction snippets, not the reports .gitignore block. The
+        # scope it would have used is exactly what is in question, so leaving
+        # managed edits behind in a directory Shipgate declined to adopt
+        # would put unrelated modifications in the pull request (#363).
+        scope_refused = False
         if write:
             if target.exists():
                 manifest_status = "skipped_existing"
@@ -452,6 +716,13 @@ def register(app: typer.Typer) -> None:
                 # set the user's primary intent is refreshing snippets, and an
                 # already-existing manifest is informational, not a failure.
                 manifest_skip_pending = True
+            elif detected_scope != "single" and not allow_unresolved_scope:
+                manifest_status = "refused_unresolved_scope"
+                manifest_exit = 2
+                manifest_message = _unresolved_scope_message(
+                    workspace_resolved, scope_candidates, scope=detected_scope
+                )
+                scope_refused = True
             else:
                 target.write_text(template, encoding="utf-8")
                 manifest_status = "written"
@@ -459,9 +730,15 @@ def register(app: typer.Typer) -> None:
 
         # Workflow action — independent of manifest action.
         workflow_outcome: dict[str, object] | None = None
-        workflow_requested = ci
+        workflow_requested = ci and not scope_refused
         if workflow_requested:
-            result = write_ci_workflow(workspace_resolved)
+            # GitHub loads workflows from the repository root only, so a
+            # scoped adoption still wires CI there — with a config path
+            # relative to that root (#363).
+            result = write_ci_workflow(
+                workspace_resolved,
+                repository_root=repository_root(workspace_resolved),
+            )
             workflow_outcome = {
                 "status": result.status,
                 "path": result.path,
@@ -474,7 +751,7 @@ def register(app: typer.Typer) -> None:
         agent_instructions_outcome: dict[str, object] | None = None
         agent_instructions_exit = 0
         agent_instructions_targets: list[object] = []
-        if requested_targets is not None:
+        if requested_targets is not None and not scope_refused:
             ai_result = apply_agent_instructions(
                 workspace_resolved,
                 requested_targets,
@@ -500,7 +777,9 @@ def register(app: typer.Typer) -> None:
         # Shipgate before this CLI version was released get the line on their
         # next `init --write`.
         gitignore_outcome = (
-            ensure_reports_gitignore(workspace_resolved, write=write) if write else None
+            ensure_reports_gitignore(workspace_resolved, write=write)
+            if write and not scope_refused
+            else None
         )
 
         # Claude Code extras — hooks plus a conventional verify alias.
@@ -508,7 +787,7 @@ def register(app: typer.Typer) -> None:
         # never as an init exit code (the instructions/manifest actions
         # above carry the contract).
         claude_code_outcome: dict[str, object] | None = None
-        if claude_code:
+        if claude_code and not scope_refused:
             claude_code_outcome = _apply_claude_code_extras(workspace_resolved, write=write)
 
         # Idempotency reconciliation: when --agent-instructions selects at least
@@ -523,6 +802,31 @@ def register(app: typer.Typer) -> None:
         if requested_targets and manifest_status == "skipped_existing":
             manifest_exit = 0
             manifest_skip_pending = False
+        scope_actions: list[NextAction] = []
+        if scope_refused:
+            scope_actions = _unresolved_scope_actions(
+                workspace_resolved,
+                scope_candidates,
+                scope=detected_scope,
+                setup_flags=_requested_setup_flags(
+                    ci=ci,
+                    claude_code=claude_code,
+                    agent_instructions=agent_instructions,
+                ),
+                kit=agent_instructions_kit,
+            )
+            _emit_agent_mode_error(
+                "config_error",
+                path=str(target),
+                message=manifest_message,
+                exit_code=manifest_exit,
+                next_action=scope_actions[0].to_legacy_string(),
+                next_actions=[action.model_dump(mode="json") for action in scope_actions],
+                agent_scope=detected_scope,
+                agent_project_candidates=[
+                    candidate.model_dump(mode="json") for candidate in scope_candidates
+                ],
+            )
         if manifest_skip_pending:
             _emit_agent_mode_error(
                 "config_already_exists",
@@ -557,6 +861,14 @@ def register(app: typer.Typer) -> None:
             if not write:
                 payload["template"] = template
                 payload["next_action"] = next_action_dry
+            elif scope_refused:
+                # The manifest this run would have written describes a scope
+                # nobody chose, so the routable answer is the choice — not the
+                # scan command that assumes it was already made.
+                payload["next_action"] = scope_actions[0].to_legacy_string()
+                payload["next_actions"] = [
+                    action.model_dump(mode="json") for action in scope_actions
+                ]
             else:
                 # Projected from the action rather than written twice, so the
                 # recovery command is spelled for this invocation and carries
@@ -604,7 +916,7 @@ def register(app: typer.Typer) -> None:
                             f"Replace these placeholders before scanning: "
                             f"{', '.join(sorted({entry['path'] for entry in placeholders}))}"
                         )
-                elif manifest_status == "skipped_existing":
+                elif manifest_status in ("skipped_existing", "refused_unresolved_scope"):
                     typer.echo(manifest_message, err=True)
             if workflow_outcome is not None:
                 stream = (

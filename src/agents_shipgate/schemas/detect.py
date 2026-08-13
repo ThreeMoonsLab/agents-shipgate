@@ -42,6 +42,10 @@ class AgentNameCandidate(NameCandidate):
     declares a worker as the reviewed identity. The extra fields exist so
     the ranking is auditable from ``detect --json`` — without them a
     reordering regression is indistinguishable from correct behaviour.
+
+    Orthogonal to :class:`AgentProjectCandidate`: that one answers *which
+    directory* a manifest describes, this one answers *which agent* it
+    names once the directory is settled.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -58,6 +62,26 @@ class AgentNameCandidate(NameCandidate):
     # Human-readable reasons, ordered as applied. Rendered into no artifact —
     # this is the explanation surface for the ranking itself.
     rationale: list[str] = Field(default_factory=list)
+
+
+class AgentProjectCandidate(BaseModel):
+    """One self-contained project that defines at least one agent.
+
+    ``init`` writes a single manifest describing a single agent surface,
+    so more than one of these in a workspace means the workspace is not
+    what a manifest describes — a sub-directory is. See
+    :mod:`agents_shipgate.cli.discovery.scope`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: POSIX path relative to the inspected workspace; "." is the workspace root.
+    path: str
+    #: Project-marker file that made this a project root (None at a workspace
+    #: root that carries no marker of its own).
+    marker: str | None = None
+    #: Distinct ``Agent(name=…)`` literals parsed under this project.
+    agent_names: list[str] = Field(default_factory=list)
 
 
 class CodexPluginCandidate(BaseModel):
@@ -95,6 +119,17 @@ class DetectResult(BaseModel):
     # ``init`` writes; see ``signals.select_agent_name``.
     agent_name_candidates: list[AgentNameCandidate] = Field(default_factory=list)
     project_name_candidates: list[NameCandidate] = Field(default_factory=list)
+    # Which directory one manifest should describe. "ambiguous" means agents
+    # were found in more than one self-contained project, so the workspace as
+    # a whole is not a manifest scope: `agent.name`, `declared_purpose`, and
+    # the declared tool surface would each describe several unrelated agents.
+    # "unknown" means discovery was capped before it could tell — a truncated
+    # parse in a workspace with several project roots, where the evidence
+    # behind "single" would just be whichever files were read first.
+    # `init --write` refuses on both rather than adopting the first agent
+    # name it parsed.
+    agent_scope: Literal["single", "ambiguous", "unknown"] = "single"
+    agent_project_candidates: list[AgentProjectCandidate] = Field(default_factory=list)
     suggested_sources: list[dict[str, str]] = Field(default_factory=list)
     # Glob-matched OpenAPI/MCP candidates the real input adapters reject
     # ({type, path, reason}). Kept out of suggested_sources so init never

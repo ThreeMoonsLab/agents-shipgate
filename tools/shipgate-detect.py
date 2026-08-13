@@ -48,6 +48,9 @@ Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
+- ``agent_scope`` / ``agent_project_candidates[]`` are carried, and the
+  contract test pins them against the CLI: an agent that consults the
+  zero-install path must not adopt a manifest scope the CLI refuses.
 - Descriptive (not byte-identical) ``evidence`` / ``reason`` strings.
 - Absolute scores may differ by ±0.5 in edge cases.
 - The parse probe is **JSON-only** (stdlib has no YAML parser). A
@@ -166,6 +169,32 @@ GENERIC_AGENT_NAME_VALUES = frozenset({
     "myagent", "name", "placeholder", "qux", "sample", "temp", "test",
     "tests", "tmp", "todo", "untitled",
 })
+
+# Files that mark a self-contained project root. Mirrors
+# ``agents_shipgate.cli.discovery.scope.PROJECT_MARKERS`` — the canonical CLI
+# and this script must agree on which directory a manifest describes, or an
+# agent that consults the zero-install path adopts a scope the CLI refuses.
+PROJECT_MARKERS = (
+    "shipgate.yaml",
+    "pyproject.toml",
+    "setup.py",
+    "package.json",
+    "go.mod",
+    "Cargo.toml",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "composer.json",
+    "Gemfile",
+)
+
+# Markers that name a project only where agent evidence sits in the same
+# directory. Mirrors ``scope.WEAK_PROJECT_MARKERS``.
+WEAK_PROJECT_MARKERS = (
+    "requirements.txt",
+    "requirements.in",
+)
+
 SKIP_DIRS = {
     ".agents-private", ".cache", ".claude", ".direnv", ".git", ".hg",
     ".nox", ".svn", ".mypy_cache", ".next", ".pnpm-store", ".pytest_cache",
@@ -334,6 +363,15 @@ def _git_files(workspace: Path) -> list[Path] | None:
 
 
 def _walk_files(workspace: Path) -> list[Path]:
+    """Fallback inventory when Git cannot answer. Uncapped, and contained.
+
+    Uncapped because the manifest-scope verdict is computed from where
+    project markers sit, so truncating the inventory truncates that verdict
+    too — with enough filler ahead of them two nested agent projects vanish
+    and this script reports one scope where the CLI reports ambiguity
+    (#363). The bound that remains is on Python *parses*
+    (``MAX_PYTHON_FILES``), which is where the canonical CLI puts it.
+    """
     out: list[Path] = []
     for root, dirs, files in os.walk(workspace):
         dirs[:] = [
@@ -357,6 +395,71 @@ def _inventory(workspace: Path) -> list[Path]:
     if git_files is not None:
         return git_files
     return _walk_files(workspace)
+
+
+def _project_marker(directory: Path, extra: tuple[str, ...] = ()) -> str | None:
+    for name in (*PROJECT_MARKERS, *extra):
+        candidate = directory / name
+        # A symlink is not a marker: the verifier refuses a manifest path
+        # with symlink components, so accepting one here would name a
+        # directory whose scoped command cannot run.
+        if candidate.is_symlink():
+            continue
+        if candidate.is_file():
+            return name
+    return None
+
+
+def _project_of(
+    path: Path,
+    workspace: Path,
+    evidence_dirs: frozenset[Path] = frozenset(),
+) -> tuple[str, str | None] | None:
+    """Nearest project root at or above ``path``, as (relative, marker)."""
+    directory = path if path.is_dir() else path.parent
+    while True:
+        extra = WEAK_PROJECT_MARKERS if directory in evidence_dirs else ()
+        marker = _project_marker(directory, extra)
+        if marker is not None:
+            rel = _rel(directory, workspace) if directory != workspace else "."
+            return rel, marker
+        if directory == workspace:
+            return None
+        parent = directory.parent
+        if parent == directory:
+            return None
+        directory = parent
+
+
+def _agent_project_candidates(
+    workspace: Path,
+    evidence_paths: list[str],
+    literals_by_path: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Group agent evidence by the project each piece of it sits in.
+
+    Same rule as the canonical CLI: a workspace whose agents live in more
+    than one self-contained project is not one manifest's scope.
+    """
+    names: dict[str, set[str]] = {}
+    markers: dict[str, str | None] = {}
+    evidence_dirs = frozenset(
+        (workspace / rel) if (workspace / rel).is_dir() else (workspace / rel).parent
+        for rel in evidence_paths
+    )
+    for rel in evidence_paths:
+        found = _project_of(workspace / rel, workspace, evidence_dirs)
+        project, marker = (
+            found
+            if found is not None
+            else (".", _project_marker(workspace, WEAK_PROJECT_MARKERS))
+        )
+        names.setdefault(project, set()).update(literals_by_path.get(rel, []))
+        markers.setdefault(project, marker)
+    return [
+        {"path": project, "marker": markers[project], "agent_names": sorted(found)}
+        for project, found in sorted(names.items())
+    ]
 
 
 def _rel(path: Path, workspace: Path) -> str:
@@ -1239,7 +1342,11 @@ def _local_marketplace_roots(workspace: Path, paths: list[Path]) -> set[Path]:
 def detect(workspace: Path) -> dict[str, Any]:
     workspace = workspace.resolve()
     files = _inventory(workspace)
-    py_files = [p for p in files if p.suffix == ".py"][:MAX_PYTHON_FILES]
+    all_py = [p for p in files if p.suffix == ".py"]
+    py_files = all_py[:MAX_PYTHON_FILES]
+    # Whether the cap cut the parse short. A scope verdict computed from part
+    # of a repository is a verdict about part of a repository.
+    py_truncated = len(all_py) > len(py_files)
     py_facts = [(p, f) for p in py_files if (f := _parse_py(p)) is not None]
 
     scores = {fw: {"score": 0.0, "has_strong": False, "evidence": [], "candidate_files": []}
@@ -1280,15 +1387,15 @@ def detect(workspace: Path) -> dict[str, Any]:
                 _add(scores, fw, 1.0, "medium", f"dependency declared: {token}")
 
     for p in _glob(workspace, files, ANTHROPIC_TOOL_PATTERNS):
-        _add(scores, "anthropic", 2.0, "strong", f"anthropic tool file: {p}")
+        _add(scores, "anthropic", 2.0, "strong", f"anthropic tool file: {p}", p)
     for p in _glob(workspace, files, ANTHROPIC_POLICY_PATTERNS):
-        _add(scores, "anthropic", 2.0, "strong", f"anthropic policy file: {p}")
+        _add(scores, "anthropic", 2.0, "strong", f"anthropic policy file: {p}", p)
     for pattern, label in OPENAI_API_PATTERNS:
         for p in _glob(workspace, files, (pattern,)):
-            _add(scores, "openai_api", 2.0, "strong", f"{label}: {p}")
+            _add(scores, "openai_api", 2.0, "strong", f"{label}: {p}", p)
     for p in _glob(workspace, files, N8N_WORKFLOW_PATTERNS):
         if _looks_like_n8n_workflow(workspace / p):
-            _add(scores, "n8n", 2.0, "strong", f"n8n workflow: {p}")
+            _add(scores, "n8n", 2.0, "strong", f"n8n workflow: {p}", p)
     for p in _glob(workspace, files, CONDUCTOR_WORKFLOW_PATTERNS):
         try:
             data = json.loads((workspace / p).read_text(encoding="utf-8"))
@@ -1302,6 +1409,7 @@ def detect(workspace: Path) -> dict[str, Any]:
                 2.0,
                 "strong",
                 f"Conductor AI/MCP workflow: {p} ({', '.join(sorted(markers))})",
+                p,
             )
 
     present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
@@ -1417,21 +1525,90 @@ def detect(workspace: Path) -> dict[str, Any]:
                 )
 
     is_agent = bool(detections)
+    codex_plugin_candidates = sorted(
+        codex_plugin_candidates, key=lambda item: (item["mode"], item["path"])
+    )
+
+    # Manifest scope: which directory one shipgate.yaml describes. Evidence is
+    # everything init would turn into a manifest — the files the frameworks
+    # fired on, the artifact sources, nested manifests somebody already
+    # scoped by hand — grouped by the project each one sits in.
+    # Literals only, matching `_PyFacts.name_literals()` on the CLI side. A
+    # name that needs cross-module resolution is not available per-file, and
+    # a project boundary is about *where* agents live, not what they are
+    # called.
+    literals_by_path = {
+        rel: literals
+        for rel, literals in (
+            (
+                _rel(p, workspace),
+                list(
+                    dict.fromkeys(
+                        e["literal"] for e in f["names"] if e["literal"] is not None
+                    )
+                ),
+            )
+            for p, f in py_facts
+        )
+        if literals
+    }
+    evidence_paths = list(
+        dict.fromkeys(
+            [rel for d in detections for rel in d["candidate_files"]]
+            + [s["path"] for s in suggested]
+            + [c["path"] for c in codex_plugin_candidates]
+            + [
+                _rel(p, workspace)
+                for p in files
+                if p.name == "shipgate.yaml" and p.parent != workspace
+            ]
+            + list(literals_by_path)
+        )
+    )
+    agent_project_candidates = _agent_project_candidates(
+        workspace, evidence_paths, literals_by_path
+    )
+    project_roots = {
+        p.parent for p in files
+        if p.name in PROJECT_MARKERS or p.name in WEAK_PROJECT_MARKERS
+    } | ({workspace} if _project_marker(workspace, WEAK_PROJECT_MARKERS) else set())
+    if len(agent_project_candidates) > 1:
+        agent_scope = "ambiguous"
+    elif py_truncated and len(project_roots) > 1:
+        agent_scope = "unknown"
+    else:
+        agent_scope = "single"
+
+    if agent_scope == "ambiguous":
+        next_action = (
+            f"Agents were found in {len(agent_project_candidates)} separate "
+            "projects; this workspace is not one manifest's scope. Run "
+            "`init --workspace <agent_project_candidates[].path> --write` for "
+            "the project you are changing."
+        )
+    elif agent_scope == "unknown":
+        next_action = (
+            "Discovery stopped at the Python-file cap in a workspace holding "
+            "several project roots, so whether one manifest describes it was "
+            "not established. Run `agents-shipgate detect --json` for the full "
+            "picture, or init in the project directory you are changing."
+        )
+    elif is_agent or suggested or codex_plugin_candidates:
+        next_action = f"agents-shipgate init --workspace {workspace}"
+    else:
+        next_action = "Workspace does not appear to be an agent project. No action."
+
     return {
         "is_agent_project": is_agent,
         "frameworks": detections,
         "agent_name_candidates": name_candidates,
         "project_name_candidates": project_names,
+        "agent_scope": agent_scope,
+        "agent_project_candidates": agent_project_candidates,
         "suggested_sources": suggested,
         "excluded_sources": excluded,
-        "codex_plugin_candidates": sorted(
-            codex_plugin_candidates, key=lambda item: (item["mode"], item["path"])
-        ),
-        "next_action": (
-            f"agents-shipgate init --workspace {workspace}"
-            if is_agent or suggested or codex_plugin_candidates
-            else "Workspace does not appear to be an agent project. No action."
-        ),
+        "codex_plugin_candidates": codex_plugin_candidates,
+        "next_action": next_action,
         "workspace_signals": {
             "python_file_count": len(py_facts),
             "has_pyproject_or_requirements": (
@@ -1465,6 +1642,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.json:
         print(json.dumps(result, indent=2))
+        return 0
+    if result["agent_scope"] != "single":
+        candidates = result["agent_project_candidates"]
+        print(f"Agent scope: {result['agent_scope']} — one shipgate.yaml describes")
+        print("one agent surface, and this workspace is not one scope:")
+        for c in candidates[:10]:
+            detail = ", ".join(c["agent_names"]) or (c["marker"] or "project root")
+            print(f"- {c['path']} ({detail})")
+        if len(candidates) > 10:
+            print(f"- ... ({len(candidates) - 10} more; see --json)")
+        print(f"\nNext: {result['next_action']}")
         return 0
     if not result["is_agent_project"]:
         print("Workspace does not appear to be an agent project.")

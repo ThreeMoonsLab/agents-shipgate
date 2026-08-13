@@ -25,6 +25,7 @@ from pathlib import Path
 
 import typer
 
+from agents_shipgate.cli.discovery.scope import manifest_opt_in
 from agents_shipgate.core.bounded_io import (
     MAX_EXPLICIT_DIFF_BYTES,
     MAX_EXPLICIT_JSON_BYTES,
@@ -163,7 +164,7 @@ def trigger(
             raise typer.Exit(2) from exc
 
     if manifest_present is None:
-        manifest_present_resolved = (workspace / "shipgate.yaml").is_file()
+        manifest_present_resolved = manifest_opt_in(workspace, changed_paths=paths)
     else:
         manifest_present_resolved = manifest_present
 
