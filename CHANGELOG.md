@@ -38,26 +38,46 @@
   CLI's ranking byte for byte by the parity suite.
 
   Because the ranking reads Python name binding, it reads it the way Python
-  does or else declines. Scopes are not flattened: a helper's local
-  `root_agent`, and a helper's local import, belong to that helper and never
-  stand in for the module's. A reference resolves to the assignment that
+  does or else declines. Every binding is modelled, not just the ones that
+  construct agents — a `root_agent` later rebound to `build_root()` retires
+  the earlier construction instead of leaving it holding the role. Scopes
+  are not flattened: a helper's local `root_agent`, and a helper's local
+  import, belong to that helper, and a free name in a nested function
+  resolves against the enclosing function before the module rather than
+  skipping the captured binding. A reference resolves to the binding that
   actually reaches it — nearest scope, latest line before the reference —
-  rather than to every assignment sharing the identifier. A symbol bound
-  more than once anywhere in a file is never resolved, which is what makes
-  reading module-level constants safe at all: a second write, whether later,
-  conditional, computed, or in another scope, means the value Python passes
-  is not the one visible statically. `from config import AGENT_NAME as NAME`
-  looks up `AGENT_NAME` in the target module, not the alias. And when an
-  import could resolve to two different in-workspace modules — the agent
-  directory's `config.py` and the workspace root's — which one Python picks
-  depends on `sys.path`, so the identity stays unresolved.
+  and when any candidate sits under an `if`/`try`/loop the lookup fails
+  closed, because both arms can execute and taking the lexically later one
+  is a guess dressed as an answer. A symbol bound more than once anywhere in
+  a file is never resolved, which is what makes reading module-level
+  constants safe at all: a second write, whether later, conditional,
+  computed, or in another scope, means the value Python passes is not the
+  one visible statically. `from config import AGENT_NAME as NAME` looks up
+  `AGENT_NAME` in the target module, not the alias. An `os.getenv` /
+  `os.environ.get` default is only read when the call provably resolves to
+  the unshadowed stdlib import, so a module defining its own
+  `getenv(key, fallback)` cannot have its fallback lifted out as the agent
+  identity. And when an import could resolve to two different in-workspace
+  modules — the agent directory's `config.py` and the workspace root's —
+  which one Python picks depends on `sys.path`, so the identity stays
+  unresolved.
+
+  Origin now dominates the score rather than competing with it. The
+  documented contract is that product code outranks test code, but additive
+  scoring let a test fixture that builds an `App(root_agent=…)` outrank a
+  plain agent the shipped code declares. The test penalty is now strictly
+  greater than the whole spread of the hierarchy and corroboration signals,
+  and a test pins that arithmetic so a future signal cannot silently widen
+  the spread past it.
 
   **A declared application root that cannot be resolved statically now
   blocks selection entirely.** Dropping it and letting the rest of the field
   rank looks conservative but is the #324 failure again: everything
   remaining is by construction *not* the root, so the manifest would declare
-  a worker. A dynamic name, a factory call, or a symbol no single
-  construction defines all produce `CHANGE_ME` plus the reason.
+  a worker. A dynamic name, a factory call, a symbol no single construction
+  defines, a symbol that fails cross-module resolution, a conditionally
+  assigned root, and a root rebound to a non-agent value all produce
+  `CHANGE_ME` plus the reason.
 
   The zero-install detector now takes the same workspace inventory as the
   CLI — `git ls-files` when Git can read the workspace, a contained
@@ -68,7 +88,10 @@
   contributed a name and leaked its outside absolute path into the output.
   Its file bound also moved from the whole inventory onto Python parses, so
   an asset-heavy repository can no longer exhaust the budget before the walk
-  reaches any source.
+  reaches any source. Git's output is read incrementally against that bound
+  rather than buffered whole and measured afterwards, and overrunning it
+  exits non-zero exactly as canonical discovery raises — falling back to a
+  walk would do the work the bound exists to refuse.
 
 - **The recommended next command now runs where it was recommended.** Every
   emitted command was written as the console script the wheel installs

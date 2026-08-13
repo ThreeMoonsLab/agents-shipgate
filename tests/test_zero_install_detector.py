@@ -617,3 +617,89 @@ def test_script_reaches_python_sources_behind_many_assets(script_module, tmp_pat
     cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
     assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
     assert "BuriedAgent" in {c["value"] for c in script_result["agent_name_candidates"]}
+
+
+def test_script_git_inventory_is_read_incrementally(script_module, monkeypatch):
+    """`capture_output=True` would materialise the whole inventory before
+    any size check could reject it, making the cap decorative. The reader
+    must stop at the bound, so a stream far larger than the cap can be
+    rejected without ever being held in full."""
+    captured: dict[str, int] = {}
+    real_popen = script_module.subprocess.Popen
+
+    class _Endless:
+        """Emits far more than the cap; records how much was actually read."""
+
+        def __init__(self) -> None:
+            self.read_bytes = 0
+
+        def read(self, size: int) -> bytes:
+            self.read_bytes += size
+            captured["read"] = self.read_bytes
+            return b"x" * size
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = _Endless()
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def kill(self) -> None:
+            captured["killed"] = 1
+
+    monkeypatch.setattr(script_module.subprocess, "Popen", lambda *a, **k: _Process())
+    try:
+        out = script_module._git_inventory_bounded(
+            Path("."), [], env={}, max_output_bytes=1024
+        )
+    finally:
+        monkeypatch.setattr(script_module.subprocess, "Popen", real_popen)
+
+    assert out is None, "an overrunning inventory must be rejected, not returned"
+    assert captured.get("killed") == 1, "the child must be killed on overrun"
+    # Bounded means bounded: a few chunks past the cap, not the whole stream.
+    assert captured["read"] <= 1024 + 4 * 64 * 1024
+
+
+def test_script_fails_instead_of_walking_when_git_inventory_overruns(
+    script_module, tmp_path, monkeypatch
+):
+    """Canonical discovery raises `DiscoveryError` rather than falling back
+    to an unbounded walk. Falling back would do exactly the work the bound
+    exists to refuse, and would answer from a different inventory than
+    `init` used."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / "agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        script_module, "_git_inventory_bounded", lambda *a, **k: None
+    )
+    with pytest.raises(script_module.DiscoveryError):
+        script_module.detect(repo)
+
+
+def test_script_cli_reports_inventory_failure_as_nonzero_exit(
+    script_module, tmp_path, monkeypatch, capsys
+):
+    """The failure has to reach the caller. A coding agent piping this
+    script needs a non-zero exit, not a verdict built from a fallback."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / "agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        script_module, "_git_inventory_bounded", lambda *a, **k: None
+    )
+    exit_code = script_module.main(["--workspace", str(repo), "--json"])
+    assert exit_code == 1
+    assert "static output bounds" in capsys.readouterr().err

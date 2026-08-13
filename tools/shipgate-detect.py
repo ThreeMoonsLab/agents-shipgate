@@ -73,6 +73,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -152,7 +153,13 @@ AGENT_NAME_CLASSES = {"Agent", "LlmAgent"}
 APP_ROOT_CLASSES = {"App"}
 ROOT_AGENT_SYMBOL = "root_agent"
 CHILD_AGENT_KEYWORDS = ("sub_agents", "handoffs")
-ENV_LOOKUP_CALLS = {"os.environ.get", "os.getenv", "environ.get", "getenv"}
+# Origin is meant to dominate hierarchy and corroboration, so the test
+# penalty is strictly greater than their whole spread (3.0 + 1.0 + 1.5).
+ROOT_AGENT_BONUS = 3.0
+SUB_AGENT_PENALTY = 1.5
+CORROBORATION_BONUS = 1.0
+ORIGIN_TEST_PENALTY = 6.0
+QUALITY_FLOOR_PENALTY = 3.0
 AGENT_NAME_MIN_LENGTH = 3
 GENERIC_AGENT_NAME_VALUES = frozenset({
     "agent", "agents", "bar", "baz", "changeme", "dummy", "example", "foo",
@@ -196,13 +203,17 @@ def _contained(path: Path, workspace: Path) -> Path | None:
     return resolved
 
 
-def _git_files(workspace: Path) -> list[Path] | None:
-    """The workspace inventory as Git sees it, or ``None`` if Git cannot.
+class DiscoveryError(RuntimeError):
+    """The workspace inventory could not be collected safely.
 
-    Canonical detection prefers this, and matching it is what makes the
-    ranking parity claim true: without it a `.gitignore`d file is invisible
-    to `init` but visible here, so the two would name different agents.
+    Mirrors ``core.errors.DiscoveryError``. Canonical discovery *raises*
+    when the bounded Git inventory overruns rather than falling back to an
+    unbounded walk, and so does this: the fallback would do the very work
+    the bound exists to refuse.
     """
+
+
+def _git_env() -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update({
         "GIT_ATTR_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
@@ -211,33 +222,105 @@ def _git_files(workspace: Path) -> list[Path] | None:
         "GIT_OPTIONAL_LOCKS": "0", "GIT_PAGER": "cat",
         "GIT_PROTOCOL_FROM_USER": "0", "GIT_TERMINAL_PROMPT": "0",
     })
-    def _run(args: list[str]) -> subprocess.CompletedProcess[bytes] | None:
-        try:
-            return subprocess.run(
-                ["git", "--no-replace-objects", "-C", str(workspace), *args],
-                check=False, capture_output=True, env=env, timeout=10,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
+    return env
 
-    root = _run(["rev-parse", "--show-toplevel"])
-    if root is None or root.returncode != 0:
+
+def _git_inventory_bounded(workspace: Path, args: list[str], *,
+                           env: dict[str, str],
+                           max_output_bytes: int) -> bytes | None:
+    """Read Git's output incrementally, never buffering more than the cap.
+
+    ``capture_output=True`` would materialise the whole inventory before any
+    size check could reject it, which makes the cap decorative. Reading in
+    chunks and killing the child on overrun is what actually bounds memory.
+    """
+    try:
+        process = subprocess.Popen(
+            ["git", "--no-replace-objects", "-C", str(workspace), *args],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return None
+    output = bytearray()
+    exceeded = False
+    failed = False
+
+    def drain() -> None:
+        nonlocal exceeded, failed
+        assert process.stdout is not None
+        try:
+            while chunk := process.stdout.read(64 * 1024):
+                remaining = max_output_bytes + 1 - len(output)
+                if remaining > 0:
+                    output.extend(chunk[:remaining])
+                if len(output) > max_output_bytes:
+                    exceeded = True
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                    return
+        except OSError:
+            failed = True
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    try:
+        returncode = process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        reader.join()
+        return None
+    reader.join()
+    if returncode != 0 or exceeded or failed:
+        return None
+    return bytes(output)
+
+
+def _git_files(workspace: Path) -> list[Path] | None:
+    """The workspace inventory as Git sees it, or ``None`` if Git cannot.
+
+    Canonical detection prefers this, and matching it is what makes the
+    ranking parity claim true: without it a `.gitignore`d file is invisible
+    to `init` but visible here, so the two would name different agents.
+
+    ``None`` means "Git cannot answer" (not installed, not a repository) and
+    the caller falls back to a contained walk. An inventory that overruns
+    the bound raises instead, matching canonical discovery.
+    """
+    env = _git_env()
+    try:
+        root = subprocess.run(
+            ["git", "--no-replace-objects", "-C", str(workspace),
+             "rev-parse", "--show-toplevel"],
+            check=False, capture_output=True, env=env, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if root.returncode != 0:
         return None
     try:
         git_root = Path(root.stdout.decode("utf-8").strip()).resolve()
     except (UnicodeDecodeError, OSError, RuntimeError, ValueError):
         return None
-    listed = _run([
-        "-c", "core.fsmonitor=false", "-c", "submodule.recurse=false",
-        "-c", "core.quotePath=false",
-        "ls-files", "-co", "--exclude-standard", "--full-name", "-z", "--", ".",
-    ])
-    if listed is None or listed.returncode != 0:
-        return None
-    if len(listed.stdout) > MAX_GIT_INVENTORY_BYTES:
-        return None
+    listed = _git_inventory_bounded(
+        workspace,
+        [
+            "-c", "core.fsmonitor=false", "-c", "submodule.recurse=false",
+            "-c", "core.quotePath=false",
+            "ls-files", "-co", "--exclude-standard", "--full-name", "-z", "--", ".",
+        ],
+        env=env,
+        max_output_bytes=MAX_GIT_INVENTORY_BYTES,
+    )
+    if listed is None:
+        raise DiscoveryError(
+            "Git candidate-file inventory exceeded static output bounds or "
+            "could not be collected safely."
+        )
     out: list[Path] = []
-    for raw in listed.stdout.split(b"\0"):
+    for raw in listed.split(b"\0"):
         if not raw:
             continue
         try:
@@ -450,18 +533,30 @@ def _parse_py(path: Path) -> dict[str, Any] | None:
         return None
     imports, decos, ctors, names = set(), set(), set(), []
     constant_imports: dict[tuple[int, str], tuple[str, int, str]] = {}
-    counts: dict[str, int] = {}
-    hierarchy = _new_hierarchy()
+    plain_imports: dict[str, str] = {}
+    writes: dict[str, list[dict[str, Any]]] = {}
+    nodes, scope_parents, class_scopes = _walk_scoped(tree)
+    hierarchy = _new_hierarchy(scope_parents, class_scopes, writes)
     agent_calls: list[tuple[ast.Call, int]] = []
+    agent_targets: dict[int, int] = {}
+    write_by_node: dict[int, dict[str, Any]] = {}
 
-    def _count(name: str) -> None:
-        counts[name] = counts.get(name, 0) + 1
+    def _write(name: str, scope: int, lineno: int, conditional: bool) -> dict[str, Any]:
+        entry = {
+            "scope": scope, "lineno": lineno,
+            "conditional": conditional, "call_id": None,
+        }
+        writes.setdefault(name, []).append(entry)
+        return entry
 
-    for node, scope in _walk_scoped(tree):
+    for node, scope, conditional in nodes:
         if isinstance(node, ast.Import):
             for a in node.names:
                 imports.add(a.name)
-                _count((a.asname or a.name).split(".")[0])
+                bound = (a.asname or a.name).split(".")[0]
+                _write(bound, scope, node.lineno, conditional)
+                if a.asname is None or "." not in a.name:
+                    plain_imports[bound] = a.name
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 imports.add(node.module)
@@ -469,24 +564,24 @@ def _parse_py(path: Path) -> dict[str, Any] | None:
                     imports.add(f"{node.module}.{a.name}")
             for a in node.names:
                 bound = a.asname or a.name
-                _count(bound)
+                _write(bound, scope, node.lineno, conditional)
                 if node.module or node.level:
                     constant_imports[(scope, bound)] = (
                         node.module or "", node.level, a.name,
                     )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            _count(node.name)
+            _write(node.name, scope, node.lineno, conditional)
             for d in node.decorator_list:
                 n = _name(d)
                 if n:
                     decos.add(n)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            _count(node.id)
+            write_by_node[id(node)] = _write(node.id, scope, node.lineno, conditional)
         elif isinstance(node, ast.arg):
-            _count(node.arg)
+            _write(node.arg, scope, node.lineno, conditional)
         elif isinstance(node, ast.Global):
             for n in node.names:
-                _count(n)
+                _write(n, scope, node.lineno, conditional)
         elif isinstance(node, ast.Call):
             ctor = _name(node.func)
             if ctor:
@@ -501,80 +596,110 @@ def _parse_py(path: Path) -> dict[str, Any] | None:
                 list(node.targets) if isinstance(node, ast.Assign) else [node.target]
             )
             for target in targets:
-                if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
-                    hierarchy["bindings"].setdefault(target.id, []).append(
-                        {
-                            "call_id": id(node.value),
-                            "scope": scope,
-                            "lineno": node.value.lineno,
-                        }
-                    )
+                if (isinstance(target, ast.Name) and isinstance(node.value, ast.Call)
+                        and _constructs_agent(node.value)):
+                    agent_targets[id(target)] = id(node.value)
+
+    for node_id, call_id in agent_targets.items():
+        entry = write_by_node.get(node_id)
+        if entry is not None:
+            entry["call_id"] = call_id
 
     # Roles are assigned only once the whole module has been seen: an
     # App(root_agent=…) binding can appear after the construction it names.
     _resolve_references(hierarchy)
     agent_calls.sort(key=lambda item: (item[0].lineno, item[0].col_offset))
     unresolved_root = ""
-    for call, scope in agent_calls:
-        evidence = _agent_name_evidence(call, scope, hierarchy)
-        if evidence is not None:
-            names.append(evidence)
-        elif id(call) in hierarchy["resolved_root_calls"]:
-            unresolved_root = "the application root's name is not a static value"
-    if hierarchy["dangling_root"]:
-        unresolved_root = (
-            f"App({ROOT_AGENT_SYMBOL}=…) names `{hierarchy['dangling_root']}`, "
-            "which no single agent construction defines"
-        )
-    return {
+    facts: dict[str, Any] = {
         "imports": imports,
         "decorators": decos,
         "constructors": ctors,
         "names": names,
-        "constants": _module_constants(tree, counts),
         "constant_imports": constant_imports,
-        "binding_counts": counts,
-        "unresolved_root": unresolved_root,
+        "plain_imports": plain_imports,
+        "writes": writes,
     }
+    for call, scope in agent_calls:
+        evidence = _agent_name_evidence(call, scope, hierarchy)
+        if evidence is not None:
+            names.append(evidence)
+        elif (id(call) in hierarchy["root_calls"]
+              or id(call) in hierarchy["resolved_root_calls"]):
+            unresolved_root = "the application root's name is not a static value"
+    if hierarchy["unresolved_root"]:
+        unresolved_root = hierarchy["unresolved_root"]
+    facts["constants"] = _module_constants(tree, facts)
+    facts["unresolved_root"] = unresolved_root
+    return facts
 
 
 _MODULE_SCOPE = 0
 _SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+# Constructs whose bodies may or may not run. An assignment under one of
+# these is not provably the binding a later reference sees.
+_BRANCH_NODES = tuple(node for node in (
+    ast.If, ast.IfExp, ast.Try, getattr(ast, "TryStar", ast.Try),
+    ast.While, ast.For, ast.AsyncFor, ast.Match,
+))
 
 
-def _walk_scoped(tree: ast.AST) -> list[tuple[ast.AST, int]]:
-    """Every node paired with the lexical scope enclosing it.
+def _binding_count(facts: dict[str, Any], name: str) -> int:
+    return len(facts["writes"].get(name, []))
 
-    ``ast.walk`` flattens scopes, which is wrong for anything modelling name
-    binding: a helper's local ``root_agent`` is not the module's, and a
-    helper's local import is not the one a module-level construction reads.
+
+def _walk_scoped(
+    tree: ast.AST,
+) -> tuple[list[tuple[ast.AST, int, bool]], dict[int, int], set[int]]:
+    """Nodes with their lexical scope and whether they run conditionally.
+
+    ``ast.walk`` flattens both, which is wrong for anything modelling name
+    binding: a helper's local ``root_agent`` is not the module's, a helper's
+    local import is not the one a module-level construction reads, and an
+    assignment inside an ``if`` is not the binding a later line must see.
     """
-    out: list[tuple[ast.AST, int]] = []
-    stack: list[tuple[ast.AST, int]] = [(tree, _MODULE_SCOPE)]
+    out: list[tuple[ast.AST, int, bool]] = []
+    parents: dict[int, int] = {}
+    class_scopes: set[int] = set()
+    stack: list[tuple[ast.AST, int, bool]] = [(tree, _MODULE_SCOPE, False)]
     while stack:
-        node, scope = stack.pop()
-        out.append((node, scope))
-        inner = id(node) if isinstance(node, _SCOPE_NODES) else scope
+        node, scope, conditional = stack.pop()
+        out.append((node, scope, conditional))
+        if isinstance(node, _SCOPE_NODES):
+            inner: int = id(node)
+            parents[inner] = scope
+            if isinstance(node, ast.ClassDef):
+                class_scopes.add(inner)
+            inner_conditional = False
+        else:
+            inner = scope
+            inner_conditional = conditional or isinstance(node, _BRANCH_NODES)
         for child in ast.iter_child_nodes(node):
-            stack.append((child, inner))
-    return out
+            stack.append((child, inner, inner_conditional))
+    return out, parents, class_scopes
 
 
-def _new_hierarchy() -> dict[str, Any]:
+def _new_hierarchy(scope_parents: dict[int, int], class_scopes: set[int],
+                   writes: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     """Structural relationships between agent constructions in one module,
     accumulated during the single parse walk, then resolved once the module
-    is fully seen. References are matched to the *reaching* assignment —
-    nearest scope, latest line before the reference — not to every
-    assignment sharing the identifier. Call nodes are keyed by ``id()``."""
+    is fully seen. References are matched to the binding that reaches them —
+    nearest enclosing scope, latest unconditional assignment before the
+    reference — not to every assignment sharing the identifier. ``writes``
+    is shared with the caller and holds *every* binding, not just agent
+    constructions: a later `root_agent = build_root()` has to be visible or
+    a stale construction keeps the role."""
     return {
-        "bindings": {},
+        "scope_parents": scope_parents,
+        # Class bodies are scopes for binding but not for closure lookup.
+        "class_scopes": class_scopes,
+        "writes": writes,
         "root_refs": [],
         "child_refs": [],
         "root_calls": set(),
         "child_calls": set(),
         "resolved_root_calls": {},
         "resolved_child_calls": {},
-        "dangling_root": "",
+        "unresolved_root": "",
     }
 
 
@@ -600,7 +725,10 @@ def _observe_call(hierarchy: dict[str, Any], call: ast.Call, tail: str,
                 # A factory call or any other expression: the root is
                 # declared but not statically readable, and dropping that
                 # silently is how a sub-agent becomes the declared identity.
-                hierarchy["dangling_root"] = "a non-static expression"
+                hierarchy["unresolved_root"] = (
+                    f"App({ROOT_AGENT_SYMBOL}=…) is given an expression that "
+                    "does not statically construct an agent"
+                )
         elif is_agent and kw.arg in CHILD_AGENT_KEYWORDS and isinstance(
             kw.value, (ast.List, ast.Tuple, ast.Set)
         ):
@@ -618,49 +746,93 @@ def _constructs_agent(call: ast.Call) -> bool:
     return bool(ctor) and ctor.split(".")[-1] in AGENT_NAME_CLASSES
 
 
+def _scope_chain(hierarchy: dict[str, Any], scope: int) -> list[int]:
+    """``scope`` and every scope a name lookup falls through to. Python
+    resolves a free name against enclosing *function* scopes before the
+    module; jumping straight to the module skips a captured binding. Class
+    bodies are excluded from the ancestors: a method referencing a name
+    bound in its class body raises NameError rather than seeing it."""
+    chain: list[int] = [scope]
+    seen: set[int] = {scope}
+    current = hierarchy["scope_parents"].get(scope, _MODULE_SCOPE)
+    while current not in seen:
+        seen.add(current)
+        if current not in hierarchy["class_scopes"]:
+            chain.append(current)
+        if current == _MODULE_SCOPE:
+            break
+        current = hierarchy["scope_parents"].get(current, _MODULE_SCOPE)
+    return chain
+
+
 def _reaching(hierarchy: dict[str, Any], name: str, scope: int,
-              lineno: int) -> dict[str, Any] | None:
-    """The assignment a reference to ``name`` sees at ``lineno``: same scope
-    first, then the module scope a nested reference falls through to; within
-    a scope the latest assignment before the reference wins."""
-    candidates = hierarchy["bindings"].get(name, [])
-    for candidate_scope in (scope, _MODULE_SCOPE):
+              lineno: int) -> tuple[dict[str, Any] | None, str]:
+    """The binding a reference to ``name`` sees, or why it is unprovable.
+
+    A candidate under an `if`/`try`/loop makes the lookup unprovable: both
+    arms of a branch can execute, and picking the lexically later one is a
+    guess dressed as an answer."""
+    for candidate_scope in _scope_chain(hierarchy, scope):
         reaching = [
-            b for b in candidates
-            if b["scope"] == candidate_scope and b["lineno"] < lineno
+            w for w in hierarchy["writes"].get(name, [])
+            if w["scope"] == candidate_scope and w["lineno"] < lineno
         ]
-        if reaching:
-            return max(reaching, key=lambda b: b["lineno"])
-    return None
+        if not reaching:
+            continue
+        if any(w["conditional"] for w in reaching):
+            return None, (
+                f"`{name}` is assigned under a conditional or loop, so which "
+                "value reaches this reference is not provable statically"
+            )
+        return max(reaching, key=lambda w: w["lineno"]), ""
+    return None, f"`{name}` has no assignment that reaches this reference"
 
 
 def _resolve_references(hierarchy: dict[str, Any]) -> None:
     for name, scope, lineno in hierarchy["root_refs"]:
-        binding = _reaching(hierarchy, name, scope, lineno)
-        if binding is None:
-            hierarchy["dangling_root"] = name
-            continue
-        hierarchy["resolved_root_calls"].setdefault(
-            binding["call_id"], f"bound as App({ROOT_AGENT_SYMBOL}={name})"
-        )
+        write, reason = _reaching(hierarchy, name, scope, lineno)
+        if write is None:
+            hierarchy["unresolved_root"] = reason
+        elif write["call_id"] is None:
+            hierarchy["unresolved_root"] = (
+                f"`{name}` last binds a value that is not a statically "
+                "readable agent construction"
+            )
+        else:
+            hierarchy["resolved_root_calls"].setdefault(
+                write["call_id"], f"bound as App({ROOT_AGENT_SYMBOL}={name})"
+            )
     for name, scope, lineno in hierarchy["child_refs"]:
-        binding = _reaching(hierarchy, name, scope, lineno)
-        if binding is not None:
+        write, _reason = _reaching(hierarchy, name, scope, lineno)
+        if write is not None and write["call_id"] is not None:
             hierarchy["resolved_child_calls"].setdefault(
-                binding["call_id"], f"listed in another agent's children as `{name}`"
+                write["call_id"], f"listed in another agent's children as `{name}`"
             )
     # The ADK convention: the `root_agent` that `adk run`/`adk web` discover
     # is the *module* symbol. A function-local of that name is just a local.
     module_level = [
-        b for b in hierarchy["bindings"].get(ROOT_AGENT_SYMBOL, [])
-        if b["scope"] == _MODULE_SCOPE
+        w for w in hierarchy["writes"].get(ROOT_AGENT_SYMBOL, [])
+        if w["scope"] == _MODULE_SCOPE
     ]
-    if module_level:
-        last = max(module_level, key=lambda b: b["lineno"])
-        hierarchy["resolved_root_calls"].setdefault(
-            last["call_id"],
-            f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` module symbol",
+    if not module_level:
+        return
+    if any(w["conditional"] for w in module_level):
+        hierarchy["unresolved_root"] = (
+            f"`{ROOT_AGENT_SYMBOL}` is assigned conditionally, so which agent "
+            "it holds is not provable statically"
         )
+        return
+    last = max(module_level, key=lambda w: w["lineno"])
+    if last["call_id"] is None:
+        hierarchy["unresolved_root"] = (
+            f"`{ROOT_AGENT_SYMBOL}` is last assigned a value that is not a "
+            "statically readable agent construction"
+        )
+        return
+    hierarchy["resolved_root_calls"].setdefault(
+        last["call_id"],
+        f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` module symbol",
+    )
 
 
 def _agent_name_evidence(call: ast.Call, scope: int,
@@ -697,8 +869,31 @@ def _agent_name_evidence(call: ast.Call, scope: int,
     return None
 
 
+def _is_stdlib_env_lookup(callee: str, facts: dict[str, Any]) -> bool:
+    """Whether ``callee`` provably names ``os.getenv``/``os.environ.get``.
+
+    Matching the spelling is not proof of provenance: a module defining its
+    own ``getenv(key, fallback)`` would have its fallback lifted out as the
+    agent identity. The binding must be an unshadowed stdlib import."""
+    parts = callee.split(".")
+    head = parts[0]
+    if _binding_count(facts, head) != 1:
+        return False
+    if facts["plain_imports"].get(head) == "os":
+        return parts[1:] in (["getenv"], ["environ", "get"])
+    imported = facts["constant_imports"].get((_MODULE_SCOPE, head))
+    if imported is None:
+        return False
+    module, level, original = imported
+    if module != "os" or level != 0:
+        return False
+    return (original == "getenv" and not parts[1:]) or (
+        original == "environ" and parts[1:] == ["get"]
+    )
+
+
 def _module_constants(tree: ast.AST,
-                      binding_counts: dict[str, int]) -> dict[str, tuple[str, str]]:
+                      facts: dict[str, Any]) -> dict[str, tuple[str, str]]:
     """Module-level ``NAME = <str>`` and ``NAME = os.environ.get(…, <str>)``.
 
     Module level, these two forms, and only for names bound exactly once in
@@ -715,20 +910,20 @@ def _module_constants(tree: ast.AST,
             targets, value = [node.target], node.value
         else:
             continue
-        constant = _static_string(value)
+        constant = _static_string(value, facts)
         if constant is None:
             continue
         for target in targets:
-            if isinstance(target, ast.Name) and binding_counts.get(target.id, 0) == 1:
+            if isinstance(target, ast.Name) and _binding_count(facts, target.id) == 1:
                 constants[target.id] = constant
     return constants
 
 
-def _static_string(node: ast.AST) -> tuple[str, str] | None:
+def _static_string(node: ast.AST, facts: dict[str, Any]) -> tuple[str, str] | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.strip():
         return (node.value.strip(), "module_constant")
     if isinstance(node, ast.Call):
-        if (_name(node.func) or "") in ENV_LOOKUP_CALLS and len(node.args) == 2:
+        if _is_stdlib_env_lookup(_name(node.func) or "", facts) and len(node.args) == 2:
             default = node.args[1]
             if (isinstance(default, ast.Constant) and isinstance(default.value, str)
                     and default.value.strip()):
@@ -794,7 +989,7 @@ def _resolve_agent_name(evidence: dict[str, Any], path: Path, facts: dict[str, A
     symbol = evidence["symbol"]
     if not symbol:
         return None
-    if facts["binding_counts"].get(symbol, 0) != 1:
+    if _binding_count(facts, symbol) != 1:
         return None
     local = facts["constants"].get(symbol)
     if local is not None:
@@ -862,32 +1057,34 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
                 )
             role = evidence["role"]
             if role == "root_agent":
-                score += 3.0
+                score += ROOT_AGENT_BONUS
                 rationale.append(evidence["why"] or "bound as the application root")
             elif role == "sub_agent":
-                score -= 1.5
+                score -= SUB_AGENT_PENALTY
                 rationale.append(
                     evidence["why"] or "declared as a child of another agent, not the root"
                 )
             if _is_test_path(rel):
-                score -= 2.0
+                # Larger than every other signal combined: a fixture that
+                # happens to build an App root is still a fixture.
+                score -= ORIGIN_TEST_PENALTY
                 rationale.append(
                     "declared in test code, which names fixtures rather than the product"
                 )
             normalised = _normalise_name(value)
             if normalised and normalised in project_forms:
-                score += 1.0
+                score += CORROBORATION_BONUS
                 rationale.append("corroborated by the project name")
             selectable = True
             if len(normalised) < AGENT_NAME_MIN_LENGTH:
-                score -= 3.0
+                score -= QUALITY_FLOOR_PENALTY
                 selectable = False
                 rationale.append(
                     f"rejected: fewer than {AGENT_NAME_MIN_LENGTH} significant "
                     "characters, too context-poor to assert as an identity"
                 )
             elif normalised in GENERIC_AGENT_NAME_VALUES:
-                score -= 3.0
+                score -= QUALITY_FLOOR_PENALTY
                 selectable = False
                 rationale.append("rejected: generic scaffolding name, not an identity")
             ranked = {
@@ -910,6 +1107,19 @@ def _rank_agent_names(py_facts: list[tuple[Path, dict[str, Any]]], workspace: Pa
         for p, f in py_facts
         if f["unresolved_root"]
     ]
+    # A root whose *name* is a symbol that fails cross-module resolution is
+    # just as unresolved as one whose name is an f-string; it surfaces here
+    # because resolution needs every file's constants.
+    for path, facts in py_facts:
+        for evidence in facts["names"]:
+            if evidence["role"] != "root_agent" or evidence["literal"] is not None:
+                continue
+            if _resolve_agent_name(evidence, path, facts, by_path, workspace) is None:
+                unresolved.append(
+                    f"{_rel(path, workspace)}: the application root's name comes "
+                    f"from `{evidence['symbol']}`, which does not resolve to a "
+                    "static value"
+                )
     if unresolved:
         # A declared application root whose identity is not statically
         # resolvable. Anything still standing is by construction not the
@@ -1245,7 +1455,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true",
                         help="Emit JSON. Default: human-readable summary.")
     args = parser.parse_args(argv)
-    result = detect(args.workspace)
+    try:
+        result = detect(args.workspace)
+    except DiscoveryError as exc:
+        # Canonical discovery fails here rather than falling back to an
+        # unbounded walk; a "successful" verdict built from a different
+        # inventory would be worse than no verdict.
+        print(f"shipgate-detect: {exc}", file=sys.stderr)
+        return 1
     if args.json:
         print(json.dumps(result, indent=2))
         return 0

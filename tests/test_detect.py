@@ -1025,3 +1025,219 @@ def test_detect_human_output_reports_what_init_will_write(tmp_path: Path) -> Non
     assert "Agent name candidate: t " not in result.output
     assert "init will write CHANGE_ME" in result.output
     assert "context-poor" in result.output
+
+
+# --- Round-2 review: reading Python name binding, or declining ---------------
+#
+# The first ranking read binding with a flattened walk and first-write-wins
+# heuristics. Each test below is a case where that produced a confident,
+# wrong identity. The shared rule they enforce: resolve it the way Python
+# does, or say you cannot.
+
+
+def _adk(root: Path, body: str, *, name: str = "agent.py") -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / name).write_text(textwrap.dedent(body).lstrip(), encoding="utf-8")
+    return root
+
+
+def test_root_name_symbol_that_fails_resolution_blocks_selection(
+    tmp_path: Path,
+) -> None:
+    """A root whose name is a symbol that never resolves is as unresolved as
+    one whose name is an f-string. Dropping the root quietly and letting the
+    remaining worker rank is the #324 failure wearing a different hat."""
+    project = _adk(
+        tmp_path / "sym",
+        """
+        from google.adk.agents import Agent
+
+        NAME = "Old"
+        NAME = "Current"
+        worker = Agent(name="WorkerAgent")
+        root_agent = Agent(name=NAME, sub_agents=[worker])
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    worker = next(c for c in result.agent_name_candidates if c.value == "WorkerAgent")
+    assert worker.selectable is False
+
+
+def test_conditionally_assigned_root_is_ambiguous(tmp_path: Path) -> None:
+    """Either arm of an `if/else` can execute. Taking the lexically later
+    one is a guess dressed as an answer, so the identity fails closed."""
+    project = _adk(
+        tmp_path / "branch",
+        """
+        import os
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        if os.environ.get("TIER"):
+            root = Agent(name="BranchOne")
+        else:
+            root = Agent(name="BranchTwo")
+        app = App(name="a", root_agent=root)
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    assert not any(c.role == "root_agent" for c in result.agent_name_candidates)
+
+
+def test_closure_reference_resolves_to_the_enclosing_binding(tmp_path: Path) -> None:
+    """A free name in a nested function resolves against the enclosing
+    function before the module. Falling straight through to the module
+    binding reads a different object than the code does."""
+    project = _adk(
+        tmp_path / "closure",
+        """
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        root = Agent(name="ModuleLevelAgent")
+
+        def outer():
+            root = Agent(name="EnclosingAgent")
+
+            def inner():
+                return App(name="a", root_agent=root)
+
+            return inner
+        """,
+    )
+    result = detect_workspace(project)
+    roles = {c.value: c.role for c in result.agent_name_candidates}
+    assert roles["EnclosingAgent"] == "root_agent"
+    assert roles["ModuleLevelAgent"] == "agent"
+
+
+def test_later_non_agent_write_retires_the_previous_root(tmp_path: Path) -> None:
+    """`root_agent = build_root()` after `root_agent = Agent(...)` means the
+    earlier construction is no longer the runtime root. A model that only
+    records agent constructions cannot see that it stopped being one."""
+    project = _adk(
+        tmp_path / "retired",
+        """
+        from google.adk.agents import Agent
+        from factory import build_root
+
+        root_agent = Agent(name="StaleRoot")
+        root_agent = build_root()
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    stale = next(c for c in result.agent_name_candidates if c.value == "StaleRoot")
+    assert stale.role != "root_agent"
+    assert stale.selectable is False
+
+
+def test_shadowed_getenv_cannot_fabricate_an_identity(tmp_path: Path) -> None:
+    """Matching the callee spelling is not proof of provenance. A local
+    `getenv` returning something else would have its fallback lifted out as
+    the agent identity."""
+    project = _adk(
+        tmp_path / "shadowed",
+        """
+        from google.adk.agents import Agent
+
+        def getenv(key, fallback):
+            return "RuntimeAgent"
+
+        AGENT_NAME = getenv("AGENT_NAME", "FabricatedAgent")
+        root_agent = Agent(name=AGENT_NAME)
+        """,
+    )
+    result = detect_workspace(project)
+    assert "FabricatedAgent" not in {c.value for c in result.agent_name_candidates}
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_stdlib_getenv_alias_still_resolves(tmp_path: Path) -> None:
+    """Proving provenance must not mean only recognising one spelling:
+    `import os as operating_system` is still the stdlib module."""
+    project = _adk(
+        tmp_path / "aliased_os",
+        """
+        import os as operating_system
+        from google.adk.agents import Agent
+
+        AGENT_NAME = operating_system.getenv("AGENT_NAME", "AliasedOsAgent")
+        root_agent = Agent(name=AGENT_NAME)
+        """,
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "AliasedOsAgent"
+
+
+def test_product_origin_outranks_every_test_hierarchy_bonus(tmp_path: Path) -> None:
+    """The documented contract is that product code outranks test code —
+    full stop, not "unless the test one happens to be an App root"."""
+    project = tmp_path / "origin"
+    (project / "tests").mkdir(parents=True)
+    (project / "service.py").write_text(
+        "from google.adk.agents import Agent\n\n"
+        'helper = Agent(name="ProductionAgent")\n',
+        encoding="utf-8",
+    )
+    (project / "tests" / "test_fixture.py").write_text(
+        "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n\n"
+        'root_agent = Agent(name="TestFixtureRoot")\n'
+        'app = App(name="a", root_agent=root_agent)\n',
+        encoding="utf-8",
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "ProductionAgent"
+
+
+def test_origin_penalty_dominates_the_other_signals_by_construction(
+    tmp_path: Path,
+) -> None:
+    """Pins the arithmetic the contract rests on. If a future signal widens
+    the spread past ORIGIN_TEST_PENALTY, a test fixture can outrank product
+    code again and only this assertion would notice."""
+    from agents_shipgate.cli.discovery import signals
+
+    best_test_score = (
+        1.0
+        + signals.ROOT_AGENT_BONUS
+        + signals.CORROBORATION_BONUS
+        - signals.ORIGIN_TEST_PENALTY
+    )
+    worst_product_score = 1.0 - signals.SUB_AGENT_PENALTY
+    assert best_test_score < worst_product_score, (
+        "ORIGIN_TEST_PENALTY must exceed the whole spread of the hierarchy "
+        "and corroboration signals, or 'product code outranks test code' "
+        "stops being true for the best-placed fixture."
+    )
+
+
+def test_class_body_binding_is_not_visible_to_a_method(tmp_path: Path) -> None:
+    """Class bodies bind names but are not in the closure lookup chain — a
+    method referencing one raises `NameError`. Walking through them would
+    resolve the root to an object Python never supplies."""
+    project = _adk(
+        tmp_path / "classscope",
+        """
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        class Registry:
+            root = Agent(name="ClassBodyAgent")
+
+            def build(self):
+                return App(name="a", root_agent=root)
+        """,
+    )
+    result = detect_workspace(project)
+    roles = {c.value: c.role for c in result.agent_name_candidates}
+    assert roles["ClassBodyAgent"] == "agent", (
+        "a class-body binding must not satisfy a method's free-name "
+        "reference; Python raises NameError there"
+    )
+    assert select_agent_name(result.agent_name_candidates) is None

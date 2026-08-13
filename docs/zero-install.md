@@ -49,6 +49,8 @@ The script and the canonical CLI are pinned to **structural verdict parity** by 
 
 The workspace inventory does match the canonical CLI's — `git ls-files` when Git can read the workspace, a contained filesystem walk otherwise. That is a correctness requirement, not a speed one: a `.gitignore`d module is invisible to `init`, so a script that walked it anyway could name an agent `init` will never write. Paths escaping the workspace through a symlink are dropped for the same reason.
 
+Git's output is read incrementally against a 16 MiB bound. If that bound is exceeded the script **exits non-zero** rather than falling back to a filesystem walk — the same failure the canonical CLI raises. A fallback would do exactly the work the bound exists to refuse, and would answer from a different inventory than `init` used.
+
 ## 2. `uvx` (no permanent install)
 
 [`uv`](https://docs.astral.sh/uv/) lets you run a one-shot command from PyPI without installing into a permanent environment:

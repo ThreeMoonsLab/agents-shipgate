@@ -836,7 +836,9 @@ Consume the response to decide whether to proceed. Key fields:
     `handoffs=[…]`). `workspace_dir` is the directory-name fallback and is
     never selectable.
   - `path` — a name declared in product code outranks one declared in test
-    code, which names fixtures.
+    code, which names fixtures. This dominates: a test fixture that builds
+    an `App(root_agent=…)` still ranks below a plain agent the shipped code
+    declares.
   - corroboration — a value the project name independently agrees with
     ranks above one only a single site declares.
   - a quality floor — values under three significant characters, and
@@ -854,9 +856,14 @@ Consume the response to decide whether to proceed. Key fields:
   claims. `name=` values that come from a module constant or an
   `os.environ.get("…", "…")` default in the same package are resolved
   statically (one hop, no code executed) and say so in `rationale[]`. That
-  resolution is deliberately conservative: a symbol bound more than once
-  anywhere in the file, or one whose import could resolve to two different
-  in-workspace modules, is left unresolved rather than guessed.
+  resolution is deliberately conservative — it reads Python's binding rules
+  or declines. A symbol bound more than once anywhere in the file, one
+  assigned under an `if`/`try`/loop, one whose import could resolve to two
+  different in-workspace modules, and an `os.getenv` spelling that is not a
+  provably unshadowed stdlib import are all left unresolved rather than
+  guessed. A reference resolves against enclosing function scopes before the
+  module, and a `root_agent` later rebound to something that is not an agent
+  construction retires the earlier one rather than keeping it.
 - `project_name_candidates[]` — `{value, source}` only. Project names have
   no hierarchy to rank, so they carry none of the fields above. The
   `pyproject` source seeds `project.name`, never `agent.name`.

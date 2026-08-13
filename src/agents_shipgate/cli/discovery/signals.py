@@ -152,9 +152,19 @@ ROOT_AGENT_SYMBOL = "root_agent"
 # Keywords whose list elements are children of the surrounding agent.
 # ``sub_agents`` is Google ADK; ``handoffs`` is the OpenAI Agents SDK.
 CHILD_AGENT_KEYWORDS = ("sub_agents", "handoffs")
-# Callables whose second positional argument is a static default an agent
-# name can be resolved through without importing user code.
-ENV_LOOKUP_CALLS = {"os.environ.get", "os.getenv", "environ.get", "getenv"}
+# Score adjustments. Hierarchy and corroboration move a candidate within
+# its origin; origin itself is meant to dominate, because the documented
+# contract is that product code outranks test code — full stop, not "unless
+# the test one happens to be a root". ORIGIN_TEST_PENALTY is therefore
+# strictly greater than the whole spread of the other signals
+# (ROOT_BONUS + CORROBORATION_BONUS − SUB_AGENT_PENALTY = 5.5), which keeps
+# the published rank_score the single ordering key instead of needing a
+# separate tier the score cannot explain.
+ROOT_AGENT_BONUS = 3.0
+SUB_AGENT_PENALTY = 1.5
+CORROBORATION_BONUS = 1.0
+ORIGIN_TEST_PENALTY = 6.0
+QUALITY_FLOOR_PENALTY = 3.0
 
 # Quality floor for a value that may be written as ``agent.name``. A
 # one-character loop-variable-grade identifier and a scaffolding placeholder
@@ -375,48 +385,96 @@ class _PyFacts:
     constant_imports: dict[tuple[int, str], tuple[str, int, str]] = field(
         default_factory=dict
     )
-    # Every name bound anywhere in the file, with how many times. A symbol
-    # bound more than once is never resolved: the second write may be
+    # Every binding of every name, in scope and source order. A symbol bound
+    # more than once is never resolved to a constant: the second write may be
     # conditional, computed, or in another scope, and picking either one
     # asserts a value Python may not produce.
-    binding_counts: dict[str, int] = field(default_factory=dict)
+    writes: dict[str, list[_Write]] = field(default_factory=dict)
+    # ``import os``-style bindings: bound name → module. Used to prove that
+    # an ``os.environ.get`` spelling really is the stdlib one.
+    plain_imports: dict[str, str] = field(default_factory=dict)
     # An application root exists in this file but its identity could not be
     # established statically. Selection must then decline entirely rather
     # than fall through to whatever worker happens to rank next.
     unresolved_root: str = ""
 
+    def binding_count(self, name: str) -> int:
+        return len(self.writes.get(name, []))
+
 
 _MODULE_SCOPE = 0
 _SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+# Constructs whose bodies may or may not run. An assignment under one of
+# these is not provably the binding a later reference sees, so the reference
+# fails closed instead of guessing a branch.
+_BRANCH_NODES = tuple(
+    node
+    for node in (
+        ast.If,
+        ast.IfExp,
+        ast.Try,
+        getattr(ast, "TryStar", ast.Try),
+        ast.While,
+        ast.For,
+        ast.AsyncFor,
+        ast.Match,
+    )
+)
 
 
-def _walk_scoped(tree: ast.AST) -> list[tuple[ast.AST, int]]:
-    """Every node paired with the lexical scope that encloses it.
+def _walk_scoped(
+    tree: ast.AST,
+) -> tuple[list[tuple[ast.AST, int, bool]], dict[int, int], set[int]]:
+    """Nodes paired with their lexical scope and whether they run conditionally.
 
-    ``ast.walk`` flattens scopes, which is wrong for anything that models
-    name binding: a helper's local ``root_agent`` is not the module's, and a
-    helper's local import is not the one a module-level construction reads.
-    Scopes are identified by the ``id()`` of the node that introduces them;
-    the module is :data:`_MODULE_SCOPE`.
+    ``ast.walk`` flattens both, which is wrong for anything that models name
+    binding: a helper's local ``root_agent`` is not the module's, a helper's
+    local import is not the one a module-level construction reads, and an
+    assignment inside an ``if`` is not the binding a later line is guaranteed
+    to see. Scopes are identified by the ``id()`` of the node that introduces
+    them; the module is :data:`_MODULE_SCOPE`. Returns the nodes, the
+    scope→enclosing-scope map a closure lookup walks, and which of those
+    scopes are class bodies (which that lookup must skip).
     """
-    out: list[tuple[ast.AST, int]] = []
-    stack: list[tuple[ast.AST, int]] = [(tree, _MODULE_SCOPE)]
+    out: list[tuple[ast.AST, int, bool]] = []
+    parents: dict[int, int] = {}
+    class_scopes: set[int] = set()
+    stack: list[tuple[ast.AST, int, bool]] = [(tree, _MODULE_SCOPE, False)]
     while stack:
-        node, scope = stack.pop()
-        out.append((node, scope))
-        inner = id(node) if isinstance(node, _SCOPE_NODES) else scope
+        node, scope, conditional = stack.pop()
+        out.append((node, scope, conditional))
+        if isinstance(node, _SCOPE_NODES):
+            inner: int = id(node)
+            parents[inner] = scope
+            if isinstance(node, ast.ClassDef):
+                class_scopes.add(inner)
+            # A nested definition's own body is straight-line relative to
+            # itself, whatever branch the definition sits in.
+            inner_conditional = False
+        else:
+            inner = scope
+            inner_conditional = conditional or isinstance(node, _BRANCH_NODES)
         for child in ast.iter_child_nodes(node):
-            stack.append((child, inner))
-    return out
+            stack.append((child, inner, inner_conditional))
+    return out, parents, class_scopes
 
 
 @dataclass
-class _AgentBinding:
-    """One ``<name> = Agent(…)`` assignment, located in scope and source."""
+class _Write:
+    """One binding of a name: where it happens and what it binds.
 
-    call_id: int
+    Every binding is recorded, not just the ones that construct agents.
+    A later ``root_agent = build_root()`` overwrites an earlier
+    ``root_agent = Agent(name="Stale")``, and a model that only knows about
+    agent constructions cannot see that the earlier one stopped being the
+    root.
+    """
+
     scope: int
     lineno: int
+    conditional: bool
+    # Set only when this binding's value is a verified agent construction.
+    call_id: int | None = None
 
 
 def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
@@ -430,13 +488,23 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
         return None
 
     facts = _PyFacts(path=path, rel_path=_relative(path, workspace))
-    hierarchy = _AgentHierarchy()
+    nodes, scope_parents, class_scopes = _walk_scoped(tree)
+    hierarchy = _AgentHierarchy(
+        scope_parents=scope_parents, class_scopes=class_scopes, writes=facts.writes
+    )
     agent_calls: list[tuple[ast.Call, int]] = []
-    for node, scope in _walk_scoped(tree):
+    # Store-context Name nodes are visited independently of the assignment
+    # they belong to, so the value each one binds is attached afterwards.
+    agent_construction_targets: dict[int, int] = {}
+    write_by_node: dict[int, _Write] = {}
+    for node, scope, conditional in nodes:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 facts.imports.add(alias.name)
-                _count_binding(facts, (alias.asname or alias.name).split(".")[0])
+                bound = (alias.asname or alias.name).split(".")[0]
+                _record_write(facts, bound, scope, node.lineno, conditional)
+                if alias.asname is None or "." not in alias.name:
+                    facts.plain_imports[bound] = alias.name
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 facts.imports.add(node.module)
@@ -444,7 +512,7 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
                     facts.imports.add(f"{node.module}.{alias.name}")
             for alias in node.names:
                 bound = alias.asname or alias.name
-                _count_binding(facts, bound)
+                _record_write(facts, bound, scope, node.lineno, conditional)
                 if node.module or node.level:
                     facts.constant_imports[(scope, bound)] = (
                         node.module or "",
@@ -452,18 +520,20 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
                         alias.name,
                     )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            _count_binding(facts, node.name)
+            _record_write(facts, node.name, scope, node.lineno, conditional)
             for decorator in node.decorator_list:
                 name = _decorator_name(decorator)
                 if name:
                     facts.decorators.add(name)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            _count_binding(facts, node.id)
+            write_by_node[id(node)] = _record_write(
+                facts, node.id, scope, node.lineno, conditional
+            )
         elif isinstance(node, ast.arg):
-            _count_binding(facts, node.arg)
+            _record_write(facts, node.arg, scope, node.lineno, conditional)
         elif isinstance(node, ast.Global):
             for name in node.names:
-                _count_binding(facts, name)
+                _record_write(facts, name, scope, node.lineno, conditional)
         elif isinstance(node, ast.Call):
             ctor = _call_name(node.func)
             if ctor:
@@ -478,8 +548,17 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
                 list(node.targets) if isinstance(node, ast.Assign) else [node.target]
             )
             for target in targets:
-                if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
-                    hierarchy.bind(target.id, node.value, scope)
+                if (
+                    isinstance(target, ast.Name)
+                    and isinstance(node.value, ast.Call)
+                    and _constructs_agent(node.value)
+                ):
+                    agent_construction_targets[id(target)] = id(node.value)
+
+    for node_id, call_id in agent_construction_targets.items():
+        write = write_by_node.get(node_id)
+        if write is not None:
+            write.call_id = call_id
 
     # Roles are assigned only once the whole module has been seen: the
     # ``App(root_agent=…)`` binding that identifies a coordinator can appear
@@ -495,24 +574,25 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
         evidence = _agent_name_evidence(call, scope, hierarchy, facts.rel_path)
         if evidence is not None:
             facts.agent_names.append(evidence)
-        elif id(call) in hierarchy.resolved_root_calls:
+        elif id(call) in hierarchy.root_calls or id(call) in hierarchy.resolved_root_calls:
             # An explicit root whose name is dynamic. #324 requires this to
             # produce a placeholder, not a fallback to some other agent.
             facts.unresolved_root = (
                 f"{facts.rel_path}: the application root's name is not a static value"
             )
-    if hierarchy.dangling_root:
-        facts.unresolved_root = (
-            f"{facts.rel_path}: App({ROOT_AGENT_SYMBOL}=…) names "
-            f"`{hierarchy.dangling_root}`, which no single agent construction defines"
-        )
+    if hierarchy.unresolved_root:
+        facts.unresolved_root = f"{facts.rel_path}: {hierarchy.unresolved_root}"
 
-    facts.module_constants.update(_module_constants(tree, facts.binding_counts))
+    facts.module_constants.update(_module_constants(tree, facts))
     return facts
 
 
-def _count_binding(facts: _PyFacts, name: str) -> None:
-    facts.binding_counts[name] = facts.binding_counts.get(name, 0) + 1
+def _record_write(
+    facts: _PyFacts, name: str, scope: int, lineno: int, conditional: bool
+) -> _Write:
+    write = _Write(scope=scope, lineno=lineno, conditional=conditional)
+    facts.writes.setdefault(name, []).append(write)
+    return write
 
 
 @dataclass
@@ -520,15 +600,20 @@ class _AgentHierarchy:
     """Structural relationships between agent constructions in one module.
 
     Accumulated during the single parse walk, then resolved once the module
-    is fully seen. References are matched to the *reaching* assignment —
-    nearest enclosing scope, latest line before the reference — rather than
-    to every assignment that happens to share the identifier. Call nodes are
-    keyed by ``id()``, and the tree stays alive for the duration of the
-    parse.
+    is fully seen. References are matched to the binding that actually
+    reaches them — nearest enclosing scope, latest unconditional assignment
+    before the reference — rather than to every assignment that happens to
+    share the identifier. Call nodes are keyed by ``id()``, and the tree
+    stays alive for the duration of the parse.
     """
 
-    # name → assignments of an agent construction to that name.
-    bindings: dict[str, list[_AgentBinding]] = field(default_factory=dict)
+    scope_parents: dict[int, int] = field(default_factory=dict)
+    # Class bodies are scopes for binding but not for closure lookup.
+    class_scopes: set[int] = field(default_factory=set)
+    # Shared with the owning _PyFacts: every binding of every name, not only
+    # the ones that construct agents. A later non-agent write to a root
+    # symbol has to be visible here, or a stale construction keeps the role.
+    writes: dict[str, list[_Write]] = field(default_factory=dict)
     # (name, scope, lineno) references collected during the walk.
     root_refs: list[tuple[str, int, int]] = field(default_factory=list)
     child_refs: list[tuple[str, int, int]] = field(default_factory=list)
@@ -537,12 +622,7 @@ class _AgentHierarchy:
     # Filled by resolve_references().
     resolved_root_calls: dict[int, str] = field(default_factory=dict)
     resolved_child_calls: dict[int, str] = field(default_factory=dict)
-    dangling_root: str = ""
-
-    def bind(self, name: str, call: ast.Call, scope: int) -> None:
-        self.bindings.setdefault(name, []).append(
-            _AgentBinding(call_id=id(call), scope=scope, lineno=call.lineno)
-        )
+    unresolved_root: str = ""
 
     def observe(self, call: ast.Call, tail: str, scope: int) -> None:
         """Record what one call says about the agents around it."""
@@ -568,7 +648,10 @@ class _AgentHierarchy:
                     # declared but its identity is not readable statically,
                     # which has to be recorded — dropping it silently is how
                     # a sub-agent ends up declared as the reviewed identity.
-                    self.dangling_root = "a non-static expression"
+                    self.unresolved_root = (
+                        f"App({ROOT_AGENT_SYMBOL}=…) is given an expression that "
+                        "does not statically construct an agent"
+                    )
             elif is_agent and keyword.arg in CHILD_AGENT_KEYWORDS:
                 for element in _sequence_elements(keyword.value):
                     if isinstance(element, ast.Name):
@@ -579,53 +662,109 @@ class _AgentHierarchy:
                         self.child_calls.add(id(element))
 
     def resolve_references(self) -> None:
-        """Match each reference to the assignment that actually reaches it."""
+        """Match each reference to the binding that actually reaches it."""
         for name, scope, lineno in self.root_refs:
-            binding = self._reaching(name, scope, lineno)
-            if binding is None:
-                self.dangling_root = name
-                continue
-            self.resolved_root_calls.setdefault(
-                binding.call_id, f"bound as App({ROOT_AGENT_SYMBOL}={name})"
-            )
-        for name, scope, lineno in self.child_refs:
-            binding = self._reaching(name, scope, lineno)
-            if binding is not None:
-                self.resolved_child_calls.setdefault(
-                    binding.call_id, f"listed in another agent's children as `{name}`"
+            write, reason = self._reaching(name, scope, lineno)
+            if write is None:
+                self.unresolved_root = reason
+            elif write.call_id is None:
+                # The name reaches something that is not an agent
+                # construction — a factory result, an import, a parameter.
+                # Whatever agent it used to hold is no longer the root.
+                self.unresolved_root = (
+                    f"`{name}` last binds a value that is not a statically "
+                    "readable agent construction"
                 )
-        # The ADK convention: ``root_agent`` discovered by ``adk run``/``adk
-        # web`` is the *module* symbol. A function-local of the same name is
-        # a local variable and carries no such meaning.
+            else:
+                self.resolved_root_calls.setdefault(
+                    write.call_id, f"bound as App({ROOT_AGENT_SYMBOL}={name})"
+                )
+        for name, scope, lineno in self.child_refs:
+            write, _reason = self._reaching(name, scope, lineno)
+            if write is not None and write.call_id is not None:
+                self.resolved_child_calls.setdefault(
+                    write.call_id, f"listed in another agent's children as `{name}`"
+                )
+        self._resolve_conventional_root()
+
+    def _resolve_conventional_root(self) -> None:
+        """The ADK convention: the ``root_agent`` that ``adk run``/``adk web``
+        discover is the *module* symbol. A function-local of the same name is
+        a local variable and carries no such meaning."""
         module_level = [
-            binding
-            for binding in self.bindings.get(ROOT_AGENT_SYMBOL, [])
-            if binding.scope == _MODULE_SCOPE
+            write
+            for write in self.writes.get(ROOT_AGENT_SYMBOL, [])
+            if write.scope == _MODULE_SCOPE
         ]
-        if module_level:
-            last = max(module_level, key=lambda binding: binding.lineno)
-            self.resolved_root_calls.setdefault(
-                last.call_id,
-                f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` module symbol",
+        if not module_level:
+            return
+        if any(write.conditional for write in module_level):
+            self.unresolved_root = (
+                f"`{ROOT_AGENT_SYMBOL}` is assigned conditionally, so which "
+                "agent it holds is not provable statically"
             )
+            return
+        last = max(module_level, key=lambda write: write.lineno)
+        if last.call_id is None:
+            self.unresolved_root = (
+                f"`{ROOT_AGENT_SYMBOL}` is last assigned a value that is not a "
+                "statically readable agent construction"
+            )
+            return
+        self.resolved_root_calls.setdefault(
+            last.call_id,
+            f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` module symbol",
+        )
 
-    def _reaching(self, name: str, scope: int, lineno: int) -> _AgentBinding | None:
-        """The assignment a reference to ``name`` sees at ``lineno``.
+    def _scope_chain(self, scope: int) -> list[int]:
+        """``scope`` and every scope a name lookup falls through to.
 
-        Same scope first, then the module scope a nested reference falls
-        through to; within the chosen scope the latest assignment before the
-        reference wins, which is what Python's rebinding does.
+        Python resolves a free name against the enclosing *function* scopes
+        before the module. Jumping straight to the module skips a captured
+        binding and reads a different object than the code does. Class
+        bodies are deliberately excluded from the ancestors: a method
+        referencing a name bound in its class body raises ``NameError``
+        rather than seeing it, so treating the class binding as reachable
+        would resolve to an object Python never supplies.
         """
-        candidates = self.bindings.get(name, [])
-        for candidate_scope in (scope, _MODULE_SCOPE):
+        chain: list[int] = [scope]
+        seen: set[int] = {scope}
+        current = self.scope_parents.get(scope, _MODULE_SCOPE)
+        while current not in seen:
+            seen.add(current)
+            if current not in self.class_scopes:
+                chain.append(current)
+            if current == _MODULE_SCOPE:
+                break
+            current = self.scope_parents.get(current, _MODULE_SCOPE)
+        return chain
+
+    def _reaching(
+        self, name: str, scope: int, lineno: int
+    ) -> tuple[_Write | None, str]:
+        """The binding a reference to ``name`` sees, or why it is unprovable.
+
+        Nearest enclosing scope wins, and within it the latest assignment
+        before the reference — which is what rebinding does. A candidate
+        under an ``if``/``try``/loop makes the whole lookup unprovable: both
+        arms of a branch can execute, and picking the lexically later one is
+        a guess dressed as an answer.
+        """
+        for candidate_scope in self._scope_chain(scope):
             reaching = [
-                binding
-                for binding in candidates
-                if binding.scope == candidate_scope and binding.lineno < lineno
+                write
+                for write in self.writes.get(name, [])
+                if write.scope == candidate_scope and write.lineno < lineno
             ]
-            if reaching:
-                return max(reaching, key=lambda binding: binding.lineno)
-        return None
+            if not reaching:
+                continue
+            if any(write.conditional for write in reaching):
+                return None, (
+                    f"`{name}` is assigned under a conditional or loop, so which "
+                    "value reaches this reference is not provable statically"
+                )
+            return max(reaching, key=lambda write: write.lineno), ""
+        return None, f"`{name}` has no assignment that reaches this reference"
 
     def role_for(self, call: ast.Call) -> tuple[AgentNameRole, str]:
         """Return ``(role, evidence)`` for one agent construction."""
@@ -682,9 +821,32 @@ def _agent_name_evidence(
     return None
 
 
-def _module_constants(
-    tree: ast.AST, binding_counts: dict[str, int]
-) -> dict[str, _Constant]:
+def _is_stdlib_env_lookup(callee: str, facts: _PyFacts) -> bool:
+    """Whether ``callee`` provably names ``os.getenv``/``os.environ.get``.
+
+    Matching the spelling alone is not proof of provenance: a module that
+    defines its own ``getenv(key, fallback)`` returning something else would
+    have its fallback lifted out as the agent identity. The binding has to
+    be an unshadowed import of the stdlib module.
+    """
+    parts = callee.split(".")
+    head = parts[0]
+    if facts.binding_count(head) != 1:
+        return False
+    if facts.plain_imports.get(head) == "os":
+        return parts[1:] in (["getenv"], ["environ", "get"])
+    imported = facts.constant_imports.get((_MODULE_SCOPE, head))
+    if imported is None:
+        return False
+    module, level, original = imported
+    if module != "os" or level != 0:
+        return False
+    return (original == "getenv" and not parts[1:]) or (
+        original == "environ" and parts[1:] == ["get"]
+    )
+
+
+def _module_constants(tree: ast.AST, facts: _PyFacts) -> dict[str, _Constant]:
     """Module-level ``NAME = <str>`` and ``NAME = os.environ.get(…, <str>)``.
 
     Module level only, these two forms only, and only for names bound
@@ -707,21 +869,21 @@ def _module_constants(
             value = node.value
         else:
             continue
-        constant = _static_string(value)
+        constant = _static_string(value, facts)
         if constant is None:
             continue
         for target in targets:
-            if isinstance(target, ast.Name) and binding_counts.get(target.id, 0) == 1:
+            if isinstance(target, ast.Name) and facts.binding_count(target.id) == 1:
                 constants[target.id] = constant
     return constants
 
 
-def _static_string(node: ast.expr) -> _Constant | None:
+def _static_string(node: ast.expr, facts: _PyFacts) -> _Constant | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.strip():
         return _Constant(value=node.value.strip(), provenance="module_constant")
     if isinstance(node, ast.Call):
         callee = _call_name(node.func) or ""
-        if callee in ENV_LOOKUP_CALLS and len(node.args) == 2:
+        if _is_stdlib_env_lookup(callee, facts) and len(node.args) == 2:
             default = node.args[1]
             if (
                 isinstance(default, ast.Constant)
@@ -1043,7 +1205,7 @@ def _resolve_agent_name_evidence(
         return None
     # A name bound more than once anywhere in the file is not resolvable
     # here: the binding this site sees may not be the one we can read.
-    if fact.binding_counts.get(symbol, 0) != 1:
+    if fact.binding_count(symbol) != 1:
         return None
     local = fact.module_constants.get(symbol)
     if local is not None:
@@ -1157,6 +1319,19 @@ def _rank_agent_name_candidates(
     """
     by_path = {_safe_resolve(fact.path): fact for fact in facts}
     unresolved_roots = [fact.unresolved_root for fact in facts if fact.unresolved_root]
+    # A root whose *name* is a symbol that fails the cross-module resolution
+    # below is just as unresolved as one whose name is an f-string. The
+    # failure surfaces here rather than at parse time because resolution
+    # needs every file's constants, so it has to be folded in before ranking.
+    for fact in facts:
+        for evidence in fact.agent_names:
+            if evidence.role != "root_agent" or evidence.literal is not None:
+                continue
+            if _resolve_agent_name_evidence(evidence, fact, by_path, workspace) is None:
+                unresolved_roots.append(
+                    f"{evidence.rel_path}: the application root's name comes from "
+                    f"`{evidence.symbol}`, which does not resolve to a static value"
+                )
     project_forms = {
         _normalise_name(candidate.value) for candidate in project_names if candidate.value
     }
@@ -1252,33 +1427,36 @@ def _score_agent_name(
         )
 
     if role == "root_agent":
-        score += 3.0
+        score += ROOT_AGENT_BONUS
         rationale.append(root_evidence or "bound as the application root")
     elif role == "sub_agent":
-        score -= 1.5
+        score -= SUB_AGENT_PENALTY
         rationale.append(
             root_evidence or "declared as a child of another agent, not the root"
         )
 
     if _is_test_path(rel_path):
-        score -= 2.0
+        # Deliberately larger than every other signal combined: a fixture
+        # that happens to build an App root is still a fixture, and must not
+        # outrank a plain agent the shipped code declares.
+        score -= ORIGIN_TEST_PENALTY
         rationale.append("declared in test code, which names fixtures rather than the product")
 
     normalised = _normalise_name(value)
     if normalised and normalised in project_forms:
-        score += 1.0
+        score += CORROBORATION_BONUS
         rationale.append("corroborated by the project name")
 
     selectable = True
     if len(normalised) < AGENT_NAME_MIN_LENGTH:
-        score -= 3.0
+        score -= QUALITY_FLOOR_PENALTY
         selectable = False
         rationale.append(
             f"rejected: fewer than {AGENT_NAME_MIN_LENGTH} significant characters, "
             "too context-poor to assert as an identity"
         )
     elif normalised in GENERIC_AGENT_NAME_VALUES:
-        score -= 3.0
+        score -= QUALITY_FLOOR_PENALTY
         selectable = False
         rationale.append("rejected: generic scaffolding name, not an identity")
 
