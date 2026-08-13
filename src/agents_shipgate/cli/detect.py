@@ -20,7 +20,6 @@ from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import diagnose_detect
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.setup_control import (
-    SETUP_COMPLETE,
     SETUP_INCOMPLETE,
     setup_control_envelope,
     setup_input_id,
@@ -164,7 +163,10 @@ def _detect_reason(result: DetectResult, *, has_manifest: bool) -> str:
     """One sentence stating what this classification found."""
 
     if has_manifest:
-        return "This workspace already has a shipgate.yaml; classification is informational."
+        return (
+            "This workspace already has a shipgate.yaml. detect does not read it, "
+            "so whether setup is complete is doctor's answer to give."
+        )
     if result.is_agent_project:
         frameworks = ", ".join(framework.type for framework in result.frameworks)
         return f"Detected an agent project ({frameworks}) with no shipgate.yaml yet."
@@ -187,9 +189,16 @@ def _detect_advance(
     ``DetectResult.next_action`` already names ``init`` in the adoptable case,
     and this reuses it rather than composing a second answer. The one case it
     does *not* cover is a workspace that is already configured: detect keeps
-    saying ``init`` there, which the command would refuse, so the control route
-    names the gate instead. That is not a new decision — the manifest's presence
-    is a fact detect already computed for its own diagnostics.
+    saying ``init`` there, which the command would refuse.
+
+    That route names **doctor**, not the gate, and reports ``setup_incomplete``.
+    ``detect`` classifies a workspace; it never opens the manifest, so it cannot
+    know whether the manifest still owes a human a declaration. Asserting
+    ``setup_complete`` from the mere presence of a file contradicted ``init`` and
+    ``doctor`` on the same manifest — they returned ``human_review_required``
+    for an unresolved ``agent_bindings`` declaration while this said "go verify",
+    which is a route around the human stop. Handing off to the command that does
+    read the manifest keeps one answer per obligation.
 
     ``None`` when the workspace is not adoptable at all; the negative-control
     diagnostics own that route and end in a human stop.
@@ -199,15 +208,20 @@ def _detect_advance(
         return (
             NextAction(
                 kind="command",
-                command=render_command(["verify", "--workspace", str(workspace), "--json"]),
-                why=(
-                    "This workspace is already configured, so the outstanding "
-                    "step is the release gate, not more setup."
+                command=render_command(
+                    ["doctor", "--config", str(workspace / "shipgate.yaml"), "--json"]
                 ),
-                expects="A verifier run that publishes a control identity for this workspace.",
+                why=(
+                    "This workspace already has a manifest. Ask doctor whether it "
+                    "is complete before treating setup as done."
+                ),
+                expects=(
+                    "A doctor payload whose control state names the outstanding "
+                    "setup obligation, or the release gate when there is none."
+                ),
             ),
-            "verify",
-            SETUP_COMPLETE,
+            "configure",
+            SETUP_INCOMPLETE,
         )
     adoptable = bool(
         result.is_agent_project

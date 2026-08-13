@@ -30,19 +30,25 @@ distinguishable from the gate:
   unreachable for these operations in the schema itself. Setup routes; it never
   finishes a task.
 
-`scan` reaches a real release decision, and `agent control` on a `scan`
-generation now reports it: the verdict is lifted from the `report.json` that
-generation bound, inside the same validated read, instead of the previous
-`decision: null`. Nothing about authority changed — the state and `permissions`
-still come from the pointer.
+`agent control` on a `scan` generation publishes **no** release verdict. `scan`
+reaches one, but its pointer records no HEAD, no worktree overlay, and no input
+set, so nothing about that verdict can be reconfirmed against the workspace as it
+stands: editing the manifest, a `tools.json` it references, a policy pack, or a
+baseline leaves the pointer reading cleanly. What the envelope carries instead is
+`reason`, stating why there is no verdict — which is what keeps it
+distinguishable from an envelope produced before any engine ran, and is the
+ambiguity #323 set out to remove. Run `verify` for a verdict a reader can check.
 
 `next_action` gains one coding-agent variant, `kind: "edit"`, carrying `path`
 and `expects`. It is the typed form of "change this file", which setup routing
-needs and no other producer emits — `verify`, `check`, and `agent control`
-cannot return it, so a consumer written against contract v21 control fields is
-unaffected and `minimum_control_contract_version` stays at `21`. The frozen
-`shipgate.codex_boundary_result/v2` projection is unchanged and now snapshots its
-own action union rather than tracking the live one; an `edit` route reaching it
+needs. It widens `CodingAgentAction`, the union every control producer embeds —
+the verifier, the handoff, preflight, the agent result, the boundary result, and
+verify-run all admit it structurally, whether or not any of them emits one
+today — so `minimum_control_contract_version` moves to `24` with the contract.
+A consumer that switches exhaustively on `next_action.kind` has to be told, and
+the floor is how it is told. The frozen `shipgate.codex_boundary_result/v2`
+projection is the exception and is unchanged: it now snapshots its own action
+union rather than tracking the live one, and an `edit` route reaching it
 collapses to the universal human stop.
 
 A human-owned manifest declaration is never published as a coding-agent edit.

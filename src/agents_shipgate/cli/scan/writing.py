@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from agents_shipgate.ci.release_decision import (
@@ -10,7 +10,6 @@ from agents_shipgate.ci.release_decision import (
     SUGGESTED_INVENTORY_FILENAME,
 )
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
-from agents_shipgate.core.agent_controls import git_root_for
 from agents_shipgate.core.current_control import (
     SCAN_FORMAT_ARTIFACT_KEYS,
     begin_current_control,
@@ -134,11 +133,6 @@ def _write_outputs(
             ),
             workspace_identity=CurrentControlWorkspaceIdentity(
                 policy_snapshot_sha256=_manifest_snapshot_sha256(config_path),
-                # Recorded so the digest above can be *recomputed* by a reader.
-                # A hash whose subject is unnamed is a hash nobody can check,
-                # and that is what let a scan generation stay current across an
-                # edit to the manifest it scanned.
-                policy_snapshot_path=_manifest_snapshot_path(config_path),
             ),
             artifact_keys={
                 SCAN_FORMAT_ARTIFACT_KEYS[name]
@@ -154,35 +148,6 @@ def _manifest_snapshot_sha256(config_path: Path) -> str | None:
     except OSError:
         return None
     return f"sha256:{hashlib.sha256(data).hexdigest()}"
-
-
-def _manifest_snapshot_path(config_path: Path) -> str | None:
-    """The scanned manifest, spelled relative to the repository root.
-
-    Repository-relative rather than absolute or reports-relative, for two
-    reasons. An absolute path recorded on one machine names nothing on another.
-    And a reports-relative one would almost always start with ``../``, which the
-    hardened artifact reader refuses by design — the reader that reconfirms this
-    snapshot has to be able to use the same containment rules the bound
-    artifacts get, not a relaxed variant of them.
-
-    ``None`` when no repository root can be proven or the manifest sits outside
-    it. That is not a fallback to something weaker: a snapshot whose subject
-    cannot be located again is one no reader can reconfirm, and the reader
-    withholds the verdict rather than assuming it still holds.
-    """
-
-    try:
-        resolved = config_path.resolve()
-    except OSError:
-        return None
-    root = git_root_for(resolved.parent)
-    if root is None:
-        return None
-    try:
-        return PurePosixPath(resolved.relative_to(root)).as_posix()
-    except ValueError:
-        return None
 
 
 def _write_suggested_declarations(

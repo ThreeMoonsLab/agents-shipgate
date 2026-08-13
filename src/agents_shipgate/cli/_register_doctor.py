@@ -13,7 +13,7 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import diagnose_doctor, top_next_actions
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
-from agents_shipgate.cli.scan.inspect import inspect_sources
+from agents_shipgate.cli.scan.inspect import MANIFEST_SNAPSHOT_KEY, inspect_sources
 from agents_shipgate.cli.setup_control import (
     SETUP_COMPLETE,
     setup_control_envelope,
@@ -51,8 +51,21 @@ def _doctor_advance(manifest_path: Path, *, workspace: Path) -> NextAction:
     that silently depends on the caller's cwd is the same failure by another
     route. Doctor already knows the workspace — the explicit ``--workspace`` when
     one was supplied, the manifest's own directory otherwise.
+
+    ``--config`` is resolved to an absolute path for the same reason, and it is
+    not the same reason twice. ``verify`` resolves a relative ``--config``
+    against the workspace it was given, so passing the caller's own relative
+    spelling through composed the two: ``doctor --config repo/shipgate.yaml``
+    from the parent directory emitted ``--workspace <abs>/repo --config
+    repo/shipgate.yaml``, and verify then looked for ``<abs>/repo/repo/…``.
+    Absolute is unambiguous under every workspace, including the glob matches
+    where the two are not even siblings.
     """
 
+    try:
+        config = manifest_path.resolve()
+    except OSError:  # pragma: no cover - unreadable cwd
+        config = manifest_path
     return NextAction(
         kind="command",
         command=render_command(
@@ -61,7 +74,7 @@ def _doctor_advance(manifest_path: Path, *, workspace: Path) -> NextAction:
                 "--workspace",
                 str(workspace),
                 "--config",
-                str(manifest_path),
+                str(config),
                 "--json",
             ]
         ),
@@ -152,13 +165,12 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(3) from exc
         enriched_payloads: list[dict[str, object]] = []
         for path, payload in zip(paths, payloads, strict=True):
-            # One read, used for the diagnostics, the placeholders, and the
-            # identity of the answer. Reopening the file for the hash would let
-            # an edit land between the inspection and the identity of it.
-            try:
-                manifest_bytes = path.read_bytes()
-            except OSError:
-                manifest_bytes = b""
+            # The bytes `inspect_sources` itself read, handed back out of band.
+            # Reopening the file here was a *third* read — after the manifest
+            # load and after the source resolution — so a concurrent edit could
+            # publish a route selected from one manifest under an identity
+            # hashing another.
+            manifest_bytes = payload.pop(MANIFEST_SNAPSHOT_KEY, b"")
             manifest_text = manifest_bytes.decode("utf-8", errors="replace")
             placeholders = collect_placeholders(manifest_text)
             diagnostics = diagnose_doctor(
@@ -180,10 +192,18 @@ def register(app: typer.Typer) -> None:
                     # declared source file moved the route from a verify
                     # handoff to an edit while the manifest bytes were
                     # unchanged, and the identity did not move with it.
+                    # Every fact `diagnose_doctor` reads, so the identity moves
+                    # whenever the route can. Naming them individually rather
+                    # than hashing the whole payload keeps run-to-run noise
+                    # (timestamps, absolute paths) out of the identity while
+                    # still covering the inputs that select a route.
                     routing_facts=(
                         payload.get("unresolved_sources"),
                         payload.get("total_tools"),
                         payload.get("warnings"),
+                        payload.get("codex_plugin_surface"),
+                        payload.get("frameworks"),
+                        payload.get("manifest_summary"),
                         placeholders,
                     ),
                 ),
@@ -202,6 +222,11 @@ def register(app: typer.Typer) -> None:
             )
             enriched = dict(payload)
             enriched["diagnostics"] = [d.model_dump(mode="json") for d in diagnostics]
+            # The complete structured locations the human-review route refers to.
+            # That route names the first few and says "and N more in
+            # placeholders[]"; doctor did not publish the array, so the rest were
+            # unrecoverable from its output.
+            enriched["placeholders"] = placeholders
             # Both routing fields come from the one selected route, so a caller
             # reading the legacy string and a caller reading `control` are never
             # sent to different work.

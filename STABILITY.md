@@ -36,10 +36,10 @@ consumer's copy of the same schemas. A consumer switching exhaustively on
   published an executable command that would carry an unfilled
   `agent.declared_purpose` into a release decision, beside a control state that
   authorized nothing (#325).
-- `agents-shipgate agent control` after a `scan` reports that scan's release
-  decision only while the manifest it read still hashes to what the pointer
-  recorded. Where it does not, `decision` is `null` and `reason` says which of
-  the two reasons applies. See below.
+- `detect --json` reports `setup_incomplete` and hands off to `doctor` on a
+  workspace that already has a manifest, where it previously said `init`.
+  `detect` never opens the manifest, so it can neither run `init` usefully there
+  nor establish that setup is done. See below.
 
 **`detect --json`, `init --json`, and every `doctor --json` payload gain a
 `control` field.** It holds the same `shipgate.agent_control/v1` envelope that
@@ -92,30 +92,61 @@ fields `declared_purpose`, `prohibited_actions`, `owner`, `reason`, `expires`,
 `confirmation`, and `idempotency`, all route to a human. Anything else — a
 tool-source path, a project name — stays coding-agent work.
 
-**`agent control` on a `scan` generation reports that generation's release
-decision, and only while it is current.** `scan` runs the release engine and
-binds its `report.json`, but the envelope previously published `decision: null`
-/ `decision_source: "none"`, which made it indistinguishable from output
-produced before any engine had run. The verdict is lifted from the bound report
-inside the same generation-safe read that validates the pointer.
+**`agent control` on a `scan` generation publishes no release verdict.** `scan`
+runs the release engine and binds its `report.json`, but its pointer records no
+HEAD, no worktree overlay, and no input set, so the generic currency comparison
+has nothing to compare and passes vacuously. Reporting the bound verdict on top
+of that published a *stale* decision: a clean scan said `passed`, an input
+changed, and the same pointer still read cleanly with the same verdict. Binding
+the manifest digest alone did not close it either — the manifest is one input
+among several, and editing a `tools.json` it references moved the real decision
+from `passed` to `insufficient_evidence` while the pointer stayed intact.
 
-Byte integrity is not currency, and a `scan` pointer binds no HEAD or worktree
-identity, so the generic comparison had nothing to compare: a clean scan
-reported `passed`, the manifest was edited, and the same pointer still read
-cleanly with the same verdict. `scan` therefore now records
-`workspace_identity.policy_snapshot_path` — the manifest it read, relative to the
-repository root — beside the digest it already recorded, and the verdict is
-lifted only when that file still hashes to it. When it cannot be reconfirmed, or
-when a format-limited scan (`--format markdown`, `--format sarif`) bound no
-machine-readable report, `decision` is `null` and `reason` states which of the
-two applies, so a withheld verdict is never mistaken for an absent one.
-Authority is unchanged throughout: the control state and `permissions` still
-come from the pointer, and `scan` still cannot authorize a merge.
+So the envelope reports `decision: null` / `decision_source: "none"` for every
+scan generation, as it did before this release, and `reason` now states which of
+two things is true: the scan binds no reconfirmable snapshot of the inputs it
+read, or it bound no machine-readable report at all. That part is worth having —
+a bare `decision: null` reads exactly like output produced before any engine ran.
+A verdict a reader can check comes from `verify`. Publishing one from `scan`
+needs a complete, reconfirmable input snapshot threaded through report generation
+and pointer publication; that is a separate change.
 
-`policy_snapshot_path` is an additive, nullable field on
-`shipgate.current_control/v1`; a pointer written by an older release simply
-cannot have its snapshot reconfirmed, which withholds the verdict rather than
-fabricating one.
+**`shipgate.current_control/v1` is unchanged.** An earlier revision of this
+branch added an optional `policy_snapshot_path` to `workspace_identity`.
+`current_control_id` hashes the whole pointer with `exclude_none=False`, so
+adding any field — even one nobody sets — re-hashes every pointer already on
+disk and makes it unreadable by the release that introduced it. Nothing in the
+pointer moved.
+
+**Setup routes that changed.** `detect` hands a configured workspace to `doctor`
+rather than declaring setup complete: it does not read the manifest, so
+asserting completion from the presence of a file contradicted `init` and
+`doctor`, which return `human_review_required` for the same manifest while a
+declaration is unresolved. `doctor`'s emitted `verify` command carries both
+`--workspace` and an absolute `--config`, because `verify` resolves a relative
+config against the workspace it is given and the two composed into a path that
+does not exist. `init`'s agent-mode error line carries the same selected route
+as its stdout payload, rather than an independently composed one.
+
+**Placeholder locations come from the parsed document.** The line scanner they
+replaced tracked indentation, so the flow spelling
+`agent: {name: bot, declared_purpose: [CHANGE_ME]}` — which the loader accepts —
+was reported at path `agent` and classified as coding-agent work. Ownership does
+not depend on how someone spelled their YAML. A sequence element is now reported
+as `<field>[<index>]` rather than by its own text, so
+`agent.declared_purpose.CHANGE_ME` becomes `agent.declared_purpose[0]`; the
+`placeholders[]` field on `init --json` carries the new spelling, and `doctor
+--json` publishes that field for the first time.
+
+**`decision_source` constrains `decision`.** Each source admits only its own
+engine's vocabulary (`release_decision` → the four release decisions,
+`agent_boundary` → `allow`/`warn`/`require_review`/`block`, `setup` → the three
+setup verdicts), and each operation admits only the engine that decides it
+(`check` → `agent_boundary`, `verify`/`preview`/`scan` → `release_decision`,
+`detect`/`init`/`doctor` → `setup`). Both in Pydantic and in the published
+schema. Naming the engine was half the job: without this, a merge-authorizing
+`complete` envelope could report `decision_source: "release_decision"` beside a
+boundary verdict, or beside an arbitrary string.
 
 ---
 

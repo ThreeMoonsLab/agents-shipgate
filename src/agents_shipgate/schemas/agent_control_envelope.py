@@ -161,6 +161,48 @@ SETUP_DECISIONS: tuple[str, ...] = (
     "setup_not_applicable",
 )
 
+# The other two vocabularies, so ``decision_source`` constrains ``decision``
+# rather than merely labelling it. Without them the envelope accepted
+# `decision_source: "release_decision"` beside `decision: "allow"` — a *boundary*
+# verdict presented as the gate's — and beside arbitrary strings, on a
+# merge-authorizing `complete`. Naming the engine is only useful if it also says
+# which answers that engine can give.
+#
+# Spelled here rather than imported from `schemas.contract`, which imports this
+# module. `tests/test_setup_control.py` pins both against their sources, so the
+# duplication cannot drift silently.
+RELEASE_DECISION_VALUES: tuple[str, ...] = (
+    "passed",
+    "review_required",
+    "insufficient_evidence",
+    "blocked",
+)
+AGENT_BOUNDARY_DECISION_VALUES: tuple[str, ...] = (
+    "allow",
+    "warn",
+    "require_review",
+    "block",
+)
+
+# Which engine each operation may be decided by. `check` runs the local boundary
+# engine and nothing else; the release operations run the release engine and
+# nothing else. `none` stays open everywhere: an operation that reached no
+# decision is a real state on all of them.
+_DECISION_SOURCE_BY_OPERATION: dict[str, tuple[str, ...]] = {
+    "check": ("agent_boundary", "none"),
+    "verify": ("release_decision", "none"),
+    "preview": ("release_decision", "none"),
+    "scan": ("release_decision", "none"),
+    "detect": ("setup", "none"),
+    "init": ("setup", "none"),
+    "doctor": ("setup", "none"),
+}
+_DECISION_VALUES_BY_SOURCE: dict[str, tuple[str, ...]] = {
+    "release_decision": RELEASE_DECISION_VALUES,
+    "agent_boundary": AGENT_BOUNDARY_DECISION_VALUES,
+    "setup": SETUP_DECISIONS,
+}
+
 # Who owns the next step. Fixed by the state tag on every variant.
 AgentControlActor = Literal["coding_agent", "human", "none"]
 
@@ -283,6 +325,30 @@ _SETUP_PROVENANCE_RULE = [
     },
 ]
 
+# Every source constrains its vocabulary, and every operation constrains its
+# source. Naming the engine was only half the job: `decision_source` had to stop
+# an arbitrary string — or another engine's verdict — from borrowing its
+# authority.
+_DECISION_VOCABULARY_RULE = [
+    *(
+        {
+            "if": {
+                "properties": {"decision_source": {"const": source}},
+                "required": ["decision_source"],
+            },
+            "then": {"properties": {"decision": {"enum": list(values)}}},
+        }
+        for source, values in _DECISION_VALUES_BY_SOURCE.items()
+    ),
+    *(
+        {
+            "if": {"properties": {"operation": {"const": operation}}, "required": ["operation"]},
+            "then": {"properties": {"decision_source": {"enum": list(sources)}}},
+        }
+        for operation, sources in _DECISION_SOURCE_BY_OPERATION.items()
+    ),
+]
+
 # A `verify` route carries an independent verification obligation. The
 # authoritative union rejects a verify action beside `verify_required: false`;
 # without this the envelope and its schema did not.
@@ -371,7 +437,11 @@ class _AgentControlEnvelopeBase(BaseModel):
         extra="forbid",
         json_schema_extra={
             "required": _ENVELOPE_FIELDS,
-            "allOf": [*_DECISION_PAIRING_RULE, *_SETUP_PROVENANCE_RULE],
+            "allOf": [
+                *_DECISION_PAIRING_RULE,
+                *_SETUP_PROVENANCE_RULE,
+                *_DECISION_VOCABULARY_RULE,
+            ],
         },
     )
 
@@ -442,7 +512,21 @@ class _AgentControlEnvelopeBase(BaseModel):
         # The inverse pairing, which the check above does not cover: a *value*
         # from the setup vocabulary must not appear under any other source.
         if self.decision in SETUP_DECISIONS and self.decision_source != "setup":
-            raise ValueError(f"{self.decision!r} is a setup verdict and requires decision_source='setup'")
+            raise ValueError(
+                f"{self.decision!r} is a setup verdict and requires decision_source='setup'"
+            )
+        allowed_sources = _DECISION_SOURCE_BY_OPERATION[self.operation]
+        if self.decision_source not in allowed_sources:
+            raise ValueError(
+                f"{self.operation!r} is decided by {' or '.join(allowed_sources)}, "
+                f"not by {self.decision_source!r}"
+            )
+        vocabulary = _DECISION_VALUES_BY_SOURCE.get(self.decision_source)
+        if vocabulary is not None and self.decision not in vocabulary:
+            raise ValueError(
+                f"{self.decision!r} is not a {self.decision_source} verdict "
+                f"({', '.join(vocabulary)})"
+            )
         if not is_setup_operation:
             return self
         if self.decision not in SETUP_DECISIONS:
@@ -481,6 +565,7 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
             "allOf": [
                 *_DECISION_PAIRING_RULE,
                 *_SETUP_PROVENANCE_RULE,
+                *_DECISION_VOCABULARY_RULE,
                 *_COMPLETE_PROVENANCE_RULE,
             ],
         },
@@ -545,6 +630,7 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
             "allOf": [
                 *_DECISION_PAIRING_RULE,
                 *_SETUP_PROVENANCE_RULE,
+                *_DECISION_VOCABULARY_RULE,
                 *_VERIFY_OBLIGATION_RULE,
             ],
         },
@@ -632,6 +718,8 @@ __all__ = [
     "AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION",
     "MAX_ENVELOPE_PROSE_BYTES",
     "PROSE_TRUNCATION_MARKER",
+    "AGENT_BOUNDARY_DECISION_VALUES",
+    "RELEASE_DECISION_VALUES",
     "SETUP_DECISIONS",
     "SETUP_OPERATIONS",
     "AgentActionControlEnvelope",

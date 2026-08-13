@@ -113,14 +113,6 @@ class CurrentControlWorkspaceIdentity(BaseModel):
     merge_base_sha: str | None = Field(default=None, pattern=GIT_OBJECT_PATTERN)
     worktree_overlay_sha256: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     policy_snapshot_sha256: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
-    # Where ``policy_snapshot_sha256`` was taken from, relative to the reports
-    # directory. Without it that hash is unfalsifiable: a reader could see that
-    # the pointer recorded *some* manifest digest but had no way to recompute it,
-    # so a `scan` generation stayed "current" across an edit to the very manifest
-    # it scanned. Optional and nullable like every other field here — an older
-    # pointer that omits it simply cannot have its policy snapshot confirmed,
-    # which is a reason to withhold a verdict rather than to fabricate one.
-    policy_snapshot_path: str | None = None
     snapshot_kind: Literal["committed_tree", "worktree_overlay"] | None = None
 
 

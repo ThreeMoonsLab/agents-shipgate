@@ -227,7 +227,7 @@ def _init_advance(
     manifest_exit: int,
     next_action_create: NextAction,
     skipped_target: object | None,
-) -> tuple[NextAction, AgentActionKind, str]:
+) -> tuple[NextAction, AgentActionKind, str, bool]:
     """The step init already names, typed for the control envelope.
 
     Every branch reuses a route the command publishes elsewhere rather than
@@ -257,6 +257,7 @@ def _init_advance(
             ),
             "configure",
             SETUP_INCOMPLETE,
+            True,
         )
     if manifest_status == "skipped_existing" and manifest_exit == 0:
         # The manifest was left alone *on purpose*: `--agent-instructions` makes
@@ -276,6 +277,7 @@ def _init_advance(
             ),
             "verify",
             SETUP_COMPLETE,
+            False,
         )
     if manifest_status == "skipped_existing":
         return (
@@ -293,6 +295,7 @@ def _init_advance(
             ),
             "configure",
             SETUP_INCOMPLETE,
+            False,
         )
     if not write:
         return (
@@ -304,8 +307,9 @@ def _init_advance(
             ),
             "initialize",
             SETUP_INCOMPLETE,
+            False,
         )
-    return (next_action_create, "rerun", SETUP_COMPLETE)
+    return (next_action_create, "rerun", SETUP_COMPLETE, False)
 
 
 def register(app: typer.Typer) -> None:
@@ -661,27 +665,6 @@ def register(app: typer.Typer) -> None:
         if requested_targets and manifest_status == "skipped_existing":
             manifest_exit = 0
             manifest_skip_pending = False
-        if manifest_skip_pending:
-            _emit_agent_mode_error(
-                "config_already_exists",
-                path=str(target),
-                next_action=f"Edit {target}",
-                next_actions=[
-                    NextAction(
-                        kind="edit",
-                        path=str(target),
-                        why=(
-                            f"{target} already exists. Edit it directly or "
-                            "remove it before re-running init --write."
-                        ),
-                        expects=(
-                            "Manifest reflects the desired tool sources, "
-                            "agent declared_purpose, and policies."
-                        ),
-                    ).model_dump(mode="json")
-                ],
-            )
-
         # Routing. Computed from the manifest that is *on disk*, not from the
         # template: on `skipped_existing` the template was never written, so its
         # placeholders describe a file that does not exist while the real
@@ -693,7 +676,7 @@ def register(app: typer.Typer) -> None:
         control_placeholders, control_manifest_bytes = _manifest_placeholders(
             target, template=template, placeholders=placeholders, write=write
         )
-        advance, advance_kind, advance_decision = _init_advance(
+        advance, advance_kind, advance_decision, advance_blocking = _init_advance(
             workspace=workspace,
             target=target,
             write=write,
@@ -726,10 +709,26 @@ def register(app: typer.Typer) -> None:
             advance=advance,
             advance_kind=advance_kind,
             advance_decision=advance_decision,
+            advance_blocking=advance_blocking,
             placeholders=control_placeholders,
             manifest_display_path=str(target),
             exit_code=max(manifest_exit, agent_instructions_exit) or None,
         )
+
+        if manifest_skip_pending:
+            # The same selected route the stdout payload carries. Composing an
+            # independent one here reproduced, on the error stream, exactly the
+            # split the stdout fields were just unified to remove: stdout said
+            # `human_review_required` with no command while stderr handed the
+            # agent `Edit shipgate.yaml` for a declaration only a person may make.
+            _emit_agent_mode_error(
+                "config_already_exists",
+                path=str(target),
+                next_action=routing.legacy_next_action,
+                next_actions=routing.json_actions(),
+                control=routing.envelope.model_dump(mode="json"),
+            )
+
 
         # Output
         if json_output:
@@ -737,7 +736,13 @@ def register(app: typer.Typer) -> None:
                 "path": str(target),
                 "created": manifest_status == "written",
                 "manifest_status": manifest_status,
-                "placeholders": placeholders,
+                # The placeholders of the manifest at `path`, which is what the
+                # control route was selected from and what its "and N more in
+                # placeholders[]" refers to. On `skipped_existing` this used to
+                # be the *template's* list — locations in a file that was never
+                # written — so a caller resolving them edited the wrong lines.
+                # For the common `written` case the two are identical.
+                "placeholders": control_placeholders if write or target.exists() else placeholders,
             }
             if manifest_message:
                 payload["manifest_message"] = manifest_message
@@ -829,23 +834,17 @@ def register(app: typer.Typer) -> None:
                 None,
             )
             if first_skip is not None:
+                # `_init_advance` already routed on this skipped target, so the
+                # envelope's rank-1 action *is* this obligation — unless an
+                # unresolved human-owned declaration outranks it, in which case
+                # that is the honest answer here too.
                 _emit_agent_mode_error(
                     "config_already_exists",
                     path=first_skip.path,
                     message=first_skip.message,
-                    next_action=f"Edit {first_skip.path}",
-                    next_actions=[
-                        NextAction(
-                            kind="edit",
-                            path=first_skip.path,
-                            why=first_skip.message
-                            or f"{first_skip.path} is in a state we will not overwrite.",
-                            expects=(
-                                "After resolving, re-run "
-                                f"`agents-shipgate init --write --agent-instructions={first_skip.name}`."
-                            ),
-                        ).model_dump(mode="json")
-                    ],
+                    next_action=routing.legacy_next_action,
+                    next_actions=routing.json_actions(),
+                    control=routing.envelope.model_dump(mode="json"),
                 )
 
         final_exit = max(manifest_exit, agent_instructions_exit)

@@ -319,8 +319,7 @@ def envelope_from_routeless_pointer(
     pointer: CurrentControlPointer,
     *,
     verify_command: str,
-    decision: str | None = None,
-    decision_withheld: str | None = None,
+    decision_withheld: str,
     artifact_root: str | None = None,
 ) -> AgentControlEnvelope:
     """Project a *current* generation that reaches no verifier route.
@@ -330,20 +329,16 @@ def envelope_from_routeless_pointer(
     Refusing it conflated two different answers: the published contract says a
     non-zero exit means *no current identity exists*, and here one does.
 
-    ``decision`` is that generation's ``release_decision.decision``, lifted from
-    the ``report.json`` the pointer binds and validated in the same pass. Scan
-    *does* reach a release decision even though it publishes no route, and
-    reporting ``decision_source: "none"`` here said otherwise — which made a scan
-    envelope indistinguishable from one produced before any engine had run, and
-    is the confusion #323 exists to remove. It is lifted rather than recomputed,
-    and it is still not the route: `permissions` and the state come from the
-    pointer exactly as before.
+    No release verdict is published from here, and ``decision_withheld`` is the
+    required sentence saying why. A `scan` does reach a decision, but its pointer
+    records no HEAD, no worktree overlay, and no input set, so nothing about that
+    verdict can be reconfirmed against the workspace as it stands; an earlier
+    revision lifted it anyway and published a stale `passed` after a referenced
+    tool source changed. Requiring the explanation rather than allowing a bare
+    ``decision: null`` is what keeps this distinguishable from an envelope
+    produced before any engine ran, which is the ambiguity #323 exists to remove.
 
-    ``decision_withheld`` is the sentence explaining an *absent* verdict, appended
-    to ``reason``. Two very different situations produce ``decision: null`` here —
-    this generation reached no recoverable decision, or it reached one that can no
-    longer be shown to describe the workspace — and without saying which, both are
-    once again indistinguishable from output produced before any engine ran.
+    `permissions` and the state come from the pointer exactly as before.
 
     The route is not invented. `scan` is not the gate, so "run verify on this
     workspace" is the step this generation is actually short of, and it is
@@ -356,9 +351,7 @@ def envelope_from_routeless_pointer(
     """
 
     projected = pointer.control
-    reason = projected.reason
-    if decision is None and decision_withheld:
-        reason = f"{reason} {decision_withheld}"
+    reason = f"{projected.reason} {decision_withheld}"
     if projected.state == "human_review_required":
         control: AgentControl = _human_stop(reason)
     else:
@@ -382,8 +375,8 @@ def envelope_from_routeless_pointer(
         source="refresh",
         execution="not_run",
         exit_code=None,
-        decision=decision,
-        decision_source="release_decision" if decision is not None else "none",
+        decision=None,
+        decision_source="none",
         input_id=pointer.request_id,
         current_control_id=pointer.current_control_id,
         artifacts=_artifact_refs(pointer, artifact_root),

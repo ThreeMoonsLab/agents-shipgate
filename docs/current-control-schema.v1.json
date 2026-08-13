@@ -224,18 +224,6 @@
           "default": null,
           "title": "Merge Base Sha"
         },
-        "policy_snapshot_path": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Policy Snapshot Path"
-        },
         "policy_snapshot_sha256": {
           "anyOf": [
             {

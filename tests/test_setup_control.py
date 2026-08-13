@@ -267,7 +267,7 @@ def test_an_unresolved_human_owned_placeholder_routes_to_a_human():
     payload = _setup_envelope(
         operation="init",
         placeholders=[
-            {"path": "agent.declared_purpose.CHANGE_ME", "current": "CHANGE_ME", "line": 13},
+            {"path": "agent.declared_purpose[0]", "current": "CHANGE_ME", "line": 13},
             {"path": "tool_sources.path", "current": "CHANGE_ME", "line": 20},
         ],
         manifest_display_path="shipgate.yaml",
@@ -285,7 +285,7 @@ def test_an_unresolved_human_owned_placeholder_routes_to_a_human():
     assert "shipgate.yaml" in why
     assert "line 13" in why
     assert "agent.declared_purpose" in why
-    # The list-item artifact is not shown as if it were a field name.
+    # The value is not shown as if it were a field name.
     assert "declared_purpose.CHANGE_ME" not in why
     # The agent-owned placeholder is not offered as a way past the obligation.
     assert len(payload["next_action"]["why"]) > 0
@@ -316,7 +316,7 @@ def test_a_blocking_diagnostic_outranks_the_placeholder_obligation():
     payload = _setup_envelope(
         diagnostics=diagnose_invalid_manifest(Path("shipgate.yaml"), message="bad yaml"),
         placeholders=[
-            {"path": "agent.declared_purpose.CHANGE_ME", "current": "CHANGE_ME", "line": 13}
+            {"path": "agent.declared_purpose[0]", "current": "CHANGE_ME", "line": 13}
         ],
     )
 
@@ -345,10 +345,10 @@ def test_a_workspace_with_no_agent_surface_is_reported_as_not_applicable():
         # `collect_placeholders` names a list item by its own text, so a
         # leaf-only rule read the field an agent must never invent as the
         # agent's own to fill in.
-        ("agent.declared_purpose.CHANGE_ME", "human"),
-        ("agent.prohibited_actions.CHANGE_ME", "human"),
+        ("agent.declared_purpose[0]", "human"),
+        ("agent.prohibited_actions[0]", "human"),
         ("policies.refund.approval_required", "human"),
-        ("permissions.scopes.CHANGE_ME", "human"),
+        ("permissions.scopes[0]", "human"),
         ("checks.ignore.reason", "human"),
         ("tool_sources.path", "coding_agent"),
         ("project.name", "coding_agent"),
@@ -361,7 +361,7 @@ def test_placeholder_ownership(path: str, owner: str):
 
 def test_human_owned_placeholders_filters_the_list():
     entries = [
-        {"path": "agent.declared_purpose.CHANGE_ME", "line": 1},
+        {"path": "agent.declared_purpose[0]", "line": 1},
         {"path": "tool_sources.path", "line": 2},
     ]
     assert [entry["line"] for entry in human_owned_placeholders(entries)] == [1]
@@ -549,22 +549,32 @@ def test_the_adoption_walk_routes_on_the_shared_envelope_alone(unadopted: Path):
     assert gate["decision"] not in SETUP_DECISIONS
 
 
-def test_a_configured_workspace_is_routed_to_the_gate_not_back_to_init(unadopted: Path):
-    """``detect`` kept naming a command it knows would be refused.
+def test_a_configured_workspace_is_handed_to_doctor_not_declared_complete(unadopted: Path):
+    """``detect`` kept naming a command it knows would be refused — and then a
+    completion it has no way to establish.
 
     ``DetectResult.next_action`` says ``init`` whenever the workspace is
-    adoptable, including when it has already been adopted — and ``init --write``
-    refuses to overwrite. The control route uses the manifest's presence, a fact
-    detect already computes for its own diagnostics.
+    adoptable, including when it has already been adopted, and ``init --write``
+    refuses to overwrite. Routing to the gate instead fixed that and introduced a
+    worse problem: ``detect`` never opens the manifest, so declaring
+    ``setup_complete`` from the presence of a file contradicted ``init`` and
+    ``doctor``, which return ``human_review_required`` for the same manifest
+    while a declaration is unresolved — a route around the human stop.
+
+    The honest handoff is to the command that does read it.
     """
 
     runner.invoke(app, ["init", "--workspace", str(unadopted), "--write", "--json"])
 
     detect = _control(["detect", "--workspace", str(unadopted), "--json"])
 
-    assert detect["decision"] == "setup_complete"
-    assert detect["next_action"]["kind"] == "verify"
-    assert "init" not in detect["next_action"]["command"]
+    assert detect["decision"] == "setup_incomplete"
+    assert detect["next_action"]["kind"] == "configure"
+    assert "doctor" in detect["next_action"]["command"]
+
+    # And the command it names reaches the same obligation the other two report.
+    doctor = _control(["doctor", "--config", str(unadopted / "shipgate.yaml"), "--json"])
+    assert doctor["control_state"] == "human_review_required"
 
 
 def test_a_dry_run_routes_to_the_write_it_did_not_do(unadopted: Path):
@@ -806,7 +816,7 @@ def test_a_human_route_publishes_exactly_one_action():
         input_id="sha256:" + "0" * 64,
         reason="Wrote shipgate.yaml.",
         placeholders=[
-            {"path": "agent.declared_purpose.CHANGE_ME", "current": "CHANGE_ME", "line": 13}
+            {"path": "agent.declared_purpose[0]", "current": "CHANGE_ME", "line": 13}
         ],
         manifest_display_path="shipgate.yaml",
         advance=top_next_actions(diagnose_missing_manifest(Path("/ws")))[0],
@@ -937,3 +947,208 @@ def test_the_doctor_handoff_runs_from_outside_the_workspace(unadopted: Path, tmp
         env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
     )
     assert "not inside a git checkout" not in result.stderr, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Second review round (PR #372). Each reproduced against 822c4f9e.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Block style, the spelling `init` emits.
+        'version: "0.1"\nagent:\n  name: bot\n  declared_purpose:\n    - CHANGE_ME\n',
+        # Flow style, which the loader accepts and the schema validates. The
+        # line scanner tracked indentation, so it reported this at path `agent`
+        # — not a human-owned field — and doctor published an executable edit
+        # for a declaration only a person may make.
+        'version: "0.1"\nagent: {name: bot, declared_purpose: [CHANGE_ME]}\n',
+        # Mixed, and nested one level deeper.
+        'version: "0.1"\nagent:\n  {name: bot, declared_purpose: [CHANGE_ME]}\n',
+    ],
+)
+def test_ownership_does_not_depend_on_yaml_spelling(text: str):
+    from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+
+    found = collect_placeholders(text)
+
+    assert [entry["path"] for entry in found] == ["agent.declared_purpose[0]"]
+    assert human_owned_placeholders(found), "an equivalent spelling changed the owner"
+
+
+def test_placeholder_locations_come_from_the_parsed_document():
+    """Line numbers must point at the placeholder, whatever the layout."""
+
+    from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+
+    text = (
+        'version: "0.1"\n'
+        "\n"
+        "# a comment\n"
+        "agent_bindings:\n"
+        "  root: {object: CHANGE_ME}\n"
+        "tool_sources:\n"
+        "  - id: a\n"
+        "    path: CHANGE_ME\n"
+    )
+
+    found = {entry["path"]: entry["line"] for entry in collect_placeholders(text)}
+
+    assert found == {"agent_bindings.root.object": 5, "tool_sources[0].path": 8}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        # `runtime-trace` is in `do_not_auto_assert`, and these are its manifest
+        # spellings. Recorded runtime behaviour is the one thing a static tool
+        # cannot check and an agent must never supply.
+        "validation.evidence.approval_traces[0].path",
+        "validation.evidence.agent_traces[0].path",
+        "openai_api.trace_samples[0].path",
+        "google_adk.trace_samples[0].path",
+    ],
+)
+def test_runtime_evidence_declarations_are_human_owned(path: str):
+    assert placeholder_owner(path) == "human"
+
+
+def test_detect_never_declares_setup_complete_from_a_file_existing(tmp_path: Path):
+    """`detect` does not open the manifest, so it cannot know."""
+
+    from agents_shipgate.cli.detect import _detect_advance
+
+    result = DetectResult(is_agent_project=True)
+    advance, _kind, decision = _detect_advance(
+        result, has_manifest=True, workspace=tmp_path
+    )
+
+    assert decision != "setup_complete"
+    assert advance is not None
+    assert "doctor" in (advance.command or "")
+
+
+def test_a_refused_instruction_target_still_reports_what_failed(unadopted: Path):
+    """A non-zero exit has to say what failed, on both streams.
+
+    The refused target is an obligation *this run produced*, so it outranks the
+    standing placeholder review — which is not skipped, only deferred: it is
+    derived from the manifest on every run, so the next one surfaces it.
+    """
+
+    runner.invoke(app, ["init", "--workspace", str(unadopted), "--write", "--json"])
+    cursor = unadopted / ".cursor" / "rules" / "agents-shipgate.mdc"
+    cursor.parent.mkdir(parents=True, exist_ok=True)
+    cursor.write_text("hand-written, no managed block\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "init", "--workspace", str(unadopted), "--write",
+            "--agent-instructions=cursor", "--json",
+        ],
+    )
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code != 0
+    assert payload["control"]["next_action"]["kind"] == "edit"
+    assert "agents-shipgate.mdc" in payload["control"]["next_action"]["path"]
+    # And the deferred human obligation is still the answer on the next run.
+    cursor.unlink()
+    again = _control(
+        [
+            "init", "--workspace", str(unadopted), "--write",
+            "--agent-instructions=cursor", "--json",
+        ]
+    )
+    assert again["control_state"] == "human_review_required"
+
+
+def test_the_placeholders_the_action_points_at_are_published(unadopted: Path):
+    """"and N more in placeholders[]" must name an array that is actually there."""
+
+    runner.invoke(app, ["init", "--workspace", str(unadopted), "--write", "--json"])
+    manifest = unadopted / "shipgate.yaml"
+
+    doctor = json.loads(
+        runner.invoke(app, ["doctor", "--config", str(manifest), "--json"]).stdout
+    )[0]
+    assert doctor["placeholders"], "doctor referenced placeholders[] without publishing it"
+    assert any(
+        entry["path"].startswith("agent.declared_purpose") for entry in doctor["placeholders"]
+    )
+
+    # And init publishes the manifest it routed on, not a template it did not write.
+    refresh = json.loads(
+        runner.invoke(
+            app,
+            [
+                "init", "--workspace", str(unadopted), "--write",
+                "--agent-instructions=agents-md", "--json",
+            ],
+        ).stdout
+    )
+    on_disk = {(entry["path"], entry["line"]) for entry in refresh["placeholders"]}
+    from agents_shipgate.cli.discovery.placeholders import collect_placeholders
+
+    assert on_disk == {
+        (entry["path"], entry["line"])
+        for entry in collect_placeholders(manifest.read_text(encoding="utf-8"))
+    }
+
+
+def test_the_published_decision_vocabularies_match_their_engines():
+    """The duplicated tuples cannot drift from the enums they mirror."""
+
+    from agents_shipgate.schemas.agent_control_envelope import (
+        AGENT_BOUNDARY_DECISION_VALUES,
+        RELEASE_DECISION_VALUES,
+    )
+    from agents_shipgate.schemas.agent_result_v1 import AgentResultDecision
+    from agents_shipgate.schemas.contract import RELEASE_DECISIONS
+
+    assert set(RELEASE_DECISION_VALUES) == set(RELEASE_DECISIONS)
+    assert set(AGENT_BOUNDARY_DECISION_VALUES) == set(AgentResultDecision.__args__)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "why"),
+    [
+        ({"decision": "allow"}, "a boundary verdict under the release engine"),
+        ({"decision": "anything at all"}, "an arbitrary string"),
+        (
+            {"decision_source": "agent_boundary", "decision": "allow"},
+            "the wrong engine for this operation",
+        ),
+    ],
+)
+def test_decision_source_constrains_the_vocabulary(mutation: dict, why: str):
+    """Naming the engine is only useful if it also says what that engine can say."""
+
+    base = json.loads(
+        render_agent_control_envelope(
+            envelope_from_setup(
+                derive_agent_control(
+                    reason="A step remains.",
+                    next_action=CodingAgentCommandAction(
+                        kind="verify",
+                        command="agents-shipgate verify --json",
+                        why="Run the gate.",
+                    ),
+                ),
+                operation="doctor",
+                decision="setup_complete",
+                input_id="sha256:" + "0" * 64,
+            )
+        )
+    )
+    release = {
+        **base,
+        "operation": "verify",
+        "decision_source": "release_decision",
+        "decision": "passed",
+    }
+    # The unmutated release shape is accepted, so the rejections below are the rule.
+    validate_agent_control_envelope(release)
+    _reject_both_layers({**release, **mutation})

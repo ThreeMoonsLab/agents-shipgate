@@ -202,6 +202,7 @@ def setup_control_envelope(
     advance: NextAction | None = None,
     advance_kind: AgentActionKind = "verify",
     advance_decision: str = SETUP_COMPLETE,
+    advance_blocking: bool = False,
     placeholders: Sequence[Mapping[str, object]] | None = None,
     manifest_display_path: str | None = None,
     execution: AgentControlExecution = "succeeded",
@@ -224,11 +225,13 @@ def setup_control_envelope(
     Precedence, most urgent first:
 
     1. a ``block``-severity diagnostic — something is wrong *now*;
-    2. an unresolved human-owned placeholder — the manifest is loadable but a
+    2. ``advance`` when ``advance_blocking`` — an obligation this run produced,
+       such as a target ``init`` refused to overwrite;
+    3. an unresolved human-owned placeholder — the manifest is loadable but a
        person still owes it a declaration, and no command may be offered that
        would carry that unfilled value into a release decision (#325);
-    3. any remaining diagnostic, in severity order;
-    4. ``advance`` — the next stage of the adoption walk.
+    4. any remaining diagnostic, in severity order;
+    5. ``advance`` — the next stage of the adoption walk.
 
     Blocking diagnostics outrank the placeholder obligation on purpose: a
     manifest the loader rejects has to be repaired before anyone can usefully
@@ -249,6 +252,15 @@ def setup_control_envelope(
     blocking = next((diag for diag in ordered if diag.severity == "block"), None)
     if blocking is not None:
         selected, kind, decision = _route_for(blocking)
+    elif advance_blocking and advance is not None:
+        # An obligation this run itself produced — a target `init` refused to
+        # overwrite — rather than a standing one. Same tier as a blocking
+        # diagnostic, and for the same reason: it is agent-owned, it does not
+        # depend on the human declaration, and routing past it would report a
+        # non-zero exit with no explanation of what failed. The declaration is
+        # not skipped, only deferred: it is derived from the manifest on every
+        # run, so the next one surfaces it.
+        selected, kind, decision = advance, advance_kind, advance_decision
     elif pending_human:
         selected = NextAction(
             kind="review",
@@ -376,8 +388,12 @@ def _placeholder_review_why(
     declarations — or one very long field path — silently lost the later
     locations and could lose the sentence explaining what they were. What is
     dropped here is dropped *visibly*, with a count and a pointer at the
-    ``placeholders[]`` field of the same payload, which carries every location
-    in full and is never truncated.
+    ``placeholders[]`` field of the same payload.
+
+    That pointer is only honest if the array is there and describes the same
+    manifest: ``doctor`` did not publish it at all, and ``init`` published the
+    generated template's list rather than the manifest it routed on. Both now
+    publish the locations of the manifest this route was selected from.
     """
 
     def size(text: str) -> int:
@@ -433,21 +449,13 @@ def _placeholder_review_why(
 
 
 def _field_path(entry: Mapping[str, object]) -> str:
-    """The manifest field a placeholder sits in, without the list-item artifact.
+    """The manifest field a placeholder sits in.
 
-    ``collect_placeholders`` names a sequence item by its own text, so a
-    placeholder under ``declared_purpose: [CHANGE_ME]`` arrives as
-    ``agent.declared_purpose.CHANGE_ME``. Showing that to a person names a field
-    the manifest does not have; the trailing segment is dropped only when it is
-    literally the placeholder value, so a real field named after it is untouched.
+    ``collect_placeholders`` builds this from the parsed document, so it already
+    names a real field whatever spelling the author used.
     """
 
-    path = str(entry.get("path", "") or "<root>")
-    current = str(entry.get("current", "") or "")
-    suffix = f".{current}"
-    if current and path.endswith(suffix):
-        return path[: -len(suffix)] or "<root>"
-    return path
+    return str(entry.get("path", "") or "<root>")
 
 
 def _commands(action: NextAction) -> list[str]:

@@ -27,6 +27,10 @@ from .source_loading import (
 from .surface_redaction import _frameworks_surface
 from .validation import _resolve_source_paths
 
+# Out-of-band key carrying the manifest bytes this inspection read. Popped by
+# the caller before the payload is published; it is not part of the doctor JSON.
+MANIFEST_SNAPSHOT_KEY = "__manifest_bytes__"
+
 
 def inspect_sources(
     *,
@@ -48,6 +52,15 @@ def inspect_sources(
     from agents_shipgate.inputs.protocol import discover_third_party_adapters
 
     manifest = load_manifest(config_path)
+    # The exact bytes this inspection was computed from. `doctor` derives the
+    # placeholder set and the identity of its answer from them, and reading the
+    # file again afterwards is a second read of something an edit can land
+    # between: it published a route selected from state A under an `input_id`
+    # hashing state B, and an unchanged rerun then produced a different route.
+    try:
+        manifest_bytes = config_path.read_bytes()
+    except OSError:
+        manifest_bytes = b""
     base_dir = config_path.resolve().parent
     unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)
     if unresolved_sources:
@@ -159,4 +172,9 @@ def inspect_sources(
             "scope_count": len(manifest.permissions.scopes),
         },
     }
-    return redact_data(payload, stats=RedactionStats(), path="$")
+    inspected = redact_data(payload, stats=RedactionStats(), path="$")
+    # Not redacted and not part of the published payload shape: raw manifest
+    # bytes, returned out of band so the caller derives its placeholders and its
+    # identity from the same read this inspection used.
+    inspected[MANIFEST_SNAPSHOT_KEY] = manifest_bytes
+    return inspected

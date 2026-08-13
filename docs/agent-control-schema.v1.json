@@ -163,6 +163,231 @@
         {
           "if": {
             "properties": {
+              "decision_source": {
+                "const": "release_decision"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "passed",
+                  "review_required",
+                  "insufficient_evidence",
+                  "blocked"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "agent_boundary"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "allow",
+                  "warn",
+                  "require_review",
+                  "block"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "check"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "agent_boundary",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "verify"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "preview"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "scan"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "detect"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "init"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "doctor"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
               "next_action": {
                 "properties": {
                   "kind": {
@@ -753,6 +978,231 @@
           }
         },
         {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "release_decision"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "passed",
+                  "review_required",
+                  "insufficient_evidence",
+                  "blocked"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "agent_boundary"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "allow",
+                  "warn",
+                  "require_review",
+                  "block"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "check"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "agent_boundary",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "verify"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "preview"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "scan"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "detect"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "init"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "doctor"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
           "else": {
             "properties": {
               "artifacts": {
@@ -1247,6 +1697,231 @@
             "properties": {
               "decision_source": {
                 "const": "setup"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "release_decision"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "passed",
+                  "review_required",
+                  "insufficient_evidence",
+                  "blocked"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "agent_boundary"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "allow",
+                  "warn",
+                  "require_review",
+                  "block"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "check"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "agent_boundary",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "verify"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "preview"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "scan"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "detect"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "init"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "doctor"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
               }
             }
           }
@@ -1749,6 +2424,231 @@
             "properties": {
               "decision_source": {
                 "const": "setup"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "release_decision"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "passed",
+                  "review_required",
+                  "insufficient_evidence",
+                  "blocked"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "agent_boundary"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "allow",
+                  "warn",
+                  "require_review",
+                  "block"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "setup"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "setup_complete",
+                  "setup_incomplete",
+                  "setup_not_applicable"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "check"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "agent_boundary",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "verify"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "preview"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "scan"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "release_decision",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "detect"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "init"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "doctor"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision_source": {
+                "enum": [
+                  "setup",
+                  "none"
+                ]
               }
             }
           }

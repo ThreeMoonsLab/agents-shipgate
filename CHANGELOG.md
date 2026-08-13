@@ -1,3 +1,15 @@
+- **`agent control` after a `scan` publishes no release verdict, and says why.**
+  `scan` runs the release engine and binds its `report.json`, but its pointer
+  records no HEAD, no worktree overlay, and no input set, so nothing about that
+  verdict can be reconfirmed: an edit to the manifest, to a `tools.json` it
+  references, to a policy pack, or to a baseline leaves the pointer reading
+  cleanly with the old answer. Reporting it anyway published a stale `passed`.
+  The envelope therefore reports `decision: null` as it did before, and `reason`
+  now states which of two things is true — the scan binds no reconfirmable
+  input snapshot, or it bound no machine-readable report at all. That is the
+  part that was actually missing: a bare `decision: null` reads exactly like
+  output produced before any engine ran. A verdict a reader can check comes from
+  `verify`.
 # Changelog
 
 ## Unreleased
