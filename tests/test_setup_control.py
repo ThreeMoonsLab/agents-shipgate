@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -1152,3 +1153,80 @@ def test_decision_source_constrains_the_vocabulary(mutation: dict, why: str):
     # The unmutated release shape is accepted, so the rejections below are the rule.
     validate_agent_control_envelope(release)
     _reject_both_layers({**release, **mutation})
+
+
+# ---------------------------------------------------------------------------
+# Interaction with #370 (manifest scope), merged from main.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def ambiguous_monorepo(tmp_path: Path) -> Path:
+    """Two self-contained agent projects, so no single manifest describes the root."""
+
+    workspace = tmp_path / "mono"
+    for name in ("a", "b"):
+        project = workspace / "apps" / name
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text(f'[project]\nname = "{name}"\n', encoding="utf-8")
+        (project / "agent.py").write_text(
+            "from google.adk.agents import LlmAgent\n"
+            f"def act_{name}(x: str) -> str:\n    return x\n"
+            f'root_agent = LlmAgent(name="agent_{name}", tools=[act_{name}])\n',
+            encoding="utf-8",
+        )
+    return workspace
+
+
+def test_detect_does_not_emit_a_command_for_a_scope_init_will_refuse(
+    ambiguous_monorepo: Path,
+):
+    """`DetectResult.next_action` is prose when the scope is unresolved (#370).
+
+    Naming one candidate would make the arbitrary pick `init --write` exists to
+    refuse. Typing that prose as a `command` action would publish an unrunnable
+    string; typing it as an agent route would ask the agent to make the choice.
+    It is a human route.
+    """
+
+    control = _control(["detect", "--workspace", str(ambiguous_monorepo), "--json"])
+
+    assert control["control_state"] == "human_review_required"
+    assert control["decision"] == "setup_incomplete"
+    assert control["next_action"]["command"] is None
+
+
+def test_a_refused_scope_publishes_one_rank_one_across_both_streams(
+    ambiguous_monorepo: Path,
+):
+    """The scope refusal routes *through* the envelope, not beside it.
+
+    `init` publishes the refusal on stderr and its payload on stdout. Composing
+    an independent ranked list for each is the split the unified routing exists
+    to remove — and it would have come back through the merge, because both
+    changes landed on this branch of `init` independently.
+
+    The per-candidate commands survive as alternatives, unlike the placeholder
+    review's: they are not ways *around* the decision, they are how the chosen
+    project gets initialized once a person has made it.
+    """
+
+    with mock.patch.dict(os.environ, {"AGENTS_SHIPGATE_AGENT_MODE": "1"}):
+        result = runner.invoke(
+            app, ["init", "--workspace", str(ambiguous_monorepo), "--write", "--json"]
+        )
+
+    assert result.exit_code != 0
+    payload = json.loads(result.stdout)
+    error = json.loads(result.stderr.strip().splitlines()[-1])
+
+    assert payload["control"]["control_state"] == "human_review_required"
+    assert payload["next_actions"][0]["kind"] == "review"
+    assert payload["next_actions"][0]["command"] is None
+    # One rank-1 answer, whichever stream a caller reads.
+    assert error["next_action"] == payload["next_action"]
+    assert error["next_actions"] == payload["next_actions"]
+    assert error["control"] == payload["control"]
+    # ...and #370's per-candidate routes are not dropped.
+    assert [action["kind"] for action in payload["next_actions"][1:]] == ["command", "command"]
+    assert error["agent_scope"] == "ambiguous"

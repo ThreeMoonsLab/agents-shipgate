@@ -386,7 +386,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="import:importlib.resources.files",
-        line=25,
+        line=26,
         snippet="from importlib.resources import files",
         rationale=(
             "triggers.py reads the bundled docs/triggers.json catalog from "
@@ -398,7 +398,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="triggers.py",
         surface="attr_call:importlib.resources.files",
-        line=119,
+        line=120,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves the bundled trigger catalog (docs/triggers.json) "

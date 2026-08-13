@@ -287,7 +287,9 @@ def test_verify_accepts_absolute_config_under_direct_nested_workspace_alias(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["head_status"] == "succeeded"
-    assert (repo / "agents-shipgate-reports" / "report.json").is_file()
+    # Reports follow the workspace the caller named, so two projects in one
+    # repository never overwrite each other's results (#363).
+    assert (nested / "agents-shipgate-reports" / "report.json").is_file()
 
 
 def test_diff_context_retains_both_sides_of_a_rename(tmp_path: Path) -> None:
@@ -2525,10 +2527,13 @@ def test_nested_workspace_preview_command_verifies_the_same_manifest(
     assert verified.exit_code == 0, verified.output
     verified_payload = json.loads(verified.output)
     assert verified_payload["config"] == "services/api/gate.yml"
+    # The default artifact directory follows the requested workspace, so the
+    # nested gate's results sit beside the nested manifest (#363).
     report = json.loads(
-        (repo / "agents-shipgate-reports" / "report.json").read_text(encoding="utf-8")
+        (nested / "agents-shipgate-reports" / "report.json").read_text(encoding="utf-8")
     )
     assert report["project"]["name"] == "nested-test"
+    assert not (repo / "agents-shipgate-reports").exists()
 
 
 def test_verify_preview_configured_repo_missing_base_fetches_base(tmp_path: Path) -> None:

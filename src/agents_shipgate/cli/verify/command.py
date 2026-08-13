@@ -272,6 +272,7 @@ def verify(
                 head=head,
                 out=out,
                 pr_comment_style=parsed_pr_comment_style,
+                auto_base=base is None and not no_base,
             )
         else:
             head_ref = head or "HEAD"

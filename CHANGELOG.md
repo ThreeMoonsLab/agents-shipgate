@@ -14,6 +14,132 @@
 
 ## Unreleased
 
+- **First adoption inside a monorepo no longer starts by writing the wrong
+  manifest.** `verify --preview` routed setup to the workspace root, so on a
+  repository holding many self-contained agent projects the command it handed
+  back produced a manifest covering all of them: on `google/adk-samples` that
+  was 252 `tool_sources` and an `agent.name` taken from the first of 160+
+  `Agent(name=…)` literals, unrelated to the pull request under review. Nothing
+  in the output said so — the JSON reported `manifest_status: "written"`,
+  `is_agent_project: true`, `confidence: "high"`, and a *higher* framework
+  score than the correct sub-directory — and the alignment layer that compares
+  a declared purpose against the observed capability surface has nothing left
+  to compare when one declaration covers many agents. The changed paths already
+  answer the question, so preview now derives `--workspace` from them: each is
+  attributed to the nearest directory at or above it carrying a project marker
+  (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`, …), and the scope
+  is that project when exactly one is claimed **and** every capability-bearing
+  changed path was claimed by it. A capability path no project owns — a root
+  `prompts/system.md` travelling with a change to `services/b` — vetoes the
+  answer rather than being dropped, because "this change belongs to
+  `services/b`" would then be a false statement about the diff. The workspace
+  root is likewise left unchanged whenever the paths do not narrow it — a
+  root-level change, or one spanning two projects, which narrows to *nothing*
+  rather than to their common parent, because the parent of two projects is not
+  itself a project. Documentation and tests cannot outvote code: when more than
+  one project is claimed, the projects claimed *only* by documentation or test
+  paths drop out, and the trigger catalog's own docs-only rule decides which
+  paths those are so the two surfaces cannot drift. That leg is load-bearing —
+  the reported PR edits `python/agents/README.md` one directory above the
+  project it adds, and counting that README as a competing claim sends the
+  answer straight back to the repository root. Base detection now runs in
+  preview exactly as it does in `verify` (honoring `--no-base`), because the
+  promoted adoption command is the bare `verify --preview --json`: without it
+  the preview every first adoption runs evaluates an empty change set and
+  nothing below it can fire. Markers are read from the working tree — what
+  `init` will run against — so a preview of a head that is not the current
+  checkout claims no scope at all rather than recommending a directory that
+  depends on what happens to be checked out. When the changed project already
+  carries its own `shipgate.yaml`, preview routes to `verify` **there**, ahead
+  of any root manifest, which governs a different boundary; that also stops the
+  next preview from looping against a manifest that now exists. A change
+  spanning several projects routes to `detect` instead of to an `init` that
+  would deterministically refuse.
+
+  `init --write` closes the same gap from the other side: a workspace whose
+  manifest scope is unresolved reports
+  `manifest_status: "refused_unresolved_scope"` (exit 2) with
+  `auto_detected.agent_scope` and `agent_project_candidates[]`, rather than
+  adopting the first agent name it parsed. Two things make a scope unresolved.
+  `agent_scope: "ambiguous"` is agents in several self-contained projects —
+  evidenced by everything `init` would turn into a manifest, so an
+  OpenAPI-only or MCP-only project with no Python at all counts, as does a
+  nested `shipgate.yaml` somebody already scoped by hand. `agent_scope:
+  "unknown"` is discovery capped before it could tell: Python parsing stops at
+  `--max-python-files`, and in a workspace with several project roots a
+  "single project" verdict would just be whichever files were read first.
+  Truncation alone is not enough to withhold an answer — a repository with one
+  project root has nowhere for a second project to hide, so large
+  single-project repositories keep their verdict and their working `init`. A
+  refused run writes *nothing* — not the manifest, not the CI workflow, not the
+  agent-instruction snippets, not the reports `.gitignore` block — so a
+  workspace Shipgate declined to adopt carries no Shipgate edits into the diff.
+  Rank 1 of the emitted recovery is deliberately not a command: promoting one
+  candidate would make the same arbitrary pick the refusal exists to prevent,
+  and the refused workspace itself is never offered back. The per-candidate
+  commands repeat the setup flags the caller passed, so a recovery cannot
+  silently complete with less than `--ci` or an agent-instruction selection
+  asked for. `--minimal` adopts no detected name or tool surface and is
+  unaffected; a repository that really is one agent surface across several
+  projects passes `--allow-unresolved-scope`; and re-running `init --write
+  --agent-instructions=…` on an adopted repository is untouched, because its
+  scope was settled when its manifest was written.
+
+  Two surfaces around it were wrong in the same direction. `init --ci` scoped
+  to a sub-directory wrote `<project>/.github/workflows/agents-shipgate.yml`,
+  which GitHub never loads — a gate reported as written that could not run; the
+  workflow now lands at the repository root with a `config:` naming the
+  manifest relative to that root. And `TRIGGER-SHIPGATE-MANIFEST` matched
+  `shipgate.yaml` only at the repository root, so an edit to
+  `services/refund/shipgate.yaml` — the file that declares that project's
+  agent, purpose, and tool surface — reported `no_match`; it now matches at any
+  depth, as do the pre-commit `files:` regex and the Cursor activation globs
+  that copy the catalog, and a nested manifest counts as the repo-already-opted-in
+  signal. `tools/shipgate-detect.py` (`script_version` `0.3.0`) carries
+  `agent_scope` and `agent_project_candidates[]` too, pinned against the CLI by
+  the parity test: an agent that consults the zero-install path must not adopt
+  a scope the CLI refuses.
+
+  Review found the routing could still be spent on evidence that did not
+  support it, so three things changed shape. Preview now evaluates the same
+  effective change set the full verifier does — committed range unioned with
+  uncommitted and untracked work — because the command it emits runs against
+  the working tree: an uncommitted-only capability change previously read as an
+  empty diff, and an empty diff read as "nothing narrows the scope". "Scope not
+  established" is now a state of its own rather than an absence: a head that is
+  not checked out, a capability path no project claims, or a change spanning
+  several projects each route to discovery or to human review, and never to
+  initializing the repository root, which would turn "Shipgate could not tell"
+  into a manifest for whichever agent the current checkout happens to hold.
+  When the contested projects are already configured, each is its own gate and
+  a human decides — a root manifest is not a substitute for either boundary.
+
+  Three more surfaces followed the same distinction. Reports now default to the
+  workspace the caller named, so `verify --workspace apps/a` writes
+  `apps/a/agents-shipgate-reports/` — the directory that project's managed
+  `.gitignore` block actually covers, and one that two projects cannot
+  overwrite for each other; an explicit `--out` still resolves against the
+  repository root. `--ci` writes one workflow per gated manifest
+  (`agents-shipgate-<project>.yml` beside the root's `agents-shipgate.yml`),
+  because the action takes a single `config` scalar and one shared file gated
+  whichever project initialized first while reporting a skip for the rest; that
+  scalar is now YAML-quoted when the path needs it, so a directory named
+  `apps/agent #1` no longer renders a comment. And the `trigger` command reads
+  the nested-manifest opt-in through the same resolver preview uses, so
+  `apps/a/README.md` beside `apps/a/shipgate.yaml` stops reporting a docs-only
+  skip.
+
+  Detection got two corrections in opposite directions. A bare
+  `requirements.txt` still is not a project boundary, but one sitting beside an
+  agent is the only boundary that layout has — two sibling ADK agents were
+  reported as one root scope, and `init` picked one of their names. And an
+  `Agent(name=…)` literal only draws a boundary when its file carries a
+  supported framework import: an unrelated module defining its own `Agent`
+  class made a single-agent repository refuse. Those literals remain name
+  suggestions. `tools/shipgate-detect.py` keeps its marker census complete
+  rather than truncating it with the general file cap, so heavy filler no
+  longer hides the projects it is supposed to find.
+  ([#363](https://github.com/ThreeMoonsLab/agents-shipgate/issues/363))
 - **One control vocabulary across the adoption walk.** `detect`, `init`, and
   `doctor` each answered "what do I do next" in their own shape, so an agent
   driving a first adoption had to learn four result formats and could not tell

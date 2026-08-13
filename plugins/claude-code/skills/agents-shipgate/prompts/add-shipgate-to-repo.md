@@ -55,17 +55,56 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
    would classify `is_agent_project: false`; look for `suggested_sources` and
    `codex_plugin_candidates` when those fields are present.
 
-4. **Generate a starter manifest + GitHub Actions workflow:**
+   **Read `control.next_action` — do not run it yet.** Step 4 performs the
+   setup exactly once; running the emitted `init` here and the command in
+   step 4 as well makes the second one exit 2 with
+   `manifest_status: "skipped_existing"`. Take the `--workspace` value out of
+   the emitted command and keep it as `WS`:
+
    ```bash
-   $SG init --workspace . --write --ci --json
+   WS=$(… control.next_action.command …)   # the --workspace value, verbatim
+   ```
+
+   `WS` is `.` only when preview said so. When every capability-bearing
+   changed path belongs to one self-contained project, preview scopes setup to
+   that project instead of the repository root; re-spelling it as `.` in a
+   monorepo writes one manifest covering every unrelated agent in the repo.
+
+   Three `next_action` kinds mean *do not* continue to step 4:
+
+   - `kind: "verify"` — the changed project is already configured. Run that
+     command; adoption is done.
+   - `kind: "discover"` — the change spans several projects, or the scope
+     could not be established. Run the emitted `detect` command, pick the
+     project your change belongs to, and use it as `WS`.
+   - `actor: "human"` — several *configured* projects are involved. Surface
+     the result; each one is its own gate.
+
+4. **Generate a starter manifest + GitHub Actions workflow** — this is the
+   only `init` the flow runs:
+   ```bash
+   $SG init --workspace "$WS" --write --ci --json
    ```
    The `--json` form returns:
-   - `manifest_status`: `"written"` | `"skipped_existing"` | `"not_attempted"`
+   - `manifest_status`: `"written"` | `"skipped_existing"` | `"refused_unresolved_scope"` | `"not_attempted"`
    - `workflow.status` (with `--ci`): `"written"` | `"skipped_existing_target"` | `"skipped_cross_reference"`
    - `placeholders[]` — entries the template intentionally left as `CHANGE_ME` because no high-confidence signal was available
    - `auto_detected.agent_name` — the value the manifest carries (`null` when the template fell back to `CHANGE_ME`)
+   - `auto_detected.agent_scope`: `"single"` | `"ambiguous"` | `"unknown"`, with `auto_detected.agent_project_candidates[]` naming every self-contained project that defines an agent
 
-   `--ci` writes `.github/workflows/agents-shipgate.yml` orthogonally to `--write`. Each gets its own overwrite-refusal check; existing workflows that already call `ThreeMoonsLab/agents-shipgate` skip with a distinct `cross_reference_path`.
+   `--ci` writes the workflow orthogonally to `--write`; each gets its own overwrite-refusal check, and a workflow that already gates *this* manifest skips with a distinct `cross_reference_path`. The workflow always lands at the **repository root** — GitHub loads workflows from nowhere else — with `config:` naming the manifest relative to that root. A root manifest gets `agents-shipgate.yml`; a scoped one gets its own `agents-shipgate-<project>.yml`, because the action takes a single `config` and one shared file would leave every project after the first ungated. Read `workflow.path` rather than assuming the name.
+
+   `refused_unresolved_scope` (exit 2) means the manifest scope was not
+   settled: agents in more than one self-contained project (`agent_scope:
+   "ambiguous"`), or discovery capped before it could tell (`"unknown"`). No
+   single `agent.name`, `declared_purpose`, or tool surface describes such a
+   workspace, so nothing was written — not the manifest, not the workflow, not
+   the reports `.gitignore` block. Do not retry the same command: pick the
+   project this change belongs to from `agent_project_candidates[]` and re-run
+   with `--workspace <that directory>`, keeping the setup flags (the emitted
+   `next_actions[]` commands already carry them). `--allow-unresolved-scope`
+   writes one manifest for the workspace as a whole, and is right only when a
+   single agent surface genuinely spans it.
 
 5. **Replace placeholders.** Walk `placeholders[]` from the JSON output. On a fresh workspace the template typically leaves two:
    - `agent.name: CHANGE_ME` — replace with the agent's actual role (no strong `Agent(name="…")` literal was found in the source).
@@ -73,11 +112,11 @@ agent-related PRs should use `agents-shipgate verify` after this adoption step.
 
    Read the agent's prompt or main file to derive both. Skipping this leaves an invalid adoption artifact — the manifest validates but downstream consumers see meaningless defaults.
 
-6. **Run the scan with patch suggestions:**
+6. **Run the scan with patch suggestions** — in the workspace you initialized:
    ```bash
-   $SG scan -c shipgate.yaml --suggest-patches --format json --ci-mode advisory
+   cd "$WS" && $SG scan -c shipgate.yaml --suggest-patches --format json --ci-mode advisory
    ```
-   The report lands at `agents-shipgate-reports/report.json`. The supporting Release Evidence Packet lands at `agents-shipgate-reports/packet.{md,json,html}`. Parse `report.json`; Codex plugin facts, when present, live under `codex_plugin_surface`.
+   The report lands at `$WS/agents-shipgate-reports/report.json`, beside the manifest it describes; the supporting Release Evidence Packet lands at `$WS/agents-shipgate-reports/packet.{md,json,html}`. (Reports follow the workspace, so two projects in one repository never overwrite each other's results.) Every path below is relative to `$WS`. init's own `next_action` already names the manifest correctly for wherever you are — prefer running that command verbatim over retyping this one. Parse `report.json`; Codex plugin facts, when present, live under `codex_plugin_surface`.
 
    **Read these first for release gating (v0.8+):**
    - `release_decision.decision` ∈ `{"blocked", "review_required", "insufficient_evidence", "passed"}` — baseline-aware. This is the gating signal. `insufficient_evidence` (v0.14+) fires when evidence coverage is degraded past threshold; treat unknown future values as `review_required`.

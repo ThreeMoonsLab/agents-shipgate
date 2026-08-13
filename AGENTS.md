@@ -233,7 +233,12 @@ agents-shipgate bootstrap --json
 `bootstrap` runs `detect → init --write --ci → scan --suggest-patches → apply-patches --confidence high` against the current workspace, stopping on the first non-recoverable error and emitting a structured per-step summary. Use it for first-time adoption; for ongoing CI keep using the GitHub Action. Flags: `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json`.
 
 - **`detect`** — read-only; classifies the workspace. `is_agent_project: false`
-  means stop early.
+  means stop early. `agent_scope` says whether one manifest can describe this
+  workspace at all: `"ambiguous"` means agents live in several self-contained
+  projects (`agent_project_candidates[]` lists them, and the manifest belongs
+  in one of them rather than at the workspace root); `"unknown"` means
+  discovery was capped before it could tell, so raise `--max-python-files` or
+  name the project directly.
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
@@ -249,6 +254,19 @@ agents-shipgate bootstrap --json
   bundles under `.agents/skills/agents-shipgate/` and
   `.claude/skills/agents-shipgate/` respectively. Strict CI and baselines remain
   opt-in human decisions; generated CI stays advisory by default.
+  `--write` **refuses** a workspace whose manifest scope is unresolved —
+  `manifest_status: "refused_unresolved_scope"`, exit `2`, nothing written at
+  all (no manifest, no workflow, no snippets, no `.gitignore` block) — rather
+  than adopting the first `Agent(name=…)` literal it parsed for a manifest that
+  would cover unrelated agents. That covers both `agent_scope` values that are
+  not `"single"`. Re-run with `--workspace` pointed at one of
+  `auto_detected.agent_project_candidates[].path` (the emitted
+  `next_actions[]` commands carry the setup flags you passed);
+  `--allow-unresolved-scope` overrides when one agent surface genuinely spans
+  the workspace, and `--minimal` (which adopts no detected name or tool
+  surface) is never scope-gated. With `--ci`, the workflow is written at the
+  repository root with a repo-relative `config:` — GitHub loads workflows from
+  nowhere else — so a scoped adoption still gets a gate that runs.
 - **`scan --suggest-patches`** — attaches Patch objects to every active
   finding. `Finding.patches` is absent without the flag.
 - **`apply-patches`** — file-grouped, dry-run by default. Containment-
@@ -387,6 +405,8 @@ Do NOT use it for:
 One known gap in the Google ADK row: an edit that *modifies* a tools list on the `Agent` alias (rather than `LlmAgent`) is not matched, because a bare `Agent(..., tools=[...])` hunk with no ADK import in it cannot be distinguished from CrewAI's by diff text alone. `LlmAgent` changes and whole-file additions in either spelling are covered.
 
 `prompts/` and `policies/` in that row match at any depth and case-insensitively: an edit under `services/foo/policies/` or `enterprise/lib/captain/Prompts/` routes exactly like a repo-root one. That is parity with the verifier, whose trust-root classification has always read those two surfaces as `**/policies/**` and `**/prompts/**` and has always tolerated the case variant a case-insensitive filesystem resolves to the canonical name. The catalog's `glob` and `none_match_glob` predicates match the same way, so a path cannot be a trust root to the verifier and a `no_match` to the router; the Tier B checks (`SHIP-VERIFY-POLICY-WEAKENED`, `SHIP-VERIFY-CI-GATE-REMOVED`, agent-instruction weakening, trigger-catalog drift) select their changed files the same way too, so a case variant cannot be a trust root in Tier A and invisible to the specialized check that carries the severity. `every_file_matches` is deliberately the exception and stays case-sensitive: it is the docs-only rule's own classifier, and `skip_shipgate` beats `run_shipgate`, so folding it would read `src/TEST_agent.py` — a production module on a case-sensitive filesystem — as a test file and skip a PR that adds a tool beside it. The rule is to fold the predicates that can only add evaluation, never the one that can subtract it. The three surfaces that copy this routing — the pre-commit `files:` regex, the `.cursor/rules/agents-shipgate.mdc` activation globs, and the documented copy-paste hook snippets — follow, so a nested governance edit also activates the host instructions and stages the local hook.
+
+`shipgate.yaml` matches at any depth for the same reason. A monorepo keeps one manifest per project directory, so an edit to `services/refund/shipgate.yaml` — the file that declares that project's agent, purpose, and tool surface — routes exactly like a root-level one; a root-only rule reported it as `no_match`. A nested manifest is also an opt-in: `verify --preview` treats the changed project's own `shipgate.yaml` as the repo-already-adopted signal and routes verification to that manifest rather than to a root one governing a different boundary.
 
 Two implicit triggers also fire even when no row above matches:
 

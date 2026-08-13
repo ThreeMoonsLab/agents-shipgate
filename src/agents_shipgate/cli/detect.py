@@ -30,6 +30,10 @@ from agents_shipgate.schemas.agent_control import AgentActionKind
 from agents_shipgate.schemas.detect import DetectResult
 from agents_shipgate.schemas.diagnostics import Diagnostic, NextAction
 
+# A monorepo can hold hundreds of agent projects; the human summary lists
+# enough to recognize the shape and points at --json for the rest.
+_MAX_ECHOED_SCOPE_CANDIDATES = 10
+
 
 def detect(
     workspace: Path = typer.Option(
@@ -138,6 +142,7 @@ def detect(
             if len(framework.evidence) > 5:
                 typer.echo(f"    · ... ({len(framework.evidence) - 5} more)")
         typer.echo("")
+    _echo_agent_scope(result)
     if result.agent_name_candidates:
         primary = result.agent_name_candidates[0]
         typer.echo(f"Agent name candidate: {primary.value} (source: {primary.source})")
@@ -200,10 +205,34 @@ def _detect_advance(
     which is a route around the human stop. Handing off to the command that does
     read the manifest keeps one answer per obligation.
 
+    An unresolved *scope* is the same shape as an unresolved manifest, one step
+    earlier. When a workspace defines agents in several projects (#363/#370),
+    ``DetectResult.next_action`` is prose rather than a command precisely because
+    naming one candidate would make the arbitrary pick ``init --write`` refuses
+    to make. Typing that prose as a ``command`` action would publish an
+    unrunnable string, and typing it as an agent route would ask the agent to
+    make the choice; it is a human route.
+
     ``None`` when the workspace is not adoptable at all; the negative-control
     diagnostics own that route and end in a human stop.
     """
 
+    if result.agent_scope != "single":
+        return (
+            NextAction(
+                kind="review",
+                # `DetectResult.next_action` already states the situation and
+                # names the field holding the candidates; restating it here
+                # would be a second wording of one fact.
+                why=result.next_action,
+                expects=(
+                    "One project directory chosen from agent_project_candidates, "
+                    "then init --workspace <that path> --write."
+                ),
+            ),
+            "discover",
+            SETUP_INCOMPLETE,
+        )
     if has_manifest:
         return (
             NextAction(
@@ -240,6 +269,34 @@ def _detect_advance(
         "initialize",
         SETUP_INCOMPLETE,
     )
+
+
+def _echo_agent_scope(result: DetectResult) -> None:
+    """Say when the workspace holds more than one manifest's worth of agents.
+
+    Silent in the ordinary single-project case: the manifest scope is then
+    the workspace the caller already named, and repeating it is noise.
+    """
+    if result.agent_scope != "ambiguous":
+        return
+    candidates = result.agent_project_candidates
+    typer.echo("")
+    typer.echo(
+        f"Agent scope: ambiguous — {len(candidates)} separate projects define agents:"
+    )
+    for candidate in candidates[:_MAX_ECHOED_SCOPE_CANDIDATES]:
+        # A config-driven ``LlmAgent(name=CONFIG.agent_name)`` leaves no name
+        # literal to parse; name the marker that made it a project instead.
+        detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
+        typer.echo(f"- {candidate.path} ({detail})")
+    remaining = len(candidates) - _MAX_ECHOED_SCOPE_CANDIDATES
+    if remaining > 0:
+        typer.echo(f"- ... ({remaining} more; see agent_project_candidates in --json)")
+    typer.echo(
+        "One shipgate.yaml describes one agent surface, so init --write "
+        "refuses here until you name the project directory to initialize."
+    )
+    typer.echo("")
 
 
 def _echo_excluded_sources(excluded: list[dict[str, str]]) -> None:

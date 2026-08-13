@@ -203,6 +203,7 @@ def setup_control_envelope(
     advance_kind: AgentActionKind = "verify",
     advance_decision: str = SETUP_COMPLETE,
     advance_blocking: bool = False,
+    advance_alternatives: Sequence[NextAction] = (),
     placeholders: Sequence[Mapping[str, object]] | None = None,
     manifest_display_path: str | None = None,
     execution: AgentControlExecution = "succeeded",
@@ -281,11 +282,18 @@ def setup_control_envelope(
         kind, decision = "configure", advance_decision
 
     if selected.kind in {"review", "stop"}:
-        # A human route publishes exactly one action. Keeping the ranked
-        # alternatives here would re-offer the very obligation being routed to a
-        # person as an agent-executable edit one position down the list — the
-        # bypass this precedence exists to close.
-        actions = [selected]
+        # A human route drops the *diagnostic* alternatives: re-offering the
+        # very obligation being routed to a person as an agent-executable edit,
+        # one position down the list, is the bypass this precedence exists to
+        # close.
+        #
+        # ``advance_alternatives`` is the caller's own ranked list and is kept,
+        # because those are not ways around the decision — they are the ways of
+        # carrying it out once it is made. `init`'s unresolved-scope refusal is
+        # the case: rank 1 is "choose a project", and the per-candidate commands
+        # below it are how the chosen one gets initialized. A caller that
+        # supplies them has already ranked the decision above them.
+        actions = [selected, *advance_alternatives]
         control: AgentControl = _human_route(selected.why, stop=selected.kind == "stop")
     else:
         actions = [selected, *(item for item in alternatives if item is not selected)][:3]
