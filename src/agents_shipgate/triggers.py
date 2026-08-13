@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -131,6 +132,50 @@ def load_triggers() -> dict[str, Any]:
     raise FileNotFoundError(
         "triggers.json not found. Looked in the packaged "
         "agents_shipgate/_meta/ and ../docs/ relative to the source tree."
+    )
+
+
+DOCS_ONLY_RULE_ID = "TRIGGER-DOCS-ONLY-NEGATIVE"
+
+
+def paths_without_capability_surface(paths: Sequence[str]) -> frozenset[str]:
+    """Which of ``paths`` carry no capability surface on their own.
+
+    The catalog's docs-only rule already answers "could this change alter an
+    agent's capability surface?" for a whole change set. Applied to one path
+    at a time it answers the same question about that path — including the
+    carve-outs that make ``SKILL.md``, ``prompts/**``, and ``policies/**``
+    capability surfaces despite looking like documentation.
+
+    Manifest-scope resolution (:mod:`agents_shipgate.cli.discovery.scope`)
+    needs exactly this, so it reads the rule rather than keeping a second
+    list of documentation globs that could drift away from the one the
+    ``trigger`` verdict is computed from.
+    """
+
+    rule = next(
+        (
+            entry
+            for entry in load_triggers().get("rules", [])
+            if isinstance(entry, dict) and entry.get("id") == DOCS_ONLY_RULE_ID
+        ),
+        None,
+    )
+    if rule is None:  # pragma: no cover - catalog is pinned by contract tests
+        return frozenset()
+    predicate = rule.get("when")
+    return frozenset(
+        path
+        for path in paths
+        if path
+        and _eval_predicate(
+            predicate,
+            paths=[path],
+            diff_text="",
+            manifest_present=False,
+            detect_result=None,
+            user_requested=False,
+        )
     )
 
 

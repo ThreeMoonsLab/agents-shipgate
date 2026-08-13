@@ -23,7 +23,12 @@ from agents_shipgate.cli.diagnostics import (
 )
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.schemas.detect import DetectResult
 from agents_shipgate.schemas.diagnostics import Diagnostic, NextAction
+
+# A monorepo can hold hundreds of agent projects; the human summary lists
+# enough to recognize the shape and points at --json for the rest.
+_MAX_ECHOED_SCOPE_CANDIDATES = 10
 
 
 def detect(
@@ -116,6 +121,7 @@ def detect(
             if len(framework.evidence) > 5:
                 typer.echo(f"    · ... ({len(framework.evidence) - 5} more)")
         typer.echo("")
+    _echo_agent_scope(result)
     if result.agent_name_candidates:
         primary = result.agent_name_candidates[0]
         typer.echo(f"Agent name candidate: {primary.value} (source: {primary.source})")
@@ -135,6 +141,34 @@ def detect(
             typer.echo(f"- {candidate.mode}: {candidate.path}")
     typer.echo("")
     typer.echo(f"Next: {result.next_action}")
+
+
+def _echo_agent_scope(result: DetectResult) -> None:
+    """Say when the workspace holds more than one manifest's worth of agents.
+
+    Silent in the ordinary single-project case: the manifest scope is then
+    the workspace the caller already named, and repeating it is noise.
+    """
+    if result.agent_scope != "ambiguous":
+        return
+    candidates = result.agent_project_candidates
+    typer.echo("")
+    typer.echo(
+        f"Agent scope: ambiguous — {len(candidates)} separate projects define agents:"
+    )
+    for candidate in candidates[:_MAX_ECHOED_SCOPE_CANDIDATES]:
+        # A config-driven ``LlmAgent(name=CONFIG.agent_name)`` leaves no name
+        # literal to parse; name the marker that made it a project instead.
+        detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
+        typer.echo(f"- {candidate.path} ({detail})")
+    remaining = len(candidates) - _MAX_ECHOED_SCOPE_CANDIDATES
+    if remaining > 0:
+        typer.echo(f"- ... ({remaining} more; see agent_project_candidates in --json)")
+    typer.echo(
+        "One shipgate.yaml describes one agent surface, so init --write "
+        "refuses here until you name the project directory to initialize."
+    )
+    typer.echo("")
 
 
 def _echo_excluded_sources(excluded: list[dict[str, str]]) -> None:

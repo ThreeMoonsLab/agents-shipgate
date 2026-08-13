@@ -40,6 +40,8 @@ CANONICAL_KEYS = frozenset(
         "frameworks",
         "agent_name_candidates",
         "project_name_candidates",
+        "agent_scope",
+        "agent_project_candidates",
         "suggested_sources",
         "excluded_sources",
         "next_action",
@@ -215,6 +217,25 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
     assert script_codex == cli_codex, (
         f"{sample_dir.name}: codex_plugin_candidates diverged "
         f"(script={script_codex!r}, cli={cli_codex!r})."
+    )
+
+    assert script_result["agent_scope"] == cli_result["agent_scope"], (
+        f"{sample_dir.name}: agent_scope diverged "
+        f"(script={script_result['agent_scope']!r}, "
+        f"cli={cli_result['agent_scope']!r}). An agent that consults the "
+        "zero-install path must not adopt a scope the CLI refuses."
+    )
+    script_projects = sorted(
+        (c["path"], tuple(c["agent_names"]))
+        for c in script_result["agent_project_candidates"]
+    )
+    cli_projects = sorted(
+        (c["path"], tuple(c["agent_names"]))
+        for c in cli_result["agent_project_candidates"]
+    )
+    assert script_projects == cli_projects, (
+        f"{sample_dir.name}: agent_project_candidates diverged "
+        f"(script={script_projects!r}, cli={cli_projects!r})."
     )
 
     cli_signals = cli_result["workspace_signals"]

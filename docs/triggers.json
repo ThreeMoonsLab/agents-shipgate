@@ -256,9 +256,14 @@
       "id": "TRIGGER-SHIPGATE-MANIFEST",
       "surface_class": "governance",
       "agents_md_row": "Edits `prompts/`, `policies/`, or `permissions.scopes` in `shipgate.yaml`",
-      "when": {"glob": "shipgate.yaml"},
+      "when": {
+        "any_of": [
+          {"glob": "shipgate.yaml"},
+          {"glob": "**/shipgate.yaml"}
+        ]
+      },
       "action": "run_shipgate",
-      "rationale": "The manifest is the source of truth for the release gate."
+      "rationale": "The manifest is the source of truth for the release gate. The glob matches at any depth: a monorepo keeps one manifest per project directory (`services/refund/shipgate.yaml`), and a root-only rule reported an edit to the very file that declares a project's agent, purpose, and tool surface as `no_match`. The `**/`-prefixed and bare forms are both listed for the same reason as the prompts/policies rule: a consumer whose glob engine requires a leading segment for `**/` would otherwise lose the repo-root match."
     },
     {
       "id": "TRIGGER-SHIPGATE-CI-WORKFLOW",
