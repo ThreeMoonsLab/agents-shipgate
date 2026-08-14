@@ -619,7 +619,7 @@ def test_no_machine_applicable_fix_survives_where_it_is_true():
     assert NO_FIX_AVAILABLE in action.why
 
 
-def test_conductor_golden_matches_a_fresh_scan_field_for_field(tmp_path):
+def test_conductor_golden_matches_a_fresh_scan_field_for_field(tmp_path, monkeypatch):
     """An invariant-only check cannot catch a stale field.
 
     The committed Conductor golden kept an inapplicable `agent_bindings.root`
@@ -630,6 +630,12 @@ def test_conductor_golden_matches_a_fresh_scan_field_for_field(tmp_path):
     normalized the same way the golden is.
     """
 
+    # `privacy_audit.output_surfaces` records where output went, and a scan
+    # appends `github_step_summary` whenever GITHUB_STEP_SUMMARY is set. That
+    # makes the artifact environment-dependent, so the comparison would pass
+    # locally and fail on Actions. Pin the environment instead of widening what
+    # the test ignores — the point of this check is that *nothing* drifts.
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     fresh, _ = run_scan(
         config_path=Path("samples/conductor_agent/shipgate.yaml"),
         output_dir=tmp_path / "out",
