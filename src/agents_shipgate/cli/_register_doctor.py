@@ -98,6 +98,7 @@ def _doctor_failure_routing(
     diagnostics: list,
     reason: str,
     exit_code: int,
+    recheck_command: str | None = None,
 ):
     """The shared envelope for a doctor run that never reached inspection.
 
@@ -125,6 +126,9 @@ def _doctor_failure_routing(
         # and the reason already names the defect.
         text = ""
     placeholders = collect_placeholders(text)
+    recheck = recheck_command or render_command(
+        ["doctor", "--config", str(path.resolve()), "--json"]
+    )
     return setup_control_envelope(
         operation="doctor",
         input_id=setup_input_id(
@@ -132,7 +136,22 @@ def _doctor_failure_routing(
             workspace=workspace,
             manifest_path=path,
             manifest_bytes=manifest_bytes,
-            routing_facts=(reason, exit_code, placeholders),
+            # The route, not only the workspace state that produced it. Hashing
+            # `(reason, exit_code, placeholders)` alone described *what is wrong*
+            # and nothing about *what this run answers*: the same unknown-adapter
+            # manifest read through the console script and through an absolute
+            # path emits two different `next_action.command` values (#322 spells
+            # a command for the entry point that produced it) under one identity,
+            # and `input_id` is the cache boundary for the answer. Both command
+            # sources are folded in — the diagnostics' own rank-1 actions and the
+            # recheck this routing supplies — so the identity moves with either.
+            routing_facts=(
+                reason,
+                exit_code,
+                placeholders,
+                recheck,
+                [action.model_dump(mode="json") for action in top_next_actions(diagnostics)],
+            ),
         ),
         reason=reason,
         diagnostics=diagnostics,
@@ -144,9 +163,7 @@ def _doctor_failure_routing(
         manifest_display_path=str(path),
         advance=None,
         advance_decision=SETUP_INCOMPLETE,
-        recheck_command=render_command(
-            ["doctor", "--config", str(path.resolve()), "--json"]
-        ),
+        recheck_command=recheck,
         execution="failed",
         exit_code=exit_code,
     )
@@ -165,18 +182,38 @@ def register(app: typer.Typer) -> None:
             configure_logging(verbose=verbose)
             paths = _resolve_config_paths(config=config, workspace=workspace)
         except ConfigError as exc:
-            # Discovery itself failed — no candidate manifest exists.
+            # Discovery itself failed — no candidate manifest exists. This is
+            # still a `doctor --json` answer, so it carries the same envelope as
+            # every other one: the promise is that the field is on every payload,
+            # and an early `raise` before the projection is exactly the
+            # counterexample that promise cannot survive. Nothing was inspected,
+            # so it is `setup_incomplete` with no artifact and no authority.
             typer.echo(f"Config error: {exc}", err=True)
             diagnostics = _diagnose_config_error(
                 config=config, workspace=workspace, exc=exc
             )
-            flattened = top_next_actions(diagnostics)
-            _echo_next_action_hint(flattened)
+            _echo_next_action_hint(top_next_actions(diagnostics))
+            routing = _doctor_failure_routing(
+                # The spec that matched nothing, verbatim. Resolving a glob to a
+                # literal path would name a file that does not exist and never
+                # will.
+                manifest_path=config,
+                manifest_bytes=b"",
+                workspace=(workspace or Path.cwd()).resolve(),
+                diagnostics=diagnostics,
+                reason=str(exc),
+                exit_code=2,
+                recheck_command=render_command(
+                    ["doctor", "--config", config, "--json"]
+                ),
+            )
             _emit_agent_mode_error(
                 "config_error",
                 message=str(exc),
-                next_action=flattened[0].to_legacy_string(),
-                next_actions=[a.model_dump(mode="json") for a in flattened],
+                exit_code=2,
+                next_action=routing.legacy_next_action,
+                next_actions=routing.json_actions(),
+                control=routing.envelope.model_dump(mode="json"),
             )
             raise typer.Exit(2) from exc
         payloads: list[dict[str, object]] = []

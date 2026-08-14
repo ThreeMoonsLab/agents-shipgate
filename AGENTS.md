@@ -318,9 +318,13 @@ The machine-readable catalog of error kinds — exit codes, typical causes, addi
 `agents-shipgate agent control` emit. Switch on `control.control_state` and
 `control.permissions` for the whole adoption walk instead of learning a
 different result shape per command; `control.next_action` is the one typed
-rank-1 step, and `next_actions[]` beside it keeps the ranked alternatives —
-including the exact `path` when the step is a file edit, which the control
-action names in `why`.
+rank-1 step, and `next_actions[]` beside it keeps the ranked alternatives.
+
+When that step is a file edit, `control.next_action` is
+`{"kind": "edit", "path": …, "expects": …, "command": null}` and
+**`control.next_action.path` is the file to open** — exact, never normalized.
+The kind is setup-only: `verify`, `check`, and `scan` never emit it, and both
+schema layers reject it on those operations.
 
 `scan` is **not** part of this: `agents-shipgate agent control` after a scan
 reports `decision: null` with a `reason` saying the verdict is withheld. A scan

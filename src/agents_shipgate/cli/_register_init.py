@@ -494,6 +494,7 @@ def _init_advance(
     scope_actions: Sequence[NextAction] = (),
     manifest_defect: str | None = None,
     setup_flags: Sequence[str] = (),
+    workflow_status: str | None = None,
 ) -> tuple[NextAction, AgentActionKind, str, bool]:
     """The step init already names, typed for the control envelope.
 
@@ -599,16 +600,26 @@ def _init_advance(
             False,
         )
     if not write:
+        # "Nothing was written" was false whenever `--ci` was passed: that flag
+        # is orthogonal to `--write`, so the same payload reported
+        # `workflow.status="written"` a few fields above this sentence. Name the
+        # thing that was actually withheld — the manifest — and account for the
+        # file this run did write.
+        withheld = (
+            "The CI workflow was written. The manifest was not: re-run with --write "
+            "to commit the rendered manifest and the rest of the setup this "
+            "invocation asked for."
+            if workflow_status == "written"
+            else "The manifest was not written. Re-run with --write to commit the "
+            "rendered manifest and the setup this invocation asked for."
+        )
         return (
             NextAction(
                 kind="command",
                 command=render_command(
                     ["init", "--workspace", str(workspace), "--write", *setup_flags]
                 ),
-                why=(
-                    "Nothing was written. Re-run with --write to commit the rendered "
-                    "manifest and the setup this invocation asked for."
-                ),
+                why=withheld,
                 expects=f"{target} exists.",
             ),
             "initialize",
@@ -1100,6 +1111,11 @@ def register(app: typer.Typer) -> None:
                 ),
                 *(["--json"] if json_output else []),
             ],
+            # `--ci` writes without `--write`, so the dry-run route has to know
+            # whether this run already produced a file.
+            workflow_status=(
+                str(workflow_outcome["status"]) if workflow_outcome is not None else None
+            ),
         )
         routing = setup_control_envelope(
             operation="init",

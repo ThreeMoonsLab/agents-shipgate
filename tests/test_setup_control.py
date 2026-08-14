@@ -427,34 +427,105 @@ def test_setup_input_id_tracks_the_manifest_it_answered_about(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_no_published_schema_knows_an_edit_action():
-    """The union stays out of the six durable schemas that embed it.
+# The artifacts that embed the shared `AgentControl` union. Five of them record
+# no `contract_version`, so a consumer holding a stored payload cannot use the
+# runtime floor to tell which shape it has — which is why the setup edit is
+# declared on the stdout-only envelope instead.
+DURABLE_CONTROL_SCHEMAS = (
+    "codex-boundary-result-schema.v2",
+    "verifier-schema.v0.8",
+    "agent-handoff-schema.v7",
+    "preflight-schema.v0.4",
+    "agent-result-schema.v3",
+    "agent-boundary-result-schema.v2",
+    "verify-run-schema.v4",
+)
 
-    A typed ``edit`` action lived here briefly and was removed: ``AgentControl``
-    is carried by the verifier, the handoff, preflight, the agent result, the
-    boundary result, and verify-run, so widening it widened all six under
-    unchanged identifiers — and five of those artifacts record no
-    ``contract_version``, so a consumer holding a stored payload cannot use the
-    runtime floor to tell which shape it has.
+ENVELOPE_SCHEMA = "agent-control-schema.v1"
+
+
+def _action_kind_consts(node: object) -> set[str]:
+    """Every value a ``kind`` discriminator can take, from the parsed schema.
+
+    Reading the raw text and searching for a needle is what made the first
+    version of this guard vacuous: it stripped spaces out of the document and
+    then looked for a needle that still contained one, so it could not have
+    failed however wide the union grew. The discriminator is structure, so
+    inspect the structure.
     """
 
-    for name in (
-        "codex-boundary-result-schema.v2",
-        "verifier-schema.v0.8",
-        "agent-handoff-schema.v7",
-        "preflight-schema.v0.4",
-        "agent-result-schema.v3",
-        "agent-boundary-result-schema.v2",
-        "verify-run-schema.v4",
-        # The envelope's own document. It is emitted on stdout and never written
-        # as an artifact, so it carries the setup rollout — but not an `edit`.
-        "agent-control-schema.v1",
-    ):
-        schema = (REPO_ROOT / f"docs/{name}.json").read_text()
-        assert "CodingAgentEditAction" not in schema, name
-        # `"edit"` also names a *permission*, so match the shape a Literal kind
-        # is emitted as rather than the bare string.
-        assert '{"const": "edit"' not in schema.replace(" ", ""), name
+    found: set[str] = set()
+    if isinstance(node, dict):
+        kind = node.get("kind")
+        if isinstance(kind, dict) and isinstance(kind.get("const"), str):
+            found.add(kind["const"])
+        for key, value in node.items():
+            # Skip the `permissions` object, where `edit` is a *permission*
+            # name rather than an action kind — the ambiguity the text search
+            # was trying, and failing, to handle.
+            if key == "properties" and isinstance(value, dict) and "edit" in value:
+                if {"commit", "push", "merge"} & set(value):
+                    continue
+            found |= _action_kind_consts(value)
+    elif isinstance(node, list):
+        for item in node:
+            found |= _action_kind_consts(item)
+    return found
+
+
+def test_no_durable_schema_knows_an_edit_action():
+    """The union stays out of the seven durable schemas that embed it."""
+
+    for name in DURABLE_CONTROL_SCHEMAS:
+        schema = json.loads((REPO_ROOT / f"docs/{name}.json").read_text())
+        assert "CodingAgentEditAction" not in json.dumps(schema), name
+        assert "edit" not in _action_kind_consts(schema), name
+
+
+def test_the_setup_envelope_is_the_only_edit_bearing_surface():
+    """...and the envelope is where it *does* live, as the sole such surface.
+
+    The negative assertion above passes trivially if the action was dropped
+    altogether, which is the state two earlier revisions of this branch were in.
+    Sweeping every published schema pins both halves at once: exactly one
+    document declares an ``edit`` action kind, and it is the stdout-only one.
+    """
+
+    bearing = sorted(
+        path.name
+        for path in sorted((REPO_ROOT / "docs").glob("*-schema.v*.json"))
+        if "edit" in _action_kind_consts(json.loads(path.read_text()))
+    )
+    assert bearing == [f"{ENVELOPE_SCHEMA}.json"]
+
+    envelope = json.loads((REPO_ROOT / f"docs/{ENVELOPE_SCHEMA}.json").read_text())
+    assert "SetupEditAction" in envelope.get("$defs", {})
+
+
+def test_the_edit_kind_guard_would_notice_a_widened_union():
+    """The guard above is only worth running if it can fail.
+
+    A union that grew an ``edit`` in a durable schema is the exact regression
+    this pair exists to catch, so feed it one and require the detection.
+    """
+
+    widened = json.loads((REPO_ROOT / f"docs/{DURABLE_CONTROL_SCHEMAS[0]}.json").read_text())
+    widened.setdefault("$defs", {})["CodingAgentEditAction"] = {
+        "properties": {"kind": {"const": "edit"}}
+    }
+    assert "edit" in _action_kind_consts(widened)
+
+    # And the permissions carve-out does not blunt it: a permission vector
+    # alone is still not an action kind.
+    permissions = {
+        "properties": {
+            "edit": {"type": "boolean"},
+            "commit": {"type": "boolean"},
+            "push": {"type": "boolean"},
+            "merge": {"type": "boolean"},
+        }
+    }
+    assert _action_kind_consts(permissions) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -1551,3 +1622,247 @@ def test_the_setup_identity_moves_with_the_requested_setup(tmp_path: Path):
     assert len(set(identities)) == len(identities), seen
     # The commands differ too — the identity is tracking a real difference.
     assert len({command for _, command in seen.values()}) == len(seen)
+
+
+# ---------------------------------------------------------------------------
+# Sixth review round: what the envelope says is exact, or it is not a command
+# ---------------------------------------------------------------------------
+
+
+def _commands_in(node: object) -> list[str]:
+    """Every non-null ``command`` field anywhere in a payload."""
+
+    found: list[str] = []
+    if isinstance(node, dict):
+        command = node.get("command")
+        if isinstance(command, str):
+            found.append(command)
+        for value in node.values():
+            found += _commands_in(value)
+    elif isinstance(node, list):
+        for item in node:
+            found += _commands_in(item)
+    return found
+
+
+def _invalid_manifest_routing(path: str, *, message: str = "bad manifest"):
+    return setup_control_envelope(
+        operation="doctor",
+        input_id="sha256:" + "0" * 64,
+        reason="A manifest failed to load.",
+        diagnostics=diagnose_invalid_manifest(Path(path), message=message),
+        advance=None,
+        advance_decision="setup_incomplete",
+        recheck_command="agents-shipgate doctor --json",
+        execution="failed",
+        exit_code=2,
+    )
+
+
+def test_the_edit_route_names_the_file_byte_for_byte():
+    """A path is opened, not read, so normalizing it names a different file.
+
+    ``NonEmptyText`` strips, and a filename may legally begin or end with a
+    space on every POSIX filesystem: the diagnostic said ``' manifest.yaml '``
+    and the envelope said ``'manifest.yaml'``, so the two rank-1 projections
+    pointed at two files.
+    """
+
+    spaced = " manifest.yaml "
+    routing = _invalid_manifest_routing(spaced)
+    action = routing.envelope.next_action
+
+    assert action.kind == "edit"
+    assert action.path == spaced
+    # ...and it still agrees with the ranked action it projects.
+    assert routing.actions[0].path == action.path
+
+    # The non-blank floor is unchanged: a path made only of whitespace is not a
+    # path, on both layers.
+    _reject_both_layers(
+        {
+            **json.loads(render_agent_control_envelope(routing.envelope)),
+            "next_action": {
+                "actor": "coding_agent",
+                "kind": "edit",
+                "command": None,
+                "path": "   ",
+                "expects": "resolved",
+                "why": "why",
+            },
+        }
+    )
+
+
+def test_the_edit_route_obeys_the_envelope_prose_cap():
+    """The cap is a contract, and the new variant routed around it.
+
+    A loader message is arbitrary text; a 1,000-character one produced a
+    1,134-byte ``why`` on a document that documents 400.
+    """
+
+    routing = _invalid_manifest_routing("shipgate.yaml", message="X" * 1000)
+    action = routing.envelope.next_action
+
+    assert len(action.why.encode("utf-8")) <= 400
+    assert action.why.endswith("[…]")
+    # The operational fields are untouched: they are executed and checked, not
+    # read.
+    assert action.path == "shipgate.yaml"
+    assert not action.expects.endswith("[…]")
+
+
+@pytest.mark.parametrize("plugins_enabled", [False, True])
+def test_a_remediation_with_no_argv_is_not_published_as_a_command(plugins_enabled: bool):
+    """``next_action.command`` is the step; a string that cannot run is not one.
+
+    The unknown-adapter routes are ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1
+    agents-shipgate scan …`` — a shell assignment ``shlex.split`` turns into a
+    program literally named ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1`` — and ``pip
+    install <third-party-adapter-package>``, a placeholder nobody can install.
+    Both were promoted verbatim into an ``agent_action_required`` envelope.
+    """
+
+    from agents_shipgate.cli.diagnostics import diagnose_unknown_adapter_source_type
+    from agents_shipgate.invocation import split_invocation
+
+    diagnostics = diagnose_unknown_adapter_source_type(
+        Path("shipgate.yaml"),
+        source_type="totally-unknown-adapter",
+        plugins_enabled=plugins_enabled,
+        message="no adapter is registered",
+    )
+    raw = diagnostics[0].next_actions[0].command
+    assert split_invocation(raw) is None, "fixture no longer covers an unrunnable remediation"
+
+    routing = setup_control_envelope(
+        operation="doctor",
+        input_id="sha256:" + "0" * 64,
+        reason="An adapter could not be resolved.",
+        diagnostics=diagnostics,
+        advance=None,
+        advance_decision="setup_incomplete",
+        recheck_command="agents-shipgate doctor --json",
+        execution="failed",
+        exit_code=2,
+    )
+    envelope = json.loads(render_agent_control_envelope(routing.envelope))
+
+    assert envelope["control_state"] == "human_review_required"
+    # Nothing the envelope calls executable carries it...
+    assert envelope["next_action"]["command"] is None
+    assert not _commands_in(envelope)
+    # ...and the string is not lost either: it survives as prose a person can
+    # act on, which is what it was always for.
+    assert raw in envelope["next_action"]["why"]
+
+    # The ranked list keeps the diagnostic's own action, because `NextAction`
+    # has an honest answer the envelope does not: it withholds the computed
+    # argv pair and lets the rendered string stand (#322). Both surfaces
+    # therefore describe one remediation, and neither claims it is runnable.
+    legacy = routing.json_actions()[0]
+    assert legacy["command"] == raw
+    assert "executable" not in legacy and "args" not in legacy
+
+
+def test_a_runnable_remediation_is_still_published_as_a_command():
+    """The gate above must not swallow the ordinary case."""
+
+    routing = _invalid_manifest_routing("shipgate.yaml")
+    assert routing.envelope.control_state == "agent_action_required"
+    assert routing.envelope.next_action.kind == "edit"
+
+    missing = setup_control_envelope(
+        operation="detect",
+        input_id="sha256:" + "0" * 64,
+        reason="No manifest.",
+        diagnostics=diagnose_missing_manifest(Path(".")),
+    )
+    assert missing.envelope.control_state == "agent_action_required"
+    assert missing.envelope.next_action.command
+
+
+def test_doctor_config_resolution_failure_carries_the_envelope(tmp_path: Path):
+    """Every ``doctor --json`` payload has the route — including this one.
+
+    A glob matching nothing raised before the projection, so the payload was
+    legacy ``{error, next_action, next_actions}`` with no ``control``,
+    ``decision_source``, or ``input_id``: a counterexample to the promise the
+    whole rollout rests on.
+    """
+
+    with mock.patch.dict(os.environ, {"AGENTS_SHIPGATE_AGENT_MODE": "1"}):
+        result = runner.invoke(
+            app, ["doctor", "--config", str(tmp_path / "*.missing.yaml"), "--json"]
+        )
+
+    assert result.exit_code == 2
+    error = json.loads(
+        [line for line in result.stderr.splitlines() if line.strip().startswith("{")][-1]
+    )
+    control = error["control"]
+    assert not list(_PUBLISHED_SCHEMA.iter_errors(control)), control
+    assert control["operation"] == "doctor"
+    assert control["decision_source"] == "setup"
+    assert control["decision"] == "setup_incomplete"
+    assert control["execution"] == "failed"
+    assert control["input_id"].startswith("sha256:")
+    # Nothing was inspected, so nothing is authorized.
+    assert not any(control["permissions"].values())
+    # And the legacy line still describes the same route.
+    assert error["next_actions"][0]["why"]
+
+
+def test_the_doctor_failure_identity_moves_with_the_entry_point(tmp_path: Path):
+    """``input_id`` is the cache boundary for the *answer*, not for the defect.
+
+    Hashing ``(reason, exit_code, placeholders)`` described what is wrong and
+    nothing about what this run replies: #322 spells a command for the entry
+    point that produced it, so the same rejected manifest read through two
+    entry points published two different ``next_action`` values under one
+    identity.
+    """
+
+    seen = {}
+    for entry in ("agents-shipgate", "/opt/custom/agents-shipgate"):
+        with mock.patch.dict(
+            os.environ, {"AGENTS_SHIPGATE_AGENT_MODE": "1", "AGENTS_SHIPGATE_CLI": entry}
+        ):
+            result = runner.invoke(
+                app, ["doctor", "--config", str(tmp_path / "*.missing.yaml"), "--json"]
+            )
+        control = json.loads(
+            [line for line in result.stderr.splitlines() if line.strip().startswith("{")][-1]
+        )["control"]
+        seen[entry] = (control["input_id"], json.dumps(control["next_action"]))
+
+    identities = {identity for identity, _ in seen.values()}
+    routes = {route for _, route in seen.values()}
+    assert len(routes) == 2, "fixture no longer produces two spellings"
+    assert len(identities) == 2, seen
+
+
+def test_a_dry_run_that_wrote_the_workflow_does_not_claim_it_wrote_nothing(tmp_path: Path):
+    """`--ci` is orthogonal to `--write`, so "Nothing was written" was false.
+
+    The same payload reported ``workflow.status="written"`` a few fields above
+    the sentence saying nothing had been.
+    """
+
+    result = runner.invoke(app, ["init", "--workspace", str(tmp_path), "--ci", "--json"])
+    payload = json.loads(result.stdout)
+
+    assert payload["workflow"]["status"] == "written"
+    why = payload["control"]["next_action"]["why"]
+    assert "Nothing was written" not in why
+    assert "The CI workflow was written" in why
+    assert "The manifest was not" in why
+    # One route across both surfaces, as everywhere else.
+    assert payload["next_actions"][0]["why"] == why
+
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    bare = json.loads(
+        runner.invoke(app, ["init", "--workspace", str(plain), "--json"]).stdout
+    )
+    assert bare["control"]["next_action"]["why"].startswith("The manifest was not written.")

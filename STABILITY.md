@@ -20,14 +20,28 @@ for reproducible CI.
 Runtime contract `23 → 24`. `minimum_control_contract_version` **stays at 21**,
 and the `AgentControl` union is byte-identical to v21.
 
-A typed `edit` action was added to that union for setup routing and then
-removed. The union is embedded by six durable published schemas — verifier,
-agent-handoff, preflight, agent-result, agent-boundary-result, and verify-run —
-so widening it widened all six under unchanged identifiers, and five of those
-artifacts record no `contract_version` for a consumer holding a stored payload to
-disambiguate with. A setup step that needs a file changed routes as a `configure`
-command naming the check that confirms it, with the file in `why` and
-structurally in `next_actions[].path`.
+A typed `edit` action was added to that union for setup routing and then removed
+*from the union*. The union is embedded by six durable published schemas —
+verifier, agent-handoff, preflight, agent-result, agent-boundary-result, and
+verify-run — so widening it widened all six under unchanged identifiers, and five
+of those artifacts record no `contract_version` for a consumer holding a stored
+payload to disambiguate with.
+
+The two surfaces therefore say the same step differently, and a reader needs both
+halves:
+
+- **The emitted envelope** (`shipgate.agent_control/v1`, stdout only) publishes
+  the edit itself: `control.next_action` is `{"kind": "edit", "path": …,
+  "expects": …, "command": null}`, declared as `SetupEditAction` on this document
+  alone. **`control.next_action.path` is the file to open**, exact and
+  unnormalized. This is the field to route on.
+- **The shared `AgentControl` object** those durable artifacts embed cannot hold
+  that variant, so it carries the `configure` command that *checks* the edit,
+  with the file named in `why`.
+
+Routing an envelope-only consumer at the check alone was tried and withdrawn: it
+re-ran `doctor` against an unchanged file and returned the identical action
+forever.
 
 What v24 does widen is `shipgate.agent_control/v1` itself — new `operation`
 values, `decision_source: "setup"`, and closed per-source `decision`
@@ -35,7 +49,7 @@ vocabularies. That document is emitted on stdout and never written as an
 artifact, so there are no stored envelopes to disambiguate and its new
 operations cannot appear in anything a v21 consumer holds.
 
-**One routing behaviour changes**, and it is not additive:
+**Two routing behaviours change**, and neither is additive:
 
 - `init --write` no longer names a runnable `scan` in `next_action` when the
   manifest it wrote still holds an unresolved human-owned declaration. Both
@@ -44,6 +58,12 @@ operations cannot appear in anything a v21 consumer holds.
   published an executable command that would carry an unfilled
   `agent.declared_purpose` into a release decision, beside a control state that
   authorized nothing (#325).
+- A remediation with no faithful argv form — a leading `NAME=VALUE` assignment,
+  or a `<placeholder>` — routes the *envelope* to a human rather than into
+  `control.next_action.command`. `next_actions[]` is unaffected: `NextAction`
+  already withholds its computed `executable`/`args` pair in that case and lets
+  the rendered string stand, which is an option the envelope's command field
+  does not have.
 
 **`detect --json`, `init --json`, and every `doctor --json` payload gain a
 `control` field.** It holds the same `shipgate.agent_control/v1` envelope that
@@ -1003,7 +1023,7 @@ Stable JSON fields:
 
 - `contract_version` — version of the contract-command payload shape.
 - `minimum_control_contract_version` — minimum contract version whose
-  `AgentControl` state is authoritative; currently `"20"`.
+  `AgentControl` state is authoritative; currently `"21"`.
 - `cli_version` — installed Agents Shipgate version.
 - `report_schema_version` — current report schema version from
   `ReadinessReport`.

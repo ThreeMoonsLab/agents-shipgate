@@ -438,6 +438,17 @@ NonEmptyText = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, pattern=_NON_BLANK),
 ]
 
+# A path is operated on, not read. ``NonEmptyText`` normalizes the value it
+# validates, and normalization is only safe for prose: a filename may legally
+# begin or end with a space on every POSIX filesystem, so stripping made the
+# envelope name a *different* file than the ranked action it projects — the
+# diagnostic said `' manifest.yaml '` and the envelope said `'manifest.yaml'`.
+# Same non-blank floor, no rewrite.
+ExactPath = Annotated[
+    str,
+    StringConstraints(min_length=1, pattern=_NON_BLANK),
+]
+
 
 class SetupEditAction(BaseModel):
     """A file a setup command needs changed, typed rather than described.
@@ -472,7 +483,9 @@ class SetupEditAction(BaseModel):
     actor: Literal["coding_agent"] = "coding_agent"
     kind: Literal["edit"]
     command: None = None
-    path: NonEmptyText
+    # Exact, byte for byte: this names the file to open. ``expects`` is checked
+    # and ``why`` is read, so both may be normalized prose.
+    path: ExactPath
     expects: NonEmptyText
     why: NonEmptyText
 
@@ -849,6 +862,8 @@ __all__ = [
     "AgentControlPendingReview",
     "AgentControlSource",
     "CompleteControlEnvelope",
+    "EnvelopeCodingAgentAction",
+    "ExactPath",
     "HumanReviewRequiredControlEnvelope",
     "ReviewPublishableControlEnvelope",
     "SetupEditAction",

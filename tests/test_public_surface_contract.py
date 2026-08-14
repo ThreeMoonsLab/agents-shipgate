@@ -3688,6 +3688,23 @@ def test_discovery_and_runtime_publish_the_same_compatibility_floor():
     )
     assert stamp in _read("docs/agent-contract-current.md")
 
+    # ...and the two prose copies of the same floor. Both are read as
+    # prerequisites — STABILITY.md documents the field, README.md tells an
+    # adopter what to check `contract --json` against — so a consumer following
+    # either accepted a pre-v21 control reader while the runtime required 21.
+    # Every *current* statement of the floor is asserted; the historical
+    # migration notes keep the version they shipped with, which is the point of
+    # a migration note.
+    assert (
+        "`AgentControl` state is authoritative; currently "
+        f'`"{MINIMUM_CONTROL_CONTRACT_VERSION}"`' in _read("STABILITY.md")
+    )
+    assert (
+        "the permission-scoped agent-control model requires "
+        f'`minimum_control_contract_version: "{MINIMUM_CONTROL_CONTRACT_VERSION}"`'
+        in _read("README.md")
+    )
+
 
 def test_the_control_union_stays_out_of_the_durable_schemas_it_is_embedded_in():
     """Six published schemas embed `AgentControl`; widening it widens all six.

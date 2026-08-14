@@ -341,6 +341,38 @@
   `doctor` loaded a *different*, valid manifest, reported `setup_complete`, and
   recommended verify — while `scan` on the same file exited 4. Setup and the
   gate now validate the same input language.
+- **The envelope only calls a string a command when something can run it.** A
+  diagnostic's remediation is an instruction for a reader as often as it is an
+  invocation: the unknown-adapter routes read
+  `AGENTS_SHIPGATE_ENABLE_PLUGINS=1 agents-shipgate scan …`, a shell assignment
+  `shlex.split` turns into a program literally named
+  `AGENTS_SHIPGATE_ENABLE_PLUGINS=1`, and `pip install
+  <third-party-adapter-package>`, a placeholder nobody can install. Both were
+  promoted verbatim into `control.next_action.command` under
+  `agent_action_required` — a route whose single step cannot be taken. Such a
+  remediation now routes to a human, carrying the string as prose. This stops at
+  the envelope: `next_actions[]` keeps the diagnostic's own action, because
+  `NextAction` already withholds its computed `executable`/`args` pair for a
+  string with no faithful argv while letting the rendered string stand, and the
+  envelope has no equivalent way to publish an instruction that is not argv.
+- **`control.next_action.path` names the file byte for byte.** The envelope's
+  text type normalizes what it validates, which is safe for prose and not for a
+  path: a filename may legally begin or end with a space, so `' manifest.yaml '`
+  in a diagnostic became `'manifest.yaml'` in the envelope and the two rank-1
+  projections pointed at two files. The prose cap now covers the setup edit's
+  `why` as well, which had routed around it and published 1,134 bytes on a
+  contract that documents 400.
+- **Every `doctor --json` payload carries the route, including the earliest
+  failure.** A `--config` glob that matched nothing raised before the projection
+  and returned the legacy error shape alone, with no `control`,
+  `decision_source`, or `input_id` — the one counterexample to the promise this
+  rollout rests on. That branch now projects a denied setup envelope, and the
+  failure identity covers the route it publishes rather than only the defect
+  that caused it, so the same rejected workspace read through two entry points
+  no longer answers under one `input_id`.
+- **A dry run that wrote the CI workflow no longer says nothing was written.**
+  `--ci` is orthogonal to `--write`, so `init --ci --json` reported
+  `workflow.status: "written"` a few fields above a `why` claiming otherwise.
 
 - **`scan` is outside this rollout, and now says so.** `agent control` after a
   scan reports `decision: null` with a `reason` stating the verdict is

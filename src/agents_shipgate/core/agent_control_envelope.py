@@ -60,6 +60,7 @@ from agents_shipgate.schemas.agent_control_envelope import (
     AgentControlPendingReview,
     AgentControlSource,
     CompleteControlEnvelope,
+    EnvelopeCodingAgentAction,
     HumanReviewRequiredControlEnvelope,
     ReviewPublishableControlEnvelope,
     SetupEditAction,
@@ -127,7 +128,7 @@ def project_agent_control_envelope(
         "current_control_id": current_control_id,
         "artifacts": dict(artifacts or {}),
     }
-    action = setup_edit or _bounded_action(control.next_action)
+    action = _bounded_action(setup_edit or control.next_action)
     review = _bounded_human_review(control.human_review)
 
     # One variant per control state, selected from the tag the union already
@@ -564,7 +565,9 @@ def _artifact_refs(
     }
 
 
-def _bounded_action(action: AgentControlAction | None) -> AgentControlAction | None:
+def _bounded_action(
+    action: EnvelopeCodingAgentAction | AgentControlAction | None,
+) -> EnvelopeCodingAgentAction | AgentControlAction | None:
     """Cap the action's prose without ever touching its command or expectation."""
 
     if action is None:
@@ -572,9 +575,14 @@ def _bounded_action(action: AgentControlAction | None) -> AgentControlAction | N
     why = truncate_prose(action.why)
     if why == action.why:
         return action
-    if isinstance(action, (CodingAgentCommandAction, *COMMANDLESS_CODING_AGENT_ACTIONS)):
-        # ``command`` and ``expects`` are executed and checked, not read, so the
-        # cap applies to ``why`` alone.
+    if isinstance(
+        action, (CodingAgentCommandAction, SetupEditAction, *COMMANDLESS_CODING_AGENT_ACTIONS)
+    ):
+        # ``command``, ``path`` and ``expects`` are executed, opened and checked,
+        # not read, so the cap applies to ``why`` alone. The setup edit is in
+        # this branch for exactly that reason: its ``why`` is a diagnostic
+        # message and can be any length, and routing it around the cap published
+        # a 1,134-byte field on a contract that documents 400.
         return action.model_copy(update={"why": why})
     if isinstance(action, HumanReviewAction):
         return HumanReviewAction(why=why)

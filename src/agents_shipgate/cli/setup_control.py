@@ -46,6 +46,7 @@ from agents_shipgate.cli.diagnostics import ranked_diagnostics
 from agents_shipgate.cli.discovery.placeholders import human_owned_placeholders
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_control_envelope import envelope_from_setup
+from agents_shipgate.invocation import split_invocation
 from agents_shipgate.schemas.agent_control import (
     AgentActionKind,
     AgentControl,
@@ -288,7 +289,22 @@ def setup_control_envelope(
         kind, decision = "configure", advance_decision
 
     setup_edit: SetupEditAction | None = None
-    if selected.kind in {"review", "stop"}:
+    unrunnable = _unrunnable_command(selected)
+    if unrunnable is not None:
+        # The ranked list keeps the diagnostic's own action. `NextAction`
+        # already handles a string with no faithful argv the honest way — it
+        # withholds the computed `executable`/`args` pair and lets the rendered
+        # string carry the instruction (#322) — so nothing there is claiming
+        # more than it can deliver. The envelope has no such escape hatch:
+        # `next_action.command` *is* the step, and there is no way to publish a
+        # command while withholding the fact that it runs. So the control route
+        # becomes the human one, carrying the same string as prose.
+        actions = [selected, *(item for item in alternatives if item is not selected)][:3]
+        control: AgentControl = _human_route(
+            f"{selected.why} The remediation is not a runnable command as "
+            f"written: {unrunnable}"
+        )
+    elif selected.kind in {"review", "stop"}:
         # A human route drops the *diagnostic* alternatives: re-offering the
         # very obligation being routed to a person as an agent-executable edit,
         # one position down the list, is the bypass this precedence exists to
@@ -350,6 +366,33 @@ def _route_for(diagnostic: Diagnostic) -> tuple[NextAction, AgentActionKind, str
         )
     decision = SETUP_NOT_APPLICABLE if action.kind == "stop" else SETUP_INCOMPLETE
     return action, SETUP_ACTION_KINDS.get(diagnostic.id, "configure"), decision
+
+
+def _unrunnable_command(action: NextAction) -> str | None:
+    """The command this action names, when nothing can actually run it.
+
+    A diagnostic's ``command`` is an instruction for a reader as often as it is
+    an invocation: the unknown-adapter routes read
+    ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1 agents-shipgate scan …`` — a shell
+    assignment, which ``shlex.split`` turns into a program literally named
+    ``AGENTS_SHIPGATE_ENABLE_PLUGINS=1`` — and ``pip install
+    <third-party-adapter-package>``, a placeholder nobody can install. Promoting
+    either into ``control.next_action.command`` published an
+    ``agent_action_required`` route whose single step cannot be taken, which is
+    worse than publishing no command at all: on that contract the field *is* the
+    step.
+
+    ``split_invocation`` already answers this question for #322 using the same
+    grammar the commands are rendered with, so this is one parser rather than a
+    second guess at what looks runnable. It is also why the fix stops at the
+    envelope: ``NextAction`` handles the same case by withholding its computed
+    ``executable``/``args`` pair while keeping the string, and the envelope has
+    no equivalent way to say "here is the instruction, but it is not argv".
+    """
+
+    if action.kind != "command" or not action.command:
+        return None
+    return None if split_invocation(action.command) is not None else action.command
 
 
 def _agent_route(
@@ -523,7 +566,12 @@ def _field_path(entry: Mapping[str, object]) -> str:
 
 
 def _commands(action: NextAction) -> list[str]:
-    return [action.command] if action.kind == "command" and action.command else []
+    # Same faithfulness test as the rank-1 route: `allowed_next_commands` is an
+    # allow-list of things the agent may run, so a string with no argv form has
+    # no business in it either.
+    if action.kind != "command" or not action.command:
+        return []
+    return [action.command] if split_invocation(action.command) is not None else []
 
 
 def _emit(
