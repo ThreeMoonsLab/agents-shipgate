@@ -81,6 +81,7 @@ from agents_shipgate.schemas.report import (
     EvidenceGap,
     EvidenceGapAction,
     FailPolicy,
+    Finding,
     ReadinessReport,
     ReleaseDecision,
     ReleaseDecisionItem,
@@ -1223,6 +1224,60 @@ def test_fix_task_still_treats_review_only_warnings_as_prose(
 
 
 # --- the published contract matches the implementation -----------------------
+
+
+def test_review_required_first_action_can_be_apply_patches_despite_an_addressable_gap():
+    """The contract's own counterexample, pinned beside the contract.
+
+    Branch precedence puts auto-apply ahead of gap-naming when evidence is not
+    below the IE threshold, so on `review_required` an addressable gap does
+    *not* guarantee `first_recommended_action` names it. The published
+    guidance claimed it did (#362 review 2, finding 4); this test is what
+    stops the doc and the picker drifting apart again. Companion to
+    `test_review_required_sub_threshold_evidence_keeps_auto_apply`, which pins
+    the routing itself.
+    """
+
+    finding = Finding(
+        id="f1",
+        check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
+        title="stale",
+        severity="medium",
+        category="manifest",
+        recommendation="Remove the stale suppression.",
+        agent_action="auto_apply",
+        provenance_kind="static_declaration",
+    )
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=0,
+        # 2 low-confidence tools out of 10 is *below* ceil(10*0.5)=5, so the
+        # scan is not degraded and auto-apply keeps precedence.
+        low_confidence_tool_count=2,
+        evidence_gaps=[
+            _gap(
+                "missing_binding_evidence",
+                "spraay_batch_eth",
+                path="shipgate.yaml#agent_bindings.declarations",
+            )
+        ],
+    )
+    decision = _release_decision("review_required", evidence)
+
+    summary = build_agent_summary(
+        findings=[finding],
+        release_decision=decision,
+        json_report_path="/abs/agents-shipgate-reports/report.json",
+        tool_count=10,
+    )
+
+    action = summary.first_recommended_action
+    assert action is not None
+    assert action.kind == "command"
+    assert "apply-patches" in (action.command or "")
+    # The gap is still surfaced as context — it is simply not the action.
+    assert "evidence" in action.why.lower()
 
 
 def test_reason_stays_severity_driven_on_review_required_with_an_addressable_gap():
