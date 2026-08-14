@@ -3680,6 +3680,14 @@ def test_discovery_and_runtime_publish_the_same_compatibility_floor():
     assert published["contract_version"] == CONTRACT_VERSION
     assert published["minimum_control_contract_version"] == MINIMUM_CONTROL_CONTRACT_VERSION
 
+    # ...and the canonical contract page, which said 24 while the runtime said
+    # 21, so a consumer following it rejected the very build it documents.
+    stamp = (
+        f"- Runtime contract: `{CONTRACT_VERSION}` "
+        f"(minimum control contract: `{MINIMUM_CONTROL_CONTRACT_VERSION}`)"
+    )
+    assert stamp in _read("docs/agent-contract-current.md")
+
 
 def test_the_control_union_stays_out_of_the_durable_schemas_it_is_embedded_in():
     """Six published schemas embed `AgentControl`; widening it widens all six.

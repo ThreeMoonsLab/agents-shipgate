@@ -57,6 +57,7 @@ from agents_shipgate.schemas.agent_control_envelope import (
     MAX_ENVELOPE_PROSE_BYTES,
     AgentControlEnvelope,
     AgentControlExecution,
+    SetupEditAction,
 )
 from agents_shipgate.schemas.diagnostics import (
     DIAG_CHANGE_ME_PLACEHOLDERS,
@@ -286,6 +287,7 @@ def setup_control_envelope(
         selected = NextAction(kind="review", why=reason)
         kind, decision = "configure", advance_decision
 
+    setup_edit: SetupEditAction | None = None
     if selected.kind in {"review", "stop"}:
         # A human route drops the *diagnostic* alternatives: re-offering the
         # very obligation being routed to a person as an agent-executable edit,
@@ -302,9 +304,10 @@ def setup_control_envelope(
         control: AgentControl = _human_route(selected.why, stop=selected.kind == "stop")
     else:
         actions = [selected, *(item for item in alternatives if item is not selected)][:3]
+        route, setup_edit = _agent_route(selected, kind, recheck_command)
         control = derive_agent_control(
             reason=reason,
-            next_action=_agent_route(selected, kind, recheck_command),
+            next_action=route,
             verify_required=kind == "verify",
             # Deduplicated here rather than left to the union's uniqueness
             # validator to reject: two diagnostics naming the same rerun is
@@ -321,6 +324,7 @@ def setup_control_envelope(
             input_id=input_id,
             execution=execution,
             exit_code=exit_code,
+            setup_edit=setup_edit,
         ),
         actions=actions,
     )
@@ -350,35 +354,46 @@ def _route_for(diagnostic: Diagnostic) -> tuple[NextAction, AgentActionKind, str
 
 def _agent_route(
     action: NextAction, kind: AgentActionKind, recheck_command: str | None
-) -> AgentControlAction:
-    """Type the command's own rank-1 step as a coding-agent control action.
+) -> tuple[AgentControlAction, SetupEditAction | None]:
+    """Type the command's own rank-1 step, and say what the envelope publishes.
 
-    An ``edit`` diagnostic becomes a command action naming the check that
-    confirms the edit, with the file named in ``why``. A typed ``edit`` variant
-    lived in the union briefly and was removed: that union is embedded by six
-    durable published schemas, so widening it widened all of them under
-    unchanged identifiers. The exact path is not lost — it stays structural in
-    ``next_actions[].path``, which is where ``docs/diagnostics.md`` has always
-    published one, and the ranked list travels in the same payload.
+    Returns the control action *and*, for a file edit, the typed
+    :class:`SetupEditAction` the envelope carries in its place.
 
-    The command is deliberately the *check* rather than the fix, because there
-    is no command that performs the fix. Running it before editing re-reports
-    the same route; ``why`` names the file first, so an agent following the
-    action in order edits and then confirms. Every other producer in this
-    system routes agent work the same way — a verifier repair is always a
-    command with its instruction in prose.
+    The two differ because the shared ``AgentControl`` union cannot hold an edit
+    — six durable published schemas embed it — while the envelope, which is
+    stdout-only, can. So the control holds the command that *checks* the edit,
+    which is what fixes the state and permissions, and the envelope publishes
+    the edit itself.
+
+    Substituting the check for the edit outright was tried and is wrong: an
+    envelope-only consumer executing ``control.next_action`` re-ran ``doctor``
+    against an unchanged file and received the identical action back forever,
+    with the instruction surviving only in ``why``. A route the contract calls
+    executable has to be the step, not its postcondition.
     """
 
     if action.kind == "command" and action.command:
-        return CodingAgentCommandAction(kind=kind, command=action.command, why=action.why)
+        return (
+            CodingAgentCommandAction(kind=kind, command=action.command, why=action.why),
+            None,
+        )
     if action.kind == "edit" and action.path:
         if recheck_command is None:
             raise ValueError("an edit route needs the command that confirms it")
-        expects = f" {action.expects}" if action.expects else ""
-        return CodingAgentCommandAction(
-            kind=kind,
-            command=recheck_command,
-            why=f"Edit {action.path}. {action.why}{expects}",
+        expects = action.expects or f"{recheck_command} reports the file as resolved."
+        return (
+            CodingAgentCommandAction(
+                kind=kind,
+                command=recheck_command,
+                why=f"Edit {action.path}. {action.why}",
+            ),
+            SetupEditAction(
+                kind="edit",
+                path=action.path,
+                expects=expects,
+                why=action.why,
+            ),
         )
     # A ``review``/``stop`` action reaching here would already have been routed
     # to a human by the caller; anything else is a malformed diagnostic.
@@ -519,6 +534,7 @@ def _emit(
     input_id: str,
     execution: AgentControlExecution,
     exit_code: int | None,
+    setup_edit: SetupEditAction | None = None,
 ) -> AgentControlEnvelope:
     return envelope_from_setup(
         control,
@@ -527,6 +543,7 @@ def _emit(
         input_id=input_id,
         execution=execution,
         exit_code=exit_code,
+        setup_edit=setup_edit,
     )
 
 

@@ -79,13 +79,12 @@ These are declarations a person makes; the same rule already governs
 can legitimately resolve from the repository — a tool-source path, a project
 name — stay coding-agent work.
 
-**`next_action` gains `kind: "edit"`.** A typed coding-agent step carrying
-`path` and `expects` and no `command`, for work that is unambiguously the
-agent's and has no executable form. It widens the shared coding-agent action
-union, which is why the control floor moves. The frozen
-`shipgate.codex_boundary_result/v2` schema is unchanged — it now snapshots its
-own action union instead of tracking the live one, and an `edit` route reaching
-it collapses to the universal human stop.
+**`next_action` can be `kind: "edit"` — on setup operations only.** A typed
+coding-agent step carrying `path` and `expects` and no `command`, for work that
+is unambiguously the agent's and has no executable form. It is declared as
+`SetupEditAction` on the *envelope* rather than in the shared `AgentControl`
+union, so the six durable schemas that embed that union are untouched, and both
+layers reject an edit route on any operation but `detect`/`init`/`doctor`.
 
 **Human-owned declarations cover every `do_not_auto_assert` surface with a
 manifest spelling.** Unresolved placeholders under `agent_bindings`,

@@ -347,8 +347,10 @@ line, and field: those are declarations a person makes, and an agent must never
 supply them.
 
 `next_action` may be `kind: "edit"` on these commands — a typed coding-agent
-step with `path` and `expects` and no command. It appears only on setup output;
-`verify`, `check`, and `agent control` never return it.
+step with `path` and `expects` and no command. It appears only on setup output:
+`verify`, `check`, and `agent control` cannot return it, and the published schema
+rejects it on any other operation. `permissions.edit` is `false` beside it, which
+is not a contradiction — a setup route authorizes only its own `next_action`.
 
 `next_action` and `next_actions[0]` are **derived from the same selected route**
 as `control.next_action`, so the compact envelope and the ranked list can never

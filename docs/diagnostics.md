@@ -259,7 +259,9 @@ it is derived from the manifest on every run, never remembered.
 `NextAction.kind` maps to the control action type: `command` becomes a
 `CodingAgentCommandAction` whose `kind` comes from
 `setup_control.SETUP_ACTION_KINDS` (one entry per diagnostic id, pinned by
-test), `edit` becomes the contract-v24 `CodingAgentEditAction`, and
+test), `edit` becomes the contract-v24 `SetupEditAction` — declared on the
+envelope, not in the shared control union, and rejected on any non-setup
+operation — and
 `review`/`stop` become human routes.
 
 **Human-owned placeholders.** A placeholder is human-owned when any segment of

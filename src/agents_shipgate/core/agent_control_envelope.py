@@ -62,6 +62,7 @@ from agents_shipgate.schemas.agent_control_envelope import (
     CompleteControlEnvelope,
     HumanReviewRequiredControlEnvelope,
     ReviewPublishableControlEnvelope,
+    SetupEditAction,
     truncate_prose,
 )
 from agents_shipgate.schemas.agent_result import AgentResultV2
@@ -87,12 +88,30 @@ def project_agent_control_envelope(
     pending_review: Sequence[AgentControlPendingReview] = (),
     current_control_id: str | None = None,
     artifacts: Mapping[str, AgentControlArtifactRef] | None = None,
+    setup_edit: SetupEditAction | None = None,
 ) -> AgentControlEnvelope:
     """Project one authoritative control object onto the compact envelope.
 
     The only transformation applied to anything is the prose cap in
-    :func:`truncate_prose`. Every other field is a copy.
+    :func:`truncate_prose`. Every other field is a copy — with one exception,
+    fenced so that it cannot become a habit.
+
+    ``setup_edit`` replaces the *action* on a setup route with the typed edit
+    that action stands for. The shared union cannot carry an edit (see
+    :class:`SetupEditAction`), so the underlying control holds the command that
+    checks the edit, and the envelope publishes the edit itself. Nothing about
+    authority moves: the state, the permission vector, and the human-review
+    shape all still come from ``control``, and the substitution is refused
+    outside a setup operation on an agent route.
     """
+
+    if setup_edit is not None and (
+        operation not in SETUP_OPERATIONS or control.state != "agent_action_required"
+    ):
+        raise ValueError(
+            "a typed edit route is only publishable on a setup operation's "
+            "coding-agent route"
+        )
 
     shared = {
         "contract_version": CONTRACT_VERSION,
@@ -108,7 +127,7 @@ def project_agent_control_envelope(
         "current_control_id": current_control_id,
         "artifacts": dict(artifacts or {}),
     }
-    action = _bounded_action(control.next_action)
+    action = setup_edit or _bounded_action(control.next_action)
     review = _bounded_human_review(control.human_review)
 
     # One variant per control state, selected from the tag the union already
@@ -266,6 +285,7 @@ def envelope_from_setup(
     input_id: str,
     execution: AgentControlExecution = "succeeded",
     exit_code: int | None = None,
+    setup_edit: SetupEditAction | None = None,
 ) -> AgentControlEnvelope:
     """Project a setup command — ``detect``, ``init``, ``doctor`` — onto the envelope.
 
@@ -311,6 +331,7 @@ def envelope_from_setup(
         decision=decision,
         decision_source="setup",
         input_id=input_id,
+        setup_edit=setup_edit,
     )
 
 
@@ -453,6 +474,9 @@ def control_headline_lines(envelope: AgentControlEnvelope) -> list[str]:
             # these headline lines print first — reusing the prefix would put a
             # `Run:` above the remediation it is not the remediation for.
             lines.append(f"Next command: {single_line_text(action.command)}")
+        elif isinstance(action, SetupEditAction):
+            lines.append(f"Next edit: {single_line_text(action.path)}")
+            lines.append(f"Expected: {single_line_text(action.expects)}")
         elif isinstance(action, CodingAgentFetchBaseAction):
             lines.append(f"Provide: {single_line_text(action.expects)}")
     return lines

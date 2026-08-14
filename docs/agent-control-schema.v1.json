@@ -407,6 +407,33 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "next_action": {
+                "properties": {
+                  "kind": {
+                    "const": "edit"
+                  }
+                }
+              }
+            },
+            "required": [
+              "next_action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "detect",
+                  "init",
+                  "doctor"
+                ]
+              }
+            }
+          }
         }
       ],
       "description": "One exact coding-agent-owned step remains.\n\n``permissions`` admits two vectors because the route decides: a step that\nruns before any diff was read authorizes nothing beyond itself, while a step\ntaken on an evaluated change keeps publication authority. Both deny merge.",
@@ -502,7 +529,7 @@
           "title": "Input Id"
         },
         "next_action": {
-          "$ref": "#/$defs/CodingAgentAction"
+          "$ref": "#/$defs/EnvelopeCodingAgentAction"
         },
         "next_actor": {
           "const": "coding_agent",
@@ -1194,6 +1221,49 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "release_decision"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "passed"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decision_source": {
+                "const": "agent_boundary"
+              }
+            },
+            "required": [
+              "decision_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "enum": [
+                  "allow",
+                  "warn"
+                ]
+              }
+            }
+          }
         }
       ],
       "description": "The coding agent may merge and report the task complete.\n\nEvery authority-bearing field is pinned by the tag. ``execution`` narrows to\nthe statuses a completed evaluation can have, which is what makes\n\"a failed run can never authorize completion\" a schema rule rather than a\nvalidator a JSON Schema consumer never runs.",
@@ -1351,6 +1421,30 @@
       ],
       "title": "CompleteControlEnvelope",
       "type": "object"
+    },
+    "EnvelopeCodingAgentAction": {
+      "discriminator": {
+        "mapping": {
+          "configure": "#/$defs/CodingAgentAction",
+          "discover": "#/$defs/CodingAgentAction",
+          "edit": "#/$defs/SetupEditAction",
+          "fetch_base": "#/$defs/CodingAgentAction",
+          "initialize": "#/$defs/CodingAgentAction",
+          "install": "#/$defs/CodingAgentAction",
+          "repair": "#/$defs/CodingAgentAction",
+          "rerun": "#/$defs/CodingAgentAction",
+          "verify": "#/$defs/CodingAgentAction"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CodingAgentAction"
+        },
+        {
+          "$ref": "#/$defs/SetupEditAction"
+        }
+      ]
     },
     "FullAgentPermissions": {
       "additionalProperties": false,
@@ -2774,6 +2868,56 @@
         "artifacts"
       ],
       "title": "ReviewPublishableControlEnvelope",
+      "type": "object"
+    },
+    "SetupEditAction": {
+      "additionalProperties": false,
+      "description": "A file a setup command needs changed, typed rather than described.\n\nDeclared **here** rather than in :mod:`agents_shipgate.schemas.agent_control`,\nand that placement is the whole design. The action union in that module is\nembedded by six durable published schemas \u2014 verifier, agent-handoff,\npreflight, agent-result, agent-boundary-result, verify-run \u2014 and five of those\nartifacts record no ``contract_version``, so widening it changes six stored\ncontracts a consumer cannot disambiguate. This envelope is emitted on stdout\nand never written as an artifact, so widening *it* changes nothing anybody\nholds.\n\nThe alternative tried first was to route an edit as the command that *checks*\nit. That is not the same work: an envelope-only consumer executing\n``control.next_action`` re-ran ``doctor`` against an unchanged file and got\nthe identical action back forever, with the actual instruction surviving only\nin ``why`` \u2014 rationale, not a typed step. A route the contract calls\nexecutable has to be the step, not its postcondition.\n\n``permissions.edit`` is ``false`` beside this, and that is not a\ncontradiction: the vector describes authority over *the change under review*,\nand a setup route \"authorizes only the named ``next_action``\" \u2014 the rule\n``NoAgentPermissions`` already states.",
+      "properties": {
+        "actor": {
+          "const": "coding_agent",
+          "default": "coding_agent",
+          "title": "Actor",
+          "type": "string"
+        },
+        "command": {
+          "default": null,
+          "title": "Command",
+          "type": "null"
+        },
+        "expects": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Expects",
+          "type": "string"
+        },
+        "kind": {
+          "const": "edit",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Path",
+          "type": "string"
+        },
+        "why": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "kind",
+        "command",
+        "path",
+        "expects",
+        "why"
+      ],
+      "title": "SetupEditAction",
       "type": "object"
     }
   },

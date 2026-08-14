@@ -441,7 +441,12 @@ def _manifest_placeholders(
             # Unreadable is not "clean". Fall back to the template's obligations
             # rather than reporting an unverified all-clear.
             return placeholders, None, str(exc)
-        text = data.decode("utf-8", errors="replace")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            # A manifest that is not UTF-8 is not a manifest. Replacing the bad
+            # bytes would hand the route a *different*, valid document.
+            return [], data, f"{target} is not valid UTF-8: {exc}"
         return collect_placeholders(text), data, _manifest_defect(text)
     return [], None, None
 
@@ -1063,18 +1068,37 @@ def register(app: typer.Typer) -> None:
             else None,
             scope_actions=scope_actions,
             manifest_defect=manifest_defect,
+            # Everything this invocation asked for, so the follow-up is
+            # equivalent to the dry run it advances. `_requested_setup_flags`
+            # covers what the *scoped refusal* must repeat; the dry run re-runs
+            # this same workspace, so it owes more:
+            #
+            #   --minimal                 selects a different template, so
+            #                             dropping it writes something other
+            #                             than what was previewed;
+            #   --allow-unresolved-scope  the accepted root boundary, without
+            #                             which the command exits 2 in the very
+            #                             monorepo that needed it;
+            #   --agent-instructions-kit  the kit that was previewed;
+            #   --json                    the caller is in the JSON control
+            #                             loop and gets human prose back.
+            #
+            # The scoped refusal deliberately repeats none of the last three:
+            # there the point is to choose a *different* workspace.
             setup_flags=[
+                *(["--minimal"] if minimal else []),
                 *_requested_setup_flags(
                     ci=ci,
                     claude_code=claude_code,
                     agent_instructions=agent_instructions,
                 ),
-                # Only for the dry run, which re-runs *this* workspace: an
-                # accepted root scope is part of what the caller asked for, and
-                # dropping it makes the emitted command exit 2 in the monorepo
-                # that needed it. The scoped-refusal recovery deliberately does
-                # not repeat it — there the point is to choose a project.
                 *(["--allow-unresolved-scope"] if allow_unresolved_scope else []),
+                *(
+                    ["--agent-instructions-kit", str(agent_instructions_kit)]
+                    if agent_instructions_kit is not None
+                    else []
+                ),
+                *(["--json"] if json_output else []),
             ],
         )
         routing = setup_control_envelope(
@@ -1091,6 +1115,14 @@ def register(app: typer.Typer) -> None:
                     control_placeholders,
                     manifest_defect,
                     advance_decision,
+                    # The selected route itself. On one unchanged empty
+                    # workspace a plain dry run, `--ci`, and
+                    # `--agent-instructions=agents-md` produced three different
+                    # commands under one identity — so a cache keyed by the
+                    # documented identity could reuse a different requested
+                    # setup. Hashing the action covers every flag that can
+                    # reach it, including ones added later.
+                    advance.model_dump(mode="json") if advance is not None else None,
                     # The #370 scope facts select this route whenever the
                     # workspace holds more than one project; without them the
                     # candidate list could change while the identity of the

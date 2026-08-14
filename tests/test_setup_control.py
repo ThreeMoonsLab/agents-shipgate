@@ -240,14 +240,17 @@ def test_every_diagnostic_states_the_kind_of_step_it_asks_for():
     assert set(SETUP_ACTION_KINDS) == set(ALL_DIAGNOSTIC_IDS)
 
 
-def test_an_agent_owned_edit_routes_to_the_check_that_confirms_it():
+def test_an_agent_owned_edit_is_a_typed_route_the_envelope_publishes():
     """A manifest the loader rejected is the agent's to fix, not a human's.
 
-    There is no command that performs the fix, so the control action names the
-    command that *confirms* it and puts the file in ``why``. The exact path stays
-    structural in ``next_actions[].path``, which is where ``docs/diagnostics.md``
-    publishes one — the control union deliberately has no ``edit`` variant,
-    because six durable schemas embed it.
+    The envelope publishes the edit itself — ``kind: "edit"`` with ``path`` and
+    ``expects``. Substituting the command that merely *checks* the edit was
+    tried: an envelope-only consumer executing it re-ran ``doctor`` against an
+    unchanged file and got the identical action back forever, with the
+    instruction surviving only in ``why``.
+
+    The typed action lives on the envelope rather than in ``AgentControl``,
+    because six durable schemas embed that union.
     """
 
     routing = setup_control_envelope(
@@ -261,12 +264,36 @@ def test_an_agent_owned_edit_routes_to_the_check_that_confirms_it():
 
     assert payload["control_state"] == "agent_action_required"
     assert payload["next_actor"] == "coding_agent"
-    assert payload["next_action"]["kind"] == "configure"
-    assert payload["next_action"]["command"] == "agents-shipgate doctor -c shipgate.yaml --json"
-    assert payload["next_action"]["why"].startswith("Edit shipgate.yaml.")
-    # The structured location travels in the ranked list beside it.
+    assert payload["next_action"]["kind"] == "edit"
+    assert payload["next_action"]["path"] == "shipgate.yaml"
+    assert payload["next_action"]["command"] is None
+    assert payload["next_action"]["expects"]
+    assert not list(_PUBLISHED_SCHEMA.iter_errors(payload))
+    # The ranked list names the same work.
     assert routing.actions[0].kind == "edit"
     assert routing.actions[0].path == "shipgate.yaml"
+
+
+def test_only_setup_may_publish_an_edit_route():
+    """An edit route on a gate operation is a payload no producer can emit."""
+
+    routing = setup_control_envelope(
+        operation="doctor",
+        input_id="sha256:" + "0" * 64,
+        reason="Manifest exists but failed to load",
+        diagnostics=diagnose_invalid_manifest(Path("shipgate.yaml"), message="bad yaml"),
+        recheck_command="agents-shipgate doctor -c shipgate.yaml --json",
+    )
+    payload = json.loads(render_agent_control_envelope(routing.envelope))
+
+    _reject_both_layers(
+        {
+            **payload,
+            "operation": "verify",
+            "decision_source": "release_decision",
+            "decision": "review_required",
+        }
+    )
 
 
 def test_an_unresolved_human_owned_placeholder_routes_to_a_human():
@@ -330,7 +357,7 @@ def test_a_blocking_diagnostic_outranks_the_placeholder_obligation():
     )
 
     assert payload["control_state"] == "agent_action_required"
-    assert payload["next_action"]["kind"] == "configure"
+    assert payload["next_action"]["kind"] == "edit"
 
 
 def test_a_workspace_with_no_agent_surface_is_reported_as_not_applicable():
@@ -638,7 +665,7 @@ def test_an_instruction_refresh_over_an_existing_manifest_is_not_an_obligation(
 
     plain = _control(["init", "--workspace", str(unadopted), "--write", "--json"])
     assert plain["decision"] == "setup_incomplete"
-    assert plain["next_action"]["kind"] == "configure"
+    assert plain["next_action"]["kind"] == "edit"
     assert plain["exit_code"] == 2
 
 
@@ -1056,8 +1083,8 @@ def test_a_refused_instruction_target_still_reports_what_failed(unadopted: Path)
     payload = json.loads(result.stdout)
 
     assert result.exit_code != 0
-    assert payload["control"]["next_action"]["kind"] == "configure"
-    assert "agents-shipgate.mdc" in payload["control"]["next_action"]["why"]
+    assert payload["control"]["next_action"]["kind"] == "edit"
+    assert "agents-shipgate.mdc" in payload["control"]["next_action"]["path"]
     # And the structured location rides in the ranked list.
     assert payload["next_actions"][0]["kind"] == "edit"
     assert "agents-shipgate.mdc" in payload["next_actions"][0]["path"]
@@ -1395,3 +1422,132 @@ def test_the_setup_identity_moves_when_the_scope_facts_move(ambiguous_monorepo: 
     )
 
     assert refusal_identity() != before
+
+
+# ---------------------------------------------------------------------------
+# Fifth review round (PR #372).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source", "decision"),
+    [
+        ("release_decision", "review_required"),
+        ("release_decision", "insufficient_evidence"),
+        ("release_decision", "blocked"),
+        ("agent_boundary", "require_review"),
+        ("agent_boundary", "block"),
+    ],
+)
+def test_a_completion_cannot_rest_on_a_negative_verdict(source: str, decision: str):
+    """Constraining the vocabulary alone left the verdict free of the authority.
+
+    A `complete` envelope with `permissions.merge: true` accepted
+    `decision: "blocked"` — a schema-valid negative gate result granting terminal
+    authority, which is the confusion this envelope exists to make
+    unrepresentable. `complete` is the one state where the two must agree.
+    """
+
+    check = source == "agent_boundary"
+    payload = {
+        "schema_version": "shipgate.agent_control/v1",
+        "contract_version": "24",
+        "operation": "check" if check else "verify",
+        "source": "run",
+        "execution": "succeeded",
+        "exit_code": 0,
+        "input_id": "sha256:" + "1" * 64,
+        "decision": decision,
+        "decision_source": source,
+        "control_state": "complete",
+        "permissions": dict.fromkeys(
+            ("edit", "commit", "push", "update_pr", "merge", "report_complete"), True
+        ),
+        "verify_required": False,
+        "next_actor": "none",
+        "next_action": None,
+        "human_review": {"required": False, "why": None, "required_reviewers": []},
+        "pending_review": [],
+        "reason": "ok",
+        "current_control_id": None if check else "sha256:" + "2" * 64,
+        "artifacts": {} if check else {"verifier": {"path": "x", "sha256": "sha256:" + "3" * 64}},
+    }
+
+    _reject_both_layers(payload)
+    # ...and the verdicts that *do* permit completion still pass.
+    validate_agent_control_envelope(
+        {**payload, "decision": "allow" if check else "passed"}
+    )
+
+
+def test_a_manifest_that_is_not_utf8_is_refused_rather_than_rewritten(tmp_path: Path):
+    """`errors="replace"` does not read a manifest, it writes a different one.
+
+    One `0xff` in `project.name` became U+FFFD, so `doctor` loaded a *valid*
+    manifest, reported `setup_complete`, and recommended verify — while `scan` on
+    the same file exited 4 with `UnicodeDecodeError`. Setup and the gate have to
+    validate the same input language.
+    """
+
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_bytes(b'version: "0.1"\nproject:\n  name: bad\xffname\n')
+
+    with mock.patch.dict(os.environ, {"AGENTS_SHIPGATE_AGENT_MODE": "1"}):
+        result = runner.invoke(app, ["doctor", "--config", str(manifest), "--json"])
+
+    assert result.exit_code == 2
+    error = json.loads(
+        [line for line in result.stderr.splitlines() if line.strip().startswith("{")][-1]
+    )
+    control = error["control"]
+    assert control["decision"] == "setup_incomplete"
+    assert "not valid UTF-8" in control["reason"]
+
+
+def test_the_dry_run_follow_up_is_equivalent_to_the_invocation(tmp_path: Path):
+    """A follow-up that drops mode flags completes something else.
+
+    `init --minimal --json` emitted a bare `init --workspace … --write`, which
+    writes the *auto-detected* template rather than the minimal one that was
+    previewed, and returns human prose instead of the JSON control loop.
+    """
+
+    kit = tmp_path / "kit.yaml"
+    kit.write_text("schema_version: 1\n", encoding="utf-8")
+
+    control = _control(
+        [
+            "init", "--workspace", str(tmp_path), "--minimal", "--ci",
+            "--agent-instructions=agents-md", "--json",
+        ]
+    )
+    command = control["next_action"]["command"]
+
+    for flag in ("--write", "--minimal", "--ci", "--agent-instructions=agents-md", "--json"):
+        assert flag in command, flag
+
+
+def test_the_setup_identity_moves_with_the_requested_setup(tmp_path: Path):
+    """The invocation selects the route, so it belongs in the identity.
+
+    On one unchanged empty workspace a plain dry run, `--ci`, and
+    `--agent-instructions=agents-md` returned the *same* `input_id` while their
+    `next_action.command` values differed, so a cache keyed by the documented
+    identity could reuse a different requested setup.
+
+    Computed in one process rather than parametrised: the property is that the
+    identities *differ from each other*, which no single parametrised case can
+    see.
+    """
+
+    seen: dict[tuple[str, ...], tuple[str, str]] = {}
+    for flags in ([], ["--ci"], ["--agent-instructions=agents-md"], ["--minimal"]):
+        workspace = tmp_path / ("plain" if not flags else flags[0].strip("-").split("=")[0])
+        workspace.mkdir()
+        control = _control(["init", "--workspace", str(workspace), *flags, "--json"])
+        seen[tuple(flags)] = (control["input_id"], control["next_action"]["command"])
+
+    identities = [identity for identity, _ in seen.values()]
+    assert len(set(identities)) == len(identities), seen
+    # The commands differ too — the identity is tracking a real difference.
+    assert len({command for _, command in seen.values()}) == len(seen)

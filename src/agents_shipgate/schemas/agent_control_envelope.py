@@ -184,6 +184,17 @@ AGENT_BOUNDARY_DECISION_VALUES: tuple[str, ...] = (
     "block",
 )
 
+# The subset of each vocabulary a *completed* result may carry. Constraining the
+# vocabulary alone was not enough: a `complete` envelope with
+# `permissions.merge: true` accepted `decision: "blocked"` — a schema-valid
+# negative gate result granting terminal authority, which is the exact confusion
+# this envelope exists to make unrepresentable. `complete` is the one state where
+# the verdict and the authority must agree, so the agreement is published.
+COMPLETING_RELEASE_DECISIONS: tuple[str, ...] = ("passed",)
+# `allow` and `warn` are the boundary's non-blocking outcomes; a warning is
+# advisory and leaves no obligation. `require_review` and `block` both do.
+COMPLETING_AGENT_BOUNDARY_DECISIONS: tuple[str, ...] = ("allow", "warn")
+
 # Which engine each operation may be decided by. `check` runs the local boundary
 # engine and nothing else; the release operations run the release engine and
 # nothing else. `none` stays open everywhere: an operation that reached no
@@ -223,6 +234,40 @@ _DECISION_PAIRING_RULE = [
 # published schema accepted a `complete` envelope with `operation: "scan"`, no
 # decision, no identity, no artifacts, and full merge authority — a shape no
 # producer can emit and no reader should ever honour.
+# A typed ``edit`` route is setup's alone. Nothing else can produce one, and a
+# reader that sees one on a gate operation is looking at a payload no producer
+# can emit.
+_SETUP_EDIT_RULE = [
+    {
+        "if": {
+            "properties": {"next_action": {"properties": {"kind": {"const": "edit"}}}},
+            "required": ["next_action"],
+        },
+        "then": {"properties": {"operation": {"enum": list(SETUP_OPERATIONS)}}},
+    }
+]
+
+
+# A completion must rest on a verdict that permits one.
+_COMPLETE_VERDICT_RULE = [
+    {
+        "if": {
+            "properties": {"decision_source": {"const": "release_decision"}},
+            "required": ["decision_source"],
+        },
+        "then": {"properties": {"decision": {"enum": list(COMPLETING_RELEASE_DECISIONS)}}},
+    },
+    {
+        "if": {
+            "properties": {"decision_source": {"const": "agent_boundary"}},
+            "required": ["decision_source"],
+        },
+        "then": {
+            "properties": {"decision": {"enum": list(COMPLETING_AGENT_BOUNDARY_DECISIONS)}}
+        },
+    },
+]
+
 _COMPLETE_PROVENANCE_RULE = [
     {
         "if": {"properties": {"operation": {"const": "check"}}, "required": ["operation"]},
@@ -391,6 +436,53 @@ BoundedProse = Annotated[
 NonEmptyText = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, pattern=_NON_BLANK),
+]
+
+
+class SetupEditAction(BaseModel):
+    """A file a setup command needs changed, typed rather than described.
+
+    Declared **here** rather than in :mod:`agents_shipgate.schemas.agent_control`,
+    and that placement is the whole design. The action union in that module is
+    embedded by six durable published schemas — verifier, agent-handoff,
+    preflight, agent-result, agent-boundary-result, verify-run — and five of those
+    artifacts record no ``contract_version``, so widening it changes six stored
+    contracts a consumer cannot disambiguate. This envelope is emitted on stdout
+    and never written as an artifact, so widening *it* changes nothing anybody
+    holds.
+
+    The alternative tried first was to route an edit as the command that *checks*
+    it. That is not the same work: an envelope-only consumer executing
+    ``control.next_action`` re-ran ``doctor`` against an unchanged file and got
+    the identical action back forever, with the actual instruction surviving only
+    in ``why`` — rationale, not a typed step. A route the contract calls
+    executable has to be the step, not its postcondition.
+
+    ``permissions.edit`` is ``false`` beside this, and that is not a
+    contradiction: the vector describes authority over *the change under review*,
+    and a setup route "authorizes only the named ``next_action``" — the rule
+    ``NoAgentPermissions`` already states.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"required": ["actor", "kind", "command", "path", "expects", "why"]},
+    )
+
+    actor: Literal["coding_agent"] = "coding_agent"
+    kind: Literal["edit"]
+    command: None = None
+    path: NonEmptyText
+    expects: NonEmptyText
+    why: NonEmptyText
+
+
+# The action union this envelope publishes: the shared one, plus the setup edit
+# that only setup operations may carry. Kept as a separate alias so nothing can
+# reach ``SetupEditAction`` through ``AgentControl``.
+type EnvelopeCodingAgentAction = Annotated[
+    CodingAgentAction | SetupEditAction,
+    Field(discriminator="kind"),
 ]
 
 
@@ -567,6 +659,7 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
                 *_SETUP_PROVENANCE_RULE,
                 *_DECISION_VOCABULARY_RULE,
                 *_COMPLETE_PROVENANCE_RULE,
+                *_COMPLETE_VERDICT_RULE,
             ],
         },
     )
@@ -599,6 +692,16 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
         different things depending on who reads it.
         """
 
+        permitted = (
+            COMPLETING_AGENT_BOUNDARY_DECISIONS
+            if self.decision_source == "agent_boundary"
+            else COMPLETING_RELEASE_DECISIONS
+        )
+        if self.decision not in permitted:
+            raise ValueError(
+                f"a completed result cannot carry {self.decision!r}; "
+                f"{self.decision_source} completions are {', '.join(permitted)}"
+            )
         if self.operation == "check":
             if self.source != "run" or self.decision_source != "agent_boundary":
                 raise ValueError("a completed boundary check is a local run of that engine")
@@ -632,6 +735,7 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
                 *_SETUP_PROVENANCE_RULE,
                 *_DECISION_VOCABULARY_RULE,
                 *_VERIFY_OBLIGATION_RULE,
+                *_SETUP_EDIT_RULE,
             ],
         },
     )
@@ -640,7 +744,7 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
     permissions: PublishOnlyPermissions | NoAgentPermissions
     verify_required: bool
     next_actor: Literal["coding_agent"] = "coding_agent"
-    next_action: CodingAgentAction
+    next_action: EnvelopeCodingAgentAction
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
 
     @model_validator(mode="after")
@@ -649,6 +753,17 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
 
         if self.next_action.kind == "verify" and not self.verify_required:
             raise ValueError("a verify action must preserve verify_required=true")
+        return self
+
+    @model_validator(mode="after")
+    def _an_edit_route_belongs_to_setup(self) -> AgentActionControlEnvelope:
+        """Mirror ``_SETUP_EDIT_RULE``, so both layers reject the same payload."""
+
+        if self.next_action.kind == "edit" and self.operation not in SETUP_OPERATIONS:
+            raise ValueError(
+                f"{self.operation!r} cannot publish an edit route; only "
+                f"{', '.join(SETUP_OPERATIONS)} can"
+            )
         return self
 
 
@@ -719,6 +834,8 @@ __all__ = [
     "MAX_ENVELOPE_PROSE_BYTES",
     "PROSE_TRUNCATION_MARKER",
     "AGENT_BOUNDARY_DECISION_VALUES",
+    "COMPLETING_AGENT_BOUNDARY_DECISIONS",
+    "COMPLETING_RELEASE_DECISIONS",
     "RELEASE_DECISION_VALUES",
     "SETUP_DECISIONS",
     "SETUP_OPERATIONS",
@@ -734,6 +851,7 @@ __all__ = [
     "CompleteControlEnvelope",
     "HumanReviewRequiredControlEnvelope",
     "ReviewPublishableControlEnvelope",
+    "SetupEditAction",
     "truncate_prose",
     "validate_agent_control_envelope",
 ]

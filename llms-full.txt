@@ -372,8 +372,10 @@ line, and field: those are declarations a person makes, and an agent must never
 supply them.
 
 `next_action` may be `kind: "edit"` on these commands — a typed coding-agent
-step with `path` and `expects` and no command. It appears only on setup output;
-`verify`, `check`, and `agent control` never return it.
+step with `path` and `expects` and no command. It appears only on setup output:
+`verify`, `check`, and `agent control` cannot return it, and the published schema
+rejects it on any other operation. `permissions.edit` is `false` beside it, which
+is not a contradiction — a setup route authorizes only its own `next_action`.
 
 `next_action` and `next_actions[0]` are **derived from the same selected route**
 as `control.next_action`, so the compact envelope and the ranked list can never
@@ -1257,14 +1259,18 @@ distinguishable from an envelope produced before any engine ran, and is the
 ambiguity #323 set out to remove. Run `verify` for a verdict a reader can check.
 
 The `AgentControl` union is **unchanged**, and `minimum_control_contract_version`
-stays at `21`. A typed `edit` action was added for setup routing and then
-removed: that union is embedded by the verifier, the handoff, preflight, the
-agent result, the boundary result, and verify-run, so widening it widens six
-durable published schemas under unchanged identifiers — and five of those
+stays at `21`. That union is embedded by the verifier, the handoff, preflight,
+the agent result, the boundary result, and verify-run, so widening it would widen
+six durable published schemas under unchanged identifiers — and five of those
 artifacts record no `contract_version`, so a consumer holding a stored payload
-could not use the floor to tell which shape it has. A setup step that needs a
-file changed routes as a `configure` command naming the check that confirms it,
-with the file in `why` and structurally in `next_actions[].path`.
+could not use the floor to tell which shape it has.
+
+A setup step that needs a file changed is still *typed*, though: the envelope
+publishes `next_action.kind: "edit"` with `path` and `expects`, as
+`SetupEditAction` — declared on the envelope, which is stdout-only, and rejected
+in both layers on any non-setup operation. Routing such a step as the command
+that merely *checks* the edit was tried and is wrong: an envelope-only consumer
+executing it re-ran `doctor` against an unchanged file forever.
 
 What v24 widens is `shipgate.agent_control/v1` itself, which is emitted on
 stdout and never written as an artifact: there are no stored envelopes to
@@ -1428,7 +1434,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `24` (minimum control contract: `24`)
+- Runtime contract: `24` (minimum control contract: `21`)
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

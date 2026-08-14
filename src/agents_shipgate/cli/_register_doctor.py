@@ -13,7 +13,11 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import diagnose_doctor, top_next_actions
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
-from agents_shipgate.cli.scan.inspect import MANIFEST_SNAPSHOT_KEY, inspect_sources
+from agents_shipgate.cli.scan.inspect import (
+    MANIFEST_SNAPSHOT_KEY,
+    decode_manifest,
+    inspect_sources,
+)
 from agents_shipgate.cli.setup_control import (
     SETUP_COMPLETE,
     setup_control_envelope,
@@ -89,6 +93,7 @@ def _doctor_advance(manifest_path: Path, *, workspace: Path) -> NextAction:
 def _doctor_failure_routing(
     *,
     manifest_path: Path | str,
+    manifest_bytes: bytes,
     workspace: Path,
     diagnostics: list,
     reason: str,
@@ -110,11 +115,15 @@ def _doctor_failure_routing(
     from agents_shipgate.cli.setup_control import SETUP_INCOMPLETE
 
     path = Path(manifest_path)
+    # The bytes the inspection actually rejected, handed in by the caller.
+    # Reopening the file here would let a failure envelope identify a state it
+    # did not diagnose.
     try:
-        manifest_bytes = path.read_bytes()
-    except OSError:
-        manifest_bytes = b""
-    text = manifest_bytes.decode("utf-8", errors="replace")
+        text = decode_manifest(manifest_bytes, path)
+    except ConfigError:
+        # Not decodable is not "no placeholders": there is nothing to locate,
+        # and the reason already names the defect.
+        text = ""
     placeholders = collect_placeholders(text)
     return setup_control_envelope(
         operation="doctor",
@@ -171,10 +180,26 @@ def register(app: typer.Typer) -> None:
             )
             raise typer.Exit(2) from exc
         payloads: list[dict[str, object]] = []
+        # One read per manifest, taken here so the *failure* routes describe the
+        # same bytes the inspection rejected. Reopening the path after a refusal
+        # let an edit land in between: doctor emitted manifest A's diagnostic
+        # while `control.input_id` hashed manifest B.
+        snapshots: dict[Path, bytes] = {}
+        for path in paths:
+            try:
+                snapshots[path] = path.read_bytes()
+            except OSError:
+                snapshots[path] = b""
         try:
             for path in paths:
                 try:
-                    payloads.append(inspect_sources(config_path=path, verbose=verbose))
+                    payloads.append(
+                        inspect_sources(
+                            config_path=path,
+                            verbose=verbose,
+                            manifest_bytes=snapshots[path],
+                        )
+                    )
                 except ConfigError as exc:
                     # A specific discovered manifest failed to load. Route
                     # through the same ConfigError classifier as scan so
@@ -188,6 +213,7 @@ def register(app: typer.Typer) -> None:
                     _echo_next_action_hint(top_next_actions(diagnostics))
                     routing = _doctor_failure_routing(
                         manifest_path=path,
+                        manifest_bytes=snapshots[path],
                         workspace=(workspace or path.parent).resolve(),
                         diagnostics=diagnostics,
                         reason=str(exc),
@@ -213,6 +239,7 @@ def register(app: typer.Typer) -> None:
             failed = paths[len(payloads)] if len(payloads) < len(paths) else paths[0]
             routing = _doctor_failure_routing(
                 manifest_path=failed,
+                manifest_bytes=snapshots[failed],
                 workspace=(workspace or failed.parent).resolve(),
                 diagnostics=[],
                 reason=f"{guidance} {exc}",
@@ -235,7 +262,10 @@ def register(app: typer.Typer) -> None:
             # publish a route selected from one manifest under an identity
             # hashing another.
             manifest_bytes = payload.pop(MANIFEST_SNAPSHOT_KEY, b"")
-            manifest_text = manifest_bytes.decode("utf-8", errors="replace")
+            # Already decoded once by the inspection that succeeded, so this
+            # cannot raise; strict either way, so setup and the gate read the
+            # same input language.
+            manifest_text = decode_manifest(manifest_bytes, path)
             placeholders = collect_placeholders(manifest_text)
             diagnostics = diagnose_doctor(
                 payload,

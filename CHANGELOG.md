@@ -317,17 +317,31 @@
   template it did not write, so the documented refresh command is not a route
   around the boundary.
 - **The `AgentControl` union is unchanged, and the compatibility floor stays at
-  `21`.** A typed `edit` route was added for setup steps that are the agent's
-  own and have no executable form — a manifest the loader rejected, a
-  `tool_sources[].path` that does not resolve — and then removed. That union is
-  embedded by the verifier, the handoff, preflight, the agent result, the
-  boundary result, and verify-run, so widening it widened six durable published
-  schemas under unchanged identifiers, and five of those artifacts record no
-  `contract_version` for a consumer holding a stored payload to disambiguate
-  with. Such a step now routes as a `configure` command naming the check that
-  confirms it, with the file named in `why` and structurally in
-  `next_actions[].path`. Contract `24` covers what did widen:
-  `shipgate.agent_control/v1`, which is emitted on stdout and never stored.
+  `21`.** That union is embedded by the verifier, the handoff, preflight, the
+  agent result, the boundary result, and verify-run, so widening it would widen
+  six durable published schemas under unchanged identifiers — and five of those
+  artifacts record no `contract_version`, so a consumer holding a stored payload
+  could not use the floor to tell which shape it has. A setup step that needs a
+  file changed is still typed: the envelope publishes `next_action.kind: "edit"`
+  with `path` and `expects`, as `SetupEditAction` — declared on the envelope,
+  which is emitted on stdout and never stored, and rejected in both layers on
+  any operation but `detect`/`init`/`doctor`. Routing such a step as the command
+  that merely *checks* the edit was tried and is wrong: an envelope-only
+  consumer executing it re-ran `doctor` against an unchanged file forever, with
+  the instruction surviving only in `why`.
+- **A completion cannot rest on a negative verdict.** Constraining each
+  `decision_source` to its own vocabulary left the verdict free of the authority
+  it sits beside, so a `complete` envelope with `permissions.merge: true`
+  accepted `decision: "blocked"` — a schema-valid negative gate result granting
+  terminal authority. A completed release result now admits only `passed`, and a
+  completed boundary result only the non-blocking `allow`/`warn`, in both
+  layers.
+- **A manifest that is not UTF-8 is refused, not rewritten.**
+  `errors="replace"` turned one `0xff` byte in `project.name` into U+FFFD, so
+  `doctor` loaded a *different*, valid manifest, reported `setup_complete`, and
+  recommended verify — while `scan` on the same file exited 4. Setup and the
+  gate now validate the same input language.
+
 - **`scan` is outside this rollout, and now says so.** `agent control` after a
   scan reports `decision: null` with a `reason` stating the verdict is
   *withheld*, not absent: the scan reached one — `report.sarif` even carries it
