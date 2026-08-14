@@ -184,7 +184,9 @@ def control(
             # here leaves a window in which HEAD advances before the return.
             live=lambda: live_workspace(workspace, reports_dir),
             # Captured inside the protocol, not reopened after it: the route
-            # must come from the same generation whose identity was confirmed.
+            # must come from the same generation whose identity was
+            # confirmed. Keys the pointer does not bind are simply absent — a
+            # `scan` binds no verifier.
             capture=(VERIFIER_ARTIFACT_KEY,),
         )
     except CurrentControlUnavailable as exc:
@@ -250,6 +252,7 @@ def control(
         envelope = envelope_from_routeless_pointer(
             result.pointer,
             verify_command=_recovery_verify_command(workspace, reports_dir),
+            decision_withheld=_scan_verdict_unavailable(),
             artifact_root=reports_dir.as_posix(),
         )
     elif result.pointer.lifecycle_state == "terminal":
@@ -372,6 +375,42 @@ def _bound_verifier(result: CurrentControlRead) -> VerifierArtifact | None:
             "recovered."
         )
     return verifier
+
+
+def _scan_verdict_unavailable() -> str:
+    """Why a `scan` generation publishes no release decision here.
+
+    `scan` runs the release engine and binds its `report.json`, so the verdict
+    exists and is byte-intact. It is deliberately **not** lifted into the
+    envelope, and the reason is currency rather than integrity.
+
+    A `scan` pointer records no HEAD, no worktree overlay, and no input set, so
+    the generic comparison in `read_current_control` has nothing to compare and
+    passes vacuously. Editing `shipgate.yaml`, or a `tools.json` the manifest
+    references, or a policy pack, or a baseline, leaves the pointer reading
+    cleanly with the old verdict — and an earlier revision of this branch
+    published exactly that as an affirmative `passed`. A verdict a reader cannot
+    check is worse than no verdict, so it stays withheld until a scan binds a
+    reconfirmable snapshot of everything it read (tracked separately).
+
+    What *is* published is the reason, so this stays distinguishable from output
+    produced before any engine ran — the ambiguity #323 set out to remove. The
+    reason says the verdict was *withheld*, never that none exists: a
+    format-limited scan still reached one, and `report.sarif` even carries it
+    under `runs[0].properties.release_decision`. Which artifact holds it is not
+    the point; none of them can show it is still current.
+
+    Authority is untouched either way: the state and `permissions` come from the
+    pointer, and a scan authorizes no merge.
+    """
+
+    return (
+        "This scan reached a release decision and it is withheld here: a scan "
+        "binds no reconfirmable snapshot of the inputs it read — the manifest, "
+        "its tool sources, policy packs, and baselines can all change without "
+        "moving this pointer — so nothing in this directory can show the verdict "
+        "still describes the workspace. Run verify to obtain one that can."
+    )
 
 
 def _load_required_json(path: Path, label: str) -> dict[str, Any]:

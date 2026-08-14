@@ -69,6 +69,7 @@ from pydantic import (
 )
 
 from agents_shipgate.schemas.agent_control import (
+    PERMISSION_FIELDS,
     CodingAgentAction,
     FullAgentPermissions,
     HumanControlAction,
@@ -112,8 +113,16 @@ MAX_ENVELOPE_PROSE_BYTES = 400
 PROSE_TRUNCATION_MARKER = " […]"
 
 # Which command produced this answer. ``check`` reaches no release decision and
-# publishes no pointer; the other three do both.
-AgentControlOperation = Literal["verify", "preview", "scan", "check"]
+# publishes no pointer; ``verify``/``preview``/``scan`` do both; the three setup
+# operations run before a release decision can exist at all (see #323).
+AgentControlOperation = Literal[
+    "verify", "preview", "scan", "check", "detect", "init", "doctor"
+]
+
+# The operations whose control state is derived from *setup facts* rather than
+# from a gate verdict. Named once, because three separate rules below depend on
+# the same membership and a second spelling of this set is how they drift apart.
+SETUP_OPERATIONS: tuple[str, ...] = ("detect", "init", "doctor")
 
 # Whether this envelope came from the run that decided, or from re-reading the
 # published pointer at a later refresh boundary. Both are validated against the
@@ -128,11 +137,82 @@ AgentControlExecution = Literal["not_run", "succeeded", "skipped", "failed"]
 # only by a model validator a JSON Schema consumer never sees.
 CompleteExecution = Literal["not_run", "succeeded", "skipped"]
 
-# Which engine produced ``decision``. ``init``/``doctor``-style commands run
-# before any decision exists and report ``none``; naming the source keeps
+# Which engine produced ``decision``. ``detect``/``init``/``doctor`` run before
+# any release decision exists, so they report ``setup``; naming the source keeps
 # ``decision`` from meaning "the gate said" in one command and "setup said" in
-# another once the vocabulary rolls out (see #323).
+# another (see #323). The pairing is enforced in both directions by
+# ``_SETUP_PROVENANCE_RULE``: a setup source can only come from a setup
+# operation, and a setup operation can report no other source.
 AgentControlDecisionSource = Literal["release_decision", "agent_boundary", "setup", "none"]
+
+# The closed vocabulary ``decision`` uses when ``decision_source`` is ``setup``,
+# exactly as ``release_decision.decision`` is the vocabulary under
+# ``release_decision``. It describes how far *configuration* has got, and
+# deliberately says nothing about a release: no value here ever authorizes
+# merge, because the ``complete`` variant cannot carry a setup operation at all.
+#
+#   ``setup_complete``       — configuration is in place; the outstanding step
+#                              is the gate, not more setup.
+#   ``setup_incomplete``     — at least one setup obligation remains.
+#   ``setup_not_applicable`` — the workspace is not a Shipgate target.
+SETUP_DECISIONS: tuple[str, ...] = (
+    "setup_complete",
+    "setup_incomplete",
+    "setup_not_applicable",
+)
+
+# The other two vocabularies, so ``decision_source`` constrains ``decision``
+# rather than merely labelling it. Without them the envelope accepted
+# `decision_source: "release_decision"` beside `decision: "allow"` — a *boundary*
+# verdict presented as the gate's — and beside arbitrary strings, on a
+# merge-authorizing `complete`. Naming the engine is only useful if it also says
+# which answers that engine can give.
+#
+# Spelled here rather than imported from `schemas.contract`, which imports this
+# module. `tests/test_setup_control.py` pins both against their sources, so the
+# duplication cannot drift silently.
+RELEASE_DECISION_VALUES: tuple[str, ...] = (
+    "passed",
+    "review_required",
+    "insufficient_evidence",
+    "blocked",
+)
+AGENT_BOUNDARY_DECISION_VALUES: tuple[str, ...] = (
+    "allow",
+    "warn",
+    "require_review",
+    "block",
+)
+
+# The subset of each vocabulary a *completed* result may carry. Constraining the
+# vocabulary alone was not enough: a `complete` envelope with
+# `permissions.merge: true` accepted `decision: "blocked"` — a schema-valid
+# negative gate result granting terminal authority, which is the exact confusion
+# this envelope exists to make unrepresentable. `complete` is the one state where
+# the verdict and the authority must agree, so the agreement is published.
+COMPLETING_RELEASE_DECISIONS: tuple[str, ...] = ("passed",)
+# `allow` and `warn` are the boundary's non-blocking outcomes; a warning is
+# advisory and leaves no obligation. `require_review` and `block` both do.
+COMPLETING_AGENT_BOUNDARY_DECISIONS: tuple[str, ...] = ("allow", "warn")
+
+# Which engine each operation may be decided by. `check` runs the local boundary
+# engine and nothing else; the release operations run the release engine and
+# nothing else. `none` stays open everywhere: an operation that reached no
+# decision is a real state on all of them.
+_DECISION_SOURCE_BY_OPERATION: dict[str, tuple[str, ...]] = {
+    "check": ("agent_boundary", "none"),
+    "verify": ("release_decision", "none"),
+    "preview": ("release_decision", "none"),
+    "scan": ("release_decision", "none"),
+    "detect": ("setup", "none"),
+    "init": ("setup", "none"),
+    "doctor": ("setup", "none"),
+}
+_DECISION_VALUES_BY_SOURCE: dict[str, tuple[str, ...]] = {
+    "release_decision": RELEASE_DECISION_VALUES,
+    "agent_boundary": AGENT_BOUNDARY_DECISION_VALUES,
+    "setup": SETUP_DECISIONS,
+}
 
 # Who owns the next step. Fixed by the state tag on every variant.
 AgentControlActor = Literal["coding_agent", "human", "none"]
@@ -154,6 +234,40 @@ _DECISION_PAIRING_RULE = [
 # published schema accepted a `complete` envelope with `operation: "scan"`, no
 # decision, no identity, no artifacts, and full merge authority — a shape no
 # producer can emit and no reader should ever honour.
+# A typed ``edit`` route is setup's alone. Nothing else can produce one, and a
+# reader that sees one on a gate operation is looking at a payload no producer
+# can emit.
+_SETUP_EDIT_RULE = [
+    {
+        "if": {
+            "properties": {"next_action": {"properties": {"kind": {"const": "edit"}}}},
+            "required": ["next_action"],
+        },
+        "then": {"properties": {"operation": {"enum": list(SETUP_OPERATIONS)}}},
+    }
+]
+
+
+# A completion must rest on a verdict that permits one.
+_COMPLETE_VERDICT_RULE = [
+    {
+        "if": {
+            "properties": {"decision_source": {"const": "release_decision"}},
+            "required": ["decision_source"],
+        },
+        "then": {"properties": {"decision": {"enum": list(COMPLETING_RELEASE_DECISIONS)}}},
+    },
+    {
+        "if": {
+            "properties": {"decision_source": {"const": "agent_boundary"}},
+            "required": ["decision_source"],
+        },
+        "then": {
+            "properties": {"decision": {"enum": list(COMPLETING_AGENT_BOUNDARY_DECISIONS)}}
+        },
+    },
+]
+
 _COMPLETE_PROVENANCE_RULE = [
     {
         "if": {"properties": {"operation": {"const": "check"}}, "required": ["operation"]},
@@ -174,6 +288,110 @@ _COMPLETE_PROVENANCE_RULE = [
             "required": ["current_control_id"],
         },
     }
+]
+
+# `strip_whitespace` has no JSON Schema representation, so a schema-only
+# consumer accepted `input_id=" "` on a merge-authorizing envelope that Pydantic
+# rejected. A pattern requiring one non-whitespace character *is* published, so
+# both layers agree on what counts as present.
+_NON_BLANK = r"\S"
+
+# Setup-derived and release-decision-derived control states must not be
+# confusable, in either direction — the whole point of rolling one vocabulary
+# across six commands is that `control_state` cannot mean "the gate says" on one
+# command and "setup says" on another.
+#
+# Published as if/then rules rather than left to the ``operation`` field alone,
+# because a reader that switches on `decision_source` (which is what it is for)
+# would otherwise have to know the operation table by heart to tell the two
+# apart.
+#
+# The rules also carry the *authority* half, and that is the load-bearing part.
+# Fixing provenance alone left `permissions` unconstrained, so a setup envelope
+# with the publish-only vector — edit/commit/push/update_pr granted — was
+# accepted by both Pydantic and the published document. A schema-driven consumer
+# would have read publication authority out of a command that never opened a
+# diff. Setup authority is therefore pinned to *all false* here, and
+# ``review_publishable`` (whose whole meaning is "the evidence may be
+# published") is made unreachable, rather than being left to the projection to
+# refuse.
+_ALL_PERMISSIONS_DENIED = {
+    "type": "object",
+    "properties": {name: {"const": False} for name in PERMISSION_FIELDS},
+    "required": list(PERMISSION_FIELDS),
+}
+
+_SETUP_PROVENANCE_RULE = [
+    {
+        "if": {
+            "properties": {"decision_source": {"const": "setup"}},
+            "required": ["decision_source"],
+        },
+        "then": {"properties": {"operation": {"enum": list(SETUP_OPERATIONS)}}},
+    },
+    {
+        "if": {
+            "properties": {"operation": {"enum": list(SETUP_OPERATIONS)}},
+            "required": ["operation"],
+        },
+        "then": {
+            "properties": {
+                "decision_source": {"const": "setup"},
+                "decision": {"enum": list(SETUP_DECISIONS)},
+                "source": {"const": "run"},
+                "current_control_id": {"type": "null"},
+                "artifacts": {"maxProperties": 0},
+                # Setup read no change, so no route may authorize acting on one.
+                "permissions": _ALL_PERMISSIONS_DENIED,
+                # `complete` is already unreachable via the variant's own
+                # `operation` Literal; `review_publishable` needed saying.
+                "control_state": {
+                    "enum": ["agent_action_required", "human_review_required"]
+                },
+                # Authority that cannot name the subject it was assessed against
+                # is authority no reader can check — the same rule `complete`
+                # carries. `\\S` because `minLength` counts whitespace.
+                "input_id": {"type": "string", "minLength": 1, "pattern": _NON_BLANK},
+            },
+            "required": ["input_id"],
+        },
+    },
+    # The inverse value/source pairing, which the two rules above do not cover:
+    # they constrain `decision` when the *operation* is setup, leaving
+    # `operation: "verify"` + `decision_source: "release_decision"` +
+    # `decision: "setup_complete"` accepted by both layers. A setup verdict must
+    # be unreadable as a gate verdict from either end.
+    {
+        "if": {
+            "properties": {"decision": {"enum": list(SETUP_DECISIONS)}},
+            "required": ["decision"],
+        },
+        "then": {"properties": {"decision_source": {"const": "setup"}}},
+    },
+]
+
+# Every source constrains its vocabulary, and every operation constrains its
+# source. Naming the engine was only half the job: `decision_source` had to stop
+# an arbitrary string — or another engine's verdict — from borrowing its
+# authority.
+_DECISION_VOCABULARY_RULE = [
+    *(
+        {
+            "if": {
+                "properties": {"decision_source": {"const": source}},
+                "required": ["decision_source"],
+            },
+            "then": {"properties": {"decision": {"enum": list(values)}}},
+        }
+        for source, values in _DECISION_VALUES_BY_SOURCE.items()
+    ),
+    *(
+        {
+            "if": {"properties": {"operation": {"const": operation}}, "required": ["operation"]},
+            "then": {"properties": {"decision_source": {"enum": list(sources)}}},
+        }
+        for operation, sources in _DECISION_SOURCE_BY_OPERATION.items()
+    ),
 ]
 
 # A `verify` route carries an independent verification obligation. The
@@ -211,12 +429,6 @@ _ENVELOPE_FIELDS = [
     "artifacts",
 ]
 
-# `strip_whitespace` has no JSON Schema representation, so a schema-only
-# consumer accepted `input_id=" "` on a merge-authorizing envelope that Pydantic
-# rejected. A pattern requiring one non-whitespace character *is* published, so
-# both layers agree on what counts as present.
-_NON_BLANK = r"\S"
-
 BoundedProse = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, pattern=_NON_BLANK),
@@ -224,6 +436,66 @@ BoundedProse = Annotated[
 NonEmptyText = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, pattern=_NON_BLANK),
+]
+
+# A path is operated on, not read. ``NonEmptyText`` normalizes the value it
+# validates, and normalization is only safe for prose: a filename may legally
+# begin or end with a space on every POSIX filesystem, so stripping made the
+# envelope name a *different* file than the ranked action it projects — the
+# diagnostic said `' manifest.yaml '` and the envelope said `'manifest.yaml'`.
+# Same non-blank floor, no rewrite.
+ExactPath = Annotated[
+    str,
+    StringConstraints(min_length=1, pattern=_NON_BLANK),
+]
+
+
+class SetupEditAction(BaseModel):
+    """A file a setup command needs changed, typed rather than described.
+
+    Declared **here** rather than in :mod:`agents_shipgate.schemas.agent_control`,
+    and that placement is the whole design. The action union in that module is
+    embedded by six durable published schemas — verifier, agent-handoff,
+    preflight, agent-result, agent-boundary-result, verify-run — and five of those
+    artifacts record no ``contract_version``, so widening it changes six stored
+    contracts a consumer cannot disambiguate. This envelope is emitted on stdout
+    and never written as an artifact, so widening *it* changes nothing anybody
+    holds.
+
+    The alternative tried first was to route an edit as the command that *checks*
+    it. That is not the same work: an envelope-only consumer executing
+    ``control.next_action`` re-ran ``doctor`` against an unchanged file and got
+    the identical action back forever, with the actual instruction surviving only
+    in ``why`` — rationale, not a typed step. A route the contract calls
+    executable has to be the step, not its postcondition.
+
+    ``permissions.edit`` is ``false`` beside this, and that is not a
+    contradiction: the vector describes authority over *the change under review*,
+    and a setup route "authorizes only the named ``next_action``" — the rule
+    ``NoAgentPermissions`` already states.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"required": ["actor", "kind", "command", "path", "expects", "why"]},
+    )
+
+    actor: Literal["coding_agent"] = "coding_agent"
+    kind: Literal["edit"]
+    command: None = None
+    # Exact, byte for byte: this names the file to open. ``expects`` is checked
+    # and ``why`` is read, so both may be normalized prose.
+    path: ExactPath
+    expects: NonEmptyText
+    why: NonEmptyText
+
+
+# The action union this envelope publishes: the shared one, plus the setup edit
+# that only setup operations may carry. Kept as a separate alias so nothing can
+# reach ``SetupEditAction`` through ``AgentControl``.
+type EnvelopeCodingAgentAction = Annotated[
+    CodingAgentAction | SetupEditAction,
+    Field(discriminator="kind"),
 ]
 
 
@@ -268,7 +540,14 @@ class _AgentControlEnvelopeBase(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"required": _ENVELOPE_FIELDS, "allOf": _DECISION_PAIRING_RULE},
+        json_schema_extra={
+            "required": _ENVELOPE_FIELDS,
+            "allOf": [
+                *_DECISION_PAIRING_RULE,
+                *_SETUP_PROVENANCE_RULE,
+                *_DECISION_VOCABULARY_RULE,
+            ],
+        },
     )
 
     schema_version: Literal["shipgate.agent_control/v1"] = AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION
@@ -317,6 +596,63 @@ class _AgentControlEnvelopeBase(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _setup_provenance_matches_the_producer(self) -> _AgentControlEnvelopeBase:
+        """Mirror ``_SETUP_PROVENANCE_RULE`` so both layers agree.
+
+        Same reasoning as the completion rule below: a payload one layer accepts
+        and the other rejects is a contract that means two different things
+        depending on who reads it. The direction that matters here is a
+        release-decision-derived state wearing a setup operation, or the
+        reverse — either makes ``control_state`` ambiguous about what decided
+        it, which is the confusion this envelope was rolled out to remove.
+        """
+
+        is_setup_operation = self.operation in SETUP_OPERATIONS
+        if (self.decision_source == "setup") != is_setup_operation:
+            raise ValueError(
+                "decision_source='setup' and a setup operation "
+                f"({', '.join(SETUP_OPERATIONS)}) imply each other"
+            )
+        # The inverse pairing, which the check above does not cover: a *value*
+        # from the setup vocabulary must not appear under any other source.
+        if self.decision in SETUP_DECISIONS and self.decision_source != "setup":
+            raise ValueError(
+                f"{self.decision!r} is a setup verdict and requires decision_source='setup'"
+            )
+        allowed_sources = _DECISION_SOURCE_BY_OPERATION[self.operation]
+        if self.decision_source not in allowed_sources:
+            raise ValueError(
+                f"{self.operation!r} is decided by {' or '.join(allowed_sources)}, "
+                f"not by {self.decision_source!r}"
+            )
+        vocabulary = _DECISION_VALUES_BY_SOURCE.get(self.decision_source)
+        if vocabulary is not None and self.decision not in vocabulary:
+            raise ValueError(
+                f"{self.decision!r} is not a {self.decision_source} verdict "
+                f"({', '.join(vocabulary)})"
+            )
+        if not is_setup_operation:
+            return self
+        if self.decision not in SETUP_DECISIONS:
+            raise ValueError(f"a setup decision must be one of {SETUP_DECISIONS}")
+        if self.source != "run":
+            raise ValueError("setup control is only ever read from the run that produced it")
+        if self.current_control_id is not None or self.artifacts:
+            raise ValueError("setup publishes no control pointer and binds no artifact")
+        if not (self.input_id or "").strip():
+            raise ValueError("a setup control must name the workspace state it answered about")
+        if self.control_state == "review_publishable":
+            raise ValueError(
+                "setup evaluated no change, so there is no evidence for a human to review"
+            )
+        if self.permissions.authorizes_anything:
+            raise ValueError(
+                "setup read no change, so it authorizes none of "
+                f"{', '.join(PERMISSION_FIELDS)}"
+            )
+        return self
+
 
 class CompleteControlEnvelope(_AgentControlEnvelopeBase):
     """The coding agent may merge and report the task complete.
@@ -331,7 +667,13 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
         extra="forbid",
         json_schema_extra={
             "required": _ENVELOPE_FIELDS,
-            "allOf": [*_DECISION_PAIRING_RULE, *_COMPLETE_PROVENANCE_RULE],
+            "allOf": [
+                *_DECISION_PAIRING_RULE,
+                *_SETUP_PROVENANCE_RULE,
+                *_DECISION_VOCABULARY_RULE,
+                *_COMPLETE_PROVENANCE_RULE,
+                *_COMPLETE_VERDICT_RULE,
+            ],
         },
     )
 
@@ -363,6 +705,16 @@ class CompleteControlEnvelope(_AgentControlEnvelopeBase):
         different things depending on who reads it.
         """
 
+        permitted = (
+            COMPLETING_AGENT_BOUNDARY_DECISIONS
+            if self.decision_source == "agent_boundary"
+            else COMPLETING_RELEASE_DECISIONS
+        )
+        if self.decision not in permitted:
+            raise ValueError(
+                f"a completed result cannot carry {self.decision!r}; "
+                f"{self.decision_source} completions are {', '.join(permitted)}"
+            )
         if self.operation == "check":
             if self.source != "run" or self.decision_source != "agent_boundary":
                 raise ValueError("a completed boundary check is a local run of that engine")
@@ -391,7 +743,13 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
         extra="forbid",
         json_schema_extra={
             "required": _ENVELOPE_FIELDS,
-            "allOf": [*_DECISION_PAIRING_RULE, *_VERIFY_OBLIGATION_RULE],
+            "allOf": [
+                *_DECISION_PAIRING_RULE,
+                *_SETUP_PROVENANCE_RULE,
+                *_DECISION_VOCABULARY_RULE,
+                *_VERIFY_OBLIGATION_RULE,
+                *_SETUP_EDIT_RULE,
+            ],
         },
     )
 
@@ -399,7 +757,7 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
     permissions: PublishOnlyPermissions | NoAgentPermissions
     verify_required: bool
     next_actor: Literal["coding_agent"] = "coding_agent"
-    next_action: CodingAgentAction
+    next_action: EnvelopeCodingAgentAction
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
 
     @model_validator(mode="after")
@@ -408,6 +766,17 @@ class AgentActionControlEnvelope(_AgentControlEnvelopeBase):
 
         if self.next_action.kind == "verify" and not self.verify_required:
             raise ValueError("a verify action must preserve verify_required=true")
+        return self
+
+    @model_validator(mode="after")
+    def _an_edit_route_belongs_to_setup(self) -> AgentActionControlEnvelope:
+        """Mirror ``_SETUP_EDIT_RULE``, so both layers reject the same payload."""
+
+        if self.next_action.kind == "edit" and self.operation not in SETUP_OPERATIONS:
+            raise ValueError(
+                f"{self.operation!r} cannot publish an edit route; only "
+                f"{', '.join(SETUP_OPERATIONS)} can"
+            )
         return self
 
 
@@ -477,6 +846,12 @@ __all__ = [
     "AGENT_CONTROL_ENVELOPE_SCHEMA_VERSION",
     "MAX_ENVELOPE_PROSE_BYTES",
     "PROSE_TRUNCATION_MARKER",
+    "AGENT_BOUNDARY_DECISION_VALUES",
+    "COMPLETING_AGENT_BOUNDARY_DECISIONS",
+    "COMPLETING_RELEASE_DECISIONS",
+    "RELEASE_DECISION_VALUES",
+    "SETUP_DECISIONS",
+    "SETUP_OPERATIONS",
     "AgentActionControlEnvelope",
     "AgentControlActor",
     "AgentControlArtifactRef",
@@ -487,8 +862,11 @@ __all__ = [
     "AgentControlPendingReview",
     "AgentControlSource",
     "CompleteControlEnvelope",
+    "EnvelopeCodingAgentAction",
+    "ExactPath",
     "HumanReviewRequiredControlEnvelope",
     "ReviewPublishableControlEnvelope",
+    "SetupEditAction",
     "truncate_prose",
     "validate_agent_control_envelope",
 ]

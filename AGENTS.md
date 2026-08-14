@@ -310,6 +310,59 @@ The machine-readable catalog of error kinds — exit codes, typical causes, addi
 
 `detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, `expects`, and the structured `executable[]` / `args[]` pair. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
 
+### One control vocabulary across the setup commands
+
+`detect --json`, `init --json`, and each `doctor --json` payload carry a
+`control` field holding the same `shipgate.agent_control/v1` envelope that
+`verify --format control`, `check --format agent-control-json`, and
+`agents-shipgate agent control` emit. Switch on `control.control_state` and
+`control.permissions` for the whole adoption walk instead of learning a
+different result shape per command; `control.next_action` is the one typed
+rank-1 step, and `next_actions[]` beside it keeps the ranked alternatives.
+
+When that step is a file edit, `control.next_action` is
+`{"kind": "edit", "path": …, "expects": …, "command": null}` and
+**`control.next_action.path` is the file to open** — exact, never normalized.
+The kind is setup-only: `verify`, `check`, and `scan` never emit it, and both
+schema layers reject it on those operations.
+
+`scan` is **not** part of this: `agents-shipgate agent control` after a scan
+reports `decision: null` with a `reason` saying the verdict is withheld. A scan
+pointer binds no reconfirmable snapshot of the inputs it read, so no artifact in
+that directory can show its verdict still describes the workspace. Run `verify`
+for one that can.
+
+Read `control.decision_source` before `control.decision`. Setup commands run
+before a release decision exists, so they report `setup` and a verdict from
+`setup_complete | setup_incomplete | setup_not_applicable`, never a release
+verdict; `release_decision` means `report.json`'s
+`release_decision.decision` and nothing else. The two cannot be confused: the
+published schema requires a setup source to come from `detect`/`init`/`doctor`
+and requires those operations to report no other source.
+
+**Setup authorizes nothing.** Every field of `permissions` is `false` on every
+setup envelope, no setup envelope binds an artifact or a `current_control_id`,
+and `control_state: "complete"` is unreachable for these operations in the
+schema. Running `init` successfully is not permission to commit, merge, or
+report the task done — only a verifier run can grant that. When a manifest still
+holds an unresolved `declared_purpose`, policy, or permission placeholder,
+`control_state` is `human_review_required` and the action names the exact file,
+line, and field: those are declarations a person makes, and an agent must never
+supply them.
+
+`next_action` may be `kind: "edit"` on these commands — a typed coding-agent
+step with `path` and `expects` and no command. It appears only on setup output:
+`verify`, `check`, and `agent control` cannot return it, and the published schema
+rejects it on any other operation. `permissions.edit` is `false` beside it, which
+is not a contradiction — a setup route authorizes only its own `next_action`.
+
+`next_action` and `next_actions[0]` are **derived from the same selected route**
+as `control.next_action`, so the compact envelope and the ranked list can never
+send you to different work. Where the route is human-owned, that list holds
+exactly one action and no command: an alternative would be a way around the
+obligation. Agent-mode *error* lines still carry `next_action`/`next_actions`
+rather than a `control` object.
+
 Every emitted command names the entry point that started the running process, so it is runnable where it was produced: a console-script run emits `agents-shipgate …`, and a `python -m agents_shipgate` run emits `<sys.executable> -m agents_shipgate …`. Set `AGENTS_SHIPGATE_CLI` to name the entry point explicitly; it wins over detection. **On `next_actions[]`, run `[*executable, *args]` (contract v23+) rather than parsing `command`** — it needs no shell and is computed from `command`, so it cannot disagree with it; it is omitted, never `null`, when the command has no faithful argv form. The operational control contracts (`control.next_action`, `allowed_next_commands`, verifier repairs) carry the string only: recover argv there with `shlex.split(command)`, which is exact on every platform because every emitted command is POSIX-rendered. Never use `shell=True`, and do not paste `command` into `cmd.exe` or PowerShell. Durable artifacts (`report.json`, `packet.*`) stay canonical so that same inputs still produce the same report. See [docs/diagnostics.md](docs/diagnostics.md#invocation-policy).
 
 ### Doctor behavior change for unresolved tool_sources

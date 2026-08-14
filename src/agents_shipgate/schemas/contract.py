@@ -75,11 +75,25 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # omitted rather than emitted as ``null``, so an action that cannot carry an
 # argv is unchanged on the wire.
 #
-# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21: v22 adds a projection of the
-# ``AgentControl`` union and v23 changes only how commands inside it are
-# spelled, so a consumer written against v21 control fields keeps reading them
-# unchanged.
-CONTRACT_VERSION: Literal["23"] = "23"
+# v24 rolls the control envelope across the setup commands (#323): ``detect``,
+# ``init``, and ``doctor`` publish ``shipgate.agent_control/v1`` under
+# ``decision_source: "setup"``, with new ``operation`` values and closed
+# per-source ``decision`` vocabularies.
+#
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21, and this time the argument is
+# about the type rather than about which code paths run. The ``AgentControl``
+# union is byte-identical to v21: a typed ``edit`` action was added and then
+# removed, because that union is embedded by six durable published schemas —
+# verifier, agent-handoff, preflight, agent-result, agent-boundary-result, and
+# verify-run — so widening it widened all six under unchanged identifiers, and
+# five of those artifacts carry no ``contract_version`` for a consumer holding a
+# stored payload to disambiguate with.
+#
+# What v24 does widen is ``shipgate.agent_control/v1`` itself, which is emitted
+# on stdout and never written as an artifact. There are no stored envelopes to
+# disambiguate, and its new operations cannot appear in any artifact a v21
+# consumer holds.
+CONTRACT_VERSION: Literal["24"] = "24"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

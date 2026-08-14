@@ -277,6 +277,113 @@
   rather than truncating it with the general file cap, so heavy filler no
   longer hides the projects it is supposed to find.
   ([#363](https://github.com/ThreeMoonsLab/agents-shipgate/issues/363))
+- **One control vocabulary across the adoption walk.** `detect`, `init`, and
+  `doctor` each answered "what do I do next" in their own shape, so an agent
+  driving a first adoption had to learn four result formats and could not tell
+  a setup obligation from a gate verdict. All three `--json` payloads now carry
+  a `control` field holding the same `shipgate.agent_control/v1` envelope that
+  `verify --format control`, `check --format agent-control-json`, and
+  `agents-shipgate agent control` already emit — one `control_state`, one
+  six-way `permissions` vector, one typed rank-1 `next_action`. It is a
+  projection of the diagnostics those commands already publish, computed in one
+  module, so `control.next_action` and `next_actions[0]` name the same work by
+  construction; no renderer computes a second verdict. Contract `24`. Every
+  existing field, including `next_action` and `next_actions[]`, is unchanged.
+  Setup and gate control cannot be confused: setup reports
+  `decision_source: "setup"` with a verdict from `setup_complete |
+  setup_incomplete | setup_not_applicable`, and the published schema requires
+  that source to come from `detect`/`init`/`doctor` *and* requires those
+  operations to report no other source. Setup also authorizes nothing — it
+  reads no diff, so all six permissions are false, it binds no artifact or
+  control identity, and `control_state: "complete"` is unreachable for these
+  operations in the schema itself, because a successful `init` is not
+  permission to commit, merge, or report a task done.
+- **A manifest declaration a person owes is no longer routed to the agent.**
+  `init --write` reported unresolved `CHANGE_ME` placeholders and, in the same
+  breath, told the caller to scan — inviting the agent to invent an
+  `agent.declared_purpose`, which is exactly the class of claim
+  `do_not_auto_assert` exists to protect. When a human-owned placeholder is
+  unresolved, the setup control state is now `human_review_required`, the action
+  names the exact file, line, and field, and **`next_action` / `next_actions[]`
+  carry that same route** — publishing the control state beside an unchanged
+  executable `scan` command would have left the unsafe answer exactly where a
+  pre-#323 consumer reads it. Ownership covers every `do_not_auto_assert`
+  surface with a manifest spelling, `agent_bindings` and `action_surface`
+  included, not only `declared_purpose`. A placeholder an agent can legitimately
+  resolve from the repository — a tool-source path, a project name — stays
+  coding-agent work, and once the human-owned values are supplied `doctor`
+  advances deterministically to `verify`. `init --write --agent-instructions=…`
+  over an existing manifest now inspects *that* manifest rather than the
+  template it did not write, so the documented refresh command is not a route
+  around the boundary.
+- **The `AgentControl` union is unchanged, and the compatibility floor stays at
+  `21`.** That union is embedded by the verifier, the handoff, preflight, the
+  agent result, the boundary result, and verify-run, so widening it would widen
+  six durable published schemas under unchanged identifiers — and five of those
+  artifacts record no `contract_version`, so a consumer holding a stored payload
+  could not use the floor to tell which shape it has. A setup step that needs a
+  file changed is still typed: the envelope publishes `next_action.kind: "edit"`
+  with `path` and `expects`, as `SetupEditAction` — declared on the envelope,
+  which is emitted on stdout and never stored, and rejected in both layers on
+  any operation but `detect`/`init`/`doctor`. Routing such a step as the command
+  that merely *checks* the edit was tried and is wrong: an envelope-only
+  consumer executing it re-ran `doctor` against an unchanged file forever, with
+  the instruction surviving only in `why`.
+- **A completion cannot rest on a negative verdict.** Constraining each
+  `decision_source` to its own vocabulary left the verdict free of the authority
+  it sits beside, so a `complete` envelope with `permissions.merge: true`
+  accepted `decision: "blocked"` — a schema-valid negative gate result granting
+  terminal authority. A completed release result now admits only `passed`, and a
+  completed boundary result only the non-blocking `allow`/`warn`, in both
+  layers.
+- **A manifest that is not UTF-8 is refused, not rewritten.**
+  `errors="replace"` turned one `0xff` byte in `project.name` into U+FFFD, so
+  `doctor` loaded a *different*, valid manifest, reported `setup_complete`, and
+  recommended verify — while `scan` on the same file exited 4. Setup and the
+  gate now validate the same input language.
+- **The envelope only calls a string a command when something can run it.** A
+  diagnostic's remediation is an instruction for a reader as often as it is an
+  invocation: the unknown-adapter routes read
+  `AGENTS_SHIPGATE_ENABLE_PLUGINS=1 agents-shipgate scan …`, a shell assignment
+  `shlex.split` turns into a program literally named
+  `AGENTS_SHIPGATE_ENABLE_PLUGINS=1`, and `pip install
+  <third-party-adapter-package>`, a placeholder nobody can install. Both were
+  promoted verbatim into `control.next_action.command` under
+  `agent_action_required` — a route whose single step cannot be taken. Such a
+  remediation now routes to a human, carrying the string as prose. This stops at
+  the envelope: `next_actions[]` keeps the diagnostic's own action, because
+  `NextAction` already withholds its computed `executable`/`args` pair for a
+  string with no faithful argv while letting the rendered string stand, and the
+  envelope has no equivalent way to publish an instruction that is not argv.
+- **`control.next_action.path` names the file byte for byte.** The envelope's
+  text type normalizes what it validates, which is safe for prose and not for a
+  path: a filename may legally begin or end with a space, so `' manifest.yaml '`
+  in a diagnostic became `'manifest.yaml'` in the envelope and the two rank-1
+  projections pointed at two files. The prose cap now covers the setup edit's
+  `why` as well, which had routed around it and published 1,134 bytes on a
+  contract that documents 400.
+- **Every `doctor --json` payload carries the route, including the earliest
+  failure.** A `--config` glob that matched nothing raised before the projection
+  and returned the legacy error shape alone, with no `control`,
+  `decision_source`, or `input_id` — the one counterexample to the promise this
+  rollout rests on. That branch now projects a denied setup envelope, and the
+  failure identity covers the route it publishes rather than only the defect
+  that caused it, so the same rejected workspace read through two entry points
+  no longer answers under one `input_id`.
+- **A dry run that wrote the CI workflow no longer says nothing was written.**
+  `--ci` is orthogonal to `--write`, so `init --ci --json` reported
+  `workflow.status: "written"` a few fields above a `why` claiming otherwise.
+
+- **`scan` is outside this rollout, and now says so.** `agent control` after a
+  scan reports `decision: null` with a `reason` stating the verdict is
+  *withheld*, not absent: the scan reached one — `report.sarif` even carries it
+  — but a scan pointer binds no reconfirmable snapshot of the inputs it read, so
+  no artifact in that directory can show the verdict still describes the
+  workspace. An edit to the manifest, a referenced `tools.json`, a policy pack,
+  or a baseline leaves the pointer reading cleanly with the old answer.
+  Publishing a verdict from `scan` needs a complete input snapshot threaded
+  through report generation and pointer publication; until that lands, `verify`
+  is where a checkable verdict comes from, and #323's scan half stays open.
 
 - **The recommended next command now runs where it was recommended.** Every
   emitted command was written as the console script the wheel installs

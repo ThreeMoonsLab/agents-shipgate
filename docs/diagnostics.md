@@ -231,3 +231,69 @@ unchanged). Per-finding remediation already has its own v0.7 fields
 (`autofix_safe`, `requires_human_review`, `suggested_patch_kind`,
 `docs_url`); diagnostics are pre-scan recovery hints, not post-scan
 remediation.
+
+## Projection onto the control envelope
+
+Contract v24 adds a `control` field to `detect --json`, `init --json`, and each
+`doctor --json` payload, carrying the same `shipgate.agent_control/v1` envelope
+that `verify`, `check`, and `agent control` emit
+([`docs/agent-control-schema.v1.json`](agent-control-schema.v1.json)). It is a
+projection of these diagnostics, not a second analysis: the rank-1 control
+action is a diagnostic's own rank-1 `NextAction`, retyped.
+
+The mapping, in `agents_shipgate.cli.setup_control` — one module, so the four
+commands cannot drift apart:
+
+| Selected route | `control_state` | `next_actor` |
+| --- | --- | --- |
+| A `block`-severity diagnostic with a `command` or `edit` action | `agent_action_required` | `coding_agent` |
+| An unresolved **human-owned** manifest placeholder | `human_review_required` | `human` |
+| A diagnostic whose rank-1 action is `review` or `stop`, or whose id is human-owned | `human_review_required` | `human` |
+| No diagnostic and no outstanding human obligation | `agent_action_required` on the next stage | `coding_agent` |
+
+Precedence is that table's order. A blocking diagnostic outranks the placeholder
+obligation deliberately: a manifest the loader rejects has to be repaired before
+anyone can usefully review what it declares, and the obligation is not lost —
+it is derived from the manifest on every run, never remembered.
+
+`NextAction.kind` maps to the control action type: `command` becomes a
+`CodingAgentCommandAction` whose `kind` comes from
+`setup_control.SETUP_ACTION_KINDS` (one entry per diagnostic id, pinned by
+test), `edit` becomes the contract-v24 `SetupEditAction` — declared on the
+envelope, not in the shared control union, and rejected on any non-setup
+operation — and
+`review`/`stop` become human routes.
+
+**Human-owned placeholders.** A placeholder is human-owned when any segment of
+its reported field path names a declaration a person makes. Two sets, both in
+`agents_shipgate.cli.discovery.placeholders`:
+
+- whole manifest blocks — `agent_bindings`, `tool_identity`, `action_surface`,
+  `permissions`, `policies`, `checks`, `baseline`, `human_ack`,
+  `risk_overrides`, `organization` — each mapped to the `do_not_auto_assert`
+  entry it carries, in `HUMAN_OWNED_MANIFEST_BLOCKS`;
+- leaf fields wherever they appear — `declared_purpose`, `prohibited_actions`,
+  `owner`, `reason`, `expires`, `approval`, `approval_required`, `authority`,
+  `effect`, `safeguards`, `confirmation`, `idempotency`.
+
+These are reviewed closed-world claims about deployed wiring, or the record of a
+person having decided something. A value a coding agent supplied is not a guess
+to be corrected later — it is a declaration nobody made, and Shipgate treats it
+as evidence. Every other placeholder (a tool-source path, a project name) is
+ordinary repository reading and stays coding-agent work.
+
+Matching is on every segment, not the leaf, because `collect_placeholders` names
+a list item by its own text: a `CHANGE_ME` under `declared_purpose: [...]` is
+reported as `agent.declared_purpose.CHANGE_ME`.
+
+**One route reaches every field.** `next_action`, `next_actions[0]`, and
+`control.next_action` are all projections of the one selected route, so a
+consumer reading the legacy string and a consumer reading `control` cannot be
+sent to different work. A human route publishes exactly one action and no
+command; the ranked alternatives appear only behind a coding-agent route.
+
+The `control` field never carries authority: setup reads no diff, so all six
+`permissions` are `false`, `review_publishable` is unreachable, no artifact or
+`current_control_id` is bound, and `control_state: "complete"` is unreachable
+for these operations. Every one of those is enforced in the published JSON
+Schema as well as in Pydantic.

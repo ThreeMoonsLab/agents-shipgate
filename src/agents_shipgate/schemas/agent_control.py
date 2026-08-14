@@ -126,6 +126,23 @@ type AgentControlAction = Annotated[
     Field(discriminator="kind"),
 ]
 
+# The routes that carry no executable command.  Grouped once because the union's
+# own ``allowed_next_commands`` check and the control derivation both have to
+# treat them alike, and an ``isinstance`` tuple written out at each is how the
+# next variant gets handled in one of the two.
+#
+# A typed ``edit`` route lived here briefly, for setup steps that are
+# unambiguously coding-agent work and have no executable form. It is gone: this
+# union is embedded by ``verifier``, ``agent-handoff``, ``preflight``,
+# ``agent-result``, ``agent-boundary-result``, and ``verify-run``, so widening it
+# widens six durable published schemas under unchanged identifiers — and five of
+# those artifacts carry no ``contract_version``, so a consumer holding a stored
+# payload cannot use the runtime floor to tell which shape it has. Setup edits
+# route as a ``configure`` command naming the check that confirms them, with the
+# file in ``why`` and structurally in ``next_actions[].path``, which is where
+# ``docs/diagnostics.md`` has always published a path.
+COMMANDLESS_CODING_AGENT_ACTIONS = (CodingAgentFetchBaseAction,)
+
 
 class NoHumanReview(BaseModel):
     """Exact negative human-review projection for non-stopping states."""
@@ -160,7 +177,11 @@ class RequiredHumanReview(BaseModel):
         return self
 
 
-_PERMISSION_FIELDS = (
+# The six action-scoped authorities, in publication order. Public because the
+# envelope schema has to name every one of them to pin a vector to all-false in
+# generated JSON Schema, and a second hand-written list there would be one more
+# thing to keep in step.
+PERMISSION_FIELDS = (
     "edit",
     "commit",
     "push",
@@ -181,7 +202,7 @@ class _AgentPermissionsBase(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"required": list(_PERMISSION_FIELDS)},
+        json_schema_extra={"required": list(PERMISSION_FIELDS)},
     )
 
     edit: bool
@@ -353,9 +374,10 @@ class AgentActionRequiredControl(_AgentControlBase):
     @model_validator(mode="after")
     def _action_is_an_allowed_route(self) -> AgentActionRequiredControl:
         action = self.next_action
-        if isinstance(action, CodingAgentFetchBaseAction):
-            # Structured requests deliberately carry no command.  Additional
-            # exact recovery commands may still be offered by the caller.
+        if isinstance(action, COMMANDLESS_CODING_AGENT_ACTIONS):
+            # Structured requests and file edits deliberately carry no command.
+            # Additional exact recovery commands may still be offered by the
+            # caller.
             self.allowed_next_commands = sorted(self.allowed_next_commands)
             return self
         if action.command not in self.allowed_next_commands:
@@ -681,8 +703,8 @@ def project_legacy_agent_control(control: AgentControl) -> dict[str, Any]:
     receiving exactly the fields and states they were promised.
 
     The projection is deliberately *restrictive*: ``permissions`` is dropped,
-    and ``review_publishable`` collapses back onto ``human_review_required``
-    with the universal stop. A consumer that has not been taught the
+    ``review_publishable`` collapses back onto ``human_review_required`` with
+    the universal stop. A consumer that has not been taught the
     publication/merge split therefore keeps the conservative reading it always
     had, and can never mistake the absence of ``permissions`` for permission.
     """
@@ -746,6 +768,7 @@ __all__ = [
     "AgentControl",
     "AgentControlAction",
     "AgentControlState",
+    "COMMANDLESS_CODING_AGENT_ACTIONS",
     "CodingAgentAction",
     "CodingAgentCommandAction",
     "CodingAgentFetchBaseAction",
@@ -762,6 +785,7 @@ __all__ = [
     "HumanReviewAction",
     "HumanReviewRequiredControl",
     "NoAgentPermissions",
+    "PERMISSION_FIELDS",
     "NoHumanReview",
     "PublishOnlyPermissions",
     "RequiredHumanReview",

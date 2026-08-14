@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import typer
@@ -31,8 +32,15 @@ from agents_shipgate.cli.discovery.gitignore_block import (
 from agents_shipgate.cli.discovery.local_contract import LOCAL_CONTRACT_RELATIVE_PATH
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.discovery.scope import repository_root
+from agents_shipgate.cli.setup_control import (
+    SETUP_COMPLETE,
+    SETUP_INCOMPLETE,
+    setup_control_envelope,
+    setup_input_id,
+)
 from agents_shipgate.core.errors import DiscoveryError
 from agents_shipgate.invocation import render_command
+from agents_shipgate.schemas.agent_control import AgentActionKind
 from agents_shipgate.schemas.detect import AgentProjectCandidate
 from agents_shipgate.schemas.diagnostics import NextAction
 
@@ -390,6 +398,237 @@ def _claude_code_outcome_lines(outcome: dict[str, object]) -> list[str]:
     return lines
 
 
+def _manifest_placeholders(
+    target: Path,
+    *,
+    template: str,
+    placeholders: list[dict[str, object]],
+    write: bool,
+) -> tuple[list[dict[str, object]], bytes | None, str | None]:
+    """The placeholders of the manifest a caller would actually be routed to.
+
+    Returns them together with the exact bytes they were read from, so the
+    identity of this answer and the answer itself come from one snapshot rather
+    than two reads that an edit could land between.
+
+    When a manifest exists on disk it is the authority, whether this run wrote it
+    or found it.
+
+    A dry run carries no routing obligation at all: nothing was written, so there
+    is no manifest for a person to review and the honest next step is to write
+    one. The template's own placeholders stay in the payload's ``placeholders``
+    field, where they always were — they describe what the caller will owe *after*
+    writing, not what anyone owes now.
+
+    The third element is the loader's objection to those bytes, or ``None`` when
+    they load. Scanning only for placeholders treated *any* existing file as a
+    configured manifest: an empty ``shipgate.yaml`` has no ``CHANGE_ME`` in it,
+    so ``init --write --agent-instructions=...`` reported ``setup_complete`` and
+    handed back a verify command that exits 2. Manifest validity is a setup fact
+    in #323, and this is where the setup route learns it.
+    """
+
+    if write or target.exists():
+        try:
+            data = target.read_bytes()
+        except OSError as exc:
+            # A *refused* write leaves no file at all — an ambiguous scope, for
+            # instance — and that is not a defective manifest, it is the absence
+            # of one, which the caller's own status already describes. Only a
+            # file that exists and cannot be read is a defect.
+            if not target.exists():
+                return [], None, None
+            # Unreadable is not "clean". Fall back to the template's obligations
+            # rather than reporting an unverified all-clear.
+            return placeholders, None, str(exc)
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            # A manifest that is not UTF-8 is not a manifest. Replacing the bad
+            # bytes would hand the route a *different*, valid document.
+            return [], data, f"{target} is not valid UTF-8: {exc}"
+        return collect_placeholders(text), data, _manifest_defect(text)
+    return [], None, None
+
+
+def _manifest_defect(text: str) -> str | None:
+    """The loader's objection to this manifest, or ``None`` when it loads.
+
+    Deliberately the same loader the rest of the CLI uses, rather than a
+    lighter-weight parse: a route that declares setup complete is asserting the
+    next command will run, and the only thing that can support that is what the
+    next command will do.
+    """
+
+    from agents_shipgate.config.loader import load_manifest_text
+    from agents_shipgate.core.errors import ConfigError
+
+    try:
+        load_manifest_text(text)
+    except ConfigError as exc:
+        return str(exc)
+    except Exception as exc:  # noqa: BLE001 - any loader objection routes the same way.
+        return str(exc)
+    return None
+
+
+def _init_reason(manifest_status: str, *, target: Path, write: bool) -> str:
+    if manifest_status == "written":
+        return f"Wrote {target}."
+    if manifest_status == "skipped_existing":
+        return f"{target} already exists and was left untouched."
+    if not write:
+        return f"Rendered a manifest for {target} without writing it."
+    return "init made no manifest change."
+
+
+def _init_advance(
+    *,
+    workspace: Path,
+    target: Path,
+    write: bool,
+    manifest_status: str,
+    manifest_exit: int,
+    next_action_create: NextAction,
+    skipped_target: object | None,
+    scope_actions: Sequence[NextAction] = (),
+    manifest_defect: str | None = None,
+    setup_flags: Sequence[str] = (),
+    workflow_status: str | None = None,
+) -> tuple[NextAction, AgentActionKind, str, bool]:
+    """The step init already names, typed for the control envelope.
+
+    Every branch reuses a route the command publishes elsewhere rather than
+    composing a new one, so ``control.next_action`` and the JSON payload's
+    ``next_action`` cannot drift apart. The dry-run branch is the only place a
+    command is spelled here, and it is the ``--write`` form of the invocation
+    the caller just made, which the human-readable output already tells them to
+    run.
+
+    A refused instruction target outranks the manifest route: init reports a
+    non-zero exit for it, and a control state that pointed past it would call a
+    failed run's onward step the next thing to do.
+
+    ``setup_flags`` repeats what this invocation asked for. A dry run advanced to
+    a bare ``init --write``, which silently drops ``--ci``, an
+    ``--agent-instructions`` selection, and ``--allow-unresolved-scope`` — the
+    last of which makes the emitted command exit 2 in the very monorepo that
+    needed it. The scoped-refusal recovery already threads them; the dry run has
+    the same obligation, and for the same reason ``_requested_setup_flags``
+    states: a recovery that completes with less than the caller requested
+    reports success for work it did not do.
+    """
+
+    if manifest_defect is not None and manifest_status != "written":
+        # A file that exists is not a configured manifest. Scanning it for
+        # placeholders found none in an *empty* `shipgate.yaml`, so the refresh
+        # path called it `setup_complete` and handed back a verify command that
+        # exits 2 on the same file. Route to the repair, and let doctor confirm
+        # it — the same command that would have reported the defect.
+        return (
+            NextAction(
+                kind="edit",
+                path=str(target),
+                why=f"{target} exists but does not load: {manifest_defect}",
+                expects="doctor loads the manifest without a config error.",
+            ),
+            "configure",
+            SETUP_INCOMPLETE,
+            True,
+        )
+    if scope_actions:
+        # `init --write` refused to write anything: the workspace defines agents
+        # in several projects, so no single manifest describes it. That is an
+        # obligation this run produced and it outranks everything else here —
+        # there is no manifest yet for a declaration to be owed on. Rank 1 is
+        # deliberately the *choice*, which is a human route; the per-candidate
+        # commands ride along as alternatives (#363/#370).
+        return (scope_actions[0], "discover", SETUP_INCOMPLETE, True)
+    if skipped_target is not None:
+        return (
+            NextAction(
+                kind="edit",
+                path=getattr(skipped_target, "path", str(target)),
+                why=getattr(skipped_target, "message", None)
+                or "This target is in a state init will not overwrite.",
+                expects=(
+                    "The file is absent or carries the managed block, then "
+                    f"re-run init --write --agent-instructions="
+                    f"{getattr(skipped_target, 'name', 'default')}."
+                ),
+            ),
+            "configure",
+            SETUP_INCOMPLETE,
+            True,
+        )
+    if manifest_status == "skipped_existing" and manifest_exit == 0:
+        # The manifest was left alone *on purpose*: `--agent-instructions` makes
+        # this the advertised refresh command, and init reports success. Sending
+        # the caller to edit a manifest nothing is wrong with would invent an
+        # obligation out of a run that had none. The workspace is already
+        # configured, so the outstanding step is the gate.
+        return (
+            NextAction(
+                kind="command",
+                command=render_command(["verify", "--workspace", str(workspace), "--json"]),
+                why=(
+                    "The manifest and the requested agent instructions are in "
+                    "place. The outstanding step is the release gate."
+                ),
+                expects="A verifier run that publishes a control identity for this workspace.",
+            ),
+            "verify",
+            SETUP_COMPLETE,
+            False,
+        )
+    if manifest_status == "skipped_existing":
+        return (
+            NextAction(
+                kind="edit",
+                path=str(target),
+                why=(
+                    f"{target} already exists. Edit it directly or remove it "
+                    "before re-running init --write."
+                ),
+                expects=(
+                    "The manifest reflects the desired tool sources, agent "
+                    "declared_purpose, and policies."
+                ),
+            ),
+            "configure",
+            SETUP_INCOMPLETE,
+            False,
+        )
+    if not write:
+        # "Nothing was written" was false whenever `--ci` was passed: that flag
+        # is orthogonal to `--write`, so the same payload reported
+        # `workflow.status="written"` a few fields above this sentence. Name the
+        # thing that was actually withheld — the manifest — and account for the
+        # file this run did write.
+        withheld = (
+            "The CI workflow was written. The manifest was not: re-run with --write "
+            "to commit the rendered manifest and the rest of the setup this "
+            "invocation asked for."
+            if workflow_status == "written"
+            else "The manifest was not written. Re-run with --write to commit the "
+            "rendered manifest and the setup this invocation asked for."
+        )
+        return (
+            NextAction(
+                kind="command",
+                command=render_command(
+                    ["init", "--workspace", str(workspace), "--write", *setup_flags]
+                ),
+                why=withheld,
+                expects=f"{target} exists.",
+            ),
+            "initialize",
+            SETUP_INCOMPLETE,
+            False,
+        )
+    return (next_action_create, "rerun", SETUP_COMPLETE, False)
+
+
 def register(app: typer.Typer) -> None:
     @app.command(hidden=True)
     def init(
@@ -551,7 +790,6 @@ def register(app: typer.Typer) -> None:
                 ),
                 expects="A readiness report under agents-shipgate-reports/.",
             )
-            next_action_dry = "Inspect the template, then re-run with --write to commit it."
         else:
             try:
                 detect_result = detect_workspace(workspace_resolved)
@@ -664,7 +902,6 @@ def register(app: typer.Typer) -> None:
                 ),
                 expects="A readiness report under agents-shipgate-reports/.",
             )
-            next_action_dry = "Inspect the template, then re-run with --write to commit it."
 
         kit_config = None
         if agent_instructions_kit is not None or requested_targets is not None:
@@ -815,38 +1052,146 @@ def register(app: typer.Typer) -> None:
                 ),
                 kit=agent_instructions_kit,
             )
+
+        # Routing. Computed from the manifest that is *on disk*, not from the
+        # template: on `skipped_existing` the template was never written, so its
+        # placeholders describe a file that does not exist while the real
+        # manifest — which may still hold an unresolved human-owned declaration
+        # — goes uninspected. Dropping them there turned
+        # `init --write --agent-instructions=...` into a route around the human
+        # ownership boundary: the same unedited manifest reported
+        # `setup_complete -> verify`.
+        control_placeholders, control_manifest_bytes, manifest_defect = _manifest_placeholders(
+            target, template=template, placeholders=placeholders, write=write
+        )
+        advance, advance_kind, advance_decision, advance_blocking = _init_advance(
+            workspace=workspace,
+            target=target,
+            write=write,
+            manifest_status=manifest_status,
+            manifest_exit=manifest_exit,
+            next_action_create=next_action_create,
+            skipped_target=next(
+                (t for t in agent_instructions_targets if t.status.startswith("skipped")),
+                None,
+            )
+            if agent_instructions_exit
+            else None,
+            scope_actions=scope_actions,
+            manifest_defect=manifest_defect,
+            # Everything this invocation asked for, so the follow-up is
+            # equivalent to the dry run it advances. `_requested_setup_flags`
+            # covers what the *scoped refusal* must repeat; the dry run re-runs
+            # this same workspace, so it owes more:
+            #
+            #   --minimal                 selects a different template, so
+            #                             dropping it writes something other
+            #                             than what was previewed;
+            #   --allow-unresolved-scope  the accepted root boundary, without
+            #                             which the command exits 2 in the very
+            #                             monorepo that needed it;
+            #   --agent-instructions-kit  the kit that was previewed;
+            #   --json                    the caller is in the JSON control
+            #                             loop and gets human prose back.
+            #
+            # The scoped refusal deliberately repeats none of the last three:
+            # there the point is to choose a *different* workspace.
+            setup_flags=[
+                *(["--minimal"] if minimal else []),
+                *_requested_setup_flags(
+                    ci=ci,
+                    claude_code=claude_code,
+                    agent_instructions=agent_instructions,
+                ),
+                *(["--allow-unresolved-scope"] if allow_unresolved_scope else []),
+                *(
+                    ["--agent-instructions-kit", str(agent_instructions_kit)]
+                    if agent_instructions_kit is not None
+                    else []
+                ),
+                *(["--json"] if json_output else []),
+            ],
+            # `--ci` writes without `--write`, so the dry-run route has to know
+            # whether this run already produced a file.
+            workflow_status=(
+                str(workflow_outcome["status"]) if workflow_outcome is not None else None
+            ),
+        )
+        routing = setup_control_envelope(
+            operation="init",
+            input_id=setup_input_id(
+                operation="init",
+                workspace=workspace_resolved,
+                manifest_path=target if control_manifest_bytes is not None else None,
+                manifest_bytes=control_manifest_bytes,
+                routing_facts=(
+                    manifest_status,
+                    manifest_exit,
+                    agent_instructions_exit,
+                    control_placeholders,
+                    manifest_defect,
+                    advance_decision,
+                    # The selected route itself. On one unchanged empty
+                    # workspace a plain dry run, `--ci`, and
+                    # `--agent-instructions=agents-md` produced three different
+                    # commands under one identity — so a cache keyed by the
+                    # documented identity could reuse a different requested
+                    # setup. Hashing the action covers every flag that can
+                    # reach it, including ones added later.
+                    advance.model_dump(mode="json") if advance is not None else None,
+                    # The #370 scope facts select this route whenever the
+                    # workspace holds more than one project; without them the
+                    # candidate list could change while the identity of the
+                    # answer about it did not.
+                    detected_scope,
+                    [candidate.model_dump(mode="json") for candidate in scope_candidates],
+                    [action.model_dump(mode="json") for action in scope_actions],
+                ),
+            ),
+            reason=_init_reason(manifest_status, target=target, write=write),
+            advance=advance,
+            advance_kind=advance_kind,
+            advance_decision=advance_decision,
+            advance_blocking=advance_blocking,
+            advance_alternatives=scope_actions[1:],
+            recheck_command=render_command(
+                ["doctor", "--config", str(target.resolve()), "--json"]
+            ),
+            placeholders=control_placeholders,
+            manifest_display_path=str(target),
+            exit_code=max(manifest_exit, agent_instructions_exit) or None,
+        )
+        if scope_refused:
             _emit_agent_mode_error(
                 "config_error",
                 path=str(target),
                 message=manifest_message,
                 exit_code=manifest_exit,
-                next_action=scope_actions[0].to_legacy_string(),
-                next_actions=[action.model_dump(mode="json") for action in scope_actions],
+                # The one selected route, as everywhere else on this command.
+                # Composing an independent list here would put a different
+                # rank-1 on the error stream than the payload carries.
+                next_action=routing.legacy_next_action,
+                next_actions=routing.json_actions(),
+                control=routing.envelope.model_dump(mode="json"),
                 agent_scope=detected_scope,
                 agent_project_candidates=[
                     candidate.model_dump(mode="json") for candidate in scope_candidates
                 ],
             )
         if manifest_skip_pending:
+            # The same selected route the stdout payload carries. Composing an
+            # independent one here reproduced, on the error stream, exactly the
+            # split the stdout fields were just unified to remove: stdout said
+            # `human_review_required` with no command while stderr handed the
+            # agent `Edit shipgate.yaml` for a declaration only a person may make.
             _emit_agent_mode_error(
                 "config_already_exists",
                 path=str(target),
-                next_action=f"Edit {target}",
-                next_actions=[
-                    NextAction(
-                        kind="edit",
-                        path=str(target),
-                        why=(
-                            f"{target} already exists. Edit it directly or "
-                            "remove it before re-running init --write."
-                        ),
-                        expects=(
-                            "Manifest reflects the desired tool sources, "
-                            "agent declared_purpose, and policies."
-                        ),
-                    ).model_dump(mode="json")
-                ],
+                next_action=routing.legacy_next_action,
+                next_actions=routing.json_actions(),
+                control=routing.envelope.model_dump(mode="json"),
             )
+
 
         # Output
         if json_output:
@@ -854,27 +1199,18 @@ def register(app: typer.Typer) -> None:
                 "path": str(target),
                 "created": manifest_status == "written",
                 "manifest_status": manifest_status,
-                "placeholders": placeholders,
+                # The placeholders of the manifest at `path`, which is what the
+                # control route was selected from and what its "and N more in
+                # placeholders[]" refers to. On `skipped_existing` this used to
+                # be the *template's* list — locations in a file that was never
+                # written — so a caller resolving them edited the wrong lines.
+                # For the common `written` case the two are identical.
+                "placeholders": control_placeholders if write or target.exists() else placeholders,
             }
             if manifest_message:
                 payload["manifest_message"] = manifest_message
             if not write:
                 payload["template"] = template
-                payload["next_action"] = next_action_dry
-            elif scope_refused:
-                # The manifest this run would have written describes a scope
-                # nobody chose, so the routable answer is the choice — not the
-                # scan command that assumes it was already made.
-                payload["next_action"] = scope_actions[0].to_legacy_string()
-                payload["next_actions"] = [
-                    action.model_dump(mode="json") for action in scope_actions
-                ]
-            else:
-                # Projected from the action rather than written twice, so the
-                # recovery command is spelled for this invocation and carries
-                # its structured argv (#322).
-                payload["next_action"] = next_action_create.to_legacy_string()
-                payload["next_actions"] = [next_action_create.model_dump(mode="json")]
             if auto_detected:
                 payload["auto_detected"] = auto_detected
             if workflow_outcome is not None:
@@ -887,6 +1223,9 @@ def register(app: typer.Typer) -> None:
                 payload["gitignore"] = gitignore_outcome.to_json()
             if claude_code_outcome is not None:
                 payload["claude_code"] = claude_code_outcome
+            payload["next_action"] = routing.legacy_next_action
+            payload["next_actions"] = routing.json_actions()
+            payload["control"] = routing.envelope.model_dump(mode="json")
             typer.echo(json.dumps(payload, indent=2))
         else:
             if not write:
@@ -958,23 +1297,17 @@ def register(app: typer.Typer) -> None:
                 None,
             )
             if first_skip is not None:
+                # `_init_advance` already routed on this skipped target, so the
+                # envelope's rank-1 action *is* this obligation — unless an
+                # unresolved human-owned declaration outranks it, in which case
+                # that is the honest answer here too.
                 _emit_agent_mode_error(
                     "config_already_exists",
                     path=first_skip.path,
                     message=first_skip.message,
-                    next_action=f"Edit {first_skip.path}",
-                    next_actions=[
-                        NextAction(
-                            kind="edit",
-                            path=first_skip.path,
-                            why=first_skip.message
-                            or f"{first_skip.path} is in a state we will not overwrite.",
-                            expects=(
-                                "After resolving, re-run "
-                                f"`agents-shipgate init --write --agent-instructions={first_skip.name}`."
-                            ),
-                        ).model_dump(mode="json")
-                    ],
+                    next_action=routing.legacy_next_action,
+                    next_actions=routing.json_actions(),
+                    control=routing.envelope.model_dump(mode="json"),
                 )
 
         final_exit = max(manifest_exit, agent_instructions_exit)

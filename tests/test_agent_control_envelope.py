@@ -930,12 +930,18 @@ def test_agent_control_returns_the_envelope_by_default(repo: Path):
 
 
 def test_a_current_but_routeless_generation_is_reported_not_refused(repo: Path):
-    """A `scan` pointer is current; it just reaches no release decision.
+    """A `scan` pointer is current; it just publishes no verifier route.
 
     Refusing it conflated two answers. The published contract says a non-zero
     exit means *no current identity exists*, and here one does — `--format
     pointer` returned it with exit 0 while the default exited 4. The envelope
     now reports the generation, denies merge, and names the step it is short of.
+
+    No release verdict is published from it. `scan` reaches one, but its pointer
+    records no input set, so nothing about that verdict can be reconfirmed
+    against the workspace as it stands. What the envelope carries instead is the
+    reason, which is what keeps it distinguishable from output produced before
+    any engine ran.
     """
 
     reports = repo / "agents-shipgate-reports"
@@ -966,6 +972,8 @@ def test_a_current_but_routeless_generation_is_reported_not_refused(repo: Path):
     assert payload["operation"] == "scan"
     assert payload["execution"] == "not_run"
     assert payload["decision"] is None
+    assert payload["decision_source"] == "none"
+    assert "no reconfirmable snapshot" in payload["reason"]
     assert payload["permissions"]["merge"] is False
     assert payload["permissions"]["report_complete"] is False
     # Same generation, and a route derived from the subject just validated.
@@ -1083,8 +1091,15 @@ def test_a_carried_review_obligation_survives_the_projection():
 
     envelope = _envelope(
         _agent_action(),
+        # `pending_review` comes from the boundary engine, so the operation has
+        # to be the one that runs it: contract v24 rejects a boundary verdict
+        # reported under a release operation.
+        operation="check",
+        source="run",
         decision="require_review",
         decision_source="agent_boundary",
+        current_control_id=None,
+        artifacts={},
         pending_review=[
             AgentControlPendingReview(
                 rule_id="CODEX-UNKNOWN-PERMISSION",
@@ -1500,3 +1515,129 @@ def test_all_human_text_escapes_repository_derived_values(repo: Path, capsys):
     assert sum(1 for line in lines if line.startswith("Control: ")) == 1, lines
     assert sum(1 for line in lines if line.startswith("You may: ")) == 1, lines
     assert any("\\x0a" in line for line in lines), "hostile value was not escaped"
+
+
+def test_a_scan_never_publishes_a_release_verdict(repo: Path):
+    """Byte integrity is not currency (PR #372 review, rounds 1 and 2).
+
+    A `scan` pointer records no HEAD, no worktree overlay, and no input set, so
+    the generic currency comparison has nothing to compare and passes vacuously.
+    An earlier revision lifted the bound report's verdict on top of that, which
+    turned a silent gap into an affirmative *stale* release decision: a clean
+    scan said `passed`, an input changed, and the same pointer still read
+    cleanly with the same verdict.
+
+    Binding the manifest digest alone was not enough either — the manifest is
+    one of several inputs, and editing a `tools.json` it references moved the
+    real decision from `passed` to `insufficient_evidence` while leaving the
+    pointer intact. So no verdict is published from a scan generation at all
+    until a scan binds a reconfirmable snapshot of everything it read; what is
+    published is why, which is what a bare `decision: null` could not say.
+    """
+
+    reports = repo / "agents-shipgate-reports"
+    assert runner.invoke(
+        app,
+        [
+            "scan", "--workspace", str(repo),
+            "--config", str(repo / "shipgate.yaml"),
+            "--out", str(reports),
+        ],
+    ).exit_code == 0
+
+    def read() -> dict:
+        result = runner.invoke(
+            app, ["agent", "control", "--workspace", str(repo), "--reports-dir", str(reports)]
+        )
+        assert result.exit_code == 0, result.output
+        return json.loads(result.stdout)
+
+    fresh = read()
+    assert fresh["decision"] is None
+    assert fresh["decision_source"] == "none"
+    # Distinguishable from an envelope produced before any engine ran, which is
+    # the whole reason a bare `decision: null` was not an acceptable answer.
+    assert "no reconfirmable snapshot" in fresh["reason"]
+    assert "verify" in fresh["reason"]
+
+    # The input the manifest references, not the manifest itself: this is the
+    # case a manifest-only digest would have missed.
+    tools = repo / "tools.json"
+    payload = json.loads(tools.read_text(encoding="utf-8"))
+    payload["tools"][0]["name"] = "renamed_after_the_scan"
+    tools.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    after = read()
+    assert after["decision"] is None
+    assert after["permissions"]["merge"] is False
+    assert after["current_control_id"] == fresh["current_control_id"]
+
+
+def test_a_format_limited_scan_says_the_verdict_is_withheld_not_absent(repo: Path):
+    """`--format markdown` still reached a decision; it is withheld, not missing.
+
+    Saying "this generation bound no machine-readable report" was wrong twice
+    over: a SARIF-only scan *does* bind one, carrying the verdict under
+    `runs[0].properties.release_decision`, and in both cases the scan reached a
+    decision that is being withheld rather than one that never existed. Which
+    artifact holds it is not the point — none of them can show it is current.
+    """
+
+    reports = repo / "agents-shipgate-reports"
+    assert runner.invoke(
+        app,
+        [
+            "scan", "--workspace", str(repo),
+            "--config", str(repo / "shipgate.yaml"),
+            "--out", str(reports), "--format", "markdown",
+        ],
+    ).exit_code == 0
+
+    result = runner.invoke(
+        app, ["agent", "control", "--workspace", str(repo), "--reports-dir", str(reports)]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["decision"] is None
+    assert "reached a release decision and it is withheld" in payload["reason"]
+    assert "report" not in payload["artifacts"]
+
+
+def test_an_existing_pointer_survives_this_release(repo: Path):
+    """A pointer written before this change must still read.
+
+    `current_control_id` hashes the whole pointer with `exclude_none=False`, so
+    adding *any* field to `workspace_identity` — even an optional one nobody
+    sets — re-hashes every pointer already on disk and makes it unreadable. An
+    earlier revision of this branch did exactly that.
+    """
+
+    reports = repo / "agents-shipgate-reports"
+    assert runner.invoke(
+        app,
+        [
+            "scan", "--workspace", str(repo),
+            "--config", str(repo / "shipgate.yaml"),
+            "--out", str(reports),
+        ],
+    ).exit_code == 0
+
+    pointer = json.loads((reports / "current-control.json").read_text(encoding="utf-8"))
+    identity = pointer["workspace_identity"]
+    assert set(identity) == {
+        "repository",
+        "head_ref",
+        "head_commit_sha",
+        "head_tree_sha",
+        "base_ref",
+        "base_commit_sha",
+        "merge_base_sha",
+        "worktree_overlay_sha256",
+        "policy_snapshot_sha256",
+        "snapshot_kind",
+    }, "shipgate.current_control/v1 workspace identity gained or lost a field"
+
+    # And the recorded id is the one this release computes for it.
+    model = CurrentControlPointer.model_validate(pointer)
+    assert content_id(current_control_identity_payload(model)) == pointer["current_control_id"]

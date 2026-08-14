@@ -71,6 +71,11 @@ RECEIPT_ARTIFACT_KEY = "verification_receipt"
 # The artifact key carrying the route and execution status a pointer omits by
 # design. Named here so producers and readers cannot spell it differently.
 VERIFIER_ARTIFACT_KEY = "verifier"
+# The artifact key carrying ``release_decision``. A ``scan`` pointer binds this
+# and no verifier, so it is the only place that generation's release verdict
+# survives — the pointer records no decision, deliberately, so that it cannot
+# become a second one.
+REPORT_ARTIFACT_KEY = "report"
 
 
 class CurrentControlArtifactRef(BaseModel):
@@ -280,6 +285,7 @@ __all__ = [
     "CURRENT_CONTROL_SCHEMA_PATH",
     "CURRENT_CONTROL_SCHEMA_VERSION",
     "RECEIPT_ARTIFACT_KEY",
+    "REPORT_ARTIFACT_KEY",
     "VERIFIER_ARTIFACT_KEY",
     "AgentActionRequiredCurrentControl",
     "CompleteCurrentControl",

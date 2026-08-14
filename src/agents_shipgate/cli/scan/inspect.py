@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.config.loader import load_manifest_text
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -14,6 +14,7 @@ from agents_shipgate.core.artifact_models import (
     N8nArtifacts,
     OpenAIApiArtifacts,
 )
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.privacy import RedactionStats, redact_data
 from agents_shipgate.inputs.policy_packs import load_policy_packs
 from agents_shipgate.inputs.protocol import REGISTRY
@@ -27,12 +28,36 @@ from .source_loading import (
 from .surface_redaction import _frameworks_surface
 from .validation import _resolve_source_paths
 
+# Out-of-band key carrying the manifest bytes this inspection read. Popped by
+# the caller before the payload is published; it is not part of the doctor JSON.
+MANIFEST_SNAPSHOT_KEY = "__manifest_bytes__"
+
+
+def decode_manifest(data: bytes, source: Path | str) -> str:
+    """Decode manifest bytes strictly, or refuse them as a config error.
+
+    ``errors="replace"`` does not read a manifest, it *writes a different one*:
+    a single ``0xff`` in ``project.name`` became U+FFFD, so `doctor` loaded a
+    valid manifest, reported `setup_complete`, and recommended verify — while
+    `scan` on the same file exited 4 with `UnicodeDecodeError`. Setup and the
+    gate have to validate the same input language, and the one that says "this
+    is fine" must not be the lenient one.
+    """
+
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ConfigError(
+            f"{source} is not valid UTF-8 and cannot be read as a manifest: {exc}"
+        ) from exc
+
 
 def inspect_sources(
     *,
     config_path: Path,
     verbose: bool = False,
     plugins_enabled: bool | None = None,
+    manifest_bytes: bytes | None = None,
 ) -> dict[str, object]:
     """``doctor``'s manifest-introspection entry point.
 
@@ -47,7 +72,18 @@ def inspect_sources(
 
     from agents_shipgate.inputs.protocol import discover_third_party_adapters
 
-    manifest = load_manifest(config_path)
+    # One read, and the parse comes from it. Loading the path and then reopening
+    # it for the bytes was two generations: an edit landing between them let
+    # doctor route from manifest A while the identity of that answer hashed
+    # manifest B, so the payload described no single filesystem state. The
+    # caller may hand its own snapshot in, so that a *failure* here is reported
+    # against the same bytes too.
+    if manifest_bytes is None:
+        try:
+            manifest_bytes = config_path.read_bytes()
+        except OSError:
+            manifest_bytes = b""
+    manifest = load_manifest_text(decode_manifest(manifest_bytes, config_path), source=config_path)
     base_dir = config_path.resolve().parent
     unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)
     if unresolved_sources:
@@ -159,4 +195,9 @@ def inspect_sources(
             "scope_count": len(manifest.permissions.scopes),
         },
     }
-    return redact_data(payload, stats=RedactionStats(), path="$")
+    inspected = redact_data(payload, stats=RedactionStats(), path="$")
+    # Not redacted and not part of the published payload shape: raw manifest
+    # bytes, returned out of band so the caller derives its placeholders and its
+    # identity from the same read this inspection used.
+    inspected[MANIFEST_SNAPSHOT_KEY] = manifest_bytes
+    return inspected

@@ -3657,3 +3657,86 @@ def test_rendered_prompt_pins_match_the_emitting_build(relpath):
                 f"{{{{ shipgate_version }}}} rather than hand-writing it.\n"
                 f"  line: {line.strip()!r}"
             )
+
+
+def test_discovery_and_runtime_publish_the_same_compatibility_floor():
+    """`.well-known` is the authoritative discovery payload; it must not lag.
+
+    An agent that reads it to decide whether the installed CLI is new enough
+    gets the wrong answer whenever these two disagree — and they did: the file
+    advertised `contract_version: "23"` after the runtime moved to 24, so a
+    consumer could accept a CLI the contract no longer describes. Pinned here
+    rather than left to the bump checklist, because the checklist is what missed
+    it.
+    """
+
+    from agents_shipgate.schemas.contract import (
+        CONTRACT_VERSION,
+        MINIMUM_CONTROL_CONTRACT_VERSION,
+    )
+
+    published = json.loads(_read(".well-known/agents-shipgate.json"))
+
+    assert published["contract_version"] == CONTRACT_VERSION
+    assert published["minimum_control_contract_version"] == MINIMUM_CONTROL_CONTRACT_VERSION
+
+    # ...and the canonical contract page, which said 24 while the runtime said
+    # 21, so a consumer following it rejected the very build it documents.
+    stamp = (
+        f"- Runtime contract: `{CONTRACT_VERSION}` "
+        f"(minimum control contract: `{MINIMUM_CONTROL_CONTRACT_VERSION}`)"
+    )
+    assert stamp in _read("docs/agent-contract-current.md")
+
+    # ...and the two prose copies of the same floor. Both are read as
+    # prerequisites — STABILITY.md documents the field, README.md tells an
+    # adopter what to check `contract --json` against — so a consumer following
+    # either accepted a pre-v21 control reader while the runtime required 21.
+    # Every *current* statement of the floor is asserted; the historical
+    # migration notes keep the version they shipped with, which is the point of
+    # a migration note.
+    assert (
+        "`AgentControl` state is authoritative; currently "
+        f'`"{MINIMUM_CONTROL_CONTRACT_VERSION}"`' in _read("STABILITY.md")
+    )
+    assert (
+        "the permission-scoped agent-control model requires "
+        f'`minimum_control_contract_version: "{MINIMUM_CONTROL_CONTRACT_VERSION}"`'
+        in _read("README.md")
+    )
+
+
+def test_the_control_union_stays_out_of_the_durable_schemas_it_is_embedded_in():
+    """Six published schemas embed `AgentControl`; widening it widens all six.
+
+    `verifier`, `agent-handoff`, `preflight`, `agent-result`,
+    `agent-boundary-result`, and `verify-run` all carry a control block, and
+    five of them record no `contract_version` — so a consumer holding a stored
+    payload cannot use the runtime floor to work out which shape it has. A
+    variant added to the union for one new producer therefore changes six
+    durable contracts under unchanged identifiers.
+
+    This pins the action union itself, which is what a widening would have to go
+    through, so the next attempt fails here rather than in a consumer's parser.
+    """
+
+    from agents_shipgate.schemas.agent_control import AgentControlAction, CodingAgentAction
+
+    def kinds(alias: object) -> set[str]:
+        found: set[str] = set()
+        for variant in alias.__value__.__origin__.__args__:  # type: ignore[attr-defined]
+            annotation = variant.model_fields["kind"].annotation
+            found.update(getattr(annotation, "__args__", (annotation,)))
+        return found
+
+    assert kinds(CodingAgentAction) == {
+        "verify",
+        "discover",
+        "configure",
+        "initialize",
+        "repair",
+        "install",
+        "rerun",
+        "fetch_base",
+    }
+    assert kinds(AgentControlAction) == kinds(CodingAgentAction) | {"review", "stop"}

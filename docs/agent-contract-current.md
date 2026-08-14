@@ -10,6 +10,61 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
+Runtime contract v24 rolls the control envelope across the setup commands.
+`detect --json`, `init --json`, and every `doctor --json` payload now carry a
+`control` field holding the same `shipgate.agent_control/v1` object that
+`verify`, `check`, and `agent control` emit, so one vocabulary answers "what may
+I do next" for the whole adoption walk. Two things keep the setup family
+distinguishable from the gate:
+
+- **Setup names its own source.** These commands run before a release decision
+  exists, so they report `decision_source: "setup"` and a `decision` from the
+  closed setup vocabulary `setup_complete | setup_incomplete |
+  setup_not_applicable`. The published schema enforces the pairing both ways: a
+  setup source can only come from `detect`/`init`/`doctor`, and those operations
+  can report no other source. `decision_source: "release_decision"` still means,
+  and only means, `release_decision.decision`.
+- **Setup authorizes nothing.** No setup command reads a diff, so every field of
+  `permissions` is `false` on every setup envelope, no setup envelope binds an
+  artifact or a `current_control_id`, and `control_state: "complete"` is
+  unreachable for these operations in the schema itself. Setup routes; it never
+  finishes a task.
+
+`agent control` on a `scan` generation publishes **no** release verdict. `scan`
+reaches one, but its pointer records no HEAD, no worktree overlay, and no input
+set, so nothing about that verdict can be reconfirmed against the workspace as it
+stands: editing the manifest, a `tools.json` it references, a policy pack, or a
+baseline leaves the pointer reading cleanly. What the envelope carries instead is
+`reason`, stating why there is no verdict — which is what keeps it
+distinguishable from an envelope produced before any engine ran, and is the
+ambiguity #323 set out to remove. Run `verify` for a verdict a reader can check.
+
+The `AgentControl` union is **unchanged**, and `minimum_control_contract_version`
+stays at `21`. That union is embedded by the verifier, the handoff, preflight,
+the agent result, the boundary result, and verify-run, so widening it would widen
+six durable published schemas under unchanged identifiers — and five of those
+artifacts record no `contract_version`, so a consumer holding a stored payload
+could not use the floor to tell which shape it has.
+
+A setup step that needs a file changed is still *typed*, though: the envelope
+publishes `next_action.kind: "edit"` with `path` and `expects`, as
+`SetupEditAction` — declared on the envelope, which is stdout-only, and rejected
+in both layers on any non-setup operation. Routing such a step as the command
+that merely *checks* the edit was tried and is wrong: an envelope-only consumer
+executing it re-ran `doctor` against an unchanged file forever.
+
+What v24 widens is `shipgate.agent_control/v1` itself, which is emitted on
+stdout and never written as an artifact: there are no stored envelopes to
+disambiguate, and its new operations cannot appear in anything a v21 consumer
+holds.
+
+A human-owned manifest declaration is never published as a coding-agent edit.
+When `shipgate.yaml` still holds an unresolved `declared_purpose`, policy, or
+permission placeholder, the setup control state is `human_review_required` and
+the action names the exact file, line, and field a person must fill in. The
+command-specific `next_action` / `next_actions[]` fields are unchanged, and
+remain supported.
+
 Runtime contract v23 spells every emitted command for the invocation that
 produced it. A run started with `python -m agents_shipgate` now proposes
 `<sys.executable> -m agents_shipgate ...` instead of a console script its
@@ -160,7 +215,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0b7` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `23` (minimum control contract: `21`)
+- Runtime contract: `24` (minimum control contract: `21`)
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

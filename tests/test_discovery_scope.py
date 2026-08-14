@@ -690,11 +690,22 @@ def test_an_explicit_out_still_resolves_against_the_repository_root(
     assert (monorepo / "shared-reports").is_dir()
 
 
-def test_the_scan_command_init_emits_finds_the_manifest_it_wrote(
+def test_the_command_init_emits_finds_the_manifest_it_wrote(
     monorepo: Path,
 ) -> None:
-    """`scan -c shipgate.yaml` resolves against the working directory, so a
-    scoped manifest needs a qualified path in the emitted next action."""
+    """A scoped manifest needs a qualified path in the emitted next action.
+
+    `-c shipgate.yaml` resolves against the working directory, so a manifest
+    written into `apps/a` is not found from the repository root and the emitted
+    command exits 2.
+
+    Contract v24 changed *which* command carries that property, not whether it
+    holds. `init --write` always leaves an unresolved `agent.declared_purpose`,
+    which is a declaration a person makes, so its rank-1 route is now a human
+    review with no command (#325). The qualified path is asserted here on the
+    route an adopter actually reaches next — `doctor`, once the declaration is
+    supplied — and separately on the composer itself.
+    """
 
     project = monorepo / "python/agents/crypto-payroll-agent"
 
@@ -703,8 +714,39 @@ def test_the_scan_command_init_emits_finds_the_manifest_it_wrote(
     )
 
     assert result.exit_code == 0, result.output
-    command = json.loads(result.output)["next_actions"][0]["command"]
-    assert str(project / "shipgate.yaml") in command
+    payload = json.loads(result.output)
+    manifest = project / "shipgate.yaml"
+    assert manifest.is_file()
+    assert payload["control"]["control_state"] == "human_review_required"
+    assert payload["next_actions"][0]["command"] is None
+
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace("- CHANGE_ME", "- Run payroll"),
+        encoding="utf-8",
+    )
+    doctor = runner.invoke(app, ["doctor", "--config", str(manifest), "--json"])
+    command = json.loads(doctor.output)[0]["next_actions"][0]["command"]
+
+    assert str(manifest) in command
+    assert str(project) in command
+
+
+def test_the_scan_command_init_composes_names_the_manifest_it_wrote() -> None:
+    """The composer main added, covered directly.
+
+    It feeds `init`'s onward route, which is selected whenever the manifest it
+    wrote owes nobody a declaration. Today's template always leaves one, so the
+    CLI test above reaches the property through `doctor` instead; this keeps the
+    helper itself pinned rather than relying on a path that is currently
+    unreachable end to end.
+    """
+
+    from agents_shipgate.cli._register_init import _scan_command_config
+
+    root = Path.cwd().resolve()
+    assert _scan_command_config(root / "shipgate.yaml") == "shipgate.yaml"
+    scoped = root / "apps" / "a" / "shipgate.yaml"
+    assert _scan_command_config(scoped) == str(scoped)
 
 
 def test_a_relative_adoption_kit_is_not_copied_into_a_candidate(

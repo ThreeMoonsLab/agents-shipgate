@@ -1,10 +1,17 @@
 """The single projection that produces ``shipgate.agent_control/v1``.
 
-Three surfaces emit the envelope — ``verify --format control``,
-``check --format agent-control-json``, and ``agents-shipgate agent control`` —
-and all three come through here. That is the point: an envelope assembled
-independently at each call site would be a second control vocabulary within a
-month, which is the outcome #333 and #323 were merged to prevent.
+Every surface that emits the envelope comes through here — ``verify --format
+control``, ``check --format agent-control-json``, ``agents-shipgate agent
+control``, and the ``control`` field on ``detect``/``init``/``doctor``
+``--json``. That is the point: an envelope assembled independently at each call
+site would be a second control vocabulary within a month, which is the outcome
+#333 and #323 were merged to prevent.
+
+The setup commands are the one family whose control state is *not* a projection
+of a release decision, because none exists when they run. They are not therefore
+a second gate: they carry ``decision_source: "setup"``, they authorize nothing
+at all, and the ``complete`` variant is unreachable for them in the published
+schema. See :func:`envelope_from_setup`.
 
 Nothing in this module decides anything. Every field is lifted from a producer
 that already published it, and the two places where a choice looks like it is
@@ -30,6 +37,7 @@ from pathlib import PurePosixPath
 
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.schemas.agent_control import (
+    COMMANDLESS_CODING_AGENT_ACTIONS,
     AgentControl,
     AgentControlAction,
     CodingAgentCommandAction,
@@ -41,6 +49,8 @@ from agents_shipgate.schemas.agent_control import (
     RequiredHumanReview,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
+    SETUP_DECISIONS,
+    SETUP_OPERATIONS,
     AgentActionControlEnvelope,
     AgentControlArtifactRef,
     AgentControlDecisionSource,
@@ -50,8 +60,10 @@ from agents_shipgate.schemas.agent_control_envelope import (
     AgentControlPendingReview,
     AgentControlSource,
     CompleteControlEnvelope,
+    EnvelopeCodingAgentAction,
     HumanReviewRequiredControlEnvelope,
     ReviewPublishableControlEnvelope,
+    SetupEditAction,
     truncate_prose,
 )
 from agents_shipgate.schemas.agent_result import AgentResultV2
@@ -77,12 +89,30 @@ def project_agent_control_envelope(
     pending_review: Sequence[AgentControlPendingReview] = (),
     current_control_id: str | None = None,
     artifacts: Mapping[str, AgentControlArtifactRef] | None = None,
+    setup_edit: SetupEditAction | None = None,
 ) -> AgentControlEnvelope:
     """Project one authoritative control object onto the compact envelope.
 
     The only transformation applied to anything is the prose cap in
-    :func:`truncate_prose`. Every other field is a copy.
+    :func:`truncate_prose`. Every other field is a copy — with one exception,
+    fenced so that it cannot become a habit.
+
+    ``setup_edit`` replaces the *action* on a setup route with the typed edit
+    that action stands for. The shared union cannot carry an edit (see
+    :class:`SetupEditAction`), so the underlying control holds the command that
+    checks the edit, and the envelope publishes the edit itself. Nothing about
+    authority moves: the state, the permission vector, and the human-review
+    shape all still come from ``control``, and the substitution is refused
+    outside a setup operation on an agent route.
     """
+
+    if setup_edit is not None and (
+        operation not in SETUP_OPERATIONS or control.state != "agent_action_required"
+    ):
+        raise ValueError(
+            "a typed edit route is only publishable on a setup operation's "
+            "coding-agent route"
+        )
 
     shared = {
         "contract_version": CONTRACT_VERSION,
@@ -98,7 +128,7 @@ def project_agent_control_envelope(
         "current_control_id": current_control_id,
         "artifacts": dict(artifacts or {}),
     }
-    action = _bounded_action(control.next_action)
+    action = _bounded_action(setup_edit or control.next_action)
     review = _bounded_human_review(control.human_review)
 
     # One variant per control state, selected from the tag the union already
@@ -248,19 +278,88 @@ def envelope_from_agent_result(
     )
 
 
+def envelope_from_setup(
+    control: AgentControl,
+    *,
+    operation: AgentControlOperation,
+    decision: str,
+    input_id: str,
+    execution: AgentControlExecution = "succeeded",
+    exit_code: int | None = None,
+    setup_edit: SetupEditAction | None = None,
+) -> AgentControlEnvelope:
+    """Project a setup command — ``detect``, ``init``, ``doctor`` — onto the envelope.
+
+    These run before a release decision can exist, so ``decision`` carries the
+    setup verdict and ``decision_source`` says ``setup``. That naming is the
+    whole reason the field exists: without it ``control_state`` would mean "the
+    gate says" on ``verify`` and "setup says" on ``init``, and a reader would
+    have no way to tell which it was holding.
+
+    Two properties are enforced here rather than left to each caller, because
+    "every setup command remembered to deny authority" is not a property a
+    contract can rest on:
+
+    * **Setup authorizes nothing but its own next action.** No setup command
+      reads a diff, so none of them has an evaluated change to stand behind.
+      ``permissions`` is therefore all-false on every setup envelope, and the
+      published schema additionally makes ``complete`` unreachable for these
+      operations by fixing ``CompleteControlEnvelope.operation`` to
+      ``verify``/``check``.
+    * **Setup binds no artifacts and no control identity.** It publishes no
+      pointer, so there is nothing whose hash it could vouch for.
+
+    ``input_id`` names the workspace state the setup answer was computed
+    against, for the same reason ``check`` records its ``audit_id``: an answer
+    detached from its subject is one a reader cannot check.
+    """
+
+    if operation not in SETUP_OPERATIONS:
+        raise ValueError(f"{operation!r} is not a setup operation")
+    if decision not in SETUP_DECISIONS:
+        raise ValueError(f"{decision!r} is not one of {SETUP_DECISIONS}")
+    if control.permissions.authorizes_anything:
+        raise ValueError(
+            "setup read no change, so it cannot authorize edit, commit, push, "
+            "update_pr, merge, or report_complete"
+        )
+    return project_agent_control_envelope(
+        control=control,
+        operation=operation,
+        source="run",
+        execution=execution,
+        exit_code=exit_code,
+        decision=decision,
+        decision_source="setup",
+        input_id=input_id,
+        setup_edit=setup_edit,
+    )
+
+
 def envelope_from_routeless_pointer(
     pointer: CurrentControlPointer,
     *,
     verify_command: str,
+    decision_withheld: str,
     artifact_root: str | None = None,
 ) -> AgentControlEnvelope:
-    """Project a *current* generation that reaches no release decision.
+    """Project a *current* generation that reaches no verifier route.
 
     A `scan` pointer is current — it passes the generation-safe read and the
-    live-workspace comparison — but binds no verifier, so it carries no route
-    and no decision. Refusing it conflated two different answers: the published
-    contract says a non-zero exit means *no current identity exists*, and here
-    one does.
+    live-workspace comparison — but binds no verifier, so it carries no route.
+    Refusing it conflated two different answers: the published contract says a
+    non-zero exit means *no current identity exists*, and here one does.
+
+    No release verdict is published from here, and ``decision_withheld`` is the
+    required sentence saying why. A `scan` does reach a decision, but its pointer
+    records no HEAD, no worktree overlay, and no input set, so nothing about that
+    verdict can be reconfirmed against the workspace as it stands; an earlier
+    revision lifted it anyway and published a stale `passed` after a referenced
+    tool source changed. Requiring the explanation rather than allowing a bare
+    ``decision: null`` is what keeps this distinguishable from an envelope
+    produced before any engine ran, which is the ambiguity #323 exists to remove.
+
+    `permissions` and the state come from the pointer exactly as before.
 
     The route is not invented. `scan` is not the gate, so "run verify on this
     workspace" is the step this generation is actually short of, and it is
@@ -273,7 +372,7 @@ def envelope_from_routeless_pointer(
     """
 
     projected = pointer.control
-    reason = projected.reason
+    reason = f"{projected.reason} {decision_withheld}"
     if projected.state == "human_review_required":
         control: AgentControl = _human_stop(reason)
     else:
@@ -284,7 +383,8 @@ def envelope_from_routeless_pointer(
                 command=verify_command,
                 why=(
                     "This directory's current control was published by a command "
-                    "that reaches no release decision. Run verify to obtain one."
+                    "whose release decision cannot be shown to still describe the "
+                    "workspace. Run verify to obtain one that can."
                 ),
             ),
             verify_required=True,
@@ -375,6 +475,9 @@ def control_headline_lines(envelope: AgentControlEnvelope) -> list[str]:
             # these headline lines print first — reusing the prefix would put a
             # `Run:` above the remediation it is not the remediation for.
             lines.append(f"Next command: {single_line_text(action.command)}")
+        elif isinstance(action, SetupEditAction):
+            lines.append(f"Next edit: {single_line_text(action.path)}")
+            lines.append(f"Expected: {single_line_text(action.expects)}")
         elif isinstance(action, CodingAgentFetchBaseAction):
             lines.append(f"Provide: {single_line_text(action.expects)}")
     return lines
@@ -462,7 +565,9 @@ def _artifact_refs(
     }
 
 
-def _bounded_action(action: AgentControlAction | None) -> AgentControlAction | None:
+def _bounded_action(
+    action: EnvelopeCodingAgentAction | AgentControlAction | None,
+) -> EnvelopeCodingAgentAction | AgentControlAction | None:
     """Cap the action's prose without ever touching its command or expectation."""
 
     if action is None:
@@ -470,9 +575,14 @@ def _bounded_action(action: AgentControlAction | None) -> AgentControlAction | N
     why = truncate_prose(action.why)
     if why == action.why:
         return action
-    if isinstance(action, CodingAgentCommandAction):
-        return action.model_copy(update={"why": why})
-    if isinstance(action, CodingAgentFetchBaseAction):
+    if isinstance(
+        action, (CodingAgentCommandAction, SetupEditAction, *COMMANDLESS_CODING_AGENT_ACTIONS)
+    ):
+        # ``command``, ``path`` and ``expects`` are executed, opened and checked,
+        # not read, so the cap applies to ``why`` alone. The setup edit is in
+        # this branch for exactly that reason: its ``why`` is a diagnostic
+        # message and can be any length, and routing it around the cap published
+        # a 1,134-byte field on a contract that documents 400.
         return action.model_copy(update={"why": why})
     if isinstance(action, HumanReviewAction):
         return HumanReviewAction(why=why)
@@ -496,6 +606,7 @@ __all__ = [
     "envelope_from_agent_result",
     "envelope_from_pointer",
     "envelope_from_routeless_pointer",
+    "envelope_from_setup",
     "envelope_from_verifier",
     "project_agent_control_envelope",
     "render_agent_control_envelope",
