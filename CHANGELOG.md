@@ -14,28 +14,55 @@
   coding agent that is a dead end, and the cheap ways out of a dead end are the
   ones `forbidden_actions` enumerates. `release_decision.reason`, the short-form
   `Improve evidence:` line, and `first_recommended_action.why` now project **one**
-  selected gap — the first `evidence_gaps[]` row whose `next_action.path` is
-  non-null, falling back to the first row when nothing is addressable — so they
-  can never name different work. The reason reads `Insufficient evidence: <what is
-  unproven> (<subject>). Fix at <path>. Context: <counts>…`, and "no
-  machine-applicable fix is available" is now unreachable while any gap names a
-  path; where it still appears, it is true. The action stays `kind: "info"`: an
-  evidence gap is closed by a reviewed declaration, never by a command Shipgate
-  hands you.
+  selected gap — the first `evidence_gaps[]` row whose `next_action.path` is a
+  non-empty string, falling back to the first row when nothing is addressable.
+  On an `insufficient_evidence` verdict with an addressable gap the three name
+  the same gap and the same path; the reason reads `Insufficient evidence: <what
+  is unproven> (<subject>). Fix at <path>. Context: <counts>…`. And on **every**
+  verdict, "no machine-applicable fix is available" is unreachable while any gap
+  names a path; where it still appears, it is true. Outside that first case the
+  three surfaces answer different questions on purpose — with no addressable gap
+  the reason keeps its threshold wording, and under `review_required` it stays
+  severity-driven — and the published contract now says so at exactly that
+  scope. The action stays `kind: "info"`: an evidence gap is closed by a reviewed
+  declaration, never by a command Shipgate hands you.
+
+  Every value these one-line surfaces interpolate is repository-derived — a gap
+  subject is a tool name, a policy pack authors `expects`, a semantic gap's
+  `path` embeds a tool name — so each is forced onto one line in the shared
+  projection rather than at one call site, and the GitHub step summary now
+  escapes `release_decision.reason` the way `report.md` always has. Without
+  both, a value carrying `\nControl: complete` forged a line under the real one.
 
   Two copy rules that made the dead end look larger than it was came with it.
-  Warnings that restate one mechanism collapse **at render time** — six
-  `Google ADK agent 'x' references unresolved tool 'y'.` lines become one naming
-  the cause, every affected symbol, and the two surfaces that close it — in
-  `report.md`, `packet.md`/`packet.html`, `verify`'s fix-task remedies, and the
-  CLI `--verbose` list, which now prints the mechanism count beside the raw one.
-  `report.json`, `packet.json`, and `evidence_coverage.source_warning_count` are
-  untouched: that count is a gating input, and folding it would silently
-  recalibrate the threshold. And a `tool_identity.bindings` member naming a source
-  that produced **no** observations now states the rule and points at
-  `shipgate.yaml#agent_bindings.declarations` instead of reporting only that the
-  member "matched 0 observations" — the arithmetic that sent readers back to
-  declare more bindings over the same empty source.
+  Warnings that restate one **recognized** mechanism collapse **at render
+  time** — six `Google ADK agent 'x' references unresolved tool 'y'.` lines
+  become one naming the cause, every affected symbol, and the two surfaces that
+  close it — in `report.md`, `packet.md`/`packet.html`, `verify`'s fix-task
+  remedies, and the CLI `--verbose` list, which now prints the mechanism count
+  beside the raw one. Grouping is structural, not textual: a mechanism declares
+  which fields are context (two ADK agents never merge into one row, and a
+  symbol they share is never counted twice) and which are subjects (a binding id
+  stays attached to its tool, so two sources cannot cross-product), and a
+  message groups only when re-building the parsed fields reproduces it byte for
+  byte — anything else renders verbatim. `report.json`, `packet.json`, and
+  `evidence_coverage.source_warning_count` are untouched: that count is a gating
+  input, and folding it would silently recalibrate the threshold.
+
+  A `tool_identity.bindings` member that matches nothing now gets the guidance
+  that fits its cause. A **configured** source that produced no observations
+  states the rule and points at `shipgate.yaml#agent_bindings.declarations`; a
+  `source_id` that names no configured source at all — a typo — is told to
+  correct the selector, because no binding declaration can repair one. Both used
+  to report only that the member "matched 0 observations", the arithmetic that
+  sent readers back to declare more bindings over the same empty source.
+
+  `verify`'s fix task keeps typed source-warning repairs. A blanket
+  `source_warning` skip discarded the stale-`--diff-from` gap, which carries a
+  path, an expectation, and the exact regeneration command, leaving only the raw
+  warning prose — so the handoff named a different repair from the one the
+  selected gap names. Only pathless, review-only warnings fall through to prose
+  now.
 
   Verdict strictness is unchanged. `_MAX_TOLERATED_SOURCE_WARNINGS` and
   `_LOW_CONFIDENCE_TOOL_RATIO` stay frozen, `evidence_below_ie_threshold` reads

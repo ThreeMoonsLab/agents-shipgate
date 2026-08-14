@@ -22,7 +22,12 @@ from agents_shipgate.ci.release_decision import (
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.invocation import retarget_command
-from agents_shipgate.schemas.report import Finding, ReadinessReport
+from agents_shipgate.schemas.report import (
+    EvidenceCoverageDecision,
+    EvidenceGap,
+    Finding,
+    ReadinessReport,
+)
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierCapabilityReview,
@@ -429,6 +434,43 @@ def _adoption_instruction(
     )
 
 
+def _is_prose_only_evidence_gap(gap: EvidenceGap) -> bool:
+    """True when a gap row carries no typed repair the handoff should keep.
+
+    ``low_confidence_tool`` rows and inventory-scaffold ``incomplete_surface``
+    rows are re-derived below from the tool inventory, and a ``source_warning``
+    row is usually a ``review_warning`` with nothing to open. But not always:
+    the stale-``--diff-from`` base report produces a ``source_warning`` gap
+    carrying ``provide_source``, a path, an expectation, and the exact
+    regeneration command. Blanket-skipping the kind threw that away and left
+    only the raw warning prose, so the verifier handoff named a different
+    repair from the one the selected gap names (#362 review).
+    """
+
+    if gap.kind == "low_confidence_tool":
+        return True
+    if gap.kind == "source_warning":
+        return not gap.next_action.path
+    return (
+        gap.kind == "incomplete_surface"
+        and gap.next_action.kind == "declare_tool_inventory"
+    )
+
+
+def _typed_source_warning_subjects(evidence: EvidenceCoverageDecision) -> set[str]:
+    """Warning texts already emitted as a typed repair, so prose skips them.
+
+    A ``source_warning`` gap's ``subject`` is the warning text verbatim, which
+    is what lets the two passes agree on which rows are already covered.
+    """
+
+    return {
+        gap.subject
+        for gap in evidence.evidence_gaps
+        if gap.kind == "source_warning" and gap.next_action.path
+    }
+
+
 def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     """Concrete remedies for the ``insufficient_evidence`` dead-end.
 
@@ -444,11 +486,9 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     out: list[str] = []
     decision = report.release_decision
     assert decision is not None
+    typed_warnings = _typed_source_warning_subjects(decision.evidence_coverage)
     for gap in decision.evidence_coverage.evidence_gaps:
-        if gap.kind in {"low_confidence_tool", "source_warning"} or (
-            gap.kind == "incomplete_surface"
-            and gap.next_action.kind == "declare_tool_inventory"
-        ):
+        if _is_prose_only_evidence_gap(gap):
             continue
         action = gap.next_action
         accepted = (
@@ -457,8 +497,9 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
             else ""
         )
         target = f" at {action.path}" if action.path else ""
+        command = f" Run: {action.command}" if action.command else ""
         out.append(
-            f"{gap.subject}: {gap.why} {action.expects}{target}.{accepted}"
+            f"{gap.subject}: {gap.why} {action.expects}{target}.{accepted}{command}"
         )
     by_source: dict[tuple[str, str], int] = {}
     for tool in report.tool_inventory:
@@ -490,9 +531,13 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
             "dynamic/config-bound toolkit with statically enumerable tool "
             "definitions, then re-run verify."
         )
-    # Group first, then cap: an uncapped list of six near-identical warnings
-    # spent the whole cap restating one mechanism and hid the others (#362).
-    for group in group_source_warnings(report.source_warnings)[:3]:
+    # Whatever is left is warning prose with no typed repair behind it. Group
+    # first, then cap: an uncapped list of six near-identical warnings spent
+    # the whole cap restating one mechanism and hid the others (#362).
+    remaining = [
+        warning for warning in report.source_warnings if warning not in typed_warnings
+    ]
+    for group in group_source_warnings(remaining)[:3]:
         out.append(f"Resolve source warning: {group.message}")
     if not out:
         out.append(
@@ -663,7 +708,11 @@ def _human_repairs(
                 )
             )
     for gap in decision.evidence_coverage.evidence_gaps:
-        if gap.kind in {"low_confidence_tool", "source_warning"}:
+        # Same rule as the remedy text: a path-bearing source_warning row is a
+        # typed repair with a target and a command, not review-only prose.
+        if gap.kind == "low_confidence_tool" or (
+            gap.kind == "source_warning" and not gap.next_action.path
+        ):
             continue
         action = gap.next_action
         repairs.append(

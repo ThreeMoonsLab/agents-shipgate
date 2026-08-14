@@ -17,6 +17,7 @@ from agents_shipgate.core.domain import (
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.source_warnings import (
     invalid_tool_binding_warning,
+    unknown_binding_member_source,
     unmatched_binding_member,
     zero_observation_binding_member,
 )
@@ -128,8 +129,15 @@ def build_tool_identity_catalog(
     # A binding member naming a source that produced nothing is a different
     # mistake from one naming a tool the source does not expose: no binding
     # over that source can ever resolve, so the arithmetic ("matched 0
-    # observations") is not the answer the reader needs. Tracked here so the
-    # message can state the rule and name `agent_bindings` instead.
+    # observations") is not the answer the reader needs.
+    #
+    # And "produced nothing" splits again. A *configured* source the loader
+    # read but that yielded no tools is repaired at `agent_bindings`. A
+    # source id that is not configured at all — a typo — is repaired by
+    # correcting the selector, and no binding declaration can help it. The
+    # two sets are what tell them apart; deriving both from observations
+    # alone conflated them.
+    configured_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
     observed_source_ids = {tool.source_id for tool in observations if tool.source_id}
 
     selected_by_binding: dict[str, list[Tool]] = {}
@@ -149,15 +157,19 @@ def build_tool_identity_catalog(
                 and (member.source_type is None or tool.source_type == member.source_type)
             ]
             if len(matches) != 1:
-                if not matches and member.source_id not in observed_source_ids:
+                if matches or member.source_id in observed_source_ids:
+                    invalid_messages.append(
+                        unmatched_binding_member(
+                            member.source_id, member.tool, len(matches)
+                        )
+                    )
+                elif member.source_id in configured_source_ids:
                     invalid_messages.append(
                         zero_observation_binding_member(member.source_id, member.tool)
                     )
                 else:
                     invalid_messages.append(
-                        unmatched_binding_member(
-                            member.source_id, member.tool, len(matches)
-                        )
+                        unknown_binding_member_source(member.source_id, member.tool)
                     )
                 selected.extend(matches)
             else:

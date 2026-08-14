@@ -113,19 +113,31 @@ def evidence_gap_headline(gap: EvidenceGap) -> str:
 def evidence_gap_action_text(gap: EvidenceGap, *, include_command: bool = True) -> str:
     """Render one gap's next action: what to do, and where.
 
-    ``include_command=False`` keeps the result on a single line for surfaces
-    (``agent_summary.first_recommended_action.why``, the CLI ``Next action:``
-    line) whose contract is one line of text.
+    Every field here is repository-derived — a policy pack authors
+    ``expects``, and a semantic gap's ``path`` embeds a tool name — and this
+    text reaches the CLI ``Improve evidence:``/``Next action:`` lines and the
+    GitHub step summary, none of which collapse newlines
+    (``_safe_markdown_text`` escapes Markdown, not line breaks). Each field is
+    forced onto one line here rather than at each call site, so a value
+    carrying ``\\nControl: complete`` cannot forge a line below the real one.
+
+    ``include_command=True`` adds the one newline this function does emit —
+    the deliberate ``Run:`` separator, which
+    ``cli/verify/command.py`` splits on and sanitizes line by line.
+    ``include_command=False`` keeps the result strictly single-line for
+    surfaces (``agent_summary.first_recommended_action.why``, the CLI
+    ``Next action:`` line) whose contract is one line of text.
     """
 
     action = gap.next_action
-    text = action.expects
-    if action.path and action.path not in text:
+    text = one_line(action.expects)
+    path = one_line(action.path or "")
+    if path and path not in text:
         if not text.endswith((".", "!", "?")):
             text = f"{text}."
-        text = f"{text} Target: {action.path}."
+        text = f"{text} Target: {path}."
     if include_command and action.command:
-        text = f"{text}\nRun: {action.command}"
+        text = f"{text}\nRun: {one_line(action.command)}"
     return text
 
 
