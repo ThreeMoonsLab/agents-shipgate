@@ -64,7 +64,7 @@
   },
   "release_decision": {
     "decision": "insufficient_evidence",
-    "reason": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release.",
+    "reason": "Insufficient evidence: the agent's tool binding graph is incomplete (agent_v1:7205d836e4b3fee257d90695). Fix at shipgate.yaml#agent_bindings. Context: 1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
     "blockers": [],
     "review_items": [
       {
@@ -1269,7 +1269,7 @@
   "policy_evidence_gaps": [],
   "agent_summary": {
     "verdict": "insufficient_evidence",
-    "headline": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release.",
+    "headline": "Insufficient evidence: the agent's tool binding graph is incomplete (agent_v1:7205d836e4b3fee257d90695). Fix at shipgate.yaml#agent_bindings. Context: 1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
     "blocker_count": 0,
     "review_item_count": 2,
     "auto_appliable_patches": 0,
@@ -1277,7 +1277,7 @@
     "first_recommended_action": {
       "kind": "info",
       "command": null,
-      "why": "Evidence coverage below threshold (1 semantic evidence gap(s) and 1 low-confidence tool(s) and 4 source warning(s)); scan results are not trustworthy enough to gate release. Surface this to the user and gather deeper evidence (e.g. MCP/OpenAPI inputs, eval traces, additional source files) before re-running the scan; applying patches does not clear an evidence verdict, so no machine-applicable fix is available."
+      "why": "Provide static wiring or an exact reviewed declaration for every reachable edge. Target: shipgate.yaml#agent_bindings. That is the gap this verdict names: the agent's tool binding graph is incomplete (agent_v1:7205d836e4b3fee257d90695). Applying patches does not clear an evidence verdict, so close this gap and re-run verification."
     }
   },
   "policy_audit": {

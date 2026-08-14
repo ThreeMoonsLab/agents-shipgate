@@ -11,6 +11,7 @@ from agents_shipgate.core.findings import (
     provenance_kind_counts,
 )
 from agents_shipgate.core.privacy import sanitize_report
+from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.report.summary_text import evidence_coverage_text
 from agents_shipgate.schemas.report import (
     DeclaredIntention,
@@ -520,9 +521,14 @@ def _append_baseline(lines: list[str], report: ReadinessReport) -> None:
 def _append_source_warnings(lines: list[str], report: ReadinessReport) -> None:
     if not report.source_warnings:
         return
+    # Grouped by mechanism: six warnings that differ only in the symbol they
+    # name are one thing to fix, and listing them six times buries it. The
+    # JSON keeps every warning — the count gates (#362).
+    groups = group_source_warnings(report.source_warnings)
     lines.extend(["## Source Warnings", ""])
-    for warning in report.source_warnings:
-        lines.append(f"- {_safe_markdown_text(warning)}")
+    for group in groups:
+        suffix = f" ({group.count} warnings)" if group.count > 1 else ""
+        lines.append(f"- {_safe_markdown_text(group.message)}{suffix}")
     lines.append("")
 
 

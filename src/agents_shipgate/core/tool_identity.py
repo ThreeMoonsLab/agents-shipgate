@@ -15,6 +15,11 @@ from agents_shipgate.core.domain import (
     ToolIdentityAssessment,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.source_warnings import (
+    invalid_tool_binding_warning,
+    unmatched_binding_member,
+    zero_observation_binding_member,
+)
 from agents_shipgate.schemas.manifest import (
     ToolIdentityBindingConfig,
     ToolIdentityConfig,
@@ -120,6 +125,12 @@ def build_tool_identity_catalog(
     by_member: dict[tuple[str, str, str], list[Tool]] = defaultdict(list)
     for tool in observations:
         by_member[(tool.source_type, tool.source_id or "", tool.name)].append(tool)
+    # A binding member naming a source that produced nothing is a different
+    # mistake from one naming a tool the source does not expose: no binding
+    # over that source can ever resolve, so the arithmetic ("matched 0
+    # observations") is not the answer the reader needs. Tracked here so the
+    # message can state the rule and name `agent_bindings` instead.
+    observed_source_ids = {tool.source_id for tool in observations if tool.source_id}
 
     selected_by_binding: dict[str, list[Tool]] = {}
     binding_issues: dict[str, list[SemanticIssue]] = defaultdict(list)
@@ -138,15 +149,21 @@ def build_tool_identity_catalog(
                 and (member.source_type is None or tool.source_type == member.source_type)
             ]
             if len(matches) != 1:
-                invalid_messages.append(
-                    f"member source_id={member.source_id!r}, tool={member.tool!r} "
-                    f"matched {len(matches)} observations"
-                )
+                if not matches and member.source_id not in observed_source_ids:
+                    invalid_messages.append(
+                        zero_observation_binding_member(member.source_id, member.tool)
+                    )
+                else:
+                    invalid_messages.append(
+                        unmatched_binding_member(
+                            member.source_id, member.tool, len(matches)
+                        )
+                    )
                 selected.extend(matches)
             else:
                 selected.append(matches[0])
         if invalid_messages:
-            message = f"Invalid tool binding {binding.id!r}: " + "; ".join(invalid_messages)
+            message = invalid_tool_binding_warning(binding.id, invalid_messages)
             warnings.append(message)
             for tool in selected or observations:
                 if tool.observation_id:

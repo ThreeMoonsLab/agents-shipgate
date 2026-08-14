@@ -20,6 +20,7 @@ from agents_shipgate.ci.release_decision import (
     evidence_below_ie_threshold,
 )
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
+from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
@@ -489,8 +490,10 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
             "dynamic/config-bound toolkit with statically enumerable tool "
             "definitions, then re-run verify."
         )
-    for warning in report.source_warnings[:3]:
-        out.append(f"Resolve source warning: {warning}")
+    # Group first, then cap: an uncapped list of six near-identical warnings
+    # spent the whole cap restating one mechanism and hid the others (#362).
+    for group in group_source_warnings(report.source_warnings)[:3]:
+        out.append(f"Resolve source warning: {group.message}")
     if not out:
         out.append(
             "Provide clearer static sources — an MCP export, OpenAPI spec, or "

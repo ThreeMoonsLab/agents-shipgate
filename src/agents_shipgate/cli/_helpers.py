@@ -18,6 +18,7 @@ from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.findings.constants import SEVERITY_ORDER
+from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.report.summary_text import (
     evidence_coverage_text,
     primary_evidence_remediation_text,
@@ -509,9 +510,17 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
             typer.echo("Tool-surface diff: no changes")
     elif diff.notes:
         typer.echo(f"Tool-surface diff: disabled ({diff.notes[0]})")
+    # Grouped by mechanism: six warnings that differ only in the symbol they
+    # name are one thing to fix. The raw count is what gates, so both numbers
+    # are printed and report.json keeps every warning (#362).
+    warning_groups = group_source_warnings(report.source_warnings)
     if verbose:
         typer.echo(f"Tool count: {report.tool_surface.total_tools}")
-        typer.echo(f"Source warnings: {len(report.source_warnings)}")
+        distinct = ""
+        if len(warning_groups) < len(report.source_warnings):
+            noun = "mechanism" if len(warning_groups) == 1 else "mechanisms"
+            distinct = f" ({len(warning_groups)} distinct {noun})"
+        typer.echo(f"Source warnings: {len(report.source_warnings)}{distinct}")
     typer.echo("")
     top = _top_cli_findings(report, limit=3)
     typer.echo("Top findings:")
@@ -528,8 +537,9 @@ def _print_cli_summary(report, ci_mode: str, exit_code: int, *, verbose: bool = 
     if verbose and report.source_warnings:
         typer.echo("")
         typer.echo("Source warnings:")
-        for warning in report.source_warnings:
-            typer.echo(f"- {warning}")
+        for group in warning_groups:
+            suffix = f" ({group.count} warnings)" if group.count > 1 else ""
+            typer.echo(f"- {group.message}{suffix}")
     typer.echo("")
     typer.echo(f"CI mode: {ci_mode}")
     typer.echo(f"Exit code: {exit_code}")

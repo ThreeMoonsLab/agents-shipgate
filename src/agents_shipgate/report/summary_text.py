@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from agents_shipgate.core.evidence_actions import (
+    evidence_gap_action_text,
+    primary_evidence_gap,
+)
 from agents_shipgate.schemas.report import EvidenceCoverageDecision
 
 _GENERIC_EVIDENCE_REMEDIATION = (
@@ -42,22 +46,17 @@ def evidence_coverage_text(evidence: EvidenceCoverageDecision) -> str:
 def primary_evidence_remediation_text(evidence: EvidenceCoverageDecision) -> str:
     """Render the decision engine's rank-1 evidence-gap action.
 
-    Short-form surfaces must project ``evidence_gaps[0].next_action`` instead
-    of replacing framework-specific guidance with a generic source list.  The
-    fallback exists only for older reports that predate structured gap rows.
+    Short-form surfaces must project the selected gap's ``next_action``
+    instead of replacing framework-specific guidance with a generic source
+    list.  Selection is :func:`primary_evidence_gap` — the same one the
+    decision ``reason`` and ``agent_summary.first_recommended_action`` use, so
+    the three lines can never name different work.  The fallback exists only
+    for older reports that predate structured gap rows.
     """
 
     # Current decisions always carry a structured gap here. Only compatibility
     # reports from before evidence_gaps existed can reach this fallback.
-    if not evidence.evidence_gaps:
+    gap = primary_evidence_gap(evidence)
+    if gap is None:
         return _GENERIC_EVIDENCE_REMEDIATION
-
-    action = evidence.evidence_gaps[0].next_action
-    text = action.expects
-    if action.path and action.path not in text:
-        if not text.endswith((".", "!", "?")):
-            text = f"{text}."
-        text = f"{text} Target: {action.path}."
-    if action.command:
-        text = f"{text}\nRun: {action.command}"
-    return text
+    return evidence_gap_action_text(gap)

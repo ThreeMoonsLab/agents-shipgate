@@ -8,6 +8,11 @@ from agents_shipgate.ci.exit_policy import (
     exit_code_for_report,
 )
 from agents_shipgate.core.domain import SemanticIssueKind, Tool
+from agents_shipgate.core.evidence_actions import (
+    evidence_gap_headline,
+    one_line,
+    primary_evidence_gap,
+)
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
     BaselineDelta,
@@ -1162,6 +1167,22 @@ def _decision_reason(
         if evidence.source_warning_count > 0:
             parts.append(f"{evidence.source_warning_count} source warning(s)")
         detail = " and ".join(parts) if parts else "degraded evidence"
+        # Counts are the symptom; a gap that names a path is the work. When
+        # one exists, lead with it and demote the counts to context — the old
+        # wording put the tally first and contradicted the `Improve evidence:`
+        # line printed directly beneath it (#362). The gap chosen here is the
+        # same one every other surface projects, so the three lines agree.
+        gap = primary_evidence_gap(evidence)
+        if gap is not None and gap.next_action.path:
+            # Both interpolated values are repository-derived (a gap subject is
+            # a tool name or an agent id; a semantic gap's path embeds the tool
+            # name), and this string is printed as one line by the CLI and the
+            # GitHub step summary. Keep it one line.
+            return (
+                f"Insufficient evidence: {evidence_gap_headline(gap)}. "
+                f"Fix at {one_line(gap.next_action.path)}. Context: {detail}; "
+                "scan results are not trustworthy enough to gate release."
+            )
         return (
             f"Evidence coverage below threshold ({detail}); "
             "scan results are not trustworthy enough to gate release."

@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- **An `insufficient_evidence` verdict now leads with the gap you can close,
+  and the three lines that announce it agree.** The reason counted source
+  warnings — the symptom — and demoted the one actionable gap to a secondary
+  line, while `agent_summary.first_recommended_action` (the field the agent
+  contract routes coding agents to) contradicted that line outright: "applying
+  patches does not clear an evidence verdict, so no machine-applicable fix is
+  available", printed directly beneath `Improve evidence: … Target:
+  shipgate.yaml#agent_bindings.declarations`
+  ([#362](https://github.com/ThreeMoonsLab/agents-shipgate/issues/362)). For a
+  coding agent that is a dead end, and the cheap ways out of a dead end are the
+  ones `forbidden_actions` enumerates. `release_decision.reason`, the short-form
+  `Improve evidence:` line, and `first_recommended_action.why` now project **one**
+  selected gap — the first `evidence_gaps[]` row whose `next_action.path` is
+  non-null, falling back to the first row when nothing is addressable — so they
+  can never name different work. The reason reads `Insufficient evidence: <what is
+  unproven> (<subject>). Fix at <path>. Context: <counts>…`, and "no
+  machine-applicable fix is available" is now unreachable while any gap names a
+  path; where it still appears, it is true. The action stays `kind: "info"`: an
+  evidence gap is closed by a reviewed declaration, never by a command Shipgate
+  hands you.
+
+  Two copy rules that made the dead end look larger than it was came with it.
+  Warnings that restate one mechanism collapse **at render time** — six
+  `Google ADK agent 'x' references unresolved tool 'y'.` lines become one naming
+  the cause, every affected symbol, and the two surfaces that close it — in
+  `report.md`, `packet.md`/`packet.html`, `verify`'s fix-task remedies, and the
+  CLI `--verbose` list, which now prints the mechanism count beside the raw one.
+  `report.json`, `packet.json`, and `evidence_coverage.source_warning_count` are
+  untouched: that count is a gating input, and folding it would silently
+  recalibrate the threshold. And a `tool_identity.bindings` member naming a source
+  that produced **no** observations now states the rule and points at
+  `shipgate.yaml#agent_bindings.declarations` instead of reporting only that the
+  member "matched 0 observations" — the arithmetic that sent readers back to
+  declare more bindings over the same empty source.
+
+  Verdict strictness is unchanged. `_MAX_TOLERATED_SOURCE_WARNINGS` and
+  `_LOW_CONFIDENCE_TOOL_RATIO` stay frozen, `evidence_below_ie_threshold` reads
+  the same counts, and no schema version moves. This is ranking, copy, and
+  render-time grouping, plus one consistency invariant with a test.
+
 - **`init` ranks agent-name candidates instead of taking the first one it
   trips over.** Candidates were emitted in file-then-AST order with no
   scoring, and all three consumers — the manifest renderer, the `init` JSON

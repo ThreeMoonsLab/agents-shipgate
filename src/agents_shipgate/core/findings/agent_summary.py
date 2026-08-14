@@ -3,9 +3,15 @@ from __future__ import annotations
 import shlex
 
 from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
+from agents_shipgate.core.evidence_actions import (
+    evidence_gap_action_text,
+    evidence_gap_headline,
+    primary_evidence_gap,
+)
 from agents_shipgate.schemas.report import (
     AgentSummary,
     AgentSummaryAction,
+    EvidenceGap,
     Finding,
     ReleaseDecision,
 )
@@ -44,6 +50,7 @@ def build_agent_summary(
         reason = "No release decision computed."
         evidence_recommended = False
         evidence_below_threshold = False
+        primary_gap: EvidenceGap | None = None
     else:
         verdict = release_decision.decision
         blocker_count = len(release_decision.blockers)
@@ -87,6 +94,16 @@ def build_agent_summary(
             and evidence_below_ie_threshold(
                 release_decision.evidence_coverage, tool_count=tool_count
             )
+        )
+        # The gap the `Improve evidence:` line and the decision `reason`
+        # already name. Reading it here is what stops
+        # `first_recommended_action` — the field the agent contract routes
+        # coding agents to — from claiming no fix exists while the line above
+        # it points at a file (#362).
+        primary_gap = (
+            primary_evidence_gap(release_decision.evidence_coverage)
+            if release_decision.evidence_coverage
+            else None
         )
 
     active_findings = [f for f in findings if not f.suppressed]
@@ -240,6 +257,7 @@ def build_agent_summary(
             if (evidence_recommended or verdict == "insufficient_evidence")
             else ""
         ),
+        evidence_gap=primary_gap,
     )
 
     return AgentSummary(
@@ -264,18 +282,23 @@ def _build_first_recommended_action(
     evidence_recommended: bool = False,
     evidence_below_threshold: bool = False,
     evidence_reason: str = "",
+    evidence_gap: EvidenceGap | None = None,
 ) -> AgentSummaryAction | None:
     """Deterministic next-step picker for ``agent_summary``.
 
     Order (highest impact first):
-    1. Verdict is insufficient_evidence → emit an info action that
-       surfaces the evidence reason and recommends gathering deeper
-       sources (MCP, OpenAPI inputs, eval traces). Checked before
-       auto-apply because applying patches does NOT clear an evidence
-       verdict — the scan results are not trustworthy enough to gate
-       release, and running apply-patches first would contradict the
-       headline. Tell the agent to fix the trust problem before
-       cleaning up findings.
+    1. Verdict is insufficient_evidence → emit an info action naming the
+       selected evidence gap when one is addressable (``next_action.path``),
+       otherwise the evidence reason plus a prompt to gather deeper sources
+       (MCP, OpenAPI inputs, eval traces). Checked before auto-apply because
+       applying patches does NOT clear an evidence verdict — the scan results
+       are not trustworthy enough to gate release, and running apply-patches
+       first would contradict the headline. Tell the agent to fix the trust
+       problem before cleaning up findings.
+
+       "No machine-applicable fix is available" is reserved for the case
+       where that is true: no gap names a path. Emitting it while the
+       ``Improve evidence:`` line pointed at a file was #362's dead end.
     1b. Verdict is review_required BUT evidence is below the IE
        threshold (an active high/critical finding elevated it out of
        insufficient_evidence — Phase 2c) → same as (1): evidence
@@ -297,6 +320,18 @@ def _build_first_recommended_action(
             or "Evidence coverage below threshold; scan results are not "
             "trustworthy enough to gate release."
         )
+        if evidence_gap is not None and evidence_gap.next_action.path:
+            return AgentSummaryAction(
+                kind="info",
+                command=None,
+                why=(
+                    f"{evidence_gap_action_text(evidence_gap, include_command=False)} "
+                    f"That is the gap this verdict names: "
+                    f"{evidence_gap_headline(evidence_gap)}. Applying "
+                    "patches does not clear an evidence verdict, so close "
+                    "this gap and re-run verification."
+                ),
+            )
         return AgentSummaryAction(
             kind="info",
             command=None,
@@ -322,6 +357,18 @@ def _build_first_recommended_action(
             or "Evidence coverage is below threshold; scan results are not "
             "trustworthy enough to gate release."
         )
+        if evidence_gap is not None and evidence_gap.next_action.path:
+            return AgentSummaryAction(
+                kind="info",
+                command=None,
+                why=(
+                    "A human must review the active high/critical finding(s). "
+                    "For the evidence gap — "
+                    f"{evidence_gap_headline(evidence_gap)} — "
+                    f"{evidence_gap_action_text(evidence_gap, include_command=False)} "
+                    "Applying patches does not clear the evidence gap."
+                ),
+            )
         return AgentSummaryAction(
             kind="info",
             command=None,
@@ -420,6 +467,16 @@ def _build_first_recommended_action(
                 or "Static-only scan with low-confidence evidence; "
                 "human review recommended."
             )
+            if evidence_gap is not None and evidence_gap.next_action.path:
+                return AgentSummaryAction(
+                    kind="info",
+                    command=None,
+                    why=(
+                        f"{base} Start with the named evidence gap — "
+                        f"{evidence_gap_headline(evidence_gap)} — "
+                        f"{evidence_gap_action_text(evidence_gap, include_command=False)}"
+                    ),
+                )
             return AgentSummaryAction(
                 kind="info",
                 command=None,
