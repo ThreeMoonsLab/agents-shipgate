@@ -590,10 +590,10 @@ _VERIFY_PATH_ROWS: dict[str, tuple[str, str, bool]] = {
         "trigger_catalog",
         False,
     ),
-    # Fail-safe POLICY-WEAKENED finding (no base snapshot) lists the
-    # changed policy files; the semantic POLICY-WEAKENED kinds carry no
-    # path and are skipped (no ``changed_policy_files`` key).
-    "SHIP-VERIFY-POLICY-WEAKENED": ("changed_policy_files", "policy", False),
+    # The no-base fail-safe lists the changed policy files. The semantic
+    # POLICY-WEAKENED kinds carry no path at all, so they contribute no row
+    # (they are absent from this map rather than skipped by a missing key).
+    "SHIP-VERIFY-POLICY-BASE-ABSENT": ("changed_policy_files", "policy", False),
 }
 
 _TRUST_ROOT_TOUCHED = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
@@ -669,6 +669,10 @@ def build_protected_surface_changes(
 # review but do not *require* a formal acknowledgement.
 _ACK_REQUIRING_CHECKS: dict[str, str] = {
     "SHIP-VERIFY-POLICY-WEAKENED": "policy",
+    # The no-base fail-safe splits off ``-POLICY-WEAKENED``'s reason code but
+    # not its authority requirement: an unprovable policy direction is exactly
+    # the case a declared human acknowledgement exists for.
+    "SHIP-VERIFY-POLICY-BASE-ABSENT": "policy",
     "SHIP-VERIFY-CI-GATE-REMOVED": "ci_gate",
     "SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED": "baseline_or_waiver",
 }
@@ -836,14 +840,19 @@ def build_verifier_summary(report: ReadinessReport) -> VerifierSummary:
     human_ack_required = bool(human_ack.required) if human_ack else False
     human_ack_satisfied = bool(human_ack.satisfied) if human_ack else True
 
-    # A first adoption emits under this check id (there is still a human
-    # decision to make) but weakens nothing — the base carried no policy. The
-    # flag is consumed as a fact by the registry, attestations, feedback's
+    # This flag is consumed as a fact by the registry, attestations, feedback's
     # gate-bypass alarm, and reviewer routing, so it must answer "was the gate
-    # weakened", not "did this check fire".
+    # weakened", not "did a policy check fire". A proven first adoption weakens
+    # nothing — the base carried no policy — so it is the one fail-safe kind
+    # that clears the flag. Every other no-base case keeps it raised: an
+    # unprovable direction stays treated as weakening, which is what stops a
+    # rename-and-loosen diff from clearing the alarm by breaking the base scan.
     policy_weakened = any(
         f.check_id == "SHIP-VERIFY-POLICY-WEAKENED"
-        and (f.evidence or {}).get("kind") != "manifest_introduced"
+        or (
+            f.check_id == "SHIP-VERIFY-POLICY-BASE-ABSENT"
+            and (f.evidence or {}).get("kind") != "manifest_introduced"
+        )
         for f in active
     )
 

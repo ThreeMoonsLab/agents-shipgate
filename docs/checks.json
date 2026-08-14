@@ -2968,6 +2968,27 @@
     {
       "autofix_safe": false,
       "category": "verify",
+      "default_severity": "medium",
+      "description": "A policy or manifest trust root changed but there is no base policy snapshot to compare it against \u2014 the base carries no Shipgate manifest (first adoption), or no base report was obtainable.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-verify-policy-base-absent",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "kind",
+        "changed_policy_files"
+      ],
+      "fires_when": "A VerificationContext is present, no base effective-policy snapshot is available, and a policy/manifest trust root is in the changed files.",
+      "floor_severity": "medium",
+      "id": "SHIP-VERIFY-POLICY-BASE-ABSENT",
+      "mvp_tier": "lifecycle",
+      "rationale": "A missing base is not a weakening, and reporting it as one made every first adoption read as if the adopter had loosened a gate that never existed. It is also not a pass \u2014 a reward-hacker must not be able to dodge review by breaking the base scan \u2014 so the direction stays ambiguous and the change is routed to a human under its own reason code.",
+      "recommendation": "A human must review the policy surface this PR establishes or changes; a coding agent cannot adopt or self-approve a release gate.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "verify",
       "default_severity": "high",
       "description": "The PR's effective release policy is weaker than the base report's (CI mode downgraded, fail-on severity set loosened, or a check's severity override lowered across a tier).",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-verify-policy-weakened",
@@ -2981,11 +3002,11 @@
         "base_severity",
         "head_severity"
       ],
-      "fires_when": "A VerificationContext is present and the base report's effective_policy is weaker than the head manifest's; or, with no base snapshot, a policy/manifest trust root was changed.",
+      "fires_when": "A VerificationContext and a base effective-policy snapshot are both present and the base report's effective_policy is weaker than the head manifest's.",
       "floor_severity": "high",
       "id": "SHIP-VERIFY-POLICY-WEAKENED",
       "mvp_tier": "lifecycle",
-      "rationale": "Comparing the normalized base-vs-head policy snapshot catches a coding agent that makes CI pass by weakening the gate rather than fixing the finding. When no base snapshot is available but a policy trust root was touched, the check fails safe to a review-required finding instead of silently passing.",
+      "rationale": "Comparing the normalized base-vs-head policy snapshot catches a coding agent that makes CI pass by weakening the gate rather than fixing the finding. The claim is base-relative, so it fires only when a base snapshot exists to compare against; the no-base fail-safe is SHIP-VERIFY-POLICY-BASE-ABSENT.",
       "recommendation": "A human must review and approve the policy change; do not weaken the release gate to make CI pass.",
       "requires_human_review": true,
       "requires_human_review_regardless_of_patch": false,

@@ -1238,7 +1238,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `capability_change.{enabled, added, removed, broadened, narrowed}` (v0.22+; semantic metadata v0.23+) — diff-derived capability delta projected over `action_surface_diff` / `tool_surface_diff`. Required + always present (`enabled: false` with empty lists when no base diff is available). Each member is `{id, direction, subject_kind, tool, action, scope, before_scope, after_scope, before_capability_id, after_capability_id, changed_hashes, semantic_direction, semantic_changes, risk_tags, release_impact, provenance_kind, confidence, rationale, related_finding_ids}`; member lists are sorted by `(subject_kind, tool, action, scope, id)`. A reviewer-facing projection — it never gates on its own.
 - `protected_surface_changes[]` (v0.22+) — list of touched release trust roots, each `{path, kind, glob, related_finding_ids}`, sorted by `(kind, path)`. Derived from active `SHIP-VERIFY-*` findings, so every `related_finding_ids` entry resolves to a real `findings[]` id and the rollup cannot disagree with the gate. Always present (empty `[]` on a plain scan or when no trust root is touched).
 - `effective_policy.{ci_mode, fail_on, suppressed_check_ids, waiver_scopes, severity_overrides, baseline_integrity_mode, baseline_fingerprints, ci_gate_present}` (v0.22+) — normalized (not text-diff) snapshot of the release-policy surface for base-vs-head weakening comparison. Required + always present. Every list/dict is emitted sorted (`fail_on` by severity tier rank) for byte-stable output; derived from the manifest **as declared on disk** plus accepted-debt fingerprints. `--ci-mode` / `--fail-on` override the run — top-level `ci_mode` / `fail_on` and the exit code — and are deliberately excluded here, so this block is a function of the tree alone and a base-vs-head weakening comparison never reads one side's invocation flags as the other side's policy.
-- `human_ack.{required, satisfied, acks, outstanding}` (v0.22+) — declared human-acknowledgement state. Required + always present (default `required=false`, `satisfied=true`, empty lists). Within the static boundary, acknowledgement is declared evidence only — never inferred. A trust-root weakening (`SHIP-VERIFY-POLICY-WEAKENED`, `-CI-GATE-REMOVED`, `-BASELINE-OR-WAIVER-EXPANDED`) makes a surface `required`; `satisfied` only when a matching `human_ack` entry exists in `shipgate.yaml`. `acks[]` are `{owner, reason, affected_surface, expires, source}`; `outstanding[]` lists required-but-unacknowledged surfaces. The ack section lives in `shipgate.yaml` (a trust root) so adding one trips `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
+- `human_ack.{required, satisfied, acks, outstanding}` (v0.22+) — declared human-acknowledgement state. Required + always present (default `required=false`, `satisfied=true`, empty lists). Within the static boundary, acknowledgement is declared evidence only — never inferred. A trust-root weakening (`SHIP-VERIFY-POLICY-WEAKENED`, `-POLICY-BASE-ABSENT`, `-CI-GATE-REMOVED`, `-BASELINE-OR-WAIVER-EXPANDED`) makes a surface `required`; `satisfied` only when a matching `human_ack` entry exists in `shipgate.yaml`. `acks[]` are `{owner, reason, affected_surface, expires, source}`; `outstanding[]` lists required-but-unacknowledged surfaces. The ack section lives in `shipgate.yaml` (a trust root) so adding one trips `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
 
 During `0.x`, secondary projections are supporting/provisional even when their
 field shapes are documented for additive compatibility. CI gates on
@@ -1906,10 +1906,22 @@ config error, exit 2). They are ordinary `Finding`s routed through
 
 - `SHIP-VERIFY-POLICY-WEAKENED` (high, floor high) — base-vs-head normalized
   effective policy weakened: CI mode downgraded, fail-on severity set
-  loosened, or a severity override lowered across a tier. Fail-safe: when no
-  base snapshot is available but a policy/manifest trust root was touched, it
-  emits a review-required `base_snapshot_unavailable` finding rather than
-  passing silently.
+  loosened, or a severity override lowered across a tier. The claim is
+  base-relative, so it fires only when a base snapshot exists to compare
+  against.
+- `SHIP-VERIFY-POLICY-BASE-ABSENT` (medium, floor medium, added `0.16`) — the
+  fail-safe for the missing base. A policy/manifest trust root was touched and
+  no base effective-policy snapshot was available, so no weakening claim can
+  be made in either direction; the change routes to human review rather than
+  passing silently. Two evidence kinds: `manifest_introduced` (git proves the
+  base carries no manifest at all — a first adoption, and the only case that
+  reports `verifier_summary.policy_weakened: false`) and
+  `base_snapshot_unavailable` (no base report was obtainable; the direction is
+  unprovable, so `policy_weakened` stays raised). Before `0.16` both kinds
+  emitted under `SHIP-VERIFY-POLICY-WEAKENED`; that id keeps firing for every
+  proven base-relative weakening and is not deprecated. Severity, category,
+  the `human_ack` requirement on the `policy` surface, `protected_surface_changes`
+  rows, and the resulting release decision are unchanged by the split.
 - `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` (high, floor high) — a new
   suppression, a widened waiver scope, or a larger accepted-debt baseline
   versus the base report.

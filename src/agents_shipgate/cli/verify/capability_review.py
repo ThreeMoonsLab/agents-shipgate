@@ -15,6 +15,7 @@ from agents_shipgate.schemas.verifier import (
 
 TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
 POLICY_WEAKENING_CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
+POLICY_BASE_ABSENT_CHECK_ID = "SHIP-VERIFY-POLICY-BASE-ABSENT"
 
 _IMPACT_ORDER = {
     "blocks_release": 0,
@@ -164,11 +165,16 @@ def _trust_root_touched(report: ReadinessReport) -> bool:
 def _policy_weakened(report: ReadinessReport) -> bool:
     if report.verifier_summary is not None:
         return report.verifier_summary.policy_weakened
-    # Same exclusion as ``verifier_blocks``: a first adoption fires this check
-    # without weakening anything, and this flag is read as a fact downstream.
+    # Same rule as ``verifier_blocks``: the no-base fail-safe keeps this flag
+    # raised (an unprovable direction is treated as weakened for routing), but
+    # a proven first adoption weakens nothing, and this flag is read as a fact
+    # downstream.
     return any(
         f.check_id == POLICY_WEAKENING_CHECK_ID
-        and (f.evidence or {}).get("kind") != "manifest_introduced"
+        or (
+            f.check_id == POLICY_BASE_ABSENT_CHECK_ID
+            and (f.evidence or {}).get("kind") != "manifest_introduced"
+        )
         for f in _active_findings(report)
     )
 
@@ -187,6 +193,7 @@ def _disabled_diff_notes(report: ReadinessReport) -> list[str]:
 
 
 __all__ = [
+    "POLICY_BASE_ABSENT_CHECK_ID",
     "POLICY_WEAKENING_CHECK_ID",
     "TRUST_ROOT_CHECK_ID",
     "build_capability_review",

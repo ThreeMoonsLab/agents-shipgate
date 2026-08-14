@@ -50,6 +50,7 @@ from agents_shipgate.core.current_control import (
 )
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.evaluation_clock import use_evaluation_date
+from agents_shipgate.core.findings.constants import SEVERITY_ORDER
 from agents_shipgate.core.human_authorization import (
     default_human_authorization_trust_policy_path,
     evaluate_human_authorization,
@@ -97,7 +98,11 @@ from agents_shipgate.schemas.human_authorization import (
     authorization_review_items,
     build_human_authorization_request,
 )
-from agents_shipgate.schemas.report import ReadinessReport, ReleaseDecision
+from agents_shipgate.schemas.report import (
+    ReadinessReport,
+    ReleaseDecision,
+    ReleaseDecisionItem,
+)
 from agents_shipgate.schemas.verification import VerificationContext
 from agents_shipgate.schemas.verification_identity import VerificationPlan, content_id
 from agents_shipgate.schemas.verifier import (
@@ -1824,6 +1829,80 @@ def _gap_provenance_note(
     )
 
 
+# Severities that outrank a governance notice in the headline. The trust-root
+# and no-base-policy notices are medium; a blocker at these tiers describes a
+# risk in the change itself, which is the thing a reviewer is deciding how much
+# attention to spend on.
+_HEADLINE_LEADING_SEVERITIES = frozenset({"critical", "high"})
+
+
+def _worst_blocker(release_decision: ReleaseDecision | None) -> ReleaseDecisionItem | None:
+    """The blocker a reviewer should read first, chosen deterministically.
+
+    Same ordering as ``agent_summary``'s top-finding picker: severity first,
+    then check id, then title, so two runs of the same tree name the same row.
+    """
+
+    if release_decision is None or not release_decision.blockers:
+        return None
+    return min(
+        release_decision.blockers,
+        key=lambda item: (
+            SEVERITY_ORDER.get(item.severity, 99),
+            item.check_id,
+            item.title,
+        ),
+    )
+
+
+def _report_primary_headline(report: ReadinessReport) -> str:
+    """The scan's own one-line verdict, with the blocking cause named.
+
+    ``agent_summary.headline`` counts the blockers but does not say what they
+    are, and a count is not a cause: "4 active finding(s) block release" reads
+    the same whether the agent is missing a docstring or can move funds with no
+    enforced control. The blocker title already carries the tool and the
+    capability, so naming the worst one costs a clause and is the difference
+    between a headline a triager can act on and one they have to open the
+    report to understand.
+    """
+
+    if report.agent_summary is not None:
+        summary = report.agent_summary.headline
+    elif report.release_decision is not None:
+        summary = report.release_decision.reason
+    else:
+        return "Shipgate requires human review."
+    worst = _worst_blocker(report.release_decision)
+    if worst is None:
+        return summary
+    title = worst.title.rstrip(".")
+    return f"{summary} Most severe: {title}."
+
+
+def _blockers_outrank_governance(release_decision: ReleaseDecision | None) -> bool:
+    """Whether a release blocker should lead the headline over the notice.
+
+    The self-approval prohibition is a real requirement, but it is not the
+    most severe thing a reviewer needs to know when the same PR also blocks
+    release on critical or high findings. Ranking the medium governance notice
+    above them understated severity at exactly the moment attention is being
+    allocated — and it did so most reliably for new adopters, whose first
+    verdict always touches the trust root.
+
+    Ordering only: the notice is appended, never dropped, so the human-review
+    requirement survives in the same string, and no gating, control state, or
+    permission is derived from this ranking.
+    """
+
+    if release_decision is None:
+        return False
+    return any(
+        blocker.severity in _HEADLINE_LEADING_SEVERITIES
+        for blocker in release_decision.blockers
+    )
+
+
 def _verifier_headline(
     *,
     report: ReadinessReport | None,
@@ -1842,23 +1921,15 @@ def _verifier_headline(
     # condition. "Review, then merge" is only truthful when the adoption
     # finding is the sole review item.
     if manifest_introduced and not pure_adoption_review and report is not None:
-        primary = (
-            report.agent_summary.headline
-            if report.agent_summary is not None
-            else (
-                report.release_decision.reason
-                if report.release_decision is not None
-                else "Shipgate requires human review."
-            )
-        )
         manifest = (
             f"the configured manifest {configured_manifest!r}"
             if configured_manifest
             else "the configured Shipgate manifest"
         )
         return (
-            f"{primary} This PR also introduces {manifest}; adopting a release "
-            "policy is a separate human-review decision."
+            f"{_report_primary_headline(report)} This PR also introduces "
+            f"{manifest}; adopting a release policy is a separate "
+            "human-review decision."
         )
     # An agent editing the rules that evaluate its own change must see the
     # self-approval prohibition first, ahead of the generic scan headline.
@@ -1869,6 +1940,12 @@ def _verifier_headline(
         configured_manifest=configured_manifest,
     )
     if note is not None:
+        # Same ranking as the adoption branch above, for the repository that
+        # has already adopted: the blocker leads and the prohibition follows.
+        if report is not None and _blockers_outrank_governance(
+            report.release_decision
+        ):
+            return f"{_report_primary_headline(report)} {note}"
         return note
     if report is not None and report.agent_summary is not None:
         return report.agent_summary.headline
@@ -1989,11 +2066,17 @@ def _derive_verifier_control(
             verify_required=True,
         )
 
-    # For a mixed adoption, ``reason`` already leads with the actual blocker
-    # and appends the adoption review. Do not replace it with generic
-    # trust-root copy and hide the condition that stopped the release.
+    # ``reason`` is the headline, which already leads with the actual blocker
+    # and appends the self-approval prohibition whenever one outranks the
+    # other — on a mixed adoption, and on any run whose blockers outrank the
+    # governance notice. Replacing it with the bare trust-root copy there would
+    # hide the condition that stopped the release from the one string the
+    # human-review route carries.
+    headline_carries_the_note = (
+        manifest_introduced and not pure_adoption_review
+    ) or _blockers_outrank_governance(release_decision)
     review_reason = reason
-    if not manifest_introduced or pure_adoption_review:
+    if not headline_carries_the_note:
         review_reason = (
             _self_approval_note(
                 capability_review,

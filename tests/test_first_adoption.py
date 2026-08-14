@@ -223,14 +223,24 @@ def _scan_context(*, manifest_introduced: bool, changed=("shipgate.yaml",)):
     )
 
 
-def test_adoption_fail_safe_keeps_the_check_id_and_severity():
-    """Honesty changes; the gate does not."""
+def test_adoption_fail_safe_keeps_the_severity_and_its_own_reason_code():
+    """Honesty changes; the gate does not.
+
+    Both no-base cases now carry the fail-safe's own reason code rather than
+    the base-relative weakening one — see ``test_headline_ranking`` for the
+    split's own regressions. Severity, and therefore the verdict, is unmoved.
+    """
 
     adopting = verify_policy.run(_scan_context(manifest_introduced=True))
     modifying = verify_policy.run(_scan_context(manifest_introduced=False))
 
     assert len(adopting) == len(modifying) == 1
-    assert adopting[0].check_id == modifying[0].check_id == verify_policy.CHECK_ID
+    assert (
+        adopting[0].check_id
+        == modifying[0].check_id
+        == verify_policy.BASE_ABSENT_CHECK_ID
+    )
+    assert verify_policy.BASE_ABSENT_CHECK_ID != verify_policy.CHECK_ID
     assert adopting[0].severity == modifying[0].severity == "medium"
 
     assert adopting[0].evidence["kind"] == "manifest_introduced"
@@ -434,13 +444,18 @@ def test_first_adoption_pr_is_honest_and_actionable(tmp_path):
     payload = json.loads(
         (repo / "agents-shipgate-reports" / "report.json").read_text("utf-8")
     )
-    weakening = [
+    policy_findings = [
+        finding
+        for finding in payload["findings"]
+        if finding["check_id"] == verify_policy.BASE_ABSENT_CHECK_ID
+    ]
+    assert policy_findings, "the adoption still records a policy finding"
+    assert policy_findings[0]["evidence"]["kind"] == "manifest_introduced"
+    assert not [
         finding
         for finding in payload["findings"]
         if finding["check_id"] == verify_policy.CHECK_ID
-    ]
-    assert weakening, "the adoption still records a policy finding"
-    assert weakening[0]["evidence"]["kind"] == "manifest_introduced"
+    ], "an adoption weakens no base-relative policy and must not claim one"
 
 
 def test_clean_adoption_collapses_same_manifest_rows_into_one_human_act(

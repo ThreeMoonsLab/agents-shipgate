@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+- **The verifier headline leads with the release blockers, not with the
+  governance notice that outranked them.** When a PR both touched the release
+  trust root and blocked release on critical or high findings, `headline` —
+  the one line that reaches a PR comment, a chat reply, or a triage list —
+  reported the trust-root fact and never mentioned the blockers. The two
+  findings driving it are `medium`; the blockers they outranked were
+  `critical`. Reproduced on
+  [google/adk-samples#1917](https://github.com/google/adk-samples/pull/1917),
+  where four `SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING` blockers on an
+  agent that batch-pays ETH and ERC-20 on Base mainnet went unnamed while the
+  headline described Shipgate's own configuration
+  ([#365](https://github.com/ThreeMoonsLab/agents-shipgate/issues/365)). The
+  ranking now matches the severity: a run carrying a critical or high release
+  blocker leads with the scan's own verdict line and *appends* the
+  self-approval prohibition, so the human-review requirement survives in the
+  same string rather than being replaced by it. That leading line also now
+  names the worst blocker rather than only counting it — a count reads the
+  same whether the agent is missing a docstring or can move funds with no
+  enforced control — chosen deterministically by severity, then check id, then
+  title, so two runs of the same tree name the same row. A trust-root or
+  policy change with no blockers still leads with the governance notice — it
+  is then the whole story. This is ordering only: `control.state`, `must_stop`,
+  `merge_verdict`, `can_merge_without_human`, `permissions`, `fix_task`
+  routing, and the release decision are untouched, and the reordered headline
+  is now what the human-review route carries as its reason, so the control
+  envelope cannot name less than the headline does.
+
+- **A first adoption no longer reports a policy weakening that could not have
+  happened.** The fail-safe that fires when there is no base policy to compare
+  against shared a reason code with a proven base-relative weakening, so
+  `verifier.json` reported `SHIP-VERIFY-POLICY-WEAKENED` on a base that
+  carried no gate at all — the condition every first adopter meets by
+  definition. That fail-safe is now its own reason code,
+  **`SHIP-VERIFY-POLICY-BASE-ABSENT`** (medium, floor medium, category
+  `verify`), carrying both evidence kinds: `manifest_introduced` (git proves
+  the base carries no manifest under any name) and
+  `base_snapshot_unavailable` (no base report was obtainable).
+  `SHIP-VERIFY-POLICY-WEAKENED` keeps firing, unchanged, for every proven
+  base-relative weakening — it is narrowed, not deprecated. Nothing about the
+  gate moves with the reason code: same severity, same suppression immunity,
+  same `human_ack` requirement on the `policy` surface, same
+  `protected_surface_changes` rows, same release decision. In particular
+  `verifier_summary.policy_weakened` keeps its fail-safe meaning — only a
+  git-proven adoption clears it, so a rename-and-loosen diff still cannot
+  clear the gate-bypass alarm by breaking the base scan.
+
 - **`init` ranks agent-name candidates instead of taking the first one it
   trips over.** Candidates were emitted in file-then-AST order with no
   scoring, and all three consumers — the manifest renderer, the `init` JSON

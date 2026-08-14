@@ -43,11 +43,11 @@ checks:
     override lowered across a tier).
   rationale: Comparing the normalized base-vs-head policy snapshot catches a coding
     agent that makes CI pass by weakening the gate rather than fixing the finding.
-    When no base snapshot is available but a policy trust root was touched, the
-    check fails safe to a review-required finding instead of silently passing.
-  fires_when: A VerificationContext is present and the base report's
-    effective_policy is weaker than the head manifest's; or, with no base
-    snapshot, a policy/manifest trust root was changed.
+    The claim is base-relative, so it fires only when a base snapshot exists to
+    compare against; the no-base fail-safe is SHIP-VERIFY-POLICY-BASE-ABSENT.
+  fires_when: A VerificationContext and a base effective-policy snapshot are both
+    present and the base report's effective_policy is weaker than the head
+    manifest's.
   evidence_fields:
   - kind
   - base_ci_mode
@@ -58,6 +58,26 @@ checks:
   - head_severity
   recommendation: A human must review and approve the policy change; do not weaken
     the release gate to make CI pass.
+- id: SHIP-VERIFY-POLICY-BASE-ABSENT
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: A policy or manifest trust root changed but there is no base policy
+    snapshot to compare it against — the base carries no Shipgate manifest (first
+    adoption), or no base report was obtainable.
+  rationale: A missing base is not a weakening, and reporting it as one made every
+    first adoption read as if the adopter had loosened a gate that never existed.
+    It is also not a pass — a reward-hacker must not be able to dodge review by
+    breaking the base scan — so the direction stays ambiguous and the change is
+    routed to a human under its own reason code.
+  fires_when: A VerificationContext is present, no base effective-policy snapshot
+    is available, and a policy/manifest trust root is in the changed files.
+  evidence_fields:
+  - kind
+  - changed_policy_files
+  recommendation: A human must review the policy surface this PR establishes or
+    changes; a coding agent cannot adopt or self-approve a release gate.
 - id: SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED
   default_severity: high
   floor_severity: high

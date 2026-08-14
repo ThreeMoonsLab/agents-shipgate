@@ -218,9 +218,23 @@ def test_human_ack_required_implies_outstanding_unless_satisfied(tmp_path):
 
 
 def test_policy_weakened_flag_mirrors_finding(tmp_path):
+    """The flag answers "was the gate weakened", across both policy reason codes.
+
+    ``SHIP-VERIFY-POLICY-BASE-ABSENT`` is the no-base fail-safe: an unprovable
+    direction still counts as weakened, and only a git-proven first adoption
+    (``kind: manifest_introduced``) clears the flag.
+    """
+
     report = _verify_scan(tmp_path)
     has_weakened = any(
-        f.check_id == "SHIP-VERIFY-POLICY-WEAKENED" and not f.suppressed
+        not f.suppressed
+        and (
+            f.check_id == "SHIP-VERIFY-POLICY-WEAKENED"
+            or (
+                f.check_id == "SHIP-VERIFY-POLICY-BASE-ABSENT"
+                and (f.evidence or {}).get("kind") != "manifest_introduced"
+            )
+        )
         for f in report.findings
     )
     assert report.verifier_summary.policy_weakened == has_weakened
