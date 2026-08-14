@@ -275,9 +275,15 @@ def test_policy_fail_safe_uses_exact_logical_manifest_identity():
 # --- headline and fix_task copy ---------------------------------------------
 
 
-def _review(*, policy_weakened=False, trust_root_touched=False):
+def _review(
+    *, policy_weakened=False, policy_weakening_proven=False, trust_root_touched=False
+):
     return VerifierCapabilityReview(
         policy_weakened=policy_weakened,
+        # A proven weakening is the narrower fact behind the "weakens the
+        # release policy" wording; ``policy_weakened`` alone is the fail-closed
+        # routing flag and now says only that the direction may have moved.
+        policy_weakening_proven=policy_weakening_proven,
         trust_root_touched=trust_root_touched,
     )
 
@@ -291,7 +297,8 @@ def test_adoption_headline_replaces_the_weakening_claim():
         configured_manifest="config/release.gate",
     )
     modifying = _self_approval_note(
-        _review(policy_weakened=True), manifest_introduced=False
+        _review(policy_weakened=True, policy_weakening_proven=True),
+        manifest_introduced=False,
     )
 
     assert adopting is not None and modifying is not None
@@ -331,21 +338,34 @@ def test_adoption_raises_the_prohibition_after_a_completed_scan():
     assert _self_approval_note(None, manifest_introduced=True) is None
 
 
-def test_a_weakened_policy_beats_the_adoption_wording():
-    """Introducing the manifest while weakening an existing policy file.
+@pytest.mark.parametrize("proven", [True, False])
+def test_a_policy_finding_beats_the_adoption_wording(proven: bool):
+    """Introducing the manifest while a policy finding is active.
 
     "There is no prior gate this change could weaken" would describe away the
-    very finding that needs review.
+    very finding that needs review — whether or not a base comparison proved
+    the direction. The claim differs; the precedence does not.
     """
 
     mixed = _self_approval_note(
-        _review(policy_weakened=True, trust_root_touched=True),
+        _review(
+            policy_weakened=True,
+            policy_weakening_proven=proven,
+            trust_root_touched=True,
+        ),
         manifest_introduced=True,
         pure_adoption_review=True,
     )
     assert mixed is not None
-    assert "weakens the release policy" in mixed
     assert "introduces Agents Shipgate" not in mixed
+    assert "cannot self-approve" in mixed
+    if proven:
+        assert "weakens the release policy" in mixed
+    else:
+        # Fail-closed routing is preserved without asserting a weakening that
+        # no comparison established.
+        assert "weakens the release policy" not in mixed
+        assert "no base policy was available" in mixed
 
 
 def test_non_adoption_wording_is_unchanged():

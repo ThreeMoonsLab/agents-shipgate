@@ -1858,8 +1858,14 @@ fields a consumer may read:
   decision engine.
 - `capability_review` — deterministic reviewer-facing projection of
   `capability_change`, with `{trust_root_touched, policy_weakened,
-  capability_changes_added, capability_changes_removed,
-  capability_changes_modified, top_changes[]}`. `top_changes[]` carries the
+  policy_weakening_proven, capability_changes_added, capability_changes_removed,
+  capability_changes_modified, top_changes[]}`. `policy_weakened` is the
+  fail-closed routing flag — raised whenever the release policy may have gotten
+  weaker, including when no base policy existed to compare against;
+  `policy_weakening_proven` (added `0.16`, default `false`) is the narrower
+  fact that a base-vs-head comparison actually ran and found the head weaker.
+  It is never `true` without `policy_weakened`. Gate on the former; say the
+  policy was weakened only on the latter. `top_changes[]` carries the
   highest-signal capability deltas with `{id, title, impact, rationale,
   related_finding_ids}`. `impact` mirrors the gate; this block never introduces a
   finding-independent blocker. Treat it as supporting/provisional reviewer
@@ -1921,7 +1927,29 @@ config error, exit 2). They are ordinary `Finding`s routed through
   emitted under `SHIP-VERIFY-POLICY-WEAKENED`; that id keeps firing for every
   proven base-relative weakening and is not deprecated. Severity, category,
   the `human_ack` requirement on the `policy` surface, `protected_surface_changes`
-  rows, and the resulting release decision are unchanged by the split.
+  rows, and the resulting release decision are unchanged by the split, and
+  three compatibility rules keep it that way:
+
+  - **Configuration written against the pre-split id still reaches this
+    check.** `checks.severity_overrides` (and any other configured match) for
+    `SHIP-VERIFY-POLICY-WEAKENED` applies to `SHIP-VERIFY-POLICY-BASE-ABSENT`
+    as well, so a repository that had raised the no-base fail-safe to
+    `critical` still gets `critical` and still blocks. An override written
+    against the new id wins over the umbrella. Floor validation is unchanged:
+    an override against `SHIP-VERIFY-POLICY-WEAKENED` is still checked against
+    its own `high` floor.
+  - **Reports written before the split still reproject to what they meant.**
+    Every read path (`verifier_summary.policy_weakened`, `capability_review`,
+    `protected_surface_changes`, `human_ack`, the adoption fix-task route, and
+    the Action's findings fallback) accepts either id with the same evidence
+    kinds. Nothing re-emits the old id for a no-base run.
+  - **Fail-closed routing and the human-facing claim are separate.**
+    `policy_weakened` stays raised whenever the direction could not be
+    established; the new `capability_review.policy_weakening_proven` is the
+    narrower fact that a base-vs-head comparison actually ran and found the
+    head weaker. Copy is selected from the narrower one, so an unprovable
+    direction is never reported as a proven weakening while the conservative
+    route is preserved.
 - `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` (high, floor high) — a new
   suppression, a widened waiver scope, or a larger accepted-debt baseline
   versus the base report.

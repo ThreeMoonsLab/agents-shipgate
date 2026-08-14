@@ -48,6 +48,43 @@
   git-proven adoption clears it, so a rename-and-loosen diff still cannot
   clear the gate-bypass alarm by breaking the base scan.
 
+  Three compatibility rules make "same release decision" literally true rather
+  than aspirational. **Configuration written against the pre-split id still
+  reaches the new one**: a repository that had raised the no-base fail-safe
+  with `checks.severity_overrides: {SHIP-VERIFY-POLICY-WEAKENED: critical}`
+  still gets `critical` and still blocks, because the pre-split id is an
+  umbrella over both halves (`SPLIT_CHECK_ID_ALIASES`) — distinct from the
+  legacy-alias map, since the umbrella is not deprecated and a baseline naming
+  it must not be flagged as stale. An override written against the new id wins,
+  and floor validation is unchanged. **Reports written before the split still
+  reproject to what they meant**: every read path — the verifier summary, the
+  capability review, `protected_surface_changes`, `human_ack`, the adoption
+  fix-task route, and the Action's findings fallback — accepts either id with
+  the same evidence kinds, so a stored `report.json` carrying the old id with
+  `manifest_introduced` is still an adoption and still reports
+  `policy_weakened: false`. Nothing re-emits the old id. **Fail-closed routing
+  and the human-facing claim are separated**: `capability_review` gains
+  `policy_weakening_proven` (additive, default `false`), the narrower fact that
+  a base-vs-head comparison actually ran. `policy_weakened` still routes; only
+  `policy_weakening_proven` licenses saying the policy was weakened. A no-base
+  run now reads "This PR changes the release policy that evaluates it and no
+  base policy was available to prove the change does not weaken the gate"
+  instead of asserting a weakening nothing established — in the headline, the
+  control reason, and the fix task's repair reason alike.
+
+- **The blocker title quoted into the headline is normalized and bounded.**
+  `ReleaseDecisionItem.title` embeds a tool name read out of an OpenAPI spec,
+  an MCP export, or a Python source file, so quoting it verbatim made scanned
+  input able to reshape the artifact that reports it: newlines survived into a
+  field contracted to be one sentence, and length alone was enough to push the
+  appended `cannot self-approve` clause past the compact control envelope's
+  400-byte prose budget — deleting the human-review requirement from the
+  projection a routing consumer reads. Control characters are now collapsed,
+  the quoted title is capped, and the governance suffix gets a reserved byte
+  budget so the lead is shortened instead of the requirement. If the
+  requirement alone fills the budget it is published on its own, which is what
+  the headline said before blockers ever led it.
+
 - **`init` ranks agent-name candidates instead of taking the first one it
   trips over.** Candidates were emitted in file-then-AST order with no
   scoring, and all three consumers — the manifest renderer, the `init` JSON

@@ -3002,7 +3002,7 @@
         "base_severity",
         "head_severity"
       ],
-      "fires_when": "A VerificationContext and a base effective-policy snapshot are both present and the base report's effective_policy is weaker than the head manifest's.",
+      "fires_when": "A VerificationContext and a base effective-policy snapshot are both present and the head manifest's effective policy is weaker than the base report's.",
       "floor_severity": "high",
       "id": "SHIP-VERIFY-POLICY-WEAKENED",
       "mvp_tier": "lifecycle",

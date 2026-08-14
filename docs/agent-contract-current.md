@@ -661,8 +661,12 @@ operational overlay and cannot change those fields.
   policy packs, prompts, baselines, waivers, etc.). Backed by the
   `SHIP-VERIFY-TRUST-ROOT-TOUCHED` check.
 - `capability_review` — reviewer-facing projection of `capability_change` with
-  `{trust_root_touched, policy_weakened, capability_changes_added,
-  capability_changes_removed, capability_changes_modified, top_changes[]}`.
+  `{trust_root_touched, policy_weakened, policy_weakening_proven,
+  capability_changes_added, capability_changes_removed,
+  capability_changes_modified, top_changes[]}`. Gate on `policy_weakened` (the
+  fail-closed flag, raised even when no base policy existed to compare
+  against); say the policy was weakened only when `policy_weakening_proven`
+  (0.16+) is also true — that one means a base-vs-head comparison actually ran.
   `top_changes[]` carries the highest-signal capability deltas with
   `{id, change_type, change_bucket, subject_kind, subject, impact, rationale,
   source_path, source_start_line, related_finding_ids}`. `impact` mirrors the

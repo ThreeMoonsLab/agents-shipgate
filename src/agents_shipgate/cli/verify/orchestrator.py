@@ -87,6 +87,7 @@ from agents_shipgate.schemas.agent_control import (
     CodingAgentFetchBaseAction,
     HumanControlAction,
 )
+from agents_shipgate.schemas.agent_control_envelope import MAX_ENVELOPE_PROSE_BYTES
 from agents_shipgate.schemas.capabilities import CapabilityLockDiffV1, CapabilityLockFileV1
 from agents_shipgate.schemas.current_control import (
     CurrentControlOperation,
@@ -1696,6 +1697,13 @@ def _self_approval_note(
     file is not a pure adoption: ``policy_weakened`` is then true, and saying
     "there is no prior gate this change could weaken" would describe away the
     very finding that needs review. The weakening wording wins.
+
+    Routing and claim are separate questions. ``policy_weakened`` is the
+    fail-closed routing flag and stays raised when no base policy existed to
+    compare against; ``policy_weakening_proven`` is the narrower fact that a
+    comparison actually ran. The route is the same for both, so nothing about
+    gating depends on which sentence comes back — but only the proven case may
+    say the policy was weakened.
     """
     if capability_review is None:
         # Without a completed head scan there is no capability review whose
@@ -1718,9 +1726,23 @@ def _self_approval_note(
             "merge it through a human-reviewed PR."
         )
     if capability_review.policy_weakened:
+        # ``policy_weakened`` is the fail-closed routing flag: it stays raised
+        # when the direction could not be established at all, so that breaking
+        # the base scan is not a way to clear the alarm. The *claim* must not
+        # inherit that conservatism. Saying "this PR weakens the release
+        # policy" about a change nothing compared states a fact the run does
+        # not have, and leaves the reader unable to tell it from a real
+        # weakening. The route below is identical either way.
+        if capability_review.policy_weakening_proven:
+            return (
+                "This PR weakens the release policy that evaluates it; a coding "
+                "agent cannot self-approve that change — a human must review it."
+            )
         return (
-            "This PR weakens the release policy that evaluates it; a coding "
-            "agent cannot self-approve that change — a human must review it."
+            "This PR changes the release policy that evaluates it and no base "
+            "policy was available to prove the change does not weaken the gate; "
+            "a coding agent cannot self-approve that change — a human must "
+            "review it."
         )
     if capability_review.trust_root_touched:
         return (
@@ -1855,6 +1877,82 @@ def _worst_blocker(release_decision: ReleaseDecision | None) -> ReleaseDecisionI
     )
 
 
+# Every character class that would let an interpolated value stop being one
+# clause of one sentence: newlines, tabs, and the C0/C1 control range.
+_HEADLINE_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+# How much of the worst blocker's title the headline will carry. The title is
+# an untrusted value — it embeds a tool name read out of an OpenAPI spec, an
+# MCP export, or a Python source file — so it is bounded on its own account,
+# independently of the composition budget below, to keep an oversized one from
+# expanding every downstream renderer that quotes the headline.
+_HEADLINE_TITLE_MAX_CHARS = 120
+_ELLIPSIS = "…"
+
+
+def _one_clause(value: str) -> str:
+    """Collapse an untrusted value into a single clause of a single sentence.
+
+    Control characters are dropped rather than escaped: the headline is prose,
+    not a transcript, and a ``\\x0a`` escape in the middle of a sentence is no
+    more readable than the newline it replaces. Runs of whitespace collapse so
+    the result cannot be padded into a different shape.
+    """
+
+    return " ".join(_HEADLINE_CONTROL_CHARACTERS.sub(" ", value).split())
+
+
+def _bounded(value: str, max_chars: int) -> str:
+    """Cap a value at ``max_chars`` codepoints, marking any abridgement."""
+
+    if max_chars <= 0:
+        return ""
+    if len(value) <= max_chars:
+        return value
+    if max_chars <= len(_ELLIPSIS):
+        return _ELLIPSIS[:max_chars]
+    return value[: max_chars - len(_ELLIPSIS)].rstrip() + _ELLIPSIS
+
+
+def _bounded_bytes(value: str, max_bytes: int) -> str:
+    """Cap a value in UTF-8 bytes, always cutting on a codepoint boundary."""
+
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    marker = _ELLIPSIS.encode("utf-8")
+    if max_bytes <= len(marker):
+        return ""
+    kept = encoded[: max_bytes - len(marker)].decode("utf-8", errors="ignore")
+    return kept.rstrip() + _ELLIPSIS
+
+
+def _compose_with_reserved_suffix(lead: str, suffix: str) -> str:
+    """Put ``lead`` first while guaranteeing ``suffix`` survives the budget.
+
+    The compact control envelope caps free prose at
+    ``MAX_ENVELOPE_PROSE_BYTES`` and truncates the *tail*, which is exactly
+    where the human-review requirement sits once a blocker leads. Composing
+    without a reservation therefore turns a long blocker title into a way to
+    delete "a human must review it" from the projection a routing consumer
+    reads. The lead is shortened instead — and if the requirement alone fills
+    the budget, it is published on its own, which is what the headline said
+    before blockers ever led it.
+    """
+
+    if not suffix:
+        return lead
+    if not lead:
+        return suffix
+    room = MAX_ENVELOPE_PROSE_BYTES - len(suffix.encode("utf-8")) - 1
+    if room <= 0:
+        return suffix
+    lead = _bounded_bytes(lead, room)
+    if not lead:
+        return suffix
+    return f"{lead} {suffix}"
+
+
 def _report_primary_headline(report: ReadinessReport) -> str:
     """The scan's own one-line verdict, with the blocking cause named.
 
@@ -1865,18 +1963,24 @@ def _report_primary_headline(report: ReadinessReport) -> str:
     capability, so naming the worst one costs a clause and is the difference
     between a headline a triager can act on and one they have to open the
     report to understand.
+
+    The title is normalized and bounded before it is quoted: it is scanned
+    input, and an unbounded multiline value is how one finding's name becomes
+    several lines of the artifact that reports it.
     """
 
     if report.agent_summary is not None:
-        summary = report.agent_summary.headline
+        summary = _one_clause(report.agent_summary.headline)
     elif report.release_decision is not None:
-        summary = report.release_decision.reason
+        summary = _one_clause(report.release_decision.reason)
     else:
         return "Shipgate requires human review."
     worst = _worst_blocker(report.release_decision)
     if worst is None:
         return summary
-    title = worst.title.rstrip(".")
+    title = _bounded(_one_clause(worst.title).rstrip("."), _HEADLINE_TITLE_MAX_CHARS)
+    if not title:
+        return summary
     return f"{summary} Most severe: {title}."
 
 
@@ -1922,14 +2026,16 @@ def _verifier_headline(
     # finding is the sole review item.
     if manifest_introduced and not pure_adoption_review and report is not None:
         manifest = (
-            f"the configured manifest {configured_manifest!r}"
+            f"the configured manifest {_one_clause(configured_manifest)!r}"
             if configured_manifest
             else "the configured Shipgate manifest"
         )
-        return (
-            f"{_report_primary_headline(report)} This PR also introduces "
-            f"{manifest}; adopting a release policy is a separate "
-            "human-review decision."
+        return _compose_with_reserved_suffix(
+            _report_primary_headline(report),
+            (
+                f"This PR also introduces {manifest}; adopting a release "
+                "policy is a separate human-review decision."
+            ),
         )
     # An agent editing the rules that evaluate its own change must see the
     # self-approval prohibition first, ahead of the generic scan headline.
@@ -1945,7 +2051,9 @@ def _verifier_headline(
         if report is not None and _blockers_outrank_governance(
             report.release_decision
         ):
-            return f"{_report_primary_headline(report)} {note}"
+            return _compose_with_reserved_suffix(
+                _report_primary_headline(report), note
+            )
         return note
     if report is not None and report.agent_summary is not None:
         return report.agent_summary.headline

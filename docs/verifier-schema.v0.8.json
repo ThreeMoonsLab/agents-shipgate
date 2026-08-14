@@ -2134,6 +2134,11 @@
           "title": "Policy Weakened",
           "type": "boolean"
         },
+        "policy_weakening_proven": {
+          "default": false,
+          "title": "Policy Weakening Proven",
+          "type": "boolean"
+        },
         "removed": {
           "default": 0,
           "title": "Removed",

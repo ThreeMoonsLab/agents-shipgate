@@ -309,7 +309,15 @@ class VerifierCapabilityReview(BaseModel):
     modified: int = 0
     removed: int = 0
     trust_root_touched: bool = False
+    # Fail-closed routing: true whenever the release policy may have gotten
+    # weaker, including when the direction could not be established at all
+    # (no base snapshot). Consumers gate on this.
     policy_weakened: bool = False
+    # The narrower, honest fact: a base-vs-head comparison actually ran and
+    # found the head weaker. Never true without ``policy_weakened``. Copy is
+    # selected from this one, so an unprovable direction is not reported to a
+    # human as a proven weakening while the conservative route is preserved.
+    policy_weakening_proven: bool = False
     top_changes: list[VerifierCapabilityChange] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 

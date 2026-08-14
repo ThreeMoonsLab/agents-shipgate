@@ -46,8 +46,8 @@ checks:
     The claim is base-relative, so it fires only when a base snapshot exists to
     compare against; the no-base fail-safe is SHIP-VERIFY-POLICY-BASE-ABSENT.
   fires_when: A VerificationContext and a base effective-policy snapshot are both
-    present and the base report's effective_policy is weaker than the head
-    manifest's.
+    present and the head manifest's effective policy is weaker than the base
+    report's.
   evidence_fields:
   - kind
   - base_ci_mode

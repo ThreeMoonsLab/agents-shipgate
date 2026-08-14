@@ -33,6 +33,7 @@ from agents_shipgate.core.capability_delta import (
     CapabilityFactContext,
     diff_capability_fact_sets,
 )
+from agents_shipgate.core.policy_reason_codes import counts_as_weakened
 from agents_shipgate.schemas.capability_change import (
     CapabilityChangeBlock,
     CapabilityChangeMember,
@@ -591,9 +592,12 @@ _VERIFY_PATH_ROWS: dict[str, tuple[str, str, bool]] = {
         False,
     ),
     # The no-base fail-safe lists the changed policy files. The semantic
-    # POLICY-WEAKENED kinds carry no path at all, so they contribute no row
-    # (they are absent from this map rather than skipped by a missing key).
+    # POLICY-WEAKENED kinds carry no path, so the pre-split id maps to the same
+    # spec and simply contributes no row for them (``changed_policy_files`` is
+    # absent). Keeping it listed is what lets a report written before the split
+    # — where the fail-safe carried that id — still project its policy rows.
     "SHIP-VERIFY-POLICY-BASE-ABSENT": ("changed_policy_files", "policy", False),
+    "SHIP-VERIFY-POLICY-WEAKENED": ("changed_policy_files", "policy", False),
 }
 
 _TRUST_ROOT_TOUCHED = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
@@ -847,13 +851,10 @@ def build_verifier_summary(report: ReadinessReport) -> VerifierSummary:
     # that clears the flag. Every other no-base case keeps it raised: an
     # unprovable direction stays treated as weakening, which is what stops a
     # rename-and-loosen diff from clearing the alarm by breaking the base scan.
+    # Both reason codes are read, so a report written before the split still
+    # projects to the same answer it did then.
     policy_weakened = any(
-        f.check_id == "SHIP-VERIFY-POLICY-WEAKENED"
-        or (
-            f.check_id == "SHIP-VERIFY-POLICY-BASE-ABSENT"
-            and (f.evidence or {}).get("kind") != "manifest_introduced"
-        )
-        for f in active
+        counts_as_weakened(f.check_id, f.evidence) for f in active
     )
 
     return VerifierSummary(

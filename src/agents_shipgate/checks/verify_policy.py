@@ -53,16 +53,21 @@ from agents_shipgate.checks._verify_common import (
     verify_finding,
 )
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.policy_reason_codes import (
+    POLICY_BASE_ABSENT_CHECK_ID,
+    POLICY_WEAKENED_CHECK_ID,
+)
 from agents_shipgate.core.trust_roots import is_context_configured_manifest
 from agents_shipgate.schemas.report import Finding
 
-CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
+CHECK_ID = POLICY_WEAKENED_CHECK_ID
 # The no-base fail-safe. A separate reason code because it makes the opposite
 # claim from CHECK_ID: not "the gate got weaker" but "there is no base gate to
 # compare against". Consumers that read a reason code as a fact — reviewer
 # routing, the registry, the gate-bypass alarm — could not tell those apart
-# while both shared one id.
-BASE_ABSENT_CHECK_ID = "SHIP-VERIFY-POLICY-BASE-ABSENT"
+# while both shared one id. Configuration written against CHECK_ID still
+# reaches this one: see ``core.check_ids.SPLIT_CHECK_ID_ALIASES``.
+BASE_ABSENT_CHECK_ID = POLICY_BASE_ABSENT_CHECK_ID
 
 # Strength of a CI mode — higher blocks more. Unknown modes rank -1 so an
 # unrecognized head mode never reads as "stronger" than a known base.

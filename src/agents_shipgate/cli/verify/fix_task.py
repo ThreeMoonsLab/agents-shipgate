@@ -20,6 +20,7 @@ from agents_shipgate.ci.release_decision import (
     evidence_below_ie_threshold,
 )
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
+from agents_shipgate.core.policy_reason_codes import is_adoption_evidence
 from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.report import Finding, ReadinessReport
 from agents_shipgate.schemas.verifier import (
@@ -32,8 +33,11 @@ from agents_shipgate.schemas.verifier import (
 
 _MAX_INSTRUCTIONS = 5
 _MAX_REPAIRS = 10
-_ADOPTION_CHECK_ID = "SHIP-VERIFY-POLICY-BASE-ABSENT"
-_ADOPTION_EVIDENCE_KIND = "manifest_introduced"
+# The adoption fail-safe is emitted under ``POLICY_BASE_ABSENT_CHECK_ID``.
+# ``is_adoption_evidence`` also accepts the pre-split id, because reports
+# written before the split carry the same evidence under the old one and
+# must keep routing to adoption wording and the adoption repair rather than
+# to a weakening the base could not have had.
 _ADOPTION_TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
 _ADOPTION_BOUNDARY_CHECK_ID = (
     "SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED"
@@ -270,8 +274,7 @@ def _is_pure_adoption_review(
     adoption_findings = [
         finding
         for finding in gating
-        if finding.check_id == _ADOPTION_CHECK_ID
-        and finding.evidence.get("kind") == _ADOPTION_EVIDENCE_KIND
+        if is_adoption_evidence(finding.check_id, finding.evidence)
     ]
     manifest_paths = {
         str(path)
@@ -310,10 +313,7 @@ def _is_same_manifest_adoption_finding(
     finding: Finding,
     manifest_path: str,
 ) -> bool:
-    if (
-        finding.check_id == _ADOPTION_CHECK_ID
-        and finding.evidence.get("kind") == _ADOPTION_EVIDENCE_KIND
-    ):
+    if is_adoption_evidence(finding.check_id, finding.evidence):
         return finding.evidence.get("changed_policy_files") == [manifest_path]
     if finding.check_id == _ADOPTION_TRUST_ROOT_CHECK_ID:
         return bool(
@@ -626,6 +626,17 @@ def _human_repairs(
                 )
             )
         if capability_review.policy_weakened:
+            # The route is the same either way — this is the fail-closed flag —
+            # but the reason must not assert a weakening that no comparison
+            # established. `policy_weakening_proven` is the narrower fact.
+            subject = (
+                "release-policy weakening"
+                if capability_review.policy_weakening_proven
+                else (
+                    "the release-policy change, whose direction could not be "
+                    "proven without a base policy to compare against"
+                )
+            )
             repairs.append(
                 VerifierRepair(
                     id="review_policy_weakening",
@@ -633,7 +644,7 @@ def _human_repairs(
                     kind="review_policy_change",
                     target=config or "shipgate.yaml",
                     reason=(
-                        "A human must approve release-policy weakening"
+                        f"A human must approve {subject}"
                         + (
                             " as part of the release decision."
                             if manifest_introduced
