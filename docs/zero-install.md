@@ -43,9 +43,15 @@ Like `agents-shipgate detect`, the script silently skips common fixture corpus d
 
 The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources, same excluded sources, same Codex plugin candidates, and the same manifest-scope verdict (`agent_scope` plus `agent_project_candidates[]`) for every sample in `samples/`. The scope verdict is pinned because an agent that consults the zero-install path must not adopt a scope the CLI would refuse: on a workspace whose agents live in several self-contained projects, both report `agent_scope: "ambiguous"` and neither recommends initializing the root. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
 
+`agent_name_candidates` is the one field pinned byte for byte, including its ranking and each entry's `rationale[]`. It is not a yes/no signal: it names the agent a generated manifest would declare as the reviewed identity, so a script that ranked differently would point you at a different agent than `init` does.
+
 **When to use this:** you're a coding agent (Claude Code, Codex, Cursor) deciding *whether* to propose Shipgate. The script tells you in one fetch + one Python invocation. The full flow (`init`, `scan`, `apply-patches`) requires the actual install.
 
-**Constraints:** Python 3.12+ on the runner. No git fast path (uses `os.walk` only). Evidence/reason strings and absolute scores are simplified — the verdict is what's pinned, not the prose.
+**Constraints:** Python 3.12+ on the runner. Evidence/reason strings and absolute framework scores are simplified — the verdict is what's pinned, not the prose.
+
+The workspace inventory does match the canonical CLI's — `git ls-files` when Git can read the workspace, a contained filesystem walk otherwise. That is a correctness requirement, not a speed one: a `.gitignore`d module is invisible to `init`, so a script that walked it anyway could name an agent `init` will never write. Paths escaping the workspace through a symlink are dropped for the same reason.
+
+Git's output is read incrementally against a 16 MiB bound. If that bound is exceeded the script **exits non-zero** rather than falling back to a filesystem walk — the same failure the canonical CLI raises. A fallback would do exactly the work the bound exists to refuse, and would answer from a different inventory than `init` used.
 
 ## 2. `uvx` (no permanent install)
 

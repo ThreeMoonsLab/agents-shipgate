@@ -11,6 +11,7 @@ from agents_shipgate.cli.discovery import (
     detect_workspace,
     render_auto_manifest,
     render_manifest_template,
+    select_agent_name,
     write_ci_workflow,
 )
 from agents_shipgate.cli.discovery.agent_instructions import (
@@ -601,15 +602,14 @@ def register(app: typer.Typer) -> None:
                 )
                 raise typer.Exit(4) from exc
             placeholders = collect_placeholders(template)
-            # Mirror the template's selection logic so JSON output never claims
-            # a name that the YAML left as CHANGE_ME. Per v0.6 reviewer
-            # feedback: workspace_dir is a candidate but NOT chosen for
-            # agent.name; only Agent_name_literal/ADK_name_field do.
-            chosen_agent_name: str | None = None
-            for candidate in detect_result.agent_name_candidates:
-                if candidate.source in {"Agent_name_literal", "ADK_name_field"}:
-                    chosen_agent_name = candidate.value
-                    break
+            # Same call the renderer makes, not a second copy of the rule, so
+            # the JSON summary can never claim a name the YAML left as
+            # CHANGE_ME. ``None`` means every candidate failed the quality
+            # floor and the manifest carries the placeholder instead.
+            selected_agent_name = select_agent_name(detect_result.agent_name_candidates)
+            chosen_agent_name = (
+                selected_agent_name.value if selected_agent_name is not None else None
+            )
             auto_detected = {
                 "is_agent_project": detect_result.is_agent_project,
                 "frameworks": [
@@ -623,10 +623,12 @@ def register(app: typer.Typer) -> None:
                 # The actual value the manifest will carry (None when the
                 # template falls back to CHANGE_ME).
                 "agent_name": chosen_agent_name,
-                # Full candidate list with sources, so agents can pick a
-                # different one if they want to override.
+                # Ranked candidate list carrying the evidence behind each
+                # rank, so an agent can both override the choice and check
+                # why it was made. Without the rationale a reordering
+                # regression looks identical to correct behaviour.
                 "agent_name_candidates": [
-                    {"value": c.value, "source": c.source}
+                    c.model_dump(mode="json")
                     for c in detect_result.agent_name_candidates
                 ],
                 # Which directory this manifest is entitled to describe. On

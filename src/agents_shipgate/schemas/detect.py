@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class FrameworkDetection(BaseModel):
@@ -20,6 +21,74 @@ class NameCandidate(BaseModel):
 
     value: str
     source: str  # "Agent_name_literal" | "ADK_name_field" | "pyproject" | "workspace_dir"
+
+
+# The structural position a name literal occupies in the source. Ranking
+# reads this, not source order: an application root outranks a worker even
+# when the worker is encountered first.
+AgentNameRole = Literal[
+    "root_agent",  # bound as App(root_agent=…) or the ADK `root_agent` module symbol
+    "sub_agent",  # named inside another agent's sub_agents=[…] / handoffs=[…]
+    "agent",  # an agent construction with no hierarchy evidence either way
+    "workspace_dir",  # the fallback directory-name candidate (never selectable)
+]
+
+
+class AgentNameCandidate(NameCandidate):
+    """A ranked ``agent.name`` candidate with the evidence behind its rank.
+
+    ``NameCandidate`` (value + source) stays the shape for project names,
+    which have no hierarchy. Agent names do: the same file can construct a
+    coordinator and three workers, and picking the first one encountered
+    declares a worker as the reviewed identity. The extra fields exist so
+    the ranking is auditable from ``detect --json`` — without them a
+    reordering regression is indistinguishable from correct behaviour.
+
+    Orthogonal to :class:`AgentProjectCandidate`: that one answers *which
+    directory* a manifest describes, this one answers *which agent* it
+    names once the directory is settled.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: AgentNameRole = "agent"
+    # Workspace-relative file the evidence came from. ``None`` for the
+    # workspace-dir fallback, which has no source file.
+    path: str | None = None
+    rank_score: float = 0.0
+    # Whether ``init`` may write this value as ``agent.name``. False for the
+    # workspace-dir fallback and for values that fail the quality floor; when
+    # nothing is selectable the manifest keeps its CHANGE_ME placeholder.
+    selectable: bool = False
+    # Human-readable reasons, ordered as applied. Rendered into no artifact —
+    # this is the explanation surface for the ranking itself.
+    rationale: list[str] = Field(default_factory=list)
+
+
+# Fields that only a ranked candidate carries. An entry holding none of
+# them predates the ranking and is upgraded rather than read as "ranked
+# last, not selectable".
+_RANKED_FIELDS = frozenset({"role", "path", "rank_score", "selectable", "rationale"})
+# The sources selection accepted before ranking existed. A legacy candidate
+# keeps exactly the meaning it had.
+_LEGACY_SELECTABLE_SOURCES = frozenset({"Agent_name_literal", "ADK_name_field"})
+
+
+def _upgrade_legacy_candidate(data: object) -> AgentNameCandidate:
+    """Validate a legacy entry as a ``NameCandidate``, then enrich it.
+
+    Validating first is the point: building the ranked model directly
+    stringified missing or wrongly typed values and quietly accepted keys
+    that ``extra="forbid"`` exists to reject, so a malformed payload was
+    upgraded into a well-formed lie.
+    """
+    legacy = NameCandidate.model_validate(data)
+    return AgentNameCandidate(
+        value=legacy.value,
+        source=legacy.source,
+        selectable=legacy.source in _LEGACY_SELECTABLE_SOURCES,
+        rationale=["carried over from an unranked NameCandidate"],
+    )
 
 
 class AgentProjectCandidate(BaseModel):
@@ -73,7 +142,10 @@ class DetectResult(BaseModel):
 
     is_agent_project: bool
     frameworks: list[FrameworkDetection] = Field(default_factory=list)
-    agent_name_candidates: list[NameCandidate] = Field(default_factory=list)
+    # Ranked best-first. The first entry with ``selectable`` true is the one
+    # ``init`` writes; see ``signals.select_agent_name``.
+    agent_name_candidates: list[AgentNameCandidate] = Field(default_factory=list)
+
     project_name_candidates: list[NameCandidate] = Field(default_factory=list)
     # Which directory one manifest should describe. "ambiguous" means agents
     # were found in more than one self-contained project, so the workspace as
@@ -95,3 +167,34 @@ class DetectResult(BaseModel):
     codex_plugin_candidates: list[CodexPluginCandidate] = Field(default_factory=list)
     next_action: str = ""
     workspace_signals: WorkspaceSignals = Field(default_factory=WorkspaceSignals)
+
+    @field_validator("agent_name_candidates", mode="before")
+    @classmethod
+    def _accept_legacy_name_candidates(cls, value: object) -> object:
+        """Upgrade plain ``NameCandidate`` entries rather than rejecting them.
+
+        ``NameCandidate`` is a public export and was the declared element
+        type before ranking existed, so callers construct ``DetectResult``
+        with it. Narrowing the annotation turned those calls into a
+        ``ValidationError``, and a legacy dict would have parsed but landed
+        on ``selectable=False`` — silently changing which name ``init``
+        writes. Both are upgraded here with the rule that used to decide
+        selection, so old callers keep the behaviour they had.
+        """
+        # Every sequence form the old `list[NameCandidate]` field accepted
+        # has to keep working, tuples included; normalising only `list`
+        # left a tuple of instances raising and a tuple of legacy dicts
+        # silently landing on `selectable=False`.
+        if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+            return value
+        upgraded: list[object] = []
+        for entry in value:
+            if isinstance(entry, AgentNameCandidate):
+                upgraded.append(entry)
+            elif isinstance(entry, NameCandidate):
+                upgraded.append(_upgrade_legacy_candidate(entry.model_dump()))
+            elif isinstance(entry, dict) and not _RANKED_FIELDS & set(entry):
+                upgraded.append(_upgrade_legacy_candidate(entry))
+            else:
+                upgraded.append(entry)
+        return upgraded

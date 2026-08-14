@@ -5,9 +5,14 @@ Pins the script's structural verdict to ``agents-shipgate detect --json``
 sample fixture in ``samples/``. The contract is **structural parity**,
 not byte parity: same ``is_agent_project``, same set of fired
 frameworks, same ``suggested_sources`` and ``excluded_sources``.
-Evidence/reason strings and absolute scores are intentionally simplified
-— a coding agent uses the script to make a yes/no decision, not to
-re-derive the report.
+Evidence/reason strings and absolute framework scores are intentionally
+simplified — a coding agent uses the script to make a yes/no decision, not
+to re-derive the report.
+
+``agent_name_candidates`` is the one exception, pinned byte for byte. It is
+not a yes/no signal: it names the agent a generated manifest declares as
+the reviewed identity, so a script that ranked differently would send an
+agent to fix a different agent than ``init`` did.
 
 If a new sample is added or the canonical detection rules change, this
 test catches drift between the script and the CLI immediately.
@@ -16,6 +21,7 @@ test catches drift between the script and the CLI immediately.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -243,6 +249,16 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
     assert set(script_signals) == set(cli_signals), (
         f"{sample_dir.name}: workspace_signals keys diverged "
         f"(script={set(script_signals)!r}, cli={set(cli_signals)!r})."
+    )
+
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"], (
+        f"{sample_dir.name}: agent_name_candidates diverged.\n"
+        f"script={script_result['agent_name_candidates']!r}\n"
+        f"cli={cli_result['agent_name_candidates']!r}\n"
+        "The ranking decides which agent the generated manifest declares as "
+        "the reviewed identity, so this one is byte parity, not structural: "
+        "the script's rules must match "
+        "cli/discovery/signals.py:_rank_agent_name_candidates exactly."
     )
 
 
@@ -473,3 +489,370 @@ def test_script_excludes_swagger2_json_like_cli(script_module, tmp_path):
     ] == [(s["type"], s["path"]) for s in cli_result["excluded_sources"]] == [
         ("openapi", "legacy-swagger.json")
     ]
+
+
+def _write_ranking_probe(root: Path) -> None:
+    """Both issue shapes in one workspace: an ADK coordinator bound through
+    ``App(root_agent=…)`` with a name resolved from an adjacent config
+    module, two literal sub-agents, and a one-character test literal."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "config.py").write_text(
+        'import os\n\nAGENT_NAME = os.environ.get("AGENT_NAME", "SmartCloserAgent")\n',
+        encoding="utf-8",
+    )
+    (root / "agent.py").write_text(
+        "from config import AGENT_NAME\n"
+        "from google.adk.agents import LlmAgent\n"
+        "from google.adk.apps import App\n"
+        "from google.adk.tools import FunctionTool\n\n"
+        'salesforce_agent = LlmAgent(name="SalesforceAgent")\n'
+        'sap_agent = LlmAgent(name="SapAgent")\n'
+        # Annotated on purpose: the assignment-target lookup that resolves
+        # `App(root_agent=root_agent)` has to read AnnAssign as well as Assign.
+        "root_agent: LlmAgent = LlmAgent(\n"
+        "    name=AGENT_NAME,\n"
+        "    sub_agents=[salesforce_agent, sap_agent],\n"
+        "    tools=[FunctionTool(func=lambda: None)],\n"
+        ")\n"
+        'app = App(name="smart_closer_app", root_agent=root_agent)\n',
+        encoding="utf-8",
+    )
+    tests_dir = root / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_agent.py").write_text(
+        'from google.adk.agents import LlmAgent\n\nfixture = LlmAgent(name="t")\n',
+        encoding="utf-8",
+    )
+
+
+def test_script_agent_name_ranking_matches_cli(script_module, tmp_path):
+    """Samples all carry a single unambiguous name literal, so they cannot
+    catch a ranking divergence. This workspace can: it has a hierarchy, a
+    cross-module constant, a test-only literal, and a value below the
+    quality floor. The script and the CLI must agree on all of it —
+    disagreeing would have `init` and the zero-install path name different
+    agents as the reviewed identity."""
+    _write_ranking_probe(tmp_path / "smart_closer")
+    script_result = script_module.detect(tmp_path / "smart_closer")
+    cli_result = detect_workspace((tmp_path / "smart_closer").resolve()).model_dump(
+        mode="json"
+    )
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    assert cli_result["agent_name_candidates"][0]["value"] == "SmartCloserAgent"
+    assert cli_result["agent_name_candidates"][0]["role"] == "root_agent"
+    assert [
+        c["value"] for c in cli_result["agent_name_candidates"] if not c["selectable"]
+    ] == ["t", "smart_closer"]
+
+
+def _git_init(root: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+    for key, value in (("user.email", "t@example.test"), ("user.name", "T")):
+        subprocess.run(
+            ["git", "-C", str(root), "config", key, value],
+            check=True,
+            capture_output=True,
+        )
+
+
+def test_script_ignores_gitignored_files_like_the_cli(script_module, tmp_path):
+    """Canonical detection lists the workspace through Git, so a
+    `.gitignore`d module is invisible to `init`. A script that walked it
+    anyway would rank a name `init` can never write — the parity claim has
+    to cover the inventory, not just the ranking rules."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / ".gitignore").write_text("ignored_agent.py\n", encoding="utf-8")
+    (repo / "real.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n',
+        encoding="utf-8",
+    )
+    # Sorts before real.py, so source order alone would have preferred it.
+    (repo / "ignored_agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="AAAIgnoredAgent")\n',
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "init"], check=True, capture_output=True
+    )
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    assert "AAAIgnoredAgent" not in {
+        c["value"] for c in script_result["agent_name_candidates"]
+    }
+
+
+def test_script_drops_python_symlinks_that_escape_the_workspace(script_module, tmp_path):
+    """A symlink pointing outside is not part of the workspace no matter
+    what its name says. Ranking a name out of one also leaks the outside
+    absolute path into `path`."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "escaped.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="AAAEscapedAgent")\n',
+        encoding="utf-8",
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "real.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n',
+        encoding="utf-8",
+    )
+    (repo / "escaped.py").symlink_to(outside / "escaped.py")
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    values = {c["value"] for c in script_result["agent_name_candidates"]}
+    assert "AAAEscapedAgent" not in values
+    assert all(
+        c["path"] is None or not c["path"].startswith("/")
+        for c in script_result["agent_name_candidates"]
+    )
+
+
+def test_script_reaches_python_sources_behind_many_assets(script_module, tmp_path):
+    """The bound belongs on Python *parses*, not on the file inventory. A
+    global file cap lets an asset-heavy repository exhaust its budget before
+    the walk reaches any source at all, and the script then reports a
+    different agent than `init` — or none."""
+    repo = tmp_path / "assets"
+    blobs = repo / "assets"
+    # Deeper than the assets, so `os.walk` is guaranteed to enumerate all
+    # 5200 blobs before it can reach the source — the old global cap
+    # returned mid-directory and never descended.
+    deep = blobs / "deep"
+    deep.mkdir(parents=True)
+    for index in range(5200):
+        (blobs / f"{index:05d}.bin").write_bytes(b"x")
+    (deep / "agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="BuriedAgent")\n',
+        encoding="utf-8",
+    )
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    assert "BuriedAgent" in {c["value"] for c in script_result["agent_name_candidates"]}
+
+
+def test_script_git_inventory_is_read_incrementally(script_module, monkeypatch):
+    """`capture_output=True` would materialise the whole inventory before
+    any size check could reject it, making the cap decorative. The reader
+    must stop at the bound, so a stream far larger than the cap can be
+    rejected without ever being held in full."""
+    captured: dict[str, int] = {}
+    real_popen = script_module.subprocess.Popen
+
+    class _Endless:
+        """Emits far more than the cap; records how much was actually read."""
+
+        def __init__(self) -> None:
+            self.read_bytes = 0
+
+        def read(self, size: int) -> bytes:
+            self.read_bytes += size
+            captured["read"] = self.read_bytes
+            return b"x" * size
+
+    class _Process:
+        def __init__(self) -> None:
+            self.stdout = _Endless()
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def kill(self) -> None:
+            captured["killed"] = 1
+
+    monkeypatch.setattr(script_module.subprocess, "Popen", lambda *a, **k: _Process())
+    try:
+        out = script_module._git_inventory_bounded(
+            Path("."), [], env={}, max_output_bytes=1024
+        )
+    finally:
+        monkeypatch.setattr(script_module.subprocess, "Popen", real_popen)
+
+    assert out is None, "an overrunning inventory must be rejected, not returned"
+    assert captured.get("killed") == 1, "the child must be killed on overrun"
+    # Bounded means bounded: a few chunks past the cap, not the whole stream.
+    assert captured["read"] <= 1024 + 4 * 64 * 1024
+
+
+def test_script_fails_instead_of_walking_when_git_inventory_overruns(
+    script_module, tmp_path, monkeypatch
+):
+    """Canonical discovery raises `DiscoveryError` rather than falling back
+    to an unbounded walk. Falling back would do exactly the work the bound
+    exists to refuse, and would answer from a different inventory than
+    `init` used."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / "agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        script_module, "_git_inventory_bounded", lambda *a, **k: None
+    )
+    with pytest.raises(script_module.DiscoveryError):
+        script_module.detect(repo)
+
+
+def test_script_cli_reports_inventory_failure_as_nonzero_exit(
+    script_module, tmp_path, monkeypatch, capsys
+):
+    """The failure has to reach the caller. A coding agent piping this
+    script needs a non-zero exit, not a verdict built from a fallback."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / "agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        script_module, "_git_inventory_bounded", lambda *a, **k: None
+    )
+    exit_code = script_module.main(["--workspace", str(repo), "--json"])
+    assert exit_code == 1
+    assert "static output bounds" in capsys.readouterr().err
+
+
+def test_script_keeps_the_logical_path_of_contained_symlinks(script_module, tmp_path):
+    """Resolution proves containment; it must not rename the entry. With
+    `agent.py -> source.txt` both entries collapse onto `source.txt`, the
+    `.py` suffix disappears, and the script reports zero Python files and
+    `is_agent_project: false` where the CLI reports an agent project — the
+    go/no-go verdict itself, not just the ranking."""
+    repo = tmp_path / "aliased"
+    repo.mkdir()
+    (repo / "source.txt").write_text(
+        "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n\n"
+        'root_agent = Agent(name="AliasRoot")\n'
+        'app = App(name="a", root_agent=root_agent)\n',
+        encoding="utf-8",
+    )
+    (repo / "agent.py").symlink_to("source.txt")
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+    assert script_result["is_agent_project"] == cli_result["is_agent_project"] is True
+    assert script_result["agent_name_candidates"] == cli_result["agent_name_candidates"]
+    assert "AliasRoot" in {c["value"] for c in script_result["agent_name_candidates"]}
+
+
+def test_script_fallback_walk_refuses_an_unbounded_inventory(
+    script_module, tmp_path, monkeypatch
+):
+    """Without Git there is nothing bounding the walk, so a downloaded tree
+    of millions of unrelated assets would consume unbounded time and memory
+    before detection saw one Python file. The ceiling refuses rather than
+    truncating: a partial inventory is a partial scope verdict."""
+    repo = tmp_path / "huge"
+    (repo / "assets").mkdir(parents=True)
+    for index in range(40):
+        (repo / "assets" / f"{index:03d}.bin").write_bytes(b"x")
+    (repo / "agent.py").write_text(
+        'from agents import Agent\n\nagent = Agent(name="RealAgent")\n', encoding="utf-8"
+    )
+
+    monkeypatch.setattr(script_module, "MAX_WALK_FILES", 5)
+    monkeypatch.setattr(script_module, "_git_files", lambda _w: None)
+    with pytest.raises(script_module.DiscoveryError):
+        script_module.detect(repo)
+
+
+def test_script_binding_rules_match_the_cli(script_module, tmp_path):
+    """The binding model decides which agent a manifest names, so the two
+    implementations have to read Python the same way — a shadowed
+    constructor, a late global rebinding, a conditional inline root, a
+    retired root, and a wildcard import all have to land identically."""
+    cases = {
+        "shadowed": "from google.adk.agents import LlmAgent as RealAgent\n"
+        "from google.adk.apps import App as RealApp\n\n"
+        "def Agent(name):\n    return object()\n\n"
+        'fake = Agent(name="FabricatedRoot")\n'
+        'app = RealApp(name="a", root_agent=RealAgent(name="ActualRoot"))\n',
+        "late_global": "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n\n"
+        'root = Agent(name="StaleGlobalRoot")\n'
+        "def make_app():\n    return App(name='a', root_agent=root)\n"
+        'root = Agent(name="ActualGlobalRoot")\n'
+        "app = make_app()\n",
+        "inline_branch": "import os\nfrom google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n\n"
+        "if os.getenv('TIER'):\n"
+        "    app = App(name='a', root_agent=Agent(name='BranchOne'))\n"
+        "else:\n"
+        "    app = App(name='a', root_agent=Agent(name='BranchTwo'))\n",
+        "retired": "from google.adk.agents import Agent\n"
+        'root_agent = Agent(name="StaleRoot")\ndel root_agent\n',
+        "star": "from google.adk.agents import Agent\nfrom replacement import *\n"
+        'root_agent = Agent(name="StaleRoot")\n',
+        "global_decl": "from google.adk.agents import Agent\n"
+        'root_agent = Agent(name="OldRoot")\n'
+        "def install():\n    global root_agent\n"
+        "    root_agent = Agent(name='NewRoot')\ninstall()\n",
+        # Round-4 cases: provenance is a question about a location.
+        "late_import": "def Agent(*, name):\n    return object()\n"
+        'root_agent = Agent(name="FabricatedRoot")\n'
+        "from google.adk.agents import Agent\n",
+        "cond_import": "import os\n"
+        'if os.getenv("USE"):\n    from google.adk.agents import Agent as A\n'
+        'root_agent = A(name="MaybeRoot")\n',
+        "dotted_fake": "from google.adk.agents import Agent as _Real\n"
+        "class fake:\n    class Agent:\n"
+        "        def __init__(self, name):\n            pass\n"
+        'root_agent = fake.Agent(name="FabricatedRoot")\n',
+        "dotted_real": "import google.adk.agents as adk\n"
+        'root_agent = adk.LlmAgent(name="DottedRoot")\n',
+        "attr_ctor": "import google.adk.agents as adk\n"
+        "def fake(**kw):\n    return object()\n"
+        "adk.Agent = fake\n"
+        'root_agent = adk.Agent(name="FabricatedRoot")\n',
+        "attr_env": "import os\nfrom google.adk.agents import Agent\n"
+        "def fake(a, b):\n    return 'Runtime'\n"
+        "os.getenv = fake\n"
+        'NAME = os.getenv("NAME", "FabricatedRoot")\n'
+        "root_agent = Agent(name=NAME)\n",
+        "comprehension": "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n"
+        'worker = Agent(name="WorkerAgent")\n'
+        "_ = [App for App in ()]\n"
+        'app = App(name="a", root_agent=Agent(name="ActualRoot"))\n',
+        "default_header": "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n"
+        'worker = Agent(name="WorkerAgent")\n'
+        "def configure(App=App(name='a', root_agent=Agent(name='ActualRoot'))):\n"
+        "    return App\napp = configure()\n",
+        "branch_def": "import os\nfrom google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n"
+        "USE = os.getenv('USE')\n"
+        "if USE:\n    def build():\n"
+        "        return App(name='a', root_agent=Agent(name='BranchOne'))\n"
+        "else:\n    def build():\n"
+        "        return App(name='a', root_agent=Agent(name='BranchTwo'))\n"
+        "app = build()\n",
+        "star_ctor": "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\nfrom replacement import *\n"
+        'app = App(name="a", root_agent=Agent(name="FabricatedRoot"))\n',
+    }
+    for label, body in cases.items():
+        project = tmp_path / label
+        project.mkdir()
+        (project / "agent.py").write_text(body, encoding="utf-8")
+        script_result = script_module.detect(project)
+        cli_result = detect_workspace(project.resolve()).model_dump(mode="json")
+        assert (
+            script_result["agent_name_candidates"]
+            == cli_result["agent_name_candidates"]
+        ), f"{label}: binding resolution diverged from the CLI"

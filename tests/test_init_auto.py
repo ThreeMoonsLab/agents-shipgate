@@ -690,3 +690,94 @@ def test_source_ids_number_tied_paths_when_every_digest_width_collides(
     # "a-b" < "a.b" < "a_b" by path, so that is the numbering order.
     assert [resolved[0][-2:], resolved[2][-2:], resolved[1][-2:]] == ["_0", "_1", "_2"]
     assert assign_source_ids(list(reversed(entries))) == list(reversed(resolved))
+
+
+def test_init_writes_the_adk_root_agent_not_the_first_sub_agent(tmp_path: Path) -> None:
+    """End-to-end for #324. The failure this guards is not a crash: the
+    manifest was schema-valid and named a real agent in the repository, just
+    the wrong one. A reviewer skimming ``agent.name`` had no signal that the
+    declared identity was a worker rather than the coordinator — which is
+    why the JSON now carries the rank and the reason behind it.
+    """
+    workspace = tmp_path / "smart_closer"
+    workspace.mkdir()
+    (workspace / "config.py").write_text(
+        'import os\n\nAGENT_NAME = os.environ.get("AGENT_NAME", "SmartCloserAgent")\n',
+        encoding="utf-8",
+    )
+    (workspace / "agent.py").write_text(
+        "from config import AGENT_NAME\n"
+        "from google.adk.agents import LlmAgent\n"
+        "from google.adk.apps import App\n"
+        "from google.adk.tools import FunctionTool\n\n"
+        'salesforce_agent = LlmAgent(name="SalesforceAgent")\n'
+        'sap_agent = LlmAgent(name="SapAgent")\n'
+        "root_agent = LlmAgent(\n"
+        "    name=AGENT_NAME,\n"
+        "    sub_agents=[salesforce_agent, sap_agent],\n"
+        "    tools=[FunctionTool(func=lambda: None)],\n"
+        ")\n"
+        'app = App(name="smart_closer_app", root_agent=root_agent)\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+
+    payload = json.loads(result.output)
+    auto = payload["auto_detected"]
+    assert auto["agent_name"] == "SmartCloserAgent"
+
+    yaml_text = (workspace / "shipgate.yaml").read_text(encoding="utf-8")
+    assert "name: SmartCloserAgent" in yaml_text
+    assert "SalesforceAgent" not in yaml_text
+    _validates(yaml_text)
+
+    candidates = auto["agent_name_candidates"]
+    assert candidates[0]["value"] == "SmartCloserAgent"
+    assert candidates[0]["role"] == "root_agent"
+    assert candidates[0]["rank_score"] > candidates[1]["rank_score"]
+    # The ranking has to be explicable from the output alone, or the next
+    # ordering regression is indistinguishable from correct behaviour.
+    assert candidates[0]["rationale"]
+    assert {c["role"] for c in candidates if c["value"].endswith("Agent")} == {
+        "root_agent",
+        "sub_agent",
+    }
+
+
+def test_init_leaves_change_me_when_every_candidate_fails_the_floor(
+    tmp_path: Path,
+) -> None:
+    """#320's fail-closed path. A context-poor literal must not be asserted
+    as the agent identity; the manifest keeps its placeholder, the JSON
+    reports no name, and the placeholder list carries ``agent.name`` so the
+    caller is told what to fix."""
+    workspace = tmp_path / "scaffold"
+    workspace.mkdir()
+    (workspace / "main.py").write_text(
+        "from agents import Agent, function_tool\n\n"
+        "@function_tool\ndef ping() -> str:\n    return 'pong'\n\n"
+        'agent = Agent(name="t", tools=[ping])\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app, ["init", "--workspace", str(workspace), "--write", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+
+    payload = json.loads(result.output)
+    assert payload["auto_detected"]["agent_name"] is None
+    assert "name: CHANGE_ME" in (workspace / "shipgate.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "agent.name" in {entry["path"] for entry in payload["placeholders"]}
+
+    rejected = next(
+        c for c in payload["auto_detected"]["agent_name_candidates"] if c["value"] == "t"
+    )
+    assert rejected["selectable"] is False
+    assert any("context-poor" in reason for reason in rejected["rationale"])
