@@ -18,7 +18,7 @@ import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import diagnose_detect
-from agents_shipgate.cli.discovery import detect_workspace
+from agents_shipgate.cli.discovery import detect_workspace, select_agent_name
 from agents_shipgate.cli.setup_control import (
     SETUP_INCOMPLETE,
     setup_control_envelope,
@@ -144,8 +144,22 @@ def detect(
         typer.echo("")
     _echo_agent_scope(result)
     if result.agent_name_candidates:
-        primary = result.agent_name_candidates[0]
-        typer.echo(f"Agent name candidate: {primary.value} (source: {primary.source})")
+        # The same call `init` makes, not "candidate zero" — printing the
+        # top-ranked entry regardless of selectability would tell a human
+        # that `t` is the agent name while `init` writes CHANGE_ME.
+        selected = select_agent_name(result.agent_name_candidates)
+        if selected is not None:
+            typer.echo(
+                f"Agent name candidate: {selected.value} (source: {selected.source})"
+            )
+        else:
+            top = result.agent_name_candidates[0]
+            typer.echo(
+                "Agent name candidate: none usable — init will write CHANGE_ME "
+                f"(highest ranked was {top.value!r})"
+            )
+            for reason in top.rationale:
+                typer.echo(f"    · {reason}")
     if result.project_name_candidates:
         primary = result.project_name_candidates[0]
         typer.echo(f"Project name candidate: {primary.value} (source: {primary.source})")

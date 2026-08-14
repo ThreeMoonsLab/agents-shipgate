@@ -891,11 +891,63 @@ Consume the response to decide whether to proceed. Key fields:
   scored ≥ 2.0 with a strong signal.
 - `frameworks[]` — per-framework scores + evidence + candidate file
   paths.
-- `agent_name_candidates[]` — ranked `{value, source}`. Source values:
-  `Agent_name_literal` (highest), `ADK_name_field`, `workspace_dir`
-  (lowest).
-- `project_name_candidates[]` — same shape; `pyproject` source seeds
-  `project.name` only.
+- `agent_name_candidates[]` — ranked best-first, each
+  `{value, source, role, path, rank_score, selectable, rationale[]}`.
+  **Take the first entry whose `selectable` is `true`** — that is the value
+  `init` writes as `agent.name`. When none is selectable the manifest keeps
+  its `CHANGE_ME` placeholder rather than asserting an identity nothing
+  reliably declares. Ordering is decided by, in effect:
+  - `role` — `root_agent` (bound as `App(root_agent=…)`, or assigned to the
+    conventional `root_agent` symbol) outranks `agent`, which outranks
+    `sub_agent` (named inside another agent's `sub_agents=[…]` /
+    `handoffs=[…]`). `workspace_dir` is the directory-name fallback and is
+    never selectable.
+  - `path` — a name declared in product code outranks one declared in test
+    code, which names fixtures. This dominates: a test fixture that builds
+    an `App(root_agent=…)` still ranks below a plain agent the shipped code
+    declares.
+  - corroboration — a value the project name independently agrees with
+    ranks above one only a single site declares.
+  - a quality floor — values under three significant characters, and
+    generic scaffolding names (`agent`, `foo`, `test`, …), are ranked last
+    and marked `selectable: false`.
+
+  One rule overrides all four: if the workspace declares an application root
+  whose name cannot be resolved statically — a dynamic expression, a factory
+  call, a symbol bound more than once — then **nothing** is selectable, and
+  the `rationale[]` says why. Anything still ranked is by construction not
+  the root, so writing it would declare a worker as the reviewed identity.
+
+  `rationale[]` states which of those applied, so a ranking change is
+  visible in the output rather than silently changing what the manifest
+  claims. `name=` values that come from a module constant or an
+  `os.environ.get("…", "…")` default in the same package are resolved
+  statically (one hop, no code executed) and say so in `rationale[]`.
+
+  All of this reads Python's binding rules or declines — a spelling is never
+  taken as provenance. `Agent`/`LlmAgent`/`App` are resolved through the
+  binding that reaches *the call site*: a framework constructor imported
+  under an alias is recognised, and one shadowed by a local `def`/`class`,
+  bound only after the call, bound conditionally, or replaced through an
+  attribute (`adk.Agent = fake`) is not. Dotted spellings are held to the
+  same standard — the head must prove a framework module.
+  Left unresolved rather than guessed: a symbol bound more than once
+  anywhere in the file; one assigned under an `if`/`try`/loop; one rebound
+  in an enclosing scope (a function body executes when it is called, not
+  where it is written);
+  one whose import could resolve to two different in-workspace modules; an
+  `os.getenv` spelling that is not a provably unshadowed stdlib import; and
+  anything at all in a file carrying `from x import *` — until a later
+  explicit binding re-establishes what a spelling means. Bindings that carry
+  no assignment count too: `del`, `class`, `except … as`, `case`, and a
+  `global`/`nonlocal` store routed to another scope all retire the agent a
+  name used to hold. Scopes follow Python's own — comprehensions have their
+  own, definition headers (defaults, decorators, annotations, class bases)
+  are evaluated in the enclosing one, and a root declared inside a
+  conditionally defined function is contingent on that branch.
+- `project_name_candidates[]` — `{value, source}` only. Project names have
+  no hierarchy to rank, so they carry none of the fields above. The
+  `pyproject` source seeds `project.name`, never `agent.name`.
 - `suggested_sources[]` — MCP/OpenAPI files matched by glob AND accepted
   by the real input adapters, so `init` never writes a `tool_sources`
   entry that `scan` rejects at parse time. These do NOT bump

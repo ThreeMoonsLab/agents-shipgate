@@ -860,8 +860,13 @@ def test_an_unrelated_agent_class_does_not_define_a_project(tmp_path: Path) -> N
 
     assert result.agent_scope == "single"
     assert [candidate.path for candidate in result.agent_project_candidates] == ["adk"]
-    # Still offered as a low-confidence name suggestion.
-    assert "crm_rep" in [candidate.value for candidate in result.agent_name_candidates]
+    # Nor is it a name suggestion any more. `Agent` here is bound to a local
+    # `class` in the same file, so it is not a framework constructor and
+    # `crm_rep` is not an agent name — offering it under
+    # `source: Agent_name_literal` claimed a provenance it never had, and
+    # `init` could write it as the reviewed identity (#371 review round 3).
+    assert "crm_rep" not in [c.value for c in result.agent_name_candidates]
+    assert "real_agent" in [c.value for c in result.agent_name_candidates]
 
 
 def test_a_nested_manifest_opts_the_change_in(tmp_path: Path) -> None:

@@ -2,6 +2,155 @@
 
 ## Unreleased
 
+- **`init` ranks agent-name candidates instead of taking the first one it
+  trips over.** Candidates were emitted in file-then-AST order with no
+  scoring, and all three consumers — the manifest renderer, the `init` JSON
+  summary, and the zero-install detector — took the first entry with an
+  accepted `source`. "First encountered" was the entire selection policy, and
+  it produced two different wrong identities. In
+  [usestrix/strix](https://github.com/usestrix/strix) it chose the
+  one-character test literal `t` over `Strix`
+  ([#320](https://github.com/ThreeMoonsLab/agents-shipgate/issues/320)); in
+  [google/adk-samples#1745](https://github.com/google/adk-samples/pull/1745)
+  it chose `SalesforceAgent` — a real worker agent — over the
+  `App(root_agent=…)` coordinator that declares it
+  ([#324](https://github.com/ThreeMoonsLab/agents-shipgate/issues/324)). The
+  second is the one that survives review: the manifest was schema-valid and
+  named a genuine agent, just not the reviewed one. Selection is now one
+  ranking pass over four signals — structural role (an application root
+  outranks an unqualified agent, which outranks a declared `sub_agents=[…]` /
+  `handoffs=[…]` child), origin (product code outranks test code, which names
+  fixtures), corroboration by the project name, and a quality floor that
+  rejects values under three significant characters and generic scaffolding
+  names. A rejected value is never written: `agent.name` keeps its
+  `CHANGE_ME` placeholder and the existing `placeholders[]` review action,
+  rather than asserting an identity nothing reliably declares. `name=` given
+  as a symbol now resolves statically through **one** hop — a module constant
+  or an `os.environ.get("…", "…")` default in the same package, never a
+  chain, never a file outside the workspace, and never by importing user
+  code. Each `agent_name_candidates[]` entry carries `role`, `path`,
+  `rank_score`, `selectable`, and a `rationale[]` explaining its rank, so a
+  future ordering regression is visible in `detect --json` instead of
+  silently changing what the manifest claims. The rule itself now exists once
+  (`select_agent_name`) rather than as a `source in {…}` set literal copied
+  into the renderer, the JSON summary, and `detect`'s human-readable line,
+  and `tools/shipgate-detect.py` (`script_version` `0.3.0`) is pinned to the
+  CLI's ranking byte for byte by the parity suite.
+
+  Because the ranking reads Python name binding, it reads it the way Python
+  does or else declines. Every binding is modelled, not just the ones that
+  construct agents — a `root_agent` later rebound to `build_root()` retires
+  the earlier construction instead of leaving it holding the role. Scopes
+  are not flattened: a helper's local `root_agent`, and a helper's local
+  import, belong to that helper, and a free name in a nested function
+  resolves against the enclosing function before the module rather than
+  skipping the captured binding. A reference resolves to the binding that
+  actually reaches it — nearest scope, latest line before the reference —
+  and when any candidate sits under an `if`/`try`/loop the lookup fails
+  closed, because both arms can execute and taking the lexically later one
+  is a guess dressed as an answer. A symbol bound more than once anywhere in
+  a file is never resolved, which is what makes reading module-level
+  constants safe at all: a second write, whether later, conditional,
+  computed, or in another scope, means the value Python passes is not the
+  one visible statically. `from config import AGENT_NAME as NAME` looks up
+  `AGENT_NAME` in the target module, not the alias. An `os.getenv` /
+  `os.environ.get` default is only read when the call provably resolves to
+  the unshadowed stdlib import, so a module defining its own
+  `getenv(key, fallback)` cannot have its fallback lifted out as the agent
+  identity. And when an import could resolve to two different in-workspace
+  modules — the agent directory's `config.py` and the workspace root's —
+  which one Python picks depends on `sys.path`, so the identity stays
+  unresolved.
+
+  Provenance is resolved, never assumed. `Agent`/`LlmAgent`/`App` are read
+  through the binding that reaches them, so a constructor imported under an
+  alias counts and one shadowed by a local `def`/`class` does not — matching
+  a terminal spelling let a decoy `def Agent(...)` supply a fabricated
+  identity while the real aliased root went unseen. Every binding form is
+  modelled, not just assignments: `del`, `class`, `except … as`, `case`, and
+  a `global`/`nonlocal` store routed to the scope it actually rebinds all
+  retire the agent a name used to hold, and a file carrying
+  `from x import *` can prove nothing about any of its names. Lookups into
+  an enclosing or module scope no longer compare writes against the nested
+  reference's line number: a function body does not execute where it is
+  written, so a module-level rebinding *below* a nested reference still
+  happens before the call, and only a single unconditional binding there is
+  provable. An `App(root_agent=Agent(…))` built inside a branch is
+  unresolved rather than whichever arm came first, and `tests.py` / `test.py`
+  now count as test code like every other conventional test module.
+
+  Provenance is a question about a *location*, not about a file. The binding
+  consulted is the one that reaches the call site, so a framework import at
+  the bottom of a module no longer retroactively validates a decoy call
+  above it, and a conditional import is not proof at all. Dotted spellings
+  are held to the same standard as bare ones — `fake.Agent(...)` cannot
+  borrow the terminal name — and a constructor or stdlib lookup replaced
+  through an attribute (`adk.Agent = fake`, `os.getenv = fake`) retires the
+  provenance its import used to carry, since neither binds a name. A
+  wildcard import suspends every spelling it could reach until a later
+  explicit binding restores it.
+
+  Scopes now follow Python's. Comprehensions have their own, so
+  `[App for App in ()]` no longer shadows a module-level `App`; definition
+  headers — defaults, decorators, annotations, class bases and keywords —
+  are walked in the enclosing scope, because that is where they are
+  evaluated, which stops a parameter from shadowing the constructor its own
+  default just used; and a scope introduced inside a branch carries that
+  contingency into everything it declares, so two `def build()` arms no
+  longer resolve to whichever came first.
+
+  Origin now dominates the score rather than competing with it. The
+  documented contract is that product code outranks test code, but additive
+  scoring let a test fixture that builds an `App(root_agent=…)` outrank a
+  plain agent the shipped code declares. The test penalty is now strictly
+  greater than the whole spread of the hierarchy and corroboration signals,
+  and a test pins that arithmetic so a future signal cannot silently widen
+  the spread past it.
+
+  **A declared application root that cannot be resolved statically now
+  blocks selection entirely.** Dropping it and letting the rest of the field
+  rank looks conservative but is the #324 failure again: everything
+  remaining is by construction *not* the root, so the manifest would declare
+  a worker. A dynamic name, a factory call, a symbol no single construction
+  defines, a symbol that fails cross-module resolution, a conditionally
+  assigned root, and a root rebound to a non-agent value all produce
+  `CHANGE_ME` plus the reason.
+
+  The zero-install detector now takes the same workspace inventory as the
+  CLI — `git ls-files` when Git can read the workspace, a contained
+  filesystem walk otherwise — because that is what makes the parity claim
+  true rather than merely tested on tidy fixtures. A `.gitignore`d module is
+  invisible to `init`, so walking it anyway let the script name an agent
+  `init` would never write; a symlink escaping the workspace both
+  contributed a name and leaked its outside absolute path into the output.
+  Two further detector fixes: a contained symlink keeps its *logical* path,
+  because resolving `agent.py -> source.txt` renamed the entry, dropped the
+  `.py` suffix, and reported zero Python files where the CLI reported an
+  agent project — the go/no-go verdict, not just the ranking. And the
+  non-Git fallback walk now has a documented ceiling that *raises* rather
+  than truncating, so a downloaded tree of unrelated assets cannot consume
+  unbounded time and memory before detection sees a single source file.
+
+  `DetectResult(agent_name_candidates=[NameCandidate(...)])` keeps working,
+  for every sequence form the old field accepted — a tuple of instances used
+  to raise and a tuple of legacy dicts used to land silently on
+  `selectable: false`. Legacy entries are validated as a `NameCandidate`
+  before being enriched, so a payload with missing values, wrong types, or
+  keys `extra="forbid"` rejects is no longer upgraded into a well-formed
+  lie.
+  `NameCandidate` is a public export and was the declared element type
+  before ranking existed; narrowing the annotation turned working calls into
+  a `ValidationError`, and a legacy dict parsed but silently landed on
+  `selectable: false`, changing which name `init` writes. Both are now
+  upgraded at the model boundary using the rule that decided selection
+  before this change, so old callers keep the behaviour they had.
+
+  Its file bound also moved from the whole inventory onto Python parses, so
+  an asset-heavy repository can no longer exhaust the budget before the walk
+  reaches any source. Git's output is read incrementally against that bound
+  rather than buffered whole and measured afterwards, and overrunning it
+  exits non-zero exactly as canonical discovery raises — falling back to a
+  walk would do the work the bound exists to refuse.
 - **First adoption inside a monorepo no longer starts by writing the wrong
   manifest.** `verify --preview` routed setup to the workspace root, so on a
   repository holding many self-contained agent projects the command it handed
