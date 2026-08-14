@@ -802,6 +802,49 @@ def test_script_binding_rules_match_the_cli(script_module, tmp_path):
         'root_agent = Agent(name="OldRoot")\n'
         "def install():\n    global root_agent\n"
         "    root_agent = Agent(name='NewRoot')\ninstall()\n",
+        # Round-4 cases: provenance is a question about a location.
+        "late_import": "def Agent(*, name):\n    return object()\n"
+        'root_agent = Agent(name="FabricatedRoot")\n'
+        "from google.adk.agents import Agent\n",
+        "cond_import": "import os\n"
+        'if os.getenv("USE"):\n    from google.adk.agents import Agent as A\n'
+        'root_agent = A(name="MaybeRoot")\n',
+        "dotted_fake": "from google.adk.agents import Agent as _Real\n"
+        "class fake:\n    class Agent:\n"
+        "        def __init__(self, name):\n            pass\n"
+        'root_agent = fake.Agent(name="FabricatedRoot")\n',
+        "dotted_real": "import google.adk.agents as adk\n"
+        'root_agent = adk.LlmAgent(name="DottedRoot")\n',
+        "attr_ctor": "import google.adk.agents as adk\n"
+        "def fake(**kw):\n    return object()\n"
+        "adk.Agent = fake\n"
+        'root_agent = adk.Agent(name="FabricatedRoot")\n',
+        "attr_env": "import os\nfrom google.adk.agents import Agent\n"
+        "def fake(a, b):\n    return 'Runtime'\n"
+        "os.getenv = fake\n"
+        'NAME = os.getenv("NAME", "FabricatedRoot")\n'
+        "root_agent = Agent(name=NAME)\n",
+        "comprehension": "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n"
+        'worker = Agent(name="WorkerAgent")\n'
+        "_ = [App for App in ()]\n"
+        'app = App(name="a", root_agent=Agent(name="ActualRoot"))\n',
+        "default_header": "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n"
+        'worker = Agent(name="WorkerAgent")\n'
+        "def configure(App=App(name='a', root_agent=Agent(name='ActualRoot'))):\n"
+        "    return App\napp = configure()\n",
+        "branch_def": "import os\nfrom google.adk.agents import Agent\n"
+        "from google.adk.apps import App\n"
+        "USE = os.getenv('USE')\n"
+        "if USE:\n    def build():\n"
+        "        return App(name='a', root_agent=Agent(name='BranchOne'))\n"
+        "else:\n    def build():\n"
+        "        return App(name='a', root_agent=Agent(name='BranchTwo'))\n"
+        "app = build()\n",
+        "star_ctor": "from google.adk.agents import Agent\n"
+        "from google.adk.apps import App\nfrom replacement import *\n"
+        'app = App(name="a", root_agent=Agent(name="FabricatedRoot"))\n',
     }
     for label, body in cases.items():
         project = tmp_path / label

@@ -879,18 +879,25 @@ Consume the response to decide whether to proceed. Key fields:
 
   All of this reads Python's binding rules or declines — a spelling is never
   taken as provenance. `Agent`/`LlmAgent`/`App` are resolved through the
-  binding that reaches them, so a framework constructor imported under an
-  alias is recognised and one shadowed by a local `def`/`class` is not.
+  binding that reaches *the call site*: a framework constructor imported
+  under an alias is recognised, and one shadowed by a local `def`/`class`,
+  bound only after the call, bound conditionally, or replaced through an
+  attribute (`adk.Agent = fake`) is not. Dotted spellings are held to the
+  same standard — the head must prove a framework module.
   Left unresolved rather than guessed: a symbol bound more than once
   anywhere in the file; one assigned under an `if`/`try`/loop; one rebound
   in an enclosing scope (a function body executes when it is called, not
   where it is written);
   one whose import could resolve to two different in-workspace modules; an
   `os.getenv` spelling that is not a provably unshadowed stdlib import; and
-  anything at all in a file carrying `from x import *`. Bindings that carry
-  no assignment count too — `del`, `class`, `except … as`, `case`, and a
+  anything at all in a file carrying `from x import *` — until a later
+  explicit binding re-establishes what a spelling means. Bindings that carry
+  no assignment count too: `del`, `class`, `except … as`, `case`, and a
   `global`/`nonlocal` store routed to another scope all retire the agent a
-  name used to hold.
+  name used to hold. Scopes follow Python's own — comprehensions have their
+  own, definition headers (defaults, decorators, annotations, class bases)
+  are evaluated in the enclosing one, and a root declared inside a
+  conditionally defined function is contingent on that branch.
 - `project_name_candidates[]` — `{value, source}` only. Project names have
   no hierarchy to rank, so they carry none of the fields above. The
   `pyproject` source seeds `project.name`, never `agent.name`.

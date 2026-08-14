@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -73,12 +74,19 @@ _RANKED_FIELDS = frozenset({"role", "path", "rank_score", "selectable", "rationa
 _LEGACY_SELECTABLE_SOURCES = frozenset({"Agent_name_literal", "ADK_name_field"})
 
 
-def _upgrade_legacy_candidate(data: dict[str, object]) -> AgentNameCandidate:
-    source = data.get("source")
+def _upgrade_legacy_candidate(data: object) -> AgentNameCandidate:
+    """Validate a legacy entry as a ``NameCandidate``, then enrich it.
+
+    Validating first is the point: building the ranked model directly
+    stringified missing or wrongly typed values and quietly accepted keys
+    that ``extra="forbid"`` exists to reject, so a malformed payload was
+    upgraded into a well-formed lie.
+    """
+    legacy = NameCandidate.model_validate(data)
     return AgentNameCandidate(
-        value=str(data.get("value", "")),
-        source=str(source),
-        selectable=source in _LEGACY_SELECTABLE_SOURCES,
+        value=legacy.value,
+        source=legacy.source,
+        selectable=legacy.source in _LEGACY_SELECTABLE_SOURCES,
         rationale=["carried over from an unranked NameCandidate"],
     )
 
@@ -173,7 +181,11 @@ class DetectResult(BaseModel):
         writes. Both are upgraded here with the rule that used to decide
         selection, so old callers keep the behaviour they had.
         """
-        if not isinstance(value, list):
+        # Every sequence form the old `list[NameCandidate]` field accepted
+        # has to keep working, tuples included; normalising only `list`
+        # left a tuple of instances raising and a tuple of legacy dicts
+        # silently landing on `selectable=False`.
+        if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
             return value
         upgraded: list[object] = []
         for entry in value:
@@ -186,4 +198,3 @@ class DetectResult(BaseModel):
             else:
                 upgraded.append(entry)
         return upgraded
-

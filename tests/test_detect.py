@@ -1498,3 +1498,276 @@ def test_detect_result_still_accepts_plain_name_candidates() -> None:
         ("GoodAgent", True),
         ("ws", False),
     ]
+
+
+# --- Round-4 review: the binding must reach the call site -------------------
+#
+# Provenance is a question about a *location*, not about a file. Each case
+# below found a binding that exists somewhere and used it as if it applied
+# here.
+
+
+def test_a_later_import_cannot_validate_an_earlier_call(tmp_path: Path) -> None:
+    """A framework import at the bottom of the file does not reach a call
+    above it. Taking the highest-line binding let it retroactively bless a
+    local decoy."""
+    project = _adk(
+        tmp_path / "late_import",
+        """
+        def Agent(*, name):
+            return object()
+
+        root_agent = Agent(name="FabricatedRoot")
+
+        from google.adk.agents import Agent
+        """,
+    )
+    result = detect_workspace(project)
+    assert "FabricatedRoot" not in {c.value for c in result.agent_name_candidates}
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_a_conditional_import_is_not_a_proven_constructor(tmp_path: Path) -> None:
+    """An import inside an `if` may not have run, so the spelling it binds
+    is not proof of anything at the call site."""
+    project = _adk(
+        tmp_path / "cond_import",
+        """
+        import os
+
+        if os.getenv("USE"):
+            from google.adk.agents import Agent as A
+
+        root_agent = A(name="MaybeRoot")
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_dotted_constructors_prove_their_head(tmp_path: Path) -> None:
+    """`fake.Agent(...)` borrowed the terminal name because provenance was
+    only checked for bare spellings. The head has to prove a framework
+    module, whatever the tail says."""
+    project = _adk(
+        tmp_path / "dotted_fake",
+        """
+        from google.adk.agents import Agent as _Real
+
+        class fake:
+            class Agent:
+                def __init__(self, name):
+                    pass
+
+        root_agent = fake.Agent(name="FabricatedRoot")
+        """,
+    )
+    result = detect_workspace(project)
+    assert "FabricatedRoot" not in {c.value for c in result.agent_name_candidates}
+
+    genuine = _adk(
+        tmp_path / "dotted_real",
+        """
+        import google.adk.agents as adk
+        root_agent = adk.LlmAgent(name="DottedRoot")
+        """,
+    )
+    result = detect_workspace(genuine)
+    assert "DottedRoot" in {c.value for c in result.agent_name_candidates}
+
+    unaliased = _adk(
+        tmp_path / "dotted_full",
+        """
+        import google.adk.agents
+        root_agent = google.adk.agents.LlmAgent(name="FullPathRoot")
+        """,
+    )
+    result = detect_workspace(unaliased)
+    assert "FullPathRoot" in {c.value for c in result.agent_name_candidates}
+
+
+def test_attribute_rebinding_retires_constructor_provenance(tmp_path: Path) -> None:
+    """`adk.Agent = fake` replaces the constructor through the module object,
+    which binds no name at all. The import stays, and looked like proof."""
+    project = _adk(
+        tmp_path / "attr_ctor",
+        """
+        import google.adk.agents as adk
+
+        def fake(**kw):
+            return object()
+
+        adk.Agent = fake
+        root_agent = adk.Agent(name="FabricatedRoot")
+        """,
+    )
+    result = detect_workspace(project)
+    assert "FabricatedRoot" not in {c.value for c in result.agent_name_candidates}
+
+
+def test_attribute_rebinding_retires_environment_defaults(tmp_path: Path) -> None:
+    """Same gap, applied to `os.getenv`: the default is only the value the
+    call returns while the call is still the stdlib one."""
+    project = _adk(
+        tmp_path / "attr_env",
+        """
+        import os
+        from google.adk.agents import Agent
+
+        def fake(a, b):
+            return "Runtime"
+
+        os.getenv = fake
+        NAME = os.getenv("NAME", "FabricatedRoot")
+        root_agent = Agent(name=NAME)
+        """,
+    )
+    result = detect_workspace(project)
+    assert "FabricatedRoot" not in {c.value for c in result.agent_name_candidates}
+    assert select_agent_name(result.agent_name_candidates) is None
+
+
+def test_comprehension_targets_do_not_bind_the_enclosing_scope(
+    tmp_path: Path,
+) -> None:
+    """Python 3 comprehensions have their own scope: `[App for App in ()]`
+    leaves the module's `App` alone. Recording the target as a module write
+    shadowed the import and lost the App/root edge entirely."""
+    project = _adk(
+        tmp_path / "comprehension",
+        """
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        worker = Agent(name="WorkerAgent")
+        _ = [App for App in ()]
+        app = App(name="a", root_agent=Agent(name="ActualRoot"))
+        """,
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "ActualRoot"
+    assert selected.role == "root_agent"
+
+
+def test_definition_headers_are_evaluated_in_the_enclosing_scope(
+    tmp_path: Path,
+) -> None:
+    """A default value runs before the parameter it initialises exists, and
+    in the enclosing scope. Walking headers as part of the body let the
+    parameter shadow the constructor its own default had just used."""
+    project = _adk(
+        tmp_path / "default_header",
+        """
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        worker = Agent(name="WorkerAgent")
+
+        def configure(App=App(name="a", root_agent=Agent(name="ActualRoot"))):
+            return App
+
+        app = configure()
+        """,
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "ActualRoot"
+
+
+def test_roots_inside_conditionally_defined_functions_are_unresolved(
+    tmp_path: Path,
+) -> None:
+    """A body is straight-line relative to itself, but if the `def` only runs
+    in one arm the identity it declares is contingent on that arm."""
+    project = _adk(
+        tmp_path / "branch_def",
+        """
+        import os
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        USE = os.getenv("USE")
+        if USE:
+            def build():
+                return App(name="a", root_agent=Agent(name="BranchOne"))
+        else:
+            def build():
+                return App(name="a", root_agent=Agent(name="BranchTwo"))
+
+        app = build()
+        """,
+    )
+    result = detect_workspace(project)
+    assert select_agent_name(result.agent_name_candidates) is None
+    assert not any(c.role == "root_agent" for c in result.agent_name_candidates)
+
+
+def test_wildcard_import_retires_constructor_provenance(tmp_path: Path) -> None:
+    """`from replacement import *` may legally replace both constructors, so
+    an import above it stops being proof at a call below it."""
+    project = _adk(
+        tmp_path / "star_ctor",
+        """
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+        from replacement import *
+
+        app = App(name="a", root_agent=Agent(name="FabricatedRoot"))
+        """,
+    )
+    result = detect_workspace(project)
+    assert "FabricatedRoot" not in {c.value for c in result.agent_name_candidates}
+
+
+def test_a_binding_after_a_wildcard_import_restores_provenance(
+    tmp_path: Path,
+) -> None:
+    """The wildcard rule is source-ordered, not a permanent verdict: an
+    explicit import below it re-establishes what the spelling means."""
+    project = _adk(
+        tmp_path / "star_then_import",
+        """
+        from replacement import *
+        from google.adk.agents import Agent
+        from google.adk.apps import App
+
+        app = App(name="a", root_agent=Agent(name="RestoredRoot"))
+        """,
+    )
+    result = detect_workspace(project)
+    selected = select_agent_name(result.agent_name_candidates)
+    assert selected is not None and selected.value == "RestoredRoot"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param([{"value": "G", "source": "Agent_name_literal", "extra": 1}], id="extra-key"),
+        pytest.param([{"source": "Agent_name_literal"}], id="missing-value"),
+        pytest.param([{"value": 5, "source": "Agent_name_literal"}], id="wrong-type"),
+    ],
+)
+def test_malformed_legacy_candidates_are_rejected(payload: list[dict]) -> None:
+    """The upgrade shim built the ranked model directly, so it stringified
+    missing values and accepted keys `extra="forbid"` exists to reject —
+    turning a malformed payload into a well-formed lie."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        DetectResult(is_agent_project=True, agent_name_candidates=payload)
+
+
+def test_legacy_candidates_accept_every_sequence_form() -> None:
+    """The old `list[NameCandidate]` field accepted tuples. Normalising only
+    `list` left a tuple of instances raising and a tuple of legacy dicts
+    silently landing on `selectable=False`."""
+    from agents_shipgate.schemas.detect import NameCandidate
+
+    for payload in (
+        (NameCandidate(value="GoodAgent", source="Agent_name_literal"),),
+        ({"value": "GoodAgent", "source": "Agent_name_literal"},),
+    ):
+        result = DetectResult(is_agent_project=True, agent_name_candidates=payload)
+        selected = select_agent_name(result.agent_name_candidates)
+        assert selected is not None and selected.value == "GoodAgent"

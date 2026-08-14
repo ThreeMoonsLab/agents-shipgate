@@ -79,6 +79,26 @@
   unresolved rather than whichever arm came first, and `tests.py` / `test.py`
   now count as test code like every other conventional test module.
 
+  Provenance is a question about a *location*, not about a file. The binding
+  consulted is the one that reaches the call site, so a framework import at
+  the bottom of a module no longer retroactively validates a decoy call
+  above it, and a conditional import is not proof at all. Dotted spellings
+  are held to the same standard as bare ones — `fake.Agent(...)` cannot
+  borrow the terminal name — and a constructor or stdlib lookup replaced
+  through an attribute (`adk.Agent = fake`, `os.getenv = fake`) retires the
+  provenance its import used to carry, since neither binds a name. A
+  wildcard import suspends every spelling it could reach until a later
+  explicit binding restores it.
+
+  Scopes now follow Python's. Comprehensions have their own, so
+  `[App for App in ()]` no longer shadows a module-level `App`; definition
+  headers — defaults, decorators, annotations, class bases and keywords —
+  are walked in the enclosing scope, because that is where they are
+  evaluated, which stops a parameter from shadowing the constructor its own
+  default just used; and a scope introduced inside a branch carries that
+  contingency into everything it declares, so two `def build()` arms no
+  longer resolve to whichever came first.
+
   Origin now dominates the score rather than competing with it. The
   documented contract is that product code outranks test code, but additive
   scoring let a test fixture that builds an `App(root_agent=…)` outrank a
@@ -111,7 +131,13 @@
   than truncating, so a downloaded tree of unrelated assets cannot consume
   unbounded time and memory before detection sees a single source file.
 
-  `DetectResult(agent_name_candidates=[NameCandidate(...)])` keeps working.
+  `DetectResult(agent_name_candidates=[NameCandidate(...)])` keeps working,
+  for every sequence form the old field accepted — a tuple of instances used
+  to raise and a tuple of legacy dicts used to land silently on
+  `selectable: false`. Legacy entries are validated as a `NameCandidate`
+  before being enriched, so a payload with missing values, wrong types, or
+  keys `extra="forbid"` rejects is no longer upgraded into a well-formed
+  lie.
   `NameCandidate` is a public export and was the declared element type
   before ranking existed; narrowing the annotation turned working calls into
   a `ValidationError`, and a legacy dict parsed but silently landed on

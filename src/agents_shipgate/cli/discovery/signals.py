@@ -482,8 +482,14 @@ class _PyFacts:
     global_declarations: dict[int, set[str]] = field(default_factory=dict)
     nonlocal_declarations: dict[int, set[str]] = field(default_factory=dict)
     # ``from x import *`` binds an unknowable set of names, so nothing in
-    # this file can be shown to be un-rebound afterwards.
+    # this file can be shown to be un-rebound afterwards. Line numbers are
+    # kept because a binding established *after* one restores provenance.
     star_import: bool = False
+    star_imports: list[int] = field(default_factory=list)
+    # Dotted paths mutated through attribute assignment or deletion
+    # (``adk.Agent = fake``, ``del os.getenv``). No name binding records
+    # these, and they can replace a constructor or a stdlib lookup.
+    attribute_writes: set[str] = field(default_factory=set)
     # Lexical scope structure, shared with the hierarchy resolver.
     scope_parents: dict[int, int] = field(default_factory=dict)
     class_scopes: set[int] = field(default_factory=set)
@@ -515,6 +521,10 @@ class _PyFacts:
 
 _MODULE_SCOPE = 0
 _SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+# Comprehensions have their own scope in Python 3: `[App for App in ()]`
+# does not rebind a module-level `App`. Treating the target as a module
+# write shadowed the real import and lost the application root.
+_COMPREHENSION_NODES = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 # Constructs whose bodies may or may not run. An assignment under one of
 # these is not provably the binding a later reference sees, so the reference
 # fails closed instead of guessing a branch.
@@ -533,9 +543,21 @@ _BRANCH_NODES = tuple(
 )
 
 
-def _walk_scoped(
-    tree: ast.AST,
-) -> tuple[list[tuple[ast.AST, int, bool]], dict[int, int], set[int]]:
+@dataclass
+class _ScopeMap:
+    """Where each node sits, and what that says about certainty."""
+
+    nodes: list[tuple[ast.AST, int, bool]] = field(default_factory=list)
+    parents: dict[int, int] = field(default_factory=dict)
+    class_scopes: set[int] = field(default_factory=set)
+    # Whether the *definition* that introduces a scope is itself conditional.
+    # A function body is straight-line relative to itself, but if the `def`
+    # only runs in one arm of a branch, everything the body claims is
+    # contingent on that arm — including which agent is the application root.
+    declaration_conditional: dict[int, bool] = field(default_factory=dict)
+
+
+def _walk_scoped(tree: ast.AST) -> _ScopeMap:
     """Nodes paired with their lexical scope and whether they run conditionally.
 
     ``ast.walk`` flattens both, which is wrong for anything that models name
@@ -543,31 +565,105 @@ def _walk_scoped(
     local import is not the one a module-level construction reads, and an
     assignment inside an ``if`` is not the binding a later line is guaranteed
     to see. Scopes are identified by the ``id()`` of the node that introduces
-    them; the module is :data:`_MODULE_SCOPE`. Returns the nodes, the
-    scope→enclosing-scope map a closure lookup walks, and which of those
-    scopes are class bodies (which that lookup must skip).
+    them; the module is :data:`_MODULE_SCOPE`.
+
+    Definition *headers* — decorators, default values, annotations, class
+    bases and keywords — are walked in the **enclosing** scope, because that
+    is where Python evaluates them. Treating them as part of the body let a
+    parameter shadow a constructor the default expression had already used.
+    Comprehensions get their own scope for the same reason a function does,
+    with the outermost iterable evaluated outside it.
     """
-    out: list[tuple[ast.AST, int, bool]] = []
-    parents: dict[int, int] = {}
-    class_scopes: set[int] = set()
-    stack: list[tuple[ast.AST, int, bool]] = [(tree, _MODULE_SCOPE, False)]
-    while stack:
-        node, scope, conditional = stack.pop()
-        out.append((node, scope, conditional))
-        if isinstance(node, _SCOPE_NODES):
-            inner: int = id(node)
-            parents[inner] = scope
-            if isinstance(node, ast.ClassDef):
-                class_scopes.add(inner)
-            # A nested definition's own body is straight-line relative to
-            # itself, whatever branch the definition sits in.
-            inner_conditional = False
-        else:
-            inner = scope
-            inner_conditional = conditional or isinstance(node, _BRANCH_NODES)
+    scopes = _ScopeMap()
+    scopes.declaration_conditional[_MODULE_SCOPE] = False
+
+    def open_scope(node: ast.AST, scope: int, conditional: bool) -> int:
+        inner = id(node)
+        scopes.parents[inner] = scope
+        scopes.declaration_conditional[inner] = conditional or (
+            scopes.declaration_conditional.get(scope, False)
+        )
+        return inner
+
+    def visit(node: ast.AST, scope: int, conditional: bool) -> None:
+        scopes.nodes.append((node, scope, conditional))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            inner = open_scope(node, scope, conditional)
+            for header in _definition_header(node):
+                visit(header, scope, conditional)
+            for arg in _argument_nodes(node.args):
+                visit(arg, inner, False)
+            body = node.body if isinstance(node.body, list) else [node.body]
+            for statement in body:
+                visit(statement, inner, False)
+            return
+        if isinstance(node, ast.ClassDef):
+            inner = open_scope(node, scope, conditional)
+            scopes.class_scopes.add(inner)
+            for header in _definition_header(node):
+                visit(header, scope, conditional)
+            for statement in node.body:
+                visit(statement, inner, False)
+            return
+        if isinstance(node, _COMPREHENSION_NODES):
+            inner = open_scope(node, scope, conditional)
+            generators = node.generators
+            if generators:
+                # Only the outermost iterable is evaluated eagerly, in the
+                # enclosing scope; everything else runs per item, if at all.
+                visit(generators[0].iter, scope, conditional)
+            for index, generator in enumerate(generators):
+                visit(generator.target, inner, False)
+                if index:
+                    visit(generator.iter, inner, True)
+                for guard in generator.ifs:
+                    visit(guard, inner, True)
+            for element in _comprehension_elements(node):
+                visit(element, inner, True)
+            return
+        inner_conditional = conditional or isinstance(node, _BRANCH_NODES)
         for child in ast.iter_child_nodes(node):
-            stack.append((child, inner, inner_conditional))
-    return out, parents, class_scopes
+            visit(child, scope, inner_conditional)
+
+    visit(tree, _MODULE_SCOPE, False)
+    return scopes
+
+
+def _definition_header(node: ast.AST) -> list[ast.expr]:
+    """Expressions a ``def``/``class``/``lambda`` evaluates before its body."""
+    header: list[ast.expr] = []
+    header.extend(getattr(node, "decorator_list", []))
+    bases = getattr(node, "bases", None)
+    if bases:
+        header.extend(bases)
+    for keyword in getattr(node, "keywords", []) or []:
+        header.append(keyword.value)
+    returns = getattr(node, "returns", None)
+    if returns is not None:
+        header.append(returns)
+    args = getattr(node, "args", None)
+    if isinstance(args, ast.arguments):
+        header.extend(args.defaults)
+        header.extend(default for default in args.kw_defaults if default is not None)
+        for arg in _argument_nodes(args):
+            if arg.annotation is not None:
+                header.append(arg.annotation)
+    return header
+
+
+def _argument_nodes(args: ast.arguments) -> list[ast.arg]:
+    collected = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if args.vararg is not None:
+        collected.append(args.vararg)
+    if args.kwarg is not None:
+        collected.append(args.kwarg)
+    return collected
+
+
+def _comprehension_elements(node: ast.AST) -> list[ast.expr]:
+    if isinstance(node, ast.DictComp):
+        return [node.key, node.value]
+    return [node.elt]
 
 
 @dataclass
@@ -602,11 +698,14 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
         return None
 
     facts = _PyFacts(path=path, rel_path=_relative(path, workspace))
-    nodes, scope_parents, class_scopes = _walk_scoped(tree)
-    facts.scope_parents = scope_parents
-    facts.class_scopes = class_scopes
+    scopes = _walk_scoped(tree)
+    nodes = scopes.nodes
+    facts.scope_parents = scopes.parents
+    facts.class_scopes = scopes.class_scopes
     hierarchy = _AgentHierarchy(
-        scope_parents=scope_parents, class_scopes=class_scopes, writes=facts.writes
+        scope_parents=scopes.parents,
+        class_scopes=scopes.class_scopes,
+        writes=facts.writes,
     )
     agent_calls: list[tuple[ast.Call, int, bool]] = []
     # Store-context Name nodes are visited independently of the assignment
@@ -620,8 +719,13 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
                 facts.imports.add(alias.name)
                 bound = (alias.asname or alias.name).split(".")[0]
                 _record_write(facts, bound, scope, node.lineno, conditional, "import")
-                if alias.asname is None or "." not in alias.name:
-                    facts.plain_imports[bound] = alias.name
+                # `import a.b.c` binds `a` and `a` denotes `a`; `import a.b.c
+                # as x` binds `x` and `x` denotes `a.b.c`. Storing the full
+                # path under the head made `a.b.c.Agent` resolve to
+                # `a.b.c.b.c`, so the dotted check never matched.
+                facts.plain_imports[bound] = (
+                    alias.name if alias.asname else alias.name.split(".")[0]
+                )
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 facts.imports.add(node.module)
@@ -632,6 +736,7 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
                     # A star import binds an unknown set of names. Nothing in
                     # this file can be shown to be un-rebound afterwards.
                     facts.star_import = True
+                    facts.star_imports.append(node.lineno)
                     continue
                 bound = alias.asname or alias.name
                 _record_write(facts, bound, scope, node.lineno, conditional, "import")
@@ -653,6 +758,12 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
             write_by_node[id(node)] = _record_write(
                 facts, node.id, scope, node.lineno, conditional
             )
+        elif isinstance(node, ast.Attribute) and isinstance(
+            node.ctx, (ast.Store, ast.Del)
+        ):
+            dotted = _call_name(node)
+            if dotted:
+                facts.attribute_writes.add(dotted)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Del):
             # `del root_agent` removes the binding. Recording it as a write
             # that holds no agent is what retires the previous construction.
@@ -697,7 +808,7 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
     # rebound the spelling, and an aliased ``RealAgent`` is one when the
     # import says so. Deciding during the walk would read a half-built table.
     roles = [
-        (call, _constructor_role(ctor, scope, facts), scope, conditional)
+        (call, _constructor_role(ctor, scope, call.lineno, facts), scope, conditional)
         for call, ctor, scope, conditional in pending_calls
     ]
     # Agent constructions are identified before any App is read, because an
@@ -709,7 +820,12 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
     agent_call_ids = hierarchy.agent_call_ids
     for call, role, scope, conditional in roles:
         if role is not None:
-            hierarchy.observe(call, role, scope, conditional)
+            hierarchy.observe(
+                call,
+                role,
+                scope,
+                conditional or scopes.declaration_conditional.get(scope, False),
+            )
 
     for node_id, call in agent_construction_targets.items():
         write = write_by_node.get(node_id)
@@ -787,42 +903,81 @@ def _enclosing_binding_scope(facts: _PyFacts, name: str, scope: int) -> int | No
     return None
 
 
-def _constructor_role(ctor: str, scope: int, facts: _PyFacts) -> str | None:
+def _constructor_role(
+    ctor: str, scope: int, lineno: int, facts: _PyFacts
+) -> str | None:
     """Whether ``ctor`` names an agent constructor, an app, or neither.
 
-    Recognition used to trust the terminal spelling alone, which reads a
-    locally defined ``def Agent(...)`` as a framework constructor and misses
-    a real one imported as ``RealAgent``. The binding decides instead: an
-    import of a framework class name (under any alias) is a constructor, and
-    a spelling bound to anything else in this file is not.
+    The binding that reaches the *call site* decides. A spelling bound to a
+    local ``def``/``class``, bound conditionally, or bound only after the
+    call is not the framework's — the last of those is why the binding has
+    to be located rather than merely found. Dotted spellings are held to the
+    same standard: their head must prove a framework module, so a local
+    ``class fake: class Agent`` cannot borrow the terminal name.
 
-    An unbound spelling keeps the terminal-name reading. It is how a
-    third-party re-export (``from mypkg.agents import Agent``) and a
-    dotted ``adk.LlmAgent`` are still recognised, and there is nothing in
-    the file to contradict it.
+    The terminal-name reading survives only for a genuinely unbound head,
+    where the file says nothing to contradict it — that is how a third-party
+    re-export stays recognised.
     """
     parts = ctor.split(".")
-    tail = parts[-1]
-    binding = _reaching_binding(facts, parts[0], scope)
-    if binding is not None and len(parts) == 1:
-        if binding.kind != "import":
+    role = _class_role(parts[-1])
+    head = parts[0]
+    binding = _reaching_binding(facts, head, scope, lineno)
+
+    # A wildcard import may legally replace any name it does not shadow, so
+    # a spelling whose binding predates one is no longer proven. A binding
+    # *after* the wildcard re-establishes provenance.
+    for star_lineno in facts.star_imports:
+        if star_lineno < lineno and (binding is None or binding.lineno < star_lineno):
             return None
-        imported = facts.constant_imports.get((binding.scope, parts[0]))
-        if imported is not None:
-            module, _level, original = imported
-            role = _class_role(original)
-            if role is None:
-                return None
-            # An *alias* only carries the framework meaning when it came
-            # from a framework module. `from mypkg.agents import Agent as
-            # Wrapped` renames somebody else's class, and reading `Wrapped`
-            # as a framework constructor would widen recognition rather than
-            # sharpen it. Unaliased spellings fall through to the terminal
-            # name, which is what they always matched on.
-            if parts[0] == original or _is_framework_module(module):
-                return role
+
+    # `adk.Agent = fake` rebinds through the module object, which no name
+    # binding records. Any such mutation of this path retires its provenance.
+    if _attribute_rebound(ctor, facts):
+        return None
+
+    if binding is None:
+        return role
+    if binding.kind != "import":
+        return None
+    module = _imported_module(head, binding, facts)
+    if module is None:
+        return None
+    resolved = ".".join([module, *parts[1:-1]]) if len(parts) > 2 else module
+    if len(parts) == 1:
+        # `from google.adk.agents import LlmAgent as RealAgent` — the class
+        # itself was imported, so its original name is what counts.
+        imported = facts.constant_imports.get((binding.scope, head))
+        if imported is None:
             return None
-    return _class_role(tail)
+        origin_module, _level, original = imported
+        origin_role = _class_role(original)
+        if origin_role is None:
+            return None
+        if head == original or _is_framework_module(origin_module):
+            return origin_role
+        return None
+    if role is None or not _is_framework_module(resolved):
+        return None
+    return role
+
+
+def _imported_module(head: str, binding: _Write, facts: _PyFacts) -> str | None:
+    """The module a bound name denotes, for an ``import``-kind binding."""
+    plain = facts.plain_imports.get(head)
+    if plain is not None:
+        return plain
+    imported = facts.constant_imports.get((binding.scope, head))
+    if imported is None:
+        return None
+    module, _level, original = imported
+    return f"{module}.{original}" if module else original
+
+
+def _attribute_rebound(ctor: str, facts: _PyFacts) -> bool:
+    return any(
+        ctor == path or ctor.startswith(f"{path}.") for path in facts.attribute_writes
+    )
 
 
 def _class_role(name: str) -> str | None:
@@ -840,25 +995,82 @@ def _is_framework_module(module: str) -> bool:
     )
 
 
-def _reaching_binding(facts: _PyFacts, name: str, scope: int) -> _Write | None:
-    """The most recent binding of ``name`` visible from ``scope``.
+def _scope_lookup_chain(
+    scope_parents: dict[int, int], class_scopes: set[int], scope: int
+) -> list[int]:
+    """``scope`` and every scope a name lookup falls through to.
 
-    Used for constructor provenance only, where "was this spelling rebound
-    in this file" is the whole question; ordering nuances belong to
-    :meth:`_AgentHierarchy._reaching`.
+    Python resolves a free name against the enclosing *function* scopes
+    before the module. Class bodies are excluded from the ancestors: a
+    method referencing a name bound in its class body raises ``NameError``
+    rather than seeing it.
     """
-    seen: set[int] = set()
-    current = scope
+    chain: list[int] = [scope]
+    seen: set[int] = {scope}
+    current = scope_parents.get(scope, _MODULE_SCOPE)
     while current not in seen:
         seen.add(current)
-        if current not in facts.class_scopes or current == scope:
-            found = [w for w in facts.writes.get(name, []) if w.scope == current]
-            if found:
-                return max(found, key=lambda write: write.lineno)
+        if current not in class_scopes:
+            chain.append(current)
         if current == _MODULE_SCOPE:
             break
-        current = facts.scope_parents.get(current, _MODULE_SCOPE)
-    return None
+        current = scope_parents.get(current, _MODULE_SCOPE)
+    return chain
+
+
+def _reaching_write(
+    writes: dict[str, list[_Write]], chain: list[int], name: str, lineno: int
+) -> tuple[_Write | None, str]:
+    """The binding a reference at ``lineno`` sees, or why it is unprovable.
+
+    One implementation for both questions that ask it — which agent a symbol
+    holds, and whether a constructor spelling is the framework's — because
+    two copies of this rule would be two chances to disagree about the
+    identity a manifest declares.
+
+    Within the reference's own scope the latest binding *before* it wins;
+    a later one cannot reach backwards, which is what let a framework import
+    at the bottom of a file retroactively validate a call above it. In an
+    enclosing or module scope the line comparison does not apply at all — a
+    function body executes when called, not where written — so only a single
+    unconditional binding is provable there. A conditional binding is
+    unprovable in either: the branch may not have run.
+    """
+    for index, candidate_scope in enumerate(chain):
+        found = [write for write in writes.get(name, []) if write.scope == candidate_scope]
+        if not found:
+            continue
+        if index == 0:
+            reaching = [write for write in found if write.lineno < lineno]
+            if not reaching:
+                continue
+            latest = max(reaching, key=lambda write: write.lineno)
+            if latest.conditional:
+                return None, (
+                    f"`{name}` is bound under a conditional or loop, so which "
+                    "value reaches this reference is not provable statically"
+                )
+            return latest, ""
+        if any(write.conditional for write in found):
+            return None, (
+                f"`{name}` is bound under a conditional or loop, so which value "
+                "reaches this reference is not provable statically"
+            )
+        if len(found) > 1:
+            return None, (
+                f"`{name}` is rebound in an enclosing scope, so which value a "
+                "nested reference sees depends on when it runs"
+            )
+        return found[0], ""
+    return None, f"`{name}` has no binding that reaches this reference"
+
+
+def _reaching_binding(
+    facts: _PyFacts, name: str, scope: int, lineno: int
+) -> _Write | None:
+    chain = _scope_lookup_chain(facts.scope_parents, facts.class_scopes, scope)
+    write, _reason = _reaching_write(facts.writes, chain, name, lineno)
+    return write
 
 
 def _record_write(
@@ -1017,77 +1229,22 @@ class _AgentHierarchy:
             f"assigned to the conventional `{ROOT_AGENT_SYMBOL}` module symbol",
         )
 
-    def _scope_chain(self, scope: int) -> list[int]:
-        """``scope`` and every scope a name lookup falls through to.
-
-        Python resolves a free name against the enclosing *function* scopes
-        before the module. Jumping straight to the module skips a captured
-        binding and reads a different object than the code does. Class
-        bodies are deliberately excluded from the ancestors: a method
-        referencing a name bound in its class body raises ``NameError``
-        rather than seeing it, so treating the class binding as reachable
-        would resolve to an object Python never supplies.
-        """
-        chain: list[int] = [scope]
-        seen: set[int] = {scope}
-        current = self.scope_parents.get(scope, _MODULE_SCOPE)
-        while current not in seen:
-            seen.add(current)
-            if current not in self.class_scopes:
-                chain.append(current)
-            if current == _MODULE_SCOPE:
-                break
-            current = self.scope_parents.get(current, _MODULE_SCOPE)
-        return chain
-
     def _reaching(
         self, name: str, scope: int, lineno: int
     ) -> tuple[_Write | None, str]:
         """The binding a reference to ``name`` sees, or why it is unprovable.
 
-        Nearest enclosing scope wins. Within the reference's **own** scope
-        the latest assignment before it wins, which is what straight-line
-        rebinding does.
-
-        In an enclosing or module scope the line comparison does not apply
-        and must not be used. A function body is not executed where it is
-        written, so a module-level rebinding *below* a nested reference
-        still happens before the call — ordering those writes by the nested
-        node's line number reads a stale value as the live one. There the
-        only provable case is a single unconditional binding; anything else
-        depends on when the function is called, which this file does not
-        say. A candidate under an ``if``/``try``/loop is unprovable in
-        either scope: both arms can execute, and picking the lexically later
-        one is a guess dressed as an answer.
+        Delegates to :func:`_reaching_write`, the single implementation of
+        that rule; the only thing owned here is the wildcard-import guard,
+        which makes every lookup in such a file unprovable outright.
         """
         if self.star_import:
             return None, (
                 f"a wildcard import can rebind `{name}`, so its value here is "
                 "not provable statically"
             )
-        for index, candidate_scope in enumerate(self._scope_chain(scope)):
-            writes = [
-                write for write in self.writes.get(name, []) if write.scope == candidate_scope
-            ]
-            if not writes:
-                continue
-            if any(write.conditional for write in writes):
-                return None, (
-                    f"`{name}` is assigned under a conditional or loop, so which "
-                    "value reaches this reference is not provable statically"
-                )
-            if index == 0:
-                reaching = [write for write in writes if write.lineno < lineno]
-                if not reaching:
-                    continue
-                return max(reaching, key=lambda write: write.lineno), ""
-            if len(writes) > 1:
-                return None, (
-                    f"`{name}` is rebound in an enclosing scope, so which value a "
-                    "nested reference sees depends on when it runs"
-                )
-            return writes[0], ""
-        return None, f"`{name}` has no assignment that reaches this reference"
+        chain = _scope_lookup_chain(self.scope_parents, self.class_scopes, scope)
+        return _reaching_write(self.writes, chain, name, lineno)
 
     def role_for(self, call: ast.Call) -> tuple[AgentNameRole, str]:
         """Return ``(role, evidence)`` for one agent construction."""
@@ -1150,6 +1307,11 @@ def _is_stdlib_env_lookup(callee: str, facts: _PyFacts) -> bool:
     parts = callee.split(".")
     head = parts[0]
     if facts.binding_count(head) != 1:
+        return False
+    # `os.getenv = fake` / `os.environ = {}` replaces the lookup without
+    # rebinding any name, so the default below is no longer the value the
+    # call returns.
+    if _attribute_rebound(callee, facts) or facts.star_import:
         return False
     if facts.plain_imports.get(head) == "os":
         return parts[1:] in (["getenv"], ["environ", "get"])
