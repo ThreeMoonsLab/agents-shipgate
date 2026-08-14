@@ -45,6 +45,8 @@ import ast
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
+from agents_shipgate.core.evidence_actions import one_line
+
 _Fields = tuple[str, ...]
 _GroupKey = tuple[str, _Fields]
 
@@ -133,7 +135,13 @@ def unknown_binding_member_source(source_id: str, tool: str) -> str:
 
 @dataclass(frozen=True)
 class SourceWarningGroup:
-    """One mechanism, plus every raw warning that restated it."""
+    """One mechanism, plus every raw warning that restated it.
+
+    ``message`` is the *display* projection: normalized to one line, safe to
+    interpolate into ``report.md``, the packet renderers, the CLI, and
+    ``fix_task.instructions[]``. ``warnings`` keeps the loader's bytes, so
+    nothing that gates or counts moves.
+    """
 
     message: str
     warnings: tuple[str, ...]
@@ -179,12 +187,20 @@ def group_source_warnings(warnings: Sequence[str]) -> list[SourceWarningGroup]:
         raw = tuple(warning for warning, _ in members)
         mechanism = mechanisms[key]
         if mechanism is None:
-            groups.append(SourceWarningGroup(message=raw[0], warnings=raw))
+            # An unrecognized warning is loader text nobody validated. It is
+            # still going into report.md, packet.md/html, the CLI, and
+            # fix_task.instructions[] — none of which collapse newlines — so
+            # the *display* copy is normalized even though nothing about it
+            # was understood. `warnings` keeps the raw bytes.
+            groups.append(SourceWarningGroup(message=one_line(raw[0]), warnings=raw))
             continue
         subjects = _unique(subject for _, subject in members)
         groups.append(
             SourceWarningGroup(
-                message=mechanism.render(key[1], subjects),
+                # Mechanism renders interpolate `repr()` of decoded values, so
+                # a control character is already escaped rather than literal.
+                # Normalizing anyway keeps one rule for every group.
+                message=one_line(mechanism.render(key[1], subjects)),
                 warnings=raw,
             )
         )

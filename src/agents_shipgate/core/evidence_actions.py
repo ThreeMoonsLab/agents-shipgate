@@ -16,6 +16,7 @@ lead with can never move a verdict.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from agents_shipgate.schemas.report import EvidenceCoverageDecision, EvidenceGap
 
@@ -29,13 +30,36 @@ _MAX_SUBJECT_CHARS = 120
 # (the CLI ``Reason:`` line, the GitHub step summary). A subject carrying
 # newlines or control characters would forge lines below the real one, so
 # whitespace and control runs collapse to one space before it is inlined.
+# ``\s`` is Unicode-aware here, so U+3000 and friends are covered too.
 _CONTROL_RUN = re.compile(r"[\s\x00-\x1f\x7f-\x9f]+")
 
 
 def one_line(value: str) -> str:
-    """Collapse whitespace and control runs so a value stays on its own line."""
+    """Render a repository-derived value safely on one line.
 
-    return _CONTROL_RUN.sub(" ", value).strip()
+    Two passes, in this order:
+
+    1. **Drop Unicode format characters** (general category ``Cf``). They are
+       invisible, so they cannot legitimately carry meaning in a path or an
+       instruction, and they are exactly the characters that make a value
+       *look* like something it is not: U+200B renders as nothing at all (a
+       "path" of one ZWSP was non-empty enough to win ranking and print
+       ``Fix at ⟨invisible⟩.``), and U+202E/U+200F reorder the visible text
+       after them, so a forged suffix can appear to be the real target. Only
+       ``Cf`` is removed: every visible script — accented Latin, CJK, emoji —
+       survives untouched.
+    2. **Collapse whitespace and C0/C1 control runs to one space**, then strip,
+       so no value can forge a line below the real one.
+
+    The result is what every consumer calls "the normalized value", and
+    :func:`is_addressable_gap` asks whether it is non-blank — never whether
+    the raw string was non-empty.
+    """
+
+    visible = "".join(
+        char for char in value if unicodedata.category(char) != "Cf"
+    )
+    return _CONTROL_RUN.sub(" ", visible).strip()
 
 
 # One short phrase per gap kind, in the voice of "what is unproven here".
@@ -158,14 +182,37 @@ def evidence_gap_action_text(gap: EvidenceGap, *, include_command: bool = True) 
         if not text.endswith((".", "!", "?")):
             text = f"{text}."
         text = f"{text} Target: {path}."
-    if include_command and action.command:
-        text = f"{text}\nRun: {one_line(action.command)}"
+    # Gate the affordance on the *normalized* command, not the raw one: a
+    # schema-valid `" \n\x00 "` is truthy and normalized empty, which printed
+    # a bare `Run:` line promising a command that does not exist.
+    command = evidence_gap_command(gap)
+    if include_command and command:
+        text = f"{text}\nRun: {command}"
     return text
+
+
+def evidence_gap_command(gap: EvidenceGap) -> str:
+    """The command a gap offers, normalized — empty when it offers none."""
+
+    return one_line(gap.next_action.command or "")
+
+
+def evidence_gap_accepted_values(gap: EvidenceGap) -> list[str]:
+    """Accepted values worth showing: normalized, blanks dropped.
+
+    A list of blanks rendered as ``Accepted values: , .`` — an affordance that
+    named nothing.
+    """
+
+    values = [one_line(value) for value in gap.next_action.accepted_values]
+    return [value for value in values if value]
 
 
 __all__ = [
     "actionable_evidence_gaps",
+    "evidence_gap_accepted_values",
     "evidence_gap_action_text",
+    "evidence_gap_command",
     "evidence_gap_headline",
     "evidence_gap_target",
     "is_addressable_gap",

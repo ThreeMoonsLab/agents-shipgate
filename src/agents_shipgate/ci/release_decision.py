@@ -76,6 +76,32 @@ def evidence_below_ie_threshold(evidence: EvidenceCoverageDecision, *, tool_coun
     )
 
 
+def has_measurable_evidence_gaps(evidence: EvidenceCoverageDecision) -> bool:
+    """True when the scan actually measured an evidence gap.
+
+    Deliberately *not* ``evidence.human_review_recommended``: that flag is
+    overloaded — ``summarize_findings`` also sets it for any critical/high
+    finding — so a clean static scan with one high finding and zero gaps reads
+    as "evidence incomplete" to anything that trusts it. ``_decision_reason``
+    already guards its "evidence coverage is incomplete" wording with the same
+    measurable inputs; this exposes that rule so agent-facing projections
+    cannot invent a gap the report does not contain (#362 review 3).
+
+    Broader than :func:`evidence_below_ie_threshold`, which asks whether the
+    gaps are bad enough to withhold a verdict. This asks only whether any
+    exist.
+    """
+
+    return (
+        evidence.binding_coverage.gap_count > 0
+        or evidence.semantic_coverage.gap_count > 0
+        or evidence.policy_gap_count > 0
+        or evidence.low_confidence_tool_count > 0
+        or evidence.source_warning_count > 0
+        or bool(evidence.evidence_gaps)
+    )
+
+
 def build_release_decision(
     *,
     report: ReadinessReport,

@@ -36,9 +36,15 @@
 
   Addressability is decided **after** normalization, by one shared predicate
   every consumer calls. `next_action.path` accepts any string, so a
-  whitespace- or control-only value was truthy enough to win ranking, print
-  `Fix at .`, hide a real target on a later row, and suppress the truthful
-  no-machine-fix route.
+  whitespace-, control-, or *invisible*-only value was truthy enough to win
+  ranking, print `Fix at .`, hide a real target on a later row, and suppress
+  the truthful no-machine-fix route. Normalization drops Unicode format
+  characters (U+200B, U+200E, U+202E, U+FEFF — the ones that render as nothing
+  or reorder what follows them) and collapses whitespace and control runs,
+  while leaving every visible script untouched. The same rule decides whether
+  an *affordance* exists: a `command` that normalizes to nothing produces no
+  `Run:` line and a `null` repair command instead of an empty one, and blank
+  accepted values are dropped rather than rendered as `Accepted values: , .`.
 
   Two copy rules that made the dead end look larger than it was came with it.
   Warnings that restate one **recognized** mechanism collapse **at render
@@ -54,10 +60,13 @@
   a string, so the decoder reads a *string literal* at each field position and a
   value containing the separator is read whole instead of being cut in half.
   A message that does not decode as a registered mechanism wrote it, including
-  a composite one carrying two invalid binding members, renders verbatim rather
-  than reporting only its first member. `report.json`, `packet.json`, and
-  `evidence_coverage.source_warning_count` are untouched: that count is a gating
-  input, and folding it would silently recalibrate the threshold.
+  a composite one carrying two invalid binding members, renders verbatim — but
+  normalized, because opaque loader text still reaches surfaces that do not
+  collapse newlines. `report.json`, `packet.json`,
+  `SourceWarningGroup.warnings`, and
+  `evidence_coverage.source_warning_count` all keep the loader's bytes: that
+  count is a gating input, and folding it would silently recalibrate the
+  threshold.
 
   A `tool_identity.bindings` member that matches nothing now gets the guidance
   that fits its cause. A **configured** source that produced no observations

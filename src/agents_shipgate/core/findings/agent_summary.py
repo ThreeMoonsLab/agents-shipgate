@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import shlex
 
-from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
+from agents_shipgate.ci.release_decision import (
+    evidence_below_ie_threshold,
+    has_measurable_evidence_gaps,
+)
 from agents_shipgate.core.evidence_actions import (
     evidence_gap_action_text,
     evidence_gap_headline,
@@ -73,12 +76,19 @@ def build_agent_summary(
         # source-warning-only scan would render as "0 review item(s)
         # flagged" with no first_recommended_action — losing the
         # release_decision.reason that has the only useful context).
+        #
+        # Keyed on *measurable* gaps rather than on
+        # `human_review_recommended`. That flag is overloaded — it is also
+        # true for any critical/high finding — so trusting it made a clean
+        # static scan with one high auto-applicable finding and zero gaps
+        # tell the agent "applying patches does not address the evidence
+        # gap", naming a gap the report does not contain (#362 review 3).
+        # `has_measurable_evidence_gaps` is the same rule `_decision_reason`
+        # uses to guard its "evidence coverage is incomplete" wording, so the
+        # reason and this projection agree about whether a gap exists.
         evidence_recommended = bool(
             release_decision.evidence_coverage
-            and (
-                release_decision.evidence_coverage.human_review_recommended
-                or release_decision.evidence_coverage.source_warning_count > 0
-            )
+            and has_measurable_evidence_gaps(release_decision.evidence_coverage)
         )
         # `evidence_recommended` is the BROAD signal (any review-worthy
         # evidence gap, including 1-3 sub-threshold source warnings).

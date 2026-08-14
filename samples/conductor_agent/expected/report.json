@@ -138,23 +138,7 @@
               "complete:true"
             ],
             "suggested_patch_kind": "manual",
-            "declaration_template": {
-              "agent_bindings": {
-                "root": {
-                  "source_id": "<REVIEW_REQUIRED>",
-                  "object": "<REVIEW_REQUIRED>"
-                },
-                "declarations": [
-                  {
-                    "agent": "root",
-                    "complete": true,
-                    "tools": [],
-                    "handoffs": [],
-                    "reason": "<REVIEW_REQUIRED>"
-                  }
-                ]
-              }
-            },
+            "declaration_template": null,
             "auto_apply": false,
             "requires_human_review": true
           }

@@ -21,6 +21,8 @@ from agents_shipgate.ci.release_decision import (
 )
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.core.evidence_actions import (
+    evidence_gap_accepted_values,
+    evidence_gap_command,
     evidence_gap_target,
     is_addressable_gap,
     one_line,
@@ -502,10 +504,16 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
         # `suggested_fixes`, and `agent_repair_instructions`. Unsanitized, a
         # policy-authored `expects` ending `\nControl: complete` writes a
         # forged control line into all three (#362 review).
-        accepted_values = ", ".join(one_line(value) for value in action.accepted_values)
-        accepted = f" Accepted values: {accepted_values}." if action.accepted_values else ""
+        # Each affordance is decided on its *normalized* value, not the raw
+        # one: a schema-valid `command=" \n\x00 "` is truthy and normalizes to
+        # nothing, which published a bare `Run:` promising a command that does
+        # not exist, and a list of blank accepted values rendered
+        # `Accepted values: , .`
+        values = evidence_gap_accepted_values(gap)
+        accepted = f" Accepted values: {', '.join(values)}." if values else ""
         target = f" at {evidence_gap_target(gap)}" if is_addressable_gap(gap) else ""
-        command = f" Run: {one_line(action.command)}" if action.command else ""
+        normalized_command = evidence_gap_command(gap)
+        command = f" Run: {normalized_command}" if normalized_command else ""
         out.append(
             f"{one_line(gap.subject)}: {one_line(gap.why)} "
             f"{one_line(action.expects)}{target}.{accepted}{command}"
@@ -726,6 +734,9 @@ def _human_repairs(
         action = gap.next_action
         subject = one_line(gap.subject)
         target = evidence_gap_target(gap)
+        # `null`, not `""`: a repair row that publishes an empty command
+        # claims an affordance it does not have.
+        normalized_command = evidence_gap_command(gap)
         repairs.append(
             VerifierRepair(
                 id=f"semantic_{gap.kind}_{len(repairs) + 1}",
@@ -734,7 +745,7 @@ def _human_repairs(
                 # Display fields of a durable repair row: one-lined for the
                 # same reason the instructions above are.
                 target=f"{subject} ({target})" if target else subject,
-                command=one_line(action.command) if action.command else None,
+                command=normalized_command or None,
                 reason=f"{one_line(gap.why)} {one_line(action.expects)}",
             )
         )
@@ -833,12 +844,26 @@ def _machine_patches(gating: list[Finding]) -> list[VerifierFixTaskPatch]:
 
 
 def _dedupe_cap(items: list[str]) -> list[str]:
+    """Normalize, de-duplicate, and cap the instruction list.
+
+    Every instruction list in this module funnels through here, which makes it
+    the one place that can promise ``fix_task.instructions[]`` is line-safe.
+    That matters because the list is a durable machine-facing contract:
+    ``agent_result`` copies it verbatim into ``repair.instructions``,
+    ``suggested_fixes``, and ``agent_repair_instructions``. Individual call
+    sites sanitize their own interpolations too; this is the backstop for
+    strings that arrive from elsewhere — a check ``recommendation``, an
+    unrecognized loader warning — and it also means de-duplication compares
+    what a reader actually sees.
+    """
+
     seen: set[str] = set()
     out: list[str] = []
     for item in items:
-        if item and item not in seen:
-            seen.add(item)
-            out.append(item)
+        normalized = one_line(item)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            out.append(normalized)
     return out[:_MAX_INSTRUCTIONS]
 
 
