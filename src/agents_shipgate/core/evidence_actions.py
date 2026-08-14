@@ -37,6 +37,7 @@ def one_line(value: str) -> str:
 
     return _CONTROL_RUN.sub(" ", value).strip()
 
+
 # One short phrase per gap kind, in the voice of "what is unproven here".
 # ``test_every_evidence_gap_kind_has_a_phrase`` pins this to the schema
 # Literal so a new gap kind cannot ship with a raw enum name as its copy.
@@ -73,15 +74,36 @@ _GAP_PHRASE: dict[str, str] = {
 }
 
 
+def evidence_gap_target(gap: EvidenceGap) -> str:
+    """The surface a gap names, normalized — empty when it names none.
+
+    The schema accepts any string for ``next_action.path``, including one
+    that is only whitespace or control characters. Rendering normalizes such
+    a value to nothing, so deciding addressability on the raw string put a
+    blank row ahead of a real one: it won ranking, printed ``Fix at .``,
+    hid the real target from every surface, and suppressed the truthful
+    no-machine-fix route. Every consumer asks this function instead, so
+    "addressable" means the same thing in ranking, the reason, the agent
+    summary, and the verifier fix task.
+    """
+
+    return one_line(gap.next_action.path or "")
+
+
+def is_addressable_gap(gap: EvidenceGap) -> bool:
+    """True when the gap names a surface a coding agent can navigate to."""
+
+    return bool(evidence_gap_target(gap))
+
+
 def actionable_evidence_gaps(evidence: EvidenceCoverageDecision) -> list[EvidenceGap]:
     """Every gap whose next action names a file, key, or pointer to open.
 
-    ``next_action.path`` is the machine-addressable half of a gap row: a
-    surface a coding agent can navigate to. A gap without one still needs
-    fixing, but only a human deciding what evidence to go find can close it.
+    A gap without one still needs fixing, but only a human deciding what
+    evidence to go find can close it.
     """
 
-    return [gap for gap in evidence.evidence_gaps if gap.next_action.path]
+    return [gap for gap in evidence.evidence_gaps if is_addressable_gap(gap)]
 
 
 def primary_evidence_gap(evidence: EvidenceCoverageDecision) -> EvidenceGap | None:
@@ -131,7 +153,7 @@ def evidence_gap_action_text(gap: EvidenceGap, *, include_command: bool = True) 
 
     action = gap.next_action
     text = one_line(action.expects)
-    path = one_line(action.path or "")
+    path = evidence_gap_target(gap)
     if path and path not in text:
         if not text.endswith((".", "!", "?")):
             text = f"{text}."
@@ -145,6 +167,8 @@ __all__ = [
     "actionable_evidence_gaps",
     "evidence_gap_action_text",
     "evidence_gap_headline",
+    "evidence_gap_target",
+    "is_addressable_gap",
     "one_line",
     "primary_evidence_gap",
 ]

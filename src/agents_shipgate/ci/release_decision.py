@@ -10,7 +10,7 @@ from agents_shipgate.ci.exit_policy import (
 from agents_shipgate.core.domain import SemanticIssueKind, Tool
 from agents_shipgate.core.evidence_actions import (
     evidence_gap_headline,
-    one_line,
+    evidence_gap_target,
     primary_evidence_gap,
 )
 from agents_shipgate.schemas.common import Severity
@@ -1173,14 +1173,16 @@ def _decision_reason(
         # line printed directly beneath it (#362). The gap chosen here is the
         # same one every other surface projects, so the three lines agree.
         gap = primary_evidence_gap(evidence)
-        if gap is not None and gap.next_action.path:
+        target = evidence_gap_target(gap) if gap is not None else ""
+        if target:
             # Both interpolated values are repository-derived (a gap subject is
             # a tool name or an agent id; a semantic gap's path embeds the tool
             # name), and this string is printed as one line by the CLI and the
-            # GitHub step summary. Keep it one line.
+            # GitHub step summary. `evidence_gap_target` one-lines the path and
+            # is the same predicate ranking used to pick this gap.
             return (
                 f"Insufficient evidence: {evidence_gap_headline(gap)}. "
-                f"Fix at {one_line(gap.next_action.path)}. Context: {detail}; "
+                f"Fix at {target}. Context: {detail}; "
                 "scan results are not trustworthy enough to gate release."
             )
         return (

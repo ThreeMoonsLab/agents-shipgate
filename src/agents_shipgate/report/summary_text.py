@@ -49,9 +49,15 @@ def primary_evidence_remediation_text(evidence: EvidenceCoverageDecision) -> str
     Short-form surfaces must project the selected gap's ``next_action``
     instead of replacing framework-specific guidance with a generic source
     list.  Selection is :func:`primary_evidence_gap` — the same one the
-    decision ``reason`` and ``agent_summary.first_recommended_action`` use, so
-    the three lines can never name different work.  The fallback exists only
-    for older reports that predate structured gap rows.
+    decision ``reason`` and ``agent_summary.first_recommended_action`` read.
+
+    That shared selection is not a promise that the three lines always say the
+    same thing; they align on an ``insufficient_evidence`` verdict with an
+    addressable gap, and answer different questions otherwise (see
+    ``docs/agent-contract-current.md``).  This line always renders the selected
+    gap's action, including when nothing is addressable and the reason keeps
+    its threshold wording — it is a remediation hint, not a restatement.  The
+    fallback exists only for older reports that predate structured gap rows.
     """
 
     # Current decisions always carry a structured gap here. Only compatibility

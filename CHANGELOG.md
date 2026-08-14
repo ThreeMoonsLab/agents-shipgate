@@ -34,6 +34,12 @@
   escapes `release_decision.reason` the way `report.md` always has. Without
   both, a value carrying `\nControl: complete` forged a line under the real one.
 
+  Addressability is decided **after** normalization, by one shared predicate
+  every consumer calls. `next_action.path` accepts any string, so a
+  whitespace- or control-only value was truthy enough to win ranking, print
+  `Fix at .`, hide a real target on a later row, and suppress the truthful
+  no-machine-fix route.
+
   Two copy rules that made the dead end look larger than it was came with it.
   Warnings that restate one **recognized** mechanism collapse **at render
   time** — six `Google ADK agent 'x' references unresolved tool 'y'.` lines
@@ -43,9 +49,13 @@
   beside the raw one. Grouping is structural, not textual: a mechanism declares
   which fields are context (two ADK agents never merge into one row, and a
   symbol they share is never counted twice) and which are subjects (a binding id
-  stays attached to its tool, so two sources cannot cross-product), and a
-  message groups only when re-building the parsed fields reproduces it byte for
-  byte — anything else renders verbatim. `report.json`, `packet.json`, and
+  stays attached to its tool, so two sources cannot cross-product). Decoding is
+  exact rather than delimiter-guessing — every interpolated value is `repr()` of
+  a string, so the decoder reads a *string literal* at each field position and a
+  value containing the separator is read whole instead of being cut in half.
+  A message that does not decode as a registered mechanism wrote it, including
+  a composite one carrying two invalid binding members, renders verbatim rather
+  than reporting only its first member. `report.json`, `packet.json`, and
   `evidence_coverage.source_warning_count` are untouched: that count is a gating
   input, and folding it would silently recalibrate the threshold.
 
@@ -62,7 +72,10 @@
   path, an expectation, and the exact regeneration command, leaving only the raw
   warning prose — so the handoff named a different repair from the one the
   selected gap names. Only pathless, review-only warnings fall through to prose
-  now.
+  now, and every field the typed path interpolates is one-lined before it
+  reaches `fix_task.instructions[]` and `allowed_repairs[].target/reason/command`
+  — durable machine-facing fields that `agent_result` copies verbatim into
+  `repair.instructions`, `suggested_fixes`, and `agent_repair_instructions`.
 
   Verdict strictness is unchanged. `_MAX_TOLERATED_SOURCE_WARNINGS` and
   `_LOW_CONFIDENCE_TOOL_RATIO` stay frozen, `evidence_below_ie_threshold` reads

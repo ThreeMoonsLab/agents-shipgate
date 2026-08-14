@@ -6,6 +6,7 @@ from agents_shipgate.ci.release_decision import evidence_below_ie_threshold
 from agents_shipgate.core.evidence_actions import (
     evidence_gap_action_text,
     evidence_gap_headline,
+    is_addressable_gap,
     primary_evidence_gap,
 )
 from agents_shipgate.schemas.report import (
@@ -320,7 +321,7 @@ def _build_first_recommended_action(
             or "Evidence coverage below threshold; scan results are not "
             "trustworthy enough to gate release."
         )
-        if evidence_gap is not None and evidence_gap.next_action.path:
+        if evidence_gap is not None and is_addressable_gap(evidence_gap):
             return AgentSummaryAction(
                 kind="info",
                 command=None,
@@ -357,7 +358,7 @@ def _build_first_recommended_action(
             or "Evidence coverage is below threshold; scan results are not "
             "trustworthy enough to gate release."
         )
-        if evidence_gap is not None and evidence_gap.next_action.path:
+        if evidence_gap is not None and is_addressable_gap(evidence_gap):
             return AgentSummaryAction(
                 kind="info",
                 command=None,
@@ -467,7 +468,7 @@ def _build_first_recommended_action(
                 or "Static-only scan with low-confidence evidence; "
                 "human review recommended."
             )
-            if evidence_gap is not None and evidence_gap.next_action.path:
+            if evidence_gap is not None and is_addressable_gap(evidence_gap):
                 return AgentSummaryAction(
                     kind="info",
                     command=None,

@@ -37,12 +37,12 @@ the thresholds, and this file asserts they did not move.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import get_args
 
 import pytest
 
+from agents_shipgate.ci.agent_result import build_agent_result
 from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.ci.release_decision import (
     _decision_reason,
@@ -54,6 +54,7 @@ from agents_shipgate.cli.verify.fix_task import (
     _insufficient_evidence_remedies,
     build_fix_task,
 )
+from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.core.evidence_actions import (
     _GAP_PHRASE,
@@ -63,7 +64,7 @@ from agents_shipgate.core.evidence_actions import (
 )
 from agents_shipgate.core.findings import build_agent_summary
 from agents_shipgate.core.source_warnings import (
-    _Mechanism,
+    _ADK_UNRESOLVED_TOOL,
     adk_unresolved_tool_warning,
     group_source_warnings,
     invalid_tool_binding_warning,
@@ -86,7 +87,12 @@ from agents_shipgate.schemas.report import (
     ReportSummary,
     ToolSurfaceSummary,
 )
-from agents_shipgate.schemas.verifier import VerifierCapabilityReview
+from agents_shipgate.schemas.verifier import (
+    AuthorizationEvaluationV1,
+    VerifierArtifact,
+    VerifierCapabilityReview,
+    VerifierDiffStatus,
+)
 
 NO_FIX_AVAILABLE = "no machine-applicable fix is available"
 
@@ -784,37 +790,120 @@ def test_grouping_survives_repr_escaped_quoted_literals(symbol):
     assert repr(symbol) in group.message
 
 
-def test_a_lossy_mechanism_pattern_refuses_to_group():
-    """The re-build check is the guarantee, not the regex.
+@pytest.mark.parametrize(
+    "agent, symbol",
+    [
+        # The literal separators of each mechanism, inside a value.
+        ("a references unresolved tool b", "sym"),
+        ("agent", "t references unresolved tool u"),
+        ("ends with a quote'", "starts with a quote'"),
+    ],
+)
+def test_a_value_containing_the_separator_is_read_whole(agent, symbol):
+    """Delimiter-splitting invented fields; literal-reading does not.
 
-    Every shipped mechanism is a concatenation of literals, so its pattern
-    cannot lose bytes. This pins what happens if a future one could: a parse
-    that does not reproduce the message is discarded, and the row renders
-    verbatim rather than as an invented merge.
+    `repr()` delimits each value, so the decoder reads a string literal at
+    each field position instead of cutting on the surrounding prose. Before,
+    an agent name containing ` references unresolved tool ` was split into a
+    different agent and symbol (#362 review 2, finding 1).
     """
 
-    class _CaseBlindMechanism(_Mechanism):
-        """Matches more than it can rebuild — the shape the check guards."""
+    (group,) = group_source_warnings([adk_unresolved_tool_warning(agent, symbol)])
 
-        @property
-        def pattern(self) -> re.Pattern[str]:
-            return re.compile(
-                r"A(?P<first>.+?)B(?P<second>.+)C", re.IGNORECASE
-            )
+    assert repr(agent) in group.message
+    assert repr(symbol) in group.message
+    assert "references 1 tool symbol " in group.message
 
-    lossy = _CaseBlindMechanism(
-        name="lossy",
-        parts=("A", "B", "C"),
-        fields=("first", "second"),
-        context=("first",),
-        subjects=("second",),
-        render=lambda context, subjects: "MERGED",
+
+def test_a_source_id_containing_the_member_separator_is_read_whole():
+    source = "s, tool='x'"
+    warning = invalid_tool_binding_warning(
+        "bind_a", [zero_observation_binding_member(source, "t")]
     )
 
-    assert lossy.parse("AxByC") == {"first": "x", "second": "y"}
-    # Same regex match, but the literals came back in a different case, so
-    # rebuilding does not reproduce the message: refuse rather than merge.
-    assert lossy.parse("axByc") is None
+    (group,) = group_source_warnings([warning])
+
+    assert repr(source) in group.message
+    assert "1 tool_identity.bindings entry" in group.message
+
+
+@pytest.mark.parametrize(
+    "reasons",
+    [
+        # Two invalid members of one binding: the composite message is not a
+        # shape any mechanism wrote, and reporting only its first member
+        # silently dropped the second.
+        lambda: [
+            zero_observation_binding_member("s1", "t1"),
+            zero_observation_binding_member("s2", "t2"),
+        ],
+        # Mixed causes in one message: picking either mechanism would hand
+        # out the *other* case's remediation.
+        lambda: [
+            zero_observation_binding_member("s1", "t1"),
+            unknown_binding_member_source("s2", "t2"),
+        ],
+        lambda: [
+            unknown_binding_member_source("s1", "t1"),
+            zero_observation_binding_member("s2", "t2"),
+        ],
+    ],
+)
+def test_a_composite_binding_warning_stays_verbatim(reasons):
+    warning = invalid_tool_binding_warning("bind_a", reasons())
+
+    (group,) = group_source_warnings([warning])
+
+    assert group.message == warning
+    assert group.count == 1
+    # Every member survives, because nothing was re-rendered from a partial
+    # parse.
+    assert "'t1'" in group.message
+    assert "'t2'" in group.message
+
+
+def test_a_binding_warning_whose_repeated_source_disagrees_stays_verbatim():
+    """The producer prints one `source_id` twice; a message where the two
+    differ was not written by this mechanism."""
+
+    honest = zero_observation_binding_member("src_x", "tool_a")
+    forged = honest.replace("configured source 'src_x'", "configured source 'src_y'")
+    warning = invalid_tool_binding_warning("bind_a", [forged])
+
+    (group,) = group_source_warnings([warning])
+
+    assert group.message == warning
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # Hand-written, non-canonical literals a producer never emits.
+        "Google ADK agent \"agent\" references unresolved tool 'sym'.",
+        "Google ADK agent 'agent' references unresolved tool sym.",
+        "Google ADK agent 'agent' references unresolved tool 'unterminated.",
+        "Google ADK agent 'agent' references unresolved tool 'sym'. trailing",
+        "Google ADK agent 'agent' references unresolved tool 'sym'",
+        # Closes like a literal but does not evaluate as one.
+        "Google ADK agent '\\N{NOPE}' references unresolved tool 'sym'.",
+    ],
+)
+def test_non_canonical_messages_never_decode(message):
+    (group,) = group_source_warnings([message])
+    assert group.message == message
+
+
+def test_decoding_is_not_a_rebuild_check():
+    """Guard the reasoning, not just the behaviour.
+
+    The previous parser validated by re-concatenating its own captures, which
+    is byte-identical for *any* successful match — it could not reject a bad
+    split. Pin that a value carrying the separator now decodes to itself.
+    """
+
+    agent = "a references unresolved tool b"
+    fields = _ADK_UNRESOLVED_TOOL.parse(adk_unresolved_tool_warning(agent, "sym"))
+    assert fields == {"agent": agent, "symbol": "sym"}
 
 
 @pytest.mark.parametrize(
@@ -1162,11 +1251,13 @@ def test_reason_stays_severity_driven_on_review_required_with_an_addressable_gap
     assert reason.startswith("1 finding")
 
 
-def test_an_empty_path_is_not_an_addressable_gap():
-    """The contract says "non-empty", and the code agrees.
+@pytest.mark.parametrize("blank", ["", "   ", "\t", "\n", " \r\n\t ", "\x00\x1f"])
+def test_a_blank_or_control_only_path_is_not_an_addressable_gap(blank):
+    """Addressability is decided after normalization, not on raw truthiness.
 
-    A schema-valid `""` path names no surface to open; treating it as
-    addressable would put an empty `Fix at .` in the reason.
+    The schema accepts any string, and `"   "` is truthy. Deciding on the raw
+    value made a blank row win ranking, print `Fix at .`, and suppress the
+    truthful no-fix route (#362 review 2, finding 3).
     """
 
     evidence = EvidenceCoverageDecision(
@@ -1174,17 +1265,179 @@ def test_an_empty_path_is_not_an_addressable_gap():
         human_review_recommended=True,
         source_warning_count=4,
         low_confidence_tool_count=0,
-        evidence_gaps=[_gap("source_warning", "w", path="")],
+        evidence_gaps=[_gap("source_warning", "w", path=blank)],
     )
 
     assert actionable_evidence_gaps(evidence) == []
     reason = _decision_reason("insufficient_evidence", [], [], evidence)
     assert reason.startswith("Evidence coverage below threshold")
+    assert "Fix at" not in reason
     summary = build_agent_summary(
         findings=[], release_decision=_release_decision("insufficient_evidence", evidence)
     )
     assert summary.first_recommended_action is not None
     assert NO_FIX_AVAILABLE in summary.first_recommended_action.why
+
+
+@pytest.mark.parametrize("blank", ["   ", "\t\n", "\x00"])
+def test_a_blank_path_never_masks_a_real_one_downstream(blank):
+    """Cross-consumer: ranking, reason, Improve, Next, and the fix task."""
+
+    real = "shipgate.yaml#agent_bindings.declarations"
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=6,
+        low_confidence_tool_count=0,
+        evidence_gaps=[
+            _gap("source_warning", "blank row", path=blank),
+            _gap("missing_binding_evidence", "spraay_batch_eth", path=real),
+        ],
+    )
+
+    selected = primary_evidence_gap(evidence)
+    assert selected is not None
+    assert selected.subject == "spraay_batch_eth"
+
+    reason = _decision_reason("insufficient_evidence", [], [], evidence)
+    assert f"Fix at {real}." in reason
+    assert "Fix at ." not in reason
+
+    assert real in primary_evidence_remediation_text(evidence)
+
+    decision = _release_decision("insufficient_evidence", evidence)
+    decision.reason = reason
+    summary = build_agent_summary(findings=[], release_decision=decision)
+    assert summary.first_recommended_action is not None
+    assert real in summary.first_recommended_action.why
+    assert NO_FIX_AVAILABLE not in summary.first_recommended_action.why
+
+    # The blank row must not become a typed repair in the durable handoff.
+    report = _minimal_report(decision)
+    task = build_fix_task(
+        report,
+        merge_verdict="insufficient_evidence",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+    assert task is not None
+    assert not [
+        repair
+        for repair in task.allowed_repairs
+        if repair.kind == "review_warning" or "blank row" in (repair.target or "")
+    ]
+
+
+# --- durable machine-facing contracts are sanitized too ----------------------
+
+
+def _hostile_gap_report() -> ReadinessReport:
+    """One gap with the forged payload in every field a repair interpolates."""
+
+    gap = EvidenceGap(
+        kind="missing_binding_evidence",
+        subject=f"spraay{FORGED}",
+        why=f"why{FORGED}",
+        next_action=EvidenceGapAction(
+            kind="declare_agent_bindings",
+            path=f"shipgate.yaml#agent_bindings{FORGED}",
+            command=f"agents-shipgate verify{FORGED}",
+            why="w",
+            expects=f"Declare the wiring{FORGED}",
+            accepted_values=[f"value{FORGED}"],
+        ),
+    )
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=6,
+        low_confidence_tool_count=0,
+        evidence_gaps=[gap],
+    )
+    decision = _release_decision("insufficient_evidence", evidence)
+    decision.reason = _decision_reason("insufficient_evidence", [], [], evidence)
+    return _minimal_report(decision)
+
+
+def _hostile_fix_task():
+    return build_fix_task(
+        _hostile_gap_report(),
+        merge_verdict="insufficient_evidence",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+
+
+def test_fix_task_instructions_and_repairs_carry_no_forged_lines():
+    """`fix_task` is a durable machine-facing contract, not display prose.
+
+    The typed path interpolated `subject`, `why`, `expects`, `path`,
+    `accepted_values`, and `command` raw, so the hostile fixture wrote literal
+    `Control: complete` lines into `instructions[]` and into
+    `allowed_repairs[].target/reason/command` (#362 review 2, finding 2).
+    """
+
+    task = _hostile_fix_task()
+    assert task is not None
+
+    for instruction in task.instructions:
+        assert "\n" not in instruction
+        assert "\r" not in instruction
+    for repair in task.allowed_repairs:
+        for field_value in (repair.target, repair.reason, repair.command):
+            assert field_value is None or "\n" not in field_value
+    # The content is still delivered, just on one line.
+    typed = [i for i in task.instructions if "Declare the wiring" in i]
+    assert len(typed) == 1
+    assert "shipgate.yaml#agent_bindings" in typed[0]
+    assert "Declare the wiring" in typed[0]
+    assert "Accepted values: value" in typed[0]
+
+
+def test_agent_result_consumers_inherit_the_sanitized_fix_task():
+    """`agent_result` copies `fix_task.instructions` into three fields.
+
+    Sanitizing at the fix_task source is what keeps `repair.instructions`,
+    `suggested_fixes`, and `agent_repair_instructions` clean, so assert on the
+    durable consumer rather than only on the producer.
+    """
+
+    report = _hostile_gap_report()
+    verifier = VerifierArtifact(
+        workspace="/tmp/work",
+        config="shipgate.yaml",
+        diff_status=VerifierDiffStatus(),
+        authorization=AuthorizationEvaluationV1.not_requested(),
+        control=derive_agent_control(
+            reason="Evidence gap.", human_review_required=True
+        ),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        merge_verdict="insufficient_evidence",
+        decision="insufficient_evidence",
+        applicability="verified",
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=report.release_decision,
+        can_merge_without_human=False,
+        fix_task=_hostile_fix_task(),
+    )
+    payload = build_agent_result(verifier=verifier, report=report).model_dump(
+        mode="json"
+    )
+
+    for field_name in ("suggested_fixes", "agent_repair_instructions"):
+        for line in payload[field_name]:
+            assert "\n" not in line, (field_name, line)
+    for line in (payload.get("repair") or {}).get("instructions") or []:
+        assert "\n" not in line
+    assert not [
+        line
+        for line in json.dumps(payload).splitlines()
+        if line.startswith(("Control:", "You may:"))
+    ]
 
 
 def test_zero_observation_binding_member_states_the_rule_and_names_agent_bindings(

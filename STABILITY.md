@@ -1421,8 +1421,10 @@ takes precedence over both. The precedence is therefore:
 → `review_required` (other) → `passed`.
 
 The intended recovery for a degraded-evidence case — whichever of the two
-verdicts it lands on — is the first structured action in
-`release_decision.evidence_coverage.evidence_gaps[]`. For supported frameworks,
+verdicts it lands on — is the structured action on the *selected* row of
+`release_decision.evidence_coverage.evidence_gaps[]`: the first row whose
+`next_action.path` is a non-empty string, falling back to the first row when
+no row names a surface to open (v0.16+; before that it was always row 0). For supported frameworks,
 that action names the generated local inventory artifact and the exact
 `<framework>.tool_inventories` manifest route. Only unidentified or unsupported
 source shapes receive generic MCP/OpenAPI/inventory guidance. Apply the reviewed

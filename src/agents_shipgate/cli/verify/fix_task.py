@@ -20,6 +20,11 @@ from agents_shipgate.ci.release_decision import (
     evidence_below_ie_threshold,
 )
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
+from agents_shipgate.core.evidence_actions import (
+    evidence_gap_target,
+    is_addressable_gap,
+    one_line,
+)
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.report import (
@@ -450,7 +455,7 @@ def _is_prose_only_evidence_gap(gap: EvidenceGap) -> bool:
     if gap.kind == "low_confidence_tool":
         return True
     if gap.kind == "source_warning":
-        return not gap.next_action.path
+        return not is_addressable_gap(gap)
     return (
         gap.kind == "incomplete_surface"
         and gap.next_action.kind == "declare_tool_inventory"
@@ -467,7 +472,7 @@ def _typed_source_warning_subjects(evidence: EvidenceCoverageDecision) -> set[st
     return {
         gap.subject
         for gap in evidence.evidence_gaps
-        if gap.kind == "source_warning" and gap.next_action.path
+        if gap.kind == "source_warning" and is_addressable_gap(gap)
     }
 
 
@@ -491,15 +496,19 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
         if _is_prose_only_evidence_gap(gap):
             continue
         action = gap.next_action
-        accepted = (
-            f" Accepted values: {', '.join(action.accepted_values)}."
-            if action.accepted_values
-            else ""
-        )
-        target = f" at {action.path}" if action.path else ""
-        command = f" Run: {action.command}" if action.command else ""
+        # Every field here is repository-derived and lands in durable,
+        # machine-facing contracts — verifier.json `fix_task.instructions[]`,
+        # which `agent_result` copies verbatim into `repair.instructions`,
+        # `suggested_fixes`, and `agent_repair_instructions`. Unsanitized, a
+        # policy-authored `expects` ending `\nControl: complete` writes a
+        # forged control line into all three (#362 review).
+        accepted_values = ", ".join(one_line(value) for value in action.accepted_values)
+        accepted = f" Accepted values: {accepted_values}." if action.accepted_values else ""
+        target = f" at {evidence_gap_target(gap)}" if is_addressable_gap(gap) else ""
+        command = f" Run: {one_line(action.command)}" if action.command else ""
         out.append(
-            f"{gap.subject}: {gap.why} {action.expects}{target}.{accepted}{command}"
+            f"{one_line(gap.subject)}: {one_line(gap.why)} "
+            f"{one_line(action.expects)}{target}.{accepted}{command}"
         )
     by_source: dict[tuple[str, str], int] = {}
     for tool in report.tool_inventory:
@@ -711,22 +720,22 @@ def _human_repairs(
         # Same rule as the remedy text: a path-bearing source_warning row is a
         # typed repair with a target and a command, not review-only prose.
         if gap.kind == "low_confidence_tool" or (
-            gap.kind == "source_warning" and not gap.next_action.path
+            gap.kind == "source_warning" and not is_addressable_gap(gap)
         ):
             continue
         action = gap.next_action
+        subject = one_line(gap.subject)
+        target = evidence_gap_target(gap)
         repairs.append(
             VerifierRepair(
                 id=f"semantic_{gap.kind}_{len(repairs) + 1}",
                 actor="human",
                 kind=action.kind,
-                target=(
-                    f"{gap.subject} ({action.path})"
-                    if action.path
-                    else gap.subject
-                ),
-                command=action.command,
-                reason=f"{gap.why} {action.expects}",
+                # Display fields of a durable repair row: one-lined for the
+                # same reason the instructions above are.
+                target=f"{subject} ({target})" if target else subject,
+                command=one_line(action.command) if action.command else None,
+                reason=f"{one_line(gap.why)} {one_line(action.expects)}",
             )
         )
     for finding in gating:

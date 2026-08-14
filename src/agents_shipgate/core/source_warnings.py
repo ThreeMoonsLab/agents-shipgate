@@ -17,13 +17,20 @@ produced them, because that count is a gating input
 the ``insufficient_evidence`` threshold. Rendered surfaces show mechanisms;
 the JSON keeps warnings.
 
-Two rules keep grouping from inventing facts:
+Three rules keep grouping from inventing facts:
 
 * **Only registered mechanisms group.** Warning text is loader output, not a
-  format we control; a generic "split on quoted literals" pass merged
-  unrelated warnings and could not survive a name containing both quote
-  styles. A message that does not round-trip through a registered
-  mechanism's own builder is its own group, rendered verbatim.
+  format we control. A message that does not decode exactly as a registered
+  mechanism wrote it is its own group, rendered verbatim.
+* **Decoding is exact, not delimiter-guessing.** Every variable a mechanism
+  interpolates is ``repr()`` of a string, so the decoder reads a *string
+  literal* at each field position rather than splitting on the surrounding
+  prose. A value containing the literal separator (`` references unresolved
+  tool ``, ``, tool=``) is read whole instead of being cut in half, and a
+  composite message — two invalid binding members joined by ``"; "`` — fails
+  to decode rather than silently reporting only the first member.
+  Regex-with-rebuild cannot do this: the rebuild is byte-identical for *any*
+  successful match, so it validates nothing.
 * **Rows keep their tuples.** A mechanism declares which of its fields are
   *context* (part of the group key — two ADK agents never merge) and which
   are *subjects* (listed, as whole tuples, so a binding id stays attached to
@@ -34,9 +41,9 @@ Two rules keep grouping from inventing facts:
 
 from __future__ import annotations
 
-import re
+import ast
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _Fields = tuple[str, ...]
 _GroupKey = tuple[str, _Fields]
@@ -48,7 +55,7 @@ _GroupKey = tuple[str, _Fields]
 def adk_unresolved_tool_warning(agent_name: str, symbol: str) -> str:
     """Warning for an ADK tools[] entry that static analysis cannot resolve."""
 
-    return _ADK_UNRESOLVED_TOOL.build(repr(agent_name), repr(symbol))
+    return _ADK_UNRESOLVED_TOOL.write(agent_name, symbol)
 
 
 # Every literal segment of the binding-warning prose exists once, so the
@@ -189,14 +196,10 @@ class _Mechanism:
     """One warning shape: how it is written, and how its rows recombine.
 
     ``parts`` are the literal segments around the fields, so ``build`` and
-    the parser are generated from a single spec and cannot drift.
-
-    Today the pattern is a pure concatenation of ``re.escape``-d parts and
-    capture groups, so a full match already reconstructs the message and the
-    field split can only ever be ambiguous, never lossy. ``parse`` re-builds
-    and compares anyway: that turns "the parts are all literals" from an
-    invariant a reader has to verify into one the code enforces, and any
-    future mechanism that needs a looser pattern inherits it.
+    ``parse`` are generated from a single spec and cannot drift. ``repeats``
+    names field pairs the producer always writes equal (a binding message
+    prints its ``source_id`` twice); a message where they differ was not
+    written by this mechanism.
     """
 
     name: str
@@ -205,33 +208,82 @@ class _Mechanism:
     context: _Fields
     subjects: _Fields
     render: Callable[[_Fields, list[_Fields]], str]
+    repeats: tuple[tuple[str, str], ...] = field(default=())
 
     def build(self, *values: str) -> str:
+        """Assemble a message from already-``repr``-rendered field values."""
+
         out = self.parts[0]
         for value, tail in zip(values, self.parts[1:], strict=True):
             out = f"{out}{value}{tail}"
         return out
 
-    def parse(self, message: str) -> dict[str, str] | None:
-        found = self.pattern.fullmatch(message)
-        if found is None:
-            return None
-        fields = found.groupdict()
-        if self.build(*(fields[name] for name in self.fields)) != message:
-            return None
-        return fields
+    def write(self, *values: str) -> str:
+        """Write a message from raw field values."""
 
-    @property
-    def pattern(self) -> re.Pattern[str]:
-        pattern = re.escape(self.parts[0])
-        for index, name in enumerate(self.fields):
-            # Lazy for every field but the last, so a literal separator that
-            # also occurs inside a value cannot swallow the rest of the line.
-            # Correctness does not rest on this: `parse` re-builds and
-            # compares, so an ambiguous message simply does not group.
-            quantifier = "+" if index == len(self.fields) - 1 else "+?"
-            pattern += f"(?P<{name}>.{quantifier})" + re.escape(self.parts[index + 1])
-        return re.compile(pattern)
+        return self.build(*(repr(value) for value in values))
+
+    def parse(self, message: str) -> dict[str, str] | None:
+        """Decode a message this mechanism wrote, or return ``None``.
+
+        Walks literal part / string literal / literal part …, so each field is
+        delimited by its own quoting rather than by the prose around it. The
+        message must be consumed exactly: a trailing ``"; member …"`` from a
+        second invalid binding member leaves input unread and is rejected,
+        which is what keeps a composite row verbatim instead of silently
+        reporting only its first member.
+        """
+
+        values: list[str] = []
+        index = 0
+        for part in self.parts[:-1]:
+            if not message.startswith(part, index):
+                return None
+            index += len(part)
+            read = _read_string_literal(message, index)
+            if read is None:
+                return None
+            value, index = read
+            values.append(value)
+        tail = self.parts[-1]
+        if not message.startswith(tail, index) or index + len(tail) != len(message):
+            return None
+        decoded = dict(zip(self.fields, values, strict=True))
+        return (
+            None
+            if any(decoded[left] != decoded[right] for left, right in self.repeats)
+            else decoded
+        )
+
+
+def _read_string_literal(text: str, index: int) -> tuple[str, int] | None:
+    """Read one canonical ``repr()`` string literal at ``index``.
+
+    Canonical is the point: the slice must be exactly what ``repr`` of the
+    decoded value produces, so a hand-written or differently-quoted literal
+    is not mistaken for producer output.
+    """
+
+    if index >= len(text) or text[index] not in "\"'":
+        return None
+    quote = text[index]
+    cursor = index + 1
+    while cursor < len(text):
+        char = text[cursor]
+        if char == "\\":
+            cursor += 2
+            continue
+        if char == quote:
+            raw = text[index : cursor + 1]
+            try:
+                value = ast.literal_eval(raw)
+            except (SyntaxError, ValueError):
+                return None
+            if not isinstance(value, str) or repr(value) != raw:
+                return None
+            return value, cursor + 1
+        cursor += 1
+    return None
 
 
 def _match(warning: str) -> tuple[_Mechanism, dict[str, str]] | None:
@@ -255,14 +307,16 @@ def _render_adk_unresolved_tools(context: _Fields, subjects: list[_Fields]) -> s
 
     The agent is part of the group key, so two agents that both fail on the
     same symbol stay two lines — merging them would report one symbol as two.
+    Values arrive decoded and are re-``repr``'d here, so the rendered text
+    quotes them exactly as the producer did.
     """
 
     (agent,) = context
-    symbols = [symbol for (symbol,) in subjects]
+    symbols = [repr(symbol) for (symbol,) in subjects]
     noun = "tool symbol" if len(symbols) == 1 else "tool symbols"
     return (
-        f"Google ADK agent {agent} references {len(symbols)} {noun} that static "
-        "analysis could not resolve in this entrypoint (imported or "
+        f"Google ADK agent {agent!r} references {len(symbols)} {noun} that "
+        "static analysis could not resolve in this entrypoint (imported or "
         f"dynamically constructed): {_join(symbols)}. Declare the agent's "
         "reviewed wiring at shipgate.yaml#agent_bindings.declarations, or add "
         "a reviewed tool inventory under google_adk.tool_inventories, then "
@@ -276,12 +330,12 @@ def _render_zero_observation_bindings(
     """Say the rule once, rather than the arithmetic once per binding."""
 
     (source,) = context
-    members = _join([f"{binding} → {tool}" for binding, tool in subjects])
+    members = _join([f"{binding!r} → {tool!r}" for binding, tool in subjects])
     noun = "entry" if len(subjects) == 1 else "entries"
     verb = "names" if len(subjects) == 1 else "name"
     return (
         f"{len(subjects)} tool_identity.bindings {noun} {verb} configured "
-        f"source {source}, which produced no tool observations at all, so no "
+        f"source {source!r}, which produced no tool observations at all, so no "
         "binding over it can ever resolve; a source with no observations "
         "cannot be a tool_identity.bindings member. Declare the agent's "
         "reviewed wiring at shipgate.yaml#agent_bindings.declarations "
@@ -293,12 +347,12 @@ def _render_unknown_binding_sources(context: _Fields, subjects: list[_Fields]) -
     """A selector pointing at nothing is fixed by correcting the selector."""
 
     (source,) = context
-    members = _join([f"{binding} → {tool}" for binding, tool in subjects])
+    members = _join([f"{binding!r} → {tool!r}" for binding, tool in subjects])
     noun = "entry" if len(subjects) == 1 else "entries"
     verb = "names" if len(subjects) == 1 else "name"
     return (
         f"{len(subjects)} tool_identity.bindings {noun} {verb} source "
-        f"{source}, for which no tool source is configured. Correct the "
+        f"{source!r}, for which no tool source is configured. Correct the "
         "member to name a configured shipgate.yaml#tool_sources[].id — no "
         "agent_bindings declaration can repair a selector that points at "
         f"nothing. Members: {members}."
@@ -327,6 +381,7 @@ _ZERO_OBSERVATION_BINDING = _Mechanism(
     context=("source",),
     subjects=("binding", "tool"),
     render=_render_zero_observation_bindings,
+    repeats=(("source", "source_again"),),
 )
 
 _UNKNOWN_BINDING_SOURCE = _Mechanism(
@@ -342,6 +397,7 @@ _UNKNOWN_BINDING_SOURCE = _Mechanism(
     context=("source",),
     subjects=("binding", "tool"),
     render=_render_unknown_binding_sources,
+    repeats=(("source", "source_again"),),
 )
 
 # Ordered: the first mechanism whose builder round-trips wins. The two
