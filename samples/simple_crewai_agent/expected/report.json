@@ -68,7 +68,7 @@
   },
   "release_decision": {
     "decision": "review_required",
-    "reason": "1 finding need review and evidence coverage is incomplete.",
+    "reason": "1 finding needs review and evidence coverage is incomplete.",
     "blockers": [],
     "review_items": [
       {
@@ -2606,7 +2606,7 @@
   "policy_evidence_gaps": [],
   "agent_summary": {
     "verdict": "review_required",
-    "headline": "1 finding(s) require human review. 1 finding need review and evidence coverage is incomplete.",
+    "headline": "1 finding(s) require human review. 1 finding needs review and evidence coverage is incomplete.",
     "blocker_count": 0,
     "review_item_count": 1,
     "auto_appliable_patches": 0,

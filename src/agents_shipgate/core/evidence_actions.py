@@ -25,41 +25,133 @@ from agents_shipgate.schemas.report import EvidenceCoverageDecision, EvidenceGap
 # warning text; a headline is a lead, not the evidence.
 _MAX_SUBJECT_CHARS = 120
 
-# A gap subject is a repository-derived value — a tool name, an agent id, a
-# loader message — and the headline is interpolated into single-line surfaces
-# (the CLI ``Reason:`` line, the GitHub step summary). A subject carrying
-# newlines or control characters would forge lines below the real one, so
-# whitespace and control runs collapse to one space before it is inlined.
-# ``\s`` is Unicode-aware here, so U+3000 and friends are covered too.
-_CONTROL_RUN = re.compile(r"[\s\x00-\x1f\x7f-\x9f]+")
+# Three separate questions, deliberately kept apart (#362 review 4):
+#
+#   1. *Display* — how does this value render on one line without forging a
+#      second one? ``one_line``. It never deletes a character that carries
+#      identity, because the value it is rendering is a real repository path
+#      or instruction and a silently different string is a lie about the
+#      repository.
+#   2. *Visibility* — does this value name anything a reader could see and
+#      open? ``has_visible_content``. A string made only of invisible
+#      code points names nothing, whatever its length.
+#   3. *Executability* — is this command safe to publish **as written**?
+#      ``is_publishable_command``. Nothing here ever rewrites a command:
+#      deleting a zero-width character from ``r​m -rf`` produces a
+#      different program, so an unsafe command is suppressed, never repaired.
+
+# ``\s`` is Unicode-aware, so U+3000 and friends collapse too.
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+# Rewriting the text after them is the whole point of these, so they are the
+# one class that is escaped rather than passed through: left intact, a forged
+# suffix can be made to display as if it were the real target.
+_BIDI_CONTROLS = frozenset(
+    "؜‎‏‪‫‬‭‮⁦⁧⁨⁩"
+)
+
+# Unicode Default_Ignorable_Code_Point, the code points that render as
+# nothing. Used for *visibility*, never for rewriting: a joiner inside
+# ``agents/👩‍💻.yaml`` or a Persian identifier's ZWNJ is load-bearing,
+# so it stays in the display and only an all-invisible value is rejected.
+_DEFAULT_IGNORABLE_RANGES: tuple[tuple[int, int], ...] = (
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+
+
+def _is_default_ignorable(char: str) -> bool:
+    point = ord(char)
+    return any(start <= point <= end for start, end in _DEFAULT_IGNORABLE_RANGES)
+
+
+def _escape(char: str) -> str:
+    return f"<U+{ord(char):04X}>"
 
 
 def one_line(value: str) -> str:
-    """Render a repository-derived value safely on one line.
+    """Render a repository-derived value safely on one line, without rewriting it.
 
-    Two passes, in this order:
+    Whitespace runs collapse to a single space; control characters (``Cc``)
+    and bidi controls become a visible ``<U+XXXX>`` escape. Everything else —
+    every visible script, and every invisible joiner that carries identity —
+    passes through unchanged.
 
-    1. **Drop Unicode format characters** (general category ``Cf``). They are
-       invisible, so they cannot legitimately carry meaning in a path or an
-       instruction, and they are exactly the characters that make a value
-       *look* like something it is not: U+200B renders as nothing at all (a
-       "path" of one ZWSP was non-empty enough to win ranking and print
-       ``Fix at ⟨invisible⟩.``), and U+202E/U+200F reorder the visible text
-       after them, so a forged suffix can appear to be the real target. Only
-       ``Cf`` is removed: every visible script — accented Latin, CJK, emoji —
-       survives untouched.
-    2. **Collapse whitespace and C0/C1 control runs to one space**, then strip,
-       so no value can forge a line below the real one.
+    Escaping rather than deleting is the point. An earlier version dropped
+    general category ``Cf`` wholesale, which turned ``agents/👩‍💻.yaml``
+    into a different filename and, worse, let a command be *repaired* into a
+    program the repository never wrote. A display projection may make a value
+    legible; it may not make it something else.
 
-    The result is what every consumer calls "the normalized value", and
-    :func:`is_addressable_gap` asks whether it is non-blank — never whether
-    the raw string was non-empty.
+    This answers only the display question. Ask :func:`has_visible_content`
+    whether a value names anything, and :func:`is_publishable_command` whether
+    a command may be handed to anyone.
     """
 
-    visible = "".join(
-        char for char in value if unicodedata.category(char) != "Cf"
+    escaped = "".join(
+        _escape(char)
+        if (unicodedata.category(char) == "Cc" or char in _BIDI_CONTROLS)
+        and not char.isspace()
+        else char
+        for char in value
     )
-    return _CONTROL_RUN.sub(" ", visible).strip()
+    return _WHITESPACE_RUN.sub(" ", escaped).strip()
+
+
+def has_visible_content(value: str) -> bool:
+    """True when at least one character renders as something a reader can see.
+
+    Whitespace, controls, unassigned/surrogate/private-use code points, and
+    Default_Ignorable code points (ZWSP, ZWJ, VS16, CGJ, bidi controls, …)
+    all render as nothing on their own. A "path" made only of those names no
+    surface, however long the string is.
+    """
+
+    return any(
+        not char.isspace()
+        and unicodedata.category(char) not in {"Cc", "Cf", "Cs", "Co", "Cn"}
+        and not _is_default_ignorable(char)
+        for char in value
+    )
+
+
+def is_publishable_command(value: str | None) -> bool:
+    """True when a command can be handed over exactly as written.
+
+    Deliberately all-or-nothing. Sanitizing a command is not a safe operation:
+    removing a zero-width character from ``r​m -rf /tmp/x`` yields a
+    command that does something the original could not. So a command
+    containing any control, bidi, or invisible code point is suppressed
+    entirely — the caller publishes no affordance rather than a repaired one.
+    """
+
+    if value is None:
+        return False
+    candidate = value.strip()
+    if not has_visible_content(candidate):
+        return False
+    return not any(
+        unicodedata.category(char) in {"Cc", "Cf", "Cs", "Co", "Cn"}
+        or char in _BIDI_CONTROLS
+        or _is_default_ignorable(char)
+        or (char.isspace() and char != " ")
+        for char in candidate
+    )
 
 
 # One short phrase per gap kind, in the voice of "what is unproven here".
@@ -99,25 +191,45 @@ _GAP_PHRASE: dict[str, str] = {
 
 
 def evidence_gap_target(gap: EvidenceGap) -> str:
-    """The surface a gap names, normalized — empty when it names none.
+    """The surface a gap names, rendered for display — empty when it names none.
 
-    The schema accepts any string for ``next_action.path``, including one
-    that is only whitespace or control characters. Rendering normalizes such
-    a value to nothing, so deciding addressability on the raw string put a
-    blank row ahead of a real one: it won ranking, printed ``Fix at .``,
-    hid the real target from every surface, and suppressed the truthful
-    no-machine-fix route. Every consumer asks this function instead, so
-    "addressable" means the same thing in ranking, the reason, the agent
-    summary, and the verifier fix task.
+    The schema accepts any string for ``next_action.path``, including one made
+    only of whitespace, controls, or invisible code points. Such a value names
+    nothing, so deciding on the raw string put a blank row ahead of a real one:
+    it won ranking, printed ``Fix at .``, hid the real target from every
+    surface, and suppressed the truthful no-machine-fix route.
+
+    Visibility decides; :func:`one_line` only renders. A path containing a
+    joiner among visible characters keeps the joiner.
     """
 
-    return one_line(gap.next_action.path or "")
+    path = gap.next_action.path or ""
+    return one_line(path) if has_visible_content(path) else ""
+
+
+def evidence_gap_command(gap: EvidenceGap) -> str:
+    """The command a gap offers, if it can be published exactly as written.
+
+    Empty when the action carries no command or when the command is not
+    publishable — see :func:`is_publishable_command` for why an unsafe command
+    is dropped rather than cleaned up.
+    """
+
+    command = gap.next_action.command
+    return command.strip() if is_publishable_command(command) else ""
 
 
 def is_addressable_gap(gap: EvidenceGap) -> bool:
-    """True when the gap names a surface a coding agent can navigate to."""
+    """True when the gap offers somewhere to go or something to run.
 
-    return bool(evidence_gap_target(gap))
+    Both halves count. ``path`` and ``command`` are independently nullable on
+    the wire, and a ``provide_source`` row carrying only an exact regeneration
+    command is as actionable as one naming a file — reading the path alone let
+    ``Improve evidence:`` print ``Run: …`` while the field agents read said no
+    machine-applicable fix existed (#362 review 4).
+    """
+
+    return bool(evidence_gap_target(gap)) or bool(evidence_gap_command(gap))
 
 
 def actionable_evidence_gaps(evidence: EvidenceCoverageDecision) -> list[EvidenceGap]:
@@ -173,28 +285,31 @@ def evidence_gap_action_text(gap: EvidenceGap, *, include_command: bool = True) 
     ``include_command=False`` keeps the result strictly single-line for
     surfaces (``agent_summary.first_recommended_action.why``, the CLI
     ``Next action:`` line) whose contract is one line of text.
+
+    A **command-only** row is the exception: when the action names no path,
+    the command is the only thing locating the work, so it is rendered inline
+    on single-line surfaces too rather than dropped.
     """
 
     action = gap.next_action
     text = one_line(action.expects)
-    path = evidence_gap_target(gap)
-    if path and path not in text:
+    target = evidence_gap_target(gap)
+    command = evidence_gap_command(gap)
+    if target and target not in text:
         if not text.endswith((".", "!", "?")):
             text = f"{text}."
-        text = f"{text} Target: {path}."
-    # Gate the affordance on the *normalized* command, not the raw one: a
-    # schema-valid `" \n\x00 "` is truthy and normalized empty, which printed
-    # a bare `Run:` line promising a command that does not exist.
-    command = evidence_gap_command(gap)
-    if include_command and command:
+        text = f"{text} Target: {target}."
+    if not command:
+        return text
+    if not target:
+        if command not in text:
+            if not text.endswith((".", "!", "?")):
+                text = f"{text}."
+            text = f"{text} Run: {command}."
+        return text
+    if include_command:
         text = f"{text}\nRun: {command}"
     return text
-
-
-def evidence_gap_command(gap: EvidenceGap) -> str:
-    """The command a gap offers, normalized — empty when it offers none."""
-
-    return one_line(gap.next_action.command or "")
 
 
 def evidence_gap_accepted_values(gap: EvidenceGap) -> list[str]:
@@ -205,11 +320,13 @@ def evidence_gap_accepted_values(gap: EvidenceGap) -> list[str]:
     """
 
     values = [one_line(value) for value in gap.next_action.accepted_values]
-    return [value for value in values if value]
+    return [value for value in values if has_visible_content(value)]
 
 
 __all__ = [
     "actionable_evidence_gaps",
+    "has_visible_content",
+    "is_publishable_command",
     "evidence_gap_accepted_values",
     "evidence_gap_action_text",
     "evidence_gap_command",

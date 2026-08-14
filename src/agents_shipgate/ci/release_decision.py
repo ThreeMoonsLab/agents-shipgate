@@ -9,6 +9,7 @@ from agents_shipgate.ci.exit_policy import (
 )
 from agents_shipgate.core.domain import SemanticIssueKind, Tool
 from agents_shipgate.core.evidence_actions import (
+    evidence_gap_command,
     evidence_gap_headline,
     evidence_gap_target,
     primary_evidence_gap,
@@ -1200,7 +1201,12 @@ def _decision_reason(
         # same one every other surface projects, so the three lines agree.
         gap = primary_evidence_gap(evidence)
         target = evidence_gap_target(gap) if gap is not None else ""
-        if target:
+        command = evidence_gap_command(gap) if gap is not None else ""
+        # A command-only row locates its work with the command; saying only
+        # "Insufficient evidence: <headline>." would drop the one affordance
+        # the row carries (#362 review 4).
+        locator = f"Fix at {target}." if target else (f"Run: {command}." if command else "")
+        if locator:
             # Both interpolated values are repository-derived (a gap subject is
             # a tool name or an agent id; a semantic gap's path embeds the tool
             # name), and this string is printed as one line by the CLI and the
@@ -1208,7 +1214,7 @@ def _decision_reason(
             # is the same predicate ranking used to pick this gap.
             return (
                 f"Insufficient evidence: {evidence_gap_headline(gap)}. "
-                f"Fix at {target}. Context: {detail}; "
+                f"{locator} Context: {detail}; "
                 "scan results are not trustworthy enough to gate release."
             )
         return (
@@ -1227,18 +1233,21 @@ def _decision_reason(
         # for any critical/high finding (see findings.summarize_findings),
         # so using it here would falsely claim evidence gaps for clean
         # static scans that simply have high-severity findings.
-        has_evidence_gaps = (
-            evidence.semantic_coverage.gap_count > 0
-            or evidence.low_confidence_tool_count > 0
-            or evidence.source_warning_count > 0
-        )
+        # The shared predicate, not a narrower copy of it: omitting binding,
+        # policy, and typed-gap inputs here dropped the evidence clause from a
+        # mixed review whose selected action names a binding declaration
+        # (#362 review 4).
+        has_evidence_gaps = has_measurable_evidence_gaps(evidence)
         if review_items and matched_criticals == n_reviews and matched_criticals > 0:
             return (
                 "All critical findings are baseline-matched; review accepted debt before shipping."
             )
         if review_items and has_evidence_gaps:
             noun = "finding" if n_reviews == 1 else "findings"
-            return f"{n_reviews} {noun} need review and evidence coverage is incomplete."
+            verb = "needs" if n_reviews == 1 else "need"
+            return (
+                f"{n_reviews} {noun} {verb} review and evidence coverage is incomplete."
+            )
         if review_items:
             noun = "finding" if n_reviews == 1 else "findings"
             verb = "requires" if n_reviews == 1 else "require"

@@ -21,7 +21,10 @@ Three rules keep grouping from inventing facts:
 
 * **Only registered mechanisms group.** Warning text is loader output, not a
   format we control. A message that does not decode exactly as a registered
-  mechanism wrote it is its own group, rendered verbatim.
+  mechanism wrote it is its own group, carrying its own text rather than a
+  merged one — rendered through the same one-line display projection as every
+  other group, and replaced by a visible placeholder when it has no printable
+  content at all.
 * **Decoding is exact, not delimiter-guessing.** Every variable a mechanism
   interpolates is ``repr()`` of a string, so the decoder reads a *string
   literal* at each field position rather than splitting on the surrounding
@@ -45,7 +48,24 @@ import ast
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-from agents_shipgate.core.evidence_actions import one_line
+from agents_shipgate.core.evidence_actions import has_visible_content, one_line
+
+# A warning made only of controls and invisible code points renders as
+# nothing, and a blank bullet in report.md — or a bare `Resolve source
+# warning:` in the fix task — hides the fact the gate is reporting. The count
+# and the raw bytes are unchanged; only the display gets this stand-in.
+_UNPRINTABLE_WARNING = (
+    "(source warning carried no printable text; see report.json "
+    "source_warnings for the raw value)"
+)
+
+
+def _display(warning: str) -> str:
+    """The one-line display copy of a warning, never blank."""
+
+    rendered = one_line(warning)
+    return rendered if has_visible_content(rendered) else _UNPRINTABLE_WARNING
+
 
 _Fields = tuple[str, ...]
 _GroupKey = tuple[str, _Fields]
@@ -192,7 +212,9 @@ def group_source_warnings(warnings: Sequence[str]) -> list[SourceWarningGroup]:
             # fix_task.instructions[] — none of which collapse newlines — so
             # the *display* copy is normalized even though nothing about it
             # was understood. `warnings` keeps the raw bytes.
-            groups.append(SourceWarningGroup(message=one_line(raw[0]), warnings=raw))
+            groups.append(
+                SourceWarningGroup(message=_display(raw[0]), warnings=raw)
+            )
             continue
         subjects = _unique(subject for _, subject in members)
         groups.append(
@@ -200,7 +222,7 @@ def group_source_warnings(warnings: Sequence[str]) -> list[SourceWarningGroup]:
                 # Mechanism renders interpolate `repr()` of decoded values, so
                 # a control character is already escaped rather than literal.
                 # Normalizing anyway keeps one rule for every group.
-                message=one_line(mechanism.render(key[1], subjects)),
+                message=_display(mechanism.render(key[1], subjects)),
                 warnings=raw,
             )
         )

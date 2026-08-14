@@ -47,6 +47,7 @@ from agents_shipgate.ci.github_summary import write_github_step_summary
 from agents_shipgate.ci.release_decision import (
     _decision_reason,
     evidence_below_ie_threshold,
+    has_measurable_evidence_gaps,
 )
 from agents_shipgate.cli._helpers import _print_cli_summary
 from agents_shipgate.cli.scan import run_scan
@@ -60,7 +61,11 @@ from agents_shipgate.core.evidence_actions import (
     _GAP_PHRASE,
     actionable_evidence_gaps,
     evidence_gap_action_text,
+    evidence_gap_command,
+    evidence_gap_target,
+    has_visible_content,
     is_addressable_gap,
+    is_publishable_command,
     one_line,
     primary_evidence_gap,
 )
@@ -82,6 +87,7 @@ from agents_shipgate.report.summary_text import primary_evidence_remediation_tex
 from agents_shipgate.schemas.manifest import ToolIdentityConfig
 from agents_shipgate.schemas.report import (
     BaselineDelta,
+    BindingCoverageDecision,
     EvidenceCoverageDecision,
     EvidenceGap,
     EvidenceGapAction,
@@ -91,6 +97,7 @@ from agents_shipgate.schemas.report import (
     ReleaseDecision,
     ReleaseDecisionItem,
     ReportSummary,
+    SemanticCoverageDecision,
     ToolSurfaceSummary,
 )
 from agents_shipgate.schemas.verifier import (
@@ -409,9 +416,12 @@ def test_improve_evidence_and_next_action_are_one_line_too():
 
     improve = primary_evidence_remediation_text(evidence)
     assert improve.splitlines()[0].startswith("Declare the wiring Control: complete")
-    assert len(improve.splitlines()) == 2
-    assert improve.splitlines()[1].startswith("Run: ")
-    assert "\n" not in improve.splitlines()[1]
+    # The fixture's command carries newlines, so it is *suppressed* rather than
+    # rewritten — sanitizing a command can change which program runs
+    # (#362 review 4). A safe command still gets its own `Run:` line; see
+    # `test_a_safe_command_is_published_verbatim` and the command-only tests.
+    assert len(improve.splitlines()) == 1
+    assert "Run:" not in improve
 
     summary = build_agent_summary(
         findings=[],
@@ -1016,7 +1026,12 @@ def test_grouping_round_trips_any_single_warning(warning):
     groups = group_source_warnings([warning])
     assert len(groups) == 1
     assert groups[0].warnings == (warning,)
-    assert groups[0].message == one_line(warning)
+    if has_visible_content(one_line(warning)):
+        assert groups[0].message == one_line(warning)
+    else:
+        # Nothing printable to show; the display copy says so rather than
+        # rendering a blank bullet.
+        assert "carried no printable text" in groups[0].message
 
 
 def test_render_time_grouping_does_not_move_the_count_that_gates(
@@ -1561,9 +1576,9 @@ def test_a_format_only_path_never_masks_a_real_one():
     )
 
 
-def test_bidi_controls_are_stripped_from_a_rendered_target():
+def test_bidi_controls_are_neutralized_in_a_rendered_target():
     """U+202E reorders what follows it, so a forged tail can look like the
-    real target. Strip the control; keep every visible character."""
+    real target. Escape the control; keep every visible character."""
 
     gap = _gap(
         "missing_binding_evidence",
@@ -1577,16 +1592,175 @@ def test_bidi_controls_are_stripped_from_a_rendered_target():
     assert "shipgate.yaml" in text
 
 
+# --- an all-control warning still says something -----------------------------
+
+
+ALL_CONTROL_WARNING = "​​⁠"
+
+
+def test_an_unprintable_warning_gets_a_visible_placeholder(tmp_path, capsys):
+    """A blank bullet hides the very thing the gate is reporting.
+
+    With a warning made only of invisible code points, `group.message` was the
+    empty string, so report.md and packet.md rendered blank bullets, packet
+    HTML rendered `<li></li>`, the CLI rendered `- `, and the fix task emitted
+    a bare `Resolve source warning:` (#362 review 4, finding 2).
+    """
+
+    (group,) = group_source_warnings([ALL_CONTROL_WARNING])
+    assert group.warnings == (ALL_CONTROL_WARNING,)
+    assert "carried no printable text" in group.message
+
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[_gap("source_warning", ALL_CONTROL_WARNING, path=None)],
+    )
+    decision = _release_decision("insufficient_evidence", evidence)
+    decision.reason = _decision_reason("insufficient_evidence", [], [], evidence)
+    report = _minimal_report(decision)
+    report.source_warnings = [ALL_CONTROL_WARNING]
+
+    # Raw bytes and the gating count are untouched.
+    assert report.source_warnings == [ALL_CONTROL_WARNING]
+    assert evidence.source_warning_count == 4
+
+    markdown = render_markdown_report(report)
+    assert not _blank_bullets(markdown)
+    assert "carried no printable text" in markdown
+
+    packet = build_packet_from_report(report)
+    packet_markdown = render_packet_markdown(packet)
+    assert not _blank_bullets(packet_markdown)
+    assert "carried no printable text" in packet_markdown
+    packet_html = render_packet_html(packet)
+    assert "<li></li>" not in packet_html
+    assert "carried no printable text" in packet_html
+
+    _print_cli_summary(report, "advisory", 0, verbose=True)
+    console = capsys.readouterr().out
+    assert not _blank_bullets(console)
+    assert "carried no printable text" in console
+
+    (remedy,) = [
+        line
+        for line in _insufficient_evidence_remedies(report)
+        if line.startswith("Resolve source warning: ")
+    ]
+    assert remedy != "Resolve source warning:"
+    assert "carried no printable text" in remedy
+
+
+def _blank_bullets(text: str) -> list[str]:
+    return [
+        line
+        for line in text.splitlines()
+        if line.strip() in {"-", "*"}
+    ]
+
+
 @pytest.mark.parametrize(
-    "value", ["café", "日本語ツール", "emoji🚀tool", "Ωmega", "naïve_tool"]
+    "value",
+    [
+        "café",
+        "日本語ツール",
+        "emoji🚀tool",
+        "Ωmega",
+        "naïve_tool",
+        # Identity-bearing invisibles: deleting either changes the filename.
+        "agents/👩‍💻.yaml",
+        "مینویسم‌ها.yaml",
+        "flag🇯🇵.yaml",
+        "text️.yaml",
+    ],
 )
-def test_normalization_keeps_legitimate_visible_unicode(value):
-    """Only format characters are dropped — never visible script."""
+def test_display_normalization_never_rewrites_a_repository_path(value):
+    """A display projection may make a value legible; not something else.
+
+    Dropping general category `Cf` wholesale turned `agents/👩‍💻.yaml` into a
+    different filename and changed Persian identifiers carrying ZWNJ
+    (#362 review 4, finding 1).
+    """
 
     assert one_line(value) == value
     gap = _gap("missing_binding_evidence", value, path=value)
     assert is_addressable_gap(gap)
+    assert evidence_gap_target(gap) == value
     assert value in evidence_gap_action_text(gap)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "r​m -rf /tmp/x",  # ZWSP inside the executable token
+        "agents-shipgate‮scan",  # bidi control
+        "agents-shipgate scan\x00",  # NUL
+        "agents-shipgate\nscan",  # embedded newline
+        "  ​  ",  # invisible only
+    ],
+)
+def test_an_unsafe_command_is_suppressed_never_repaired(raw):
+    """Normalization must not be able to author a different program.
+
+    Deleting the zero-width character from `r​m -rf /tmp/x` produced a
+    runnable `rm -rf /tmp/x` that the repository never wrote
+    (#362 review 4, finding 1). Unsafe commands are dropped whole.
+    """
+
+    assert not is_publishable_command(raw)
+
+    gap = _gap("source_warning", "s", path="shipgate.yaml#x")
+    gap.next_action.command = raw
+
+    assert evidence_gap_command(gap) == ""
+    text = evidence_gap_action_text(gap)
+    assert "Run:" not in text
+    assert "rm -rf" not in text
+
+
+@pytest.mark.parametrize(
+    "raw, published",
+    [
+        ("agents-shipgate scan -c shipgate.yaml", "agents-shipgate scan -c shipgate.yaml"),
+        ("  agents-shipgate scan  ", "agents-shipgate scan"),
+        ("python -m agents_shipgate verify --base origin/main", "python -m agents_shipgate verify --base origin/main"),
+    ],
+)
+def test_a_safe_command_is_published_verbatim(raw, published):
+    """Only outer whitespace is trimmed — which cannot change the program."""
+
+    gap = _gap("source_warning", "s", path="shipgate.yaml#x")
+    gap.next_action.command = raw
+    assert evidence_gap_command(gap) == published
+
+
+@pytest.mark.parametrize(
+    "invisible",
+    ["️️", "͏", "‍‌", "­", "\U000e0061\U000e0062"],
+)
+def test_a_default_ignorable_only_target_is_not_addressable(invisible):
+    """The category cut missed VS16 and CGJ, which are `Mn`, not `Cf`.
+
+    Visibility is the question, so the rule is Default_Ignorable rather than a
+    general-category guess (#362 review 4, finding 1).
+    """
+
+    gap = _gap("source_warning", "w", path=invisible)
+    assert not has_visible_content(invisible)
+    assert not is_addressable_gap(gap)
+
+
+def test_bidi_controls_are_escaped_not_deleted():
+    """Escaping neutralizes reordering while keeping the value recoverable."""
+
+    gap = _gap("missing_binding_evidence", "s", path="shipgate.yaml‮evil")
+
+    target = evidence_gap_target(gap)
+    assert "‮" not in target
+    assert "<U+202E>" in target
+    assert target.startswith("shipgate.yaml")
 
 
 # --- affordances are published only when they exist --------------------------
@@ -1774,6 +1948,165 @@ def test_a_measured_gap_still_produces_the_evidence_note(field, value):
     action = summary.first_recommended_action
     assert action is not None
     assert "evidence gap" in action.why
+
+
+@pytest.mark.parametrize(
+    "counts",
+    [
+        {"binding_coverage": BindingCoverageDecision(gap_count=1)},
+        {"policy_gap_count": 1},
+        {"semantic_coverage": SemanticCoverageDecision(gap_count=1)},
+    ],
+)
+def test_the_mixed_review_reason_sees_every_measurable_gap(counts):
+    """`_decision_reason` kept a narrower copy of the shared predicate.
+
+    Binding, policy, and typed-gap inputs were omitted, so a mixed review whose
+    selected action names `shipgate.yaml#agent_bindings…` reported only
+    "1 finding requires human review before shipping" and the headline dropped
+    the evidence clause (#362 review 4, finding 3).
+    """
+
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=0,
+        low_confidence_tool_count=0,
+        **counts,
+    )
+    assert has_measurable_evidence_gaps(evidence)
+
+    item = ReleaseDecisionItem(
+        id="f1", check_id="SHIP-X", severity="high", title="t"
+    )
+    reason = _decision_reason("review_required", [], [item], evidence)
+
+    assert "evidence coverage is incomplete" in reason
+    # Severity-led and generic, as the review asked — it names no gap.
+    assert "shipgate.yaml" not in reason
+    assert reason.startswith("1 finding needs review")
+
+
+# --- a command is an affordance, with or without a path ----------------------
+
+
+def _command_only_gap(command: str = "agents-shipgate scan -c shipgate.yaml") -> EvidenceGap:
+    return EvidenceGap(
+        kind="source_warning",
+        subject="stale base report",
+        why="The base report must be regenerated.",
+        next_action=EvidenceGapAction(
+            kind="provide_source",
+            command=command,
+            path=None,
+            why="w",
+            expects="Regenerate the base report",
+        ),
+    )
+
+
+def test_a_command_only_gap_is_addressable_everywhere():
+    """`path` and `command` are independently nullable on the wire.
+
+    Reading only the path let `Improve evidence:` publish `Run: …` while
+    `first_recommended_action.why` said no machine-applicable fix existed
+    (#362 review 4, finding 5).
+    """
+
+    gap = _command_only_gap()
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[gap],
+    )
+
+    assert is_addressable_gap(gap)
+    assert actionable_evidence_gaps(evidence) == [gap]
+
+    reason = _decision_reason("insufficient_evidence", [], [], evidence)
+    assert "agents-shipgate scan -c shipgate.yaml" in reason
+
+    improve = primary_evidence_remediation_text(evidence)
+    assert "agents-shipgate scan -c shipgate.yaml" in improve
+
+    decision = _release_decision("insufficient_evidence", evidence)
+    decision.reason = reason
+    summary = build_agent_summary(findings=[], release_decision=decision)
+    action = summary.first_recommended_action
+    assert action is not None
+    assert NO_FIX_AVAILABLE not in action.why
+    # The command is the only locator, so a single-line surface keeps it.
+    assert "agents-shipgate scan -c shipgate.yaml" in action.why
+
+
+def test_a_later_command_only_gap_still_wins_selection_over_a_blank_row():
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[
+            _gap("source_warning", "blank row", path="   "),
+            _command_only_gap(),
+        ],
+    )
+
+    selected = primary_evidence_gap(evidence)
+    assert selected is not None
+    assert selected.subject == "stale base report"
+
+
+def test_a_command_only_gap_with_an_unpublishable_command_is_not_addressable():
+    """Counterpart: suppression must not leave a phantom affordance."""
+
+    gap = _command_only_gap(command="r​m -rf /tmp/x")
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[gap],
+    )
+
+    assert not is_addressable_gap(gap)
+    assert actionable_evidence_gaps(evidence) == []
+    reason = _decision_reason("insufficient_evidence", [], [], evidence)
+    assert reason.startswith("Evidence coverage below threshold")
+    assert "rm -rf" not in reason
+
+    summary = build_agent_summary(
+        findings=[],
+        release_decision=_release_decision("insufficient_evidence", evidence),
+    )
+    assert summary.first_recommended_action is not None
+    assert NO_FIX_AVAILABLE in summary.first_recommended_action.why
+
+
+def test_a_command_only_gap_reaches_the_verifier_fix_task():
+    gap = _command_only_gap()
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[gap],
+    )
+    report = _minimal_report(_release_decision("insufficient_evidence", evidence))
+
+    task = build_fix_task(
+        report,
+        merge_verdict="insufficient_evidence",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+    assert task is not None
+    (repair,) = [
+        row for row in task.allowed_repairs if row.kind == "provide_source"
+    ]
+    assert repair.command == "agents-shipgate scan -c shipgate.yaml"
 
 
 # --- durable machine-facing contracts are sanitized too ----------------------
