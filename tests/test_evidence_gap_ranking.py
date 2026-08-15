@@ -37,6 +37,7 @@ the thresholds, and this file asserts they did not move.
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import get_args
 
@@ -60,6 +61,7 @@ from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.core.evidence_actions import (
     _GAP_PHRASE,
     actionable_evidence_gaps,
+    display_literal,
     evidence_gap_action_text,
     evidence_gap_command,
     evidence_gap_target,
@@ -75,6 +77,7 @@ from agents_shipgate.core.source_warnings import (
     adk_unresolved_tool_warning,
     group_source_warnings,
     invalid_tool_binding_warning,
+    is_unprintable_display,
     unknown_binding_member_source,
     zero_observation_binding_member,
 )
@@ -119,6 +122,29 @@ _ADK_SYMBOLS = (
     "withdraw_treasury",
 )
 
+
+def _verifier_with(task, report) -> VerifierArtifact:
+    """A minimal artifact carrying one fix task, for agent-result assertions."""
+
+    return VerifierArtifact(
+        workspace="/tmp/work",
+        config="shipgate.yaml",
+        diff_status=VerifierDiffStatus(),
+        authorization=AuthorizationEvaluationV1.not_requested(),
+        control=derive_agent_control(
+            reason="Evidence gap.", human_review_required=True
+        ),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        merge_verdict="insufficient_evidence",
+        decision="insufficient_evidence",
+        applicability="verified",
+        execution="succeeded",
+        head_status="succeeded",
+        release_decision=report.release_decision,
+        can_merge_without_human=False,
+        fix_task=task,
+    )
 
 # --- fixtures: the issue's repro, reduced ------------------------------------
 
@@ -2084,6 +2110,106 @@ def test_a_command_only_gap_with_an_unpublishable_command_is_not_addressable():
     assert NO_FIX_AVAILABLE in summary.first_recommended_action.why
 
 
+def test_a_command_only_gap_never_renders_a_fake_target():
+    """`is_addressable_gap` means target **or** command, so it cannot guard
+    target prose: a command-only row wrote ` at .` into a durable instruction
+    (#362 review 5, finding 3)."""
+
+    gap = _command_only_gap()
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[gap],
+    )
+    report = _minimal_report(_release_decision("insufficient_evidence", evidence))
+
+    for instruction in _insufficient_evidence_remedies(report):
+        assert " at ." not in instruction
+        assert " at  " not in instruction
+
+    task = build_fix_task(
+        report,
+        merge_verdict="insufficient_evidence",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+    assert task is not None
+    for instruction in task.instructions:
+        assert " at ." not in instruction
+
+    payload = build_agent_result(
+        verifier=_verifier_with(task, report), report=report
+    ).model_dump(mode="json")
+    for field_name in ("suggested_fixes", "agent_repair_instructions"):
+        for line in payload[field_name]:
+            assert " at ." not in line
+
+
+def test_a_distinct_visible_warning_survives_the_instruction_cap():
+    """Capping before de-duplication let unreadable rows hide a readable one.
+
+    Three warnings that render as the same placeholder consumed the whole
+    three-item budget; `_dedupe_cap` then collapsed them to one, so the fourth,
+    visible mechanism vanished from `fix_task.instructions[]` and every
+    agent-result field (#362 review 5, finding 4).
+    """
+
+    visible = "VISIBLE fourth source warning"
+    warnings = ["​", "⁠", "️", visible]
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=len(warnings),
+        low_confidence_tool_count=0,
+        evidence_gaps=[
+            _gap("source_warning", warning, path=None) for warning in warnings
+        ],
+    )
+    report = _minimal_report(_release_decision("insufficient_evidence", evidence))
+    report.source_warnings = warnings
+
+    # Raw list and gating count are untouched.
+    assert report.source_warnings == warnings
+    assert evidence.source_warning_count == 4
+
+    remedies = [
+        line
+        for line in _insufficient_evidence_remedies(report)
+        if line.startswith("Resolve source warning: ")
+    ]
+    assert any(visible in line for line in remedies)
+    # The cap itself is unchanged.
+    assert len(remedies) <= 3
+
+    task = build_fix_task(
+        report,
+        merge_verdict="insufficient_evidence",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+    assert task is not None
+    assert any(visible in instruction for instruction in task.instructions)
+
+    payload = build_agent_result(
+        verifier=_verifier_with(task, report), report=report
+    ).model_dump(mode="json")
+    assert any(visible in line for line in payload["agent_repair_instructions"])
+
+
+def test_unprintable_placeholders_stay_distinct():
+    """Two different unprintable warnings must not render as one line."""
+
+    groups = group_source_warnings(["​", "⁠"])
+
+    assert len(groups) == 2
+    assert groups[0].message != groups[1].message
+    assert all(is_unprintable_display(group.message) for group in groups)
+
+
 def test_a_command_only_gap_reaches_the_verifier_fix_task():
     gap = _command_only_gap()
     evidence = EvidenceCoverageDecision(
@@ -2107,6 +2233,145 @@ def test_a_command_only_gap_reaches_the_verifier_fix_task():
         row for row in task.allowed_repairs if row.kind == "provide_source"
     ]
     assert repair.command == "agents-shipgate scan -c shipgate.yaml"
+
+
+# --- identity-bearing values are rendered, never rewritten -------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "configs/foo  bar.yaml",  # two spaces
+        "configs/a b.yaml",  # NBSP
+        "configs/a　b.yaml",  # ideographic space
+        " leading-and-trailing.yaml ",
+        "agents/\U0001f469‍\U0001f4bb.yaml",
+    ],
+)
+def test_a_path_is_never_whitespace_folded_or_trimmed(path):
+    """Folding whitespace inside a path renames the file.
+
+    `one_line` is prose normalization; running it over a target mapped
+    `configs/foo  bar.yaml` to a one-space neighbour that may not exist, and
+    trimmed the ends (#362 review 5, finding 1).
+    """
+
+    gap = _gap("missing_binding_evidence", "subject", path=path)
+
+    assert evidence_gap_target(gap) == path
+    assert display_literal(path) == path
+    assert path in evidence_gap_action_text(gap)
+
+
+@pytest.mark.parametrize(
+    "path, rendered",
+    [
+        ("a\nb.yaml", "a<U+000A>b.yaml"),
+        ("a b.yaml", "a<U+2028>b.yaml"),
+        ("a‮b.yaml", "a<U+202E>b.yaml"),
+    ],
+)
+def test_a_line_breaking_path_is_escaped_not_folded(path, rendered):
+    gap = _gap("missing_binding_evidence", "subject", path=path)
+    assert evidence_gap_target(gap) == rendered
+
+
+def test_a_quoted_command_survives_every_durable_consumer():
+    """The instruction backstop folded whitespace inside a validated command.
+
+    `python -c 'print("a  b")'` stayed exact in `allowed_repairs[].command` but
+    became a different program in `instructions[]` and the agent-result copies
+    (#362 review 5, finding 1).
+    """
+
+    command = "python -c 'print(\"a  b\")'"
+    gap = EvidenceGap(
+        kind="source_warning",
+        subject="stale base",
+        why="The base must be regenerated.",
+        next_action=EvidenceGapAction(
+            kind="provide_source",
+            path=None,
+            command=command,
+            why="w",
+            expects="Regenerate the base report",
+        ),
+    )
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[gap],
+    )
+    decision = _release_decision("insufficient_evidence", evidence)
+    decision.reason = _decision_reason("insufficient_evidence", [], [], evidence)
+    report = _minimal_report(decision)
+
+    assert command in decision.reason
+    assert command in primary_evidence_remediation_text(evidence)
+    summary = build_agent_summary(findings=[], release_decision=decision)
+    assert summary.first_recommended_action is not None
+    assert command in summary.first_recommended_action.why
+
+    task = build_fix_task(
+        report,
+        merge_verdict="insufficient_evidence",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+    assert task is not None
+    assert any(command in instruction for instruction in task.instructions)
+    (repair,) = [row for row in task.allowed_repairs if row.kind == "provide_source"]
+    assert repair.command == command
+
+    verifier = _verifier_with(task, report)
+    payload = build_agent_result(verifier=verifier, report=report).model_dump(
+        mode="json"
+    )
+    assert any(command in line for line in payload["suggested_fixes"])
+    assert any(command in line for line in payload["agent_repair_instructions"])
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        " agents-shipgate scan -c shipgate.yaml",  # leading NBSP
+        "agents-shipgate scan ",  # trailing NBSP
+        "agents-shipgate scan",  # NEL
+        " agents-shipgate scan",  # line separator
+        " agents-shipgate scan",  # paragraph separator
+        "\tagents-shipgate scan",
+        "\nagents-shipgate scan",
+        "　agents-shipgate scan",  # ideographic space
+    ],
+)
+def test_boundary_whitespace_cannot_synthesize_a_command(raw):
+    """Validation ran after `.strip()`, so a boundary character vanished first.
+
+    `shlex.split("\\u00a0agents-shipgate scan")[0]` is `"\\u00a0agents-shipgate"`,
+    but trimming before checking made it look like a clean invocation and
+    published one (#362 review 5, finding 2).
+    """
+
+    assert not is_publishable_command(raw)
+
+    gap = _gap("source_warning", "s", path="shipgate.yaml#x")
+    gap.next_action.command = raw
+    assert evidence_gap_command(gap) == ""
+    assert "Run:" not in evidence_gap_action_text(gap)
+
+
+def test_only_ascii_spaces_are_trimmed_from_a_published_command():
+    gap = _gap("source_warning", "s", path="shipgate.yaml#x")
+    gap.next_action.command = "  agents-shipgate scan -c shipgate.yaml  "
+    published = evidence_gap_command(gap)
+
+    assert published == "agents-shipgate scan -c shipgate.yaml"
+    assert shlex.split(published)[0] == shlex.split(
+        gap.next_action.command.strip(" ")
+    )[0]
 
 
 # --- durable machine-facing contracts are sanitized too ----------------------

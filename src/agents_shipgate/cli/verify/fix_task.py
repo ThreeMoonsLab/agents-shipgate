@@ -21,13 +21,17 @@ from agents_shipgate.ci.release_decision import (
 )
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.core.evidence_actions import (
+    display_literal,
     evidence_gap_accepted_values,
     evidence_gap_command,
     evidence_gap_target,
     is_addressable_gap,
     one_line,
 )
-from agents_shipgate.core.source_warnings import group_source_warnings
+from agents_shipgate.core.source_warnings import (
+    group_source_warnings,
+    is_unprintable_display,
+)
 from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.report import (
     EvidenceCoverageDecision,
@@ -511,7 +515,11 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
         # `Accepted values: , .`
         values = evidence_gap_accepted_values(gap)
         accepted = f" Accepted values: {', '.join(values)}." if values else ""
-        target = f" at {evidence_gap_target(gap)}" if is_addressable_gap(gap) else ""
+        # Gate the target clause on the *target*, not on addressability:
+        # `is_addressable_gap` means "target or command", so a command-only row
+        # rendered a fake ` at .` into a durable instruction (#362 review 5).
+        gap_target = evidence_gap_target(gap)
+        target = f" at {gap_target}" if gap_target else ""
         normalized_command = evidence_gap_command(gap)
         command = f" Run: {normalized_command}" if normalized_command else ""
         out.append(
@@ -554,8 +562,23 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     remaining = [
         warning for warning in report.source_warnings if warning not in typed_warnings
     ]
-    for group in group_source_warnings(remaining)[:3]:
+    # De-duplicate on the *rendered* message before capping. Capping first let
+    # three warnings that render identically consume the whole budget and hide
+    # a fourth, distinct mechanism entirely — `_dedupe_cap` then collapsed the
+    # three into one, so the instruction list lost the visible warning without
+    # anything showing why (#362 review 5).
+    seen_messages: set[str] = set()
+    groups = group_source_warnings(remaining)
+    # Readable diagnostics first, then the unprintable stand-ins. The cap is
+    # still three; this only decides which three, so a row a reader can act on
+    # is never crowded out by rows that say nothing.
+    for group in sorted(groups, key=lambda row: is_unprintable_display(row.message)):
+        if group.message in seen_messages:
+            continue
+        seen_messages.add(group.message)
         out.append(f"Resolve source warning: {group.message}")
+        if len(seen_messages) == 3:
+            break
     if not out:
         out.append(
             "Provide clearer static sources — an MCP export, OpenAPI spec, or "
@@ -860,7 +883,12 @@ def _dedupe_cap(items: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for item in items:
-        normalized = one_line(item)
+        # `display_literal`, not `one_line`: these strings embed validated
+        # commands and repository paths, and folding whitespace inside one
+        # rewrites it — `python -c 'print("a  b")'` became a program printing
+        # something else (#362 review 5). Line-breaking characters are still
+        # escaped, which is all this backstop owes.
+        normalized = display_literal(item).strip(" ")
         if normalized and normalized not in seen:
             seen.add(normalized)
             out.append(normalized)

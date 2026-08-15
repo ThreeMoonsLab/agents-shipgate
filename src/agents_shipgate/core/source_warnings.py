@@ -45,26 +45,49 @@ Three rules keep grouping from inventing facts:
 from __future__ import annotations
 
 import ast
+import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from agents_shipgate.core.evidence_actions import has_visible_content, one_line
 
+
 # A warning made only of controls and invisible code points renders as
 # nothing, and a blank bullet in report.md — or a bare `Resolve source
 # warning:` in the fix task — hides the fact the gate is reporting. The count
 # and the raw bytes are unchanged; only the display gets this stand-in.
-_UNPRINTABLE_WARNING = (
-    "(source warning carried no printable text; see report.json "
-    "source_warnings for the raw value)"
-)
+def _unprintable_warning(warning: str) -> str:
+    """Stand-in for a warning with nothing printable in it.
+
+    Carries a short digest of the raw bytes so two different unprintable
+    warnings do not render as the same line: collapsing them would under-report
+    how many distinct diagnostics the loader raised, and any consumer
+    de-duplicating on the rendered text would merge unrelated rows.
+    """
+
+    digest = hashlib.sha256(warning.encode("utf-8")).hexdigest()[:12]
+    return (
+        f"(source warning carried no printable text; sha256:{digest} — see "
+        "report.json source_warnings for the raw value)"
+    )
 
 
 def _display(warning: str) -> str:
     """The one-line display copy of a warning, never blank."""
 
     rendered = one_line(warning)
-    return rendered if has_visible_content(rendered) else _UNPRINTABLE_WARNING
+    return rendered if has_visible_content(rendered) else _unprintable_warning(warning)
+
+
+def is_unprintable_display(message: str) -> bool:
+    """True when a rendered group is a stand-in rather than loader text.
+
+    Consumers that must cap how much they show rank real diagnostics first: a
+    row with nothing to read cannot be allowed to crowd out one that names a
+    mechanism (#362 review 5).
+    """
+
+    return message.startswith("(source warning carried no printable text;")
 
 
 _Fields = tuple[str, ...]
@@ -450,6 +473,7 @@ _MECHANISMS: tuple[_Mechanism, ...] = (
 
 __all__ = [
     "SourceWarningGroup",
+    "is_unprintable_display",
     "adk_unresolved_tool_warning",
     "group_source_warnings",
     "invalid_tool_binding_warning",

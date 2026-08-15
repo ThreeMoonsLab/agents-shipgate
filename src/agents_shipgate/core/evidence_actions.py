@@ -47,7 +47,7 @@ _WHITESPACE_RUN = re.compile(r"\s+")
 # one class that is escaped rather than passed through: left intact, a forged
 # suffix can be made to display as if it were the real target.
 _BIDI_CONTROLS = frozenset(
-    "؜‎‏‪‫‬‭‮⁦⁧⁨⁩"
+    "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
 )
 
 # Unicode Default_Ignorable_Code_Point, the code points that render as
@@ -84,33 +84,59 @@ def _escape(char: str) -> str:
     return f"<U+{ord(char):04X}>"
 
 
+def _is_line_breaking(char: str) -> bool:
+    """True for anything that could end a line or reorder what follows it."""
+
+    return (
+        unicodedata.category(char) == "Cc"
+        or char in _BIDI_CONTROLS
+        or char in {"\u2028", "\u2029"}
+    )
+
+
+def display_literal(value: str) -> str:
+    """Make an *identity-bearing* value line-safe without altering it otherwise.
+
+    For a path or any other value that names something in the repository.
+    Characters that could break or reorder a line become a visible
+    ``<U+XXXX>`` escape; **everything else is preserved exactly** — runs of
+    spaces, NBSP, U+3000, joiners, every script. Nothing is folded and nothing
+    is trimmed, so ``configs/foo  bar.yaml`` stays a two-space filename and
+    the reader is told about the real file rather than a plausible-looking
+    neighbour that may not exist.
+
+    Contrast :func:`one_line`, which additionally folds whitespace. That is
+    right for prose and wrong for anything a reader will open or run.
+    """
+
+    return "".join(
+        _escape(char) if _is_line_breaking(char) else char for char in value
+    )
+
+
 def one_line(value: str) -> str:
-    """Render a repository-derived value safely on one line, without rewriting it.
+    """Render repository-derived *prose* safely on one line.
 
-    Whitespace runs collapse to a single space; control characters (``Cc``)
-    and bidi controls become a visible ``<U+XXXX>`` escape. Everything else —
-    every visible script, and every invisible joiner that carries identity —
-    passes through unchanged.
+    Whitespace runs collapse to a single space and line-breaking characters
+    become a visible ``<U+XXXX>`` escape; every visible script and every
+    invisible joiner passes through. For gap subjects, ``why``/``expects``
+    text, and loader warnings — text a human reads, where collapsing a stray
+    newline into a space is the friendly rendering.
 
-    Escaping rather than deleting is the point. An earlier version dropped
-    general category ``Cf`` wholesale, which turned ``agents/👩‍💻.yaml``
-    into a different filename and, worse, let a command be *repaired* into a
-    program the repository never wrote. A display projection may make a value
-    legible; it may not make it something else.
+    **Not** for paths or commands. Folding whitespace inside those rewrites
+    them: it renames ``configs/foo  bar.yaml`` and rewrites
+    ``python -c 'print("a  b")'`` into a program that prints something else.
+    Use :func:`display_literal` there.
 
     This answers only the display question. Ask :func:`has_visible_content`
     whether a value names anything, and :func:`is_publishable_command` whether
     a command may be handed to anyone.
     """
 
-    escaped = "".join(
-        _escape(char)
-        if (unicodedata.category(char) == "Cc" or char in _BIDI_CONTROLS)
-        and not char.isspace()
-        else char
-        for char in value
-    )
-    return _WHITESPACE_RUN.sub(" ", escaped).strip()
+    # Fold first, then escape. Folding a newline into a space is the friendly
+    # prose rendering; escaping it first would leave `<U+000A>` mid-sentence.
+    # Non-whitespace controls and bidi marks still escape.
+    return display_literal(_WHITESPACE_RUN.sub(" ", value)).strip()
 
 
 def has_visible_content(value: str) -> bool:
@@ -130,28 +156,40 @@ def has_visible_content(value: str) -> bool:
     )
 
 
+def _is_unsafe_in_command(char: str) -> bool:
+    return (
+        unicodedata.category(char) in {"Cc", "Cf", "Cs", "Co", "Cn"}
+        or char in _BIDI_CONTROLS
+        or _is_default_ignorable(char)
+        # Every whitespace character except U+0020. A leading NBSP, NEL, or
+        # U+2028 is part of ``argv[0]``, so silently dropping it publishes a
+        # different program from the one that was written.
+        or (char.isspace() and char != " ")
+    )
+
+
 def is_publishable_command(value: str | None) -> bool:
     """True when a command can be handed over exactly as written.
 
-    Deliberately all-or-nothing. Sanitizing a command is not a safe operation:
-    removing a zero-width character from ``r​m -rf /tmp/x`` yields a
-    command that does something the original could not. So a command
-    containing any control, bidi, or invisible code point is suppressed
-    entirely — the caller publishes no affordance rather than a repaired one.
+    Deliberately all-or-nothing, and deliberately evaluated on the **authored
+    value before any trimming**. Validating a trimmed copy let a boundary
+    character be removed before it could be seen: ``"\\u00a0agents-shipgate
+    scan"`` has ``shlex.split(...)[0] == "\\u00a0agents-shipgate"``, yet
+    trimming first made it look like a clean ``agents-shipgate`` invocation
+    and published one (#362 review 5).
+
+    The only transformation a publishable command undergoes is stripping
+    U+0020 at the ends, which cannot change which program runs. Anything else
+    — a control, a bidi mark, an invisible code point, or any other
+    whitespace character anywhere in the string — suppresses the command
+    entirely. The caller publishes no affordance rather than a repaired one.
     """
 
     if value is None:
         return False
-    candidate = value.strip()
-    if not has_visible_content(candidate):
+    if any(_is_unsafe_in_command(char) for char in value):
         return False
-    return not any(
-        unicodedata.category(char) in {"Cc", "Cf", "Cs", "Co", "Cn"}
-        or char in _BIDI_CONTROLS
-        or _is_default_ignorable(char)
-        or (char.isspace() and char != " ")
-        for char in candidate
-    )
+    return has_visible_content(value.strip(" "))
 
 
 # One short phrase per gap kind, in the voice of "what is unproven here".
@@ -204,7 +242,7 @@ def evidence_gap_target(gap: EvidenceGap) -> str:
     """
 
     path = gap.next_action.path or ""
-    return one_line(path) if has_visible_content(path) else ""
+    return display_literal(path) if has_visible_content(path) else ""
 
 
 def evidence_gap_command(gap: EvidenceGap) -> str:
@@ -216,7 +254,7 @@ def evidence_gap_command(gap: EvidenceGap) -> str:
     """
 
     command = gap.next_action.command
-    return command.strip() if is_publishable_command(command) else ""
+    return command.strip(" ") if is_publishable_command(command) else ""
 
 
 def is_addressable_gap(gap: EvidenceGap) -> bool:
@@ -319,12 +357,20 @@ def evidence_gap_accepted_values(gap: EvidenceGap) -> list[str]:
     named nothing.
     """
 
-    values = [one_line(value) for value in gap.next_action.accepted_values]
-    return [value for value in values if has_visible_content(value)]
+    # Decide on the authored value and render the survivors literally: these
+    # are enum-ish tokens a reader types back, not prose. Folding whitespace
+    # inside one would change the token; escaping a blank one would make it
+    # look like a value that exists.
+    return [
+        display_literal(value)
+        for value in gap.next_action.accepted_values
+        if has_visible_content(value)
+    ]
 
 
 __all__ = [
     "actionable_evidence_gaps",
+    "display_literal",
     "has_visible_content",
     "is_publishable_command",
     "evidence_gap_accepted_values",

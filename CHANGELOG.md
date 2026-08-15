@@ -39,18 +39,22 @@
 
   Addressability is decided **after** normalization, by one shared predicate
   every consumer calls, and normalization is split into three questions that
-  had been conflated. *Display* (`one_line`) renders a value on one line
-  without ever rewriting it: whitespace collapses, control and bidi characters
-  become a visible `<U+XXXX>` escape, and every visible script — plus every
-  invisible joiner that carries identity, so `agents/👩‍💻.yaml` and Persian
-  identifiers survive intact — passes through unchanged. *Visibility*
+  had been conflated. *Display* renders a value on one line without
+  rewriting it: control, `U+2028`/`U+2029`, and bidi characters become a
+  visible `<U+XXXX>` escape and **nothing is deleted**, so every visible script
+  and every identity-bearing joiner survives — `agents/👩‍💻.yaml` and
+  identifiers carrying ZWNJ are named as they actually are. Prose additionally
+  folds whitespace; paths and commands never do, so `configs/foo  bar.yaml`
+  keeps both spaces and `python -c 'print("a  b")'` stays the program that was
+  written. *Visibility*
   (`has_visible_content`) asks whether a value names anything at all, using
   Unicode Default_Ignorable rather than a general-category guess, so a path
-  made only of ZWSP, VS16, or CGJ is not addressable. *Executability*
-  (`is_publishable_command`) is all-or-nothing: a command containing any
-  control, bidi, or invisible code point is **suppressed, never repaired**,
-  because deleting a zero-width character from `r​m -rf` authors a program the
-  repository never wrote. Blank accepted values are dropped rather than
+  made only of ZWSP, VS16, or CGJ is not addressable. *Executability* is all-or-nothing **and is judged on the
+  authored value before any trimming**: a command containing any control, bidi,
+  or invisible code point, or any whitespace other than `U+0020`, is
+  **suppressed, never repaired**. Deleting a zero-width character from
+  `r​m -rf` authors a program the repository never wrote, and trimming a
+  leading NBSP silently changes `argv[0]`. Blank accepted values are dropped rather than
   rendered as `Accepted values: , .`, and a suppressed command produces no
   `Run:` line and a `null` repair command instead of an empty one.
 
