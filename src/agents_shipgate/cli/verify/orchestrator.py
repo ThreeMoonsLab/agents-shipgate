@@ -9,6 +9,7 @@ import shlex
 import shutil
 import stat
 import tempfile
+import unicodedata
 from collections import Counter
 from contextvars import Token
 from datetime import date
@@ -1877,9 +1878,22 @@ def _worst_blocker(release_decision: ReleaseDecision | None) -> ReleaseDecisionI
     )
 
 
-# Every character class that would let an interpolated value stop being one
-# clause of one sentence: newlines, tabs, and the C0/C1 control range.
-_HEADLINE_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# Unicode general categories that must never survive into headline prose.
+#
+# ``Cc`` is the C0/C1 control range — a newline ends the one-sentence contract.
+# ``Cf`` is the format range, and it is the one that matters most here: U+202E
+# RIGHT-TO-LEFT OVERRIDE and U+2066 LEFT-TO-RIGHT ISOLATE reorder *rendered*
+# text without changing a byte of it, so a tool name carrying one can visually
+# move the reserved governance suffix out of the position the composition
+# guarantees it. ``Cs`` (lone surrogates) cannot be UTF-8 encoded at all and
+# would raise inside the byte budgeting. ``Co``/``Cn`` are private-use and
+# unassigned: they render as whatever the reader's font decides, which is not
+# a property a release artifact should depend on. ``Zl``/``Zp`` are the
+# line/paragraph separators that ``str.split`` already folds, listed so the
+# rule is stated once and completely.
+_UNSAFE_UNICODE_CATEGORIES = frozenset(
+    {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
+)
 
 # How much of the worst blocker's title the headline will carry. The title is
 # an untrusted value — it embeds a tool name read out of an OpenAPI spec, an
@@ -1887,19 +1901,40 @@ _HEADLINE_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 # independently of the composition budget below, to keep an oversized one from
 # expanding every downstream renderer that quotes the headline.
 _HEADLINE_TITLE_MAX_CHARS = 120
+# The configured manifest path is interpolated into the adoption suffix. It is
+# operator-supplied rather than scanned, but the suffix is the part the
+# composition promises to keep whole, so its one dynamic input is bounded to
+# keep that promise satisfiable.
+_HEADLINE_MANIFEST_MAX_CHARS = 80
 _ELLIPSIS = "…"
 
 
 def _one_clause(value: str) -> str:
     """Collapse an untrusted value into a single clause of a single sentence.
 
-    Control characters are dropped rather than escaped: the headline is prose,
+    Unsafe codepoints are dropped rather than escaped: the headline is prose,
     not a transcript, and a ``\\x0a`` escape in the middle of a sentence is no
     more readable than the newline it replaces. Runs of whitespace collapse so
-    the result cannot be padded into a different shape.
+    the result cannot be padded into a different shape, and the result is
+    guaranteed UTF-8 encodable so the byte budgeting below cannot raise on it.
     """
 
-    return " ".join(_HEADLINE_CONTROL_CHARACTERS.sub(" ", value).split())
+    stripped = "".join(
+        " " if unicodedata.category(char) in _UNSAFE_UNICODE_CATEGORIES else char
+        for char in value
+    )
+    return " ".join(stripped.split())
+
+
+def _manifest_label(configured_manifest: str | None) -> str:
+    """The configured manifest path, safe to interpolate into a reserved suffix.
+
+    The suffix is the part the composition promises to deliver whole, so its
+    only dynamic input has to be bounded — otherwise a deeply nested path makes
+    the promise unsatisfiable and the requirement is truncated after all.
+    """
+
+    return _bounded(_one_clause(configured_manifest or ""), _HEADLINE_MANIFEST_MAX_CHARS)
 
 
 def _bounded(value: str, max_chars: int) -> str:
@@ -1953,7 +1988,11 @@ def _compose_with_reserved_suffix(lead: str, suffix: str) -> str:
     return f"{lead} {suffix}"
 
 
-def _report_primary_headline(report: ReadinessReport) -> str:
+def _report_primary_headline(
+    report: ReadinessReport,
+    *,
+    title_byte_budget: int | None = None,
+) -> str:
     """The scan's own one-line verdict, with the blocking cause named.
 
     ``agent_summary.headline`` counts the blockers but does not say what they
@@ -1967,6 +2006,12 @@ def _report_primary_headline(report: ReadinessReport) -> str:
     The title is normalized and bounded before it is quoted: it is scanned
     input, and an unbounded multiline value is how one finding's name becomes
     several lines of the artifact that reports it.
+
+    ``title_byte_budget`` lets the caller shrink *this* clause when the whole
+    headline is over budget. It is the right thing to give up first: it is the
+    only untrusted material in the line, and every other part — the verdict,
+    the evidence-gap context, the human-review requirement — is a sentence
+    Shipgate wrote about its own run.
     """
 
     if report.agent_summary is not None:
@@ -1979,6 +2024,8 @@ def _report_primary_headline(report: ReadinessReport) -> str:
     if worst is None:
         return summary
     title = _bounded(_one_clause(worst.title).rstrip("."), _HEADLINE_TITLE_MAX_CHARS)
+    if title_byte_budget is not None:
+        title = _bounded_bytes(title, title_byte_budget)
     if not title:
         return summary
     return f"{summary} Most severe: {title}."
@@ -2016,27 +2063,63 @@ def _verifier_headline(
     manifest_introduced: bool = False,
     pure_adoption_review: bool = False,
     configured_manifest: str | None = None,
+    context_note: str | None = None,
 ) -> str | None:
+    """The whole headline, composed once.
+
+    ``context_note`` carries every later addition — today the evidence-gap
+    provenance note — *into* this function rather than being appended to its
+    result. Appending after composition silently spent the budget that
+    ``_compose_with_reserved_suffix`` had reserved for the human-review
+    requirement, so a long blocker title plus one gap note was enough to push
+    the requirement past the compact control projection's limit and delete it
+    from ``reason`` and ``human_review.why``. Context belongs in the lead; the
+    requirement stays last and whole.
+    """
+
+    lead_context = _one_clause(context_note) if context_note else ""
+
+    def _lead(primary: str) -> str:
+        return f"{primary} {lead_context}" if lead_context else primary
+
+    def _report_lead(source: ReadinessReport, suffix: str) -> str:
+        """Build the lead in priority order, so the least load-bearing part yields.
+
+        The verdict and the named blocking cause are why the headline was
+        reordered in the first place; the evidence-gap provenance note is
+        context about where the gaps came from. So the note is what shrinks
+        when the budget is tight, and it is dropped rather than reduced to a
+        stub. The reserved suffix is never touched by any of this.
+        """
+
+        primary = _report_primary_headline(source)
+        if not lead_context:
+            return primary
+        room = MAX_ENVELOPE_PROSE_BYTES - len(suffix.encode("utf-8")) - 1
+        budget = room - len(primary.encode("utf-8")) - 1
+        # Below this there is no room for a sentence, only for an ellipsis
+        # pretending to be one.
+        context = _bounded_bytes(lead_context, budget) if budget >= 24 else ""
+        return f"{primary} {context}" if context else primary
+
     # A failed scan has no adoption evidence to act on. Lead with the failure,
     # even if the pre-scan git proof found a newly added manifest.
     if head_status == "failed" or merge_verdict == "unknown":
-        return "Shipgate could not complete the scan; human review required."
+        return _lead("Shipgate could not complete the scan; human review required.")
     # An adoption with another gating concern must lead with that real stop
     # condition. "Review, then merge" is only truthful when the adoption
     # finding is the sole review item.
     if manifest_introduced and not pure_adoption_review and report is not None:
         manifest = (
-            f"the configured manifest {_one_clause(configured_manifest)!r}"
+            f"the configured manifest {_manifest_label(configured_manifest)!r}"
             if configured_manifest
             else "the configured Shipgate manifest"
         )
-        return _compose_with_reserved_suffix(
-            _report_primary_headline(report),
-            (
-                f"This PR also introduces {manifest}; adopting a release "
-                "policy is a separate human-review decision."
-            ),
+        suffix = (
+            f"This PR also introduces {manifest}; adopting a release "
+            "policy is a separate human-review decision."
         )
+        return _compose_with_reserved_suffix(_report_lead(report, suffix), suffix)
     # An agent editing the rules that evaluate its own change must see the
     # self-approval prohibition first, ahead of the generic scan headline.
     note = _self_approval_note(
@@ -2051,15 +2134,15 @@ def _verifier_headline(
         if report is not None and _blockers_outrank_governance(
             report.release_decision
         ):
-            return _compose_with_reserved_suffix(
-                _report_primary_headline(report), note
-            )
-        return note
+            return _compose_with_reserved_suffix(_report_lead(report, note), note)
+        return _compose_with_reserved_suffix(lead_context, note)
     if report is not None and report.agent_summary is not None:
-        return report.agent_summary.headline
+        return _lead(_one_clause(report.agent_summary.headline))
     if head_status == "skipped":
-        return "No agent-capability changes detected; Shipgate did not need to run."
-    return None
+        return _lead(
+            "No agent-capability changes detected; Shipgate did not need to run."
+        )
+    return lead_context or None
 
 
 def _verifier_mode(
@@ -2440,6 +2523,9 @@ def _build_verifier(
         capability_review=capability_review,
     )
     resolved_diff_status = diff_status or VerifierDiffStatus()
+    # The provenance note is passed *into* the composition, not appended to its
+    # result: the reserved budget that keeps the human-review requirement whole
+    # is only a guarantee if every later addition goes through it.
     headline = headline_override or _verifier_headline(
         report=report,
         merge_verdict=merge_verdict,
@@ -2448,11 +2534,8 @@ def _build_verifier(
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
         configured_manifest=_display_path(config_path, git_root),
+        context_note=_gap_provenance_note(report=report, base_report=base_report),
     )
-    if headline_override is None:
-        provenance = _gap_provenance_note(report=report, base_report=base_report)
-        if provenance is not None:
-            headline = f"{headline} {provenance}" if headline else provenance
     control = _derive_verifier_control(
         execution=head_status,
         merge_verdict=merge_verdict,

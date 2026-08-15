@@ -52,6 +52,10 @@ from agents_shipgate.checks._verify_common import (
     verification_active,
     verify_finding,
 )
+from agents_shipgate.core.check_ids import (
+    SPLIT_CHECK_ID_ALIASES,
+    expands_to_check_id,
+)
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.policy_reason_codes import (
     POLICY_BASE_ABSENT_CHECK_ID,
@@ -152,7 +156,15 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
     # -> default medium) are all policy weakening.
     defaults = _catalog_default_severities()
     lowered = []
-    check_ids = set(base.severity_overrides) | set(head.severity_overrides)
+    # An override written against a check that has since split configures both
+    # halves (``SPLIT_CHECK_ID_ALIASES``), so the comparison must be made for
+    # every check either side's configuration *reaches* — not only for the
+    # literal keys. Comparing keys alone reports both kinds of wrong answer: a
+    # head that adds an explicit override for the new id lowers the applied
+    # severity with no key change on the old one (missed), and a head that
+    # drops a redundant explicit override changes no applied severity at all
+    # (falsely reported).
+    check_ids = _comparable_check_ids(base.severity_overrides, head.severity_overrides)
     for check_id in sorted(check_ids):
         base_sev = _effective_severity(
             check_id,
@@ -197,12 +209,46 @@ def _catalog_default_severities() -> dict[str, str]:
     return {entry.id: entry.default_severity for entry in load_check_metadata()}
 
 
+def _comparable_check_ids(
+    base_overrides: dict[str, str],
+    head_overrides: dict[str, str],
+) -> set[str]:
+    """Every check whose applied severity either side's configuration reaches.
+
+    A configured key is itself comparable, and so is each check it expands to
+    through a split alias — otherwise a configured id that no longer names the
+    check it governs drops out of the comparison entirely.
+    """
+
+    configured = set(base_overrides) | set(head_overrides)
+    return configured | {
+        expansion
+        for check_id in configured
+        for expansion in SPLIT_CHECK_ID_ALIASES.get(check_id, ())
+    }
+
+
 def _effective_severity(
     check_id: str,
     overrides: dict[str, str],
     defaults: dict[str, str],
 ) -> str | None:
-    return overrides.get(check_id) or defaults.get(check_id)
+    """The severity ``check_id`` is actually applied at, under ``overrides``.
+
+    Resolution mirrors the runtime applier
+    (``core.findings.mutations._severity_override_for_check``) exactly: an
+    override written against this check wins, and only then does an override
+    written against a pre-split umbrella id apply. Reading the literal key
+    alone made the comparator describe a policy the run does not enforce.
+    """
+
+    direct = overrides.get(check_id)
+    if direct:
+        return direct
+    for configured_check_id, override in sorted(overrides.items()):
+        if override and expands_to_check_id(configured_check_id, check_id):
+            return override
+    return defaults.get(check_id)
 
 
 def _touched_policy_surfaces(context: ScanContext) -> list[str]:

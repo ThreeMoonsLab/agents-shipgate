@@ -434,3 +434,237 @@ def test_the_catalog_states_the_comparison_in_the_direction_it_runs():
         if item["id"] == POLICY_BASE_ABSENT_CHECK_ID
     )
     assert "no base effective-policy snapshot is available" in absent["fires_when"]
+
+
+# --- second review: schema contract, comparator, and accepted debt ----------
+
+
+def test_the_frozen_v0_8_schema_still_describes_v0_8_artifacts():
+    """Adding an emitted field under a frozen identifier is a wire break.
+
+    A consumer pinned to the published v0.8 schema validates every artifact
+    that *declares* 0.8. The field lives in 0.9; 0.8 keeps its bytes.
+    """
+
+    from jsonschema import Draft202012Validator
+
+    v08 = json.loads((REPO_ROOT / "docs" / "verifier-schema.v0.8.json").read_text("utf-8"))
+    v09 = json.loads((REPO_ROOT / "docs" / "verifier-schema.v0.9.json").read_text("utf-8"))
+
+    review = v08["$defs"]["VerifierCapabilityReview"]["properties"]
+    assert "policy_weakening_proven" not in review
+    assert "policy_weakening_proven" in (
+        v09["$defs"]["VerifierCapabilityReview"]["properties"]
+    )
+    assert v08["properties"]["verifier_schema_version"]["const"] == "0.8"
+    assert v09["properties"]["verifier_schema_version"]["const"] == "0.9"
+
+    from agents_shipgate.schemas.verifier import VerifierArtifact
+
+    assert VerifierArtifact.model_fields["verifier_schema_version"].default == "0.9"
+    Draft202012Validator.check_schema(v09)
+
+
+def test_a_v0_8_artifact_still_reads_and_normalizes_forward(tmp_path):
+    """The frozen shape stays readable; the field defaults to the honest false.
+
+    A stored v0.8 artifact carries no ``policy_weakening_proven``. Reading one
+    must not fail and must not invent a proven weakening — ``false`` is exactly
+    what "this artifact recorded no comparison" means.
+    """
+
+    from agents_shipgate.schemas.verifier import VerifierArtifact
+
+    repo = _repo_adopting_shipgate(tmp_path)
+    verifier, _report, _exit = _run_verify(repo)
+    payload = verifier.model_dump(mode="json")
+    assert payload["verifier_schema_version"] == "0.9"
+
+    payload["verifier_schema_version"] = "0.8"
+    payload["capability_review"].pop("policy_weakening_proven")
+    normalized = VerifierArtifact.model_validate(payload)
+
+    assert normalized.verifier_schema_version == "0.9"
+    assert normalized.capability_review.policy_weakening_proven is False
+
+
+def test_proven_weakening_cannot_contradict_the_routing_flag():
+    from pydantic import ValidationError
+
+    from agents_shipgate.schemas.verifier import VerifierCapabilityReview
+
+    with pytest.raises(ValidationError, match="requires policy_weakened=True"):
+        VerifierCapabilityReview(policy_weakened=False, policy_weakening_proven=True)
+    # The supported combinations still construct.
+    VerifierCapabilityReview(policy_weakened=True, policy_weakening_proven=True)
+    VerifierCapabilityReview(policy_weakened=True, policy_weakening_proven=False)
+    VerifierCapabilityReview(policy_weakened=False, policy_weakening_proven=False)
+
+
+def _override(severity: str):
+    from agents_shipgate.schemas.manifest.checks import SeverityOverrideEntry
+
+    return SeverityOverrideEntry(severity=severity, reason="test")
+
+
+def _comparison_context(*, base_overrides: dict, head_overrides: dict):
+    from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference
+    from agents_shipgate.schemas.capability_change import EffectivePolicy
+
+    manifest = load_manifest(SAMPLE / "shipgate.yaml")
+    manifest.checks.severity_overrides = {
+        check_id: _override(severity) for check_id, severity in head_overrides.items()
+    }
+    return ScanContext(
+        manifest=manifest,
+        agent=Agent(id="agent:test/test", name="test"),
+        tools=[],
+        config_path=Path("shipgate.yaml"),
+        verification=VerificationContext(
+            changed_files=["shipgate.yaml"],
+            configured_manifest_path="shipgate.yaml",
+        ),
+        diff_reference=ToolSurfaceDiffReference(
+            kind="report",
+            facts=None,
+            effective_policy=EffectivePolicy(
+                ci_mode="advisory",
+                fail_on=["critical", "high"],
+                severity_overrides=dict(base_overrides),
+            ),
+        ),
+    )
+
+
+def _lowerings(context) -> list:
+    return [
+        finding
+        for finding in verify_policy.run(context)
+        if finding.evidence.get("kind") == "severity_override_lowered"
+    ]
+
+
+def test_the_comparator_sees_a_lowering_written_against_the_new_id():
+    """False negative: the applied severity drops with no umbrella key change.
+
+    Base applies `critical` to both halves through the umbrella. Head keeps the
+    umbrella and adds an explicit override for the new id at `medium`, which is
+    what the runtime applier uses — so the gate got weaker and the comparator
+    has to say so.
+    """
+
+    findings = _lowerings(
+        _comparison_context(
+            base_overrides={POLICY_WEAKENED_CHECK_ID: "critical"},
+            head_overrides={
+                POLICY_WEAKENED_CHECK_ID: "critical",
+                POLICY_BASE_ABSENT_CHECK_ID: "medium",
+            },
+        )
+    )
+    assert [f.evidence["target_check_id"] for f in findings] == [
+        POLICY_BASE_ABSENT_CHECK_ID
+    ]
+    assert findings[0].evidence["base_severity"] == "critical"
+    assert findings[0].evidence["head_severity"] == "medium"
+
+
+def test_the_comparator_does_not_invent_a_lowering_that_never_happened():
+    """False positive: dropping a redundant explicit override changes nothing.
+
+    Base spells `critical` twice; head spells it once and still applies
+    `critical` to both halves through the umbrella. Reporting a weakening here
+    would send a human to review a change that does not exist.
+    """
+
+    assert (
+        _lowerings(
+            _comparison_context(
+                base_overrides={
+                    POLICY_WEAKENED_CHECK_ID: "critical",
+                    POLICY_BASE_ABSENT_CHECK_ID: "critical",
+                },
+                head_overrides={POLICY_WEAKENED_CHECK_ID: "critical"},
+            )
+        )
+        == []
+    )
+
+
+def test_a_real_lowering_on_an_unrelated_check_is_untouched():
+    findings = _lowerings(
+        _comparison_context(
+            base_overrides={"SHIP-AUTH-MISSING-SCOPE": "critical"},
+            head_overrides={"SHIP-AUTH-MISSING-SCOPE": "medium"},
+        )
+    )
+    assert [f.evidence["target_check_id"] for f in findings] == ["SHIP-AUTH-MISSING-SCOPE"]
+
+
+def test_pre_split_accepted_debt_still_matches_and_keeps_the_verdict():
+    """Debt accepted under the old id is the same accepted item.
+
+    Without a legacy candidate the row goes matched -> new, and a `critical`
+    accepted-debt finding moves the decision from `review_required` to
+    `blocked` — a verdict change nobody authored.
+    """
+
+    from agents_shipgate.ci.release_decision import build_release_decision
+    from agents_shipgate.core.baseline import apply_baseline
+    from agents_shipgate.core.findings.identity import (
+        assign_finding_ids,
+        legacy_split_check_id_fingerprints,
+    )
+    from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding
+
+    finding = verify_policy.run(_policy_context(manifest_introduced=False))[0]
+    finding.severity = "critical"
+    assign_finding_ids([finding])
+
+    legacy = sorted(legacy_split_check_id_fingerprints(finding))
+    assert len(legacy) == 1
+    assert legacy[0] != finding.fingerprint
+
+    baseline = BaselineFile(
+        created_at="2026-08-01T00:00:00Z",
+        source_report_run_id="run-1",
+        findings=[
+            BaselineFinding(
+                fingerprint=legacy[0],
+                check_id=POLICY_WEAKENED_CHECK_ID,
+                severity="critical",
+                title="Policy change cannot be proven safe (no base snapshot)",
+            )
+        ],
+    )
+    summary = apply_baseline([finding], baseline, display_path="baseline.json")
+
+    assert finding.baseline_status == "matched"
+    assert (summary.matched_count, summary.new_count, summary.resolved_count) == (1, 0, 0)
+
+    accepted = _report([finding])
+    accepted.findings = [finding]
+    decision = build_release_decision(
+        report=accepted,
+        tools=[],
+        ci_mode="advisory",
+        fail_on=["critical", "high"],
+        new_findings_only=False,
+    )
+    assert decision.decision == "review_required"
+    assert not decision.blockers
+    assert [item.check_id for item in decision.review_items] == [
+        POLICY_BASE_ABSENT_CHECK_ID
+    ]
+
+
+def test_the_legacy_fingerprint_candidate_is_scoped_to_declared_splits():
+    """It must not become a way to absorb unrelated accepted debt."""
+
+    from agents_shipgate.core.findings.identity import legacy_split_check_id_fingerprints
+
+    unrelated = _finding("SHIP-AUTH-MISSING-SCOPE", "kind")
+    assert legacy_split_check_id_fingerprints(unrelated) == set()
+    # The umbrella id itself is not a split *target*, so it offers no candidate.
+    umbrella = _finding(POLICY_WEAKENED_CHECK_ID, "ci_mode_weakened")
+    assert legacy_split_check_id_fingerprints(umbrella) == set()

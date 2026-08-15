@@ -2,6 +2,64 @@
 
 ## Unreleased
 
+- **Verifier schema `0.8 → 0.9`.** `capability_review.policy_weakening_proven`
+  is an emitted field, and a published schema identifier never gains one: an
+  artifact still declaring `0.8` failed validation against the frozen v0.8
+  schema every consumer pins to. `0.9` carries the field,
+  [`docs/verifier-schema.v0.8.json`](docs/verifier-schema.v0.8.json) keeps its
+  published bytes, and artifacts declaring `0.8` and earlier still read — the
+  field defaults to `false`, which is exactly what "this artifact recorded no
+  base-vs-head comparison" means. The model now also rejects the contradiction
+  the docs already forbade: `policy_weakening_proven=true` requires
+  `policy_weakened=true`, so a payload cannot route as safe while telling a
+  human the policy was weakened.
+
+- **The PR comment reports the proven fact, not the routing flag.** Headline,
+  control reason, and fix task were made honest for an unprovable policy
+  direction, but the generated `pr-comment.md` still printed
+  `Policy weakened: true` off `policy_weakened` — the fail-closed flag that is
+  raised precisely when nothing was compared. It now prints
+  `Policy changed, weakening unproven: true` with the reason, on every
+  first-adoption and no-base run. The route it reports is unchanged.
+
+- **The policy comparator honors the split check-id aliases.** Runtime severity
+  resolution already did; the Tier B base-vs-head comparison still read literal
+  keys, so it produced both kinds of wrong answer — a head that adds an
+  explicit override for the new id lowered the applied severity with no key
+  change on the umbrella (missed), and a head that drops a redundant explicit
+  override changed no applied severity at all (falsely reported as a
+  weakening). Resolution now mirrors the applier exactly: the exact id wins,
+  then the umbrella.
+
+- **Accepted debt survives the split.** A fingerprint hashes the check id, so
+  every baseline entry recorded against `SHIP-VERIFY-POLICY-WEAKENED` stopped
+  matching the renamed no-base finding — moving a `critical` accepted item from
+  matched debt to new, and its decision from `review_required` to `blocked`.
+  Baseline matching now offers the pre-split fingerprint as an additional
+  candidate, scoped to declared split targets and still required to agree on
+  `support_hash`, so exactly the renamed row matches and no unrelated debt is
+  absorbed.
+
+- **The headline is bounded once, at the end.** The evidence-gap provenance
+  note was appended *after* the reserved-budget composition, silently spending
+  the room held for the human-review requirement: a long multibyte blocker
+  title plus one gap note produced 443 bytes and the 400-byte compact
+  projection dropped `a human must review it.` from both `reason` and
+  `human_review.why`. Every later addition now goes through one composition,
+  the configured-manifest path in the adoption suffix is bounded, and when room
+  runs out the parts yield in priority order — the gap note first, never the
+  verdict, the named cause, or the requirement.
+
+- **Unicode format controls are stripped from headline material.** C0/C1
+  filtering missed the category that matters most: U+202E RIGHT-TO-LEFT
+  OVERRIDE and U+2066 LEFT-TO-RIGHT ISOLATE reorder rendered text without
+  changing a byte, so a tool name carrying one could visually move the reserved
+  governance suffix out of the position the composition guarantees. Unsafe
+  Unicode categories (`Cc`, `Cf`, `Cs`, `Co`, `Cn`, `Zl`, `Zp`) are now
+  collapsed to spaces before any byte accounting, which also makes a lone
+  surrogate — previously a `UnicodeEncodeError` inside the budgeting — a
+  non-event.
+
 - **The verifier headline leads with the release blockers, not with the
   governance notice that outranked them.** When a PR both touched the release
   trust root and blocked release on critical or high findings, `headline` —

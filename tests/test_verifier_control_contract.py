@@ -440,7 +440,7 @@ def test_review_publishable_verifier_denies_merge_and_authorizes_the_rerun() -> 
     assert verifier.control.next_action.actor == "human"
 
     schema = json.loads(
-        (ROOT / "docs" / "verifier-schema.v0.8.json").read_text(encoding="utf-8")
+        (ROOT / "docs" / "verifier-schema.v0.9.json").read_text(encoding="utf-8")
     )
     Draft202012Validator(schema).validate(verifier.model_dump(mode="json"))
 

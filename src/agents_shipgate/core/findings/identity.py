@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections import defaultdict
 
+from agents_shipgate.core.check_ids import SPLIT_CHECK_ID_ALIASES
 from agents_shipgate.schemas.report import Finding
 
 from .constants import FINGERPRINT_EXCLUDED_EVIDENCE_KEYS
@@ -74,6 +75,34 @@ def finding_fingerprint(finding: Finding) -> str:
         json.dumps(identity, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:16]
     return f"fp_{digest}"
+
+
+def legacy_split_check_id_fingerprints(finding: Finding) -> set[str]:
+    """Fingerprints this finding carried under a pre-split check id.
+
+    A fingerprint hashes the check id, so splitting a check invalidates every
+    accepted-debt entry recorded against the pre-split id: the same item stops
+    being *matched* debt and becomes *new*, which can move a critical finding
+    from ``review_required`` to ``blocked``. Nobody accepted a new risk; an id
+    moved.
+
+    The candidate is deliberately narrow. It is offered only for a finding
+    whose own check id is a declared split target, and only for the umbrella
+    ids that declare it — so an unrelated baseline entry can never be absorbed,
+    and nothing here re-emits or revives the pre-split id. The caller still
+    requires the matching entry's ``support_hash`` to agree before treating it
+    as accepted debt.
+    """
+
+    umbrellas = {
+        umbrella
+        for umbrella, targets in SPLIT_CHECK_ID_ALIASES.items()
+        if finding.check_id in targets
+    }
+    return {
+        finding_fingerprint(finding.model_copy(update={"check_id": umbrella}))
+        for umbrella in umbrellas
+    }
 
 
 def legacy_policy_routing_fingerprint(finding: Finding) -> str | None:

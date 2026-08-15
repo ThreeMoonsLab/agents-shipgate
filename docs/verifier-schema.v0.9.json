@@ -2134,6 +2134,11 @@
           "title": "Policy Weakened",
           "type": "boolean"
         },
+        "policy_weakening_proven": {
+          "default": false,
+          "title": "Policy Weakening Proven",
+          "type": "boolean"
+        },
         "removed": {
           "default": 0,
           "title": "Removed",
@@ -2459,7 +2464,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.8.json",
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/verifier-schema.v0.9.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -3148,8 +3153,8 @@
       "type": "object"
     },
     "verifier_schema_version": {
-      "const": "0.8",
-      "default": "0.8",
+      "const": "0.9",
+      "default": "0.9",
       "title": "Verifier Schema Version",
       "type": "string"
     },
@@ -3165,6 +3170,6 @@
     "control",
     "authorization"
   ],
-  "title": "Agents Shipgate Verifier Artifact v0.8",
+  "title": "Agents Shipgate Verifier Artifact v0.9",
   "type": "object"
 }

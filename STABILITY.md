@@ -1787,8 +1787,13 @@ release decision. That action may be `detect`/`initialize` for
 relevant unconfigured repos, or `verify` for configured repos. Use it as the
 first touch on a repo or PR before committing to a full scan.
 
-`verifier.json` is governed by [`docs/verifier-schema.v0.7.json`](docs/verifier-schema.v0.7.json).
-Verifier v0.1 through v0.6 remain frozen references. It remains an orchestration artifact: `release_decision.decision` in
+`verifier.json` is governed by [`docs/verifier-schema.v0.9.json`](docs/verifier-schema.v0.9.json).
+Verifier v0.1 through v0.8 remain frozen references — a published schema
+identifier never gains an emitted field, so `0.9` carries
+`capability_review.policy_weakening_proven` and `0.8` keeps the bytes every
+consumer pinned to it already validates against. Artifacts declaring `0.8`
+and earlier still read: the field defaults to `false`, which is exactly what
+"this artifact recorded no base-vs-head comparison" means. It remains an orchestration artifact: `release_decision.decision` in
 `report.json` is still the only release gate. Release and merge fields remain
 mirrors or deterministic projections of report data; the v0.6 authorization
 evaluation and the v0.7 `diff_status` block are operational overlays that

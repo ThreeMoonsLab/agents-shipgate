@@ -219,7 +219,7 @@ Downstream repos generated with
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.7` — [`docs/verifier-schema.v0.8.json`](verifier-schema.v0.8.json)
+- Current verifier schema: `0.9` — [`docs/verifier-schema.v0.9.json`](verifier-schema.v0.9.json) (v0.8 and earlier stay frozen; `0.9` adds `capability_review.policy_weakening_proven`)
 - Current verify-run schema: `shipgate.verify_run/v4` — [`docs/verify-run-schema.v4.json`](verify-run-schema.v4.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -572,8 +572,8 @@ from existing artifacts with:
 agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json
 ```
 
-In `agents-shipgate-reports/verifier.json`, read the v0.7 fields below (full
-schema [`docs/verifier-schema.v0.8.json`](verifier-schema.v0.8.json)). **Lead
+In `agents-shipgate-reports/verifier.json`, read the fields below (full
+schema [`docs/verifier-schema.v0.9.json`](verifier-schema.v0.9.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.

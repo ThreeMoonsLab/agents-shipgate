@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -712,3 +713,159 @@ def test_a_trust_root_only_pr_still_leads_with_the_trust_root_message(tmp_path):
     assert verifier.headline is not None
     assert verifier.headline.startswith("This PR edits a release trust root")
     assert verifier.can_merge_without_human is False
+
+
+# --- second review: budget, Unicode, and the PR-comment claim ---------------
+
+
+_GAP_NOTE = (
+    "This diff introduces no new evidence gap; all 19 are pre-existing on the base."
+)
+
+
+def _budgeted_headline(title: str, **kwargs) -> str:
+    headline = _verifier_headline(
+        report=_hostile_report(title),
+        merge_verdict="blocked",
+        head_status="succeeded",
+        capability_review=_review(trust_root_touched=True),
+        context_note=_GAP_NOTE,
+        **kwargs,
+    )
+    assert headline is not None
+    return headline
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "stripe.create_refund has financial write capability without required controls",
+        "支払い " * 30 + "has financial write capability without required controls",
+        "x" * 7_000,
+    ],
+)
+def test_the_final_composed_headline_fits_the_control_budget(title):
+    """The provenance note used to be appended *after* the reservation.
+
+    That silently spent the room reserved for the human-review requirement, so
+    a long blocker title plus one gap note pushed the requirement past the
+    compact projection's limit. Every later addition now goes through the same
+    composition.
+    """
+
+    headline = _budgeted_headline(title)
+
+    assert len(headline.encode("utf-8")) <= MAX_ENVELOPE_PROSE_BYTES
+    assert truncate_prose(headline) == headline
+    assert headline.endswith("a human must review it.")
+    assert SELF_APPROVAL_CLAUSE in headline
+
+
+def test_an_unbounded_configured_manifest_cannot_eat_the_adoption_suffix():
+    headline = _budgeted_headline(
+        "stripe.create_refund has financial write capability without required controls",
+        manifest_introduced=True,
+        pure_adoption_review=False,
+        configured_manifest="deeply/" * 80 + "shipgate.yaml",
+    )
+
+    assert len(headline.encode("utf-8")) <= MAX_ENVELOPE_PROSE_BYTES
+    assert truncate_prose(headline) == headline
+    assert headline.endswith(
+        "adopting a release policy is a separate human-review decision."
+    )
+
+
+def test_the_blocking_cause_outranks_the_gap_note_when_room_runs_out():
+    """Priority order: verdict, then cause, then context. The suffix is never cut."""
+
+    short = _budgeted_headline("stripe.create_refund lacks a declared approval policy")
+    assert "lacks a declared approval policy" in short
+    assert "pre-existing on the base" in short
+
+    crowded = _budgeted_headline("x" * 7_000)
+    assert "Most severe:" in crowded
+    assert crowded.endswith("a human must review it.")
+
+
+@pytest.mark.parametrize(
+    ("name", "hostile"),
+    [
+        ("rtl-override", "pay‮funds"),
+        ("lri-isolate", "pay⁦funds"),
+        ("zero-width", "pay​funds"),
+        ("bidi-pop", "pay⁩‬funds"),
+        ("lone-surrogate", "pay\ud800funds"),
+        ("private-use", "payfunds"),
+    ],
+)
+def test_unicode_format_controls_never_reach_the_headline(name, hostile):
+    """C0/C1 filtering was not enough.
+
+    U+202E and U+2066 reorder *rendered* text without changing a byte, so a
+    tool name carrying one can visually move the reserved governance suffix out
+    of the position the composition guarantees. A lone surrogate cannot be
+    UTF-8 encoded at all and raised inside the byte budgeting.
+    """
+
+    headline = _budgeted_headline(f"{hostile} has financial write capability")
+
+    for char in headline:
+        assert unicodedata.category(char) not in {
+            "Cc",
+            "Cf",
+            "Cs",
+            "Co",
+            "Cn",
+            "Zl",
+            "Zp",
+        }, (name, repr(char))
+    # Encodable, so the byte budgeting downstream cannot raise on it.
+    headline.encode("utf-8")
+    assert headline.endswith("a human must review it.")
+
+
+def test_the_pr_comment_reports_the_proven_fact_not_the_routing_flag(tmp_path):
+    """Human-facing PR copy must not claim a weakening nothing compared."""
+
+    report = _hostile_report("stripe.create_refund has financial write capability")
+    report.protected_surface_changes = []
+
+    def _comment(*, proven: bool) -> str:
+        review = _review(
+            policy_weakened=True,
+            policy_weakening_proven=proven,
+            trust_root_touched=True,
+        )
+        verifier = VerifierArtifact(
+            workspace=str(tmp_path),
+            diff_status=VerifierDiffStatus(),
+            config="shipgate.yaml",
+            authorization=AuthorizationEvaluationV1.not_requested(),
+            trigger={"rationale": "1 run_shipgate rule(s) matched."},
+            execution="succeeded",
+            head_status="succeeded",
+            release_decision=report.release_decision,
+            decision="blocked",
+            merge_verdict="blocked",
+            applicability="verified",
+            control=_control(report, headline="h"),
+            headline="h",
+            capability_review=review,
+            artifacts={"report_json": "agents-shipgate-reports/report.json"},
+        )
+        return render_pr_comment(verifier, report=report)
+
+    unprovable = _comment(proven=False)
+    assert "- Policy weakened: `true`" not in unprovable
+    assert "Policy changed, weakening unproven: `true`" in unprovable
+    assert "no base policy was available to compare against" in unprovable
+    # The route it reports is unchanged: still a blocked, human-gated verdict.
+    assert "- Merge verdict: `blocked`" in unprovable
+    assert "- Agent may merge: `false`" in unprovable
+
+    proven = _comment(proven=True)
+    assert "- Policy weakened: `true`" in proven
+    assert "weakening unproven" not in proven
+    assert "- Merge verdict: `blocked`" in proven
+    assert "- Agent may merge: `false`" in proven
