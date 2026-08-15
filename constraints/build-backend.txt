@@ -34,9 +34,9 @@
 # Compared against the source by scripts/verify_dependency_lock.py, so a
 # changed extra, marker, URL or range cannot slip past without recompiling.
 #
-#   declares: hatchling==1.31.0
+#   declares: hatchling==1.32.0
 #
-hatchling==1.31.0 \
+hatchling==1.32.0 \
     --hash=sha256:6b48ad4068a482ed7239b3a8215bc55b47aad3345d58dfc94e553c5d2d46211b \
     --hash=sha256:aac80bec8b6fe35e8480f1c335be8910fa210a0e6f735a139be205dadcacb544
     # via -r constraints/release-build.txt

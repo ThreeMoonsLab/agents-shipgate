@@ -28,4 +28,4 @@
 # The same version is pinned inside constraints/release-seal.txt, which is what
 # the sealing job actually installs; scripts/verify_dependency_lock.py and the
 # release-pipeline suite keep the two in agreement.
-hatchling==1.31.0
+hatchling==1.32.0
