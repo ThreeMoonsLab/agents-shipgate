@@ -308,7 +308,8 @@ def _build_first_recommended_action(
        problem before cleaning up findings.
 
        "No machine-applicable fix is available" is reserved for the case
-       where that is true: no gap names a path. Emitting it while the
+       where that is true: no gap offers a target or a command. Emitting it
+       while the
        ``Improve evidence:`` line pointed at a file was #362's dead end.
     1b. Verdict is review_required BUT evidence is below the IE
        threshold (an active high/critical finding elevated it out of

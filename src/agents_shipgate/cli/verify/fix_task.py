@@ -28,10 +28,7 @@ from agents_shipgate.core.evidence_actions import (
     is_addressable_gap,
     one_line,
 )
-from agents_shipgate.core.source_warnings import (
-    group_source_warnings,
-    is_unprintable_display,
-)
+from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.report import (
     EvidenceCoverageDecision,
@@ -567,17 +564,25 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     # a fourth, distinct mechanism entirely — `_dedupe_cap` then collapsed the
     # three into one, so the instruction list lost the visible warning without
     # anything showing why (#362 review 5).
-    seen_messages: set[str] = set()
-    groups = group_source_warnings(remaining)
-    # Readable diagnostics first, then the unprintable stand-ins. The cap is
-    # still three; this only decides which three, so a row a reader can act on
-    # is never crowded out by rows that say nothing.
-    for group in sorted(groups, key=lambda row: is_unprintable_display(row.message)):
-        if group.message in seen_messages:
+    # Readable diagnostics first, then the unprintable stand-ins. `unprintable`
+    # is structural state on the group, not a property of its text: reading the
+    # text let loader-controlled prose impersonate a placeholder and take its
+    # slot (#362 review 6). The cap is still three; this only decides which
+    # three, so a row a reader can act on is never crowded out by rows that say
+    # nothing.
+    #
+    # De-duplication is on the *visible skeleton* rather than the rendered
+    # message, because rows differing only by an embedded invisible code point
+    # render as visibly distinct lines while saying the same thing.
+    seen_skeletons: set[str] = set()
+    for group in sorted(
+        group_source_warnings(remaining), key=lambda row: row.unprintable
+    ):
+        if group.skeleton in seen_skeletons:
             continue
-        seen_messages.add(group.message)
+        seen_skeletons.add(group.skeleton)
         out.append(f"Resolve source warning: {group.message}")
-        if len(seen_messages) == 3:
+        if len(seen_skeletons) == 3:
             break
     if not out:
         out.append(

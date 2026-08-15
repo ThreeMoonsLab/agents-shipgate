@@ -1194,7 +1194,8 @@ def _decision_reason(
         if evidence.source_warning_count > 0:
             parts.append(f"{evidence.source_warning_count} source warning(s)")
         detail = " and ".join(parts) if parts else "degraded evidence"
-        # Counts are the symptom; a gap that names a path is the work. When
+        # Counts are the symptom; an addressable gap — one naming a target or
+        # carrying a runnable command — is the work. When
         # one exists, lead with it and demote the counts to context — the old
         # wording put the tally first and contradicted the `Improve evidence:`
         # line printed directly beneath it (#362). The gap chosen here is the

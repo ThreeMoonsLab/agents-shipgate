@@ -70,6 +70,7 @@ from agents_shipgate.core.evidence_actions import (
     is_publishable_command,
     one_line,
     primary_evidence_gap,
+    undisplay_literal,
 )
 from agents_shipgate.core.findings import build_agent_summary
 from agents_shipgate.core.source_warnings import (
@@ -77,7 +78,6 @@ from agents_shipgate.core.source_warnings import (
     adk_unresolved_tool_warning,
     group_source_warnings,
     invalid_tool_binding_warning,
-    is_unprintable_display,
     unknown_binding_member_source,
     zero_observation_binding_member,
 )
@@ -290,7 +290,7 @@ def _gap(kind: str, subject: str, *, path: str | None) -> EvidenceGap:
 
 
 def test_primary_evidence_gap_skips_rows_nobody_can_open():
-    """Rank-1 is the first gap that names a path, not the first gap.
+    """Rank-1 is the first *addressable* gap, not the first gap.
 
     Source warnings sort ahead of nothing in particular, but they carry no
     path — leading with one is what demoted the actionable row in #362.
@@ -708,7 +708,13 @@ def test_conductor_golden_matches_a_fresh_scan_field_for_field(tmp_path, monkeyp
     "golden", sorted(Path("samples").glob("*/expected/report.json"))
 )
 def test_committed_sample_reports_uphold_the_actionability_invariant(golden):
-    """Every shipped example is also a claim about what agents should read."""
+    """Every shipped example is also a claim about what agents should read.
+
+    Uses the shared modeled predicate rather than reading ``next_action.path``
+    directly: a raw path read misses a command-only row entirely, so a golden
+    claiming no machine-applicable fix beside a runnable command would pass
+    (#362 review 6).
+    """
 
     report = json.loads(golden.read_text(encoding="utf-8"))
     summary = report.get("agent_summary") or {}
@@ -717,11 +723,40 @@ def test_committed_sample_reports_uphold_the_actionability_invariant(golden):
     if NO_FIX_AVAILABLE not in why:
         return
     decision = report.get("release_decision") or {}
-    gaps = (decision.get("evidence_coverage") or {}).get("evidence_gaps") or []
-    addressable = [gap for gap in gaps if (gap.get("next_action") or {}).get("path")]
+    addressable = actionable_evidence_gaps(
+        EvidenceCoverageDecision.model_validate(decision["evidence_coverage"])
+    )
     assert not addressable, (
         f"{golden} claims no machine-applicable fix while "
-        f"{addressable[0]['next_action']['path']} is named by an evidence gap."
+        f"{addressable[0].next_action.path or addressable[0].next_action.command} "
+        "is offered by an evidence gap."
+    )
+
+
+def test_the_golden_invariant_catches_a_command_only_contradiction():
+    """The invariant's own negative: a raw `path` read would miss this.
+
+    Pins that the check models addressability the way the engine does, so a
+    future golden carrying a runnable command beside the no-fix sentence
+    cannot slip through.
+    """
+
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[_command_only_gap()],
+    )
+    payload = json.loads(evidence.model_dump_json())
+
+    # What the old check looked at: no path anywhere.
+    assert not [
+        gap for gap in payload["evidence_gaps"] if (gap.get("next_action") or {}).get("path")
+    ]
+    # What the modeled predicate sees.
+    assert actionable_evidence_gaps(
+        EvidenceCoverageDecision.model_validate(payload)
     )
 
 
@@ -1621,20 +1656,25 @@ def test_bidi_controls_are_neutralized_in_a_rendered_target():
 # --- an all-control warning still says something -----------------------------
 
 
-ALL_CONTROL_WARNING = "​​⁠"
+ALL_CONTROL_WARNING = "\n\t\r\f "
 
 
 def test_an_unprintable_warning_gets_a_visible_placeholder(tmp_path, capsys):
     """A blank bullet hides the very thing the gate is reporting.
 
-    With a warning made only of invisible code points, `group.message` was the
-    empty string, so report.md and packet.md rendered blank bullets, packet
-    HTML rendered `<li></li>`, the CLI rendered `- `, and the fix task emitted
-    a bare `Resolve source warning:` (#362 review 4, finding 2).
+    With a warning that renders to nothing, `group.message` was the empty
+    string, so report.md and packet.md rendered blank bullets, packet HTML
+    rendered `<li></li>`, the CLI rendered `- `, and the fix task emitted a
+    bare `Resolve source warning:` (#362 review 4, finding 2).
+
+    Whitespace-only is the shape that still reaches this path: since review 6,
+    invisible *code points* are escaped visibly rather than passed through, so
+    they render as `<U+200B>` and need no stand-in.
     """
 
     (group,) = group_source_warnings([ALL_CONTROL_WARNING])
     assert group.warnings == (ALL_CONTROL_WARNING,)
+    assert group.unprintable is True
     assert "carried no printable text" in group.message
 
     evidence = EvidenceCoverageDecision(
@@ -1679,6 +1719,15 @@ def test_an_unprintable_warning_gets_a_visible_placeholder(tmp_path, capsys):
     assert "carried no printable text" in remedy
 
 
+
+def test_invisible_code_points_render_visibly_rather_than_as_a_stand_in():
+    """Escaped invisibles are self-describing, so no placeholder is needed."""
+
+    (group,) = group_source_warnings(["\u200b\u2060\ufe0f"])
+
+    assert group.unprintable is False
+    assert group.message == "<U+200B><U+2060><U+FE0F>"
+    assert undisplay_literal(group.message) == "\u200b\u2060\ufe0f"
 def _blank_bullets(text: str) -> list[str]:
     return [
         line
@@ -1707,14 +1756,18 @@ def test_display_normalization_never_rewrites_a_repository_path(value):
 
     Dropping general category `Cf` wholesale turned `agents/👩‍💻.yaml` into a
     different filename and changed Persian identifiers carrying ZWNJ
-    (#362 review 4, finding 1).
+    (#362 review 4, finding 1). Identity is preserved by *reversibility*, not
+    by passing invisibles through raw: an invisible left as itself lets one
+    path impersonate another (#362 review 6), so it is escaped and the escape
+    round-trips.
     """
 
-    assert one_line(value) == value
     gap = _gap("missing_binding_evidence", value, path=value)
+    rendered = evidence_gap_target(gap)
+
     assert is_addressable_gap(gap)
-    assert evidence_gap_target(gap) == value
-    assert value in evidence_gap_action_text(gap)
+    assert undisplay_literal(rendered) == value
+    assert rendered in evidence_gap_action_text(gap)
 
 
 @pytest.mark.parametrize(
@@ -1747,19 +1800,29 @@ def test_an_unsafe_command_is_suppressed_never_repaired(raw):
 
 
 @pytest.mark.parametrize(
-    "raw, published",
+    "raw",
     [
-        ("agents-shipgate scan -c shipgate.yaml", "agents-shipgate scan -c shipgate.yaml"),
-        ("  agents-shipgate scan  ", "agents-shipgate scan"),
-        ("python -m agents_shipgate verify --base origin/main", "python -m agents_shipgate verify --base origin/main"),
+        "agents-shipgate scan -c shipgate.yaml",
+        "  agents-shipgate scan  ",
+        "python -m agents_shipgate verify --base origin/main",
+        "printf foo\\ ",
     ],
 )
-def test_a_safe_command_is_published_verbatim(raw, published):
-    """Only outer whitespace is trimmed — which cannot change the program."""
+def test_a_safe_command_is_published_byte_for_byte(raw):
+    """A published command is the authored one, untouched.
+
+    Even trimming U+0020 was too much: `printf foo\\ ` is a valid two-token
+    command whose second argument ends in a space, and dropping that space
+    leaves `printf foo\\`, which `shlex.split` refuses to parse at all
+    (#362 review 6).
+    """
 
     gap = _gap("source_warning", "s", path="shipgate.yaml#x")
     gap.next_action.command = raw
-    assert evidence_gap_command(gap) == published
+
+    published = evidence_gap_command(gap)
+    assert published == raw
+    assert shlex.split(published) == shlex.split(raw)
 
 
 @pytest.mark.parametrize(
@@ -2203,11 +2266,44 @@ def test_a_distinct_visible_warning_survives_the_instruction_cap():
 def test_unprintable_placeholders_stay_distinct():
     """Two different unprintable warnings must not render as one line."""
 
-    groups = group_source_warnings(["​", "⁠"])
+    groups = group_source_warnings(["\n\t ", "\r\f"])
 
     assert len(groups) == 2
     assert groups[0].message != groups[1].message
-    assert all(is_unprintable_display(group.message) for group in groups)
+    assert all(group.unprintable for group in groups)
+
+
+def test_a_lone_surrogate_warning_does_not_crash_the_digest():
+    """Loaders decode POSIX paths with `surrogateescape`.
+
+    A lone surrogate is a legal `str` that plain UTF-8 encoding refuses, and
+    the digest raised `UnicodeEncodeError` for the whole grouping call
+    (#362 review 6).
+    """
+
+    (group,) = group_source_warnings(["\ud800"])
+
+    assert group.warnings == ("\ud800",)
+    assert "<U+D800>" in group.message
+    group.message.encode("utf-8")
+
+
+def test_placeholder_state_is_structural_not_inferred_from_text():
+    """Loader text cannot promote itself into placeholder status.
+
+    Reading the message prefix let a warning that merely *starts like* the
+    stand-in be ranked as one, so it kept its slot in the capped list while a
+    real diagnostic was dropped (#362 review 6).
+    """
+
+    mimic = (
+        "(source warning carried no printable text; ACTUAL readable mechanism: "
+        "fix foo)"
+    )
+    (group,) = group_source_warnings([mimic])
+
+    assert group.unprintable is False
+    assert group.message == mimic
 
 
 def test_a_command_only_gap_reaches_the_verifier_fix_task():
@@ -2257,10 +2353,63 @@ def test_a_path_is_never_whitespace_folded_or_trimmed(path):
     """
 
     gap = _gap("missing_binding_evidence", "subject", path=path)
+    rendered = evidence_gap_target(gap)
 
-    assert evidence_gap_target(gap) == path
-    assert display_literal(path) == path
-    assert path in evidence_gap_action_text(gap)
+    # No folding and no trimming: every space survives, and the value
+    # round-trips exactly.
+    assert undisplay_literal(rendered) == path
+    assert rendered.count(" ") == path.count(" ")
+    assert rendered in evidence_gap_action_text(gap)
+
+
+ADVERSARIAL_PATHS = [
+    "a\nb.yaml",
+    "a<U+000A>b.yaml",
+    "a\u202eb.yaml",
+    "a<U+202E>b.yaml",
+    "shipgate\u200b.yaml",
+    "shipgate.yaml",
+    "configs/foo  bar.yaml",
+    "configs/foo bar.yaml",
+    "agents/\U0001f469\u200d\U0001f4bb.yaml",
+    "\ud800",
+    "a<b",
+    "<<>>",
+]
+
+
+def test_path_rendering_is_reversible_and_injective():
+    """Two different repository objects can never render the same way.
+
+    `a\nb.yaml` and the literal filename `a<U+000A>b.yaml` both rendered as
+    `a<U+000A>b.yaml`, so a reader could not tell which file was meant, and an
+    embedded ZWSP passed through invisibly so `shipgate\u200b.yaml`
+    impersonated `shipgate.yaml` (#362 review 6, finding 2).
+    """
+
+    seen: dict[str, str] = {}
+    for path in ADVERSARIAL_PATHS:
+        rendered = display_literal(path)
+        assert undisplay_literal(rendered) == path, path
+        assert rendered not in seen, (path, seen.get(rendered))
+        seen[rendered] = path
+        rendered.encode("utf-8")
+
+    gaps = [_gap("missing_binding_evidence", "s", path=p) for p in ADVERSARIAL_PATHS]
+    targets = [evidence_gap_target(gap) for gap in gaps]
+    assert len(set(targets)) == len(targets)
+
+
+def test_prose_keeps_ordinary_punctuation_unescaped():
+    """Injectivity is for identity, not for warning text.
+
+    Escaping every `<` in prose would mangle ordinary content like `<script>`
+    (and did, until the two projections were separated).
+    """
+
+    assert one_line("a < b and <script> stays readable") == (
+        "a < b and <script> stays readable"
+    )
 
 
 @pytest.mark.parametrize(
@@ -2363,15 +2512,59 @@ def test_boundary_whitespace_cannot_synthesize_a_command(raw):
     assert "Run:" not in evidence_gap_action_text(gap)
 
 
-def test_only_ascii_spaces_are_trimmed_from_a_published_command():
-    gap = _gap("source_warning", "s", path="shipgate.yaml#x")
-    gap.next_action.command = "  agents-shipgate scan -c shipgate.yaml  "
-    published = evidence_gap_command(gap)
+def test_an_escaped_trailing_space_command_survives_every_durable_consumer():
+    """The exact shape trimming broke, through the whole chain."""
 
-    assert published == "agents-shipgate scan -c shipgate.yaml"
-    assert shlex.split(published)[0] == shlex.split(
-        gap.next_action.command.strip(" ")
-    )[0]
+    raw = "printf foo\\ "
+    assert shlex.split(raw) == ["printf", "foo "]
+
+    gap = EvidenceGap(
+        kind="source_warning",
+        subject="stale base",
+        why="w",
+        next_action=EvidenceGapAction(
+            kind="provide_source",
+            path=None,
+            command=raw,
+            why="w",
+            expects="Regenerate the base report",
+        ),
+    )
+    evidence = EvidenceCoverageDecision(
+        level="static",
+        human_review_recommended=True,
+        source_warning_count=4,
+        low_confidence_tool_count=0,
+        evidence_gaps=[gap],
+    )
+    decision = _release_decision("insufficient_evidence", evidence)
+    decision.reason = _decision_reason("insufficient_evidence", [], [], evidence)
+    report = _minimal_report(decision)
+
+    assert raw in decision.reason
+    assert raw in primary_evidence_remediation_text(evidence)
+    summary = build_agent_summary(findings=[], release_decision=decision)
+    assert summary.first_recommended_action is not None
+    assert raw in summary.first_recommended_action.why
+
+    task = build_fix_task(
+        report,
+        merge_verdict="insufficient_evidence",
+        capability_review=VerifierCapabilityReview(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+    )
+    assert task is not None
+    (repair,) = [row for row in task.allowed_repairs if row.kind == "provide_source"]
+    assert repair.command == raw
+    assert shlex.split(repair.command) == ["printf", "foo "]
+    assert any(raw in instruction for instruction in task.instructions)
+
+    payload = build_agent_result(
+        verifier=_verifier_with(task, report), report=report
+    ).model_dump(mode="json")
+    assert any(raw in line for line in payload["suggested_fixes"])
+    assert any(raw in line for line in payload["agent_repair_instructions"])
 
 
 # --- durable machine-facing contracts are sanitized too ----------------------

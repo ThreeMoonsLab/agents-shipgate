@@ -49,7 +49,12 @@ import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-from agents_shipgate.core.evidence_actions import has_visible_content, one_line
+from agents_shipgate.core.evidence_actions import (
+    _ESCAPE_PATTERN,
+    _WHITESPACE_RUN,
+    has_visible_content,
+    one_line,
+)
 
 
 # A warning made only of controls and invisible code points renders as
@@ -59,35 +64,41 @@ from agents_shipgate.core.evidence_actions import has_visible_content, one_line
 def _unprintable_warning(warning: str) -> str:
     """Stand-in for a warning with nothing printable in it.
 
-    Carries a short digest of the raw bytes so two different unprintable
+    Carries a short digest of the raw code points so two different unprintable
     warnings do not render as the same line: collapsing them would under-report
-    how many distinct diagnostics the loader raised, and any consumer
-    de-duplicating on the rendered text would merge unrelated rows.
+    how many distinct diagnostics the loader raised.
+
+    ``surrogatepass`` because a loader may hand us a path decoded with
+    ``surrogateescape``. A lone surrogate is a legal ``str`` that plain UTF-8
+    encoding refuses, and this function has to be total over whatever the
+    adapters produce (#362 review 6).
     """
 
-    digest = hashlib.sha256(warning.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha256(warning.encode("utf-8", "surrogatepass")).hexdigest()
     return (
-        f"(source warning carried no printable text; sha256:{digest} — see "
+        f"(source warning carried no printable text; sha256:{digest[:12]} — see "
         "report.json source_warnings for the raw value)"
     )
 
 
 def _display(warning: str) -> str:
-    """The one-line display copy of a warning, never blank."""
+    """The one-line display copy of a mechanism rendering, never blank."""
 
     rendered = one_line(warning)
     return rendered if has_visible_content(rendered) else _unprintable_warning(warning)
 
 
-def is_unprintable_display(message: str) -> bool:
-    """True when a rendered group is a stand-in rather than loader text.
+def visible_skeleton(message: str) -> str:
+    """What two rendered warnings have in common to the eye.
 
-    Consumers that must cap how much they show rank real diagnostics first: a
-    row with nothing to read cannot be allowed to crowd out one that names a
-    mechanism (#362 review 5).
+    For de-duplication only, never for display. Three warnings differing only
+    by an embedded invisible code point render as three *visibly distinct*
+    lines — ``display_literal`` escapes those — but say the same thing, and
+    letting all three occupy a capped instruction list hid a genuinely
+    different fourth diagnostic (#362 review 6).
     """
 
-    return message.startswith("(source warning carried no printable text;")
+    return _WHITESPACE_RUN.sub(" ", _ESCAPE_PATTERN.sub("", message)).strip()
 
 
 _Fields = tuple[str, ...]
@@ -184,16 +195,29 @@ class SourceWarningGroup:
     interpolate into ``report.md``, the packet renderers, the CLI, and
     ``fix_task.instructions[]``. ``warnings`` keeps the loader's bytes, so
     nothing that gates or counts moves.
+
+    ``unprintable`` records *structurally* that the message is a stand-in
+    rather than loader text. Inferring that from the message's prefix let
+    loader-controlled text impersonate a placeholder and take its place in a
+    capped list (#362 review 6): warning text is not a format we control, so
+    nothing about the text can be trusted to describe itself.
     """
 
     message: str
     warnings: tuple[str, ...]
+    unprintable: bool = False
 
     @property
     def count(self) -> int:
         """Raw warnings folded in — never a count of distinct subjects."""
 
         return len(self.warnings)
+
+    @property
+    def skeleton(self) -> str:
+        """The de-duplication key: what this row looks like to a reader."""
+
+        return visible_skeleton(self.message)
 
 
 def group_source_warnings(warnings: Sequence[str]) -> list[SourceWarningGroup]:
@@ -235,8 +259,14 @@ def group_source_warnings(warnings: Sequence[str]) -> list[SourceWarningGroup]:
             # fix_task.instructions[] — none of which collapse newlines — so
             # the *display* copy is normalized even though nothing about it
             # was understood. `warnings` keeps the raw bytes.
+            rendered = one_line(raw[0])
+            printable = has_visible_content(rendered)
             groups.append(
-                SourceWarningGroup(message=_display(raw[0]), warnings=raw)
+                SourceWarningGroup(
+                    message=rendered if printable else _unprintable_warning(raw[0]),
+                    warnings=raw,
+                    unprintable=not printable,
+                )
             )
             continue
         subjects = _unique(subject for _, subject in members)
@@ -473,7 +503,7 @@ _MECHANISMS: tuple[_Mechanism, ...] = (
 
 __all__ = [
     "SourceWarningGroup",
-    "is_unprintable_display",
+    "visible_skeleton",
     "adk_unresolved_tool_warning",
     "group_source_warnings",
     "invalid_tool_binding_warning",

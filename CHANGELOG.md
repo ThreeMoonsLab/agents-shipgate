@@ -18,10 +18,12 @@
   normalized target or carries a publishable command, falling back to the first
   row when nothing is addressable.
   On an `insufficient_evidence` verdict with an addressable gap the three name
-  the same gap and the same path; the reason reads `Insufficient evidence: <what
-  is unproven> (<subject>). Fix at <path>. Context: <counts>…`. And on **every**
-  verdict, "no machine-applicable fix is available" is unreachable while any gap
-  names a path; where it still appears, it is true. Outside that first case the
+  the same gap and the same target — or, for a row carrying only a command, the
+  same command; the reason reads `Insufficient evidence: <what is unproven>
+  (<subject>). Fix at <target>.` (or `Run: <command>.`) `Context: <counts>…`.
+  And on **every** verdict, "no machine-applicable fix is available" is
+  unreachable while any gap is addressable; where it still appears, it is
+  true. Outside that first case the
   three surfaces answer different questions on purpose — with no addressable gap
   the reason keeps its threshold wording, and under `review_required` it stays
   severity-driven — and the published contract now says so at exactly that
@@ -39,22 +41,27 @@
 
   Addressability is decided **after** normalization, by one shared predicate
   every consumer calls, and normalization is split into three questions that
-  had been conflated. *Display* renders a value on one line without
-  rewriting it: control, `U+2028`/`U+2029`, and bidi characters become a
-  visible `<U+XXXX>` escape and **nothing is deleted**, so every visible script
-  and every identity-bearing joiner survives — `agents/👩‍💻.yaml` and
-  identifiers carrying ZWNJ are named as they actually are. Prose additionally
-  folds whitespace; paths and commands never do, so `configs/foo  bar.yaml`
-  keeps both spaces and `python -c 'print("a  b")'` stays the program that was
-  written. *Visibility*
-  (`has_visible_content`) asks whether a value names anything at all, using
-  Unicode Default_Ignorable rather than a general-category guess, so a path
-  made only of ZWSP, VS16, or CGJ is not addressable. *Executability* is all-or-nothing **and is judged on the
-  authored value before any trimming**: a command containing any control, bidi,
-  or invisible code point, or any whitespace other than `U+0020`, is
-  **suppressed, never repaired**. Deleting a zero-width character from
-  `r​m -rf` authors a program the repository never wrote, and trimming a
-  leading NBSP silently changes `argv[0]`. Blank accepted values are dropped rather than
+  had been conflated. *Display* renders a value on one line without rewriting
+  it: **nothing is deleted**, and anything that would not reach the reader as
+  itself — controls, `U+2028`/`U+2029`, bidi marks, lone surrogates, and
+  invisible (Default_Ignorable) code points — becomes a visible `<U+XXXX>`
+  escape. For identity-bearing values that encoding is **reversible and
+  injective**: `<` is escaped too, so `a\nb.yaml` and the literal filename
+  `a<U+000A>b.yaml` render differently and `shipgate\u200b.yaml` can no longer
+  impersonate `shipgate.yaml`. Prose keeps `<` as ordinary punctuation and
+  additionally folds whitespace; paths and commands never fold, so
+  `configs/foo  bar.yaml` keeps both spaces and `python -c 'print("a  b")'`
+  stays the program that was written. *Visibility* asks whether a value names
+  anything at all, using Unicode Default_Ignorable rather than a
+  general-category guess, so a path made only of ZWSP, VS16, or CGJ is not
+  addressable. *Executability* is all-or-nothing, judged on the **authored
+  value**, and a publishable command is published **byte for byte**: any
+  control, bidi, or invisible code point, or any whitespace other than
+  `U+0020`, suppresses it entirely, and a publishable one is never trimmed.
+  Deleting a zero-width character from `r\u200bm -rf` authors a program the
+  repository never wrote; trimming a leading NBSP silently changes `argv[0]`;
+  and trimming a *trailing* space breaks `printf foo\\ `, whose second token
+  legitimately ends in one. Blank accepted values are dropped rather than
   rendered as `Accepted values: , .`, and a suppressed command produces no
   `Run:` line and a `null` repair command instead of an empty one.
 

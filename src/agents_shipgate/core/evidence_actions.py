@@ -84,34 +84,75 @@ def _escape(char: str) -> str:
     return f"<U+{ord(char):04X}>"
 
 
-def _is_line_breaking(char: str) -> bool:
-    """True for anything that could end a line or reorder what follows it."""
+_ESCAPE_INTRODUCER = "<"
+_ESCAPE_PATTERN = re.compile(r"<U\+([0-9A-F]{4,6})>")
+
+
+def _needs_escape(char: str, *, injective: bool) -> bool:
+    """True for anything that must not reach a reader as itself.
+
+    Three classes always: characters that could end or reorder a line;
+    characters that render as nothing, and so let one value impersonate
+    another; and lone surrogates, which no UTF-8 sink accepts.
+
+    ``injective`` adds the escape introducer. Identity-bearing values need it —
+    without it ``a\nb.yaml`` and the literal filename ``a<U+000A>b.yaml``
+    render the same and a reader cannot tell which file is meant. Prose does
+    not: a warning is not opened as a file, and escaping every ``<`` would
+    mangle ordinary text like ``<script>`` for no gain.
+    """
 
     return (
-        unicodedata.category(char) == "Cc"
+        (injective and char == _ESCAPE_INTRODUCER)
+        or unicodedata.category(char) in {"Cc", "Cs"}
         or char in _BIDI_CONTROLS
         or char in {"\u2028", "\u2029"}
+        or _is_default_ignorable(char)
     )
 
 
 def display_literal(value: str) -> str:
-    """Make an *identity-bearing* value line-safe without altering it otherwise.
+    """Render an *identity-bearing* value visibly, reversibly, and injectively.
 
     For a path or any other value that names something in the repository.
-    Characters that could break or reorder a line become a visible
+    Every character that would not reach the reader as itself becomes a
     ``<U+XXXX>`` escape; **everything else is preserved exactly** — runs of
-    spaces, NBSP, U+3000, joiners, every script. Nothing is folded and nothing
-    is trimmed, so ``configs/foo  bar.yaml`` stays a two-space filename and
-    the reader is told about the real file rather than a plausible-looking
-    neighbour that may not exist.
+    spaces, NBSP, U+3000, every visible script. Nothing is folded, nothing is
+    trimmed, and nothing is deleted, so ``configs/foo  bar.yaml`` stays a
+    two-space filename and an escaped character stays recoverable from the
+    rendering.
+
+    The encoding is **injective**, which is the point. Escaping only control
+    characters left ``a\nb.yaml`` and the literal filename ``a<U+000A>b.yaml``
+    rendering identically, so a reader could not tell which file was meant.
+    ``<`` is therefore escaped too: a literal ``<`` renders ``<U+003C>``, and
+    ``<U+000A>`` in the output can only have come from a real U+000A.
+
+    Default_Ignorable code points are escaped rather than passed through for
+    the same reason — ``shipgate\u200b.yaml`` is visually indistinguishable
+    from ``shipgate.yaml`` and would name the wrong object. Escaping keeps the
+    identity recoverable while making the difference visible; the durable value
+    in ``report.json`` is untouched either way.
 
     Contrast :func:`one_line`, which additionally folds whitespace. That is
     right for prose and wrong for anything a reader will open or run.
     """
 
     return "".join(
-        _escape(char) if _is_line_breaking(char) else char for char in value
+        _escape(char) if _needs_escape(char, injective=True) else char
+        for char in value
     )
+
+
+def undisplay_literal(rendered: str) -> str:
+    """Invert :func:`display_literal`.
+
+    Exists so injectivity is testable rather than asserted: a round-trip over
+    adversarial values is what proves two different repository objects cannot
+    render the same way.
+    """
+
+    return _ESCAPE_PATTERN.sub(lambda match: chr(int(match.group(1), 16)), rendered)
 
 
 def one_line(value: str) -> str:
@@ -135,8 +176,13 @@ def one_line(value: str) -> str:
 
     # Fold first, then escape. Folding a newline into a space is the friendly
     # prose rendering; escaping it first would leave `<U+000A>` mid-sentence.
-    # Non-whitespace controls and bidi marks still escape.
-    return display_literal(_WHITESPACE_RUN.sub(" ", value)).strip()
+    # Non-whitespace controls, bidi marks, surrogates, and invisibles still
+    # escape — but not `<`, which is ordinary punctuation in a warning.
+    folded = _WHITESPACE_RUN.sub(" ", value)
+    return "".join(
+        _escape(char) if _needs_escape(char, injective=False) else char
+        for char in folded
+    ).strip()
 
 
 def has_visible_content(value: str) -> bool:
@@ -178,18 +224,21 @@ def is_publishable_command(value: str | None) -> bool:
     trimming first made it look like a clean ``agents-shipgate`` invocation
     and published one (#362 review 5).
 
-    The only transformation a publishable command undergoes is stripping
-    U+0020 at the ends, which cannot change which program runs. Anything else
-    — a control, a bidi mark, an invisible code point, or any other
-    whitespace character anywhere in the string — suppresses the command
-    entirely. The caller publishes no affordance rather than a repaired one.
+    A publishable command undergoes **no transformation at all** — it is
+    published byte for byte. Even trimming U+0020 was too much: ``printf
+    foo\\ `` is a valid two-token command whose second argument ends in a
+    space, and dropping that space leaves ``printf foo\\``, which
+    ``shlex.split`` refuses to parse at all (#362 review 6). A control, a bidi
+    mark, an invisible code point, or any whitespace other than U+0020
+    anywhere in the string suppresses the command entirely; the caller
+    publishes no affordance rather than a repaired one.
     """
 
     if value is None:
         return False
     if any(_is_unsafe_in_command(char) for char in value):
         return False
-    return has_visible_content(value.strip(" "))
+    return has_visible_content(value)
 
 
 # One short phrase per gap kind, in the voice of "what is unproven here".
@@ -254,7 +303,7 @@ def evidence_gap_command(gap: EvidenceGap) -> str:
     """
 
     command = gap.next_action.command
-    return command.strip(" ") if is_publishable_command(command) else ""
+    return command if is_publishable_command(command) else ""
 
 
 def is_addressable_gap(gap: EvidenceGap) -> bool:
@@ -281,12 +330,14 @@ def actionable_evidence_gaps(evidence: EvidenceCoverageDecision) -> list[Evidenc
 
 
 def primary_evidence_gap(evidence: EvidenceCoverageDecision) -> EvidenceGap | None:
-    """Rank-1 gap: the first one that names a path, else the first gap.
+    """Rank-1 gap: the first *addressable* one, else the first gap.
 
-    ``evidence_gaps`` already arrives in the decision engine's deterministic
-    order (binding, then semantic, then policy, then extraction/source), so
-    preferring the first *addressable* row keeps that order and only skips
-    rows nobody can act on. Returns ``None`` only for reports with no gaps at
+    Addressable means a visible ``next_action.path`` **or** a publishable
+    ``next_action.command`` — the two are independently nullable and either
+    alone is actionable. ``evidence_gaps`` already arrives in the decision
+    engine's deterministic order (binding, then semantic, then policy, then
+    extraction/source), so preferring the first addressable row keeps that
+    order and only skips rows nobody can act on. Returns ``None`` only for reports with no gaps at
     all — compatibility reports from before ``evidence_gaps`` existed.
     """
 
@@ -371,6 +422,7 @@ def evidence_gap_accepted_values(gap: EvidenceGap) -> list[str]:
 __all__ = [
     "actionable_evidence_gaps",
     "display_literal",
+    "undisplay_literal",
     "has_visible_content",
     "is_publishable_command",
     "evidence_gap_accepted_values",
