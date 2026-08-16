@@ -34,7 +34,12 @@ def write_github_step_summary(report: ReadinessReport) -> None:
                     if agent_summary
                     else []
                 ),
-                f"Reason: {decision.reason}",
+                # The reason carries repository-derived text on an evidence
+                # verdict (a gap subject is a tool name or agent id), so it
+                # gets the same Markdown escaping report.md has always
+                # applied to it. Unescaped, a crafted tool name renders as
+                # markup in the step summary (#362 review).
+                f"Reason: {_safe_markdown_text(decision.reason)}",
                 (
                     f"Blockers: {len(decision.blockers)} · "
                     f"Review items: {len(decision.review_items)}"

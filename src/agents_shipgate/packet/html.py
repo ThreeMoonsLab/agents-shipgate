@@ -19,6 +19,7 @@ from html import escape
 from pathlib import Path
 
 from agents_shipgate.core.privacy import sanitize_packet
+from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
     ApprovalCoverageSection,
@@ -617,9 +618,12 @@ def _render_not_proven(section: NotProvenSection) -> str:
     parts.append("</ul>")
     parts.append("<h3>Per-run residuals</h3><ul>")
     if section.source_warnings:
+        # Grouped by mechanism for the reader; packet.json keeps the raw list
+        # so the count that gates stays intact (#362).
         parts.append("<li>Source warnings:<ul>")
-        for warning in section.source_warnings:
-            parts.append(f"<li>{escape(warning)}</li>")
+        for group in group_source_warnings(section.source_warnings):
+            suffix = f" ({group.count} warnings)" if group.count > 1 else ""
+            parts.append(f"<li>{escape(group.message)}{suffix}</li>")
         parts.append("</ul></li>")
     else:
         parts.append("<li>Source warnings: none</li>")

@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents_shipgate.core.privacy import sanitize_packet
+from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.report.markdown import _safe_markdown_text
 from agents_shipgate.schemas.packet import (
     ActionSurfaceDiffSection,
@@ -639,9 +640,12 @@ def _append_not_proven(lines: list[str], section: NotProvenSection) -> None:
     lines.append("### Per-run residuals")
     lines.append("")
     if section.source_warnings:
+        # Grouped by mechanism for the reader; packet.json keeps the raw list
+        # so the count that gates stays intact (#362).
         lines.append("- Source warnings:")
-        for warning in section.source_warnings:
-            lines.append(f"  - {_escape(warning)}")
+        for group in group_source_warnings(section.source_warnings):
+            suffix = f" ({group.count} warnings)" if group.count > 1 else ""
+            lines.append(f"  - {_escape(group.message)}{suffix}")
     else:
         lines.append("- Source warnings: none")
     if section.low_confidence_tools:

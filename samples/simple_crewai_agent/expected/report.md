@@ -7,7 +7,7 @@ Target: local
 ## Release Decision
 
 Decision: review_required
-Reason: 1 finding need review and evidence coverage is incomplete.
+Reason: 1 finding needs review and evidence coverage is incomplete.
 
 Blockers (0): none
 
