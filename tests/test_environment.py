@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -307,6 +308,88 @@ def test_a_console_script_on_another_interpreter_is_a_warning(tmp_path: Path) ->
     (mismatch,) = report["mismatches"]
     assert mismatch["code"] == "console_script_runs_other_interpreter"
     assert mismatch["severity"] == "warning"
+
+
+def _trampoline(target: Path) -> str:
+    """A console script exactly as `pip` writes it for a spaced interpreter path.
+
+    A shebang cannot carry an argument with a space, so `pip` emits a polyglot:
+    `/bin/sh` reads the `exec` line, Python reads the same bytes as a string
+    literal. Reproduced verbatim rather than approximated — the whole point of
+    the parsing is that it matches what is on disk.
+    """
+
+    return (
+        "#!/bin/sh\n"
+        f"'''exec' \"{target}\" \"$0\" \"$@\"\n"
+        "' '''\n"
+        "# -*- coding: utf-8 -*-\n"
+        "from agents_shipgate.cli.main import app\n"
+    )
+
+
+def test_a_shell_trampoline_names_the_interpreter_it_execs(tmp_path: Path) -> None:
+    """A healthy install must not be reported as running the wrong interpreter.
+
+    Reading only the shebang here reported `/bin/sh`, which exists and is not
+    the running interpreter — so an install that was working perfectly raised
+    `console_script_runs_other_interpreter` once per alias, while the
+    interpreter that could actually go stale stayed invisible.
+    """
+
+    bin_dir = tmp_path / "venv with space" / "bin"
+    bin_dir.mkdir(parents=True)
+    interpreter = bin_dir / "python"
+    interpreter.write_text("", encoding="utf-8")
+    (bin_dir / "agents-shipgate").write_text(_trampoline(interpreter), encoding="utf-8")
+
+    report = describe_environment(
+        _probe(executable=str(interpreter), path_entries=(str(bin_dir),))
+    )
+
+    (described,) = report["launcher"]["console_scripts"]
+    assert described["interpreter"] == str(interpreter)
+    assert described["interpreter_exists"] is True
+    assert described["runs_this_interpreter"] is True
+    assert report["mismatches"] == []
+
+
+def test_a_stale_shell_trampoline_is_caught_like_any_other(tmp_path: Path) -> None:
+    """And the detection that was impossible through `/bin/sh` now works."""
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "agents-shipgate").write_text(
+        _trampoline(tmp_path / "deleted venv" / "bin" / "python"), encoding="utf-8"
+    )
+
+    report = describe_environment(_probe(path_entries=(str(bin_dir),)))
+
+    (mismatch,) = report["mismatches"]
+    assert mismatch["code"] == "console_script_interpreter_missing"
+
+
+def test_an_unrecognised_shell_wrapper_is_unknown_rather_than_wrong(
+    tmp_path: Path,
+) -> None:
+    """A shell wrapper that hands off some other way names no interpreter.
+
+    `/bin/sh` is never the answer to "which Python runs this", so reporting it
+    would be a fact about the wrapper dressed up as a fact about the install.
+    """
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "agents-shipgate").write_text(
+        '#!/bin/bash\nexec "$0.real" "$@"\n', encoding="utf-8"
+    )
+
+    report = describe_environment(_probe(path_entries=(str(bin_dir),)))
+
+    (described,) = report["launcher"]["console_scripts"]
+    assert described["interpreter"] is None
+    assert described["interpreter_exists"] is None
+    assert report["mismatches"] == []
 
 
 def test_an_env_shebang_is_not_reported_as_a_missing_interpreter(
@@ -677,21 +760,28 @@ def test_a_checkout_without_sources_says_so(tmp_path: Path) -> None:
 
 @pytest.fixture(scope="module")
 def isolated_interpreter(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A real interpreter with no Agents Shipgate and none of its dependencies.
+    """A real interpreter with no Agents Shipgate, no dependencies, and no `pip`.
 
     The only way to reach the import-failure paths honestly: the interpreter
-    running the suite has both, and no amount of environment scrubbing removes
-    a package from its own `site-packages`. Built once for the module — it is
-    the one thing here that costs real time.
+    running the suite has all three, and no amount of environment scrubbing
+    removes a package from its own `site-packages`. Built once for the module —
+    it is the one thing here that costs real time.
+
+    Its path is chosen, not incidental. `<...>/agents-shipgate worktree/.venv/`
+    is what cloning this repository under a directory with a space in the name
+    produces, and it is the shape that corrupted the emitted recovery: the
+    quoted interpreter path was cut at the space, and the remaining
+    `'/tmp/agents-shipgate` has our console script as its basename.
     """
 
-    root = tmp_path_factory.mktemp("isolated")
+    root = tmp_path_factory.mktemp("interpreters") / "agents-shipgate worktree"
+    venv = root / ".venv"
     subprocess.run(
-        [sys.executable, "-m", "venv", "--without-pip", str(root)],
+        [sys.executable, "-m", "venv", "--without-pip", str(venv)],
         check=True,
         capture_output=True,
     )
-    return root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
 def test_missing_dependencies_are_reported_as_the_environment_they_are(
@@ -699,10 +789,14 @@ def test_missing_dependencies_are_reported_as_the_environment_they_are(
 ) -> None:
     """The interpreter has this checkout's code but not what it imports.
 
-    What must come back is the structured diagnosis and an install command
-    spelled with *that* interpreter — the one that was actually selected, named
-    by absolute path — rather than an import traceback and a `pip install` the
-    reader has to aim themselves.
+    What must come back is the structured diagnosis and commands spelled with
+    *that* interpreter — the one that was actually selected, named by absolute
+    path — rather than an import traceback and a `pip install` the reader has to
+    aim themselves.
+
+    Its path contains a space and a segment named `agents-shipgate`, so this is
+    also the regression for the retargeting defect: the emitted commands must
+    name the interpreter, never the launcher.
     """
 
     root = _clean_checkout(tmp_path)
@@ -715,9 +809,105 @@ def test_missing_dependencies_are_reported_as_the_environment_they_are(
     assert "Traceback" not in result.stderr
     payload = _agent_mode_line(result.stderr)
     assert payload["error"] == "environment_error"
-    assert payload["next_actions"][0]["executable"] == [str(isolated_interpreter)]
-    assert payload["next_actions"][0]["args"] == ["-m", "pip", "install", "-e", str(root)]
     assert payload["environment"]["interpreter"]["executable"] == str(isolated_interpreter)
+
+    install = payload["next_actions"][-1]
+    assert install["executable"] == [str(isolated_interpreter)]
+    assert install["args"] == ["-m", "pip", "install", "-e", str(root)]
+    for action in payload["next_actions"]:
+        assert action["executable"] == [str(isolated_interpreter)], action
+    assert not payload["next_action"].startswith(str(root / "shipgate"))
+
+
+def test_the_emitted_recovery_runs_in_the_environment_it_is_emitted_for(
+    tmp_path: Path, isolated_interpreter: Path
+) -> None:
+    """The recovery is ranked because its first step is not always `pip install`.
+
+    An interpreter created with `venv --without-pip` answers
+    `python -m pip install …` with `No module named pip`, so emitting that
+    alone would promise a recovery that fails on its first token in exactly the
+    environment the recovery exists for. Rank 1 is run here for real, and the
+    interpreter is then asked whether rank 2 can start.
+    """
+
+    root = _clean_checkout(tmp_path)
+    environment = _bare_environment(tmp_path)
+    environment["AGENTS_SHIPGATE_PYTHON"] = str(isolated_interpreter)
+    before = subprocess.run(
+        [str(isolated_interpreter), "-m", "pip", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert before.returncode != 0, "the fixture is supposed to have no pip"
+
+    payload = _agent_mode_line(
+        _run_launcher(root, "doctor", "--json", env=environment).stderr
+    )
+    first, second = payload["next_actions"][0], payload["next_actions"][1]
+    assert first["args"] == ["-m", "ensurepip", "--upgrade"]
+
+    ran = subprocess.run(
+        [*first["executable"], *first["args"]], capture_output=True, text=True, check=False
+    )
+    assert ran.returncode == 0, ran.stderr
+
+    # Rank 2's program now resolves. Running the install itself would resolve
+    # this project's dependencies from the network, which is not what this is
+    # asserting: the claim is that the emitted sequence can start.
+    started = subprocess.run(
+        [*second["executable"], second["args"][0], second["args"][1], "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert started.returncode == 0, started.stderr
+
+
+@pytest.mark.parametrize(
+    ("available", "expected"),
+    [
+        # The ordinary case: `pip` is there, so there is one step.
+        ({"pip", "ensurepip"}, [["-m", "pip", "install", "-e"]]),
+        # No `pip`, but it can be bootstrapped.
+        (
+            {"ensurepip"},
+            [["-m", "ensurepip", "--upgrade"], ["-m", "pip", "install", "-e"]],
+        ),
+        # Neither. Naming a command that cannot run is the failure mode this
+        # whole change is about, so the honest answer is no action at all.
+        (set(), []),
+    ],
+)
+def test_the_recovery_is_ranked_by_what_the_interpreter_can_actually_do(
+    available: set[str], expected: list[list[str]]
+) -> None:
+    launcher = _launcher_namespace()
+    launcher["_module_available"] = lambda name: name in available
+
+    actions = launcher["_recovery_actions"]()
+
+    # `shlex.split` recovers the exact argv of any command Shipgate renders;
+    # the structured pair itself is added at the wire, not here.
+    argv = [shlex.split(action["command"]) for action in actions]
+    assert [tokens[0] for tokens in argv] == [sys.executable] * len(expected)
+    assert [
+        tokens[1 : 1 + len(head)] for tokens, head in zip(argv, expected, strict=True)
+    ] == expected
+
+
+def test_the_launcher_asks_this_interpreter_about_its_own_modules() -> None:
+    """`_module_available` answers about the process it is running in.
+
+    That is the point: it is already inside the interpreter that was selected,
+    so nothing has to be spawned to find out what it has.
+    """
+
+    available = _launcher_namespace()["_module_available"]
+
+    assert available("sys") is True
+    assert available("no_such_module_anywhere") is False
 
 
 def test_an_incomplete_checkout_is_not_offered_an_install(

@@ -42,6 +42,14 @@
   installed distribution is *not* reported as a mismatch — that is the intended
   state, and an editable install's metadata lags every version bump by design.
 
+  The recovery is **ranked**, because `pip install` is not always the first
+  step: an interpreter created with `venv --without-pip` answers
+  `python -m pip install …` with `No module named pip`, so emitting that alone
+  would promise a recovery that fails on its first token in exactly the
+  environment the recovery exists for. `ensurepip` is proposed ahead of it when
+  `pip` is absent, and an interpreter with neither gets the diagnosis and no
+  command at all rather than one that cannot run.
+
   New agent-mode error kind `environment_error` (exit 4), emitted by the
   launcher before Shipgate is running and carrying the same `environment` block;
   it is published in [`docs/errors.json`](docs/errors.json). New public helper
@@ -49,6 +57,32 @@
   how `AGENTS_SHIPGATE_CLI` is parsed — needed now that something writes the
   variable, so a checkout path containing a space survives the round trip. No
   schema or contract version changes.
+
+- **A quoted program token is read before it is judged to be ours.**
+  `retarget_command` located the program by scanning to raw whitespace, on the
+  argument that our console-script names contain none — true of the names, and
+  irrelevant to the strings they appear in. A quoted interpreter path whose
+  directory is named after this project, which cloning it into
+  `~/agents-shipgate worktree/` produces, was cut at the space; the remaining
+  `'/tmp/agents-shipgate` has `agents-shipgate` as its basename, so a
+  `python -m pip install` recovery was rewritten to name the Shipgate entry
+  point instead. That is not an unrunnable command but a runnable one that runs
+  the wrong program, and the dangling quote also cost the action its
+  `executable`/`args` pair. The span is now found with quoting honoured and the
+  token's *value* comes from `shlex` — the same grammar the string was rendered
+  with — with the two cross-checked, so a disagreement leaves the command
+  untouched rather than rewriting it wrongly. A correctly quoted Shipgate path
+  (`'/opt/my tools/agents-shipgate'`) is now retargeted where it previously was
+  not.
+
+- **A `#!/bin/sh` console-script wrapper reports the interpreter it `exec`s.**
+  An interpreter path containing a space cannot go in a shebang, so `pip`
+  writes a shell trampoline instead. Reading only the shebang reported
+  `/bin/sh` — which exists and is not the running interpreter — so a healthy
+  install raised `console_script_runs_other_interpreter` once per alias, while
+  the interpreter that could actually go stale stayed invisible. The `exec`
+  target is now parsed; an unrecognised handoff reports `null` rather than the
+  shell.
 
 - **An `insufficient_evidence` verdict now leads with the gap you can close,
   and the three lines that announce it agree.** The reason counted source

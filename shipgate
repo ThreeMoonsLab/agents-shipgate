@@ -302,16 +302,24 @@ def _report_broken_environment(exc: ImportError) -> int:
         )
 
     report = environment_report(workspace=CHECKOUT)
-    install = _install_command()
+    actions = _recovery_actions()
     message = (
         f"Agents Shipgate could not start: {sys.executable} cannot import "
         f"{missing}. The launcher selected this checkout's code, so its "
         "dependencies are what is missing."
     )
+    if not actions:
+        message += (
+            " That interpreter has neither `pip` nor `ensurepip`, so it cannot "
+            "install them; use one that does, or point "
+            f"{PYTHON_OVERRIDE_ENV_VAR} at one."
+        )
     print(f"error: {message}", file=sys.stderr)
     print(f"  interpreter: {sys.executable} (Python {_python_version()})", file=sys.stderr)
     print(f"  checkout:    {CHECKOUT}", file=sys.stderr)
-    print(f"  install:     {install}", file=sys.stderr)
+    for position, action in enumerate(actions, start=1):
+        label = "run:" if len(actions) == 1 else f"run ({position}):"
+        print(f"  {label:<12} {action['command']}", file=sys.stderr)
     print(
         "  See CONTRIBUTING.md for the hash-locked closure CI and the release "
         "install.",
@@ -319,27 +327,70 @@ def _report_broken_environment(exc: ImportError) -> int:
     )
     _emit_agent_mode_error(
         message,
-        next_action=install,
-        next_actions=[
-            {
-                "kind": "command",
-                "command": install,
-                "why": (
-                    "The selected interpreter has this checkout's code but not "
-                    "its dependencies."
-                ),
-                "expects": "An interpreter that can import agents_shipgate and its dependencies.",
-            }
-        ],
+        next_action=actions[0]["command"] if actions else None,
+        next_actions=actions or None,
         environment=report,
     )
     return ENVIRONMENT_EXIT_CODE
 
 
-def _install_command() -> str:
+def _recovery_actions() -> list[dict]:
+    """The commands that make this interpreter able to run Shipgate, in order.
+
+    Ranked rather than singular because `pip install` is not always the first
+    step, and emitting it when it cannot run is worse than emitting nothing:
+    an interpreter created with `venv --without-pip` answers
+    `python -m pip install …` with `No module named pip`, so the promised
+    recovery would fail on its first token in exactly the environment the
+    recovery is for.
+
+    Both prerequisites are checked by *asking this interpreter about itself* —
+    it is the one that was selected, and this code is already running inside it,
+    so nothing has to be spawned to find out. An interpreter with neither `pip`
+    nor `ensurepip` (some distribution packages strip it) gets no command at
+    all, and the message says why.
+    """
+
     from agents_shipgate.invocation import join_argv
 
-    return join_argv([sys.executable, "-m", "pip", "install", "-e", str(CHECKOUT)])
+    actions: list[dict] = []
+    if not _module_available("pip"):
+        if not _module_available("ensurepip"):
+            return []
+        actions.append(
+            {
+                "kind": "command",
+                "command": join_argv([sys.executable, "-m", "ensurepip", "--upgrade"]),
+                "why": (
+                    "The selected interpreter has no `pip`, so the install below "
+                    "cannot run yet."
+                ),
+                "expects": "`pip` importable by this interpreter.",
+            }
+        )
+    actions.append(
+        {
+            "kind": "command",
+            "command": join_argv([sys.executable, "-m", "pip", "install", "-e", str(CHECKOUT)]),
+            "why": (
+                "The selected interpreter has this checkout's code but not its "
+                "dependencies."
+            ),
+            "expects": "An interpreter that can import agents_shipgate and its dependencies.",
+        }
+    )
+    return actions
+
+
+def _module_available(name: str) -> bool:
+    """Whether ``name`` can be imported here, without importing it."""
+
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):  # pragma: no cover - a broken meta path
+        return False
 
 
 def _python_version() -> str:

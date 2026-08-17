@@ -317,13 +317,13 @@ Every `doctor --json` payload carries an `environment` block, and so does every 
 | Field | What it answers |
 | ----- | --------------- |
 | `interpreter` | `executable`, `version`, `minimum_supported`, `supported`. |
-| `launcher` | `source` (`console_script` / `module` / `override` / `fallback`, the invocation policy above), `executable[]`, and `console_scripts[]` — each `agents-shipgate` / `shipgate` wrapper found on `PATH` with the interpreter its shebang names, whether that interpreter still exists, and whether it is the running one. |
+| `launcher` | `source` (`console_script` / `module` / `override` / `fallback`, the invocation policy above), `executable[]`, and `console_scripts[]` — each `agents-shipgate` / `shipgate` wrapper found on `PATH` with the interpreter it ultimately runs (the `exec` target when the wrapper is a `#!/bin/sh` trampoline, as `pip` writes for interpreter paths containing spaces), whether that interpreter still exists, and whether it is the running one. `null` when the wrapper names no interpreter — a compiled Windows wrapper, `#!/usr/bin/env python`, or an unrecognised handoff. |
 | `import_source` | `package_path`, `root`, and `kind` (`source_checkout` / `installed` / `unknown`) — where the code that just ran came from. |
 | `installed_version` / `imported_version` | What `pip` records for this interpreter, and what actually got imported. `null` installed version is normal on a source checkout. |
 | `source_tree` | The enclosing Agents Shipgate checkout, if any: `root`, `version`, `launcher`, and `contains_import`. |
 | `mismatches[]` | `code`, `severity` (`error` / `warning`), `detail`, and — when one exists — a runnable `command` spelled for this invocation. Empty is the normal state. |
 
-`mismatches[]` codes: `interpreter_unsupported`, `import_outside_source_tree`, `source_tree_version_differs`, `installed_version_differs`, `console_script_interpreter_missing`, `console_script_runs_other_interpreter`. Nothing here executes an interpreter or a console script to find out — a stale wrapper is identified from its shebang, because a wrapper that cannot start is exactly the one that cannot report on itself.
+`mismatches[]` codes: `interpreter_unsupported`, `import_outside_source_tree`, `source_tree_version_differs`, `installed_version_differs`, `console_script_interpreter_missing`, `console_script_runs_other_interpreter`. Nothing here executes an interpreter or a console script to find out — a stale wrapper is identified by reading it, because a wrapper that cannot start is exactly the one that cannot report on itself.
 
 ### One control vocabulary across the setup commands
 

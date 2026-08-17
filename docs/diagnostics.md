@@ -243,7 +243,7 @@ dies before a line of Shipgate runs.
 | Field | Contents |
 | --- | --- |
 | `interpreter` | `executable`, `version`, `minimum_supported`, `supported`. |
-| `launcher` | `source` (the invocation policy's own `console_script` / `module` / `override` / `fallback`), `executable[]`, and `console_scripts[]`: each `agents-shipgate` / `shipgate` wrapper found on `PATH`, with `path`, the `interpreter` its shebang names, `interpreter_exists`, and `runs_this_interpreter`. Only the first hit per name — the rest are shadowed and not a choice the caller has. |
+| `launcher` | `source` (the invocation policy's own `console_script` / `module` / `override` / `fallback`), `executable[]`, and `console_scripts[]`: each `agents-shipgate` / `shipgate` wrapper found on `PATH`, with `path`, the `interpreter` it ultimately runs, `interpreter_exists`, and `runs_this_interpreter`. Only the first hit per name — the rest are shadowed and not a choice the caller has. `interpreter` is `null` for every honest unknown: a compiled Windows wrapper, a `#!/usr/bin/env python` line that defers the choice back to `PATH`, or a shell wrapper whose handoff is not recognised. It is **not** the shebang when the shebang is a shell: an interpreter path containing a space cannot go in a shebang, so `pip` writes a `#!/bin/sh` trampoline that `exec`s the real interpreter, and that `exec` target is what gets reported. |
 | `import_source` | `package_path`, `root`, and `kind`: `source_checkout` (an editable install or a launcher run — either way the tree being edited is what ran), `installed` (a build no edit reaches), or `unknown`. |
 | `installed_version`, `imported_version` | What `pip` records for this interpreter, and what was imported. A `null` installed version is the normal state of a clean checkout. |
 | `source_tree` | The enclosing Agents Shipgate checkout, if one was found: `root`, `version` (from its `pyproject.toml`), `launcher`, `contains_import`. All `null` for an ordinary installed run outside a checkout. |
@@ -262,7 +262,7 @@ Nothing here runs an interpreter or executes a console script to find out.
 That is the trust-model invariant (`tests/test_adapter_static_only.py` bans
 `subprocess` and the `os.exec*` family under `src/`), and it is also the only
 thing that could work: the environments worth diagnosing are the ones where
-running something is what fails. A stale wrapper is identified from its shebang.
+running something is what fails. A stale wrapper is identified by reading it.
 
 ## Where diagnostics surface
 

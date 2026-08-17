@@ -27,6 +27,7 @@ import, and it has the same property.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tomllib
 from collections.abc import Mapping, Sequence
@@ -68,10 +69,24 @@ MINIMUM_PYTHON: tuple[int, int] = (3, 12)
 #: ``PATH``.
 REPOSITORY_LAUNCHER = "shipgate"
 
-# Enough of a file to hold a shebang line. Console-script wrappers on Windows
-# are compiled binaries, so this is read defensively and may decode to nothing
-# useful; that is reported as an unknown interpreter, not as a fault.
-_SHEBANG_READ_BYTES = 512
+# Enough of a wrapper to hold its shebang and, for the shell trampoline below,
+# the ``exec`` line naming an absolute interpreter path. Console-script wrappers
+# on Windows are compiled binaries, so this is read defensively and may decode
+# to nothing useful; that is reported as an unknown interpreter, not as a fault.
+_WRAPPER_READ_BYTES = 1024
+
+# Shells a console-script wrapper can be written in. `pip` falls back to one
+# whenever the interpreter path cannot go in a shebang.
+_SHELLS = frozenset({"sh", "bash", "dash", "ksh", "zsh"})
+
+# The interpreter a shell wrapper hands off to:
+#
+#     #!/bin/sh
+#     '''exec' "/path with space/bin/python" "$0" "$@"
+#
+# Quoted or bare, and the ``exec`` may carry a trailing quote from the
+# polyglot heredoc that makes the same file valid Python.
+_EXEC_TARGET = re.compile(r"""exec['"]?\s+(?:"([^"]+)"|'([^']+)'|(\S+))""")
 
 
 @dataclass(frozen=True)
@@ -359,35 +374,59 @@ def _which(name: str, path_entries: Sequence[str]) -> Path | None:
 
 
 def _shebang_interpreter(script: Path) -> str | None:
-    """The interpreter a console-script wrapper names, if it names one.
+    """The interpreter a console-script wrapper ultimately runs, if it names one.
+
+    Two wrapper shapes, because `pip` writes both. The ordinary one names the
+    interpreter in its shebang. When the interpreter path contains a space —
+    which a checkout under ``~/my projects/`` produces — a shebang cannot carry
+    it, so `pip` writes a shell trampoline instead: ``#!/bin/sh`` followed by an
+    ``exec`` of the quoted real interpreter. Reading only the shebang there
+    reported ``/bin/sh``, which exists and is not the running interpreter, so a
+    perfectly healthy install raised ``console_script_runs_other_interpreter``
+    once per alias — and the interpreter that could actually go stale was
+    invisible.
 
     ``None`` covers every honest unknown: a compiled Windows wrapper, an
     unreadable file, a ``#!/usr/bin/env python`` line that defers the choice
-    back to ``PATH``. Reporting one of those as a missing interpreter would
-    accuse a working install.
+    back to ``PATH``, a shell wrapper whose handoff is not recognised.
+    Reporting one of those as a missing interpreter would accuse a working
+    install.
     """
 
     try:
         with script.open("rb") as handle:
-            head = handle.read(_SHEBANG_READ_BYTES)
+            head = handle.read(_WRAPPER_READ_BYTES)
     except OSError:
         return None
     if not head.startswith(b"#!"):
         return None
-    line = head.split(b"\n", 1)[0]
-    try:
-        text = line.decode("utf-8").strip()
-    except UnicodeDecodeError:
-        return None
-    tokens = text[2:].strip().split()
+    # Lenient because the read is cut at a fixed byte count and may split a
+    # multi-byte character; every shebang worth reading is ASCII.
+    text = head.decode("utf-8", errors="replace")
+    tokens = text.splitlines()[0][2:].strip().split()
     if not tokens:
         return None
     interpreter = tokens[0]
-    if Path(interpreter).name == "env":
+    name = Path(interpreter).name
+    if name == "env":
         # ``#!/usr/bin/env python3`` resolves through PATH at exec time, so this
         # file does not name an interpreter — it names a search.
         return None
+    if name in _SHELLS:
+        return _trampoline_target(text)
     return interpreter
+
+
+def _trampoline_target(text: str) -> str | None:
+    """The interpreter a shell wrapper ``exec``s, or ``None`` if unrecognised."""
+
+    match = _EXEC_TARGET.search(text)
+    if match is None:
+        return None
+    target = next(group for group in match.groups() if group is not None)
+    # ``exec "$0"`` and friends are the wrapper re-entering itself, not an
+    # interpreter path.
+    return target if target.startswith(("/", "\\")) or ":" in target else None
 
 
 def _same_file(left: str, right: str) -> bool:
