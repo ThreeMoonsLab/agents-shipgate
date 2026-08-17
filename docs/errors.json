@@ -15,7 +15,7 @@
     "0": "pass (advisory mode, or strict-no-blockers)",
     "2": "configuration, catalog lookup, or patch-payload error (config_error, config_already_exists, unknown_check_id, unknown_fingerprint, malformed_patch)",
     "3": "input parse error (input_parse_error)",
-    "4": "other agents-shipgate error (other_error, internal_error)",
+    "4": "other agents-shipgate error (other_error, internal_error), or an environment that cannot start Agents Shipgate at all (environment_error)",
     "5": "apply-patches containment violation (covered by other_error in agent mode)",
     "20": "gate failure: strict-mode scan/verify, or an opt-in governance gate flag (baseline status --require-owner/--require-expiry/--max-age-days on violations; audit --host --drift --fail-on-drift on host-grant drift). Without those flags the commands are advisory and exit 0."
   },
@@ -121,6 +121,19 @@
         "next_actions"
       ],
       "recovery_hint": "File an issue at https://github.com/ThreeMoonsLab/agents-shipgate/issues with the message and a minimal reproduction. Re-run with `--verbose` to capture the traceback."
+    },
+    {
+      "id": "environment_error",
+      "description": "The environment cannot run Agents Shipgate: the interpreter is older than `requires-python`, or it cannot import the package or its dependencies. Emitted by the repository launcher (`./shipgate`) before any Shipgate code is running, so it is the one kind that carries no `control` envelope.",
+      "exit_code": 4,
+      "typical_cause": "A source checkout whose dependencies are not installed in the selected interpreter, an unsupported Python, or AGENTS_SHIPGATE_PYTHON pointing at something that is not an interpreter.",
+      "additional_fields": [
+        "message",
+        "next_action",
+        "next_actions",
+        "environment"
+      ],
+      "recovery_hint": "Run the emitted `next_actions[0]`: it installs the checkout into the interpreter that was actually selected, named by absolute path. Read `environment` for which interpreter that was, which checkout was selected, and what disagrees. When no next action is emitted, no working interpreter is known and the message names the one that was tried."
     }
   ],
   "next_action_kinds": {

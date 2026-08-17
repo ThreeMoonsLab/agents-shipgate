@@ -25,6 +25,7 @@ from agents_shipgate.cli.setup_control import (
 )
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.environment import environment_report
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.diagnostics import NextAction
 
@@ -178,6 +179,16 @@ def register(app: typer.Typer) -> None:
         verbose: bool = typer.Option(False, "--verbose", help="Enable debug logs."),
     ) -> None:
         """Validate manifests and enumerate declared sources without running checks."""
+        # Which Python is running which build of Shipgate, and what disagrees.
+        # Read once for the whole run: it describes the process, not a manifest,
+        # so per-manifest answers would be the same answer repeated.
+        #
+        # Deliberately *not* folded into `setup_input_id`'s routing facts. It
+        # carries absolute interpreter and checkout paths, so hashing it would
+        # give the same manifest a different identity on every machine — and
+        # `input_id` is the cache boundary for what doctor decided about the
+        # manifest, which the environment does not change.
+        environment = environment_report(workspace=workspace)
         try:
             configure_logging(verbose=verbose)
             paths = _resolve_config_paths(config=config, workspace=workspace)
@@ -214,6 +225,11 @@ def register(app: typer.Typer) -> None:
                 next_action=routing.legacy_next_action,
                 next_actions=routing.json_actions(),
                 control=routing.envelope.model_dump(mode="json"),
+                # `--json` prints no payload on this route, and a caller whose
+                # manifest cannot be found is exactly the caller who may be
+                # running the wrong build. The diagnosis rides the error line so
+                # it is reachable when there is no payload to carry it.
+                environment=environment,
             )
             raise typer.Exit(2) from exc
         payloads: list[dict[str, object]] = []
@@ -263,6 +279,7 @@ def register(app: typer.Typer) -> None:
                         next_action=routing.legacy_next_action,
                         next_actions=routing.json_actions(),
                         control=routing.envelope.model_dump(mode="json"),
+                        environment=environment,
                     )
                     raise typer.Exit(2) from exc
         except typer.Exit:
@@ -289,6 +306,7 @@ def register(app: typer.Typer) -> None:
                 next_action=routing.legacy_next_action,
                 next_actions=routing.json_actions(),
                 control=routing.envelope.model_dump(mode="json"),
+                environment=environment,
             )
             raise typer.Exit(3) from exc
         enriched_payloads: list[dict[str, object]] = []
@@ -357,6 +375,11 @@ def register(app: typer.Typer) -> None:
                 exit_code=0,
             )
             enriched = dict(payload)
+            # The environment this answer was produced in. `doctor` validates
+            # what the manifest declares; this states what validated it, so a
+            # caller reading a stale answer can see that it is stale rather
+            # than re-deriving it from a version string that looks fine.
+            enriched["environment"] = environment
             enriched["diagnostics"] = [d.model_dump(mode="json") for d in diagnostics]
             # The complete structured locations the human-review route refers to.
             # That route names the first few and says "and N more in

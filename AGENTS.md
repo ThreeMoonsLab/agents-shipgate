@@ -304,11 +304,26 @@ Config error: Config file not found: missing.yaml
 {"error": "config_error", "message": "...", "next_action": "agents-shipgate detect --workspace . --json", "next_actions": [{"kind": "command", "command": "agents-shipgate detect --workspace . --json", "why": "..."}, {"kind": "command", "command": "agents-shipgate init --workspace . --write", "why": "..."}]}
 ```
 
-The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `unknown_fingerprint`, `other_error`, `internal_error`, `malformed_patch`. `unknown_fingerprint` is emitted by `explain-finding` when the fingerprint doesn't match any entry in the supplied report; the payload includes `suggestion` (a close-match fingerprint, when one exists) and `source_report`.
+The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `unknown_fingerprint`, `other_error`, `internal_error`, `malformed_patch`, `environment_error`. `unknown_fingerprint` is emitted by `explain-finding` when the fingerprint doesn't match any entry in the supplied report; the payload includes `suggestion` (a close-match fingerprint, when one exists) and `source_report`. `environment_error` is the one kind emitted before Agents Shipgate is running — the interpreter is unsupported, or it cannot import the package or its dependencies — so it carries the `environment` block described below instead of a `control` envelope.
 
 The machine-readable catalog of error kinds — exit codes, typical causes, additional fields per kind, recovery hints — lives at [`docs/errors.json`](docs/errors.json). Pre-fetch it once and pattern-match the `error` field instead of re-deriving the recovery vocabulary from this prose.
 
 `detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, `expects`, and the structured `executable[]` / `args[]` pair. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
+
+### Which Shipgate answered: `environment`
+
+Every `doctor --json` payload carries an `environment` block, and so does every `doctor` agent-mode error line — including the one where no manifest could be found and no payload is printed at all. Read it before concluding that a fix did not take or that a subcommand does not exist:
+
+| Field | What it answers |
+| ----- | --------------- |
+| `interpreter` | `executable`, `version`, `minimum_supported`, `supported`. |
+| `launcher` | `source` (`console_script` / `module` / `override` / `fallback`, the invocation policy above), `executable[]`, and `console_scripts[]` — each `agents-shipgate` / `shipgate` wrapper found on `PATH` with the interpreter its shebang names, whether that interpreter still exists, and whether it is the running one. |
+| `import_source` | `package_path`, `root`, and `kind` (`source_checkout` / `installed` / `unknown`) — where the code that just ran came from. |
+| `installed_version` / `imported_version` | What `pip` records for this interpreter, and what actually got imported. `null` installed version is normal on a source checkout. |
+| `source_tree` | The enclosing Agents Shipgate checkout, if any: `root`, `version`, `launcher`, and `contains_import`. |
+| `mismatches[]` | `code`, `severity` (`error` / `warning`), `detail`, and — when one exists — a runnable `command` spelled for this invocation. Empty is the normal state. |
+
+`mismatches[]` codes: `interpreter_unsupported`, `import_outside_source_tree`, `source_tree_version_differs`, `installed_version_differs`, `console_script_interpreter_missing`, `console_script_runs_other_interpreter`. Nothing here executes an interpreter or a console script to find out — a stale wrapper is identified from its shebang, because a wrapper that cannot start is exactly the one that cannot report on itself.
 
 ### One control vocabulary across the setup commands
 
@@ -738,6 +753,32 @@ This section is the **CLI's** invariants. For the **agent's** behavioral boundar
 ---
 
 ## When you make changes to this repo
+
+**Run the CLI as `./shipgate …` from the repository root.** That is the one
+canonical command here, for contributors and coding agents alike, and it is
+what every example in `CONTRIBUTING.md` uses. `./shipgate scan -c shipgate.yaml`
+is `agents-shipgate scan -c shipgate.yaml`, with three differences that matter
+in a checkout: it runs *this* tree's `src/` rather than whatever copy `PATH`
+resolves to, it selects a supported interpreter (`AGENTS_SHIPGATE_PYTHON`, else
+the project virtualenv — the main checkout's, if this is a `git worktree`), and
+it needs no installation and no `PYTHONPATH`. Recovery commands it prints name
+the launcher, so they are runnable exactly as printed.
+
+Use a bare `agents-shipgate` only to check what an *installed* build does. If a
+command behaves as though your edit never happened, run
+`./shipgate doctor --config shipgate.yaml --json` and read `environment`
+(above): it states which interpreter ran, which package was imported, which
+checkout you are standing in, and what disagrees.
+
+The launcher stops at the repository boundary, and so should edits that spread
+it. Everything written *into another repo* — the sections above, the adoption
+kits, `.cursorrules`, `.claude/commands/`, `skills/`, `.agents/skills/`, the
+snippets in `docs/target-repo-agent-snippets.md`, and every block
+`init --write --agent-instructions=…` renders — keeps saying
+`agents-shipgate`, because those run where the package is installed and there
+is no launcher. It is also the same reason durable artifacts stay canonical:
+those bytes are pinned by render hashes, and an absolute path from one machine
+does not belong in them.
 
 - Run `python -m ruff check .` and `python -m pytest` before committing.
 - Bumping a check's behavior requires updating the test suite and any golden fixtures under `samples/*/expected/`.

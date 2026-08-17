@@ -15,18 +15,45 @@ pytest
 but it resolves fresh, so it is not the environment CI and the release run. The
 locked closure above is; reproducing a CI failure locally starts with it.
 
-After the editable install, the `agents-shipgate` / `shipgate` console scripts
-run from your working tree. **Beware a stale shadow install.** If you run a bare
-`agents-shipgate` or `python -m agents_shipgate` from a shell where another copy
-is on `PATH` — pipx, a base conda env, a globally pinned older release — you can
-silently execute an old build (we have seen `0.8.0` shadow a worktree, which
-makes new subcommands look "missing"). To stay honest:
+## Running the CLI
 
-- Work inside the project venv and confirm with `agents-shipgate --version`.
-- For a one-off, pin the exact version: `uvx agents-shipgate@<version> ...` or
-  `pipx run agents-shipgate==<version> ...`.
-- When in doubt, `agents-shipgate contract --json` prints the running build's
-  version and contract, so you never reason against a version you don't have.
+```bash
+./shipgate --help
+```
+
+**`./shipgate` is the canonical command in this repository**, and the only one
+the docs and the generated agent instructions use. It is the same CLI as
+`agents-shipgate`, and it needs no installation, no activated virtualenv, and
+no `PYTHONPATH`:
+
+- it runs **this** working tree's `src/`, ahead of any copy on `PATH`;
+- it selects a supported interpreter — `AGENTS_SHIPGATE_PYTHON` if you set one,
+  otherwise the project virtualenv, looked up in the main checkout too so a
+  `git worktree` shares it;
+- the commands it prints back name the launcher, so they run as printed.
+
+**Why not a bare `agents-shipgate`.** It resolves through `PATH`, so a pipx
+copy, a base conda env, or a globally pinned older release can silently execute
+an old build — we have seen `0.8.0` shadow a worktree, which makes new
+subcommands look "missing" — and a console script promoted from an environment
+that no longer exists fails with `ModuleNotFoundError` before Shipgate can say
+anything at all. Run the console script when you want to know what an
+*installed* build does; run `./shipgate` when you want to know what your edit
+does.
+
+**When something looks wrong**, ask rather than guess:
+
+```bash
+./shipgate doctor --config shipgate.yaml --json
+```
+
+The `environment` block in each payload names the interpreter, the launcher and
+every Shipgate console script on your `PATH`, where the imported package came
+from, the installed and source-tree versions, and a `mismatches[]` list with a
+runnable recovery command. `./shipgate contract --json` still prints the running
+build's version and contract; for a one-off against a published release, pin it
+with `uvx agents-shipgate@<version> ...` or `pipx run agents-shipgate==<version>
+...`.
 
 ## Changing dependencies
 
@@ -54,10 +81,10 @@ part of the release, not documentation about it.
 ## Useful Commands
 
 ```bash
-agents-shipgate init --workspace samples/support_refund_agent
-agents-shipgate doctor --config samples/support_refund_agent/shipgate.yaml
-agents-shipgate scan --config samples/support_refund_agent/shipgate.yaml
-agents-shipgate list-checks
+./shipgate init --workspace samples/support_refund_agent
+./shipgate doctor --config samples/support_refund_agent/shipgate.yaml
+./shipgate scan --config samples/support_refund_agent/shipgate.yaml
+./shipgate list-checks
 ```
 
 ## Contribution Areas
@@ -138,8 +165,8 @@ Each new check should include catalog metadata, a test fixture, and documentatio
 
 ```bash
 pytest
-agents-shipgate list-checks
-agents-shipgate explain YOUR-CHECK-ID
+./shipgate list-checks
+./shipgate explain YOUR-CHECK-ID
 ```
 
 Good checks are narrow, evidence-backed, and easy to suppress with a reason when a team has intentionally accepted the risk.

@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+- **One command runs Agents Shipgate from this checkout, and `doctor` now says
+  which Shipgate answered.** Running the CLI from a source tree meant either a
+  bare `agents-shipgate`, which resolves through `PATH` and can silently execute
+  a pipx or base-conda copy — a `0.8.0` shadowing a worktree makes new
+  subcommands look "missing" — or `PYTHONPATH=src python -m agents_shipgate`,
+  which is correct but has to be discovered. A console script promoted from an
+  environment that no longer exists is worse than either: it dies with
+  `ModuleNotFoundError` before a line of Shipgate runs, so nothing in Shipgate's
+  own output can explain it, and the epic's reproduction had a user drop into a
+  terminal at exactly that point
+  ([#334](https://github.com/ThreeMoonsLab/agents-shipgate/issues/334),
+  [#338](https://github.com/ThreeMoonsLab/agents-shipgate/issues/338)).
+
+  A repository launcher, **`./shipgate`**, is now the canonical contributor
+  command, and CONTRIBUTING.md, AGENTS.md, and CLAUDE.md all use it. It needs no
+  installation, no activated virtualenv, and no `PYTHONPATH`: it puts this
+  tree's `src/` ahead of every installed copy (in child processes too), and
+  selects an interpreter — `AGENTS_SHIPGATE_PYTHON`, else the project
+  virtualenv, looked up in the main checkout as well so a `git worktree` shares
+  it — re-executing exactly once, guarded against looping. It announces itself
+  through `AGENTS_SHIPGATE_CLI`, the operator override the invocation policy
+  already honours, so every command it prints back is runnable as printed;
+  without that its `argv[0]` reads as the `shipgate` console script and the
+  policy would emit commands a clean checkout cannot run
+  ([#322](https://github.com/ThreeMoonsLab/agents-shipgate/issues/322)). An
+  operator who set the variable themselves still wins.
+
+  `doctor --json` payloads — and every `doctor` agent-mode error line, including
+  the discovery failure that prints no payload — now carry an `environment`
+  block: the interpreter and whether it is supported, the launcher and every
+  Shipgate console script on `PATH` with the interpreter each shebang names, the
+  import source and whether it is a checkout or an install, the installed and
+  imported and source-tree versions, and `mismatches[]` — each with a severity
+  and, where one exists, a runnable recovery command. Nothing runs an
+  interpreter or executes a console script to find out: a stale wrapper is
+  identified from its shebang, because a wrapper that cannot start is exactly
+  the one that cannot report on itself. A source checkout out-voting an
+  installed distribution is *not* reported as a mismatch — that is the intended
+  state, and an editable install's metadata lags every version bump by design.
+
+  New agent-mode error kind `environment_error` (exit 4), emitted by the
+  launcher before Shipgate is running and carrying the same `environment` block;
+  it is published in [`docs/errors.json`](docs/errors.json). New public helper
+  `agents_shipgate.invocation.render_cli_override`, the host-rules inverse of
+  how `AGENTS_SHIPGATE_CLI` is parsed — needed now that something writes the
+  variable, so a checkout path containing a space survives the round trip. No
+  schema or contract version changes.
+
 - **An `insufficient_evidence` verdict now leads with the gap you can close,
   and the three lines that announce it agree.** The reason counted source
   warnings — the symptom — and demoted the one actionable gap to a secondary

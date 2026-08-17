@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+"""Run Agents Shipgate from this checkout: `./shipgate <command> ...`.
+
+This is the one command a contributor or a coding agent needs in this
+repository. It requires no global installation, no activated virtualenv, and
+no knowledge of `PYTHONPATH` (#334).
+
+It exists because "which Shipgate am I running" had no reliable answer here.
+A bare `agents-shipgate` resolves through `PATH`, so it can execute a pipx or
+base-conda copy instead of the working tree — a stale `0.8.0` shadowing a
+worktree made new subcommands look missing — or fail outright with
+`ModuleNotFoundError` when a promoted console script outlives the environment
+that backed it. The documented alternative, `PYTHONPATH=src python -m
+agents_shipgate`, is correct but has to be discovered, and an agent that has to
+discover it stops to ask a human (#338).
+
+What it guarantees, in order:
+
+1. **This checkout's code runs.** `src/` goes to the front of `sys.path` and of
+   `PYTHONPATH`, ahead of any installed copy, so an edit here is what executes
+   — including in any child process.
+2. **A supported interpreter runs it.** `AGENTS_SHIPGATE_PYTHON` wins if set;
+   otherwise the project virtualenv, looked up in the main checkout as well so
+   that a `git worktree` shares it; otherwise the interpreter already running.
+   Selecting a different one re-executes this script exactly once.
+3. **Emitted commands name this launcher.** It announces itself through
+   `AGENTS_SHIPGATE_CLI`, the operator override the invocation policy already
+   honours (#322), so every recovery command Shipgate prints is runnable as
+   printed. Without that the policy would see `argv[0]` named `shipgate`,
+   conclude a console script was the way in, and emit commands that a clean
+   checkout has no way to run — the exact defect it was written to fix.
+4. **A broken environment is explained, not dumped.** An interpreter that is
+   too old, or one whose dependencies are missing, produces the same structured
+   diagnosis `doctor --json` publishes rather than an import traceback.
+
+Kept to the standard library and to one file so it works before anything is
+installed. It is a development entry point: it is not part of the wheel, and
+nothing in `src/` imports it.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+#: Set across the one permitted re-exec so a mis-selected interpreter cannot
+#: loop. Private: nothing outside this file should set or read it.
+_REEXEC_GUARD = "_AGENTS_SHIPGATE_LAUNCHER_REEXEC"
+
+#: Names an interpreter to run Shipgate with, overriding the search below.
+PYTHON_OVERRIDE_ENV_VAR = "AGENTS_SHIPGATE_PYTHON"
+
+#: `requires-python` from `pyproject.toml`. Restated here rather than imported
+#: because the interpreters this has to reject cannot parse the module that
+#: holds it — `agents_shipgate.environment` needs `tomllib`, which is 3.11+.
+#: `tests/test_environment.py` pins the two spellings together.
+MINIMUM_PYTHON = (3, 12)
+
+LAUNCHER = Path(__file__).resolve()
+CHECKOUT = LAUNCHER.parent
+SRC = CHECKOUT / "src"
+
+# `other_error` in docs/errors.json. The environment failed, not the request.
+ENVIRONMENT_EXIT_CODE = 4
+
+
+def main() -> int:
+    if not SRC.is_dir():
+        return _fail_early(
+            f"{LAUNCHER} expects this repository's sources at {SRC}, which does "
+            "not exist. Run it from an Agents Shipgate checkout."
+        )
+
+    interpreter = _selected_interpreter()
+    if interpreter is not None:
+        return _reexec(interpreter)
+
+    if sys.version_info[:2] < MINIMUM_PYTHON:
+        # Checked before importing anything from the checkout: a too-old
+        # interpreter fails on the package's own syntax, and a SyntaxError
+        # naming one of our files reads as a bug in Shipgate rather than as
+        # the environment problem it is.
+        return _fail_early(
+            f"{sys.executable} is Python {_python_version()}; Agents Shipgate "
+            f"requires {'.'.join(str(part) for part in MINIMUM_PYTHON)} or "
+            f"newer. Create this checkout's virtualenv, or set "
+            f"{PYTHON_OVERRIDE_ENV_VAR} to a supported interpreter."
+        )
+
+    _prepend_source_tree()
+
+    try:
+        # Announcing is itself an import of the checkout, so it is inside the
+        # guard: a checkout that cannot supply the invocation policy would
+        # otherwise raise `ModuleNotFoundError` from this file, which is the
+        # exact failure the launcher exists to replace with a sentence.
+        _announce_launcher()
+        from agents_shipgate.cli.main import app
+    except ImportError as exc:
+        return _report_broken_environment(exc)
+
+    app()
+    return 0  # pragma: no cover - Typer exits the process itself.
+
+
+# --------------------------------------------------------------------------
+# Interpreter selection
+# --------------------------------------------------------------------------
+
+
+def _selected_interpreter() -> str | None:
+    """The interpreter to switch to, or ``None`` to stay on this one."""
+
+    if os.environ.get(_REEXEC_GUARD):
+        # Already switched once. A second hop would mean the selection
+        # disagrees with itself, and looping is worse than a wrong answer.
+        return None
+    candidate = _interpreter_candidate()
+    if candidate is None or _same_interpreter(candidate, sys.executable):
+        return None
+    return str(candidate)
+
+
+def _interpreter_candidate() -> Path | None:
+    override = os.environ.get(PYTHON_OVERRIDE_ENV_VAR, "").strip()
+    if override:
+        return Path(override)
+    for root in _virtualenv_roots():
+        interpreter = _virtualenv_interpreter(root)
+        if interpreter is not None:
+            return interpreter
+    return None
+
+
+def _virtualenv_roots() -> list[Path]:
+    """Where a project virtualenv for this checkout could live.
+
+    The main checkout is searched too, because `git worktree` is how work
+    happens in this repository and a worktree has no `.venv` of its own. Its
+    editable install points at the *main* tree's `src/`, which is exactly why
+    step 1 puts this worktree's `src/` in front: the interpreter comes from
+    there, the code comes from here.
+    """
+
+    roots = [CHECKOUT]
+    main_checkout = _main_checkout()
+    if main_checkout is not None and main_checkout != CHECKOUT:
+        roots.append(main_checkout)
+    return roots
+
+
+def _main_checkout() -> Path | None:
+    """The main working tree, when this checkout is a linked worktree.
+
+    Read from the `.git` file rather than by asking `git`, so the launcher
+    starts one process instead of two and works without git on `PATH`.
+    """
+
+    marker = CHECKOUT / ".git"
+    try:
+        if marker.is_dir() or not marker.is_file():
+            return None
+        content = marker.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    if not content.startswith("gitdir:"):
+        return None
+    # `gitdir: /path/to/main/.git/worktrees/<name>` — the main tree is the
+    # parent of that `.git` directory.
+    gitdir = Path(content[len("gitdir:") :].strip())
+    if not gitdir.is_absolute():
+        gitdir = (CHECKOUT / gitdir).resolve()
+    for parent in gitdir.parents:
+        if parent.name == ".git":
+            return parent.parent
+    return None
+
+
+def _virtualenv_interpreter(root: Path) -> Path | None:
+    for relative in ("Scripts/python.exe", "bin/python3", "bin/python"):
+        candidate = root / ".venv" / relative
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _same_interpreter(left: Path | str, right: Path | str) -> bool:
+    """Whether two spellings name the same interpreter *environment*.
+
+    Compared without resolving symlinks, on purpose. A virtualenv's `python`
+    usually links to the system interpreter it was created from, so resolving
+    would report `/usr/bin/python3` and `.venv/bin/python` as the same
+    interpreter — and then skip the switch that was going to supply the
+    dependencies.
+    """
+
+    return os.path.normcase(os.path.abspath(left)) == os.path.normcase(
+        os.path.abspath(right)
+    )
+
+
+def _reexec(interpreter: str) -> int:
+    """Restart this script under ``interpreter``.
+
+    POSIX replaces the process, so exit status, signals, and the terminal all
+    keep working. Windows has no such call — `os.execv` there spawns and exits
+    the parent immediately, which returns the shell prompt while output is
+    still being written — so the child is run and its status forwarded.
+    """
+
+    if not Path(interpreter).is_file():
+        # Only reachable from the override: a virtualenv candidate is returned
+        # only after its interpreter is seen on disk.
+        return _fail_early(
+            f"{PYTHON_OVERRIDE_ENV_VAR}={interpreter} does not name a file. "
+            "Point it at a Python interpreter, or unset it to use this "
+            "repository's virtualenv."
+        )
+    # The launcher's own path is passed through: an interpreter with no script
+    # would open a REPL.
+    argv = [interpreter, str(LAUNCHER), *sys.argv[1:]]
+    os.environ[_REEXEC_GUARD] = "1"
+    try:
+        if os.name == "nt":
+            import subprocess  # Windows-only, and only on this path.
+
+            return subprocess.run(argv, check=False).returncode
+        os.execv(interpreter, argv)
+    except OSError as exc:
+        # A file that is not executable, or not an executable at all. Reporting
+        # it is the whole job here; a traceback from `execv` names neither the
+        # variable that chose it nor the fact that it was a choice.
+        return _fail_early(f"Could not run {interpreter}: {exc}.")
+    raise AssertionError("unreachable: os.execv replaces this process")
+
+
+# --------------------------------------------------------------------------
+# This checkout's code, and how to say so
+# --------------------------------------------------------------------------
+
+
+def _prepend_source_tree() -> None:
+    """Put this checkout ahead of every installed copy, here and in children."""
+
+    source = str(SRC)
+    while source in sys.path:
+        sys.path.remove(source)
+    sys.path.insert(0, source)
+    existing = os.environ.get("PYTHONPATH", "")
+    parts = [source, *(part for part in existing.split(os.pathsep) if part and part != source)]
+    os.environ["PYTHONPATH"] = os.pathsep.join(parts)
+
+
+def _announce_launcher() -> None:
+    """Tell the invocation policy that this launcher is the way back in.
+
+    Rendered with the policy's own writer so a checkout path containing a
+    space survives being parsed back out of the environment variable. An
+    operator who set the variable themselves keeps it: they know something
+    about their environment that this file does not.
+    """
+
+    from agents_shipgate.invocation import CLI_OVERRIDE_ENV_VAR, render_cli_override
+
+    if os.environ.get(CLI_OVERRIDE_ENV_VAR, "").strip():
+        return
+    os.environ[CLI_OVERRIDE_ENV_VAR] = render_cli_override([str(LAUNCHER)])
+
+
+# --------------------------------------------------------------------------
+# Failure reporting
+# --------------------------------------------------------------------------
+
+
+def _report_broken_environment(exc: ImportError) -> int:
+    """Explain an unimportable environment with the diagnosis `doctor` publishes.
+
+    The whole point of the launcher is to be the thing that still works, so the
+    diagnosis must not need what just failed to import. It comes from
+    `agents_shipgate.environment`, which is standard library only for exactly
+    this reason; if even that cannot be reached the checkout itself is broken,
+    and there is nothing to say beyond which import failed.
+    """
+
+    missing = exc.name or "a dependency"
+    if missing.split(".")[0] == "agents_shipgate":
+        # Our own package, from a directory that exists. Nothing to install:
+        # the checkout is missing a file, and offering `pip install -e .` would
+        # send the caller to a command that cannot fix it.
+        return _fail_early(
+            f"Could not import {missing} from {SRC} using {sys.executable}. "
+            f"The checkout at {CHECKOUT} looks incomplete."
+        )
+    try:
+        from agents_shipgate.environment import environment_report
+    except ImportError:
+        return _fail_early(
+            f"Could not import {missing} from {SRC} using {sys.executable}, and "
+            f"the checkout at {CHECKOUT} cannot report on itself either."
+        )
+
+    report = environment_report(workspace=CHECKOUT)
+    install = _install_command()
+    message = (
+        f"Agents Shipgate could not start: {sys.executable} cannot import "
+        f"{missing}. The launcher selected this checkout's code, so its "
+        "dependencies are what is missing."
+    )
+    print(f"error: {message}", file=sys.stderr)
+    print(f"  interpreter: {sys.executable} (Python {_python_version()})", file=sys.stderr)
+    print(f"  checkout:    {CHECKOUT}", file=sys.stderr)
+    print(f"  install:     {install}", file=sys.stderr)
+    print(
+        "  See CONTRIBUTING.md for the hash-locked closure CI and the release "
+        "install.",
+        file=sys.stderr,
+    )
+    _emit_agent_mode_error(
+        message,
+        next_action=install,
+        next_actions=[
+            {
+                "kind": "command",
+                "command": install,
+                "why": (
+                    "The selected interpreter has this checkout's code but not "
+                    "its dependencies."
+                ),
+                "expects": "An interpreter that can import agents_shipgate and its dependencies.",
+            }
+        ],
+        environment=report,
+    )
+    return ENVIRONMENT_EXIT_CODE
+
+
+def _install_command() -> str:
+    from agents_shipgate.invocation import join_argv
+
+    return join_argv([sys.executable, "-m", "pip", "install", "-e", str(CHECKOUT)])
+
+
+def _python_version() -> str:
+    return ".".join(str(part) for part in sys.version_info[:3])
+
+
+def _emit_agent_mode_error(message: str, **fields: object) -> bool:
+    """Emit the structured line through the CLI's own emitter, if it is loadable.
+
+    Routed there rather than printed here so this failure carries `command`,
+    the ranked `next_actions[]`, and their structured argv on the same terms as
+    every other agent-mode failure — one emitter, not a second one that drifts
+    (#322). `agent_mode` imports nothing beyond the standard library and the
+    invocation policy, so it is reachable on all but the most broken checkout.
+
+    Returns whether the emitter was reached, so the caller knows when the
+    fallback below is the only thing left.
+    """
+
+    try:
+        from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+    except Exception:
+        # Deliberately broad. This runs on paths where the checkout may not be
+        # on `sys.path` at all, so the import can reach an *installed* copy —
+        # and importing a package built for a newer Python raises `SyntaxError`,
+        # not `ImportError`. Surfacing that traceback while reporting an
+        # unsupported interpreter would bury the one sentence that explains it.
+        return False
+    emit_agent_mode_error(
+        "environment_error",
+        message=message,
+        exit_code=ENVIRONMENT_EXIT_CODE,
+        **fields,
+    )
+    return True
+
+
+def _fail_early(message: str) -> int:
+    """Report a failure that happened before any Shipgate code could load.
+
+    There is no recovery command to offer: nothing here knows of an interpreter
+    that would work, and inventing one would send an agent to run something
+    that fails differently.
+    """
+
+    print(f"error: {message}", file=sys.stderr)
+    # Not attempted on an interpreter this package does not support: importing
+    # it there is what fails, and the fallback below says the same thing without
+    # asking the broken interpreter to help.
+    if sys.version_info[:2] >= MINIMUM_PYTHON and _emit_agent_mode_error(message):
+        return ENVIRONMENT_EXIT_CODE
+    # Last resort only — the checkout cannot even load its own emitter, so the
+    # agent-mode switch is re-read here. Kept to the two facts a caller needs
+    # to route on and deliberately not extended: anything richer belongs in the
+    # shared emitter, where every surface gets it.
+    if _agent_mode_without_the_package():
+        print(
+            json.dumps(
+                {
+                    "error": "environment_error",
+                    "message": message,
+                    "exit_code": ENVIRONMENT_EXIT_CODE,
+                }
+            ),
+            file=sys.stderr,
+        )
+    return ENVIRONMENT_EXIT_CODE
+
+
+def _agent_mode_without_the_package() -> bool:
+    """`agent_mode.is_agent_mode`, for the case where it cannot be imported."""
+
+    explicit = os.environ.get("AGENTS_SHIPGATE_AGENT_MODE", "").strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    if explicit in {"0", "false", "no", "off"}:
+        return False
+    return any(os.environ.get(hint) for hint in ("CLAUDECODE", "CURSOR_TRACE_ID"))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -13,6 +13,48 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-doctor-environment"></a>
+
+## Migration Note: unreleased — `doctor --json` reports the environment that answered
+
+No version moves: `contract_version`, `report_schema_version`,
+`minimum_control_contract_version`, and every published schema document are
+unchanged. This is additive on two surfaces and adds one error kind.
+
+**Every `doctor --json` payload gains an `environment` field**, and so does
+every `doctor` agent-mode error line — including the discovery failure, where
+`--json` prints no payload at all. It states the running interpreter, the
+launcher and any `agents-shipgate` / `shipgate` console script on `PATH`, where
+the imported package came from, the installed / imported / source-tree versions,
+and `mismatches[]`. Every existing field on those payloads is unchanged, and
+`environment` is deliberately **not** folded into `control.input_id`: it carries
+absolute machine-specific paths, and `input_id` is the identity of what `doctor`
+decided about a manifest, which the environment does not change. The same
+manifest therefore keeps the same `input_id` on every machine, as before.
+Field-by-field contents are in
+[`docs/diagnostics.md`](docs/diagnostics.md#which-shipgate-answered-the-environment-block).
+
+**New agent-mode error kind `environment_error`, exit code 4** — the existing
+"other agents-shipgate error" code, not a new one. It is emitted by the
+repository launcher before any Shipgate code is running (an unsupported
+interpreter, or one that cannot import the package or its dependencies), so it
+is the only kind that carries no `control` envelope; it carries `environment`
+instead. Published in [`docs/errors.json`](docs/errors.json), whose
+`schema_version` stays `0.1`. A consumer that switches on `error` and falls
+through on unknown kinds is unaffected.
+
+**New public helper `agents_shipgate.invocation.render_cli_override`** — the
+host-rules inverse of how `AGENTS_SHIPGATE_CLI` is parsed. It exists because
+that variable now has a writer: the repository launcher announces itself through
+it. `join_argv` remains POSIX on every platform and is unchanged; the two are
+not interchangeable, and the docstrings say which parser each one pairs with.
+
+The launcher itself, `./shipgate`, is a development entry point in the source
+tree. It is not part of the wheel and nothing under `src/` imports it, so it
+changes nothing for an installed Agents Shipgate.
+
+---
+
 <a id="migration-note-unreleased-setup-control-envelope"></a>
 
 ## Migration Note: unreleased — one control vocabulary across the setup commands
