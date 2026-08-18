@@ -135,12 +135,23 @@ jobs:
         # *correct* `import_outside_source_tree` error rather than a passing
         # case, and asserting "no errors" there would be asserting the wrong
         # thing (#334).
+        #
+        # `PATH` is scoped to the released install for the run itself, and that
+        # is part of what is under test rather than housekeeping. This job also
+        # has an *editable* install whose console scripts sit on the runner's
+        # `PATH`, so with them visible a bare `agents-shipgate` really would
+        # execute a different installation than the wheel being checked — a
+        # correct `console_script_runs_other_interpreter`, and not the adopter
+        # environment this step is about. Scoping it puts the wheel's own
+        # scripts first, which is what an adopter has, and lets the assertions
+        # below stay exact.
         run: |
           python -m venv /tmp/released-install
           /tmp/released-install/bin/python -m pip install --quiet dist/*.whl
           cp -r samples/support_refund_agent /tmp/adopter
           cd /tmp
-          /tmp/released-install/bin/agents-shipgate doctor \
+          PATH=/tmp/released-install/bin:/usr/bin:/bin \
+            /tmp/released-install/bin/agents-shipgate doctor \
             --config /tmp/adopter/shipgate.yaml --json > /tmp/released.json
           python - <<'PY'
           import json, pathlib
@@ -148,6 +159,11 @@ jobs:
           assert environment["import_source"]["kind"] == "installed", environment["import_source"]
           assert environment["installed_version"] == environment["imported_version"], environment
           assert environment["source_tree"]["root"] is None, environment["source_tree"]
+          # The healthy adopter shape, stated rather than implied by silence:
+          # the wrappers on PATH are found, and they run this interpreter.
+          scripts = environment["launcher"]["console_scripts"]
+          assert [entry["name"] for entry in scripts] == ["agents-shipgate", "shipgate"], scripts
+          assert all(entry["runs_this_interpreter"] for entry in scripts), scripts
           assert environment["mismatches"] == [], environment["mismatches"]
           PY
 
