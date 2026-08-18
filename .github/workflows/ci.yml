@@ -218,6 +218,84 @@ jobs:
           assert payload["next_actions"][0]["executable"] == [launcher], payload["next_actions"][0]
           PY
 
+  windows-launcher:
+    # The canonical contributor command, on the one platform where "run the
+    # file" is not a thing the OS does. A shebang is a POSIX kernel feature, so
+    # `.\shipgate` is inert on Windows and the documented spelling is
+    # `python shipgate ...` — which means the launcher has to *announce* that
+    # spelling too, or every recovery command it prints is unrunnable there.
+    #
+    # This job also covers the `os.name == "nt"` re-execution branch, which no
+    # amount of unit testing on Linux can reach: `os.execv` on Windows spawns
+    # and exits the parent, so that branch forwards a child's status instead,
+    # and whether it really forwards is a claim about a Windows process.
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: constraints/dev.txt
+
+      - name: Install the dependency closure, and nothing else
+        # The same hash-locked closure the other jobs install. It resolves here
+        # because the lock is universal — it carries the Windows wheels and the
+        # `os_name == 'nt'` markers — so this is the environment CI approves
+        # everywhere, not a Windows-only resolve.
+        run: python -m pip install --require-hashes --requirement constraints/dev.txt
+
+      - name: The documented Windows spelling runs, and is what gets announced
+        run: |
+          python shipgate --version
+          python shipgate doctor --config samples/support_refund_agent/shipgate.yaml --json > doctor.json
+          python - <<'PY'
+          import json, pathlib, sys
+          payload = json.loads(pathlib.Path("doctor.json").read_text())[0]
+          environment = payload["environment"]
+          launcher = str(pathlib.Path.cwd() / "shipgate")
+          # Two tokens, because Windows will not start the file on its own.
+          assert environment["launcher"]["executable"] == [sys.executable, launcher], (
+              environment["launcher"]
+          )
+          assert environment["import_source"]["root"] == str(pathlib.Path.cwd() / "src")
+          assert environment["mismatches"] == [], environment["mismatches"]
+          # And the emitted recovery is spelled the same way it is documented.
+          assert payload["next_actions"][0]["executable"] == [sys.executable, launcher]
+          PY
+
+      - name: Re-executing into another interpreter forwards its status
+        # `--system-site-packages` so the selected interpreter can still import
+        # the closure: what is under test is the switch and the status
+        # forwarding, not a second installation.
+        run: |
+          python -m venv --system-site-packages .winvenv
+          export AGENTS_SHIPGATE_PYTHON="$(cygpath -w "$PWD/.winvenv/Scripts/python.exe")"
+          python shipgate doctor --config samples/support_refund_agent/shipgate.yaml --json > reexec.json
+          python - <<'PY'
+          import json, os, pathlib
+          environment = json.loads(pathlib.Path("reexec.json").read_text())[0]["environment"]
+          selected = os.environ["AGENTS_SHIPGATE_PYTHON"]
+          assert environment["interpreter"]["executable"] == selected, environment["interpreter"]
+          PY
+          # A non-zero status has to survive the hop as well: `doctor` exits 2
+          # when the manifest cannot be found, and a branch that spawns instead
+          # of replacing the process is exactly where that gets lost.
+          set +e
+          python shipgate doctor --config no-such-manifest.yaml --json
+          status=$?
+          set -e
+          [ "$status" = "2" ] || { echo "::error::expected exit 2 through the re-exec, got $status"; exit 1; }
+
   release-tag-consistency:
     # Public install surfaces follow
     # `.well-known.release_status.latest_release`, while pyproject may be

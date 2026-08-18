@@ -68,7 +68,11 @@ recovery loop stays runnable in the environment that produced it:
 
 This repository's launcher, `./shipgate`, uses the first row rather than adding
 a fifth: it sets `AGENTS_SHIPGATE_CLI` to its own absolute path when the
-variable is unset, so every emitted command names it and runs as printed. It has
+variable is unset, so every emitted command names it and runs as printed. It
+announces `<interpreter> <launcher>` instead wherever the file cannot be started
+on its own — on Windows, which does not read a shebang, and on a copy that lost
+its executable bit — because announcing a path the OS will not run would
+publish exactly the unrunnable command this policy exists to prevent. It has
 to, and not only for tidiness — its `argv[0]` is named `shipgate`, so without
 the announcement the policy would read it as a console script and emit
 `agents-shipgate …`, a command a clean checkout has no way to run. An operator

@@ -34,6 +34,7 @@ from agents_shipgate.environment import (
     EnvironmentProbe,
     describe_environment,
     environment_report,
+    same_interpreter,
 )
 from agents_shipgate.invocation import (
     CLI_OVERRIDE_ENV_VAR,
@@ -62,6 +63,19 @@ def _probe(**overrides: object) -> EnvironmentProbe:
     }
     defaults.update(overrides)
     return EnvironmentProbe(**defaults)  # type: ignore[arg-type]
+
+
+def _wrapper(path: Path, text: str) -> Path:
+    """A console script on disk, executable — as `pip` leaves one.
+
+    The mode is not decoration. `PATH` lookup skips a file without it, so a
+    fixture that omits it is not a console script at all: it is the
+    non-executable file the lookup is now required to walk past.
+    """
+
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o755)
+    return path
 
 
 def _checkout(root: Path, version: str = "1.2.3") -> Path:
@@ -110,16 +124,20 @@ def test_the_launcher_compiles_without_warnings() -> None:
         compile(source, str(LAUNCHER), "exec")
 
 
-def _launcher_namespace() -> dict[str, object]:
+def _launcher_namespace(path: Path = LAUNCHER) -> dict[str, object]:
     """Execute the launcher's module body without running `main()`.
 
     It has no ``.py`` suffix — it is a command, not a module — so it is read
     and compiled rather than imported. ``__name__`` is not ``"__main__"``, so
     the trailing ``sys.exit(main())`` does not fire.
+
+    ``path`` selects which copy runs, because the launcher resolves its own
+    location and mode at import time: a test about either has to hand it a
+    different file, not patch it afterwards.
     """
 
-    namespace: dict[str, object] = {"__file__": str(LAUNCHER), "__name__": "launcher"}
-    exec(compile(LAUNCHER.read_text(encoding="utf-8"), str(LAUNCHER), "exec"), namespace)
+    namespace: dict[str, object] = {"__file__": str(path), "__name__": "launcher"}
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), namespace)
     return namespace
 
 
@@ -212,9 +230,9 @@ def test_a_stale_console_script_is_named_before_it_is_run(tmp_path: Path) -> Non
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    script = bin_dir / "agents-shipgate"
-    script.write_text(
-        f"#!{tmp_path / 'deleted-venv' / 'bin' / 'python'}\nimport sys\n", encoding="utf-8"
+    _wrapper(
+        bin_dir / "agents-shipgate",
+        f"#!{tmp_path / 'deleted-venv' / 'bin' / 'python'}\nimport sys\n",
     )
 
     report = describe_environment(_probe(path_entries=(str(bin_dir),)))
@@ -301,7 +319,7 @@ def test_a_console_script_on_another_interpreter_is_a_warning(tmp_path: Path) ->
     bin_dir.mkdir()
     other = tmp_path / "other-python"
     other.write_text("", encoding="utf-8")
-    (bin_dir / "shipgate").write_text(f"#!{other}\n", encoding="utf-8")
+    _wrapper(bin_dir / "shipgate", f"#!{other}\n")
 
     report = describe_environment(_probe(path_entries=(str(bin_dir),)))
 
@@ -341,7 +359,7 @@ def test_a_shell_trampoline_names_the_interpreter_it_execs(tmp_path: Path) -> No
     bin_dir.mkdir(parents=True)
     interpreter = bin_dir / "python"
     interpreter.write_text("", encoding="utf-8")
-    (bin_dir / "agents-shipgate").write_text(_trampoline(interpreter), encoding="utf-8")
+    _wrapper(bin_dir / "agents-shipgate", _trampoline(interpreter))
 
     report = describe_environment(
         _probe(executable=str(interpreter), path_entries=(str(bin_dir),))
@@ -359,8 +377,8 @@ def test_a_stale_shell_trampoline_is_caught_like_any_other(tmp_path: Path) -> No
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "agents-shipgate").write_text(
-        _trampoline(tmp_path / "deleted venv" / "bin" / "python"), encoding="utf-8"
+    _wrapper(
+        bin_dir / "agents-shipgate", _trampoline(tmp_path / "deleted venv" / "bin" / "python")
     )
 
     report = describe_environment(_probe(path_entries=(str(bin_dir),)))
@@ -380,9 +398,7 @@ def test_an_unrecognised_shell_wrapper_is_unknown_rather_than_wrong(
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "agents-shipgate").write_text(
-        '#!/bin/bash\nexec "$0.real" "$@"\n', encoding="utf-8"
-    )
+    _wrapper(bin_dir / "agents-shipgate", '#!/bin/bash\nexec "$0.real" "$@"\n')
 
     report = describe_environment(_probe(path_entries=(str(bin_dir),)))
 
@@ -403,7 +419,7 @@ def test_an_env_shebang_is_not_reported_as_a_missing_interpreter(
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "agents-shipgate").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    _wrapper(bin_dir / "agents-shipgate", "#!/usr/bin/env python3\n")
 
     report = describe_environment(_probe(path_entries=(str(bin_dir),)))
 
@@ -422,7 +438,7 @@ def test_only_the_first_console_script_on_the_path_is_described(
     second = tmp_path / "second"
     for directory in (first, second):
         directory.mkdir()
-        (directory / "agents-shipgate").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        _wrapper(directory / "agents-shipgate", "#!/usr/bin/env python3\n")
 
     report = describe_environment(_probe(path_entries=(str(first), str(second))))
 
@@ -933,3 +949,266 @@ def test_an_incomplete_checkout_is_not_offered_an_install(
     assert "Traceback" not in result.stderr
     assert "looks incomplete" in result.stderr
     assert "pip install" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# The spelling that has to be runnable, and the comparison that has to be exact
+# ---------------------------------------------------------------------------
+
+
+def test_the_announced_launcher_is_a_spelling_that_runs(tmp_path: Path) -> None:
+    """POSIX runs the file; the announcement is the file."""
+
+    copy = tmp_path / "shipgate"
+    shutil.copy(LAUNCHER, copy)
+    copy.chmod(0o755)
+
+    assert _launcher_namespace(copy)["launcher_argv"]() == [str(copy)]
+
+
+@pytest.mark.parametrize("reason", ["windows", "not executable"])
+def test_a_launcher_the_os_will_not_start_is_announced_with_its_interpreter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    """A shebang is a POSIX kernel feature, and a mode bit can be lost.
+
+    Windows does not read a shebang, so `.\\shipgate` is a file it will not
+    execute; an archive extracted without modes, or a `noexec` mount, leaves
+    the same situation on POSIX. Announcing that path would publish recovery
+    commands that cannot run — this file's own defect, relocated. One rule
+    covers both: announce something that starts.
+    """
+
+    copy = tmp_path / "shipgate"
+    shutil.copy(LAUNCHER, copy)
+    copy.chmod(0o755 if reason == "windows" else 0o644)
+    # Loaded before the platform is faked: the module body resolves its own
+    # path, and `pathlib` will not build a `WindowsPath` on this host.
+    launcher_argv = _launcher_namespace(copy)["launcher_argv"]
+    if reason == "windows":
+        monkeypatch.setattr(os, "name", "nt")
+
+    assert launcher_argv() == [sys.executable, str(copy)]
+
+
+def test_the_launcher_announces_what_it_says_it_announces(tmp_path: Path) -> None:
+    """The announcement really is what reaches `AGENTS_SHIPGATE_CLI`.
+
+    Checked end to end rather than through `launcher_argv` alone, because the
+    value has to survive being rendered into the variable and parsed back out.
+    """
+
+    root = _clean_checkout(tmp_path)
+    result = _run_launcher(
+        root, "doctor", "--config", "missing.yaml", "--json", env=_bare_environment(tmp_path)
+    )
+
+    payload = _agent_mode_line(result.stderr)
+    assert payload["environment"]["launcher"]["executable"] == [str(root / "shipgate")]
+
+
+def test_two_virtualenvs_over_one_base_are_not_the_same_interpreter(
+    isolated_interpreter: Path,
+) -> None:
+    """The comparison must not dereference, and this is why.
+
+    A POSIX virtualenv's `bin/python` is a symlink to the interpreter it was
+    built from, so two unrelated virtualenvs over one base resolve to the same
+    binary while having different `sys.prefix` values and different
+    `site-packages`. Resolving reported them as one interpreter, which made a
+    console script pointing at a *different* environment look clean.
+    """
+
+    if Path(isolated_interpreter).resolve() != Path(sys.executable).resolve():
+        pytest.skip("this platform copies the interpreter into a venv rather than linking it")
+
+    assert same_interpreter(str(isolated_interpreter), sys.executable) is False
+    assert same_interpreter(sys.executable, sys.executable) is True
+
+
+def test_a_wrapper_for_another_environment_is_reported_as_one(tmp_path: Path) -> None:
+    """The same trap, through the report rather than the helper.
+
+    A symlink onto the running interpreter's own binary stands in for the
+    virtualenv, because a shebang cannot carry the space in the venv fixture's
+    path — the kernel splits the interpreter at the first one, which is exactly
+    why `pip` writes a trampoline for those installs instead.
+    """
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    linked = tmp_path / "other-python"
+    linked.symlink_to(Path(sys.executable).resolve())
+    _wrapper(bin_dir / "agents-shipgate", f"#!{linked}\n")
+
+    report = describe_environment(
+        _probe(executable=sys.executable, path_entries=(str(bin_dir),))
+    )
+
+    (described,) = report["launcher"]["console_scripts"]
+    assert described["runs_this_interpreter"] is False
+    assert [entry["code"] for entry in report["mismatches"]] == [
+        "console_script_runs_other_interpreter"
+    ]
+
+
+def test_the_launcher_and_the_package_compare_interpreters_the_same_way() -> None:
+    """Two copies of one rule, pinned together.
+
+    The launcher cannot import this function: it compares interpreters *before*
+    the checkout is on `sys.path`, and before the version gate that makes
+    importing the package safe at all. So it carries its own copy — and a copy
+    that drifts is how the resolving-comparison bug reached only one of them.
+    """
+
+    launcher_same = _launcher_namespace()["_same_interpreter"]
+    cases = [
+        ("/usr/bin/python3", "/usr/bin/python3"),
+        ("/usr/bin/python3", "/venv/bin/python"),
+        ("/venv/bin/python", "/venv/../venv/bin/python"),
+        ("/venv/bin/python", "/venv/bin/python3"),
+        (sys.executable, sys.executable),
+    ]
+
+    assert [launcher_same(left, right) for left, right in cases] == [
+        same_interpreter(left, right) for left, right in cases
+    ]
+
+
+# ---------------------------------------------------------------------------
+# `PATH` lookup, with the shell's rules
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no execute bit")
+def test_a_non_executable_entry_does_not_shadow_the_one_the_shell_runs(
+    tmp_path: Path,
+) -> None:
+    """POSIX command lookup skips a file it cannot execute and keeps going.
+
+    Stopping at it described a wrapper the caller's shell would never run —
+    and, worse, hid the stale-interpreter diagnostic for the one it would.
+    """
+
+    first, second = tmp_path / "first", tmp_path / "second"
+    for directory in (first, second):
+        directory.mkdir()
+    (first / "agents-shipgate").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    (first / "agents-shipgate").chmod(0o644)
+    _wrapper(second / "agents-shipgate", f"#!{tmp_path / 'gone' / 'python'}\n")
+
+    report = describe_environment(_probe(path_entries=(str(first), str(second))))
+
+    (described,) = report["launcher"]["console_scripts"]
+    assert described["path"] == str(second / "agents-shipgate")
+    assert [entry["code"] for entry in report["mismatches"]] == [
+        "console_script_interpreter_missing"
+    ]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no execute bit")
+def test_the_lookup_agrees_with_the_shell(tmp_path: Path) -> None:
+    """Cross-checked against the shell itself, on the case that used to differ."""
+
+    first, second = tmp_path / "first", tmp_path / "second"
+    for directory in (first, second):
+        directory.mkdir()
+    (first / "agents-shipgate").write_text("#!/bin/sh\n", encoding="utf-8")
+    (first / "agents-shipgate").chmod(0o644)
+    _wrapper(second / "agents-shipgate", "#!/bin/sh\n")
+
+    resolved = subprocess.run(
+        ["/bin/sh", "-c", "command -v agents-shipgate"],
+        capture_output=True,
+        text=True,
+        env={"PATH": os.pathsep.join([str(first), str(second)])},
+        check=False,
+    )
+
+    report = describe_environment(_probe(path_entries=(str(first), str(second))))
+    (described,) = report["launcher"]["console_scripts"]
+    assert described["path"] == resolved.stdout.strip()
+
+
+def test_windows_lookup_follows_pathext(tmp_path: Path) -> None:
+    """On Windows the extension is the executability rule, and `PATHEXT` holds it."""
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _wrapper(bin_dir / "agents-shipgate.exe", "#!/unused\n")
+
+    report = describe_environment(
+        _probe(path_entries=(str(bin_dir),), path_extensions=("", ".COM", ".EXE"))
+    )
+
+    (described,) = report["launcher"]["console_scripts"]
+    assert Path(described["path"]).name.lower() == "agents-shipgate.exe"
+
+
+def test_pathext_comes_from_the_environment_that_was_probed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """And falls back to the stock list when the variable is absent."""
+
+    from agents_shipgate.environment import _path_extensions
+
+    assert _path_extensions({"PATHEXT": ".COM;.EXE"}) == ()
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(os, "pathsep", ";")
+    assert _path_extensions({"PATHEXT": ".COM;.EXE"}) == ("", ".COM", ".EXE")
+    assert _path_extensions({})[:2] == ("", ".COM")
+
+
+# ---------------------------------------------------------------------------
+# The trampoline target has to be a command, not a mention of one
+# ---------------------------------------------------------------------------
+
+
+def test_a_commented_out_target_does_not_become_the_interpreter(
+    tmp_path: Path,
+) -> None:
+    """Prose in a wrapper is not a handoff.
+
+    A wrapper carrying `# old target: exec "/deleted/python"` above its real
+    `exec` runs perfectly well; searching the whole file for `exec` reported it
+    as `console_script_interpreter_missing`. A diagnostic may not be derived
+    from a string the shell never executes.
+    """
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    working = bin_dir / "python"
+    working.write_text("", encoding="utf-8")
+    _wrapper(
+        bin_dir / "agents-shipgate",
+        "#!/bin/sh\n"
+        f'# old target: exec "{tmp_path / "deleted" / "python"}"\n'
+        f"'''exec' \"{working}\" \"$0\" \"$@\"\n' '''\n",
+    )
+
+    report = describe_environment(
+        _probe(executable=str(working), path_entries=(str(bin_dir),))
+    )
+
+    (described,) = report["launcher"]["console_scripts"]
+    assert described["interpreter"] == str(working)
+    assert report["mismatches"] == []
+
+
+def test_a_mention_of_exec_inside_the_script_body_is_not_a_handoff(
+    tmp_path: Path,
+) -> None:
+    """`exec` has to be the command word, not a substring of a line."""
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _wrapper(
+        bin_dir / "agents-shipgate",
+        '#!/bin/sh\nprintf \'%s\\n\' \'exec "/not/an/interpreter"\'\n',
+    )
+
+    report = describe_environment(_probe(path_entries=(str(bin_dir),)))
+
+    (described,) = report["launcher"]["console_scripts"]
+    assert described["interpreter"] is None
+    assert report["mismatches"] == []

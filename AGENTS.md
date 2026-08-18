@@ -754,9 +754,11 @@ This section is the **CLI's** invariants. For the **agent's** behavioral boundar
 
 ## When you make changes to this repo
 
-**Run the CLI as `./shipgate …` from the repository root.** That is the one
-canonical command here, for contributors and coding agents alike, and it is
-what every example in `CONTRIBUTING.md` uses. `./shipgate scan -c shipgate.yaml`
+**Run the CLI as `./shipgate …` from the repository root** — `python shipgate …`
+on Windows, which does not read a shebang. That is the one canonical command
+here, for contributors and coding agents alike, and it is what every example in
+`CONTRIBUTING.md` uses. Emitted commands name whichever spelling starts it, so
+follow `next_actions[].executable` rather than assuming one token. `./shipgate scan -c shipgate.yaml`
 is `agents-shipgate scan -c shipgate.yaml`, with three differences that matter
 in a checkout: it runs *this* tree's `src/` rather than whatever copy `PATH`
 resolves to, it selects a supported interpreter (`AGENTS_SHIPGATE_PYTHON`, else

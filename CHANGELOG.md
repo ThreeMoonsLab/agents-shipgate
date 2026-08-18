@@ -58,6 +58,43 @@
   variable, so a checkout path containing a space survives the round trip. No
   schema or contract version changes.
 
+- **The launcher announces a spelling the operating system will actually start.**
+  A shebang is a POSIX kernel feature, so `.\shipgate` is a file Windows will
+  not execute — and announcing that path through `AGENTS_SHIPGATE_CLI` published
+  recovery commands that could not run there, which is this launcher's own
+  defect relocated to another platform. It now announces
+  `<interpreter> <launcher>` wherever the file cannot be started on its own: on
+  Windows, and on a copy that lost its executable bit. `python shipgate …` is the
+  documented Windows spelling, and it is the one that gets emitted. A new
+  Windows CI job covers the entry point, the announcement, and the
+  `os.name == "nt"` re-execution branch — including that a non-zero status
+  survives the hop, which is exactly what a branch that spawns instead of
+  replacing the process can lose.
+
+- **Two virtual environments over one base are no longer one interpreter.**
+  `runs_this_interpreter` resolved both paths before comparing them, and a POSIX
+  virtualenv's `bin/python` is a symlink to the interpreter it was built from —
+  so two unrelated virtualenvs collapsed onto the same binary despite having
+  different `sys.prefix` values and different `site-packages`. A console script
+  pointing at a *different* environment reported clean. The comparison no longer
+  dereferences, matching the rule the launcher already applied when deciding
+  whether to switch interpreters; the two copies are now pinned to each other by
+  test.
+
+- **`PATH` lookup follows the shell's rule, not "a file exists there".** A
+  regular file without the execute bit is skipped by POSIX command lookup, which
+  continues to later `PATH` entries. Stopping at it described a wrapper the
+  caller's shell would never run and hid the stale-interpreter diagnostic for the
+  one it would. Executability is now required on POSIX, and `PATHEXT` decides on
+  Windows.
+
+- **A trampoline target must be a command, not a mention of one.** The `exec`
+  handoff was found by searching the whole wrapper, so a comment such as
+  `# old target: exec "/deleted/python"` above a working `exec` reported a
+  healthy wrapper as `console_script_interpreter_missing`. Lines are now read in
+  order with `exec` required in command position and comments skipped: a
+  diagnostic may not be derived from a string the shell never executes.
+
 - **A quoted program token is read before it is judged to be ours.**
   `retarget_command` located the program by scanning to raw whitespace, on the
   argument that our console-script names contain none — true of the names, and

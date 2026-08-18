@@ -266,7 +266,34 @@ def _announce_launcher() -> None:
 
     if os.environ.get(CLI_OVERRIDE_ENV_VAR, "").strip():
         return
-    os.environ[CLI_OVERRIDE_ENV_VAR] = render_cli_override([str(LAUNCHER)])
+    os.environ[CLI_OVERRIDE_ENV_VAR] = render_cli_override(launcher_argv())
+
+
+def launcher_argv() -> list[str]:
+    """The tokens that start this launcher, spelled so they actually can.
+
+    A shebang is a POSIX kernel feature. Windows does not read one, so
+    `.\\shipgate` there is a file the OS will not execute, and announcing that
+    path would publish recovery commands that cannot run — the same defect this
+    file exists to remove, just relocated to another platform. On Windows the
+    announcement is therefore `<interpreter> <launcher>`, which is exactly what
+    a contributor there types (`python shipgate ...`), so the emitted commands
+    and the documented ones are the same command.
+
+    The executable bit is checked for the same reason rather than assumed:
+    an archive extracted without modes, or a checkout on a filesystem mounted
+    `noexec`, leaves a launcher that `./shipgate` cannot start either. One rule
+    covers both — announce a spelling that runs.
+
+    No `.cmd` shim: `CreateProcess` runs a batch file by handing it to
+    `cmd.exe`, which re-parses the arguments under a different quoting grammar,
+    and this project publishes structured argv that callers execute without a
+    shell. Two tokens are cheaper than a second grammar.
+    """
+
+    if os.name == "nt" or not os.access(LAUNCHER, os.X_OK):
+        return [sys.executable, str(LAUNCHER)]
+    return [str(LAUNCHER)]
 
 
 # --------------------------------------------------------------------------

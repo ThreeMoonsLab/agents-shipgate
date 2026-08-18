@@ -22,9 +22,14 @@ locked closure above is; reproducing a CI failure locally starts with it.
 ```
 
 **`./shipgate` is the canonical command in this repository**, and the only one
-the docs and the generated agent instructions use. It is the same CLI as
-`agents-shipgate`, and it needs no installation, no activated virtualenv, and
-no `PYTHONPATH`:
+the docs and the generated agent instructions use. On Windows the same file is
+run as `python shipgate --help`: a shebang is a POSIX kernel feature, so
+Windows will not start the file on its own. That is the only difference, and
+the launcher knows about it — the recovery commands it prints there name
+`<interpreter> shipgate`, so they stay runnable as printed.
+
+It is the same CLI as `agents-shipgate`, and it needs no installation, no
+activated virtualenv, and no `PYTHONPATH`:
 
 - it runs **this** working tree's `src/`, ahead of any copy on `PATH`;
 - it selects a supported interpreter — `AGENTS_SHIPGATE_PYTHON` if you set one,

@@ -53,6 +53,7 @@ __all__ = [
     "environment_report",
     "find_source_checkout",
     "probe_environment",
+    "same_interpreter",
 ]
 
 #: The distribution name ``pip`` knows this package by.
@@ -75,6 +76,10 @@ REPOSITORY_LAUNCHER = "shipgate"
 # to nothing useful; that is reported as an unknown interpreter, not as a fault.
 _WRAPPER_READ_BYTES = 1024
 
+# What `PATHEXT` holds on a stock Windows install, for the case where the
+# variable is missing from the environment entirely.
+_DEFAULT_PATHEXT = (".COM", ".EXE", ".BAT", ".CMD")
+
 # Shells a console-script wrapper can be written in. `pip` falls back to one
 # whenever the interpreter path cannot go in a shebang.
 _SHELLS = frozenset({"sh", "bash", "dash", "ksh", "zsh"})
@@ -84,9 +89,10 @@ _SHELLS = frozenset({"sh", "bash", "dash", "ksh", "zsh"})
 #     #!/bin/sh
 #     '''exec' "/path with space/bin/python" "$0" "$@"
 #
-# Quoted or bare, and the ``exec`` may carry a trailing quote from the
-# polyglot heredoc that makes the same file valid Python.
-_EXEC_TARGET = re.compile(r"""exec['"]?\s+(?:"([^"]+)"|'([^']+)'|(\S+))""")
+# The target is quoted or bare, and the word ``exec`` may be wrapped in the
+# quotes that make the same bytes valid Python. Matched against a stripped line
+# with ``re.match``, so ``exec`` has to be the command, not a mention of one.
+_EXEC_TARGET = re.compile(r"""['"]*exec['"]*\s+(?:"([^"]+)"|'([^']+)'|(\S+))""")
 
 
 @dataclass(frozen=True)
@@ -108,6 +114,9 @@ class EnvironmentProbe:
     path_entries: tuple[str, ...]
     invocation: Invocation
     search_from: tuple[Path, ...] = ()
+    #: Suffixes that make a file executable, from ``PATHEXT``. Empty on POSIX,
+    #: where the execute bit decides instead.
+    path_extensions: tuple[str, ...] = ()
 
 
 def probe_environment(
@@ -132,11 +141,27 @@ def probe_environment(
             entry for entry in source_env.get("PATH", "").split(os.pathsep) if entry
         ),
         invocation=resolve_invocation(env=source_env),
+        path_extensions=_path_extensions(source_env),
         # Where to look for the checkout the caller believes they are working
         # on. Searched before the imported package's own root — see
         # `find_source_checkout` for why that order is load-bearing.
         search_from=tuple(path for path in (workspace, cwd) if path is not None),
     )
+
+
+def _path_extensions(env: Mapping[str, str]) -> tuple[str, ...]:
+    """What counts as an executable name on this host.
+
+    Windows has no execute bit: ``PATHEXT`` is the whole rule, and a command
+    lookup tries the bare name and then each of its suffixes. On POSIX the
+    answer is empty, and executability is a permission.
+    """
+
+    if os.name != "nt":
+        return ()
+    raw = env.get("PATHEXT", "").strip()
+    suffixes = tuple(part for part in raw.split(os.pathsep) if part) or _DEFAULT_PATHEXT
+    return ("", *suffixes)
 
 
 def _installed_version() -> str | None:
@@ -331,7 +356,7 @@ def _describe_console_scripts(probe: EnvironmentProbe) -> list[dict[str, object]
 
     described: list[dict[str, object]] = []
     for name in CONSOLE_SCRIPTS:
-        path = _which(name, probe.path_entries)
+        path = _which(probe, name)
         if path is None:
             continue
         interpreter = _shebang_interpreter(path)
@@ -346,31 +371,45 @@ def _describe_console_scripts(probe: EnvironmentProbe) -> list[dict[str, object]
                 "runs_this_interpreter": (
                     None
                     if interpreter is None
-                    else _same_file(interpreter, probe.executable)
+                    else same_interpreter(interpreter, probe.executable)
                 ),
             }
         )
     return described
 
 
-def _which(name: str, path_entries: Sequence[str]) -> Path | None:
-    """``PATH`` lookup that does not consult the *live* ``PATH``.
+def _which(probe: EnvironmentProbe, name: str) -> Path | None:
+    """The entry a shell would run for ``name``, given this probe's ``PATH``.
 
-    ``shutil.which`` reads ``os.environ`` and the real filesystem cwd, which
-    would make the five environment cases untestable without mutating the
-    process running the tests.
+    ``shutil.which`` reads ``os.environ`` and, on Windows, the live working
+    directory, which would make the environment cases untestable without
+    mutating the process running the tests. So the lookup is done here — and
+    with the *shell's* rule, not merely "a file exists there".
+
+    Executability is that rule. A regular file without the execute bit is
+    skipped by POSIX command lookup, which continues to later ``PATH``
+    entries; stopping at it described a wrapper the caller's shell would never
+    run, and hid the stale-interpreter diagnostic for the one it would. On
+    Windows the filter is the extension instead: ``PATHEXT`` decides what is
+    executable, and the execute bit does not exist.
     """
 
-    suffixes = ("", ".exe", ".bat", ".cmd") if os.name == "nt" else ("",)
-    for entry in path_entries:
-        for suffix in suffixes:
+    for entry in probe.path_entries:
+        for suffix in probe.path_extensions or ("",):
             candidate = Path(entry) / f"{name}{suffix}"
             try:
-                if candidate.is_file():
+                if candidate.is_file() and _is_executable(candidate):
                     return candidate
             except OSError:  # pragma: no cover - unreadable PATH entry
                 continue
     return None
+
+
+def _is_executable(candidate: Path) -> bool:
+    if os.name == "nt":
+        # The suffix already matched PATHEXT; there is no execute bit to check.
+        return True
+    return os.access(candidate, os.X_OK)
 
 
 def _shebang_interpreter(script: Path) -> str | None:
@@ -418,22 +457,64 @@ def _shebang_interpreter(script: Path) -> str | None:
 
 
 def _trampoline_target(text: str) -> str | None:
-    """The interpreter a shell wrapper ``exec``s, or ``None`` if unrecognised."""
+    """The interpreter a shell wrapper ``exec``s, or ``None`` if unrecognised.
 
-    match = _EXEC_TARGET.search(text)
-    if match is None:
-        return None
-    target = next(group for group in match.groups() if group is not None)
-    # ``exec "$0"`` and friends are the wrapper re-entering itself, not an
-    # interpreter path.
-    return target if target.startswith(("/", "\\")) or ":" in target else None
+    Read line by line, with ``exec`` required in *command* position, because
+    searching the whole wrapper let prose win over the handoff: a comment such
+    as ``# old target: exec "/deleted/python"`` above a working ``exec`` was
+    reported as ``console_script_interpreter_missing`` for a wrapper that runs
+    fine. A diagnostic must never be derived from a string that the shell does
+    not execute.
+
+    ``exec`` in command position is not the same as a line starting with the
+    letters. `pip`'s trampoline wraps the word in the very quotes that make the
+    same bytes valid Python; the shell concatenates them away and reads the
+    word ``exec``. Quotes around the word are therefore allowed, and nothing
+    else before it is.
+    """
+
+    for line in text.splitlines()[1:]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = _EXEC_TARGET.match(stripped)
+        if match is None:
+            continue
+        target = next(group for group in match.groups() if group is not None)
+        # ``exec "$0"`` and friends are the wrapper re-entering itself, not an
+        # interpreter path.
+        return target if target.startswith(("/", "\\")) or ":" in target else None
+    return None
 
 
-def _same_file(left: str, right: str) -> bool:
-    try:
-        return Path(left).resolve() == Path(right).resolve()
-    except OSError:  # pragma: no cover - unreadable path
-        return left == right
+def same_interpreter(left: str, right: str) -> bool:
+    """Whether two spellings name the same interpreter *environment*.
+
+    Compared without dereferencing symlinks, and that is the whole content of
+    the function. A POSIX virtualenv's ``bin/python`` is a symlink to the
+    interpreter it was created from, so resolving reports ``venv/bin/python``
+    and ``/usr/bin/python3`` as one interpreter — and they are not: they have
+    different ``sys.prefix`` values and different ``site-packages``. A console
+    script pointing at a virtualenv while ``doctor`` runs under that
+    virtualenv's base Python is a real ``console_script_runs_other_interpreter``,
+    and resolving reported it as clean.
+
+    The repository launcher applies the same rule when it decides whether to
+    switch interpreters, for the same reason and with the opposite consequence:
+    resolving there skips the switch that would have supplied the dependencies.
+    It cannot import this function — interpreter selection happens before the
+    checkout is on ``sys.path``, and before the version gate that would make
+    importing this module safe — so it carries its own copy, pinned to this one
+    by ``tests/test_environment.py``.
+    """
+
+    return _comparable(left) == _comparable(right)
+
+
+def _comparable(path: str) -> str:
+    """One path, normalized for comparison only — never for display."""
+
+    return os.path.normcase(os.path.abspath(path))
 
 
 def _mismatch(
