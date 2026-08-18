@@ -22,7 +22,10 @@ from agents_shipgate.core.baseline_audit import (
 from agents_shipgate.core.check_ids import LEGACY_CHECK_ID_ALIASES
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.evaluation_clock import trust_expiry_date
-from agents_shipgate.core.findings.identity import legacy_policy_routing_fingerprint
+from agents_shipgate.core.findings.identity import (
+    legacy_policy_routing_fingerprint,
+    legacy_split_check_id_fingerprints,
+)
 from agents_shipgate.core.static_inputs import read_static_input_text
 from agents_shipgate.schemas.baseline import (
     BaselineFile,
@@ -390,6 +393,12 @@ def apply_baseline(
         if policy_routing_fingerprint := legacy_policy_routing_fingerprint(finding):
             if legacy_identity_unambiguous:
                 legacy_candidates.add(policy_routing_fingerprint)
+        # Debt accepted against a check id that has since split is still the
+        # same accepted item. The candidate is scoped to declared split targets
+        # and still has to agree on ``support_hash``, so this widens matching
+        # for exactly the renamed row and nothing else.
+        if legacy_identity_unambiguous:
+            legacy_candidates.update(legacy_split_check_id_fingerprints(finding))
         if not fingerprint:
             continue
         current_active_fingerprints.add(fingerprint)
@@ -591,6 +600,12 @@ def baseline_resolved_fingerprints(
         if policy_routing_fingerprint := legacy_policy_routing_fingerprint(finding):
             if legacy_identity_unambiguous:
                 legacy_candidates.add(policy_routing_fingerprint)
+        # Debt accepted against a check id that has since split is still the
+        # same accepted item. The candidate is scoped to declared split targets
+        # and still has to agree on ``support_hash``, so this widens matching
+        # for exactly the renamed row and nothing else.
+        if legacy_identity_unambiguous:
+            legacy_candidates.update(legacy_split_check_id_fingerprints(finding))
         if not fingerprint:
             continue
         active.add(fingerprint)

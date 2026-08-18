@@ -1,8 +1,10 @@
-"""SHIP-VERIFY-POLICY-WEAKENED — base-vs-head policy weakening (§5.1 Tier B).
+"""Base-vs-head policy weakening and its no-base fail-safe (§5.1 Tier B).
 
-Compares the normalized effective-policy snapshot of the base report
-(via ``--diff-from``) against the head manifest and emits one finding per
-detected weakening:
+This module emits two distinct reason codes.
+
+``SHIP-VERIFY-POLICY-WEAKENED`` is a *base-relative* claim. It compares the
+normalized effective-policy snapshot of the base report (via ``--diff-from``)
+against the head manifest and emits one finding per detected weakening:
 
 - ``ci_mode_weakened`` — CI gate moved strict -> advisory.
 - ``fail_on_loosened`` — the fail-on severity set lost a tier
@@ -10,14 +12,26 @@ detected weakening:
 - ``severity_override_lowered`` — a check's applied severity dropped
   across a tier boundary versus the base.
 
-If the base snapshot is unavailable (no diff reference, or a pre-v0.22
-base) AND the PR touched a policy/manifest trust root, it emits a single
-``base_snapshot_unavailable`` review-required finding — a reward-hacker
-must not be able to dodge review by breaking the base scan (§5.3: ambiguous
-direction -> review_required, never silent pass). When the base is proven
-to carry no manifest at all, the same fail-safe emits under evidence kind
-``manifest_introduced`` instead: adoption is still a human decision, but
-nothing existed to weaken and the finding says so.
+``SHIP-VERIFY-POLICY-BASE-ABSENT`` is the fail-safe for when there is no base
+policy to compare against at all. It carries no weakening claim in either
+direction — it says the comparison could not be made and routes the change to
+a human (§5.3: ambiguous direction -> review_required, never silent pass). It
+emits only when the PR also touched a policy/manifest trust root, under one of
+two evidence kinds:
+
+- ``manifest_introduced`` — the base is proven to carry no manifest at all, so
+  this diff adopts the gate rather than modifying one. Adoption is still a
+  human decision, but nothing existed to weaken and the finding says so.
+- ``base_snapshot_unavailable`` — no base snapshot was obtainable (no diff
+  reference, a pre-v0.22 base, or a base whose scan did not produce one).
+
+Splitting the fail-safe out of ``SHIP-VERIFY-POLICY-WEAKENED`` is what keeps
+"the policy was weakened relative to a base" readable as the fact it claims:
+on a first adoption the old shared reason code reported a weakening that
+definitionally could not have happened. The split is reason-code and copy
+only — severity, category, human-acknowledgement requirement, and the
+``policy_weakened`` fail-safe flag are all unchanged (see
+``core/findings/verifier_blocks`` and ``cli/verify/capability_review``).
 
 Weakening is defined as movement toward less review / less blocking. A
 strengthening change (stricter mode, more fail-on severities, raised
@@ -38,11 +52,26 @@ from agents_shipgate.checks._verify_common import (
     verification_active,
     verify_finding,
 )
+from agents_shipgate.core.check_ids import (
+    SPLIT_CHECK_ID_ALIASES,
+    expands_to_check_id,
+)
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.policy_reason_codes import (
+    POLICY_BASE_ABSENT_CHECK_ID,
+    POLICY_WEAKENED_CHECK_ID,
+)
 from agents_shipgate.core.trust_roots import is_context_configured_manifest
 from agents_shipgate.schemas.report import Finding
 
-CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
+CHECK_ID = POLICY_WEAKENED_CHECK_ID
+# The no-base fail-safe. A separate reason code because it makes the opposite
+# claim from CHECK_ID: not "the gate got weaker" but "there is no base gate to
+# compare against". Consumers that read a reason code as a fact — reviewer
+# routing, the registry, the gate-bypass alarm — could not tell those apart
+# while both shared one id. Configuration written against CHECK_ID still
+# reaches this one: see ``core.check_ids.SPLIT_CHECK_ID_ALIASES``.
+BASE_ABSENT_CHECK_ID = POLICY_BASE_ABSENT_CHECK_ID
 
 # Strength of a CI mode — higher blocks more. Unknown modes rank -1 so an
 # unrecognized head mode never reads as "stronger" than a known base.
@@ -127,7 +156,15 @@ def _compare(context: ScanContext, base, head) -> list[Finding]:
     # -> default medium) are all policy weakening.
     defaults = _catalog_default_severities()
     lowered = []
-    check_ids = set(base.severity_overrides) | set(head.severity_overrides)
+    # An override written against a check that has since split configures both
+    # halves (``SPLIT_CHECK_ID_ALIASES``), so the comparison must be made for
+    # every check either side's configuration *reaches* — not only for the
+    # literal keys. Comparing keys alone reports both kinds of wrong answer: a
+    # head that adds an explicit override for the new id lowers the applied
+    # severity with no key change on the old one (missed), and a head that
+    # drops a redundant explicit override changes no applied severity at all
+    # (falsely reported).
+    check_ids = _comparable_check_ids(base.severity_overrides, head.severity_overrides)
     for check_id in sorted(check_ids):
         base_sev = _effective_severity(
             check_id,
@@ -172,12 +209,46 @@ def _catalog_default_severities() -> dict[str, str]:
     return {entry.id: entry.default_severity for entry in load_check_metadata()}
 
 
+def _comparable_check_ids(
+    base_overrides: dict[str, str],
+    head_overrides: dict[str, str],
+) -> set[str]:
+    """Every check whose applied severity either side's configuration reaches.
+
+    A configured key is itself comparable, and so is each check it expands to
+    through a split alias — otherwise a configured id that no longer names the
+    check it governs drops out of the comparison entirely.
+    """
+
+    configured = set(base_overrides) | set(head_overrides)
+    return configured | {
+        expansion
+        for check_id in configured
+        for expansion in SPLIT_CHECK_ID_ALIASES.get(check_id, ())
+    }
+
+
 def _effective_severity(
     check_id: str,
     overrides: dict[str, str],
     defaults: dict[str, str],
 ) -> str | None:
-    return overrides.get(check_id) or defaults.get(check_id)
+    """The severity ``check_id`` is actually applied at, under ``overrides``.
+
+    Resolution mirrors the runtime applier
+    (``core.findings.mutations._severity_override_for_check``) exactly: an
+    override written against this check wins, and only then does an override
+    written against a pre-split umbrella id apply. Reading the literal key
+    alone made the comparator describe a policy the run does not enforce.
+    """
+
+    direct = overrides.get(check_id)
+    if direct:
+        return direct
+    for configured_check_id, override in sorted(overrides.items()):
+        if override and expands_to_check_id(configured_check_id, check_id):
+            return override
+    return defaults.get(check_id)
 
 
 def _touched_policy_surfaces(context: ScanContext) -> list[str]:
@@ -219,7 +290,7 @@ def _fail_safe(context: ScanContext) -> list[Finding]:
         return [
             verify_finding(
                 context,
-                check_id=CHECK_ID,
+                check_id=BASE_ABSENT_CHECK_ID,
                 title="Initial Shipgate adoption: the base carries no policy",
                 severity="medium",
                 evidence={
@@ -238,7 +309,7 @@ def _fail_safe(context: ScanContext) -> list[Finding]:
     return [
         verify_finding(
             context,
-            check_id=CHECK_ID,
+            check_id=BASE_ABSENT_CHECK_ID,
             title="Policy change cannot be proven safe (no base snapshot)",
             severity="medium",
             evidence={

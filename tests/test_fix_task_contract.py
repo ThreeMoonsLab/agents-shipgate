@@ -867,7 +867,7 @@ def test_insufficient_evidence_without_inventory_gives_generic_remedy() -> None:
 def _trust_root_report(*, adoption: bool = False, path: str = "shipgate.yaml"):
     f = _finding("F1", requires_human_review=True, autofix_safe=False)
     if adoption:
-        f.check_id = "SHIP-VERIFY-POLICY-WEAKENED"
+        f.check_id = "SHIP-VERIFY-POLICY-BASE-ABSENT"
         f.evidence = {
             "kind": "manifest_introduced",
             "changed_policy_files": [path],
@@ -1016,7 +1016,7 @@ def test_non_mergeable_adoption_leads_with_the_real_stop_condition(
     merge_verdict: str,
 ) -> None:
     adoption = _finding("adoption", requires_human_review=True, autofix_safe=False)
-    adoption.check_id = "SHIP-VERIFY-POLICY-WEAKENED"
+    adoption.check_id = "SHIP-VERIFY-POLICY-BASE-ABSENT"
     adoption.evidence = {"kind": "manifest_introduced"}
     other = _finding("other", requires_human_review=True, autofix_safe=False)
     report = _report(

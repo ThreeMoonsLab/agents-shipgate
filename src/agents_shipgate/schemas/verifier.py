@@ -309,9 +309,35 @@ class VerifierCapabilityReview(BaseModel):
     modified: int = 0
     removed: int = 0
     trust_root_touched: bool = False
+    # Fail-closed routing: true whenever the release policy may have gotten
+    # weaker, including when the direction could not be established at all
+    # (no base snapshot). Consumers gate on this.
     policy_weakened: bool = False
+    # The narrower, honest fact: a base-vs-head comparison actually ran and
+    # found the head weaker. Never true without ``policy_weakened``. Copy is
+    # selected from this one, so an unprovable direction is not reported to a
+    # human as a proven weakening while the conservative route is preserved.
+    policy_weakening_proven: bool = False
     top_changes: list[VerifierCapabilityChange] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _proven_implies_weakened(self) -> VerifierCapabilityReview:
+        """``policy_weakening_proven`` is a refinement, never an escape hatch.
+
+        A payload claiming a *proven* weakening while the fail-closed routing
+        flag is clear would be read by the two consumer classes in opposite
+        directions: a gate reading ``policy_weakened`` would let it through
+        while a human read "this PR weakens the release policy". The narrower
+        fact is only ever a subset of the broader one, so the contradiction is
+        rejected at construction rather than published.
+        """
+
+        if self.policy_weakening_proven and not self.policy_weakened:
+            raise ValueError(
+                "policy_weakening_proven=True requires policy_weakened=True"
+            )
+        return self
 
 
 # Only these three describe history or objects that a fetch can make local.
@@ -614,7 +640,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.8"] = "0.8"
+    verifier_schema_version: Literal["0.9"] = "0.9"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -673,14 +699,28 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
-        legacy = legacy_version in {"0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7"}
+        legacy = legacy_version in {
+            "0.1",
+            "0.2",
+            "0.3",
+            "0.4",
+            "0.5",
+            "0.6",
+            "0.7",
+            # v0.8 froze without ``capability_review.policy_weakening_proven``.
+            # Reading one is safe — the field defaults to ``false``, which is
+            # what "no comparison was recorded" means — but emitting the field
+            # under the v0.8 identifier would break every consumer validating
+            # against the published strict schema.
+            "0.8",
+        }
         if not legacy:
             # Current artifacts must already carry the authoritative control
             # union.  Silently synthesizing a missing or malformed current
             # control would turn an internal consistency failure into a trusted
             # handoff.  Only frozen prior readers are normalized.
             return normalized
-        normalized["verifier_schema_version"] = "0.8"
+        normalized["verifier_schema_version"] = "0.9"
         # A pre-v0.7 artifact recorded nothing about whether its diff was
         # readable. Defaulting that to ``complete`` would manufacture the one
         # claim the whole field exists to stop.

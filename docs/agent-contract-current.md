@@ -219,7 +219,7 @@ Downstream repos generated with
 - Current report schema: `0.34` — [`docs/report-schema.v0.34.json`](report-schema.v0.34.json)
 - Current packet schema: `0.12` — [`docs/packet-schema.v0.12.json`](packet-schema.v0.12.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.7` — [`docs/verifier-schema.v0.8.json`](verifier-schema.v0.8.json)
+- Current verifier schema: `0.9` — [`docs/verifier-schema.v0.9.json`](verifier-schema.v0.9.json) (v0.8 and earlier stay frozen; `0.9` adds `capability_review.policy_weakening_proven`)
 - Current verify-run schema: `shipgate.verify_run/v4` — [`docs/verify-run-schema.v4.json`](verify-run-schema.v4.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -479,9 +479,9 @@ The remaining v0.22 verifier blocks are reviewer-facing projections / declared i
 - `capability_change` (v0.22+, semantic metadata v0.23+) — the diff-derived capability delta, grouped into `{enabled, added, removed, broadened, narrowed}` member lists over `action_surface_diff` / `tool_surface_diff`. Each `CapabilityChangeMember` carries `{id, direction, subject_kind, tool, action, scope, before_scope, after_scope, before_capability_id, after_capability_id, changed_hashes, semantic_direction, semantic_changes, risk_tags, release_impact, provenance_kind, confidence, rationale, related_finding_ids}`. `broadened` = more effective capability (wider scope, escalated effect, removed control); `narrowed` = less (removed scope, added control). `semantic_direction` explains the proven capability-level movement (`added | removed | broadened | narrowed | mixed | unknown | evidence_only`), and `semantic_changes[]` gives field-level reasons when a base action snapshot is available. `enabled: false` when no base diff is available.
 - `protected_surface_changes` (v0.22+) — list of touched release trust roots, each `{path, kind, glob, related_finding_ids}`. Derived from the active `SHIP-VERIFY-*` findings, so every row's `related_finding_ids` resolves to a real `findings[]` entry and the rollup can never disagree with the gate. A row means "a protected file was touched"; purely-semantic weakenings with no file path stay in `findings[]` and surface via `verifier_summary` flags.
 - `effective_policy` (v0.22+) — normalized (not text-diff) snapshot of the release-policy surface for base-vs-head weakening comparison: `{ci_mode, fail_on[], suppressed_check_ids[], waiver_scopes[], severity_overrides{}, baseline_integrity_mode, baseline_fingerprints[], ci_gate_present}`. Every list/dict is sorted for byte-stable output; derived purely from the manifest (plus accepted-debt fingerprints). It describes the policy the repository **declares**, not the policy this invocation runs under: `--ci-mode` / `--fail-on` move `ci_mode` / `fail_on` at the top level of the report but never here, so two runs of the same tree produce the same snapshot and a base-vs-head comparison stays repository-vs-repository.
-- `human_ack` (v0.22+) — declared human-acknowledgement state, `{required, satisfied, acks[], outstanding[]}`. Within the static boundary, acknowledgement is **declared evidence only — never inferred** (human authority cannot be synthesized). A trust-root weakening (`SHIP-VERIFY-POLICY-WEAKENED`, `-CI-GATE-REMOVED`, `-BASELINE-OR-WAIVER-EXPANDED`) makes a surface `required`; it is `satisfied` only by a matching `human_ack` entry in `shipgate.yaml` (owner + reason + affected surface, optional expiry). `required == (acks-covering-required) + outstanding`. The acknowledgement section lives in `shipgate.yaml` — itself a trust root — so a coding agent cannot add its own ack without tripping `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
+- `human_ack` (v0.22+) — declared human-acknowledgement state, `{required, satisfied, acks[], outstanding[]}`. Within the static boundary, acknowledgement is **declared evidence only — never inferred** (human authority cannot be synthesized). A trust-root weakening (`SHIP-VERIFY-POLICY-WEAKENED`, `-POLICY-BASE-ABSENT`, `-CI-GATE-REMOVED`, `-BASELINE-OR-WAIVER-EXPANDED`) makes a surface `required`; it is `satisfied` only by a matching `human_ack` entry in `shipgate.yaml` (owner + reason + affected surface, optional expiry). `required == (acks-covering-required) + outstanding`. The acknowledgement section lives in `shipgate.yaml` — itself a trust root — so a coding agent cannot add its own ack without tripping `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
 
-New `SHIP-VERIFY-*` reason codes (v0.22+, category `verify` — suppression-immune and floor-protected; emit only under `verify` mode): `SHIP-VERIFY-POLICY-WEAKENED` (base-vs-head policy weakened; fail-safe to review when the base is unavailable), `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` (suppression/waiver/baseline broadened), `SHIP-VERIFY-CI-GATE-REMOVED` (Shipgate CI workflow deleted), `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (agent-instruction trust root changed; routed to human review), `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` (trigger catalog changed). They are ordinary `Finding`s routed through `release_decision` — never a second verdict.
+New `SHIP-VERIFY-*` reason codes (v0.22+, category `verify` — suppression-immune and floor-protected; emit only under `verify` mode): `SHIP-VERIFY-POLICY-WEAKENED` (base-vs-head policy weakened), `SHIP-VERIFY-POLICY-BASE-ABSENT` (0.16+; a policy trust root changed with no base snapshot to compare against — split out of `-POLICY-WEAKENED` so a first adoption no longer reports a weakening that could not have happened; evidence `kind` is `manifest_introduced` or `base_snapshot_unavailable`, and only the former reports `policy_weakened: false`), `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` (suppression/waiver/baseline broadened), `SHIP-VERIFY-CI-GATE-REMOVED` (Shipgate CI workflow deleted), `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (agent-instruction trust root changed; routed to human review), `SHIP-VERIFY-TRIGGER-CATALOG-DRIFT` (trigger catalog changed). They are ordinary `Finding`s routed through `release_decision` — never a second verdict.
 
 The action exposes these as outputs `decision`, `blocker_count`, `review_item_count`, `ci_would_fail` (v0.8+).
 For verifier-cycle PR workflows it also exposes additive outputs
@@ -572,8 +572,8 @@ from existing artifacts with:
 agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --json
 ```
 
-In `agents-shipgate-reports/verifier.json`, read the v0.7 fields below (full
-schema [`docs/verifier-schema.v0.8.json`](verifier-schema.v0.8.json)). **Lead
+In `agents-shipgate-reports/verifier.json`, read the fields below (full
+schema [`docs/verifier-schema.v0.9.json`](verifier-schema.v0.9.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.
@@ -661,8 +661,12 @@ operational overlay and cannot change those fields.
   policy packs, prompts, baselines, waivers, etc.). Backed by the
   `SHIP-VERIFY-TRUST-ROOT-TOUCHED` check.
 - `capability_review` — reviewer-facing projection of `capability_change` with
-  `{trust_root_touched, policy_weakened, capability_changes_added,
-  capability_changes_removed, capability_changes_modified, top_changes[]}`.
+  `{trust_root_touched, policy_weakened, policy_weakening_proven,
+  capability_changes_added, capability_changes_removed,
+  capability_changes_modified, top_changes[]}`. Gate on `policy_weakened` (the
+  fail-closed flag, raised even when no base policy existed to compare
+  against); say the policy was weakened only when `policy_weakening_proven`
+  (0.16+) is also true — that one means a base-vs-head comparison actually ran.
   `top_changes[]` carries the highest-signal capability deltas with
   `{id, change_type, change_bucket, subject_kind, subject, impact, rationale,
   source_path, source_start_line, related_finding_ids}`. `impact` mirrors the

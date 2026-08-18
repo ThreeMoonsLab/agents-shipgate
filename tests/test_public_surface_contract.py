@@ -1400,7 +1400,7 @@ def test_triggers_code_plus_test_does_not_skip():
 # --- Trust-root surfaces <-> trigger-catalog parity -------------------------
 #
 # Two lists describe the same governance surfaces from opposite ends.
-# `SHIP-VERIFY-POLICY-WEAKENED`'s fail-safe (`_POLICY_SURFACES`) and the
+# `SHIP-VERIFY-POLICY-BASE-ABSENT`'s fail-safe (`_POLICY_SURFACES`) and the
 # trust-root graph (`TRUST_ROOT_SURFACES`) classify them recursively; the
 # trigger catalog decides whether Shipgate runs on the diff at all. When the
 # two disagree, the verifier calls a path a trust root while the catalog

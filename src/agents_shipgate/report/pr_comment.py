@@ -152,7 +152,7 @@ def _human_summary_lines(
         if review.trust_root_touched:
             lines.append("- Trust root touched: `true`")
         if review.policy_weakened:
-            lines.append("- Policy weakened: `true`")
+            lines.extend(_policy_change_lines(review))
     lines.extend(_trigger_and_base_summary(verifier))
     lines.extend(_artifact_summary_lines(verifier))
     return lines
@@ -426,6 +426,27 @@ def _capability_lock_diff_lines(diff: CapabilityLockDiffV1) -> list[str]:
     return ["", *rendered.splitlines()]
 
 
+def _policy_change_lines(review: VerifierCapabilityReview) -> list[str]:
+    """Say what the run established about the policy, not how it routed it.
+
+    ``policy_weakened`` is the fail-closed routing flag: it is raised whenever
+    the direction may have moved, including when there was no base policy to
+    compare against at all. Printing it as ``Policy weakened: true`` reported a
+    proven weakening on every first adoption — the one audience least able to
+    tell the difference. The route is unchanged; only the claim is now taken
+    from ``policy_weakening_proven``, the narrower fact that a comparison
+    actually ran.
+    """
+
+    if review.policy_weakening_proven:
+        return ["- Policy weakened: `true`"]
+    return [
+        "- Policy changed, weakening unproven: `true` "
+        "(no base policy was available to compare against; "
+        "routed to human review as if weakened)"
+    ]
+
+
 def _trust_root_warning_lines(
     review: VerifierCapabilityReview,
     report: ReadinessReport,
@@ -449,7 +470,14 @@ def _trust_root_warning_lines(
         trust_root_class = evidence.get("trust_root_class") or "trust root"
         lines.append(f"- {_code(path)} ({_escape(trust_root_class)}): human review is required.")
     if review.policy_weakened:
-        lines.append("- Release policy weakening was detected; a human must approve the change.")
+        lines.append(
+            "- Release policy weakening was detected; a human must approve the change."
+            if review.policy_weakening_proven
+            else (
+                "- The release policy changed and no base policy was available to prove "
+                "the change does not weaken the gate; a human must approve it."
+            )
+        )
     if protected_rows or fallback_warnings or review.policy_weakened:
         lines.append(
             "- Do not suppress findings, lower severity, or edit evidence just to make CI pass."

@@ -158,7 +158,8 @@ baseline summary and do not fail CI.
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
 | `SHIP-VERIFY-TRUST-ROOT-TOUCHED` | medium | A PR changed a release trust-root file; emitted only when a verification context (changed files) is supplied. |
-| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, or a severity override lowered across a tier); fail-safe to review when the base is unavailable. |
+| `SHIP-VERIFY-POLICY-WEAKENED` | high | Base-vs-head effective policy weakened (CI mode downgraded, fail-on loosened, or a severity override lowered across a tier). |
+| `SHIP-VERIFY-POLICY-BASE-ABSENT` | medium | A policy or manifest trust root changed with no base policy snapshot to compare against (first adoption, or no base report); routed to human review without a weakening claim. |
 | `SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED` | high | The PR broadens what the gate forgives — a new suppression, a widened waiver scope, or a larger accepted-debt baseline — versus the base. |
 | `SHIP-VERIFY-CI-GATE-REMOVED` | critical | The PR deletes the Shipgate CI workflow from an opted-in repo, which would stop the release gate from running. |
 | `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` | medium | The PR edits agent-instruction trust roots and weakening cannot be statically disproven; routed to human review. |
@@ -932,12 +933,40 @@ downgraded (e.g. `strict` → `advisory`), the fail-on severity set lost a
 tier, or a check's severity override dropped across a tier boundary. The
 comparison is semantic, not a text diff, so it is robust to reformatting.
 
-When no base snapshot is available (no `--diff-from`, or a pre-v0.22 base)
-but the PR touched a policy/manifest trust root, the check fails safe to a
-single `medium` review-required finding rather than passing silently — a
-reward-hacker must not be able to dodge review by breaking the base scan.
-Category `verify` (suppression-immune, floor `high`); never a second
-verdict.
+The claim is base-relative, so this check fires only when a base snapshot
+exists to compare against. The no-base fail-safe is its own reason code,
+`SHIP-VERIFY-POLICY-BASE-ABSENT`. Category `verify` (suppression-immune,
+floor `high`); never a second verdict.
+
+### SHIP-VERIFY-POLICY-BASE-ABSENT
+
+The fail-safe for "there is no base policy to compare against". It fires in
+verify mode when the PR touched a policy/manifest trust root
+(`**/shipgate.yaml`, `**/policies/**`, `**/.agents-shipgate/**`, or the
+configured manifest under any name) and no base effective-policy snapshot
+was available — either because the base carries no Shipgate manifest at all
+(a first adoption) or because no base report was obtainable (no
+`--diff-from`, a pre-v0.22 base, or a base scan that produced none).
+
+It makes no weakening claim in either direction, which is the point: on a
+first adoption the base had no gate, so a weakening definitionally could not
+have happened, and reporting one told every new adopter that their first PR
+had loosened something. It is equally not a pass — a reward-hacker must not
+be able to dodge review by breaking the base scan — so the change is routed
+to a human at `medium` under this reason code instead.
+
+Two evidence kinds separate the two conditions:
+
+- `manifest_introduced` — git proves the base carries no manifest under any
+  name and the diff removes none, so this PR adopts the gate. This is the
+  one case that reports `verifier_summary.policy_weakened: false`.
+- `base_snapshot_unavailable` — the comparison simply could not be made. The
+  direction is unprovable, so `policy_weakened` stays raised; a
+  rename-and-loosen diff cannot clear the alarm by hiding the base.
+
+Category `verify` (suppression-immune, floor `medium`). Like the rest of the
+family it requires a declared `human_ack` for the `policy` surface and is
+routed through the one decision engine — never a second verdict.
 
 ### SHIP-VERIFY-BASELINE-OR-WAIVER-EXPANDED
 

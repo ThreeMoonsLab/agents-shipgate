@@ -11,6 +11,15 @@ from agents_shipgate.schemas.verification_identity import VerificationReceipt
 
 TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
 POLICY_WEAKENING_CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
+POLICY_BASE_ABSENT_CHECK_ID = "SHIP-VERIFY-POLICY-BASE-ABSENT"
+# Both reason codes report on the release-policy surface; only a git-proven
+# first adoption clears the weakened flag. Mirrors
+# ``agents_shipgate.core.policy_reason_codes``, restated here because this
+# script reads emitted JSON and must stay importable on its own.
+POLICY_REASON_CODES = frozenset(
+    {POLICY_WEAKENING_CHECK_ID, POLICY_BASE_ABSENT_CHECK_ID}
+)
+ADOPTION_EVIDENCE_KIND = "manifest_introduced"
 MERGE_VERDICTS = {
     "blocked",
     "human_review_required",
@@ -480,7 +489,16 @@ def _verifier_flags(
     return (
         bool(payload.get("protected_surface_changes"))
         or any(finding.get("check_id") == TRUST_ROOT_CHECK_ID for finding in active_findings),
-        any(finding.get("check_id") == POLICY_WEAKENING_CHECK_ID for finding in active_findings),
+        # Mirrors ``verifier_summary.policy_weakened``: the no-base fail-safe
+        # keeps the flag raised because the direction is unprovable, except on
+        # a proven first adoption, where there was no prior gate to weaken.
+        # Both reason codes are read so a report written before the split
+        # projects to the same answer it did then.
+        any(
+            finding.get("check_id") in POLICY_REASON_CODES
+            and (finding.get("evidence") or {}).get("kind") != ADOPTION_EVIDENCE_KIND
+            for finding in active_findings
+        ),
     )
 
 

@@ -433,7 +433,7 @@ def test_setup_input_id_tracks_the_manifest_it_answered_about(tmp_path: Path):
 # declared on the stdout-only envelope instead.
 DURABLE_CONTROL_SCHEMAS = (
     "codex-boundary-result-schema.v2",
-    "verifier-schema.v0.8",
+    "verifier-schema.v0.9",
     "agent-handoff-schema.v7",
     "preflight-schema.v0.4",
     "agent-result-schema.v3",

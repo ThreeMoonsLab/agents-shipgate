@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 from agents_shipgate.core.findings.verifier_blocks import build_capability_change
+from agents_shipgate.core.policy_reason_codes import (
+    POLICY_BASE_ABSENT_CHECK_ID,
+    POLICY_WEAKENED_CHECK_ID,
+    counts_as_weakened,
+    weakening_is_proven,
+)
 from agents_shipgate.schemas.capability_change import (
     CapabilityChangeBlock,
     CapabilityChangeDirection,
@@ -14,7 +20,7 @@ from agents_shipgate.schemas.verifier import (
 )
 
 TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
-POLICY_WEAKENING_CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
+POLICY_WEAKENING_CHECK_ID = POLICY_WEAKENED_CHECK_ID
 
 _IMPACT_ORDER = {
     "blocks_release": 0,
@@ -77,6 +83,7 @@ def build_capability_review(
         removed=len(capability_change.removed),
         trust_root_touched=_trust_root_touched(report),
         policy_weakened=_policy_weakened(report),
+        policy_weakening_proven=_policy_weakening_proven(report),
         top_changes=top_changes,
         notes=notes,
     )
@@ -164,12 +171,26 @@ def _trust_root_touched(report: ReadinessReport) -> bool:
 def _policy_weakened(report: ReadinessReport) -> bool:
     if report.verifier_summary is not None:
         return report.verifier_summary.policy_weakened
-    # Same exclusion as ``verifier_blocks``: a first adoption fires this check
-    # without weakening anything, and this flag is read as a fact downstream.
+    # Same rule as ``verifier_blocks``: the no-base fail-safe keeps this flag
+    # raised (an unprovable direction is treated as weakened for routing), but
+    # a proven first adoption weakens nothing, and this flag is read as a fact
+    # downstream. Both reason codes are accepted so a pre-split report
+    # reprojects to what it meant when it was written.
     return any(
-        f.check_id == POLICY_WEAKENING_CHECK_ID
-        and (f.evidence or {}).get("kind") != "manifest_introduced"
-        for f in _active_findings(report)
+        counts_as_weakened(f.check_id, f.evidence) for f in _active_findings(report)
+    )
+
+
+def _policy_weakening_proven(report: ReadinessReport) -> bool:
+    """Whether a base-vs-head comparison actually established a weakening.
+
+    Derived from findings on both paths — unlike ``policy_weakened`` there is
+    no summary shortcut, because this is a strictly narrower question than the
+    fail-closed flag and the two must not be conflated by a stale rollup.
+    """
+
+    return any(
+        weakening_is_proven(f.check_id, f.evidence) for f in _active_findings(report)
     )
 
 
@@ -186,7 +207,10 @@ def _disabled_diff_notes(report: ReadinessReport) -> list[str]:
     return notes
 
 
+# ``POLICY_BASE_ABSENT_CHECK_ID`` is re-exported so callers that already import
+# the weakening id from here keep one import site for the pair.
 __all__ = [
+    "POLICY_BASE_ABSENT_CHECK_ID",
     "POLICY_WEAKENING_CHECK_ID",
     "TRUST_ROOT_CHECK_ID",
     "build_capability_review",

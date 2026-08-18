@@ -239,6 +239,147 @@
   the same counts, and no schema version moves. This is ranking, copy, and
   render-time grouping, plus one consistency invariant with a test.
 
+- **Verifier schema `0.8 → 0.9`.** `capability_review.policy_weakening_proven`
+  is an emitted field, and a published schema identifier never gains one: an
+  artifact still declaring `0.8` failed validation against the frozen v0.8
+  schema every consumer pins to. `0.9` carries the field,
+  [`docs/verifier-schema.v0.8.json`](docs/verifier-schema.v0.8.json) keeps its
+  published bytes, and artifacts declaring `0.8` and earlier still read — the
+  field defaults to `false`, which is exactly what "this artifact recorded no
+  base-vs-head comparison" means. The model now also rejects the contradiction
+  the docs already forbade: `policy_weakening_proven=true` requires
+  `policy_weakened=true`, so a payload cannot route as safe while telling a
+  human the policy was weakened.
+
+- **The PR comment reports the proven fact, not the routing flag.** Headline,
+  control reason, and fix task were made honest for an unprovable policy
+  direction, but the generated `pr-comment.md` still printed
+  `Policy weakened: true` off `policy_weakened` — the fail-closed flag that is
+  raised precisely when nothing was compared. It now prints
+  `Policy changed, weakening unproven: true` with the reason, on every
+  first-adoption and no-base run. The route it reports is unchanged.
+
+- **The policy comparator honors the split check-id aliases.** Runtime severity
+  resolution already did; the Tier B base-vs-head comparison still read literal
+  keys, so it produced both kinds of wrong answer — a head that adds an
+  explicit override for the new id lowered the applied severity with no key
+  change on the umbrella (missed), and a head that drops a redundant explicit
+  override changed no applied severity at all (falsely reported as a
+  weakening). Resolution now mirrors the applier exactly: the exact id wins,
+  then the umbrella.
+
+- **Accepted debt survives the split.** A fingerprint hashes the check id, so
+  every baseline entry recorded against `SHIP-VERIFY-POLICY-WEAKENED` stopped
+  matching the renamed no-base finding — moving a `critical` accepted item from
+  matched debt to new, and its decision from `review_required` to `blocked`.
+  Baseline matching now offers the pre-split fingerprint as an additional
+  candidate, scoped to declared split targets and still required to agree on
+  `support_hash`, so exactly the renamed row matches and no unrelated debt is
+  absorbed.
+
+- **The headline is bounded once, at the end.** The evidence-gap provenance
+  note was appended *after* the reserved-budget composition, silently spending
+  the room held for the human-review requirement: a long multibyte blocker
+  title plus one gap note produced 443 bytes and the 400-byte compact
+  projection dropped `a human must review it.` from both `reason` and
+  `human_review.why`. Every later addition now goes through one composition,
+  the configured-manifest path in the adoption suffix is bounded, and when room
+  runs out the parts yield in priority order — the gap note first, never the
+  verdict, the named cause, or the requirement.
+
+- **Unicode format controls are stripped from headline material.** C0/C1
+  filtering missed the category that matters most: U+202E RIGHT-TO-LEFT
+  OVERRIDE and U+2066 LEFT-TO-RIGHT ISOLATE reorder rendered text without
+  changing a byte, so a tool name carrying one could visually move the reserved
+  governance suffix out of the position the composition guarantees. Unsafe
+  Unicode categories (`Cc`, `Cf`, `Cs`, `Co`, `Cn`, `Zl`, `Zp`) are now
+  collapsed to spaces before any byte accounting, which also makes a lone
+  surrogate — previously a `UnicodeEncodeError` inside the budgeting — a
+  non-event.
+
+- **The verifier headline leads with the release blockers, not with the
+  governance notice that outranked them.** When a PR both touched the release
+  trust root and blocked release on critical or high findings, `headline` —
+  the one line that reaches a PR comment, a chat reply, or a triage list —
+  reported the trust-root fact and never mentioned the blockers. The two
+  findings driving it are `medium`; the blockers they outranked were
+  `critical`. Reproduced on
+  [google/adk-samples#1917](https://github.com/google/adk-samples/pull/1917),
+  where four `SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING` blockers on an
+  agent that batch-pays ETH and ERC-20 on Base mainnet went unnamed while the
+  headline described Shipgate's own configuration
+  ([#365](https://github.com/ThreeMoonsLab/agents-shipgate/issues/365)). The
+  ranking now matches the severity: a run carrying a critical or high release
+  blocker leads with the scan's own verdict line and *appends* the
+  self-approval prohibition, so the human-review requirement survives in the
+  same string rather than being replaced by it. That leading line also now
+  names the worst blocker rather than only counting it — a count reads the
+  same whether the agent is missing a docstring or can move funds with no
+  enforced control — chosen deterministically by severity, then check id, then
+  title, so two runs of the same tree name the same row. A trust-root or
+  policy change with no blockers still leads with the governance notice — it
+  is then the whole story. This is ordering only: `control.state`, `must_stop`,
+  `merge_verdict`, `can_merge_without_human`, `permissions`, `fix_task`
+  routing, and the release decision are untouched, and the reordered headline
+  is now what the human-review route carries as its reason, so the control
+  envelope cannot name less than the headline does.
+
+- **A first adoption no longer reports a policy weakening that could not have
+  happened.** The fail-safe that fires when there is no base policy to compare
+  against shared a reason code with a proven base-relative weakening, so
+  `verifier.json` reported `SHIP-VERIFY-POLICY-WEAKENED` on a base that
+  carried no gate at all — the condition every first adopter meets by
+  definition. That fail-safe is now its own reason code,
+  **`SHIP-VERIFY-POLICY-BASE-ABSENT`** (medium, floor medium, category
+  `verify`), carrying both evidence kinds: `manifest_introduced` (git proves
+  the base carries no manifest under any name) and
+  `base_snapshot_unavailable` (no base report was obtainable).
+  `SHIP-VERIFY-POLICY-WEAKENED` keeps firing, unchanged, for every proven
+  base-relative weakening — it is narrowed, not deprecated. Nothing about the
+  gate moves with the reason code: same severity, same suppression immunity,
+  same `human_ack` requirement on the `policy` surface, same
+  `protected_surface_changes` rows, same release decision. In particular
+  `verifier_summary.policy_weakened` keeps its fail-safe meaning — only a
+  git-proven adoption clears it, so a rename-and-loosen diff still cannot
+  clear the gate-bypass alarm by breaking the base scan.
+
+  Three compatibility rules make "same release decision" literally true rather
+  than aspirational. **Configuration written against the pre-split id still
+  reaches the new one**: a repository that had raised the no-base fail-safe
+  with `checks.severity_overrides: {SHIP-VERIFY-POLICY-WEAKENED: critical}`
+  still gets `critical` and still blocks, because the pre-split id is an
+  umbrella over both halves (`SPLIT_CHECK_ID_ALIASES`) — distinct from the
+  legacy-alias map, since the umbrella is not deprecated and a baseline naming
+  it must not be flagged as stale. An override written against the new id wins,
+  and floor validation is unchanged. **Reports written before the split still
+  reproject to what they meant**: every read path — the verifier summary, the
+  capability review, `protected_surface_changes`, `human_ack`, the adoption
+  fix-task route, and the Action's findings fallback — accepts either id with
+  the same evidence kinds, so a stored `report.json` carrying the old id with
+  `manifest_introduced` is still an adoption and still reports
+  `policy_weakened: false`. Nothing re-emits the old id. **Fail-closed routing
+  and the human-facing claim are separated**: `capability_review` gains
+  `policy_weakening_proven` (additive, default `false`), the narrower fact that
+  a base-vs-head comparison actually ran. `policy_weakened` still routes; only
+  `policy_weakening_proven` licenses saying the policy was weakened. A no-base
+  run now reads "This PR changes the release policy that evaluates it and no
+  base policy was available to prove the change does not weaken the gate"
+  instead of asserting a weakening nothing established — in the headline, the
+  control reason, and the fix task's repair reason alike.
+
+- **The blocker title quoted into the headline is normalized and bounded.**
+  `ReleaseDecisionItem.title` embeds a tool name read out of an OpenAPI spec,
+  an MCP export, or a Python source file, so quoting it verbatim made scanned
+  input able to reshape the artifact that reports it: newlines survived into a
+  field contracted to be one sentence, and length alone was enough to push the
+  appended `cannot self-approve` clause past the compact control envelope's
+  400-byte prose budget — deleting the human-review requirement from the
+  projection a routing consumer reads. Control characters are now collapsed,
+  the quoted title is capped, and the governance suffix gets a reserved byte
+  budget so the lead is shortened instead of the requirement. If the
+  requirement alone fills the budget it is published on its own, which is what
+  the headline said before blockers ever led it.
+
 - **`init` ranks agent-name candidates instead of taking the first one it
   trips over.** Candidates were emitted in file-then-AST order with no
   scoring, and all three consumers — the manifest renderer, the `init` JSON

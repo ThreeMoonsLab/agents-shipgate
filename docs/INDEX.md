@@ -48,7 +48,8 @@ A single entry point for human readers and AI agents walking the `docs/` tree.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.8.json`](verifier-schema.v0.8.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation and the `diff_status` input-health block
+- [`verifier-schema.v0.9.json`](verifier-schema.v0.9.json) — current JSON Schema for `verifier.json`, including the fail-closed signed authorization evaluation, the `diff_status` input-health block, and `capability_review.policy_weakening_proven`
+- [`verifier-schema.v0.8.json`](verifier-schema.v0.8.json) — frozen prior JSON Schema for `verifier.json`
 - [`verifier-schema.v0.6.json`](verifier-schema.v0.6.json) — frozen v0.6 reference schema
 - [`verifier-schema.v0.5.json`](verifier-schema.v0.5.json) — frozen v0.5 verifier reference
 - [`verifier-schema.v0.4.json`](verifier-schema.v0.4.json) — frozen v0.4 verifier reference

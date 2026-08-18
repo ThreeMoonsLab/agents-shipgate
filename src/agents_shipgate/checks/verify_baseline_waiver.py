@@ -16,7 +16,7 @@ against the head manifest and emits a finding when ANY of these grew
 
 No base snapshot -> emits nothing here: touching the baseline/waiver files
 is already surfaced by SHIP-VERIFY-TRUST-ROOT-TOUCHED, and proving an
-*expansion* specifically requires the base. (SHIP-VERIFY-POLICY-WEAKENED
+*expansion* specifically requires the base. (SHIP-VERIFY-POLICY-BASE-ABSENT
 owns the fail-safe review-required signal for missing-base policy edits.)
 """
 
