@@ -331,6 +331,7 @@ def _make_release_decision(
     review_items: list[str] | None = None,
     reason: str = "",
     evidence_human_review_recommended: bool = False,
+    evidence_low_confidence_tool_count: int = 0,
     evidence_level: str = "static",
 ) -> ReleaseDecision:
     """Helper that builds a ReleaseDecision with the minimum fields the
@@ -355,7 +356,7 @@ def _make_release_decision(
             level=evidence_level,
             human_review_recommended=evidence_human_review_recommended,
             source_warning_count=0,
-            low_confidence_tool_count=0,
+            low_confidence_tool_count=evidence_low_confidence_tool_count,
         ),
         baseline_delta=BaselineDelta(enabled=False),
         fail_policy=FailPolicy(
@@ -583,9 +584,18 @@ def test_evidence_only_review_surfaces_reason_and_info_action():
                 "human review recommended."
             ),
             evidence_human_review_recommended=True,
+            # A *measurable* low-confidence tool, so the fixture describes a
+            # report the engine can actually produce. `human_review_recommended`
+            # alone is not evidence of a gap — it is also set by any high
+            # finding — and agent_summary no longer treats it as one
+            # (#362 review 3).
+            evidence_low_confidence_tool_count=1,
             evidence_level="mixed",
         ),
         json_report_path="/abs/r.json",
+        # 1 of 4 low-confidence is below ceil(4*0.5)=2, so this stays the
+        # evidence-only review branch rather than the below-threshold one.
+        tool_count=4,
     )
     assert summary.verdict == "review_required"
     assert summary.review_item_count == 0

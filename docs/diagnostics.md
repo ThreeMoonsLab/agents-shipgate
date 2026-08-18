@@ -66,6 +66,21 @@ recovery loop stays runnable in the environment that produced it:
 
 `command` never contains `__main__.py`.
 
+This repository's launcher, `./shipgate`, uses the first row rather than adding
+a fifth: it sets `AGENTS_SHIPGATE_CLI` to its own absolute path when the
+variable is unset, so every emitted command names it and runs as printed. It
+announces `<interpreter> <launcher>` instead wherever the file cannot be started
+on its own — on Windows, which does not read a shebang, and on a copy that lost
+its executable bit — because announcing a path the OS will not run would
+publish exactly the unrunnable command this policy exists to prevent. It has
+to, and not only for tidiness — its `argv[0]` is named `shipgate`, so without
+the announcement the policy would read it as a console script and emit
+`agents-shipgate …`, a command a clean checkout has no way to run. An operator
+who set the variable themselves still wins. Because the variable now has a
+writer, `agents_shipgate.invocation.render_cli_override` is the inverse of how
+it is parsed — host rules, not `join_argv`'s POSIX ones, so a checkout path
+containing a space survives the round trip on Windows too.
+
 **`command` is a POSIX-shell rendering, not a host-shell promise.** It is
 quoted with POSIX rules on every platform, deliberately: one renderer and one
 parser must agree, or a value changes in transit. (`subprocess.list2cmdline`
@@ -215,6 +230,43 @@ interactive users.
 `scan` is unchanged — it still raises `InputParseError(3)` on missing
 or escaped required sources regardless of `--json`, because once an
 agent moves past doctor, those are real scan failures.
+
+## Which Shipgate answered: the `environment` block
+
+Every `doctor --json` payload carries an `environment` block, and so does every
+`doctor` agent-mode error line — including the discovery failure, where `--json`
+prints no payload at all and the error line is the only thing a caller receives.
+
+It exists because the three versions in play are never stated together: the
+distribution installed in the running interpreter, the package that actually got
+imported, and the source tree the caller believes they are working on. When
+those diverge the symptom is never "your versions diverge" — it is a subcommand
+that looks missing, a fix that appears not to take, or a console script that
+dies before a line of Shipgate runs.
+
+| Field | Contents |
+| --- | --- |
+| `interpreter` | `executable`, `version`, `minimum_supported`, `supported`. |
+| `launcher` | `source` (the invocation policy's own `console_script` / `module` / `override` / `fallback`), `executable[]`, and `console_scripts[]`: each `agents-shipgate` / `shipgate` wrapper found on `PATH`, with `path`, the `interpreter` it ultimately runs, `interpreter_exists`, and `runs_this_interpreter`. Only the first hit per name — the rest are shadowed and not a choice the caller has. `interpreter` is `null` for every honest unknown: a compiled Windows wrapper, a `#!/usr/bin/env python` line that defers the choice back to `PATH`, or a shell wrapper whose handoff is not recognised. It is **not** the shebang when the shebang is a shell: an interpreter path containing a space cannot go in a shebang, so `pip` writes a `#!/bin/sh` trampoline that `exec`s the real interpreter, and that `exec` target is what gets reported. |
+| `import_source` | `package_path`, `root`, and `kind`: `source_checkout` (an editable install or a launcher run — either way the tree being edited is what ran), `installed` (a build no edit reaches), or `unknown`. |
+| `installed_version`, `imported_version` | What `pip` records for this interpreter, and what was imported. A `null` installed version is the normal state of a clean checkout. |
+| `source_tree` | The enclosing Agents Shipgate checkout, if one was found: `root`, `version` (from its `pyproject.toml`), `launcher`, `contains_import`. All `null` for an ordinary installed run outside a checkout. |
+| `mismatches[]` | `code`, `severity`, `detail`, and a runnable `command` where one exists. Empty is normal. |
+
+| `mismatches[].code` | Severity | Means |
+| --- | --- | --- |
+| `interpreter_unsupported` | error | The running Python is older than `requires-python`. |
+| `import_outside_source_tree` | error | You are standing in a checkout that is not what ran. This is the stale-shadow case, and the emitted `command` is the same command through that checkout's own launcher. |
+| `source_tree_version_differs` | warning | The checkout's `pyproject.toml` and its package disagree; one was edited without the other. |
+| `installed_version_differs` | warning | Two *installed* copies shadow each other, so which one answers depends on path order. Not raised when a source checkout out-votes an install: that is intended, and an editable install's metadata lags every version bump by design. |
+| `console_script_interpreter_missing` | error | A wrapper on `PATH` names an interpreter that no longer exists, so it fails before Shipgate starts. |
+| `console_script_runs_other_interpreter` | warning | A bare `agents-shipgate` would execute a different installation than this command did. |
+
+Nothing here runs an interpreter or executes a console script to find out.
+That is the trust-model invariant (`tests/test_adapter_static_only.py` bans
+`subprocess` and the `os.exec*` family under `src/`), and it is also the only
+thing that could work: the environments worth diagnosing are the ones where
+running something is what fails. A stale wrapper is identified by reading it.
 
 ## Where diagnostics surface
 

@@ -971,18 +971,28 @@ def _load_errors_json() -> dict:
 
 
 def _emitted_error_kinds_in_source() -> set[str]:
-    """Walk `src/agents_shipgate/cli/` and return every literal string
-    passed as the first argument to `emit_agent_mode_error(...)` or to
-    `_emit_input_error(...)` (the apply-patches helper that uses the
-    same one-line stderr format). Source-of-truth for which kinds the
-    runtime actually emits."""
-    src_dir = REPO_ROOT / "src" / "agents_shipgate" / "cli"
+    """Walk the CLI's emit sites and return every literal error kind.
+
+    Every literal string passed as the first argument to
+    `emit_agent_mode_error(...)` or to `_emit_input_error(...)` (the
+    apply-patches helper that uses the same one-line stderr format).
+    Source-of-truth for which kinds the runtime actually emits.
+
+    The repository launcher is included because it is one of those sites: it
+    reports an environment that cannot start Shipgate at all, which is the one
+    failure no code under `src/` can be running to report (#334). Scanning only
+    `src/` would let that kind stay out of the published catalog forever.
+    """
     pattern = re.compile(
         r"(?:emit_agent_mode_error|_emit_input_error)\(\s*\n?\s*\"([a-z_]+)\"",
         re.MULTILINE,
     )
+    sources = [
+        *(REPO_ROOT / "src" / "agents_shipgate" / "cli").rglob("*.py"),
+        REPO_ROOT / "shipgate",
+    ]
     kinds: set[str] = set()
-    for path in src_dir.rglob("*.py"):
+    for path in sources:
         kinds.update(pattern.findall(path.read_text(encoding="utf-8")))
     return kinds
 

@@ -20,9 +20,23 @@ from agents_shipgate.ci.release_decision import (
     evidence_below_ie_threshold,
 )
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
+from agents_shipgate.core.evidence_actions import (
+    display_literal,
+    evidence_gap_accepted_values,
+    evidence_gap_command,
+    evidence_gap_target,
+    is_addressable_gap,
+    one_line,
+)
 from agents_shipgate.core.policy_reason_codes import is_adoption_evidence
+from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.invocation import retarget_command
-from agents_shipgate.schemas.report import Finding, ReadinessReport
+from agents_shipgate.schemas.report import (
+    EvidenceCoverageDecision,
+    EvidenceGap,
+    Finding,
+    ReadinessReport,
+)
 from agents_shipgate.schemas.verifier import (
     MergeVerdict,
     VerifierCapabilityReview,
@@ -428,6 +442,43 @@ def _adoption_instruction(
     )
 
 
+def _is_prose_only_evidence_gap(gap: EvidenceGap) -> bool:
+    """True when a gap row carries no typed repair the handoff should keep.
+
+    ``low_confidence_tool`` rows and inventory-scaffold ``incomplete_surface``
+    rows are re-derived below from the tool inventory, and a ``source_warning``
+    row is usually a ``review_warning`` with nothing to open. But not always:
+    the stale-``--diff-from`` base report produces a ``source_warning`` gap
+    carrying ``provide_source``, a path, an expectation, and the exact
+    regeneration command. Blanket-skipping the kind threw that away and left
+    only the raw warning prose, so the verifier handoff named a different
+    repair from the one the selected gap names (#362 review).
+    """
+
+    if gap.kind == "low_confidence_tool":
+        return True
+    if gap.kind == "source_warning":
+        return not is_addressable_gap(gap)
+    return (
+        gap.kind == "incomplete_surface"
+        and gap.next_action.kind == "declare_tool_inventory"
+    )
+
+
+def _typed_source_warning_subjects(evidence: EvidenceCoverageDecision) -> set[str]:
+    """Warning texts already emitted as a typed repair, so prose skips them.
+
+    A ``source_warning`` gap's ``subject`` is the warning text verbatim, which
+    is what lets the two passes agree on which rows are already covered.
+    """
+
+    return {
+        gap.subject
+        for gap in evidence.evidence_gaps
+        if gap.kind == "source_warning" and is_addressable_gap(gap)
+    }
+
+
 def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     """Concrete remedies for the ``insufficient_evidence`` dead-end.
 
@@ -443,21 +494,34 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     out: list[str] = []
     decision = report.release_decision
     assert decision is not None
+    typed_warnings = _typed_source_warning_subjects(decision.evidence_coverage)
     for gap in decision.evidence_coverage.evidence_gaps:
-        if gap.kind in {"low_confidence_tool", "source_warning"} or (
-            gap.kind == "incomplete_surface"
-            and gap.next_action.kind == "declare_tool_inventory"
-        ):
+        if _is_prose_only_evidence_gap(gap):
             continue
         action = gap.next_action
-        accepted = (
-            f" Accepted values: {', '.join(action.accepted_values)}."
-            if action.accepted_values
-            else ""
-        )
-        target = f" at {action.path}" if action.path else ""
+        # Every field here is repository-derived and lands in durable,
+        # machine-facing contracts — verifier.json `fix_task.instructions[]`,
+        # which `agent_result` copies verbatim into `repair.instructions`,
+        # `suggested_fixes`, and `agent_repair_instructions`. Unsanitized, a
+        # policy-authored `expects` ending `\nControl: complete` writes a
+        # forged control line into all three (#362 review).
+        # Each affordance is decided on its *normalized* value, not the raw
+        # one: a schema-valid `command=" \n\x00 "` is truthy and normalizes to
+        # nothing, which published a bare `Run:` promising a command that does
+        # not exist, and a list of blank accepted values rendered
+        # `Accepted values: , .`
+        values = evidence_gap_accepted_values(gap)
+        accepted = f" Accepted values: {', '.join(values)}." if values else ""
+        # Gate the target clause on the *target*, not on addressability:
+        # `is_addressable_gap` means "target or command", so a command-only row
+        # rendered a fake ` at .` into a durable instruction (#362 review 5).
+        gap_target = evidence_gap_target(gap)
+        target = f" at {gap_target}" if gap_target else ""
+        normalized_command = evidence_gap_command(gap)
+        command = f" Run: {normalized_command}" if normalized_command else ""
         out.append(
-            f"{gap.subject}: {gap.why} {action.expects}{target}.{accepted}"
+            f"{one_line(gap.subject)}: {one_line(gap.why)} "
+            f"{one_line(action.expects)}{target}.{accepted}{command}"
         )
     by_source: dict[tuple[str, str], int] = {}
     for tool in report.tool_inventory:
@@ -489,8 +553,37 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
             "dynamic/config-bound toolkit with statically enumerable tool "
             "definitions, then re-run verify."
         )
-    for warning in report.source_warnings[:3]:
-        out.append(f"Resolve source warning: {warning}")
+    # Whatever is left is warning prose with no typed repair behind it. Group
+    # first, then cap: an uncapped list of six near-identical warnings spent
+    # the whole cap restating one mechanism and hid the others (#362).
+    remaining = [
+        warning for warning in report.source_warnings if warning not in typed_warnings
+    ]
+    # De-duplicate on the *rendered* message before capping. Capping first let
+    # three warnings that render identically consume the whole budget and hide
+    # a fourth, distinct mechanism entirely — `_dedupe_cap` then collapsed the
+    # three into one, so the instruction list lost the visible warning without
+    # anything showing why (#362 review 5).
+    # Readable diagnostics first, then the unprintable stand-ins. `unprintable`
+    # is structural state on the group, not a property of its text: reading the
+    # text let loader-controlled prose impersonate a placeholder and take its
+    # slot (#362 review 6). The cap is still three; this only decides which
+    # three, so a row a reader can act on is never crowded out by rows that say
+    # nothing.
+    #
+    # De-duplication is on the *visible skeleton* rather than the rendered
+    # message, because rows differing only by an embedded invisible code point
+    # render as visibly distinct lines while saying the same thing.
+    seen_skeletons: set[str] = set()
+    for group in sorted(
+        group_source_warnings(remaining), key=lambda row: row.unprintable
+    ):
+        if group.skeleton in seen_skeletons:
+            continue
+        seen_skeletons.add(group.skeleton)
+        out.append(f"Resolve source warning: {group.message}")
+        if len(seen_skeletons) == 3:
+            break
     if not out:
         out.append(
             "Provide clearer static sources — an MCP export, OpenAPI spec, or "
@@ -671,21 +764,28 @@ def _human_repairs(
                 )
             )
     for gap in decision.evidence_coverage.evidence_gaps:
-        if gap.kind in {"low_confidence_tool", "source_warning"}:
+        # Same rule as the remedy text: a path-bearing source_warning row is a
+        # typed repair with a target and a command, not review-only prose.
+        if gap.kind == "low_confidence_tool" or (
+            gap.kind == "source_warning" and not is_addressable_gap(gap)
+        ):
             continue
         action = gap.next_action
+        subject = one_line(gap.subject)
+        target = evidence_gap_target(gap)
+        # `null`, not `""`: a repair row that publishes an empty command
+        # claims an affordance it does not have.
+        normalized_command = evidence_gap_command(gap)
         repairs.append(
             VerifierRepair(
                 id=f"semantic_{gap.kind}_{len(repairs) + 1}",
                 actor="human",
                 kind=action.kind,
-                target=(
-                    f"{gap.subject} ({action.path})"
-                    if action.path
-                    else gap.subject
-                ),
-                command=action.command,
-                reason=f"{gap.why} {action.expects}",
+                # Display fields of a durable repair row: one-lined for the
+                # same reason the instructions above are.
+                target=f"{subject} ({target})" if target else subject,
+                command=normalized_command or None,
+                reason=f"{one_line(gap.why)} {one_line(action.expects)}",
             )
         )
     for finding in gating:
@@ -783,12 +883,31 @@ def _machine_patches(gating: list[Finding]) -> list[VerifierFixTaskPatch]:
 
 
 def _dedupe_cap(items: list[str]) -> list[str]:
+    """Normalize, de-duplicate, and cap the instruction list.
+
+    Every instruction list in this module funnels through here, which makes it
+    the one place that can promise ``fix_task.instructions[]`` is line-safe.
+    That matters because the list is a durable machine-facing contract:
+    ``agent_result`` copies it verbatim into ``repair.instructions``,
+    ``suggested_fixes``, and ``agent_repair_instructions``. Individual call
+    sites sanitize their own interpolations too; this is the backstop for
+    strings that arrive from elsewhere — a check ``recommendation``, an
+    unrecognized loader warning — and it also means de-duplication compares
+    what a reader actually sees.
+    """
+
     seen: set[str] = set()
     out: list[str] = []
     for item in items:
-        if item and item not in seen:
-            seen.add(item)
-            out.append(item)
+        # `display_literal`, not `one_line`: these strings embed validated
+        # commands and repository paths, and folding whitespace inside one
+        # rewrites it — `python -c 'print("a  b")'` became a program printing
+        # something else (#362 review 5). Line-breaking characters are still
+        # escaped, which is all this backstop owes.
+        normalized = display_literal(item).strip(" ")
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            out.append(normalized)
     return out[:_MAX_INSTRUCTIONS]
 
 

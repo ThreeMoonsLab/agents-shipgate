@@ -74,10 +74,12 @@ __all__ = [
     "InvocationSource",
     "invocation_prefix",
     "join_argv",
+    "render_cli_override",
     "render_command",
     "resolve_invocation",
     "retarget_command",
     "split_invocation",
+    "split_windows_command_line",
 ]
 
 #: Console scripts declared in ``pyproject.toml`` that both resolve to
@@ -249,6 +251,59 @@ def split_windows_command_line(raw: str) -> list[str]:
     return argv
 
 
+def _quote_windows(token: str) -> str:
+    """Quote one argv token so the CRT rules read it back verbatim.
+
+    The inverse of :func:`split_windows_command_line`, and deliberately not
+    ``shlex.quote``: single quotes are ordinary characters to the CRT parser,
+    so a POSIX-quoted path would come back with the quotes still in it.
+    """
+
+    if token and not any(char in token for char in ' \t\n\v"'):
+        return token
+    out = ['"']
+    backslashes = 0
+    for char in token:
+        if char == "\\":
+            backslashes += 1
+            continue
+        if char == '"':
+            # An embedded quote is escaped, and every backslash run in front of
+            # it must be doubled so the parser reads them as literals.
+            out.append("\\" * (backslashes * 2 + 1))
+            out.append('"')
+        else:
+            out.append("\\" * backslashes)
+            out.append(char)
+        backslashes = 0
+    # The closing quote is also a quote: double the run that precedes it.
+    out.append("\\" * (backslashes * 2))
+    out.append('"')
+    return "".join(out)
+
+
+def render_cli_override(tokens: Sequence[str]) -> str:
+    """Render an entry point as a value :data:`CLI_OVERRIDE_ENV_VAR` reads back.
+
+    ``AGENTS_SHIPGATE_CLI`` is parsed with the *host's* rules — POSIX ``shlex``
+    on POSIX, the documented CRT rules on Windows (:func:`_split_override`) —
+    because an operator writes it in their own shell. A writer must therefore
+    use the same host rules, not :func:`join_argv`: that renderer is POSIX
+    everywhere by design, so on Windows it would emit ``'C:\\repo\\shipgate'``
+    and the CRT parser would hand back a path with literal quotes in it.
+
+    One renderer per parser is the rule this pairs with. It exists because
+    something now *writes* the variable — the repository launcher announces
+    itself through it, so every command Shipgate emits names a program the
+    caller can actually run — and a launcher whose checkout path contains a
+    space must survive the round trip.
+    """
+
+    if _WINDOWS:
+        return " ".join(_quote_windows(token) for token in tokens)
+    return join_argv(tokens)
+
+
 def _split_override(raw: str) -> list[str] | None:
     """Parse ``AGENTS_SHIPGATE_CLI`` with the host's own rules."""
 
@@ -399,23 +454,34 @@ def retarget_command(
         # for no gain: both names resolve to the same entry point.
         return command
 
-    span = _program_token_span(command)
-    if span is None:
+    located = _program_token(command)
+    if located is None:
         return command
-    start, end = span
-    if _program_name(command[start:end]) not in CONSOLE_SCRIPTS:
+    start, end, program = located
+    if _program_name(program) not in CONSOLE_SCRIPTS:
         return command
     return command[:start] + join_argv(invocation.tokens) + command[end:]
 
 
-def _program_token_span(command: str) -> tuple[int, int] | None:
-    """Locate the program token, skipping leading ``NAME=VALUE`` assignments.
+def _program_token(command: str) -> tuple[int, int, str] | None:
+    """Locate the program token and read its value, skipping ``NAME=VALUE``.
 
-    Scans to whitespace without honouring quotes or escapes, which is only
-    sound because :func:`retarget_command` acts on the result *just* when it
-    spells one of our console scripts — names that contain neither. Do not
-    reuse this to parse a command: ``/opt/my\\ tool`` is one token and this
-    reports two. :func:`split_invocation` parses properly.
+    The span is found by a scan that honours quoting, and the *value* comes
+    from ``shlex`` — the same grammar the string was rendered with — rather
+    than from the scan. The two are then cross-checked, and a disagreement
+    returns ``None``: locating a token and reading it are different jobs, and
+    only the second one decides whether this command is ours to rewrite.
+
+    Scanning to raw whitespace was wrong, and not only for the escaped-space
+    case ``split_invocation`` already documents. A *quoted* path whose own
+    directory contains a space and whose first segment ends in one of our
+    console-script names — ``'/tmp/agents-shipgate worktree/.venv/bin/python'``,
+    which is what a clone of this repository plus a virtualenv produces — was
+    cut at the space, leaving ``'/tmp/agents-shipgate``. Its basename *is*
+    ``agents-shipgate``, so a `python -m pip install` recovery was rewritten
+    into a command that named the launcher and carried a dangling quote: not an
+    unrunnable string but a runnable one that runs the wrong program, which is
+    the outcome this module exists to prevent.
     """
 
     index = 0
@@ -425,14 +491,47 @@ def _program_token_span(command: str) -> tuple[int, int] | None:
             index += 1
         if index >= length:
             return None
-        end = index
-        while end < length and not command[end].isspace():
-            end += 1
+        end = _token_end(command, index)
         token = command[index:end]
         if _ENV_ASSIGNMENT.fullmatch(token):
             index = end
             continue
-        return index, end
+        try:
+            parsed = shlex.split(token)
+        except ValueError:
+            # An unbalanced quote: there is no faithful reading, so there is no
+            # basis for deciding the token is ours.
+            return None
+        if len(parsed) != 1:
+            return None
+        return index, end, parsed[0]
+
+
+def _token_end(command: str, start: int) -> int:
+    """Where the token starting at ``start`` ends under POSIX quoting rules."""
+
+    index = start
+    quote: str | None = None
+    while index < len(command):
+        char = command[index]
+        if quote is None:
+            if char == "\\":
+                index += 2
+                continue
+            if char in "'\"":
+                quote = char
+            elif char.isspace():
+                break
+        elif quote == '"':
+            if char == "\\":
+                index += 2
+                continue
+            if char == '"':
+                quote = None
+        elif char == "'":
+            quote = None
+        index += 1
+    return min(index, len(command))
 
 
 def _has_shell_syntax(text: str) -> bool:

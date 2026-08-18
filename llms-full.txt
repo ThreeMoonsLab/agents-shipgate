@@ -329,11 +329,26 @@ Config error: Config file not found: missing.yaml
 {"error": "config_error", "message": "...", "next_action": "agents-shipgate detect --workspace . --json", "next_actions": [{"kind": "command", "command": "agents-shipgate detect --workspace . --json", "why": "..."}, {"kind": "command", "command": "agents-shipgate init --workspace . --write", "why": "..."}]}
 ```
 
-The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `unknown_fingerprint`, `other_error`, `internal_error`, `malformed_patch`. `unknown_fingerprint` is emitted by `explain-finding` when the fingerprint doesn't match any entry in the supplied report; the payload includes `suggestion` (a close-match fingerprint, when one exists) and `source_report`.
+The full set of error kinds emitted in agent mode: `config_error`, `config_already_exists`, `input_parse_error`, `unknown_check_id`, `unknown_fingerprint`, `other_error`, `internal_error`, `malformed_patch`, `environment_error`. `unknown_fingerprint` is emitted by `explain-finding` when the fingerprint doesn't match any entry in the supplied report; the payload includes `suggestion` (a close-match fingerprint, when one exists) and `source_report`. `environment_error` is the one kind emitted before Agents Shipgate is running — the interpreter is unsupported, or it cannot import the package or its dependencies — so it carries the `environment` block described below instead of a `control` envelope.
 
 The machine-readable catalog of error kinds — exit codes, typical causes, additional fields per kind, recovery hints — lives at [`docs/errors.json`](docs/errors.json). Pre-fetch it once and pattern-match the `error` field instead of re-deriving the recovery vocabulary from this prose.
 
 `detect --json` and each `doctor --json` payload also carry `diagnostics: [...]` and `next_actions: [...]` fields. `next_action` (single string) remains the rank-1 action projected to a string; `next_actions` is the ranked list with `kind`, `command|path`, `why`, `expects`, and the structured `executable[]` / `args[]` pair. See [docs/diagnostics.md](docs/diagnostics.md) for the full catalog and schema.
+
+### Which Shipgate answered: `environment`
+
+Every `doctor --json` payload carries an `environment` block, and so does every `doctor` agent-mode error line — including the one where no manifest could be found and no payload is printed at all. Read it before concluding that a fix did not take or that a subcommand does not exist:
+
+| Field | What it answers |
+| ----- | --------------- |
+| `interpreter` | `executable`, `version`, `minimum_supported`, `supported`. |
+| `launcher` | `source` (`console_script` / `module` / `override` / `fallback`, the invocation policy above), `executable[]`, and `console_scripts[]` — each `agents-shipgate` / `shipgate` wrapper found on `PATH` with the interpreter it ultimately runs (the `exec` target when the wrapper is a `#!/bin/sh` trampoline, as `pip` writes for interpreter paths containing spaces), whether that interpreter still exists, and whether it is the running one. `null` when the wrapper names no interpreter — a compiled Windows wrapper, `#!/usr/bin/env python`, or an unrecognised handoff. |
+| `import_source` | `package_path`, `root`, and `kind` (`source_checkout` / `installed` / `unknown`) — where the code that just ran came from. |
+| `installed_version` / `imported_version` | What `pip` records for this interpreter, and what actually got imported. `null` installed version is normal on a source checkout. |
+| `source_tree` | The enclosing Agents Shipgate checkout, if any: `root`, `version`, `launcher`, and `contains_import`. |
+| `mismatches[]` | `code`, `severity` (`error` / `warning`), `detail`, and — when one exists — a runnable `command` spelled for this invocation. Empty is the normal state. |
+
+`mismatches[]` codes: `interpreter_unsupported`, `import_outside_source_tree`, `source_tree_version_differs`, `installed_version_differs`, `console_script_interpreter_missing`, `console_script_runs_other_interpreter`. Nothing here executes an interpreter or a console script to find out — a stale wrapper is identified by reading it, because a wrapper that cannot start is exactly the one that cannot report on itself.
 
 ### One control vocabulary across the setup commands
 
@@ -763,6 +778,34 @@ This section is the **CLI's** invariants. For the **agent's** behavioral boundar
 ---
 
 ## When you make changes to this repo
+
+**Run the CLI as `./shipgate …` from the repository root** — `python shipgate …`
+on Windows, which does not read a shebang. That is the one canonical command
+here, for contributors and coding agents alike, and it is what every example in
+`CONTRIBUTING.md` uses. Emitted commands name whichever spelling starts it, so
+follow `next_actions[].executable` rather than assuming one token. `./shipgate scan -c shipgate.yaml`
+is `agents-shipgate scan -c shipgate.yaml`, with three differences that matter
+in a checkout: it runs *this* tree's `src/` rather than whatever copy `PATH`
+resolves to, it selects a supported interpreter (`AGENTS_SHIPGATE_PYTHON`, else
+the project virtualenv — the main checkout's, if this is a `git worktree`), and
+it needs no installation and no `PYTHONPATH`. Recovery commands it prints name
+the launcher, so they are runnable exactly as printed.
+
+Use a bare `agents-shipgate` only to check what an *installed* build does. If a
+command behaves as though your edit never happened, run
+`./shipgate doctor --config shipgate.yaml --json` and read `environment`
+(above): it states which interpreter ran, which package was imported, which
+checkout you are standing in, and what disagrees.
+
+The launcher stops at the repository boundary, and so should edits that spread
+it. Everything written *into another repo* — the sections above, the adoption
+kits, `.cursorrules`, `.claude/commands/`, `skills/`, `.agents/skills/`, the
+snippets in `docs/target-repo-agent-snippets.md`, and every block
+`init --write --agent-instructions=…` renders — keeps saying
+`agents-shipgate`, because those run where the package is installed and there
+is no launcher. It is also the same reason durable artifacts stay canonical:
+those bytes are pinned by render hashes, and an absolute path from one machine
+does not belong in them.
 
 - Run `python -m ruff check .` and `python -m pytest` before committing.
 - Bumping a check's behavior requires updating the test suite and any golden fixtures under `samples/*/expected/`.
@@ -2112,6 +2155,23 @@ Top-level `agent_summary` block (v0.12+), one-fetch summary shaped for direct ag
 - `needs_human_review` — **action-driven**: number of active findings with `agent_action ∈ {"escalate_to_human", "propose_patch_for_review"}`. Both kinds need explicit human attention before any change applies — full escalations have no machine path, and proposed patches ship at medium/low confidence and require an explicit `--apply` after the user confirms. Use this when reasoning about what work an agent must do.
 - **`review_item_count` and `needs_human_review` track different populations and can diverge.** A medium-severity stale-suppression finding lands in `release_decision.review_items` (severity rule) but its `agent_action` is `auto_apply` (high-confidence patch attached), so it's counted in `review_item_count` and `auto_appliable_patches` but **not** in `needs_human_review`.
 - `first_recommended_action` — `{kind, command|null, why}`; deterministic next step. `kind: "command"` carries an actual CLI invocation; `kind: "info"` is a "surface this to the user" hint with no command. The agent_summary block is a deterministic projection — same inputs, same output, no agent-side aggregation needed.
+- **Evidence-gap actionability (v0.16+).** One **selected gap** feeds every short-form surface that names one: the first `release_decision.evidence_coverage.evidence_gaps[]` row that is *addressable*, falling back to the first row when none is. `Improve evidence:` (CLI and step summary, printed only on an `insufficient_evidence` verdict) always renders the selected gap's action.
+
+  **A row is addressable when it names a visible target or carries a publishable command.** `next_action.path` and `next_action.command` are independently nullable, and either one alone is enough:
+  - *Visible target* — the path contains at least one character that actually renders. Whitespace, control characters, and Unicode Default_Ignorable code points (U+200B ZWSP, U+200E/U+202E bidi marks, U+FE0F VS16, U+034F CGJ, …) render as nothing, so a path made only of those names no surface and is not addressable.
+  - *Publishable command* — the command is safe to run **exactly as authored**. A command containing any control, bidi, or invisible code point, or any whitespace other than U+0020, is suppressed entirely rather than cleaned up: deleting a zero-width character from `r␣m -rf` would author a different program. Only leading/trailing U+0020 is trimmed, which cannot change `argv[0]`.
+
+  Two guarantees, scoped to exactly what holds:
+  - **Alignment, on `insufficient_evidence` with an addressable gap.** When the verdict is `insufficient_evidence` *and* at least one gap is addressable, `release_decision.reason`, `Improve evidence:`, and `first_recommended_action.why` name the **same** gap and the same target (or, for a command-only row, the same command). The reason leads with that gap and reports the source-warning / low-confidence counts as `Context:`.
+  - **No false dead end, on every verdict.** The phrase *"no machine-applicable fix is available"* is never emitted in `first_recommended_action.why` while any gap is addressable. When you do see it, no gap names a surface to open or a command to run, and the next step really is a human gathering evidence.
+
+  Outside that first case the three surfaces answer different questions, by design — do **not** read alignment into them:
+  - `insufficient_evidence` with **no** addressable gap: `reason` keeps the `Evidence coverage below threshold (…)` wording and `first_recommended_action` routes to gathering deeper sources, while `Improve evidence:` still renders the first gap's `expects`. That line is a remediation hint, not a restatement of the reason.
+  - `review_required`: `reason` is severity/findings-driven and never names a gap. Whether `first_recommended_action` names one depends on which branch of the action picker fires, and **auto-apply wins on sub-threshold evidence**: when the scan carries auto-applicable patches and evidence is *not* below the `insufficient_evidence` threshold, the action is the `apply-patches` command even if an addressable gap exists (the gap is still called out in the `why`). `first_recommended_action` names the selected gap on the evidence-first branches only — evidence below the threshold, or evidence-driven review with no findings to walk. Read `evidence_coverage.evidence_gaps[]` directly if you need the gap on this verdict; do not infer it from the action.
+
+  **Rendering never rewrites what it renders.** Values reaching these one-line surfaces are repository-derived — a gap subject is a tool name, a policy pack authors `expects`, a semantic gap's `path` embeds a tool name — and they are made line-safe without being altered otherwise. Characters that could break a line or reorder it (controls, U+2028/U+2029, bidi marks) become a visible `<U+XXXX>` escape; **nothing is deleted**. Identity-bearing invisibles survive, so `agents/👩‍💻.yaml` and identifiers carrying ZWNJ are named as they actually are. Paths and commands are additionally never whitespace-folded — `configs/foo␣␣bar.yaml` keeps both spaces, and `python -c 'print("a␣␣b")'` stays the program that was written — while prose (subjects, `why`/`expects`, loader warnings) does fold whitespace, because there a stray newline is better read as a space. An affordance is published only when it exists: a suppressed or absent command produces no `Run:` line and a `null` repair command, and accepted values with nothing visible in them are dropped.
+
+  **Authority comes from the action's own fields, never from its `kind` or its path.** Every evidence-gap row published today is `requires_human_review: true`, `auto_apply: false`, `suggested_patch_kind: "manual"` — including the `provide_source` row that regenerates a stale `--diff-from` comparison base, for which `verify` emits `fix_task.actor: "human"` and `safe_to_attempt: false`. A `command` on such a row tells a human exactly what to run; it does not make the row agent-owned. A coding agent acts mechanically only where `fix_task.actor == "coding_agent"` and `safe_to_attempt` is true, and then only within `allowed_repairs[]`. Separately, `first_recommended_action.kind` stays `"info"` on the evidence-first actions — a statement about the summary projection, not a claim that no gap row ever carries a command, and not a promise about every `review_required` action (the auto-apply branch returns `kind: "command"`).
 
 Codex plugin surface block (v0.13+), explanatory only — never a release-gate
 input by itself:

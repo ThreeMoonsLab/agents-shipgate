@@ -17,6 +17,7 @@ from agents_shipgate.core.domain import (
     ToolParameter,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.source_warnings import adk_unresolved_tool_warning
 from agents_shipgate.inputs.common import (
     load_structured_file,
     load_text_file,
@@ -732,7 +733,7 @@ class _PythonAdkExtractor:
                 )
             else:
                 self.artifacts.warnings.append(
-                    f"Google ADK agent {agent_name!r} references unresolved tool {expr.id!r}."
+                    adk_unresolved_tool_warning(agent_name, expr.id)
                 )
             return []
         if isinstance(expr, ast.Call):

@@ -2,6 +2,243 @@
 
 ## Unreleased
 
+- **One command runs Agents Shipgate from this checkout, and `doctor` now says
+  which Shipgate answered.** Running the CLI from a source tree meant either a
+  bare `agents-shipgate`, which resolves through `PATH` and can silently execute
+  a pipx or base-conda copy — a `0.8.0` shadowing a worktree makes new
+  subcommands look "missing" — or `PYTHONPATH=src python -m agents_shipgate`,
+  which is correct but has to be discovered. A console script promoted from an
+  environment that no longer exists is worse than either: it dies with
+  `ModuleNotFoundError` before a line of Shipgate runs, so nothing in Shipgate's
+  own output can explain it, and the epic's reproduction had a user drop into a
+  terminal at exactly that point
+  ([#334](https://github.com/ThreeMoonsLab/agents-shipgate/issues/334),
+  [#338](https://github.com/ThreeMoonsLab/agents-shipgate/issues/338)).
+
+  A repository launcher, **`./shipgate`**, is now the canonical contributor
+  command, and CONTRIBUTING.md, AGENTS.md, and CLAUDE.md all use it. It needs no
+  installation, no activated virtualenv, and no `PYTHONPATH`: it puts this
+  tree's `src/` ahead of every installed copy (in child processes too), and
+  selects an interpreter — `AGENTS_SHIPGATE_PYTHON`, else the project
+  virtualenv, looked up in the main checkout as well so a `git worktree` shares
+  it — re-executing exactly once, guarded against looping. It announces itself
+  through `AGENTS_SHIPGATE_CLI`, the operator override the invocation policy
+  already honours, so every command it prints back is runnable as printed;
+  without that its `argv[0]` reads as the `shipgate` console script and the
+  policy would emit commands a clean checkout cannot run
+  ([#322](https://github.com/ThreeMoonsLab/agents-shipgate/issues/322)). An
+  operator who set the variable themselves still wins.
+
+  `doctor --json` payloads — and every `doctor` agent-mode error line, including
+  the discovery failure that prints no payload — now carry an `environment`
+  block: the interpreter and whether it is supported, the launcher and every
+  Shipgate console script on `PATH` with the interpreter each shebang names, the
+  import source and whether it is a checkout or an install, the installed and
+  imported and source-tree versions, and `mismatches[]` — each with a severity
+  and, where one exists, a runnable recovery command. Nothing runs an
+  interpreter or executes a console script to find out: a stale wrapper is
+  identified from its shebang, because a wrapper that cannot start is exactly
+  the one that cannot report on itself. A source checkout out-voting an
+  installed distribution is *not* reported as a mismatch — that is the intended
+  state, and an editable install's metadata lags every version bump by design.
+
+  The recovery is **ranked**, because `pip install` is not always the first
+  step: an interpreter created with `venv --without-pip` answers
+  `python -m pip install …` with `No module named pip`, so emitting that alone
+  would promise a recovery that fails on its first token in exactly the
+  environment the recovery exists for. `ensurepip` is proposed ahead of it when
+  `pip` is absent, and an interpreter with neither gets the diagnosis and no
+  command at all rather than one that cannot run.
+
+  New agent-mode error kind `environment_error` (exit 4), emitted by the
+  launcher before Shipgate is running and carrying the same `environment` block;
+  it is published in [`docs/errors.json`](docs/errors.json). New public helper
+  `agents_shipgate.invocation.render_cli_override`, the host-rules inverse of
+  how `AGENTS_SHIPGATE_CLI` is parsed — needed now that something writes the
+  variable, so a checkout path containing a space survives the round trip. No
+  schema or contract version changes.
+
+- **The launcher announces a spelling the operating system will actually start.**
+  A shebang is a POSIX kernel feature, so `.\shipgate` is a file Windows will
+  not execute — and announcing that path through `AGENTS_SHIPGATE_CLI` published
+  recovery commands that could not run there, which is this launcher's own
+  defect relocated to another platform. It now announces
+  `<interpreter> <launcher>` wherever the file cannot be started on its own: on
+  Windows, and on a copy that lost its executable bit. `python shipgate …` is the
+  documented Windows spelling, and it is the one that gets emitted. A new
+  Windows CI job covers the entry point, the announcement, and the
+  `os.name == "nt"` re-execution branch — including that a non-zero status
+  survives the hop, which is exactly what a branch that spawns instead of
+  replacing the process can lose.
+
+- **Two virtual environments over one base are no longer one interpreter.**
+  `runs_this_interpreter` resolved both paths before comparing them, and a POSIX
+  virtualenv's `bin/python` is a symlink to the interpreter it was built from —
+  so two unrelated virtualenvs collapsed onto the same binary despite having
+  different `sys.prefix` values and different `site-packages`. A console script
+  pointing at a *different* environment reported clean. The comparison no longer
+  dereferences, matching the rule the launcher already applied when deciding
+  whether to switch interpreters; the two copies are now pinned to each other by
+  test.
+
+- **`PATH` lookup follows the shell's rule, not "a file exists there".** A
+  regular file without the execute bit is skipped by POSIX command lookup, which
+  continues to later `PATH` entries. Stopping at it described a wrapper the
+  caller's shell would never run and hid the stale-interpreter diagnostic for the
+  one it would. Executability is now required on POSIX, and `PATHEXT` decides on
+  Windows.
+
+- **A trampoline target must be a command, not a mention of one.** The `exec`
+  handoff was found by searching the whole wrapper, so a comment such as
+  `# old target: exec "/deleted/python"` above a working `exec` reported a
+  healthy wrapper as `console_script_interpreter_missing`. Lines are now read in
+  order with `exec` required in command position and comments skipped: a
+  diagnostic may not be derived from a string the shell never executes.
+
+- **A quoted program token is read before it is judged to be ours.**
+  `retarget_command` located the program by scanning to raw whitespace, on the
+  argument that our console-script names contain none — true of the names, and
+  irrelevant to the strings they appear in. A quoted interpreter path whose
+  directory is named after this project, which cloning it into
+  `~/agents-shipgate worktree/` produces, was cut at the space; the remaining
+  `'/tmp/agents-shipgate` has `agents-shipgate` as its basename, so a
+  `python -m pip install` recovery was rewritten to name the Shipgate entry
+  point instead. That is not an unrunnable command but a runnable one that runs
+  the wrong program, and the dangling quote also cost the action its
+  `executable`/`args` pair. The span is now found with quoting honoured and the
+  token's *value* comes from `shlex` — the same grammar the string was rendered
+  with — with the two cross-checked, so a disagreement leaves the command
+  untouched rather than rewriting it wrongly. A correctly quoted Shipgate path
+  (`'/opt/my tools/agents-shipgate'`) is now retargeted where it previously was
+  not.
+
+- **A `#!/bin/sh` console-script wrapper reports the interpreter it `exec`s.**
+  An interpreter path containing a space cannot go in a shebang, so `pip`
+  writes a shell trampoline instead. Reading only the shebang reported
+  `/bin/sh` — which exists and is not the running interpreter — so a healthy
+  install raised `console_script_runs_other_interpreter` once per alias, while
+  the interpreter that could actually go stale stayed invisible. The `exec`
+  target is now parsed; an unrecognised handoff reports `null` rather than the
+  shell.
+
+- **An `insufficient_evidence` verdict now leads with the gap you can close,
+  and the three lines that announce it agree.** The reason counted source
+  warnings — the symptom — and demoted the one actionable gap to a secondary
+  line, while `agent_summary.first_recommended_action` (the field the agent
+  contract routes coding agents to) contradicted that line outright: "applying
+  patches does not clear an evidence verdict, so no machine-applicable fix is
+  available", printed directly beneath `Improve evidence: … Target:
+  shipgate.yaml#agent_bindings.declarations`
+  ([#362](https://github.com/ThreeMoonsLab/agents-shipgate/issues/362)). For a
+  coding agent that is a dead end, and the cheap ways out of a dead end are the
+  ones `forbidden_actions` enumerates. `release_decision.reason`, the short-form
+  `Improve evidence:` line, and `first_recommended_action.why` now project **one**
+  selected gap — the first `evidence_gaps[]` row that names a nonblank
+  normalized target or carries a publishable command, falling back to the first
+  row when nothing is addressable.
+  On an `insufficient_evidence` verdict with an addressable gap the three name
+  the same gap and the same target — or, for a row carrying only a command, the
+  same command; the reason reads `Insufficient evidence: <what is unproven>
+  (<subject>). Fix at <target>.` (or `Run: <command>.`) `Context: <counts>…`.
+  And on **every** verdict, "no machine-applicable fix is available" is
+  unreachable while any gap is addressable; where it still appears, it is
+  true. Outside that first case the
+  three surfaces answer different questions on purpose — with no addressable gap
+  the reason keeps its threshold wording, and under `review_required` it stays
+  severity-driven — and the published contract now says so at exactly that
+  scope. `first_recommended_action.kind` stays `"info"` on the evidence-first branches
+  — a statement about the summary projection, not about the gap rows, which may
+  carry an exact command (the stale-`--diff-from` base report is regenerated by
+  one) alongside the reviewed declarations a human must write.
+
+  Every value these one-line surfaces interpolate is repository-derived — a gap
+  subject is a tool name, a policy pack authors `expects`, a semantic gap's
+  `path` embeds a tool name — so each is forced onto one line in the shared
+  projection rather than at one call site, and the GitHub step summary now
+  escapes `release_decision.reason` the way `report.md` always has. Without
+  both, a value carrying `\nControl: complete` forged a line under the real one.
+
+  Addressability is decided **after** normalization, by one shared predicate
+  every consumer calls, and normalization is split into three questions that
+  had been conflated. *Display* renders a value on one line without rewriting
+  it: **nothing is deleted**, and anything that would not reach the reader as
+  itself — controls, `U+2028`/`U+2029`, bidi marks, lone surrogates, and
+  invisible (Default_Ignorable) code points — becomes a visible `<U+XXXX>`
+  escape. For identity-bearing values that encoding is **reversible and
+  injective**: `<` is escaped too, so `a\nb.yaml` and the literal filename
+  `a<U+000A>b.yaml` render differently and `shipgate\u200b.yaml` can no longer
+  impersonate `shipgate.yaml`. Prose keeps `<` as ordinary punctuation and
+  additionally folds whitespace; paths and commands never fold, so
+  `configs/foo  bar.yaml` keeps both spaces and `python -c 'print("a  b")'`
+  stays the program that was written. *Visibility* asks whether a value names
+  anything at all, using Unicode Default_Ignorable rather than a
+  general-category guess, so a path made only of ZWSP, VS16, or CGJ is not
+  addressable. *Executability* is all-or-nothing, judged on the **authored
+  value**, and a publishable command is published **byte for byte**: any
+  control, bidi, or invisible code point, or any whitespace other than
+  `U+0020`, suppresses it entirely, and a publishable one is never trimmed.
+  Deleting a zero-width character from `r\u200bm -rf` authors a program the
+  repository never wrote; trimming a leading NBSP silently changes `argv[0]`;
+  and trimming a *trailing* space breaks `printf foo\\ `, whose second token
+  legitimately ends in one. Blank accepted values are dropped rather than
+  rendered as `Accepted values: , .`, and a suppressed command produces no
+  `Run:` line and a `null` repair command instead of an empty one.
+
+  A gap counts as addressable when it names a target **or** carries a
+  publishable command. `path` and `command` are independently nullable on the
+  wire, and a `provide_source` row carrying only an exact regeneration command
+  is as actionable as one naming a file — reading the path alone let
+  `Improve evidence:` print `Run: …` while the field agents read said no
+  machine-applicable fix existed.
+
+  Two copy rules that made the dead end look larger than it was came with it.
+  Warnings that restate one **recognized** mechanism collapse **at render
+  time** — six `Google ADK agent 'x' references unresolved tool 'y'.` lines
+  become one naming the cause, every affected symbol, and the two surfaces that
+  close it — in `report.md`, `packet.md`/`packet.html`, `verify`'s fix-task
+  remedies, and the CLI `--verbose` list, which now prints the mechanism count
+  beside the raw one. Grouping is structural, not textual: a mechanism declares
+  which fields are context (two ADK agents never merge into one row, and a
+  symbol they share is never counted twice) and which are subjects (a binding id
+  stays attached to its tool, so two sources cannot cross-product). Decoding is
+  exact rather than delimiter-guessing — every interpolated value is `repr()` of
+  a string, so the decoder reads a *string literal* at each field position and a
+  value containing the separator is read whole instead of being cut in half.
+  A message that does not decode as a registered mechanism wrote it, including
+  a composite one carrying two invalid binding members, keeps its own text
+  rather than a merged one — rendered through the same one-line display
+  projection as every other group, because opaque loader text still reaches
+  surfaces that do not collapse newlines, and replaced by a visible placeholder
+  when it has no printable content at all (a blank bullet hid the very thing
+  the gate was reporting). `report.json`, `packet.json`,
+  `SourceWarningGroup.warnings`, and
+  `evidence_coverage.source_warning_count` all keep the loader's bytes: that
+  count is a gating input, and folding it would silently recalibrate the
+  threshold.
+
+  A `tool_identity.bindings` member that matches nothing now gets the guidance
+  that fits its cause. A **configured** source that produced no observations
+  states the rule and points at `shipgate.yaml#agent_bindings.declarations`; a
+  `source_id` that names no configured source at all — a typo — is told to
+  correct the selector, because no binding declaration can repair one. Both used
+  to report only that the member "matched 0 observations", the arithmetic that
+  sent readers back to declare more bindings over the same empty source.
+
+  `verify`'s fix task keeps typed source-warning repairs. A blanket
+  `source_warning` skip discarded the stale-`--diff-from` gap, which carries a
+  path, an expectation, and the exact regeneration command, leaving only the raw
+  warning prose — so the handoff named a different repair from the one the
+  selected gap names. Only pathless, review-only warnings fall through to prose
+  now, and every field the typed path interpolates is one-lined before it
+  reaches `fix_task.instructions[]` and `allowed_repairs[].target/reason/command`
+  — durable machine-facing fields that `agent_result` copies verbatim into
+  `repair.instructions`, `suggested_fixes`, and `agent_repair_instructions`.
+
+  Verdict strictness is unchanged. `_MAX_TOLERATED_SOURCE_WARNINGS` and
+  `_LOW_CONFIDENCE_TOOL_RATIO` stay frozen, `evidence_below_ie_threshold` reads
+  the same counts, and no schema version moves. This is ranking, copy, and
+  render-time grouping, plus one consistency invariant with a test.
+
 - **Verifier schema `0.8 → 0.9`.** `capability_review.policy_weakening_proven`
   is an emitted field, and a published schema identifier never gains one: an
   artifact still declaring `0.8` failed validation against the frozen v0.8

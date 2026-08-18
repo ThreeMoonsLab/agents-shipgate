@@ -49,7 +49,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "5c5eba31886aeabc902a97b53d00bfdd6ab15e1423574633060bbdfd8bbd8b25",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "341253ed61e5ce9e4f42fc7d1ab0c4c72edd32aacf941cb8d08e49d95493c59d",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
-    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "90d36fbe91668fdc64e5e73727ec8285ee62c584d695b866261ef569fea07074",
+    ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "3745aebbf34a47c01b06e74e6d387080bbda9272f0aeec6998457cffa758fc54",
     ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475",
     ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": "00da293e63792ccaf980f82d525ac12073807f41fd2d78c5a95498054053e364",
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada",

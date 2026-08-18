@@ -126,6 +126,47 @@ jobs:
           python -m build --no-isolation
           python -m twine check dist/*
 
+      - name: A released install reports itself as one
+        # The environment every adopter actually has, and the one this job
+        # otherwise never sees: it installs the project editable before it runs
+        # anything, so `import_source.kind` is `source_checkout` for the whole
+        # run above. Checked from outside the checkout because that is where an
+        # adopter stands — inside it, a wheel answering for a source tree is a
+        # *correct* `import_outside_source_tree` error rather than a passing
+        # case, and asserting "no errors" there would be asserting the wrong
+        # thing (#334).
+        #
+        # `PATH` is scoped to the released install for the run itself, and that
+        # is part of what is under test rather than housekeeping. This job also
+        # has an *editable* install whose console scripts sit on the runner's
+        # `PATH`, so with them visible a bare `agents-shipgate` really would
+        # execute a different installation than the wheel being checked — a
+        # correct `console_script_runs_other_interpreter`, and not the adopter
+        # environment this step is about. Scoping it puts the wheel's own
+        # scripts first, which is what an adopter has, and lets the assertions
+        # below stay exact.
+        run: |
+          python -m venv /tmp/released-install
+          /tmp/released-install/bin/python -m pip install --quiet dist/*.whl
+          cp -r samples/support_refund_agent /tmp/adopter
+          cd /tmp
+          PATH=/tmp/released-install/bin:/usr/bin:/bin \
+            /tmp/released-install/bin/agents-shipgate doctor \
+            --config /tmp/adopter/shipgate.yaml --json > /tmp/released.json
+          python - <<'PY'
+          import json, pathlib
+          environment = json.loads(pathlib.Path("/tmp/released.json").read_text())[0]["environment"]
+          assert environment["import_source"]["kind"] == "installed", environment["import_source"]
+          assert environment["installed_version"] == environment["imported_version"], environment
+          assert environment["source_tree"]["root"] is None, environment["source_tree"]
+          # The healthy adopter shape, stated rather than implied by silence:
+          # the wrappers on PATH are found, and they run this interpreter.
+          scripts = environment["launcher"]["console_scripts"]
+          assert [entry["name"] for entry in scripts] == ["agents-shipgate", "shipgate"], scripts
+          assert all(entry["runs_this_interpreter"] for entry in scripts), scripts
+          assert environment["mismatches"] == [], environment["mismatches"]
+          PY
+
       - name: Dependency audit
         run: python -m pip_audit .
 
@@ -137,6 +178,139 @@ jobs:
         with:
           name: sbom
           path: sbom.json
+
+  clean-checkout-launcher:
+    # `./shipgate` has to work on a checkout where Agents Shipgate itself is
+    # not installed: no console script on `PATH`, no editable install, no
+    # `PYTHONPATH`. That is precisely the environment the `test` job can never
+    # have, because it installs the project before it runs anything — so the
+    # claim in CONTRIBUTING.md and AGENTS.md is verified here or nowhere.
+    #
+    # Only the dependency closure is installed. A clean checkout still needs
+    # its dependencies from somewhere; what it must not need is a copy of
+    # Agents Shipgate, or a `PYTHONPATH` the contributor had to be told about.
+    #
+    # The remaining cases from #334 — stale console script, unsupported
+    # interpreter, missing dependencies, editable install — are in
+    # `tests/test_environment.py` and run in the `test` job above: each is
+    # reachable from stated facts or from one subprocess, and none of them
+    # needs a job of its own.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: constraints/dev.txt
+
+      - name: Install the dependency closure, and nothing else
+        run: python -m pip install --require-hashes --requirement constraints/dev.txt
+
+      - name: The canonical contributor command runs
+        run: |
+          ./shipgate --version
+          ./shipgate doctor --config samples/support_refund_agent/shipgate.yaml --json > doctor.json
+          python - <<'PY'
+          import json, pathlib
+          payload = json.loads(pathlib.Path("doctor.json").read_text())[0]
+          environment = payload["environment"]
+          checkout = pathlib.Path.cwd()
+          launcher = str(checkout / "shipgate")
+          # Nothing installed, and this tree is what answered.
+          assert environment["installed_version"] is None, environment["installed_version"]
+          assert environment["import_source"]["root"] == str(checkout / "src"), environment
+          assert environment["source_tree"]["root"] == str(checkout), environment
+          assert environment["launcher"]["executable"] == [launcher], environment["launcher"]
+          assert environment["mismatches"] == [], environment["mismatches"]
+          # And every command it hands back is runnable as printed: a bare
+          # `agents-shipgate` does not exist in this job.
+          assert payload["next_action"].startswith(launcher), payload["next_action"]
+          assert payload["next_actions"][0]["executable"] == [launcher], payload["next_actions"][0]
+          PY
+
+  windows-launcher:
+    # The canonical contributor command, on the one platform where "run the
+    # file" is not a thing the OS does. A shebang is a POSIX kernel feature, so
+    # `.\shipgate` is inert on Windows and the documented spelling is
+    # `python shipgate ...` — which means the launcher has to *announce* that
+    # spelling too, or every recovery command it prints is unrunnable there.
+    #
+    # This job also covers the `os.name == "nt"` re-execution branch, which no
+    # amount of unit testing on Linux can reach: `os.execv` on Windows spawns
+    # and exits the parent, so that branch forwards a child's status instead,
+    # and whether it really forwards is a claim about a Windows process.
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: constraints/dev.txt
+
+      - name: Install the dependency closure, and nothing else
+        # The same hash-locked closure the other jobs install. It resolves here
+        # because the lock is universal — it carries the Windows wheels and the
+        # `os_name == 'nt'` markers — so this is the environment CI approves
+        # everywhere, not a Windows-only resolve.
+        run: python -m pip install --require-hashes --requirement constraints/dev.txt
+
+      - name: The documented Windows spelling runs, and is what gets announced
+        run: |
+          python shipgate --version
+          python shipgate doctor --config samples/support_refund_agent/shipgate.yaml --json > doctor.json
+          python - <<'PY'
+          import json, pathlib, sys
+          payload = json.loads(pathlib.Path("doctor.json").read_text())[0]
+          environment = payload["environment"]
+          launcher = str(pathlib.Path.cwd() / "shipgate")
+          # Two tokens, because Windows will not start the file on its own.
+          assert environment["launcher"]["executable"] == [sys.executable, launcher], (
+              environment["launcher"]
+          )
+          assert environment["import_source"]["root"] == str(pathlib.Path.cwd() / "src")
+          assert environment["mismatches"] == [], environment["mismatches"]
+          # And the emitted recovery is spelled the same way it is documented.
+          assert payload["next_actions"][0]["executable"] == [sys.executable, launcher]
+          PY
+
+      - name: Re-executing into another interpreter forwards its status
+        # `--system-site-packages` so the selected interpreter can still import
+        # the closure: what is under test is the switch and the status
+        # forwarding, not a second installation.
+        run: |
+          python -m venv --system-site-packages .winvenv
+          export AGENTS_SHIPGATE_PYTHON="$(cygpath -w "$PWD/.winvenv/Scripts/python.exe")"
+          python shipgate doctor --config samples/support_refund_agent/shipgate.yaml --json > reexec.json
+          python - <<'PY'
+          import json, os, pathlib
+          environment = json.loads(pathlib.Path("reexec.json").read_text())[0]["environment"]
+          selected = os.environ["AGENTS_SHIPGATE_PYTHON"]
+          assert environment["interpreter"]["executable"] == selected, environment["interpreter"]
+          PY
+          # A non-zero status has to survive the hop as well: `doctor` exits 2
+          # when the manifest cannot be found, and a branch that spawns instead
+          # of replacing the process is exactly where that gets lost.
+          set +e
+          python shipgate doctor --config no-such-manifest.yaml --json
+          status=$?
+          set -e
+          [ "$status" = "2" ] || { echo "::error::expected exit 2 through the re-exec, got $status"; exit 1; }
 
   release-tag-consistency:
     # Public install surfaces follow

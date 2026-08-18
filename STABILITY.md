@@ -13,6 +13,48 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-doctor-environment"></a>
+
+## Migration Note: unreleased — `doctor --json` reports the environment that answered
+
+No version moves: `contract_version`, `report_schema_version`,
+`minimum_control_contract_version`, and every published schema document are
+unchanged. This is additive on two surfaces and adds one error kind.
+
+**Every `doctor --json` payload gains an `environment` field**, and so does
+every `doctor` agent-mode error line — including the discovery failure, where
+`--json` prints no payload at all. It states the running interpreter, the
+launcher and any `agents-shipgate` / `shipgate` console script on `PATH`, where
+the imported package came from, the installed / imported / source-tree versions,
+and `mismatches[]`. Every existing field on those payloads is unchanged, and
+`environment` is deliberately **not** folded into `control.input_id`: it carries
+absolute machine-specific paths, and `input_id` is the identity of what `doctor`
+decided about a manifest, which the environment does not change. The same
+manifest therefore keeps the same `input_id` on every machine, as before.
+Field-by-field contents are in
+[`docs/diagnostics.md`](docs/diagnostics.md#which-shipgate-answered-the-environment-block).
+
+**New agent-mode error kind `environment_error`, exit code 4** — the existing
+"other agents-shipgate error" code, not a new one. It is emitted by the
+repository launcher before any Shipgate code is running (an unsupported
+interpreter, or one that cannot import the package or its dependencies), so it
+is the only kind that carries no `control` envelope; it carries `environment`
+instead. Published in [`docs/errors.json`](docs/errors.json), whose
+`schema_version` stays `0.1`. A consumer that switches on `error` and falls
+through on unknown kinds is unaffected.
+
+**New public helper `agents_shipgate.invocation.render_cli_override`** — the
+host-rules inverse of how `AGENTS_SHIPGATE_CLI` is parsed. It exists because
+that variable now has a writer: the repository launcher announces itself through
+it. `join_argv` remains POSIX on every platform and is unchanged; the two are
+not interchangeable, and the docstrings say which parser each one pairs with.
+
+The launcher itself, `./shipgate`, is a development entry point in the source
+tree. It is not part of the wheel and nothing under `src/` imports it, so it
+changes nothing for an installed Agents Shipgate.
+
+---
+
 <a id="migration-note-unreleased-setup-control-envelope"></a>
 
 ## Migration Note: unreleased — one control vocabulary across the setup commands
@@ -1214,7 +1256,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `findings[].source.{type, ref, location}` (when available)
 - `findings[].source.{path, start_line, end_line, start_column, pointer}` (v0.11+) — minimal source provenance for the common tool-source loaders (OpenAPI, MCP, OpenAI tool artifacts, Anthropic tool artifacts). Optional and additive: keys are emitted only when the loader populates them. Reviewers can use `path` + `start_line` to jump to evidence; `pointer` is an RFC 6901 JSON pointer into the source file. JSON inputs do not carry line numbers in v0.11.
 - `findings[].agent_action` (v0.12+) — deterministic projection of `patches`, `autofix_safe`, and `requires_human_review`. Enum: `auto_apply | propose_patch_for_review | escalate_to_human | suppress_with_reason | informational`. The first four cover the actionable cases; `informational` covers suppressed findings or non-actionable advisories. `suppress_with_reason` is reserved for future check classes that explicitly mark themselves as suppressible — the v0.12 deterministic projection does not emit it. New consumers should read `agent_action` first and treat the underlying flags as advisory.
-- `agent_summary.{verdict, headline, blocker_count, review_item_count, auto_appliable_patches, needs_human_review, first_recommended_action}` (v0.12+) — top-level deterministic projection of `release_decision` + per-finding `agent_action`. Lets a coding agent read one block instead of traversing arrays. `first_recommended_action` is `{kind: "command" | "info", command: string | null, why: string}`; the `command` form carries an actual CLI invocation, the `info` form is a "surface this to the user" hint. Same inputs always produce the same output; this block cannot disagree with the underlying `release_decision` and `findings[].agent_action`.
+- `agent_summary.{verdict, headline, blocker_count, review_item_count, auto_appliable_patches, needs_human_review, first_recommended_action}` (v0.12+) — top-level deterministic projection of `release_decision` + per-finding `agent_action`. Lets a coding agent read one block instead of traversing arrays. `first_recommended_action` is `{kind: "command" | "info", command: string | null, why: string}`; the `command` form carries an actual CLI invocation, the `info` form is a "surface this to the user" hint. Same inputs always produce the same output; this block cannot disagree with the underlying `release_decision` and `findings[].agent_action`. Two narrower evidence-gap guarantees (v0.16+), stated at the scope they actually hold: (a) when `release_decision.decision` is `insufficient_evidence` **and** at least one `evidence_coverage.evidence_gaps[]` row is *addressable*, `release_decision.reason`, the short-form `Improve evidence:` line, and `first_recommended_action.why` name the same selected row and the same target or command; (b) on **every** verdict, `first_recommended_action.why` never says "no machine-applicable fix is available" while any gap is addressable. A row is **addressable** when `next_action.path` contains at least one character that actually renders (whitespace, controls, and Unicode Default_Ignorable code points render as nothing) **or** `next_action.command` is publishable exactly as authored — a command carrying any control, bidi, or invisible code point, or any whitespace other than U+0020, is suppressed rather than rewritten. Rendering escapes line-breaking and bidi characters as `<U+XXXX>` and never deletes anything; paths and commands are additionally never whitespace-folded. Outside (a) the three surfaces intentionally differ — on `insufficient_evidence` with no addressable gap the reason keeps threshold wording, and under `review_required` the reason stays severity-driven — so consumers must not infer alignment there; see [`docs/agent-contract-current.md`](docs/agent-contract-current.md#read-these-first-for-release-gating). `evidence_coverage.source_warning_count` stays the raw loader-warning count that feeds the `insufficient_evidence` threshold; rendered surfaces (`report.md`, `packet.md`/`packet.html`, CLI `--verbose`, `verify`'s fix-task remedies) group warnings of a recognized mechanism for readability without changing it.
 - `codex_plugin_surface.{plugins, marketplaces, skills, apps, mcp_server_stubs, hook_stubs, mcp_inventory_files, component_path_issues, warnings}` (v0.13+) — static Codex plugin package and marketplace facts. Only explicit MCP inventory tools enter `tool_inventory[]`; apps, hooks, skills, and MCP server declarations stay in this surface block.
 - `findings[].provenance_kind` (v0.15+) — records *how a finding was produced*; independent of `confidence`, which records how *sure* we are. It is a reviewer triage/filter signal only: it never changes `release_decision`, severity, fingerprints, baselines, or CI exit behavior. Use `agents-shipgate findings --from agents-shipgate-reports/report.json --provenance-kind keyword_heuristic,regex_heuristic,runtime_trace --json` to filter active findings by provenance class. Enum: `static_declaration | ast_extraction | keyword_heuristic | regex_heuristic | policy_pack | runtime_trace`. `static_declaration` covers manifest, MCP, OpenAPI schema facts, and declarative framework inputs like ADK YAML agent configs or LangChain/CrewAI inventory JSON files — high-trust structural data. `ast_extraction` covers findings against Tools parsed from user Python source by a framework extractor (LangChain function/structured tools, CrewAI function/class tools, ADK Python toolsets); these are subject to extraction error and agents that distrust AST quality can filter them as a class. Framework checks that fire against both AST-extracted and declaratively loaded tools (ADK's per-tool checks) pick the label per tool from `tool.source_type`. `keyword_heuristic` covers token-list matches (broad scope, read-only prompts, free-text parameter names); `regex_heuristic` covers regex matches (secrets, prompt injection); `policy_pack` covers findings emitted by externally loaded policy packs; `runtime_trace` covers findings derived from declared local trace artifacts. Built-in checks set the value via the required kwarg on the `tool_finding`/`agent_finding` helpers; third-party plugin checks that construct `Finding(...)` directly and omit the field are coerced to `static_declaration` by `annotate_remediation` so the wire schema stays satisfied. Required + non-nullable on the wire; the field is Python-Optional only so older v0.12/v0.13 reports loaded by `explain-finding` and minimal synthetic test fixtures keep working.
 - `findings[].blocks_release` (v0.16+) — explicit release-policy blocking bit. Starting in v0.33, a policy may set it only when `finding.support.blocking_eligible=true`; rule metadata cannot upgrade underlying evidence.
@@ -1421,8 +1463,11 @@ takes precedence over both. The precedence is therefore:
 → `review_required` (other) → `passed`.
 
 The intended recovery for a degraded-evidence case — whichever of the two
-verdicts it lands on — is the first structured action in
-`release_decision.evidence_coverage.evidence_gaps[]`. For supported frameworks,
+verdicts it lands on — is the structured action on the *selected* row of
+`release_decision.evidence_coverage.evidence_gaps[]`: the first row whose
+`next_action.path` names a visible target or whose `next_action.command` is
+publishable as authored, falling back to the first row when no row offers
+either (v0.16+; before that it was always row 0). For supported frameworks,
 that action names the generated local inventory artifact and the exact
 `<framework>.tool_inventories` manifest route. Only unidentified or unsupported
 source shapes receive generic MCP/OpenAPI/inventory guidance. Apply the reviewed
