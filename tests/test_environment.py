@@ -1131,18 +1131,33 @@ def test_the_lookup_agrees_with_the_shell(tmp_path: Path) -> None:
 
 
 def test_windows_lookup_follows_pathext(tmp_path: Path) -> None:
-    """On Windows the extension is the executability rule, and `PATHEXT` holds it."""
+    """On Windows the extension is the executability rule, and `PATHEXT` holds it.
+
+    The fixture's suffix matches the probed one exactly, on purpose. Windows
+    matches filenames case-insensitively and Linux does not, so a fixture
+    written ``.exe`` and probed with ``.EXE`` passes on a case-insensitive
+    filesystem and fails on ext4 — it would be testing the host rather than the
+    lookup. The rule under test is that each suffix is tried, which the second
+    half pins by removing them.
+    """
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _wrapper(bin_dir / "agents-shipgate.exe", "#!/unused\n")
 
     report = describe_environment(
-        _probe(path_entries=(str(bin_dir),), path_extensions=("", ".COM", ".EXE"))
+        _probe(path_entries=(str(bin_dir),), path_extensions=("", ".com", ".exe"))
     )
 
     (described,) = report["launcher"]["console_scripts"]
-    assert Path(described["path"]).name.lower() == "agents-shipgate.exe"
+    assert described["path"] == str(bin_dir / "agents-shipgate.exe")
+
+    # Without the suffix list there is no bare `agents-shipgate` to find, so the
+    # suffixes are doing the work rather than the directory listing.
+    bare = describe_environment(
+        _probe(path_entries=(str(bin_dir),), path_extensions=("",))
+    )
+    assert bare["launcher"]["console_scripts"] == []
 
 
 def test_pathext_comes_from_the_environment_that_was_probed(
