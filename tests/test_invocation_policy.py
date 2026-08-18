@@ -186,6 +186,77 @@ def test_placeholders_are_not_requoted_by_the_rewrite() -> None:
     assert rendered.endswith("apply-patches --from <report.json> --apply")
 
 
+def test_a_quoted_path_is_read_before_it_is_judged_to_be_ours() -> None:
+    """Locating the program token by scanning to raw whitespace was unsafe.
+
+    Its own defence was that our console-script names contain no whitespace and
+    no quotes — true of the *names*, and irrelevant to the strings they appear
+    in. A quoted interpreter path whose directory happens to be named after
+    this project, which is what cloning it into `~/agents-shipgate worktree/`
+    produces, was cut at the space; the remaining `'/tmp/agents-shipgate` has
+    `agents-shipgate` as its basename, so a `python -m pip install` recovery was
+    rewritten to name the launcher instead — leaving a runnable command that
+    runs the wrong program, and a dangling quote that cost the action its argv.
+    """
+
+    command = join_argv(
+        ["/tmp/agents-shipgate worktree/.venv/bin/python", "-m", "pip", "install", "-e", "/repo"]
+    )
+    prefix = Invocation(("/repo/shipgate",), "override")
+
+    assert retarget_command(command, prefix=prefix) == command
+    assert split_invocation(command, prefix=prefix) == (
+        ["/tmp/agents-shipgate worktree/.venv/bin/python"],
+        ["-m", "pip", "install", "-e", "/repo"],
+    )
+
+
+def test_a_quoted_shipgate_path_is_still_retargeted() -> None:
+    """Reading the token properly is not the same as leaving quoted tokens alone.
+
+    `'/opt/my tools/agents-shipgate'` really is our console script, and the
+    replacement has to cover the quotes rather than land inside them.
+    """
+
+    command = join_argv(["/opt/my tools/agents-shipgate", "scan", "-c", "shipgate.yaml"])
+    prefix = Invocation(("/repo/shipgate",), "override")
+
+    assert retarget_command(command, prefix=prefix) == "/repo/shipgate scan -c shipgate.yaml"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "agents-shipgate scan",
+        "'/opt/my tools/agents-shipgate' scan --json",
+        r"/opt/my\ tool --flag",
+        '"/opt/quoted path/python" -m agents_shipgate doctor',
+        "AGENTS_SHIPGATE_ENABLE_PLUGINS=1 agents-shipgate scan",
+        "pip install agents-shipgate",
+    ],
+)
+def test_the_program_token_span_agrees_with_the_grammar(command: str) -> None:
+    """The scan finds a boundary; `shlex` reads the value. They must agree.
+
+    Two readings of one string is the bug class this module keeps hitting, so
+    the span is cross-checked against the grammar the string was rendered with:
+    the bytes the scan would replace must parse as exactly the token `shlex`
+    reports there, and everything after them must be the rest of the argv.
+    """
+
+    from agents_shipgate.invocation import _ENV_ASSIGNMENT, _program_token
+
+    located = _program_token(command)
+    assert located is not None
+    start, end, program = located
+
+    tokens = shlex.split(command)
+    skipped = sum(1 for token in tokens if _ENV_ASSIGNMENT.fullmatch(token))
+    assert program == tokens[skipped]
+    assert shlex.split(command[start:end]) == [program]
+    assert shlex.split(command[end:]) == tokens[skipped + 1 :]
+
+
 def test_env_assignment_prefixes_keep_their_assignments() -> None:
     rendered = retarget_command(
         "AGENTS_SHIPGATE_ENABLE_PLUGINS=1 agents-shipgate scan -c shipgate.yaml",

@@ -2,6 +2,125 @@
 
 ## Unreleased
 
+- **One command runs Agents Shipgate from this checkout, and `doctor` now says
+  which Shipgate answered.** Running the CLI from a source tree meant either a
+  bare `agents-shipgate`, which resolves through `PATH` and can silently execute
+  a pipx or base-conda copy — a `0.8.0` shadowing a worktree makes new
+  subcommands look "missing" — or `PYTHONPATH=src python -m agents_shipgate`,
+  which is correct but has to be discovered. A console script promoted from an
+  environment that no longer exists is worse than either: it dies with
+  `ModuleNotFoundError` before a line of Shipgate runs, so nothing in Shipgate's
+  own output can explain it, and the epic's reproduction had a user drop into a
+  terminal at exactly that point
+  ([#334](https://github.com/ThreeMoonsLab/agents-shipgate/issues/334),
+  [#338](https://github.com/ThreeMoonsLab/agents-shipgate/issues/338)).
+
+  A repository launcher, **`./shipgate`**, is now the canonical contributor
+  command, and CONTRIBUTING.md, AGENTS.md, and CLAUDE.md all use it. It needs no
+  installation, no activated virtualenv, and no `PYTHONPATH`: it puts this
+  tree's `src/` ahead of every installed copy (in child processes too), and
+  selects an interpreter — `AGENTS_SHIPGATE_PYTHON`, else the project
+  virtualenv, looked up in the main checkout as well so a `git worktree` shares
+  it — re-executing exactly once, guarded against looping. It announces itself
+  through `AGENTS_SHIPGATE_CLI`, the operator override the invocation policy
+  already honours, so every command it prints back is runnable as printed;
+  without that its `argv[0]` reads as the `shipgate` console script and the
+  policy would emit commands a clean checkout cannot run
+  ([#322](https://github.com/ThreeMoonsLab/agents-shipgate/issues/322)). An
+  operator who set the variable themselves still wins.
+
+  `doctor --json` payloads — and every `doctor` agent-mode error line, including
+  the discovery failure that prints no payload — now carry an `environment`
+  block: the interpreter and whether it is supported, the launcher and every
+  Shipgate console script on `PATH` with the interpreter each shebang names, the
+  import source and whether it is a checkout or an install, the installed and
+  imported and source-tree versions, and `mismatches[]` — each with a severity
+  and, where one exists, a runnable recovery command. Nothing runs an
+  interpreter or executes a console script to find out: a stale wrapper is
+  identified from its shebang, because a wrapper that cannot start is exactly
+  the one that cannot report on itself. A source checkout out-voting an
+  installed distribution is *not* reported as a mismatch — that is the intended
+  state, and an editable install's metadata lags every version bump by design.
+
+  The recovery is **ranked**, because `pip install` is not always the first
+  step: an interpreter created with `venv --without-pip` answers
+  `python -m pip install …` with `No module named pip`, so emitting that alone
+  would promise a recovery that fails on its first token in exactly the
+  environment the recovery exists for. `ensurepip` is proposed ahead of it when
+  `pip` is absent, and an interpreter with neither gets the diagnosis and no
+  command at all rather than one that cannot run.
+
+  New agent-mode error kind `environment_error` (exit 4), emitted by the
+  launcher before Shipgate is running and carrying the same `environment` block;
+  it is published in [`docs/errors.json`](docs/errors.json). New public helper
+  `agents_shipgate.invocation.render_cli_override`, the host-rules inverse of
+  how `AGENTS_SHIPGATE_CLI` is parsed — needed now that something writes the
+  variable, so a checkout path containing a space survives the round trip. No
+  schema or contract version changes.
+
+- **The launcher announces a spelling the operating system will actually start.**
+  A shebang is a POSIX kernel feature, so `.\shipgate` is a file Windows will
+  not execute — and announcing that path through `AGENTS_SHIPGATE_CLI` published
+  recovery commands that could not run there, which is this launcher's own
+  defect relocated to another platform. It now announces
+  `<interpreter> <launcher>` wherever the file cannot be started on its own: on
+  Windows, and on a copy that lost its executable bit. `python shipgate …` is the
+  documented Windows spelling, and it is the one that gets emitted. A new
+  Windows CI job covers the entry point, the announcement, and the
+  `os.name == "nt"` re-execution branch — including that a non-zero status
+  survives the hop, which is exactly what a branch that spawns instead of
+  replacing the process can lose.
+
+- **Two virtual environments over one base are no longer one interpreter.**
+  `runs_this_interpreter` resolved both paths before comparing them, and a POSIX
+  virtualenv's `bin/python` is a symlink to the interpreter it was built from —
+  so two unrelated virtualenvs collapsed onto the same binary despite having
+  different `sys.prefix` values and different `site-packages`. A console script
+  pointing at a *different* environment reported clean. The comparison no longer
+  dereferences, matching the rule the launcher already applied when deciding
+  whether to switch interpreters; the two copies are now pinned to each other by
+  test.
+
+- **`PATH` lookup follows the shell's rule, not "a file exists there".** A
+  regular file without the execute bit is skipped by POSIX command lookup, which
+  continues to later `PATH` entries. Stopping at it described a wrapper the
+  caller's shell would never run and hid the stale-interpreter diagnostic for the
+  one it would. Executability is now required on POSIX, and `PATHEXT` decides on
+  Windows.
+
+- **A trampoline target must be a command, not a mention of one.** The `exec`
+  handoff was found by searching the whole wrapper, so a comment such as
+  `# old target: exec "/deleted/python"` above a working `exec` reported a
+  healthy wrapper as `console_script_interpreter_missing`. Lines are now read in
+  order with `exec` required in command position and comments skipped: a
+  diagnostic may not be derived from a string the shell never executes.
+
+- **A quoted program token is read before it is judged to be ours.**
+  `retarget_command` located the program by scanning to raw whitespace, on the
+  argument that our console-script names contain none — true of the names, and
+  irrelevant to the strings they appear in. A quoted interpreter path whose
+  directory is named after this project, which cloning it into
+  `~/agents-shipgate worktree/` produces, was cut at the space; the remaining
+  `'/tmp/agents-shipgate` has `agents-shipgate` as its basename, so a
+  `python -m pip install` recovery was rewritten to name the Shipgate entry
+  point instead. That is not an unrunnable command but a runnable one that runs
+  the wrong program, and the dangling quote also cost the action its
+  `executable`/`args` pair. The span is now found with quoting honoured and the
+  token's *value* comes from `shlex` — the same grammar the string was rendered
+  with — with the two cross-checked, so a disagreement leaves the command
+  untouched rather than rewriting it wrongly. A correctly quoted Shipgate path
+  (`'/opt/my tools/agents-shipgate'`) is now retargeted where it previously was
+  not.
+
+- **A `#!/bin/sh` console-script wrapper reports the interpreter it `exec`s.**
+  An interpreter path containing a space cannot go in a shebang, so `pip`
+  writes a shell trampoline instead. Reading only the shebang reported
+  `/bin/sh` — which exists and is not the running interpreter — so a healthy
+  install raised `console_script_runs_other_interpreter` once per alias, while
+  the interpreter that could actually go stale stayed invisible. The `exec`
+  target is now parsed; an unrecognised handoff reports `null` rather than the
+  shell.
+
 - **An `insufficient_evidence` verdict now leads with the gap you can close,
   and the three lines that announce it agree.** The reason counted source
   warnings — the symptom — and demoted the one actionable gap to a secondary

@@ -4,6 +4,12 @@ The full agent-facing instructions for this repo live in [`AGENTS.md`](AGENTS.md
 
 A few Claude-specific notes:
 
+## Running the CLI in this repository
+
+Use `./shipgate <command> ...` from the repository root — the repository launcher, and the canonical command here (`python shipgate <command> ...` on Windows, which does not read a shebang). It is the same CLI as `agents-shipgate`, but it runs this working tree's `src/`, picks a supported interpreter (the main checkout's virtualenv when you are in a `git worktree`), and needs no install and no `PYTHONPATH`. The recovery commands it prints name the launcher, so you can run them as printed.
+
+A bare `agents-shipgate` may resolve to a different, older install on `PATH`, or fail with `ModuleNotFoundError` if the environment behind it is gone. Use it only to check what an installed build does. If a command behaves as though an edit never happened, run `./shipgate doctor --config shipgate.yaml --json` and read the `environment` block — it names the interpreter, the imported package, the checkout, and any `mismatches[]`.
+
 ## Permissions
 
 - `agents-shipgate scan`, `preflight`, `init`, `doctor`, `explain`, `list-checks`, `fixture`, `self-check` are **read-only** with respect to user code; safe to run without confirmation.
