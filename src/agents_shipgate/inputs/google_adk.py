@@ -585,12 +585,27 @@ class _PythonAdkExtractor:
         # agents is loaded once, not once per agent.
         self.toolset_tool_names: dict[int, list[str]] = {}
         self.agent_bindings: dict[str, _AdkAgentBinding] = {}
+        # Every ``Agent(...)`` assignment in this module, walked once and
+        # reused: ``extract`` iterates it, and the sub-agent spelling map
+        # below is built from it.
+        self.agent_call_list = self._agent_calls()
+        # ADK routes a handoff to the sub-agent's ``name=``, but
+        # ``sub_agents=[salesforce_agent]`` spells the Python variable the
+        # agent was assigned to. Agent nodes are keyed by the name, so the
+        # two spellings must be reconciled here — otherwise the handoff
+        # lands on a phantom node that owns no tools and every tool the
+        # sub-agent holds drops out of the root-reachable surface (#385).
+        self.agent_names_by_variable = {
+            target_name: _kwarg_string(call, "name") or target_name
+            for target_name, call in self.agent_call_list
+            if target_name
+        }
 
     def extract(self) -> list[LoadedToolSource]:
         tools: list[Tool] = []
         loaded_sources: list[LoadedToolSource] = []
         self._record_eval_references()
-        for target_name, call in self._agent_calls():
+        for target_name, call in self.agent_call_list:
             agent_name = _kwarg_string(call, "name") or target_name or "adk_agent"
             tools_expr = _kwarg(call, "tools")
             tool_count = len(tools_expr.elts) if isinstance(tools_expr, (ast.List, ast.Tuple)) else 0
@@ -1016,14 +1031,23 @@ class _PythonAdkExtractor:
                     }
                 )
             elif keyword.arg == "sub_agents":
-                sub_agent_count = len(keyword.value.elts) if isinstance(keyword.value, ast.List | ast.Tuple) else None
+                elements = (
+                    keyword.value.elts
+                    if isinstance(keyword.value, ast.List | ast.Tuple)
+                    else None
+                )
+                sub_agent_count = len(elements) if elements is not None else None
+                # Resolve each element to the agent's declared ``name=`` when
+                # this module assigns it; an element naming an agent defined
+                # elsewhere (or built inline) stays unresolved and is counted
+                # as such by the binding graph.
                 sub_agent_names = (
                     [
-                        name
-                        for item in keyword.value.elts
+                        self.agent_names_by_variable.get(name, name)
+                        for item in elements
                         if (name := _qualified_name(item, self.aliases)) is not None
                     ]
-                    if isinstance(keyword.value, ast.List | ast.Tuple)
+                    if elements is not None
                     else []
                 )
                 self.artifacts.sub_agents.append(
@@ -1032,6 +1056,16 @@ class _PythonAdkExtractor:
                         "source_id": self.source_id,
                         "sub_agent_count": sub_agent_count,
                         "sub_agents": sub_agent_names,
+                        # False when ``sub_agents`` is not a literal sequence,
+                        # or when any element could not be named. The binding
+                        # graph turns that into a partial-evidence gap: a
+                        # handoff we cannot name is a branch of the capability
+                        # surface we did not follow, and it must say so rather
+                        # than report the named subset as the whole.
+                        "sub_agents_complete": (
+                            elements is not None
+                            and len(sub_agent_names) == len(elements)
+                        ),
                         "source_ref": f"{self.source_ref}:{call.lineno}",
                     }
                 )

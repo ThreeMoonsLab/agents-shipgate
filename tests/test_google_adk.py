@@ -681,3 +681,271 @@ def test_google_adk_long_running_contract_accepts_google_operation_shape():
             },
         }
     )
+
+
+# The google/adk-samples multi-agent shape, spelled the way real samples
+# spell it: the LlmAgent's ``name=`` differs from the Python variable, and
+# ``sub_agents`` names the variable. Reproduced from google/adk-samples#1745,
+# where every tool the sub-agents owned — including all three financial
+# writes — fell out of the analyzed surface with no evidence gap naming it.
+SUB_AGENT_NAME_MISMATCH_SOURCE = '''
+from google.adk.agents import LlmAgent
+
+raise RuntimeError("this file must never be imported")
+
+
+def get_salesforce_opportunities() -> list[dict]:
+    """List open Salesforce opportunities."""
+    return []
+
+
+def create_salesforce_quote(opportunity_id: str) -> str:
+    """Create a Salesforce quote."""
+    return "quote"
+
+
+def create_sap_sales_order(business_partner_id: str) -> str:
+    """Create an SAP sales order."""
+    return "order"
+
+
+def get_manager_email() -> str:
+    """Look up the approving manager."""
+    return "manager@example.com"
+
+
+salesforce_agent = LlmAgent(
+    name="SalesforceAgent",
+    instruction="Work Salesforce records.",
+    tools=[get_salesforce_opportunities, create_salesforce_quote],
+)
+
+sap_agent = LlmAgent(
+    name="SapAgent",
+    instruction="Work SAP records.",
+    tools=[create_sap_sales_order],
+)
+
+root_agent = LlmAgent(
+    name="SmartCloserAgent",
+    instruction="Coordinate Salesforce and SAP.",
+    tools=[get_manager_email],
+    sub_agents=[salesforce_agent, sap_agent],
+)
+'''
+
+SUB_AGENT_NAME_MISMATCH_MANIFEST = """
+version: "0.1"
+project:
+  name: adk-sub-agent-names
+agent:
+  name: SmartCloserAgent
+  declared_purpose:
+    - close deals across salesforce and sap
+environment:
+  target: local
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+agent_bindings:
+  root:
+    source_id: adk_agent
+    object: SmartCloserAgent
+"""
+
+
+def _sub_agent_name_mismatch_project(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(SUB_AGENT_NAME_MISMATCH_SOURCE, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(
+        SUB_AGENT_NAME_MISMATCH_MANIFEST, encoding="utf-8"
+    )
+    return project
+
+
+def test_google_adk_sub_agents_resolve_variable_spellings_to_agent_names(tmp_path):
+    """``sub_agents=[salesforce_agent]`` must reach the agent named SalesforceAgent.
+
+    ADK routes a handoff by the agent's ``name=``; the list spells the Python
+    variable. Reading the variable as an agent name produced one phantom node
+    per sub-agent — holding no tools — so every sub-agent tool dropped out of
+    the root-reachable surface (#385).
+    """
+    project = _sub_agent_name_mismatch_project(tmp_path)
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    graph = report.binding_surface_facts
+    assert sorted(agent.name for agent in graph.agents) == [
+        "SalesforceAgent",
+        "SapAgent",
+        "SmartCloserAgent",
+    ]
+    names = {entry["tool_id"]: entry["name"] for entry in report.tool_catalog}
+    assert sorted(names[tool_id] for tool_id in graph.reachable_tool_ids) == [
+        "create_salesforce_quote",
+        "create_sap_sales_order",
+        "get_manager_email",
+        "get_salesforce_opportunities",
+    ]
+    assert graph.unbound_tool_ids == []
+
+
+def test_google_adk_unreachable_sub_agent_tools_are_never_silently_excluded(tmp_path):
+    """No catalog tool is both outside the analyzed surface and unnamed.
+
+    The root is pinned to the Salesforce sub-agent, so the coordinator's own
+    tool and the whole SAP surface are unreachable. Being told the gate did
+    not look is materially different from being told nothing, so every
+    unreached tool must appear in ``evidence_gaps`` by name.
+    """
+    project = _sub_agent_name_mismatch_project(tmp_path)
+    (project / "shipgate.yaml").write_text(
+        SUB_AGENT_NAME_MISMATCH_MANIFEST.replace(
+            "object: SmartCloserAgent", "object: SalesforceAgent"
+        ),
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    graph = report.binding_surface_facts
+    names = {entry["tool_id"]: entry["name"] for entry in report.tool_catalog}
+    unreached = {names[tool_id] for tool_id in graph.unbound_tool_ids}
+    assert unreached == {"create_sap_sales_order", "get_manager_email"}
+
+    decision = report.release_decision
+    assert decision is not None
+    gap_text = " ".join(
+        f"{gap.subject} {gap.why}" for gap in decision.evidence_coverage.evidence_gaps
+    )
+    for name in unreached:
+        assert name in gap_text
+    assert decision.decision == "insufficient_evidence"
+
+
+def test_google_adk_declaration_resolves_an_agent_the_scan_already_named(tmp_path):
+    """A declaration naming an observed agent must resolve, not collide with it.
+
+    Seeding a synthetic node for every declared agent gave a structurally
+    observed agent a second, source-id-less node; the resolver then saw two
+    candidates for the name and rejected both. Declaring an agent the scan
+    itself reported was self-defeating (#385).
+    """
+    project = _sub_agent_name_mismatch_project(tmp_path)
+    (project / "shipgate.yaml").write_text(
+        SUB_AGENT_NAME_MISMATCH_MANIFEST
+        + """  declarations:
+    - agent: SapAgent
+      complete: true
+      tools:
+        - tool: create_sap_sales_order
+      reason: Reviewed from the sap_agent LlmAgent tools list.
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    graph = report.binding_surface_facts
+    assert [agent.name for agent in graph.agents].count("SapAgent") == 1
+    assert not [issue for issue in graph.issues if issue.kind == "unresolved_agent_binding"]
+    declared = {
+        edge.tool_id
+        for edge in graph.tool_edges
+        if edge.provenance_kind == "static_declaration"
+    }
+    names = {entry["tool_id"]: entry["name"] for entry in report.tool_catalog}
+    assert {names[tool_id] for tool_id in declared} == {"create_sap_sales_order"}
+
+
+def test_google_adk_partially_named_sub_agents_fail_closed(tmp_path):
+    """Naming two of three sub-agents must not report the two as the whole set.
+
+    The un-nameable element is a branch of the capability surface that was
+    not followed; the graph has to say so instead of reporting the named
+    subset as complete.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        '''
+from google.adk.agents import LlmAgent
+
+raise RuntimeError("this file must never be imported")
+
+
+def read_case(case_id: str) -> dict:
+    """Read one support case."""
+    return {"case_id": case_id}
+
+
+def escalate(case_id: str) -> dict:
+    """Escalate one support case."""
+    return {"case_id": case_id}
+
+
+reader_agent = LlmAgent(name="ReaderAgent", tools=[read_case])
+root_agent = LlmAgent(
+    name="RootAgent",
+    tools=[escalate],
+    sub_agents=[reader_agent, build_partner_agent()],
+)
+''',
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: adk-partial-sub-agents
+agent:
+  name: RootAgent
+  declared_purpose:
+    - triage support cases
+environment:
+  target: local
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+agent_bindings:
+  root:
+    source_id: adk_agent
+    object: root_agent
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    graph = report.binding_surface_facts
+    assert graph.status == "partial"
+    assert graph.pass_eligible is False
+    assert any(
+        issue.kind == "partial_binding_evidence"
+        and "not statically named" in issue.message
+        for issue in graph.issues
+    )

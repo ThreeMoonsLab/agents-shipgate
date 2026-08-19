@@ -452,6 +452,17 @@ agent_bindings:
       reason: reviewed against the deployed agent wiring
 ```
 
+`root.object` and `declarations[].agent` are matched against the agent names
+the scan reports in `binding_surface_facts.agents[].name`, so read that list
+from `report.json` rather than guessing: for frameworks that name agents
+explicitly it is the framework's own name (a Google ADK `LlmAgent(name=…)`),
+not the Python variable the agent was assigned to. `agent: root` is the one
+reserved spelling and always means the configured root. A declaration may
+introduce an agent the extractors never observed — a decorator-only project
+has no agent object to observe — but a name that two observed agents share
+resolves to neither, and the resulting `unresolved_agent_binding` says which
+sources collided.
+
 Catalog membership, action declarations, permissions, and controls never imply
 binding. `complete` must be `true`; the declaration is exact and may not erase
 positive structural edges. Empty `tools` and `handoffs` prove a zero-capability
