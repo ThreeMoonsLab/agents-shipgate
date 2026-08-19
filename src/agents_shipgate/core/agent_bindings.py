@@ -736,14 +736,36 @@ def _observations(
                 if source_name:
                     agents.append(_AgentObservation(target, _str(record.get("source_id")), _str(record.get("source_ref")), _str(record.get("source_ref")), True))
                     handoffs.append(_RawHandoffEdge(source_name, target, _str(record.get("source_id")), "subagent", _str(record.get("source_ref")) or "google_adk", _str(record.get("source_ref")), True))
-            # ``sub_agents_complete`` is present only on Python-entrypoint
-            # records; the extractor sets it False when the ``sub_agents``
-            # value was not a literal sequence *or* when any element could
-            # not be named. Comparing counts here rather than testing for an
-            # empty name list is what makes a partially-named list fail
-            # closed: naming two of three sub-agents used to report the two
-            # as the whole handoff set.
-            if "sub_agents_complete" in record and not record["sub_agents_complete"]:
+            # Only Python-entrypoint records carry ``sub_agent_count``; Agent
+            # Config records describe sub-agents by config path instead.
+            if "sub_agent_count" not in record:
+                continue
+            # A sub-agent the extractor could name but not match to an agent
+            # definition — imported from a module this scan does not read, or
+            # rebound ambiguously — is a branch of the capability surface
+            # nobody followed. Left unsaid, an imported sub-agent owning a
+            # delete tool produced a `structural` graph with `pass_eligible`
+            # and no trace of the tool anywhere (#385 review).
+            unresolved = _string_list(record.get("unresolved_sub_agents"))
+            if unresolved:
+                # Deliberately says "could not match", not "no such agent":
+                # the agent may well be in the report under its own name,
+                # reached through a source this entrypoint cannot resolve. The
+                # claim is about the spelling, and it must not read as a claim
+                # the agent does not exist.
+                partials.add(
+                    f"Google ADK agent {source_name!r} hands off to "
+                    f"{', '.join(sorted(unresolved))}, which this scan could not "
+                    "match to an agent definition; that sub-agent's tools were "
+                    "not analyzed."
+                )
+            # Comparing counts, rather than testing for an empty name list, is
+            # what makes a partially enumerated list fail closed: naming two of
+            # three sub-agents used to report the two as the whole handoff set.
+            declared_count = record.get("sub_agent_count")
+            if not isinstance(declared_count, int) or declared_count > len(
+                _string_list(record.get("sub_agents"))
+            ) + len(unresolved):
                 partials.add(f"Google ADK agent {source_name!r} has sub-agents that were not statically named.")
         for toolset in adk.toolsets:
             if toolset.dynamic or not toolset.resolved:

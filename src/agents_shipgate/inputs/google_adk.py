@@ -73,6 +73,16 @@ CALLBACK_KEYS = {
 OPENAPI_PATH_KEYS = {"spec_path", "path", "spec_file", "openapi_path", "openapi_spec"}
 MCP_INVENTORY_KEYS = {"inventory_path", "tool_inventory_path", "mcp_tools_path", "mcp_inventory"}
 EVAL_PATH_KEYS = {"eval_set", "eval_sets", "eval_file", "eval_files", "eval_path", "eval_paths"}
+# Python constructs that own a name binding. A ``variable = Agent(...)`` is
+# reachable only from its own scope outward, so resolving a ``sub_agents``
+# element has to respect them.
+_SCOPE_NODES = (
+    ast.Module,
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.Lambda,
+    ast.ClassDef,
+)
 
 
 def load_google_adk_artifacts(
@@ -589,17 +599,12 @@ class _PythonAdkExtractor:
         # reused: ``extract`` iterates it, and the sub-agent spelling map
         # below is built from it.
         self.agent_call_list = self._agent_calls()
-        # ADK routes a handoff to the sub-agent's ``name=``, but
-        # ``sub_agents=[salesforce_agent]`` spells the Python variable the
-        # agent was assigned to. Agent nodes are keyed by the name, so the
-        # two spellings must be reconciled here — otherwise the handoff
-        # lands on a phantom node that owns no tools and every tool the
-        # sub-agent holds drops out of the root-reachable surface (#385).
-        self.agent_names_by_variable = {
-            target_name: _kwarg_string(call, "name") or target_name
-            for target_name, call in self.agent_call_list
-            if target_name
+        self.parents = {
+            child: node
+            for node in ast.walk(tree)
+            for child in ast.iter_child_nodes(node)
         }
+        self.agent_names_by_variable = self._agent_names_by_variable()
 
     def extract(self) -> list[LoadedToolSource]:
         tools: list[Tool] = []
@@ -650,6 +655,64 @@ class _PythonAdkExtractor:
             ),
             *loaded_sources,
         ]
+
+    def _agent_names_by_variable(self) -> dict[tuple[ast.AST | None, str], str | None]:
+        """Map each ``variable = Agent(...)`` to the agent's declared ``name=``.
+
+        ADK routes a handoff to the sub-agent's ``name=``, but
+        ``sub_agents=[salesforce_agent]`` spells the Python variable the agent
+        was assigned to. Agent nodes are keyed by the name, so the two
+        spellings have to be reconciled or the handoff lands on a phantom node
+        owning no tools and the sub-agent's whole surface drops out of the
+        root-reachable graph (#385).
+
+        The key carries the enclosing scope because ``_agent_calls`` walks
+        nested functions too. Two factories that each build a local ``worker``
+        are one flat key apart, and collapsing them made a root reach the
+        *other* factory's agent — analyzing tools it cannot call and excluding
+        the ones it can, while still reporting ``pass_eligible``. Rebinding one
+        name to differently named agents inside a single scope is genuine
+        flow-sensitivity that AST position cannot settle, so it maps to
+        ``None`` and resolves to nothing rather than to a guess.
+        """
+
+        names: dict[tuple[ast.AST | None, str], str | None] = {}
+        for target_name, call in self.agent_call_list:
+            if not target_name:
+                continue
+            key = (self._scope_of(call), target_name)
+            agent_name = _kwarg_string(call, "name") or target_name
+            if key in names and names[key] != agent_name:
+                names[key] = None
+                continue
+            names[key] = agent_name
+        return names
+
+    def _scope_of(self, node: ast.AST) -> ast.AST | None:
+        """The nearest enclosing scope of ``node``, or None above the module."""
+
+        current = self.parents.get(node)
+        while current is not None and not isinstance(current, _SCOPE_NODES):
+            current = self.parents.get(current)
+        return current
+
+    def _sub_agent_name(self, variable: str, call: ast.Call) -> str | None:
+        """Resolve one ``sub_agents`` element to an agent defined in this module.
+
+        Walks scopes innermost-out from the referencing call, so a factory's
+        local agent wins over a module-level name and a sibling factory's
+        identical local name is never consulted. Returns None for anything
+        this module does not define as an agent — an imported name, an
+        ambiguous rebinding — which the caller reports as incomplete rather
+        than binding to a name it cannot stand behind.
+        """
+
+        scope: ast.AST | None = self._scope_of(call)
+        while scope is not None:
+            if (scope, variable) in self.agent_names_by_variable:
+                return self.agent_names_by_variable[(scope, variable)]
+            scope = self._scope_of(scope)
+        return None
 
     def _binding_for(self, agent_name: str, call: ast.Call) -> _AdkAgentBinding:
         binding = self.agent_bindings.get(agent_name)
@@ -1037,35 +1100,37 @@ class _PythonAdkExtractor:
                     else None
                 )
                 sub_agent_count = len(elements) if elements is not None else None
-                # Resolve each element to the agent's declared ``name=`` when
-                # this module assigns it; an element naming an agent defined
-                # elsewhere (or built inline) stays unresolved and is counted
-                # as such by the binding graph.
-                sub_agent_names = (
-                    [
-                        self.agent_names_by_variable.get(name, name)
-                        for item in elements
-                        if (name := _qualified_name(item, self.aliases)) is not None
-                    ]
-                    if elements is not None
-                    else []
-                )
+                # Three outcomes per element, kept apart because they mean
+                # different things to the binding graph. Resolved to an agent
+                # this module defines: a real handoff target. Named but
+                # matching no agent definition — an import, an ambiguous
+                # rebinding: recorded so the graph can say a branch of the
+                # capability surface was not followed, never bound to the
+                # spelling itself (that produced a phantom node whose empty
+                # tool set read as proof of no capability). Not nameable at
+                # all — an inline construction, a call: left to the count.
+                sub_agent_names: list[str] = []
+                unresolved_sub_agents: list[str] = []
+                for item in elements or []:
+                    variable = _qualified_name(item, self.aliases)
+                    if variable is None:
+                        continue
+                    resolved = self._sub_agent_name(variable, call)
+                    if resolved is None:
+                        unresolved_sub_agents.append(variable)
+                    else:
+                        sub_agent_names.append(resolved)
                 self.artifacts.sub_agents.append(
                     {
                         "agent_name": agent_name,
                         "source_id": self.source_id,
+                        # Present on every Python-entrypoint record and on no
+                        # Agent Config record; the binding graph reads it to
+                        # tell the two apart. None when ``sub_agents`` is not
+                        # a literal sequence.
                         "sub_agent_count": sub_agent_count,
                         "sub_agents": sub_agent_names,
-                        # False when ``sub_agents`` is not a literal sequence,
-                        # or when any element could not be named. The binding
-                        # graph turns that into a partial-evidence gap: a
-                        # handoff we cannot name is a branch of the capability
-                        # surface we did not follow, and it must say so rather
-                        # than report the named subset as the whole.
-                        "sub_agents_complete": (
-                            elements is not None
-                            and len(sub_agent_names) == len(elements)
-                        ),
+                        "unresolved_sub_agents": unresolved_sub_agents,
                         "source_ref": f"{self.source_ref}:{call.lineno}",
                     }
                 )

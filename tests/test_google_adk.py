@@ -949,3 +949,251 @@ agent_bindings:
         and "not statically named" in issue.message
         for issue in graph.issues
     )
+
+
+def test_google_adk_imported_sub_agent_is_not_reported_as_a_proven_surface(tmp_path):
+    """A sub-agent this scan cannot see must not read as proof of no capability.
+
+    ``from sub import worker`` qualifies to a name, but no agent definition in
+    the scanned entrypoint matches it, and ``sub.py`` is not a declared source —
+    so ``delete_record`` never enters the catalog at all and the per-tool gap
+    cannot cover it. Counting the element as named let the graph report
+    ``structural`` / ``pass_eligible`` with an entire sub-agent invisible,
+    recreating the silent exclusion this change exists to close (#385 review).
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "sub.py").write_text(
+        '''
+from google.adk.agents import LlmAgent
+
+
+def delete_record(record_id: str) -> str:
+    """Delete a record permanently."""
+    return "deleted"
+
+
+worker = LlmAgent(name="WorkerAgent", tools=[delete_record])
+''',
+        encoding="utf-8",
+    )
+    (project / "root.py").write_text(
+        '''
+from google.adk.agents import LlmAgent
+
+from sub import worker
+
+raise RuntimeError("this file must never be imported")
+
+
+def read_status() -> str:
+    """Read the pipeline status."""
+    return "ok"
+
+
+root_agent = LlmAgent(name="RootAgent", tools=[read_status], sub_agents=[worker])
+''',
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: adk-imported-sub-agent
+agent:
+  name: RootAgent
+  declared_purpose:
+    - coordinate record work
+environment:
+  target: local
+tool_sources:
+  - id: adk_root
+    type: google_adk
+    path: root.py
+agent_bindings:
+  root:
+    source_id: adk_root
+    object: RootAgent
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    graph = report.binding_surface_facts
+    assert graph.status == "partial"
+    assert graph.pass_eligible is False
+    # No phantom node stands in for the agent: an empty tool set on a node
+    # named after an import reads as proof the sub-agent has no capability.
+    assert [agent.name for agent in graph.agents] == ["RootAgent"]
+    assert any(
+        issue.kind == "partial_binding_evidence"
+        and "sub.worker" in issue.message
+        and "not analyzed" in issue.message
+        for issue in graph.issues
+    )
+
+
+def test_google_adk_factory_locals_do_not_leak_between_scopes(tmp_path):
+    """Two factories reusing one local name must not cross their sub-agents.
+
+    ``_agent_calls`` walks nested functions, so a variable-to-agent map keyed
+    by the bare name collapses ``build_a``'s ``worker`` into ``build_b``'s.
+    That routed ``RootA`` to ``WorkerB`` — the gate then analyzed a tool the
+    root cannot call and excluded the one it can, while still reporting
+    ``pass_eligible`` (#385 review).
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        '''
+from google.adk.agents import LlmAgent
+
+raise RuntimeError("this file must never be imported")
+
+
+def read_a() -> str:
+    """Read the A ledger."""
+    return "a"
+
+
+def write_b(value: str) -> str:
+    """Write to the B ledger."""
+    return "b"
+
+
+def build_a():
+    worker = LlmAgent(name="WorkerA", tools=[read_a])
+    return LlmAgent(name="RootA", sub_agents=[worker])
+
+
+def build_b():
+    worker = LlmAgent(name="WorkerB", tools=[write_b])
+    return LlmAgent(name="RootB", sub_agents=[worker])
+
+
+root_agent = build_a()
+''',
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: adk-two-factories
+agent:
+  name: RootA
+  declared_purpose:
+    - work the A ledger
+environment:
+  target: local
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+agent_bindings:
+  root:
+    source_id: adk_agent
+    object: RootA
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    graph = report.binding_surface_facts
+    by_id = {agent.agent_id: agent.name for agent in graph.agents}
+    assert {
+        (by_id[edge.source_agent_id], by_id[edge.target_agent_id])
+        for edge in graph.handoff_edges
+    } == {("RootA", "WorkerA"), ("RootB", "WorkerB")}
+    names = {entry["tool_id"]: entry["name"] for entry in report.tool_catalog}
+    assert sorted(names[tool_id] for tool_id in graph.reachable_tool_ids) == ["read_a"]
+    # RootB's surface is out of scope for this root, and says so by name.
+    decision = report.release_decision
+    assert decision is not None
+    assert any(
+        gap.kind == "missing_binding_evidence" and "write_b" in gap.subject
+        for gap in decision.evidence_coverage.evidence_gaps
+    )
+
+
+def test_google_adk_ambiguous_agent_variable_resolves_to_nothing(tmp_path):
+    """One name rebound to two agents in one scope is not settled by position.
+
+    Straight-line AST order is not control flow, so picking either binding
+    would be a guess about which agent the handoff reaches. Fail closed.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        '''
+from google.adk.agents import LlmAgent
+
+raise RuntimeError("this file must never be imported")
+
+
+def read_a() -> str:
+    """Read the A ledger."""
+    return "a"
+
+
+def write_b(value: str) -> str:
+    """Write to the B ledger."""
+    return "b"
+
+
+worker = LlmAgent(name="WorkerA", tools=[read_a])
+root_agent = LlmAgent(name="RootAgent", sub_agents=[worker])
+worker = LlmAgent(name="WorkerB", tools=[write_b])
+''',
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: adk-ambiguous-agent-variable
+agent:
+  name: RootAgent
+  declared_purpose:
+    - work the ledgers
+environment:
+  target: local
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+agent_bindings:
+  root:
+    source_id: adk_agent
+    object: RootAgent
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    graph = report.binding_surface_facts
+    assert graph.status == "partial"
+    assert graph.pass_eligible is False
+    assert not graph.handoff_edges
+    assert any(
+        issue.kind == "partial_binding_evidence" and "worker" in issue.message
+        for issue in graph.issues
+    )

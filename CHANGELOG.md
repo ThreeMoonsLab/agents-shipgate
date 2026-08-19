@@ -17,11 +17,17 @@
   agent name produced one phantom node per sub-agent, owning no tools, so the
   handoff landed on a node with nothing behind it and the real agent stayed
   unreachable. The two spellings are now reconciled from the module's own
-  assignments, which also collapses the duplicate nodes the graph used to
-  report. An element that cannot be named — built inline, imported from
-  elsewhere, or behind a non-literal `sub_agents` value — now fails closed as
-  partial evidence; naming two of three sub-agents previously reported the two
-  as the whole handoff set.
+  assignments, resolved innermost-out through the enclosing scopes so that two
+  factories reusing one local name cannot cross their sub-agents. This also
+  collapses the duplicate nodes the graph used to report.
+
+  An element that cannot be resolved to an agent definition — built inline,
+  imported from another module, behind a non-literal `sub_agents` value, or
+  rebound ambiguously within one scope — now fails closed as partial evidence
+  naming the spelling. It no longer becomes a node of its own: an empty tool
+  set on a node named after an import reads as proof the sub-agent has no
+  capability, which is the opposite of what is known about it. Naming two of
+  three sub-agents likewise no longer reports the two as the whole handoff set.
 
   `agent_bindings.declarations` was the documented remedy and could not work.
   Declaring an agent seeded a synthetic node for it, and for an agent the
@@ -35,10 +41,10 @@
   to root-reachable tools, so such a tool is never judged; before this it was
   not mentioned either, leaving the ratio `6/12 catalog tools reachable` as its
   only trace. This covers tools whose owning agent the scan identified — a hole
-  in the graph shipgate built. A catalog entry that no agent binds at all is a
-  different claim and is unchanged: catalog membership is deliberately not
-  evidence of capability, so declaring an OpenAPI spec or MCP server does not
-  become self-blocking.
+  in the graph Agents Shipgate built. A catalog entry that no agent binds at
+  all is a different claim and is unchanged: catalog membership is deliberately
+  not evidence of capability, so declaring an OpenAPI spec or MCP server does
+  not become self-blocking.
 
 - **One command runs Agents Shipgate from this checkout, and `doctor` now says
   which Shipgate answered.** Running the CLI from a source tree meant either a
