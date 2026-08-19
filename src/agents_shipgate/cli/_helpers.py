@@ -636,3 +636,4 @@ def _action_surface_has_signal(summary) -> bool:
             summary.blocking_findings,
         )
     )
+

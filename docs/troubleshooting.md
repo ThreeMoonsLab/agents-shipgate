@@ -14,6 +14,33 @@ Then inspect the sources before running checks:
 agents-shipgate doctor --config shipgate.yaml
 ```
 
+## `--workspace does not exist: <path>`
+
+Every command that takes `--workspace` refuses a path that is not there, with
+`config_error` and exit 2, before it creates anything. Two causes, both common
+on a first run:
+
+- **The clone has not happened yet.** Preview is the first command in the
+  adoption path, so it is easy to run one step early. Clone first, then point
+  `--workspace` at the checkout.
+- **The relative path resolved against a different directory.** The message
+  names the directory it resolved against for exactly this case.
+
+`--workspace is not a directory: <path>` is a different mistake: the path
+exists but is a file. Point the option at the checkout root, not at a file
+inside it (`shipgate.yaml` goes to `--config`).
+
+## Absent, empty, and malformed manifests read differently
+
+| Manifest state | Message | Recovery |
+| --- | --- | --- |
+| Not on disk | `Config file not found: <path> in <cwd>.` | `init --workspace . --write` — the `next_action` bootstraps rather than edits. |
+| Present but empty | `Config file is empty: <path>.` | Edit the file in place; do not re-run `init`, which refuses to overwrite. |
+| Present, valid YAML, not a mapping | `Config file must contain a YAML object: <path>` | Edit the file in place. |
+
+If you see "must contain a YAML object" for a file you never created, that is a
+bug — the three states are asserted to stay distinguishable.
+
 ## First Real Repo Decision Tree
 
 Use this before reading the full manifest schema.

@@ -13,6 +13,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
@@ -192,6 +193,7 @@ def audit(
     ),
 ) -> None:
     """Zero-config, read-only audits. Currently supports --host."""
+    require_workspace(workspace)
 
     if not host:
         command = (

@@ -8,6 +8,7 @@ import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.current_workspace import live_workspace
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import (
     AgentControlRouteUnavailable,
     envelope_from_pointer,
@@ -160,6 +161,7 @@ def control(
     already published.  ``--format pointer`` returns the underlying artifact
     unchanged.
     """
+    require_workspace(workspace)
 
     if format_ not in {"control", "pointer"}:
         guidance = "Re-run with --format control or --format pointer."

@@ -1798,7 +1798,11 @@ skips a head-only scan; `verifier.json.merge_verdict` is `unknown` and the
 command exits 2.
 
 `agents-shipgate verify --preview --json` is a lightweight relevance check — no
-scan, no manifest required, exits 0. It emits a `verifier.json` with
+scan, no manifest required, exits 0 for every workspace it evaluates. A
+`--workspace` that does not exist is not a workspace it evaluates: it is
+refused as an invocation error (`config_error`, exit 2) before any directory
+is created, on preview and on every other command that takes the option. It
+emits a `verifier.json` with
 `mode: "preview"`, `execution: "not_run"`,
 `applicability: "not_evaluated"`, and
 `control.state: "agent_action_required"`. `control.next_action` carries the

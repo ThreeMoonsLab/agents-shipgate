@@ -17,6 +17,7 @@ import yaml
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.trust_roots import trust_root_class_for
+from agents_shipgate.core.workspace_input import workspace_input_error
 from agents_shipgate.schemas.human_authorization import canonical_https_git_endpoint
 
 _GIT_OBJECT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
@@ -249,8 +250,19 @@ def ensure_git_workspace(workspace: Path) -> Path:
     ``verify`` is a PR-diff workflow, so git is required for base/head
     orchestration. The command remains local-only: all calls are fixed argv
     reads against the existing checkout.
+
+    A path that is not there is classified before git is consulted. Running
+    ``git rev-parse`` in a directory that does not exist fails the same way as
+    running it in one that is not a repository, and reporting both as "not
+    inside a git checkout" asserts the directory exists — which sent a
+    first-time user to diagnose their git installation when the real state was
+    a workspace they had not cloned yet (#389, and the second instance
+    recorded on #384).
     """
 
+    workspace_error = workspace_input_error(workspace)
+    if workspace_error is not None:
+        raise workspace_error
     result = _run_git(workspace, ["rev-parse", "--show-toplevel"], check=False)
     if result.returncode != 0:
         raise ConfigError(f"Workspace is not inside a git checkout: {workspace}")

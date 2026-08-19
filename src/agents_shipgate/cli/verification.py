@@ -36,6 +36,7 @@ from agents_shipgate.cli.verify.git import (
     working_tree_context,
     working_tree_paths,
 )
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.config.loader import load_yaml_file
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.current_control import (
@@ -102,6 +103,7 @@ def prepare(
     out: Path = typer.Option(Path("agents-shipgate-reports/verification-plan.json"), "--out"),
 ) -> None:
     """Prepare one portable, content-addressed plan without evaluating policy."""
+    require_workspace(workspace)
 
     root = ensure_git_workspace(workspace.resolve())
     if head is not None and base is None:
@@ -473,6 +475,7 @@ def worker(
     ),
 ) -> None:
     """Validate one task's immutable inputs and emit decision-free worker IR."""
+    require_workspace(workspace)
 
     plan = VerificationPlan.model_validate(_load_json(plan_path))
     resolved_diff = diff_path or plan_path.with_name(plan.inputs.diff.path)

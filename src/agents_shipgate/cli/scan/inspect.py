@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agents_shipgate.config.loader import load_manifest_text
+from agents_shipgate.config.loader import load_manifest_text, manifest_read_error
 from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     CodexPluginArtifacts,
@@ -81,8 +81,11 @@ def inspect_sources(
     if manifest_bytes is None:
         try:
             manifest_bytes = config_path.read_bytes()
-        except OSError:
-            manifest_bytes = b""
+        except OSError as exc:
+            # Absent is not empty. Letting the read failure fall through as
+            # ``b""`` made a manifest that was never created report as one
+            # with the wrong shape (#384); the errno is only in hand here.
+            raise manifest_read_error(config_path, exc) from exc
     manifest = load_manifest_text(decode_manifest(manifest_bytes, config_path), source=config_path)
     base_dir = config_path.resolve().parent
     unresolved_sources = _resolve_source_paths(manifest, base_dir, config_path)

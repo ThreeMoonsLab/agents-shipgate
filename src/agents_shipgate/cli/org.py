@@ -11,6 +11,7 @@ import typer
 from agents_shipgate import __version__
 from agents_shipgate.cli.attest import build_attestation_payload
 from agents_shipgate.cli.registry import _row_from_attestation
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.host_grants import (
@@ -71,6 +72,7 @@ def org_status(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
     """Evaluate opt-in org governance gates without changing release verdicts."""
+    require_workspace(workspace)
 
     try:
         as_of_date = date.fromisoformat(as_of) if as_of else datetime.now(UTC).date()
@@ -125,6 +127,7 @@ def org_policy_packs(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
     """Report local organization policy-pack pin status."""
+    require_workspace(workspace)
 
     root = workspace.resolve()
     config_path = config if config.is_absolute() else root / config
@@ -191,6 +194,7 @@ def org_bundle(
     json_output: bool = typer.Option(False, "--json", help="Print JSON to stdout."),
 ) -> None:
     """Build a compact organization evidence bundle from local artifacts."""
+    require_workspace(workspace)
 
     try:
         as_of_date = date.fromisoformat(as_of) if as_of else datetime.now(UTC).date()

@@ -13,6 +13,7 @@ import typer
 from pydantic import ValidationError
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.bounded_io import (
     MAX_EXPLICIT_DIFF_BYTES,
     MAX_EXPLICIT_JSON_BYTES,
@@ -287,6 +288,7 @@ def preflight(
     verbose: bool = typer.Option(False, "--verbose", help="Show debug details."),
 ) -> None:
     """Run the proactive static preflight contract for coding agents."""
+    require_workspace(workspace)
 
     # A plan combined with the per-flag inputs is a request-shape conflict:
     # replaying it verbatim can never satisfy its own ``expects``. Offer a

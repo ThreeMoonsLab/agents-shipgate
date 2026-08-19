@@ -11,6 +11,7 @@ import typer
 import yaml
 
 from agents_shipgate.cli.agent_result import agent_result_json_payload
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.capability_delta import diff_capability_fact_sets
@@ -236,6 +237,7 @@ def mcp_audit(
         help="Output format: json or agent-json.",
     ),
 ) -> None:
+    require_workspace(workspace)
     del config
     if format_ not in {"json", "agent-json"}:
         typer.echo("--format must be 'json' or 'agent-json'.", err=True)

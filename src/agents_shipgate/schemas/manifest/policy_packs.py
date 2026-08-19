@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from agents_shipgate.schemas.manifest._artifacts import ArtifactPathConfig
+from agents_shipgate.schemas.manifest._common import describe_yaml_shape
 
 
 class PolicyPackConfig(ArtifactPathConfig):
@@ -20,9 +21,12 @@ def _parse_policy_pack_entries(value: Any) -> list[PolicyPackConfig]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise TypeError("policy_packs must be a list")
+        raise ValueError(
+            "must be a list of policy packs, but is "
+            f"{describe_yaml_shape(value)}"
+        )
     entries: list[PolicyPackConfig] = []
-    for item in value:
+    for index, item in enumerate(value):
         if isinstance(item, PolicyPackConfig):
             entries.append(item)
         elif isinstance(item, str):
@@ -30,5 +34,8 @@ def _parse_policy_pack_entries(value: Any) -> list[PolicyPackConfig]:
         elif isinstance(item, dict):
             entries.append(PolicyPackConfig.model_validate(item))
         else:
-            raise TypeError("policy_packs entries must be strings or objects")
+            raise ValueError(
+                f"entry {index} must be a path string or an object with a "
+                f"path, but is {describe_yaml_shape(item)}"
+            )
     return entries

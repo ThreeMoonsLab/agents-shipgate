@@ -36,6 +36,7 @@ from typing import Any
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.cli.workspace_guard import require_workspace
 
 _ENV_VAR = "AGENTS_SHIPGATE_AGENT_MODE"
 
@@ -509,6 +510,7 @@ def bootstrap(
     keep using the GitHub Action — bootstrap is the one-shot
     convenience layer for first-time setup.
     """
+    require_workspace(workspace)
     result = bootstrap_run(
         workspace=workspace,
         confidence=confidence,

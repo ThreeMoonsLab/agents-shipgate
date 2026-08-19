@@ -13,6 +13,72 @@ for reproducible CI.
 
 ---
 
+<a id="migration-note-unreleased-absent-input"></a>
+
+## Migration Note: unreleased — an absent input is refused, not misreported
+
+No version moves: `contract_version`, `report_schema_version`,
+`minimum_control_contract_version`, and every published schema document are
+unchanged. No new error kind and no new exit code — the refusals below all use
+the existing `config_error` / exit `2` slot published in
+[`docs/errors.json`](docs/errors.json).
+
+**`--workspace` must name an existing directory, on every command that takes
+it.** A path that does not exist is an invocation error, decided before any
+output directory is resolved and before anything is written. This changes
+observable behavior in three ways, all of them narrowing a case that
+previously "succeeded":
+
+- `verify --preview` no longer exits 0 for a `--workspace` that does not
+  exist. Its documented "always exits 0" holds for every workspace it
+  *evaluates*; an absent path is not one, and preview previously created the
+  entire path and wrote its artifact set into it before answering
+  ([#389](https://github.com/ThreeMoonsLab/agents-shipgate/issues/389)).
+- `detect`, `check`, `trigger`, `mcp audit`, and `install-hooks` previously
+  exited 0 with a payload describing a workspace that was not there; they now
+  exit 2 with `config_error`.
+- `init --write`, `audit --host`, and `verification prepare`/`worker`
+  previously raised an unhandled `FileNotFoundError` (exit 1); they now exit 2
+  with `config_error`.
+
+A caller that passes an existing `--workspace` — every documented invocation —
+is unaffected. Commands whose `--workspace` is optional still accept its
+absence, which means "discover instead", not "a workspace that is missing".
+
+**Three manifest states, three messages.** An absent manifest, an empty one,
+and a present-but-not-a-mapping one previously produced one identical
+`Config file must contain a YAML object: <path>` string while routing to two
+different actions, so `control.reason` and `control.next_action` could
+disagree about whether the file existed
+([#384](https://github.com/ThreeMoonsLab/agents-shipgate/issues/384)). The
+messages are now:
+
+| State | Message | `next_action.kind` |
+|---|---|---|
+| absent | `Config file not found: <path> in <cwd>.` (plus the `init --write` hint for `shipgate.yaml`) | `verify` |
+| empty | `Config file is empty: <path>.` | `edit` |
+| not a mapping | `Config file must contain a YAML object: <path>` | `edit` |
+
+Routing is unchanged — it always distinguished the cases. `ConfigError` and
+exit `2` are unchanged for all three. Consumers that pattern-matched on the
+`must contain a YAML object` text to detect a *missing* manifest must switch
+to the diagnostic id (`SHIP-DIAG-MISSING-MANIFEST`) or to
+`control.next_action`, which is what the recovery hint in `docs/errors.json`
+already directs.
+
+**A manifest type mismatch is a `config_error`, not an `internal_error`.**
+`raise TypeError` inside a Pydantic validator propagates past the
+config-loading boundary; the manifest schema now raises `ValueError`
+throughout, so a YAML mapping where a list belongs produces
+`Invalid shipgate.yaml:` with the offending field path and an `edit` route,
+the same as any other manifest validation failure
+([#387](https://github.com/ThreeMoonsLab/agents-shipgate/issues/387)). Error
+text for these fields changed shape (it now names what was written, e.g.
+"must be a list of artifact paths, but is a mapping"); the field path prefix
+is the stable part.
+
+---
+
 <a id="migration-note-unreleased-doctor-environment"></a>
 
 ## Migration Note: unreleased — `doctor --json` reports the environment that answered

@@ -1898,3 +1898,39 @@ agent_bindings:
         "base reference" in warning and "Duplicate action_surface action_id" in warning
         for warning in report.source_warnings
     ), f"Expected a base-side collision warning; got: {report.source_warnings}"
+
+
+def test_scan_reports_a_manifest_type_mismatch_as_a_config_error(tmp_path):
+    """The reproduction from #387, on the command it was reported against.
+
+    A mapping where ``google_adk.tool_inventories`` expects a list raised
+    ``TypeError`` inside a Pydantic validator. Pydantic converts
+    ``ValueError`` and ``AssertionError`` into a ``ValidationError`` but lets
+    ``TypeError`` propagate, so the manifest typo escaped the config-loading
+    boundary and surfaced as ``internal_error`` with "this is a bug — please
+    file an issue".
+    """
+
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text(
+        'version: "0.1"\n'
+        "project:\n  name: repro\n"
+        "agent:\n  name: repro-agent\n"
+        "environment: dev\n"
+        "google_adk:\n  tool_inventories:\n    adk_agent: tool-inventory.json\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scan", "--config", str(manifest), "--format", "json"],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output.strip().splitlines()[-1])
+    assert payload["error"] == "config_error"
+    assert "google_adk.tool_inventories" in payload["message"]
+    assert "file an issue" not in json.dumps(payload)
+    assert payload["next_actions"][0]["kind"] == "edit"
+    assert payload["next_actions"][0]["path"] == str(manifest)
