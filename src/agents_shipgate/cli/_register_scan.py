@@ -21,6 +21,7 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import git_root_for
 from agents_shipgate.core.current_control import CurrentControlPublishError
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
@@ -327,6 +328,7 @@ def register(app: typer.Typer) -> None:
         verbose: bool = typer.Option(False, "--verbose", help="Show debug extraction details."),
     ) -> None:
         """Run the deterministic merge gate for AI-generated agent capability changes."""
+        require_workspace(workspace)
         # Parse CLI options first, in their own try block. ConfigError raised
         # here is about flag values, not the manifest — emitting a manifest
         # diagnostic ("edit shipgate.yaml") would route the agent to the

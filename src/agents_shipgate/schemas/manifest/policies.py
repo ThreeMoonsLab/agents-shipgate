@@ -4,7 +4,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
+from agents_shipgate.schemas.manifest._common import (
+    STRICT_MODEL_CONFIG,
+    describe_yaml_shape,
+)
 
 
 class PolicyToolEntry(BaseModel):
@@ -22,9 +25,12 @@ def _parse_policy_entries(value: Any) -> list[PolicyToolEntry]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise TypeError("policy value must be a list")
+        raise ValueError(
+            "must be a list of tool entries, but is "
+            f"{describe_yaml_shape(value)}"
+        )
     entries: list[PolicyToolEntry] = []
-    for item in value:
+    for index, item in enumerate(value):
         if isinstance(item, PolicyToolEntry):
             entries.append(item)
         elif isinstance(item, str):
@@ -32,7 +38,10 @@ def _parse_policy_entries(value: Any) -> list[PolicyToolEntry]:
         elif isinstance(item, dict):
             entries.append(PolicyToolEntry.model_validate(item))
         else:
-            raise TypeError("policy entries must be strings or objects")
+            raise ValueError(
+                f"entry {index} must be a tool-name string or an object with "
+                f"a tool, but is {describe_yaml_shape(item)}"
+            )
     return entries
 
 

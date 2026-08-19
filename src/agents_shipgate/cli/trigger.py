@@ -26,6 +26,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.discovery.scope import manifest_opt_in
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.bounded_io import (
     MAX_EXPLICIT_DIFF_BYTES,
     MAX_EXPLICIT_JSON_BYTES,
@@ -116,6 +117,7 @@ def trigger(
     ),
 ) -> None:
     """Decide whether Shipgate should run on a diff (run/skip verdict)."""
+    require_workspace(workspace)
     triggers = load_triggers()
 
     if list_rules:

@@ -19,6 +19,7 @@ from agents_shipgate.cli.agent_result import (
     git_boundary_change_set,
 )
 from agents_shipgate.cli.verify.git import commit_sha
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_control_envelope import (
     envelope_from_agent_result,
@@ -224,6 +225,7 @@ def check(
     ),
 ) -> None:
     """Run the agent-native local boundary check."""
+    require_workspace(workspace)
 
     # The actor lands in the result and in the audit id, so an undetected
     # harness mislabels every row it writes. An explicit flag always wins.

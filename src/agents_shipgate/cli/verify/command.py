@@ -17,6 +17,7 @@ from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.current_workspace import live_workspace
 from agents_shipgate.cli.diagnostics import top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import (
     control_headline_lines,
     denied_control_envelope,
@@ -117,7 +118,9 @@ def verify(
             "Lightweight relevance check: evaluate triggers and report "
             "whether Shipgate is relevant + what to run next, WITHOUT "
             "running a scan, requiring a manifest, or writing any files "
-            "beyond the verifier artifacts. Always exits 0."
+            "beyond the verifier artifacts. Exits 0 for every workspace it "
+            "evaluates; a --workspace that does not exist is refused as an "
+            "invocation error (exit 2) before anything is created."
         ),
     ),
     out: Path | None = typer.Option(
@@ -213,6 +216,11 @@ def verify(
     verbose: bool = typer.Option(False, "--verbose", help="Show debug details."),
 ) -> None:
     """Run the canonical ongoing-PR verifier around the existing scan engine."""
+
+    # Ahead of every other check, including flag parsing: a workspace that is
+    # not there has no output directory to resolve, and preview used to create
+    # the whole mistyped path before saying so (#389).
+    require_workspace(workspace)
 
     # Flag parsing gets its own try block, mirroring scan: a ConfigError
     # raised here is about flag values, not the manifest — emitting a

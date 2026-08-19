@@ -1866,3 +1866,114 @@ def test_a_dry_run_that_wrote_the_workflow_does_not_claim_it_wrote_nothing(tmp_p
         runner.invoke(app, ["init", "--workspace", str(plain), "--json"]).stdout
     )
     assert bare["control"]["next_action"]["why"].startswith("The manifest was not written.")
+
+
+# --- the envelope's two fields must describe one workspace (#384) ------------
+
+
+def _doctor_error_payload(
+    argv: list[str], monkeypatch: pytest.MonkeyPatch
+) -> dict:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    result = runner.invoke(app, argv)
+    lines = [
+        line for line in result.output.splitlines() if line.startswith('{"error"')
+    ]
+    assert len(lines) == 1, result.output
+    return json.loads(lines[0])
+
+
+def test_an_absent_manifest_is_not_reported_as_a_malformed_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """``control.reason`` and ``control.next_action`` told two stories.
+
+    ``reason`` said "Config file must contain a YAML object", which asserts
+    the file exists and has the wrong shape, so an agent reasoning from it
+    edits a file that is not there. ``next_action.kind`` said ``verify`` —
+    bootstrap from scratch — which was the correct read of the same
+    workspace. The routing always knew; only the message did not.
+    """
+
+    absent = tmp_path / "absent-dir" / "shipgate.yaml"
+
+    payload = _doctor_error_payload(
+        ["doctor", "--config", str(absent), "--json"], monkeypatch
+    )
+    control = payload["control"]
+
+    assert "Config file not found" in control["reason"]
+    assert "must contain a YAML object" not in control["reason"]
+    # The routing is unchanged — it was right all along.
+    assert control["next_action"]["kind"] == "verify"
+    assert control["verify_required"] is True
+    # And the reason now agrees with it: bootstrap, do not edit.
+    assert "init --workspace . --write" in control["reason"]
+
+
+def test_absent_empty_and_non_mapping_manifests_route_and_read_differently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A negative control: a future refactor must not re-collapse the three.
+
+    All three used to emit one identical string while routing to two
+    different actions, which is exactly the state that is invisible without
+    an assertion on the strings themselves.
+    """
+
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("", encoding="utf-8")
+    a_list = tmp_path / "list.yaml"
+    a_list.write_text("- a\n- b\n", encoding="utf-8")
+
+    reasons = {}
+    kinds = {}
+    for label, path in (
+        ("absent", tmp_path / "absent-dir" / "shipgate.yaml"),
+        ("empty", empty),
+        ("list", a_list),
+    ):
+        payload = _doctor_error_payload(
+            ["doctor", "--config", str(path), "--json"], monkeypatch
+        )
+        reasons[label] = payload["control"]["reason"]
+        kinds[label] = payload["control"]["next_action"]["kind"]
+
+    assert len(set(reasons.values())) == 3, reasons
+    assert kinds == {"absent": "verify", "empty": "edit", "list": "edit"}
+
+
+# --- a manifest typo is an edit, never a bug report (#387) ------------------
+
+
+def test_a_manifest_type_mismatch_routes_to_the_editor_not_the_tracker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """``TypeError`` inside a validator escaped as ``internal_error``.
+
+    ``google_adk.tool_inventories`` is the prescribed remedy for the first
+    gap most ADK adopters hit, so the mapping-instead-of-list mistake lands
+    on the adoption path — and it answered "this is a bug — please file an
+    issue" for the user's own typo.
+    """
+
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text(
+        'version: "0.1"\n'
+        "project:\n  name: repro\n"
+        "agent:\n  name: repro-agent\n"
+        "environment: dev\n"
+        "google_adk:\n  tool_inventories:\n    adk_agent: tool-inventory.json\n",
+        encoding="utf-8",
+    )
+
+    payload = _doctor_error_payload(
+        ["doctor", "--config", str(manifest), "--json"], monkeypatch
+    )
+
+    assert payload["error"] == "config_error"
+    assert payload["exit_code"] == 2
+    assert "google_adk.tool_inventories" in payload["message"]
+    assert "file an issue" not in json.dumps(payload)
+    assert payload["next_actions"][0]["kind"] == "edit"
+    assert payload["next_actions"][0]["path"] == str(manifest)

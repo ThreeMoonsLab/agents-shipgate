@@ -6,7 +6,10 @@ from typing import Any, get_args
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents_shipgate.schemas.common import Severity
-from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
+from agents_shipgate.schemas.manifest._common import (
+    STRICT_MODEL_CONFIG,
+    describe_yaml_shape,
+)
 from agents_shipgate.schemas.manifest.policy_packs import (
     PolicyPackConfig,
     _parse_policy_pack_entries,
@@ -79,7 +82,10 @@ class ChecksConfig(BaseModel):
         if value is None:
             return {}
         if not isinstance(value, dict):
-            raise TypeError("checks.severity_overrides must be a mapping")
+            raise ValueError(
+                "must be a mapping of check_id to severity, but is "
+                f"{describe_yaml_shape(value)}"
+            )
         valid_severities = set(get_args(Severity))
         coerced: dict[str, SeverityOverrideEntry] = {}
         for check_id, raw in value.items():
@@ -100,9 +106,9 @@ class ChecksConfig(BaseModel):
             if isinstance(raw, dict):
                 coerced[check_id] = SeverityOverrideEntry.model_validate(raw)
                 continue
-            raise TypeError(
+            raise ValueError(
                 f"severity_overrides[{check_id!r}] must be a severity "
-                f"string or a mapping; got {type(raw).__name__}"
+                f"string or a mapping, but is {describe_yaml_shape(raw)}"
             )
         return coerced
 

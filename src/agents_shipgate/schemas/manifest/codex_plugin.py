@@ -5,7 +5,10 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from agents_shipgate.schemas.manifest._artifacts import ArtifactPathConfig
-from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
+from agents_shipgate.schemas.manifest._common import (
+    STRICT_MODEL_CONFIG,
+    describe_yaml_shape,
+)
 
 
 class CodexPluginMcpInventoryConfig(ArtifactPathConfig):
@@ -21,15 +24,21 @@ def _parse_codex_plugin_inventory_entries(
     if value is None:
         return []
     if not isinstance(value, list):
-        raise TypeError("mcp_tool_inventories must be a list")
+        raise ValueError(
+            "must be a list of inventory objects, but is "
+            f"{describe_yaml_shape(value)}"
+        )
     entries: list[CodexPluginMcpInventoryConfig] = []
-    for item in value:
+    for index, item in enumerate(value):
         if isinstance(item, CodexPluginMcpInventoryConfig):
             entries.append(item)
         elif isinstance(item, dict):
             entries.append(CodexPluginMcpInventoryConfig.model_validate(item))
         else:
-            raise TypeError("mcp_tool_inventories entries must be objects")
+            raise ValueError(
+                f"entry {index} must be an object with plugin, server, and "
+                f"path, but is {describe_yaml_shape(item)}"
+            )
     return entries
 
 

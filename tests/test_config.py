@@ -172,3 +172,205 @@ def test_yaml_unsafe_constructor_is_rejected(tmp_path):
         load_manifest(manifest_path)
 
     assert not marker.exists()
+
+
+# --- manifest type mismatches are edits, not crashes (#387) -----------------
+
+MINIMAL_MANIFEST = """version: "0.1"
+project:
+  name: repro
+agent:
+  name: repro-agent
+environment: dev
+"""
+
+
+def _write_manifest(tmp_path: Path, extra: str) -> Path:
+    manifest_path = tmp_path / "shipgate.yaml"
+    manifest_path.write_text(MINIMAL_MANIFEST + extra, encoding="utf-8")
+    return manifest_path
+
+
+# Every ``mode="before"`` validator that coerces a manifest value, given the
+# wrong YAML shape. The expected substring is the manifest path the reader
+# has to go edit; `pytest.raises` proves the exception class is the one the
+# config-loading boundary catches.
+WRONG_SHAPE_MANIFESTS: list[tuple[str, str, str]] = [
+    (
+        "google_adk mapping for a list",
+        "google_adk:\n  tool_inventories:\n    adk_agent: tool-inventory.json\n",
+        "google_adk.tool_inventories",
+    ),
+    (
+        "google_adk scalar entry",
+        "google_adk:\n  python_entrypoints:\n    - 3\n",
+        "google_adk.python_entrypoints",
+    ),
+    (
+        "anthropic prompt_files mapping",
+        "anthropic:\n  prompt_files:\n    a: b\n",
+        "anthropic.prompt_files",
+    ),
+    (
+        "openai_api model_config list",
+        "openai_api:\n  model_config:\n    - a\n",
+        "openai_api.model_config",
+    ),
+    (
+        "openai_api function_schemas mapping",
+        "openai_api:\n  function_schemas:\n    a: b\n",
+        "openai_api.function_schemas",
+    ),
+    (
+        "codex_plugins mcp_tool_inventories mapping",
+        "codex_plugins:\n  mcp_tool_inventories:\n    a: b\n",
+        "codex_plugins.mcp_tool_inventories",
+    ),
+    (
+        "policies mapping for a list",
+        "policies:\n  require_approval_for_tools:\n    refund: yes\n",
+        "policies.require_approval_for_tools",
+    ),
+    (
+        "policy_packs mapping",
+        "checks:\n  policy_packs:\n    a: b\n",
+        "checks.policy_packs",
+    ),
+    (
+        "severity_overrides list",
+        "checks:\n  severity_overrides:\n    - SHIP-TOOL-DESC\n",
+        "checks.severity_overrides",
+    ),
+    (
+        "n8n workflows mapping",
+        "n8n:\n  workflows:\n    a: b\n",
+        "n8n.workflows",
+    ),
+    (
+        "crewai python_entrypoints mapping",
+        "crewai:\n  python_entrypoints:\n    a: b\n",
+        "crewai.python_entrypoints",
+    ),
+    (
+        "langchain python_entrypoints mapping",
+        "langchain:\n  python_entrypoints:\n    a: b\n",
+        "langchain.python_entrypoints",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected_path"),
+    [(extra, path) for _, extra, path in WRONG_SHAPE_MANIFESTS],
+    ids=[name for name, _, _ in WRONG_SHAPE_MANIFESTS],
+)
+def test_manifest_type_mismatch_is_a_config_error_naming_the_field(
+    tmp_path, extra: str, expected_path: str
+) -> None:
+    """A mapping where a list belongs is a typo, and typos are ConfigError.
+
+    ``TypeError`` raised inside a Pydantic validator is *not* converted into
+    a ``ValidationError`` — it propagates past the config-loading boundary
+    into the generic internal-error handler, which told the user their own
+    manifest mistake was a Shipgate bug and asked them to file an issue
+    (#387).
+    """
+
+    manifest_path = _write_manifest(tmp_path, extra)
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_manifest(manifest_path)
+
+    assert expected_path in str(excinfo.value)
+
+
+def test_manifest_type_mismatch_reports_the_shape_that_was_written(
+    tmp_path,
+) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        "google_adk:\n  tool_inventories:\n    adk_agent: tool-inventory.json\n",
+    )
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_manifest(manifest_path)
+
+    assert "but is a mapping" in str(excinfo.value)
+
+
+def test_no_schema_module_raises_typeerror() -> None:
+    """The class, not the instance.
+
+    Any ``raise TypeError`` reachable from a validator is a latent
+    "tell the user to file a bug" path. Banning the statement outright in
+    the schema package is cheaper to enforce than proving reachability, and
+    a schema module has no legitimate use for it: every rejection here is a
+    rejection of *manifest input*.
+    """
+
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(Path("src/agents_shipgate/schemas").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            raised = node.exc
+            if isinstance(raised, ast.Call):
+                raised = raised.func
+            if isinstance(raised, ast.Name) and raised.id == "TypeError":
+                offenders.append(f"{path}:{node.lineno}")
+
+    assert offenders == [], (
+        "raise ValueError instead — Pydantic converts ValueError into a "
+        f"ValidationError, and TypeError escapes as an internal error: {offenders}"
+    )
+
+
+# --- absent, empty, and malformed are three states (#384) -------------------
+
+
+def test_absent_empty_and_non_mapping_manifests_have_distinct_messages(
+    tmp_path,
+) -> None:
+    """One message for three states sent readers to fix a file that was
+    never there — and the control envelope built on it disagreed with its
+    own ``next_action`` about whether the workspace had a manifest at all.
+    """
+
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("", encoding="utf-8")
+    a_list = tmp_path / "list.yaml"
+    a_list.write_text("- a\n- b\n", encoding="utf-8")
+
+    messages = {}
+    for label, path in (
+        ("absent", tmp_path / "absent-dir" / "shipgate.yaml"),
+        ("empty", empty),
+        ("list", a_list),
+    ):
+        with pytest.raises(ConfigError) as excinfo:
+            load_manifest(path)
+        messages[label] = str(excinfo.value)
+
+    assert len(set(messages.values())) == 3, messages
+    assert "not found" in messages["absent"]
+    assert "must contain a YAML object" not in messages["absent"]
+    assert "is empty" in messages["empty"]
+    assert "must contain a YAML object" in messages["list"]
+
+
+def test_absent_manifest_read_through_a_snapshot_still_reports_not_found(
+    tmp_path,
+) -> None:
+    """``doctor``/``scan`` read the manifest as bytes and collapse a failed
+    read into ``b""`` so the failure hashes the same input the diagnosis
+    came from. That is deliberate — but ``b""`` parses as an empty document,
+    so the absent case reached the YAML shape check (#384).
+    """
+
+    from agents_shipgate.cli.scan.inspect import inspect_sources
+
+    with pytest.raises(ConfigError, match="Config file not found"):
+        inspect_sources(config_path=tmp_path / "absent" / "shipgate.yaml")

@@ -8,6 +8,7 @@ from agents_shipgate.schemas.manifest._artifacts import (
     ArtifactPathConfig,
     _parse_artifact_entries,
 )
+from agents_shipgate.schemas.manifest._common import describe_yaml_shape
 
 
 class AnthropicConfig(BaseModel):
@@ -23,15 +24,21 @@ class AnthropicConfig(BaseModel):
         if value is None:
             return []
         if not isinstance(value, list):
-            raise TypeError("prompt_files must be a list")
+            raise ValueError(
+                "must be a list of prompt files, but is "
+                f"{describe_yaml_shape(value)}"
+            )
         files: list[str] = []
-        for item in value:
+        for index, item in enumerate(value):
             if isinstance(item, str):
                 files.append(item)
             elif isinstance(item, dict) and isinstance(item.get("path"), str):
                 files.append(item["path"])
             else:
-                raise TypeError("prompt_files entries must be strings or objects with path")
+                raise ValueError(
+                    f"entry {index} must be a path string or an object with "
+                    f"a path, but is {describe_yaml_shape(item)}"
+                )
         return files
 
     @field_validator("tools", "policy_rules", mode="before")

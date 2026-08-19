@@ -19,6 +19,7 @@ from agents_shipgate.cli.verify.git import (
     ensure_git_workspace,
     resolve_git_push_endpoint,
 )
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.authorization_execution import (
     authorization_execute_command,
     authorization_workspace_root,
@@ -209,6 +210,7 @@ def execute_authorization(
     ),
 ) -> None:
     """Revalidate and execute one receipt-bound signed operation."""
+    require_workspace(workspace)
 
     try:
         root = artifacts_root.resolve()

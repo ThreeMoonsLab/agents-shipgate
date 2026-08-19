@@ -166,7 +166,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/bootstrap.py",
         surface="attr_call:subprocess.run",
-        line=72,
+        line=73,
         snippet=(
             "subprocess.run(argv, cwd=str(cwd), env=env, "
             "capture_output=True, text=True, check=False)"
@@ -257,7 +257,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.Popen",
-        line=1806,
+        line=1818,
         snippet=(
             "subprocess.Popen(cmd, env=env, stderr=subprocess.PIPE, "
             "stdin=subprocess.PIPE if input is not None else "
@@ -276,7 +276,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=2050,
+        line=2062,
         snippet=(
             "subprocess.run(cmd, capture_output=capture_output, check=check, "
             "env=env, input=input, stderr=stderr, stdin=stdin, stdout=stdout, "

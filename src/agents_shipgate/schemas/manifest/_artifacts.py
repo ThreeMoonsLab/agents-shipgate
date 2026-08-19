@@ -4,7 +4,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
+from agents_shipgate.schemas.manifest._common import (
+    STRICT_MODEL_CONFIG,
+    describe_yaml_shape,
+)
 
 
 class ArtifactPathConfig(BaseModel):
@@ -23,9 +26,12 @@ def _parse_artifact_entries(value: Any) -> list[ArtifactPathConfig]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise TypeError("artifact entries must be a list")
+        raise ValueError(
+            "must be a list of artifact paths, but is "
+            f"{describe_yaml_shape(value)}"
+        )
     entries: list[ArtifactPathConfig] = []
-    for item in value:
+    for index, item in enumerate(value):
         if isinstance(item, ArtifactPathConfig):
             entries.append(item)
         elif isinstance(item, str):
@@ -33,7 +39,10 @@ def _parse_artifact_entries(value: Any) -> list[ArtifactPathConfig]:
         elif isinstance(item, dict):
             entries.append(ArtifactPathConfig.model_validate(item))
         else:
-            raise TypeError("artifact entries must be strings or objects")
+            raise ValueError(
+                f"entry {index} must be a path string or an object with a "
+                f"path, but is {describe_yaml_shape(item)}"
+            )
     return entries
 
 
@@ -41,9 +50,12 @@ def _parse_named_artifact_entries(value: Any) -> list[NamedArtifactPathConfig]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise TypeError("artifact entries must be a list")
+        raise ValueError(
+            "must be a list of artifact paths, but is "
+            f"{describe_yaml_shape(value)}"
+        )
     entries: list[NamedArtifactPathConfig] = []
-    for item in value:
+    for index, item in enumerate(value):
         if isinstance(item, NamedArtifactPathConfig):
             entries.append(item)
         elif isinstance(item, str):
@@ -51,5 +63,8 @@ def _parse_named_artifact_entries(value: Any) -> list[NamedArtifactPathConfig]:
         elif isinstance(item, dict):
             entries.append(NamedArtifactPathConfig.model_validate(item))
         else:
-            raise TypeError("artifact entries must be strings or objects")
+            raise ValueError(
+                f"entry {index} must be a path string or an object with a "
+                f"path, but is {describe_yaml_shape(item)}"
+            )
     return entries

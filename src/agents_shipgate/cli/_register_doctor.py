@@ -23,6 +23,8 @@ from agents_shipgate.cli.setup_control import (
     setup_control_envelope,
     setup_input_id,
 )
+from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.config.loader import manifest_read_error
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.environment import environment_report
@@ -179,6 +181,7 @@ def register(app: typer.Typer) -> None:
         verbose: bool = typer.Option(False, "--verbose", help="Enable debug logs."),
     ) -> None:
         """Validate manifests and enumerate declared sources without running checks."""
+        require_workspace(workspace)
         # Which Python is running which build of Shipgate, and what disagrees.
         # Read once for the whole run: it describes the process, not a manifest,
         # so per-manifest answers would be the same answer repeated.
@@ -238,14 +241,26 @@ def register(app: typer.Typer) -> None:
         # let an edit land in between: doctor emitted manifest A's diagnostic
         # while `control.input_id` hashed manifest B.
         snapshots: dict[Path, bytes] = {}
+        # A failed read still binds to ``b""`` so the failure envelope hashes
+        # the same bytes the diagnosis was taken from — but *why* the read
+        # failed is only knowable here, and `b""` is indistinguishable from an
+        # empty file by the time it reaches the YAML shape check. Classifying
+        # at the read is what keeps `control.reason` ("this file is not
+        # there") and `control.next_action` (bootstrap it) telling one story
+        # instead of two (#384).
+        read_failures: dict[Path, ConfigError] = {}
         for path in paths:
             try:
                 snapshots[path] = path.read_bytes()
-            except OSError:
+            except OSError as exc:
                 snapshots[path] = b""
+                read_failures[path] = manifest_read_error(path, exc)
         try:
             for path in paths:
                 try:
+                    read_failure = read_failures.get(path)
+                    if read_failure is not None:
+                        raise read_failure
                     payloads.append(
                         inspect_sources(
                             config_path=path,

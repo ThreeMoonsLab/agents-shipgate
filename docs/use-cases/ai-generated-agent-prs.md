@@ -107,7 +107,10 @@ agents-shipgate verify --base origin/main --head HEAD --json
 - `verify --preview --json` is a lightweight relevance check — no scan, no
   manifest required, exits 0. It emits `mode: "preview"` and `control.next_action`
   with an exact init command for unconfigured repos or an exact verify command
-  for configured repos. Use it as the first touch on any repo or PR.
+  for configured repos. Use it as the first touch on any repo or PR. If
+  `--workspace` names a directory that does not exist, preview refuses with
+  `config_error` (exit 2) and creates nothing — run it after the clone, not
+  before.
 - `init --write --json` writes only `shipgate.yaml`. CI and agent-instruction
   trust roots remain separate, explicitly reviewed setup steps.
 - `verify --base origin/main --head HEAD --json` runs the authoritative head

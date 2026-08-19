@@ -11,6 +11,7 @@ from typing import Any
 import typer
 
 from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 
@@ -95,6 +96,7 @@ def install_hooks(
     ),
 ) -> None:
     """Install advisory local hooks for supported coding-agent runtimes."""
+    require_workspace(workspace)
 
     try:
         result = render_or_install_hooks(

@@ -38,6 +38,7 @@ from agents_shipgate.cli.setup_control import (
     setup_control_envelope,
     setup_input_id,
 )
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.errors import DiscoveryError
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.agent_control import AgentActionKind
@@ -731,6 +732,7 @@ def register(app: typer.Typer) -> None:
         emit a near-complete manifest. Use --minimal to fall back to the
         pre-v0.6 CHANGE_ME-heavy template.
         """
+        require_workspace(workspace)
         workspace_resolved = workspace.resolve()
         target = workspace / "shipgate.yaml"
 

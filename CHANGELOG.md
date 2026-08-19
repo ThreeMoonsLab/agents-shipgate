@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+- **An input that is not there is no longer reported as an input with the
+  wrong shape, and no command creates the workspace it was asked to inspect.**
+  Three reports, one class. `verify --preview` given a `--workspace` that did
+  not exist created the entire four-level path, wrote a full artifact set into
+  it, and exited 0 — so a typo produced a confident result about a workspace
+  that was never there, and in CI both signals a caller can gate on read
+  healthy. The leftover directory then blocked the `git clone` the reporter had
+  skipped, turning one missed step into a second, unrelated failure
+  ([#389](https://github.com/ThreeMoonsLab/agents-shipgate/issues/389)).
+
+  An absent `--workspace` is now an invocation error — `config_error`, exit 2,
+  decided before any directory is resolved or created — on **every** command
+  that takes the option, `--preview` included. Preview's documented "always
+  exits 0" is a promise about workspaces it evaluated; there is nothing here to
+  evaluate. The sweep that enforces this is generated from the live command
+  table, so a new `--workspace` command cannot quietly reopen the hole. It also
+  closes four defects found while closing the first: `init --write`,
+  `audit --host`, and `verification prepare`/`worker` raised bare
+  `FileNotFoundError` tracebacks, `install-hooks --write` wrote hooks into the
+  mistyped tree, and `mcp audit` answered `decision: allow` about a directory
+  that did not exist.
+
+  `doctor` reported an **absent** manifest as a malformed one — "Config file
+  must contain a YAML object" — for a file that had never been created. The
+  routing knew the difference all along, so the control envelope contradicted
+  itself: `control.reason` said *fix the file* while `control.next_action` said
+  *bootstrap from scratch*, and an agent reasoning from the reason edited a file
+  that was not there. Absent, empty, and present-but-not-a-mapping now produce
+  three distinct messages, classified where the read failed rather than after
+  the bytes have been flattened to `b""`
+  ([#384](https://github.com/ThreeMoonsLab/agents-shipgate/issues/384)). The
+  same conversion in the diff-input path — "Workspace is not inside a git
+  checkout" for a path that did not exist — is gone with it.
+
+- **A manifest type mismatch is an edit, not a bug report.** A YAML mapping
+  where a list belongs — `google_adk.tool_inventories:` with keys under it, the
+  prescribed remedy for the first gap most ADK adopters hit — was reported as
+  `internal_error` with "this is a bug — please file an issue", naming no field,
+  no file, and no line. Pydantic converts `ValueError` and `AssertionError`
+  raised inside a validator into a `ValidationError`, but lets `TypeError`
+  propagate past the config-loading boundary
+  ([#387](https://github.com/ThreeMoonsLab/agents-shipgate/issues/387)).
+
+  Every validator in the manifest schema now raises `ValueError`, so the same
+  mistake produces `config_error` (exit 2) naming the manifest path and routing
+  to `edit`, exactly as a bad key inside a correctly shaped list already did.
+  Messages also name the shape that was written — "must be a list of artifact
+  paths, but is a mapping" — and a build-time sweep fails if `raise TypeError`
+  reappears anywhere under `schemas/`, which closes the class rather than the
+  instance.
+
 - **A Google ADK sub-agent's tools are part of the analyzed surface, and a tool
   the gate did not look at can no longer go unmentioned.** On the canonical ADK
   multi-agent shape — a coordinator with `sub_agents=[salesforce_agent,
