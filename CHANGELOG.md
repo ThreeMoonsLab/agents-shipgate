@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- **A Google ADK sub-agent's tools are part of the analyzed surface, and a tool
+  the gate did not look at can no longer go unmentioned.** On the canonical ADK
+  multi-agent shape — a coordinator with `sub_agents=[salesforce_agent,
+  sap_agent]` — every tool the sub-agents owned fell out of the root-reachable
+  graph, and none of the 25 evidence gaps named one. On the reported repository
+  the excluded half was the half a release gate exists to judge: three financial
+  writes, including one that sets opportunities to `Closed Won` and one that
+  creates an SAP sales order
+  ([#385](https://github.com/ThreeMoonsLab/agents-shipgate/issues/385)).
+
+  ADK routes a handoff by the sub-agent's `name=`, but `sub_agents=[…]` spells
+  the Python variable the agent was assigned to. Reading the variable as an
+  agent name produced one phantom node per sub-agent, owning no tools, so the
+  handoff landed on a node with nothing behind it and the real agent stayed
+  unreachable. The two spellings are now reconciled from the module's own
+  assignments, resolved innermost-out through the enclosing scopes so that two
+  factories reusing one local name cannot cross their sub-agents. This also
+  collapses the duplicate nodes the graph used to report.
+
+  An element that cannot be resolved to an agent definition — built inline,
+  imported from another module, behind a non-literal `sub_agents` value, or
+  rebound ambiguously within one scope — now fails closed as partial evidence
+  naming the spelling. It no longer becomes a node of its own: an empty tool
+  set on a node named after an import reads as proof the sub-agent has no
+  capability, which is the opposite of what is known about it. Naming two of
+  three sub-agents likewise no longer reports the two as the whole handoff set.
+
+  `agent_bindings.declarations` was the documented remedy and could not work.
+  Declaring an agent seeded a synthetic node for it, and for an agent the
+  scanner had already observed that second node made the name ambiguous, so the
+  resolver rejected names its own scan had emitted. Declarations now reuse the
+  observed node, and a genuinely ambiguous name says how many agents share it
+  and which sources they came from instead of reporting the name as unknown.
+
+  Finally, a tool bound to an agent the configured root cannot reach now gets an
+  evidence gap naming it. Everything downstream of the binding graph is narrowed
+  to root-reachable tools, so such a tool is never judged; before this it was
+  not mentioned either, leaving the ratio `6/12 catalog tools reachable` as its
+  only trace. This covers tools whose owning agent the scan identified — a hole
+  in the graph Agents Shipgate built. A catalog entry that no agent binds at
+  all is a different claim and is unchanged: catalog membership is deliberately
+  not evidence of capability, so declaring an OpenAPI spec or MCP server does
+  not become self-blocking.
+
 - **One command runs Agents Shipgate from this checkout, and `doctor` now says
   which Shipgate answered.** Running the CLI from a source tree meant either a
   bare `agents-shipgate`, which resolves through `PATH` and can silently execute

@@ -531,6 +531,9 @@ def _binding_coverage(
                 ),
             )
         )
+    for gap in _unreached_tool_gaps(report):
+        _increment(reason_counts, gap.kind)
+        gaps.append(gap)
     return (
         BindingCoverageDecision(
             total_catalog_tools=(
@@ -547,6 +550,92 @@ def _binding_coverage(
         ),
         gaps,
     )
+
+
+def _unreached_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
+    """One row per tool an *identified* agent owns that the root cannot reach.
+
+    Everything downstream of the binding graph — findings, the action
+    surface, semantic coverage, ``tool_inventory`` — is narrowed to the
+    root-reachable tools (``cli/scan/tools_agent.py``). A tool that lands in
+    ``unbound_tool_ids`` is therefore never judged, and it used to go
+    unmentioned too: the entire write surface of a multi-agent app could
+    disappear behind the ratio ``6/12 catalog tools reachable`` while all 25
+    evidence gaps named only the six tools that were reached (#385). Being
+    told the gate did not look is materially different from being told
+    nothing.
+
+    The rows stop at tools carrying a structural edge, and that boundary is
+    deliberate. Such a tool is a hole in *our* graph: the scan proved some
+    agent in the repository owns it and then failed to connect that agent to
+    the root, so the evidence exists and is incomplete. A catalog entry with
+    no edge at all is the opposite claim — nothing in the repository says any
+    agent can call it — and catalog membership is deliberately not evidence
+    of capability (see ``samples/large_multi_framework_agent``, where 58 of
+    63 declared spec operations are correctly out of scope). Emitting a gap
+    for those would make declaring an OpenAPI spec or an MCP server
+    self-blocking. They stay honestly accounted for by
+    ``binding_coverage.unbound_tools`` and the ``unbound_tool_ids``
+    partition.
+    """
+
+    graph = report.binding_surface_facts
+    if not graph.unbound_tool_ids:
+        return []
+    agent_names = {agent.agent_id: agent.name for agent in graph.agents}
+    holders: dict[str, set[str]] = {}
+    for edge in graph.tool_edges:
+        holders.setdefault(edge.tool_id, set()).add(
+            agent_names.get(edge.agent_id, edge.agent_id)
+        )
+    catalog = {
+        str(row.get("tool_id")): row
+        for row in report.tool_catalog
+        if row.get("tool_id")
+    }
+    gaps: list[EvidenceGap] = []
+    for tool_id in graph.unbound_tool_ids:
+        owners = sorted(holders.get(tool_id, ()))
+        if not owners:
+            continue
+        row = catalog.get(tool_id, {})
+        name = str(row.get("name") or tool_id)
+        provider = row.get("provider")
+        gaps.append(
+            EvidenceGap(
+                kind="missing_binding_evidence",
+                subject=f"{name} [{provider}]" if provider else name,
+                source_type=str(row["source_type"]) if row.get("source_type") else None,
+                source_ref=str(row["source_ref"]) if row.get("source_ref") else None,
+                why=(
+                    f"{name} is bound to {', '.join(owners)}, which the configured "
+                    "root agent does not reach; it was excluded from the analyzed "
+                    "surface."
+                ),
+                next_action=EvidenceGapAction(
+                    kind="declare_agent_bindings",
+                    command=_SEMANTIC_RERUN_COMMAND,
+                    path="shipgate.yaml#agent_bindings.declarations",
+                    why=(
+                        "A tool outside the root-reachable graph is never judged, "
+                        "so the verdict must not be silent about it."
+                    ),
+                    expects=(
+                        "Wire the handoff that reaches this agent in source, or "
+                        "declare it under the reaching agent's handoffs, then "
+                        "rerun verification."
+                    ),
+                    accepted_values=[
+                        "agent",
+                        "complete:true",
+                        "tools",
+                        "handoffs",
+                        "reason",
+                    ],
+                ),
+            )
+        )
+    return gaps
 
 
 def _semantic_coverage(

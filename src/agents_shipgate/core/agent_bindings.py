@@ -104,14 +104,25 @@ def resolve_agent_binding_graph(
         invalid_annotations,
     ) = _observations(tools, artifacts, loaded_sources or [])
     declarations = manifest.agent_bindings.declarations
+    # A declaration may introduce an agent the extractors never saw — a
+    # decorator-only repository has no agent object to observe. It must NOT
+    # introduce a second node for one the extractors *did* see: the seeded
+    # node carries no ``source_id``, so it lands under a different dedupe key,
+    # and ``_resolve_agent`` then finds two nodes for the name and resolves
+    # neither. Declaring a structurally known agent used to be self-defeating
+    # for exactly that reason — the resolver rejected names its own scanner
+    # had emitted (#385).
+    observed_names = {observation.name for observation in agent_observations}
     for declaration in declarations:
-        if declaration.agent != "root":
+        for name in (
+            *([] if declaration.agent == "root" else [declaration.agent]),
+            *declaration.handoffs,
+        ):
+            if name in observed_names:
+                continue
+            observed_names.add(name)
             agent_observations.append(
-                _AgentObservation(declaration.agent, None, "shipgate.yaml", None, True)
-            )
-        for handoff in declaration.handoffs:
-            agent_observations.append(
-                _AgentObservation(handoff, None, "shipgate.yaml", None, True)
+                _AgentObservation(name, None, "shipgate.yaml", None, True)
             )
 
     agents = _dedupe_agents(agent_observations)
@@ -264,7 +275,11 @@ def resolve_agent_binding_graph(
             issues.append(
                 AgentBindingIssue(
                     kind="unresolved_agent_binding",
-                    message=f"Declaration references unresolved agent {declaration.agent!r}.",
+                    message=_unresolved_agent_message(
+                        "Declaration references agent",
+                        declaration.agent,
+                        by_agent_name,
+                    ),
                     source="shipgate.yaml",
                     source_pointer=f"{pointer}/agent",
                 )
@@ -319,7 +334,11 @@ def resolve_agent_binding_graph(
                 issues.append(
                     AgentBindingIssue(
                         kind="unresolved_agent_binding",
-                        message=f"Declaration references unresolved handoff {target_name!r}.",
+                        message=_unresolved_agent_message(
+                            "Declaration references handoff target",
+                            target_name,
+                            by_agent_name,
+                        ),
                         agent_id=agent.agent_id,
                         source="shipgate.yaml",
                         source_pointer=f"{pointer}/handoffs/{handoff_index}",
@@ -717,7 +736,36 @@ def _observations(
                 if source_name:
                     agents.append(_AgentObservation(target, _str(record.get("source_id")), _str(record.get("source_ref")), _str(record.get("source_ref")), True))
                     handoffs.append(_RawHandoffEdge(source_name, target, _str(record.get("source_id")), "subagent", _str(record.get("source_ref")) or "google_adk", _str(record.get("source_ref")), True))
-            if record.get("sub_agent_count") and not record.get("sub_agents"):
+            # Only Python-entrypoint records carry ``sub_agent_count``; Agent
+            # Config records describe sub-agents by config path instead.
+            if "sub_agent_count" not in record:
+                continue
+            # A sub-agent the extractor could name but not match to an agent
+            # definition — imported from a module this scan does not read, or
+            # rebound ambiguously — is a branch of the capability surface
+            # nobody followed. Left unsaid, an imported sub-agent owning a
+            # delete tool produced a `structural` graph with `pass_eligible`
+            # and no trace of the tool anywhere (#385 review).
+            unresolved = _string_list(record.get("unresolved_sub_agents"))
+            if unresolved:
+                # Deliberately says "could not match", not "no such agent":
+                # the agent may well be in the report under its own name,
+                # reached through a source this entrypoint cannot resolve. The
+                # claim is about the spelling, and it must not read as a claim
+                # the agent does not exist.
+                partials.add(
+                    f"Google ADK agent {source_name!r} hands off to "
+                    f"{', '.join(sorted(unresolved))}, which this scan could not "
+                    "match to an agent definition; that sub-agent's tools were "
+                    "not analyzed."
+                )
+            # Comparing counts, rather than testing for an empty name list, is
+            # what makes a partially enumerated list fail closed: naming two of
+            # three sub-agents used to report the two as the whole handoff set.
+            declared_count = record.get("sub_agent_count")
+            if not isinstance(declared_count, int) or declared_count > len(
+                _string_list(record.get("sub_agents"))
+            ) + len(unresolved):
                 partials.add(f"Google ADK agent {source_name!r} has sub-agents that were not statically named.")
         for toolset in adk.toolsets:
             if toolset.dynamic or not toolset.resolved:
@@ -805,6 +853,30 @@ def _agents_by_name(agents: list[AgentBindingNode]) -> dict[str, list[AgentBindi
     for agent in agents:
         result[agent.name].append(agent)
     return result
+
+
+def _unresolved_agent_message(
+    subject: str,
+    name: str,
+    by_name: dict[str, list[AgentBindingNode]],
+) -> str:
+    """Say which of the two failures happened: unknown name, or ambiguous one.
+
+    They need opposite repairs. "Unresolved" alone sent a reader hunting for a
+    spelling mistake even when the name was spelled exactly as the scan
+    reported it and the real problem was two agents sharing it.
+    """
+
+    candidates = by_name.get(name, [])
+    if len(candidates) > 1:
+        sources = ", ".join(
+            sorted({agent.source_id or agent.source_ref or "unknown source" for agent in candidates})
+        )
+        return (
+            f"{subject} {name!r}, which names {len(candidates)} agents "
+            f"in the binding graph ({sources}); the name is ambiguous."
+        )
+    return f"{subject} {name!r}, which no agent in the binding graph matches."
 
 
 def _resolve_agent(name: str, source_id: str | None, by_name: dict[str, list[AgentBindingNode]]) -> AgentBindingNode | None:
