@@ -15,6 +15,7 @@ lead with can never move a verdict.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 
@@ -109,6 +110,35 @@ def _needs_escape(char: str, *, injective: bool) -> bool:
         or char in {"\u2028", "\u2029"}
         or _is_default_ignorable(char)
     )
+
+
+def yaml_scalar(value: str) -> str:
+    """Render ``value`` as a YAML scalar that parses back to exactly ``value``.
+
+    Manifest guidance interpolates identifiers a user then copies verbatim, and
+    a source id is an unconstrained string that commonly embeds the configured
+    path (``google_adk:agents/agent.py``). Written bare into a flow mapping, a
+    value containing ``,`` splits into two keys — ``source_id: google_adk:agent``
+    plus a stray ``prod.py`` — so the exact text the tool prescribed fails
+    manifest validation under ``extra="forbid"`` (#386 review). ``#``, ``{``,
+    ``}``, ``:`` and leading indicators are the same class of hazard.
+
+    JSON strings are a subset of both YAML 1.1 and 1.2 double-quoted scalars,
+    escape sequences included, so ``json.dumps`` is a total encoder here.
+
+    ``ensure_ascii`` is left at its default, and that is the load-bearing part.
+    Emitting non-ASCII literally is prettier but not total: PyYAML *rejects* a
+    stream carrying C1 controls such as U+0080 or U+009F (and U+007F DEL), and
+    silently normalizes U+0085 NEL to a space — so an id containing NEL
+    round-tripped to a *different* id and the remediation named the wrong
+    source, while the others made the prescribed entry unparseable outright
+    (#386 review). Lone surrogates, which a path decoded with
+    ``surrogateescape`` can carry, fail the same way. Escaping every non-ASCII
+    code point costs readability on accented identifiers and buys a scalar that
+    always parses back to the value it names.
+    """
+
+    return json.dumps(value)
 
 
 def display_literal(value: str) -> str:
@@ -420,6 +450,7 @@ def evidence_gap_accepted_values(gap: EvidenceGap) -> list[str]:
 
 
 __all__ = [
+    "yaml_scalar",
     "actionable_evidence_gaps",
     "display_literal",
     "undisplay_literal",

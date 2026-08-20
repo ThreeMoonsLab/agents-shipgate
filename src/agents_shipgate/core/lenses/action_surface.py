@@ -23,7 +23,10 @@ from agents_shipgate.core.risk_hints import (
     risk_tags,
 )
 from agents_shipgate.core.semantic_assessment import assess_tool_semantics
-from agents_shipgate.core.tool_identity import ToolSelectorIndex
+from agents_shipgate.core.tool_identity import (
+    ToolSelectorIndex,
+    action_identity_aliases,
+)
 from agents_shipgate.schemas.common import (
     Severity,
     SourceReference,
@@ -1606,17 +1609,24 @@ def _action_has_policy_control(action: ActionFact, entries: list[Any]) -> bool:
         and action.semantic_assessment.identity is not None
         and action.semantic_assessment.identity.pass_eligible
     )
+    # Alias-aware, not field-equal: binding rewrites both the canonical
+    # ``tool_id`` and the row's ``source_type``/``source_id``, so a policy
+    # selector written against the completed source stopped matching the moment
+    # an inventory completed it — the scan then reported a missing
+    # ``confirmation.required`` and moved to ``blocked`` on a manifest the user
+    # had not touched (#386 review).
+    aliases = action_identity_aliases(action)
     for entry in entries:
         if entry.tool_id:
-            if entry.tool_id != action.tool_id:
+            if not aliases.matches(tool_id=entry.tool_id):
                 continue
         elif entry.tool != action.tool_name or not identity_eligible:
             continue
         if entry.provider and entry.provider != action.provider:
             continue
-        if entry.source_type and entry.source_type != action.source_type:
-            continue
-        if entry.source_id and entry.source_id != action.source_id:
+        if not aliases.matches(
+            source_type=entry.source_type or None, source_id=entry.source_id or None
+        ):
             continue
         return True
     return False

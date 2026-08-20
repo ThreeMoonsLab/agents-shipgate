@@ -16,8 +16,8 @@ import shlex
 from collections.abc import Sequence
 
 from agents_shipgate.ci.release_decision import (
-    _inventory_manifest_key,
     evidence_below_ie_threshold,
+    inventory_manifest_key,
 )
 from agents_shipgate.core.agent_controls import FORBIDDEN_SHORTCUTS
 from agents_shipgate.core.evidence_actions import (
@@ -537,10 +537,17 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
         # Only some frameworks have a tool_inventories manifest key. Naming it
         # for a framework that has none (openai_agents_sdk, for one) sends the
         # reader looking for a key the schema will reject.
-        manifest_key = _inventory_manifest_key(source_type)
+        manifest_key = inventory_manifest_key(source_type)
         remedy = (
+            # `source_id` is named because an inventory referenced without it
+            # is an independent source: its entries are added beside these
+            # tools instead of raising them to high confidence, so the
+            # instruction would send the reader back with a worse number
+            # (#386). This rollup groups by source_type/source_ref and so
+            # cannot name the exact id; the evidence-gap rows above do.
             f"declare an explicit local tool inventory for that source in "
-            f"shipgate.yaml ({manifest_key})"
+            f"shipgate.yaml ({manifest_key}, with source_id naming that "
+            f"source)"
             if manifest_key is not None
             else (
                 "provide a statically enumerable source for that surface — an "

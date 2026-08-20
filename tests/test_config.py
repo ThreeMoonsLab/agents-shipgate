@@ -374,3 +374,77 @@ def test_absent_manifest_read_through_a_snapshot_still_reports_not_found(
 
     with pytest.raises(ConfigError, match="Config file not found"):
         inspect_sources(config_path=tmp_path / "absent" / "shipgate.yaml")
+
+
+# --- #386: tool_inventories[].source_id --------------------------------------
+
+# ``MINIMAL_MANIFEST`` above is deliberately invalid (``environment: dev`` is a
+# scalar) because every user of it asserts a ``ConfigError``. The success-path
+# checks below need a manifest that actually loads.
+_VALID_MANIFEST = """version: "0.1"
+project:
+  name: repro
+agent:
+  name: repro-agent
+  declared_purpose:
+    - repro
+environment:
+  target: local
+"""
+
+
+def _write_valid_manifest(tmp_path: Path, extra: str) -> Path:
+    manifest_path = tmp_path / "shipgate.yaml"
+    manifest_path.write_text(_VALID_MANIFEST + extra, encoding="utf-8")
+    return manifest_path
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        "google_adk:\n  tool_inventories:\n    - path: inv.json\n      source_id: adk\n",
+        "langchain:\n  tool_inventories:\n    - path: inv.json\n      source_id: lc\n",
+        "crewai:\n  tool_inventories:\n    - path: inv.json\n      source_id: crew\n",
+        "n8n:\n  tool_inventories:\n    - path: inv.json\n      source_id: flows\n",
+    ],
+    ids=["google_adk", "langchain", "crewai", "n8n"],
+)
+def test_every_framework_inventory_accepts_a_source_binding(tmp_path, block: str) -> None:
+    """One field, four frameworks: the defect and the fix are shared code."""
+
+    manifest = load_manifest(_write_valid_manifest(tmp_path, block))
+    section = block.split(":", 1)[0]
+    entry = getattr(manifest, section).tool_inventories[0]
+    assert entry.path == "inv.json"
+    assert entry.source_id
+
+
+def test_bare_path_inventory_entries_still_parse(tmp_path) -> None:
+    """The pre-#386 spelling is unchanged; `source_id` is optional."""
+
+    manifest = load_manifest(
+        _write_valid_manifest(
+            tmp_path, "google_adk:\n  tool_inventories:\n    - inv.json\n"
+        )
+    )
+    entry = manifest.google_adk.tool_inventories[0]
+    assert entry.path == "inv.json"
+    assert entry.source_id is None
+    assert entry.optional is False
+
+
+def test_inventory_entry_still_rejects_an_unknown_key(tmp_path) -> None:
+    """Adding one field must not open the model to arbitrary ones.
+
+    #386 was reported after probing `source`, `tool_source`, `for_source` and
+    four more spellings; every one of them must keep failing loudly rather than
+    being silently accepted and ignored.
+    """
+
+    manifest_path = _write_valid_manifest(
+        tmp_path,
+        "google_adk:\n  tool_inventories:\n    - path: inv.json\n      for_source: adk\n",
+    )
+
+    with pytest.raises(ConfigError):
+        load_manifest(manifest_path)

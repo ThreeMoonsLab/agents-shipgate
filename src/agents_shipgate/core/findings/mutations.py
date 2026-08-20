@@ -7,6 +7,7 @@ from agents_shipgate.core.check_ids import (
     expands_to_check_id,
 )
 from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.tool_identity import tool_identity_aliases
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest import SuppressionConfig
 from agents_shipgate.schemas.report import (
@@ -89,21 +90,30 @@ def _matching_suppression(
             continue
         if not suppression.tool and not suppression.tool_id:
             return suppression
+        tool = next((item for item in tools or [] if item.id == finding.tool_id), None)
+        # Same alias rule as every other selector consumer: a source-qualified
+        # `checks.ignore` row must not go inert because a reviewed binding
+        # rekeyed the tool it names (#386 review).
+        aliases = tool_identity_aliases(tool) if tool is not None else None
         if suppression.tool_id:
-            if suppression.tool_id != finding.tool_id:
+            if aliases is None:
+                if suppression.tool_id != finding.tool_id:
+                    continue
+            elif not aliases.matches(tool_id=suppression.tool_id):
                 continue
         elif suppression.tool:
             if suppression.tool != finding.tool_name:
                 continue
             if tools is not None and sum(tool.name == suppression.tool for tool in tools) != 1:
                 continue
-        tool = next((item for item in tools or [] if item.id == finding.tool_id), None)
         if suppression.provider and (tool is None or tool.provider != suppression.provider):
             continue
-        if suppression.source_type and (tool is None or tool.source_type != suppression.source_type):
-            continue
-        if suppression.source_id and (tool is None or tool.source_id != suppression.source_id):
-            continue
+        if suppression.source_type or suppression.source_id:
+            if aliases is None or not aliases.matches(
+                source_type=suppression.source_type or None,
+                source_id=suppression.source_id or None,
+            ):
+                continue
         return suppression
     return None
 

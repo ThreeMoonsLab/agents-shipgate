@@ -2,6 +2,98 @@
 
 ## Unreleased
 
+- **A tool inventory now completes the source that asked for it, instead of
+  shadowing it.** `incomplete_surface` fires for every statically-extracted
+  tool on a first ADK/LangChain/CrewAI/n8n scan, and the only remedy the tool
+  offered was "save the skeleton, reference it from `<framework>.tool_inventories`".
+  Following that instruction exactly made things worse: the inventory was loaded
+  as an *independent* source, so its entries were added beside the extracted
+  tools rather than joined to them. On the reported subject the catalog went
+  from 12 tools to 18 with only 12 distinct names, the reachable ratio fell from
+  6/12 to 6/18, the `action_surface` rows that used to resolve became
+  `ambiguous_tool_selector`, and the gap that asked for the file was still open.
+  The loop had no third step
+  ([#386](https://github.com/ThreeMoonsLab/agents-shipgate/issues/386)).
+
+  `<framework>.tool_inventories[]` entries now take `source_id`, naming the tool
+  source whose surface the file enumerates. Each entry matching a name that
+  source already exposes is joined to that observation, so the catalog keeps its
+  size, the merged tool inherits the inventory's high extraction confidence, and
+  the gap closes. Entries the source does *not* expose stay standalone — an
+  inventory exists precisely to disclose tools static extraction missed, and a
+  tool nobody wired is still honestly reported as unbound.
+
+  Nothing is joined by name alone. `source_id` is a manifest declaration
+  desugared into the same reviewed-binding engine as `tool_identity.bindings`,
+  one binding per matched name; a name a source exposes twice implies no join
+  and asks for an explicit binding instead, and a reviewed binding that already
+  claims an observation always wins. The prescribed remediation text and the
+  `suggested-inventory.json` note now name the field, and an inventory declared
+  without it that shadows a low-confidence source says so in `source_warnings`
+  rather than degrading in silence. Inventories that genuinely describe a
+  separate surface keep working unchanged.
+
+  Completion adds evidence and never removes it. A canonical tool now answers
+  to the `source_type`/`source_id` of **any observation bound into it**, so an
+  `action_surface` row already written against the completed source — including
+  one Shipgate scaffolded itself, which qualifies rows by `source_id` — keeps
+  resolving instead of becoming `unresolved_tool_selector` the moment the
+  inventory is applied. Both qualifiers, given together, must still be
+  satisfied by the same observation. Merging also backfills what only the
+  source knew (`output_schema`, `owner`, function signature, auth
+  type/mode/credential) wherever the reviewed inventory is silent; previously a
+  completed n8n tool came back high-confidence with unknown auth and no owner,
+  trading the closed `incomplete_surface` gap for a
+  `partial_authority_evidence` one. Disagreements between two populated values
+  remain `conflicting_tool_identity` rather than a silent overwrite.
+
+  That erasure was also *suppressing findings*, not only degrading evidence.
+  `samples/support_refund_agent` binds a `-> str` SDK function to a reviewed
+  inventory that is silent about output, and the merge dropped both the
+  AST-derived `{"type": "string"}` schema and the `sdk_function` source type
+  that `SHIP-SCHEMA-FREEFORM-OUTPUT` falls back on — so the shipped golden
+  recorded no free-form-output finding for a tool that plainly returns
+  free-form text. The finding is restored (one new MEDIUM review item; the
+  sample's verdict and its five blockers are unchanged).
+
+  The prescribed entry is also YAML-safe: source ids are unconstrained strings
+  and generated framework ids embed the configured path, so a comma used to
+  split `source_id: google_adk:agent,prod.py` into two keys and the exact text
+  the tool printed failed manifest validation. Encoding escapes every non-ASCII
+  code point rather than emitting it literally — PyYAML rejects a stream
+  carrying C1 controls or a lone surrogate outright, and silently normalizes
+  U+0085 NEL to a space, so an id containing NEL round-tripped to a *different*
+  id and the remediation named the wrong source.
+
+  Identity aliasing covers the whole selector surface, not just the source
+  qualifiers. Completion also rekeys the canonical `tool_id` from an
+  observation-derived hash to a binding-derived one, and `_action_selector`
+  emits `tool_id` on every row it scaffolds — so the generated declaration
+  became `unresolved_tool_selector` against the very inventory the tool had
+  just prescribed. A canonical tool now answers to the id each of its
+  observations carried while unbound, and the rule reaches every selector
+  consumer: `_action_has_policy_control` and `_matching_suppression` compared
+  the canonical fields directly, so a source-qualified
+  `require_confirmation_for_tools` entry silently stopped applying (reporting a
+  missing `confirmation.required` and moving the verdict to `blocked` on an
+  untouched manifest) and a source-qualified `checks.ignore` went inert. Alias
+  ids resolve selectors only; they never enter the catalog partition that
+  `agent_bindings` reads.
+
+  Preserved evidence is now conflict-checked and traceable. Backfilling "the
+  first non-empty value" resolved genuine disagreements by observation-id
+  order: two members reporting `owner: team-a` and `owner: team-b` produced a
+  tool owned by `team-a` with no issues and `pass_eligible=True`. Every
+  contributor to `output_schema`, `function_signature`, `owner`, and
+  `auth.credential_mode` is compared — the primary included — and more than one
+  distinct populated value is `conflicting_tool_identity`, which makes the
+  identity non-pass-eligible. (`auth.source` names the extractor that read the
+  record, not the credential, so it is preserved without being compared.) Each
+  preserved value records the observation that supplied it, and a finding
+  raised on one cites that artifact: the restored free-form-output finding now
+  points at `agents/refund_agent.py:5`, where the `-> str` actually is, instead
+  of an inventory JSON containing no output schema at all.
+
 - **An input that is not there is no longer reported as an input with the
   wrong shape, and no command creates the workspace it was asked to inspect.**
   Three reports, one class. `verify --preview` given a `--workspace` that did

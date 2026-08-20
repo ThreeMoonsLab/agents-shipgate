@@ -1246,3 +1246,36 @@ action_surface:
     assert "Decision: passed" in markdown
     assert "## Capability <-> Intent Diff" in markdown
     assert "No capability/intent misalignments detected from static evidence." in markdown
+
+
+def test_preserved_evidence_findings_cite_the_artifact_that_declares_it(tmp_path):
+    """#386 follow-up: a backfilled value must not be reported against the primary.
+
+    `send_email_preview(...) -> str` is bound to a reviewed inventory that
+    declares no output schema. Restoring the erased schema restored the
+    free-form-output finding — but the canonical row keeps the *inventory's*
+    locators, so the finding cited `inventories/sdk-tools.json#/tools/0`, an
+    object with no output schema in it at all. The reviewer needs the artifact
+    that actually supports the evidence.
+    """
+
+    report, _ = run_scan(
+        config_path=SAMPLE,
+        output_dir=tmp_path,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+
+    freeform = [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-SCHEMA-FREEFORM-OUTPUT"
+    ]
+    assert freeform, "expected the restored free-form-output finding"
+    (finding,) = freeform
+    assert finding.source.ref == "agents/refund_agent.py"
+    assert finding.source.location == "agents/refund_agent.py:5"
+    supplied_by = finding.evidence["evidence_supplied_by"]
+    assert supplied_by["field"] == "output_schema"
+    assert supplied_by["source_ref"] == "agents/refund_agent.py"

@@ -344,6 +344,22 @@ class Tool(BaseModel):
     owner: str | None = None
     extraction_confidence: Confidence = "low"
     extraction: dict[str, Any] = Field(default_factory=dict)
+    # Per-field donor provenance for evidence a reviewed binding preserved from
+    # a *member* observation rather than the primary one. Backfilling keeps the
+    # evidence but the row keeps the primary's locators, so a finding raised on
+    # a backfilled field would cite an artifact that does not contain it — the
+    # restored free-form-output finding pointed at an inventory JSON with no
+    # output schema at all (#386 review). Keyed by Tool field name
+    # (``output_schema``, ``auth.source``, …); values are ``SourceReference``
+    # kwargs for the observation that actually supplied the value.
+    #
+    # In-memory only, like the assessments below: report schemas expose
+    # provenance through their own versioned models, and ``tool_finding``
+    # consumes this to point a finding at its real source.
+    evidence_provenance: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        exclude=True,
+    )
     # In-memory semantic resolution. Excluded from generic Tool dumps because
     # report schemas expose this evidence through their own versioned models.
     semantic_assessment: ToolSemanticAssessment | None = Field(
@@ -462,6 +478,21 @@ class LoadedToolSource(BaseModel):
     # separate from Tool.annotations so catalog-controlled metadata can never
     # become authority-bearing binding evidence.
     binding_observations: list[AgentBindingObservation] = Field(default_factory=list)
+    # For a reviewed tool inventory declared with
+    # ``<framework>.tool_inventories[].source_id``: the id of the source whose
+    # surface this file enumerates. ``build_tool_identity_catalog`` turns it
+    # into reviewed identity bindings, so an inventory *completes* the source
+    # that raised ``incomplete_surface`` instead of shadowing it with
+    # same-named duplicates (#386). ``None`` for every other source, including
+    # an inventory declared without the field.
+    completes_source_id: str | None = None
+    # True for a source loaded from a ``<framework>.tool_inventories`` entry.
+    # Kept separate from ``completes_source_id`` because the *unbound* case is
+    # the one that needs naming: an inventory that completes nothing while
+    # duplicating names the extracted sources already produced is the exact
+    # degraded shape #386 reported, and it has to be distinguishable from an
+    # ordinary source to be reported at all.
+    is_tool_inventory: bool = False
 
 
 # ---------------------------------------------------------------------------

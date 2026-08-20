@@ -27,6 +27,7 @@ each other, but must NOT import from ``agents_shipgate.core.*``.
 from agents_shipgate.schemas.manifest._artifacts import (
     ArtifactPathConfig,
     NamedArtifactPathConfig,
+    ToolInventoryConfig,
 )
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 from agents_shipgate.schemas.manifest.action_surface import (
@@ -206,6 +207,8 @@ __all__ = [
     "ToolIdentityBindingConfig",
     "ToolIdentityConfig",
     "ToolObservationSelectorConfig",
+    # <framework>.tool_inventories
+    "ToolInventoryConfig",
     # risk_overrides
     "ToolRiskOverride",
     # validation

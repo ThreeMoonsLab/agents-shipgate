@@ -64,12 +64,16 @@ openai_api:
     - path: tests/refund_cases.json
 
 langchain:
+  # `source_id` names the tool source this inventory completes: its entries are
+  # joined to that source's observations instead of added beside them.
   tool_inventories:
     - path: inventories/langchain-tools.json
+      source_id: langchain_agent
 
 crewai:
   tool_inventories:
     - path: inventories/crewai-tools.json
+      source_id: crewai_agent
 
 validation:
   mode: human_in_the_loop

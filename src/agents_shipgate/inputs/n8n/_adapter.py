@@ -44,6 +44,7 @@ from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ArtifactPathConfig,
+    ToolInventoryConfig,
     ToolSourceConfig,
 )
 
@@ -102,7 +103,7 @@ def load_n8n_artifacts(
 
 
 def _load_inventory_ref(
-    ref: ArtifactPathConfig,
+    ref: ToolInventoryConfig,
     base_dir: Path,
     artifacts: N8nArtifacts,
 ) -> LoadedToolSource | None:
@@ -130,6 +131,8 @@ def _load_inventory_ref(
         source_type="n8n_inventory",
         tools=loaded.tools,
         warnings=loaded.warnings,
+        completes_source_id=ref.source_id,
+        is_tool_inventory=True,
     )
 
 

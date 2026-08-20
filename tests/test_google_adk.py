@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import yaml
 
 from agents_shipgate.checks.adk import _has_long_running_contract
 from agents_shipgate.cli.scan import inspect_sources, run_scan
@@ -1197,3 +1198,481 @@ agent_bindings:
         issue.kind == "partial_binding_evidence" and "worker" in issue.message
         for issue in graph.issues
     )
+
+
+# --- #386: the prescribed remediation must close the gap it was issued for ---
+
+
+_ADK_AGENT_SOURCE = """
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
+
+
+def get_manager_email(employee_id: str) -> dict:
+    \"\"\"Look up the manager's email for an employee.\"\"\"
+    return {"email": "manager@example.com"}
+
+
+def send_email(to: str, body: str) -> dict:
+    \"\"\"Send an email.\"\"\"
+    return {"status": "sent"}
+
+
+root_agent = LlmAgent(
+    name="closer_agent",
+    instruction="Route approvals.",
+    tools=[FunctionTool(func=get_manager_email), FunctionTool(func=send_email)],
+)
+"""
+
+_ADK_MANIFEST = """
+version: "0.1"
+project:
+  name: adk-inventory-remediation
+agent:
+  name: closer-agent
+  declared_purpose:
+    - route approval mail
+environment:
+  target: local
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+"""
+
+
+def _inventory_entry_from(instruction: str) -> object:
+    """Parse the `- {path: ..., source_id: ...}` entry an instruction prescribes.
+
+    The remediation is only worth emitting if it can be pasted, so every test
+    that checks the text reads it through a YAML parser rather than asserting a
+    substring — a value that silently splits into two keys still contains the
+    substring (#386 review).
+    """
+
+    snippet = next(
+        part for part in instruction.split("`") if part.strip().startswith("- {")
+    )
+    return yaml.safe_load(snippet.strip().removeprefix("- "))
+
+
+def _coverage(report):
+    """(catalog size, reachable tools, incomplete_surface subjects)."""
+
+    evidence = report.release_decision.evidence_coverage
+    return (
+        len(report.tool_catalog),
+        evidence.binding_coverage.reachable_tools,
+        {
+            gap.subject
+            for gap in evidence.evidence_gaps
+            if gap.kind == "incomplete_surface"
+        },
+    )
+
+
+def test_prescribed_inventory_remediation_closes_the_gap_it_was_issued_for(tmp_path):
+    """#386: following the emitted instruction must not leave the user worse off.
+
+    The remediation the tool prints for ``incomplete_surface`` used to say only
+    "reference it from google_adk.tool_inventories". Doing exactly that made the
+    inventory an independent source: the catalog doubled, the reachable/catalog
+    ratio fell, the ``action_surface`` selectors that used to resolve became
+    ambiguous, and the very gap that asked for the file stayed open. This test
+    reads the instruction the report emits, applies it mechanically, and asserts
+    the three properties acceptance criteria 1, 2, and 4 name.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(_ADK_MANIFEST, encoding="utf-8")
+
+    before, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "before",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    before_catalog, before_reachable, before_gaps = _coverage(before)
+    assert before_gaps == {
+        "get_manager_email [adk_agent]",
+        "send_email [adk_agent]",
+    }
+
+    # The instruction itself is under test: an agent following it has only this
+    # string to go on, so it has to name the field that makes the file complete
+    # the source rather than shadow it.
+    instruction = next(
+        gap.next_action.expects
+        for gap in before.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "incomplete_surface"
+    )
+    assert "google_adk.tool_inventories" in instruction
+    # Parsed, not substring-matched: the instruction's value is that a reader
+    # can copy the entry verbatim, so the test reads it the way they would.
+    assert _inventory_entry_from(instruction) == {
+        "path": "<saved file>",
+        "source_id": "adk_agent",
+    }
+
+    # Apply it exactly: save the emitted skeleton, reference it with source_id.
+    skeleton = (tmp_path / "before" / "suggested-inventory.json").read_text(
+        encoding="utf-8"
+    )
+    (project / "tool-inventory.json").write_text(skeleton, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST
+        + """
+google_adk:
+  tool_inventories:
+    - path: tool-inventory.json
+      source_id: adk_agent
+""",
+        encoding="utf-8",
+    )
+
+    after, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "after",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    after_catalog, after_reachable, after_gaps = _coverage(after)
+
+    # 1. the gap the instruction was issued for is closed
+    assert after_gaps == set()
+    # 2. naming tools the source already exposes does not grow the catalog
+    assert after_catalog == before_catalog
+    # 4. the coverage ratio never falls after a prescribed remediation
+    assert after_reachable * before_catalog >= before_reachable * after_catalog
+    assert after.source_warnings == []
+
+
+def test_inventory_without_source_id_is_named_rather_than_silently_degrading(tmp_path):
+    """The pre-#386 spelling still loads — and now says what it cost.
+
+    Left silent, a user who follows an older instruction (or an agent working
+    from a memorized one) lands back in the reported shape with no third step
+    offered. The catalog growth is unchanged for compatibility; what changes is
+    that the report names the cause and the one-line repair.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    (project / "tool-inventory.json").write_text(
+        '{"tools": [{"name": "get_manager_email", "description": "Look it up."}]}',
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST
+        + """
+google_adk:
+  tool_inventories:
+    - tool-inventory.json
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert len(report.tool_catalog) == 3
+    assert len(report.source_warnings) == 1
+    warning = report.source_warnings[0]
+    assert "declares no source_id" in warning
+    assert "source_id='adk_agent'" in warning
+
+
+def test_source_qualified_action_rows_survive_inventory_completion(tmp_path):
+    """#386 review: the tool's own scaffold must still resolve after its own fix.
+
+    ``_action_selector`` emits ``source_id`` on every action row it scaffolds,
+    and same-name providers *require* a source-qualified selector. Completing
+    the source rekeys the canonical tool to the inventory's identity, so without
+    member-source aliases a user who pasted Shipgate's scaffold and then applied
+    Shipgate's inventory instruction gets ``unresolved_tool_selector`` on rows
+    that resolved a minute earlier.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    declarations = """
+action_surface:
+  actions:
+    - tool: get_manager_email
+      source_id: adk_agent
+      effect: read
+      authority:
+        mode: none
+    - tool: send_email
+      source_id: adk_agent
+      effect: write
+      authority:
+        mode: none
+"""
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST + declarations, encoding="utf-8"
+    )
+
+    before, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "before",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    unresolved = {"unresolved_tool_selector", "ambiguous_tool_selector"}
+    before_kinds = {
+        gap.kind for gap in before.release_decision.evidence_coverage.evidence_gaps
+    }
+    assert not (before_kinds & unresolved)
+
+    (project / "tool-inventory.json").write_text(
+        (tmp_path / "before" / "suggested-inventory.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST
+        + declarations
+        + """
+google_adk:
+  tool_inventories:
+    - path: tool-inventory.json
+      source_id: adk_agent
+""",
+        encoding="utf-8",
+    )
+
+    after, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "after",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    evidence = after.release_decision.evidence_coverage
+    after_kinds = {gap.kind for gap in evidence.evidence_gaps}
+
+    assert not (after_kinds & unresolved), [
+        (gap.kind, gap.subject) for gap in evidence.evidence_gaps
+    ]
+    # The declarations still apply, so the gap the inventory closed stays closed
+    # rather than reappearing as an unresolved-selector row.
+    assert "incomplete_surface" not in after_kinds
+    assert evidence.semantic_coverage.pass_eligible_actions == 2
+
+
+@pytest.mark.parametrize(
+    "source_id",
+    [
+        "adk_agent",
+        "google_adk:agents/agent,prod.py",
+        "google_adk:agents/agent#main.py",
+        "google_adk:agents/{env}.py",
+        "google_adk:agents/agent: prod.py",
+    ],
+    ids=["plain", "comma", "hash", "braces", "colon-space"],
+)
+def test_prescribed_entry_parses_back_to_the_source_it_names(tmp_path, source_id: str):
+    """#386 review: an unquoted source id splits the flow mapping it sits in.
+
+    ``source_id`` is unconstrained and generated framework ids embed the
+    configured path, so a comma turned ``source_id: google_adk:agent,prod.py``
+    into ``source_id: google_adk:agent`` plus a stray ``prod.py`` key — which
+    ``extra="forbid"`` then rejects. The exact text the tool prescribed failed
+    manifest validation.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST.replace("id: adk_agent", f"id: {json.dumps(source_id)}"),
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    instruction = next(
+        gap.next_action.expects
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "incomplete_surface"
+    )
+    assert _inventory_entry_from(instruction) == {
+        "path": "<saved file>",
+        "source_id": source_id,
+    }
+
+    # The skeleton note prescribes the same entry and must survive the same way.
+    note = json.loads(
+        (tmp_path / "reports" / "suggested-inventory.json").read_text(encoding="utf-8")
+    )["note"]
+    assert _inventory_entry_from(note) == {
+        "path": "<saved file>",
+        "source_id": source_id,
+    }
+
+
+def _complete_the_source(project, tmp_path, extra: str = "") -> None:
+    """Apply the prescribed remediation to an already-scanned project."""
+
+    (project / "tool-inventory.json").write_text(
+        (tmp_path / "before" / "suggested-inventory.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST
+        + extra
+        + """
+google_adk:
+  tool_inventories:
+    - path: tool-inventory.json
+      source_id: adk_agent
+""",
+        encoding="utf-8",
+    )
+
+
+def test_the_generated_action_scaffold_still_resolves_after_completion(tmp_path):
+    """#386 follow-up: test the selector Shipgate actually emits, `tool_id` and all.
+
+    The earlier regression hand-wrote `tool` + `source_id`, but
+    `_action_selector` also emits `tool_id`, and `resolve` prioritizes it.
+    Completion rekeys the canonical id, so the *generated* scaffold — the exact
+    thing the tool tells a user to paste — still broke.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(_ADK_MANIFEST, encoding="utf-8")
+
+    before, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "before",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    templates = [
+        gap.next_action.declaration_template
+        for gap in before.release_decision.evidence_coverage.evidence_gaps
+        if gap.next_action.declaration_template
+        and gap.next_action.declaration_template.get("tool") == "get_manager_email"
+    ]
+    assert templates, "expected a scaffolded action declaration to test"
+    template = templates[0]
+    # The selector under test is the emitted one, not a hand-written subset.
+    assert template["tool_id"]
+    assert template["source_id"] == "adk_agent"
+
+    declaration = f"""
+action_surface:
+  actions:
+    - tool: {json.dumps(template["tool"])}
+      tool_id: {json.dumps(template["tool_id"])}
+      source_id: {json.dumps(template["source_id"])}
+      effect: read
+      authority:
+        mode: none
+"""
+    _complete_the_source(project, tmp_path, declaration)
+
+    after, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "after",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    kinds = {
+        gap.kind for gap in after.release_decision.evidence_coverage.evidence_gaps
+    }
+    assert "unresolved_tool_selector" not in kinds
+    assert "ambiguous_tool_selector" not in kinds
+    assert "incomplete_surface" not in kinds
+
+
+def test_source_qualified_policy_and_suppression_survive_completion(tmp_path):
+    """#386 follow-up: aliases have to reach every selector consumer.
+
+    `_action_has_policy_control` and `_matching_suppression` compared the
+    canonical primary fields directly, so completing the source silently
+    un-declared a source-qualified confirmation policy — the scan then reported
+    a missing `confirmation.required` and moved to `blocked` on a manifest the
+    user never touched — and made a source-qualified `checks.ignore` inert.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    qualified = """
+action_surface:
+  actions:
+    - tool: send_email
+      source_id: adk_agent
+      effect: write
+      authority:
+        mode: none
+      approval:
+        required: true
+      safeguards:
+        audit_log: true
+
+policies:
+  require_confirmation_for_tools:
+    - tool: send_email
+      source_id: adk_agent
+
+checks:
+  ignore:
+    - check_id: SHIP-DOC-MISSING-DESCRIPTION
+      tool: send_email
+      source_id: adk_agent
+      reason: "Preview helper is documented in the runbook."
+"""
+    (project / "shipgate.yaml").write_text(_ADK_MANIFEST + qualified, encoding="utf-8")
+
+    before, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "before",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    def state(report):
+        active = {f.check_id for f in report.findings if not f.suppressed}
+        suppressed = {f.check_id for f in report.findings if f.suppressed}
+        return report.release_decision.decision, active, suppressed
+
+    before_decision, before_active, before_suppressed = state(before)
+    assert "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" not in before_active
+    assert "SHIP-DOC-MISSING-DESCRIPTION" in before_suppressed
+
+    _complete_the_source(project, tmp_path, qualified)
+
+    after, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "after",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    after_decision, after_active, after_suppressed = state(after)
+
+    # The confirmation policy still applies, so no control goes missing ...
+    assert "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" not in after_active
+    # ... the source-qualified suppression still bites ...
+    assert "SHIP-DOC-MISSING-DESCRIPTION" in after_suppressed
+    # ... and applying the remediation did not make the verdict worse.
+    assert after_decision == before_decision

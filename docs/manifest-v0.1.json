@@ -1058,7 +1058,7 @@
         },
         "tool_inventories": {
           "items": {
-            "$ref": "#/$defs/ArtifactPathConfig"
+            "$ref": "#/$defs/ToolInventoryConfig"
           },
           "title": "Tool Inventories",
           "type": "array"
@@ -1137,7 +1137,7 @@
         },
         "tool_inventories": {
           "items": {
-            "$ref": "#/$defs/ArtifactPathConfig"
+            "$ref": "#/$defs/ToolInventoryConfig"
           },
           "title": "Tool Inventories",
           "type": "array"
@@ -1201,7 +1201,7 @@
         },
         "tool_inventories": {
           "items": {
-            "$ref": "#/$defs/ArtifactPathConfig"
+            "$ref": "#/$defs/ToolInventoryConfig"
           },
           "title": "Tool Inventories",
           "type": "array"
@@ -1243,7 +1243,7 @@
         },
         "tool_inventories": {
           "items": {
-            "$ref": "#/$defs/ArtifactPathConfig"
+            "$ref": "#/$defs/ToolInventoryConfig"
           },
           "title": "Tool Inventories",
           "type": "array"
@@ -2065,6 +2065,38 @@
         }
       },
       "title": "ToolIdentityConfig",
+      "type": "object"
+    },
+    "ToolInventoryConfig": {
+      "additionalProperties": false,
+      "description": "A reviewed tool inventory, optionally bound to the source it completes.\n\n``source_id`` names the ``tool_sources[].id`` (or framework-entrypoint\nsource id) whose surface this file enumerates. Without it the inventory is\nan *independent* source: its entries become new observations that merely\nhappen to share names with the statically-extracted ones, so the catalog\ngrows and the ``incomplete_surface`` gap keyed to the original source is\nnever satisfied (#386). With it, each named tool is joined to that source's\nobservation through the one reviewed-binding engine in\n``core/tool_identity.py`` \u2014 nothing is ever joined by name alone.\n\nEntries the completed source does not expose stay standalone observations:\nan inventory exists precisely because static extraction may have missed\ntools, and a tool nobody wired is honestly reported as unbound rather than\nsilently attributed to an agent.",
+      "properties": {
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ToolInventoryConfig",
       "type": "object"
     },
     "ToolObservationSelectorConfig": {

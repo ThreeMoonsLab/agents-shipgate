@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -16,14 +17,19 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.source_warnings import (
+    ambiguous_inventory_merge_warning,
     invalid_tool_binding_warning,
+    self_referential_inventory_warning,
+    unbound_inventory_duplicate_warning,
     unknown_binding_member_source,
+    unknown_inventory_source_warning,
     unmatched_binding_member,
     zero_observation_binding_member,
 )
 from agents_shipgate.schemas.manifest import (
     ToolIdentityBindingConfig,
     ToolIdentityConfig,
+    ToolObservationSelectorConfig,
 )
 
 _MCP_LIKE = {
@@ -46,26 +52,164 @@ class SelectorResolution:
 
 
 @dataclass(frozen=True)
+class IdentityAliases:
+    """Every identity a manifest selector may name one canonical tool by.
+
+    Binding rewrites identity twice over. The canonical ``tool_id`` moves from
+    an observation-derived hash to a binding-derived one, and the row keeps only
+    its *primary* observation's ``source_type``/``source_id``. Both are things
+    an already-written manifest row names, and Shipgate scaffolds rows carrying
+    both — ``_action_selector`` emits ``tool`` *and* ``tool_id`` *and*
+    ``source_id`` — so applying the inventory remediation invalidated the exact
+    declaration the tool had just told the user to write (#386 review).
+
+    A canonical tool *is* the union of its observations, so it answers to every
+    identity those observations had. ``tool_ids`` therefore carries the id each
+    member would have had unbound alongside the current one, and ``sources``
+    carries one pair per member.
+
+    Consumers must go through :meth:`matches`; comparing the canonical fields
+    directly is what left ``_action_has_policy_control`` and
+    ``_matching_suppression`` behind when the aliases were first added.
+    """
+
+    tool_ids: frozenset[str]
+    sources: frozenset[tuple[str, str]]
+
+    def matches(
+        self,
+        *,
+        tool_id: str | None = None,
+        source_type: str | None = None,
+        source_id: str | None = None,
+    ) -> bool:
+        """Does this tool answer to every qualifier the selector supplied?
+
+        ``source_type`` and ``source_id`` given together must be satisfied by
+        the *same* observation. Checking them independently would let a selector
+        pair one member's type with another member's id and match a tool neither
+        observation describes.
+        """
+
+        if tool_id and tool_id not in self.tool_ids:
+            return False
+        if source_type is None and source_id is None:
+            return True
+        return any(
+            (source_type is None or pair[0] == source_type)
+            and (source_id is None or pair[1] == source_id)
+            for pair in self.sources
+        )
+
+
+def _observation_tool_id(observation_id: str) -> str:
+    """The canonical id an observation carries while it is unbound.
+
+    Mirrors ``build_tool_identity_catalog`` exactly; the two must not drift, or
+    a pre-binding row would alias to an id the catalog never issued.
+    """
+
+    return _stable_id("tool_v2", {"observation_id": observation_id})
+
+
+def identity_aliases(
+    *,
+    tool_id: str,
+    source_type: str,
+    source_id: str | None,
+    identity: Any,
+) -> IdentityAliases:
+    """Build aliases from a canonical row plus its identity evidence.
+
+    ``identity`` is duck-typed over ``ToolIdentityAssessment`` (in-memory) and
+    ``ToolIdentityEvidence`` (the wire projection carried on ``ActionFact``), so
+    one implementation serves both the tool catalog and the action surface.
+    """
+
+    tool_ids = {tool_id}
+    sources = {(source_type, source_id or "")}
+    if identity is not None:
+        for observation_id in getattr(identity, "observation_ids", ()) or ():
+            if isinstance(observation_id, str) and observation_id:
+                tool_ids.add(_observation_tool_id(observation_id))
+        for claim in getattr(identity, "claims", ()) or ():
+            evidence = getattr(claim, "evidence", None) or {}
+            claim_type = evidence.get("source_type")
+            if isinstance(claim_type, str):
+                claim_id = evidence.get("source_id")
+                sources.add((claim_type, claim_id if isinstance(claim_id, str) else ""))
+    return IdentityAliases(frozenset(tool_ids), frozenset(sources))
+
+
+def tool_identity_aliases(tool: Tool) -> IdentityAliases:
+    """Aliases for a canonical :class:`Tool`."""
+
+    return identity_aliases(
+        tool_id=tool.id,
+        source_type=tool.source_type,
+        source_id=tool.source_id,
+        identity=tool.identity_assessment,
+    )
+
+
+def action_identity_aliases(action: Any) -> IdentityAliases:
+    """Aliases for an ``ActionFact``, read from its semantic evidence."""
+
+    assessment = getattr(action, "semantic_assessment", None)
+    return identity_aliases(
+        tool_id=action.tool_id,
+        source_type=action.source_type,
+        source_id=action.source_id,
+        identity=getattr(assessment, "identity", None),
+    )
+
+
+@dataclass(frozen=True)
 class ToolSelectorIndex:
     """One-pass lookup index for repeated manifest selector resolution."""
 
     tools: tuple[Tool, ...]
+    #: Canonical ids only. ``agent_bindings`` reads ``set(by_id)`` as the whole
+    #: catalog to partition reachable/possible/unbound, so an alias in here
+    #: invents a catalog member and trips the tool_catalog/binding-graph
+    #: consistency invariant. Aliases live in ``by_selectable_id``.
     by_id: dict[str, Tool]
     by_name: dict[str, tuple[Tool, ...]]
+    #: Canonical ids plus the ids each bound observation had while unbound.
+    #: Resolution only.
+    by_selectable_id: dict[str, Tool]
+    #: Per canonical tool id, every identity a selector may name it by.
+    aliases: dict[str, IdentityAliases]
 
     @classmethod
     def build(cls, tools: Sequence[Tool]) -> ToolSelectorIndex:
         by_name: dict[str, list[Tool]] = defaultdict(list)
         for tool in tools:
             by_name[tool.name].append(tool)
+        aliases = {tool.id: tool_identity_aliases(tool) for tool in tools}
+        by_id = {tool.id: tool for tool in tools}
+        # Current ids are inserted last so a real id always outranks an alias.
+        # A bound observation is consumed, so the id it *would* have had unbound
+        # is not issued to anything else — but resolution must not depend on
+        # that argument holding for every future binding shape.
+        by_selectable_id: dict[str, Tool] = {}
+        for tool in tools:
+            for alias in sorted(aliases[tool.id].tool_ids):
+                by_selectable_id.setdefault(alias, tool)
+        by_selectable_id.update(by_id)
         return cls(
             tools=tuple(tools),
-            by_id={tool.id: tool for tool in tools},
+            by_id=by_id,
             by_name={
                 name: tuple(sorted(matches, key=lambda tool: tool.id))
                 for name, matches in by_name.items()
             },
+            by_selectable_id=by_selectable_id,
+            aliases=aliases,
         )
+
+    def _aliases(self, tool: Tool) -> IdentityAliases:
+        return self.aliases.get(tool.id) or tool_identity_aliases(tool)
 
     def resolve(self, selector: Any) -> SelectorResolution:
         tool_id = _selector_value(selector, "tool_id")
@@ -75,7 +219,7 @@ class ToolSelectorIndex:
         source_id = _selector_value(selector, "source_id")
 
         if tool_id:
-            match = self.by_id.get(tool_id)
+            match = self.by_selectable_id.get(tool_id)
             candidates: Sequence[Tool] = (match,) if match is not None else ()
         elif name:
             candidates = self.by_name.get(name, ())
@@ -87,12 +231,14 @@ class ToolSelectorIndex:
             )
         if provider:
             candidates = tuple(tool for tool in candidates if tool.provider == provider)
-        if source_type:
+        if source_type or source_id:
             candidates = tuple(
-                tool for tool in candidates if tool.source_type == source_type
+                tool
+                for tool in candidates
+                if self._aliases(tool).matches(
+                    source_type=source_type or None, source_id=source_id or None
+                )
             )
-        if source_id:
-            candidates = tuple(tool for tool in candidates if tool.source_id == source_id)
 
         if len(candidates) == 1:
             return SelectorResolution((candidates[0],))
@@ -120,9 +266,18 @@ def build_tool_identity_catalog(
     are combined only when a reviewed ``tool_identity.bindings[]`` entry names
     every member exactly. Invalid bindings apply nowhere and make the affected
     identity non-pass-eligible.
+
+    A ``<framework>.tool_inventories[].source_id`` entry is *desugared* into
+    those same reviewed bindings rather than merged by a second code path
+    (#386). The manifest — the trust root — is what asserts the join; the
+    inventory file never joins itself to anything by name.
     """
 
     observations = _observations(loaded_sources)
+    synthesized, warnings = _inventory_completion_bindings(
+        loaded_sources, observations, config
+    )
+    bindings = [*config.bindings, *synthesized]
     by_member: dict[tuple[str, str, str], list[Tool]] = defaultdict(list)
     for tool in observations:
         by_member[(tool.source_type, tool.source_id or "", tool.name)].append(tool)
@@ -143,9 +298,8 @@ def build_tool_identity_catalog(
     selected_by_binding: dict[str, list[Tool]] = {}
     binding_issues: dict[str, list[SemanticIssue]] = defaultdict(list)
     observation_bindings: dict[str, list[str]] = defaultdict(list)
-    warnings: list[str] = []
 
-    for binding in config.bindings:
+    for binding in bindings:
         selected: list[Tool] = []
         invalid_messages: list[str] = []
         for member in binding.members:
@@ -202,7 +356,7 @@ def build_tool_identity_catalog(
 
     consumed: set[str] = set()
     canonical: list[Tool] = []
-    bindings_by_id = {binding.id: binding for binding in config.bindings}
+    bindings_by_id = {binding.id: binding for binding in bindings}
     for binding_id in sorted(selected_by_binding):
         members = selected_by_binding[binding_id]
         if any(
@@ -319,6 +473,168 @@ def resolve_selectors_by_tool_id(
         for target in targets:
             _append_identity_issue(by_id[target.id], issue)
     return resolved, mutable
+
+
+#: Prefix of every binding id ``_inventory_completion_bindings`` synthesizes.
+#: Deterministic and derived from the manifest entry, so tool ids stay stable
+#: across runs, and distinctive enough that a hand-written binding id colliding
+#: with one is a typo rather than a coincidence — a collision is resolved in
+#: favour of the reviewed entry.
+_INVENTORY_BINDING_PREFIX = "tool_inventory:"
+
+
+def _inventory_completion_bindings(
+    loaded_sources: list[LoadedToolSource],
+    observations: list[Tool],
+    config: ToolIdentityConfig,
+) -> tuple[list[ToolIdentityBindingConfig], list[str]]:
+    """Desugar ``tool_inventories[].source_id`` into reviewed identity bindings.
+
+    Without the field an inventory is an independent source: its entries become
+    additional observations that share names with the ones static extraction
+    already produced, so the catalog grows, the ``incomplete_surface`` gap keyed
+    to the *original* source stays open, and the action selectors that used to
+    resolve become ambiguous (#386). The manifest naming the completed source is
+    what licenses the join — this function only turns that declaration into the
+    binding a reviewer would otherwise have written by hand, one per matched
+    name, with the inventory as ``primary`` so the merged tool carries the
+    inventory's high extraction confidence.
+
+    Three cases deliberately do not merge:
+
+    * an inventory entry the completed source does not expose — it is a tool
+      static extraction missed, which is the whole reason inventories exist, so
+      it stays a standalone observation;
+    * a name the completed source exposes more than once — the inventory alone
+      does not say *which* observation it describes;
+    * an observation a reviewed ``tool_identity.bindings[]`` entry already
+      claims — an explicit human declaration outranks a desugared one, and
+      double-claiming would invalidate both.
+    """
+
+    reviewed_members = {
+        (member.source_id, member.tool)
+        for binding in config.bindings
+        for member in binding.members
+    }
+    # Seeded with the reviewed ids so a hand-written binding always keeps the
+    # name, and grown as bindings are synthesized so two entries can never
+    # collide into one key in ``bindings_by_id`` and silently drop a merge.
+    claimed_ids = {binding.id for binding in config.bindings}
+    configured_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
+    by_source_name: dict[tuple[str, str], list[Tool]] = defaultdict(list)
+    for tool in observations:
+        by_source_name[(tool.source_id or "", tool.name)].append(tool)
+
+    synthesized: list[ToolIdentityBindingConfig] = []
+    warnings: list[str] = []
+    for loaded in loaded_sources:
+        target = (loaded.completes_source_id or "").strip()
+        inventory_id = loaded.source_id.strip()
+        if not target:
+            if loaded.is_tool_inventory:
+                warnings.extend(
+                    _unbound_inventory_warnings(
+                        loaded, inventory_id, observations, reviewed_members
+                    )
+                )
+            continue
+        if target == inventory_id:
+            warnings.append(self_referential_inventory_warning(inventory_id))
+            continue
+        if target not in configured_source_ids:
+            warnings.append(
+                unknown_inventory_source_warning(
+                    inventory_id,
+                    target,
+                    sorted(configured_source_ids - {inventory_id}),
+                )
+            )
+            continue
+        ambiguous: list[str] = []
+        for name in dict.fromkeys(tool.name for tool in loaded.tools):
+            target_matches = by_source_name.get((target, name), [])
+            if not target_matches:
+                continue
+            if len(target_matches) > 1:
+                ambiguous.append(name)
+                continue
+            if len(by_source_name.get((inventory_id, name), [])) != 1:
+                # Unreachable while ``_observations`` rejects duplicate
+                # observation identities; skipping rather than reporting
+                # ambiguity keeps the message honest if that ever changes.
+                continue
+            if (inventory_id, name) in reviewed_members or (
+                target,
+                name,
+            ) in reviewed_members:
+                continue
+            binding_id = f"{_INVENTORY_BINDING_PREFIX}{inventory_id}#{name}"
+            if binding_id in claimed_ids:
+                continue
+            claimed_ids.add(binding_id)
+            inventory_selector = ToolObservationSelectorConfig(
+                source_id=inventory_id, tool=name
+            )
+            synthesized.append(
+                ToolIdentityBindingConfig(
+                    id=binding_id,
+                    provider=target,
+                    reason=(
+                        f"reviewed tool inventory {inventory_id!r} completes "
+                        f"source {target!r} (tool_inventories[].source_id)"
+                    ),
+                    primary=inventory_selector,
+                    members=[
+                        ToolObservationSelectorConfig(source_id=target, tool=name),
+                        inventory_selector,
+                    ],
+                )
+            )
+        if ambiguous:
+            warnings.append(
+                ambiguous_inventory_merge_warning(inventory_id, target, ambiguous)
+            )
+    return synthesized, warnings
+
+
+def _unbound_inventory_warnings(
+    loaded: LoadedToolSource,
+    inventory_id: str,
+    observations: list[Tool],
+    reviewed_members: set[tuple[str, str]],
+) -> list[str]:
+    """Name an inventory that shadows the low-confidence source it duplicates.
+
+    An inventory referenced without ``source_id`` is a legitimate way to declare
+    tools no adapter can see, so overlap alone is not the complaint. The
+    complaint is overlap with an observation that is *not yet* high confidence
+    and that no reviewed binding claims: that pairing is the #386 shape, where
+    the file the gate asked for is added beside the gap instead of closing it.
+    One row per shadowed source, so a 40-tool inventory does not emit 40
+    warnings into a gating count.
+    """
+
+    names = set(dict.fromkeys(tool.name for tool in loaded.tools))
+    shadowed: dict[str, list[str]] = defaultdict(list)
+    for tool in observations:
+        source_id = tool.source_id or ""
+        if source_id == inventory_id or tool.name not in names:
+            continue
+        if tool.extraction_confidence == "high":
+            continue
+        if (source_id, tool.name) in reviewed_members or (
+            inventory_id,
+            tool.name,
+        ) in reviewed_members:
+            continue
+        shadowed[source_id].append(tool.name)
+    return [
+        unbound_inventory_duplicate_warning(
+            inventory_id, source_id, sorted(dict.fromkeys(shadowed[source_id]))
+        )
+        for source_id in sorted(shadowed)
+    ]
 
 
 def _observations(loaded_sources: list[LoadedToolSource]) -> list[Tool]:
@@ -455,7 +771,159 @@ def _merge_bound_observations(primary: Tool, members: list[Tool]) -> tuple[Tool,
             alternative.model_copy(deep=True) for alternative in member.auth.alternatives
         )
         merged.auth.invalid_annotations.extend(member.auth.invalid_annotations)
+    issues.extend(_backfill_preserved_evidence(merged, primary, members))
     return merged, issues
+
+
+#: Tool fields a member may fill in when the primary has nothing there, and
+#: whether a *populated* disagreement between contributors is a conflict.
+#:
+#: Source identity (``source_type``/``source_id``/locators) is deliberately
+#: absent: the canonical row keeps the primary's identity, and a selector naming
+#: another member resolves through :class:`IdentityAliases` instead.
+#:
+#: ``description`` and ``parameters`` backfill but never conflict. Prose differs
+#: benignly whenever a reviewed inventory rewords a docstring, and ``parameters``
+#: restates ``input_schema``, which is already compared — coarsely, on purpose —
+#: by ``_schema_signature``. Reporting either as an identity conflict would
+#: manufacture noise, not catch a disagreement.
+_BACKFILL_FIELDS: tuple[tuple[str, bool], ...] = (
+    ("description", False),
+    ("input_schema", False),
+    ("output_schema", True),
+    ("parameters", False),
+    ("function_signature", True),
+    ("owner", True),
+)
+#: ``auth.source`` backfills but never conflicts, and that is not an oversight.
+#: It names the *extractor* that produced the auth record — ``google_adk_static``
+#: on an AST observation, ``mcp`` on the inventory reading of the same tool — so
+#: two observations of one capability disagree by construction. Conflict-checking
+#: it fired ``conflicting_tool_identity`` on every completed ADK tool and took
+#: ``pass_eligible_actions`` to 0, which is the opposite of what this change is
+#: for. ``credential_mode`` is a real claim about the credential and is checked.
+_BACKFILL_AUTH_FIELDS: tuple[tuple[str, bool], ...] = (
+    ("type", False),
+    ("credential_mode", True),
+    ("source", False),
+)
+
+
+def _donor_reference(donor: Tool) -> dict[str, Any]:
+    """``SourceReference`` kwargs for the observation that supplied a value."""
+
+    return {
+        "type": donor.source_type,
+        "ref": donor.source_ref,
+        "location": donor.source_location,
+        "path": donor.source_path,
+        "start_line": donor.source_start_line,
+        "end_line": donor.source_end_line,
+        "start_column": donor.source_start_column,
+        "pointer": donor.source_pointer,
+    }
+
+
+def _evidence_key(field: str, value: Any) -> Any:
+    """Comparable form of a field value, for detecting real disagreement.
+
+    Schemas compare through ``_schema_signature`` so a reviewed inventory adding
+    formats, bounds, or ``additionalProperties: false`` reads as a refinement
+    rather than a contradiction — the same compatibility rule bound
+    ``input_schema`` already uses. Everything else compares exactly.
+    """
+
+    if field.endswith("_schema"):
+        return json.dumps(_schema_signature(value), sort_keys=True, default=str)
+    return value
+
+
+def _backfill_preserved_evidence(
+    merged: Tool, primary: Tool, members: list[Tool]
+) -> list[SemanticIssue]:
+    """Fill the primary's gaps from its members, and report real disagreements.
+
+    A binding promotes the primary's *extraction fidelity* — that is the whole
+    point of naming a reviewed inventory as primary — but the merge started from
+    the primary and copied nothing else across, so completing a source also
+    erased that source's own evidence. An n8n tool with ``apiKey``/``unscoped``
+    auth, an output schema, and an owner came back high-confidence with unknown
+    auth, ``{}`` output, and no owner: the closed ``incomplete_surface`` gap was
+    replaced by ``partial_authority_evidence``, the same non-monotonic trade
+    #386 is about (#386 review).
+
+    Backfilling alone then had its own silent failure. Filling "the first
+    non-empty value" resolves a genuine disagreement by observation-id order:
+    two members reporting ``owner: team-a`` and ``owner: team-b`` produced a
+    tool owned by ``team-a``, no issues, and ``pass_eligible=True``. Every
+    contributor to a conflict-checked field is compared here, primary included,
+    and more than one distinct populated value is ``conflicting_tool_identity``
+    — which makes the identity non-pass-eligible via ``_assessment`` rather than
+    letting a contradiction ride under a high-confidence label.
+    """
+
+    issues: list[SemanticIssue] = []
+    ordered = sorted(members, key=lambda tool: tool.observation_id or "")
+
+    def resolve(
+        field: str,
+        conflict_checked: bool,
+        current: Any,
+        candidates: list[tuple[Tool, Any]],
+    ) -> Any:
+        populated = [(tool, value) for tool, value in candidates if value]
+        if conflict_checked:
+            distinct = {_evidence_key(field, value) for _, value in populated}
+            if len(distinct) > 1:
+                donors = ", ".join(
+                    sorted({tool.source_id or tool.source_type for tool, _ in populated})
+                )
+                issues.append(
+                    _identity_issue(
+                        "conflicting_tool_identity",
+                        f"bound observations disagree on {field} ({donors})",
+                        primary.source_pointer or primary.source_ref,
+                    )
+                )
+        if current:
+            return current
+        if not populated:
+            return current
+        donor, value = populated[0]
+        # The row keeps the primary's locators, so a value taken from a member
+        # would otherwise be reported against an artifact that does not contain
+        # it. Record who actually supplied it.
+        merged.evidence_provenance[field] = _donor_reference(donor)
+        return deepcopy(value)
+
+    for field, conflict_checked in _BACKFILL_FIELDS:
+        value = resolve(
+            field,
+            conflict_checked,
+            getattr(merged, field),
+            [(tool, getattr(tool, field)) for tool in ordered],
+        )
+        setattr(merged, field, value)
+    for field, conflict_checked in _BACKFILL_AUTH_FIELDS:
+        value = resolve(
+            f"auth.{field}",
+            conflict_checked,
+            getattr(merged.auth, field),
+            [(tool, getattr(tool.auth, field)) for tool in ordered],
+        )
+        setattr(merged.auth, field, value)
+    # ``unknown`` is the absence of an authority claim, not a claim of none, so
+    # a plain falsiness test would skip it. Disagreement between two *known*
+    # modes is already reported by the per-member check above.
+    if merged.auth.mode == "unknown":
+        for tool in ordered:
+            if tool.auth.mode != "unknown":
+                merged.auth.mode = tool.auth.mode
+                merged.evidence_provenance["auth.mode"] = _donor_reference(tool)
+                break
+    if not merged.auth.explicit and any(tool.auth.explicit for tool in ordered):
+        merged.auth.explicit = True
+    return issues
 
 
 def _schema_signature(schema: Any) -> Any:
@@ -589,8 +1057,12 @@ def _stable_id(prefix: str, value: dict[str, Any]) -> str:
 
 
 __all__ = [
+    "IdentityAliases",
     "SelectorResolution",
     "ToolSelectorIndex",
+    "action_identity_aliases",
+    "identity_aliases",
+    "tool_identity_aliases",
     "build_tool_identity_catalog",
     "resolve_selectors_by_tool_id",
     "resolve_tool_selector",
