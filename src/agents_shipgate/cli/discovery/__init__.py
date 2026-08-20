@@ -37,7 +37,11 @@ from agents_shipgate.cli.discovery.ci_workflow import (
     CiWorkflowResult,
     write_ci_workflow,
 )
-from agents_shipgate.cli.discovery.signals import detect_workspace, select_agent_name
+from agents_shipgate.cli.discovery.signals import (
+    detect_workspace,
+    select_agent_name,
+    weak_marker_evidence_dirs,
+)
 from agents_shipgate.cli.discovery.template import render_auto_manifest
 from agents_shipgate.schemas.detect import (
     AgentNameCandidate,
@@ -77,5 +81,6 @@ __all__ = [
     "render_auto_manifest",
     "render_manifest_template",
     "select_agent_name",
+    "weak_marker_evidence_dirs",
     "write_ci_workflow",
 ]

@@ -121,8 +121,26 @@ def detect(
         and not result.suggested_sources
         and not result.codex_plugin_candidates
     ):
-        typer.echo("Workspace does not appear to be an agent project.")
-        typer.echo("No agent framework signals matched the strong-signal threshold.")
+        if result.agent_scope_truncated:
+            # "No signals matched" is a claim about the whole workspace, and
+            # a capped parse read part of one. On a repository large enough
+            # to truncate before reaching any agent, the flat negative is
+            # simply false — and it is the reading that stops an adopter
+            # (#395).
+            typer.echo(
+                "Discovery was capped before it could classify this workspace."
+            )
+            typer.echo(
+                "No agent framework signals matched in the part of the tree that "
+                f"was read, and it holds {result.workspace_signals.project_root_count} "
+                "project roots. Re-run with --max-python-files <n>, or point "
+                "--workspace at the project you are changing."
+            )
+        else:
+            typer.echo("Workspace does not appear to be an agent project.")
+            typer.echo(
+                "No agent framework signals matched the strong-signal threshold."
+            )
         _echo_excluded_sources(result.excluded_sources)
         return
 
@@ -303,14 +321,27 @@ def _echo_agent_scope(result: DetectResult) -> None:
 
     Silent in the ordinary single-project case: the manifest scope is then
     the workspace the caller already named, and repeating it is noise.
+
+    Never silent about a truncated walk. The candidate list below is what a
+    human is told to choose from, and a list assembled from the part of the
+    tree that got read first is a lower bound, not an enumeration — printing
+    it unqualified told an adopter their own project was not an agent
+    project (#395).
     """
-    if result.agent_scope != "ambiguous":
+    if result.agent_scope == "single":
         return
     candidates = result.agent_project_candidates
     typer.echo("")
-    typer.echo(
-        f"Agent scope: ambiguous — {len(candidates)} separate projects define agents:"
-    )
+    if result.agent_scope == "ambiguous":
+        typer.echo(
+            f"Agent scope: ambiguous — {len(candidates)} separate projects define agents:"
+        )
+    else:
+        typer.echo(
+            "Agent scope: unknown — discovery was capped before it could tell "
+            "whether one manifest describes this workspace."
+            + (" Projects found before the cap:" if candidates else "")
+        )
     for candidate in candidates[:_MAX_ECHOED_SCOPE_CANDIDATES]:
         # A config-driven ``LlmAgent(name=CONFIG.agent_name)`` leaves no name
         # literal to parse; name the marker that made it a project instead.
@@ -319,10 +350,27 @@ def _echo_agent_scope(result: DetectResult) -> None:
     remaining = len(candidates) - _MAX_ECHOED_SCOPE_CANDIDATES
     if remaining > 0:
         typer.echo(f"- ... ({remaining} more; see agent_project_candidates in --json)")
-    typer.echo(
-        "One shipgate.yaml describes one agent surface, so init --write "
-        "refuses here until you name the project directory to initialize."
-    )
+    if result.agent_scope == "ambiguous":
+        typer.echo(
+            "One shipgate.yaml describes one agent surface, so init --write "
+            "refuses here until you name the project directory to initialize."
+        )
+    if result.agent_scope_truncated:
+        roots = result.workspace_signals.project_root_count
+        typer.echo(
+            (
+                "This list is not exhaustive: the Python parse stopped at the "
+                f"cap in a workspace holding {roots} project roots, so a "
+                "project in the unread remainder is missing from it."
+                if candidates
+                else (
+                    "The Python parse stopped at the cap in a workspace "
+                    f"holding {roots} project roots."
+                )
+            )
+            + " Re-run with --max-python-files <n> before concluding your "
+            "project is absent."
+        )
     typer.echo("")
 
 

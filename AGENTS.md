@@ -238,7 +238,10 @@ agents-shipgate bootstrap --json
   projects (`agent_project_candidates[]` lists them, and the manifest belongs
   in one of them rather than at the workspace root); `"unknown"` means
   discovery was capped before it could tell, so raise `--max-python-files` or
-  name the project directly.
+  name the project directly. `agent_scope_truncated: true` says the candidate
+  list itself is a lower bound — the parse stopped at its cap, so a project in
+  the unread remainder is missing from it. Never read absence from a truncated
+  list as an answer; raise the cap first.
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.

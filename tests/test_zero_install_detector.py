@@ -48,6 +48,7 @@ CANONICAL_KEYS = frozenset(
         "project_name_candidates",
         "agent_scope",
         "agent_project_candidates",
+        "agent_scope_truncated",
         "suggested_sources",
         "excluded_sources",
         "next_action",
@@ -230,6 +231,17 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         f"(script={script_result['agent_scope']!r}, "
         f"cli={cli_result['agent_scope']!r}). An agent that consults the "
         "zero-install path must not adopt a scope the CLI refuses."
+    )
+    assert (
+        script_result["agent_scope_truncated"]
+        == cli_result["agent_scope_truncated"]
+    ), (
+        f"{sample_dir.name}: agent_scope_truncated diverged "
+        f"(script={script_result['agent_scope_truncated']!r}, "
+        f"cli={cli_result['agent_scope_truncated']!r}). It says whether "
+        "agent_project_candidates enumerates the workspace or only the part "
+        "the parse reached; a caller that reads a truncated list as complete "
+        "concludes its own project is not an agent project (#395)."
     )
     script_projects = sorted(
         (c["path"], tuple(c["agent_names"]))

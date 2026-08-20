@@ -191,6 +191,13 @@ Key response fields:
   discovery hit its Python-file cap in a workspace with several project roots,
   so the verdict would otherwise have depended on which files were read
   first.
+- `auto_detected.agent_scope_truncated`: whether that candidate list is an
+  enumeration or a lower bound. `true` means the Python parse stopped at its
+  cap in a workspace holding more than one project root, so a project in the
+  unread remainder is missing from the list — do **not** conclude a project is
+  absent from it. Re-run `detect --max-python-files <n> --json` first.
+  `workspace_signals.project_root_count` bounds the claim: it is an uncapped,
+  filename-only census of project-marker directories.
 
 `--ci` is orthogonal to `--write`: each gets its own overwrite-refusal.
 Exit code is the max of per-action outcomes; manifest-error and

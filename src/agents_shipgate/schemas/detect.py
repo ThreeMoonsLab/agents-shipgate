@@ -131,6 +131,13 @@ class WorkspaceSignals(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     python_file_count: int = 0
+    # Directories carrying a project marker, counted from the whole walk by
+    # filename alone — no parsing, and no cap. It is the one number that
+    # stays trustworthy where the AST pass stops being trustworthy, so it
+    # bounds a truncated candidate list: `agent_project_candidates` names
+    # the agent projects found *before* the cap, this counts the project
+    # roots that exist.
+    project_root_count: int = 0
     has_pyproject_or_requirements: bool = False
     has_prompts_dir: bool = False
     has_tools_dir: bool = False
@@ -158,6 +165,18 @@ class DetectResult(BaseModel):
     # name it parsed.
     agent_scope: Literal["single", "ambiguous", "unknown"] = "single"
     agent_project_candidates: list[AgentProjectCandidate] = Field(default_factory=list)
+    # Whether the walk behind `agent_scope` and `agent_project_candidates`
+    # was cut short: the Python parse stopped at `max_python_files` in a
+    # workspace holding more than one project root. It is a separate field
+    # rather than a fourth `agent_scope` value because the two facts are
+    # independent — two projects found *is* an ambiguous scope however much
+    # of the tree was read — and collapsing them made the honest one
+    # unreachable: "unknown" only ever fired when one or fewer candidates
+    # were found, so the repositories most likely to be truncated were the
+    # ones that never reported it (#395). While true, the candidate list is
+    # a lower bound, not an enumeration: a project in the unread remainder
+    # is missing from it.
+    agent_scope_truncated: bool = False
     suggested_sources: list[dict[str, str]] = Field(default_factory=list)
     # Glob-matched OpenAPI/MCP candidates the real input adapters reject
     # ({type, path, reason}). Kept out of suggested_sources so init never

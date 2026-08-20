@@ -48,9 +48,10 @@ Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
-- ``agent_scope`` / ``agent_project_candidates[]`` are carried, and the
-  contract test pins them against the CLI: an agent that consults the
-  zero-install path must not adopt a manifest scope the CLI refuses.
+- ``agent_scope`` / ``agent_scope_truncated`` / ``agent_project_candidates[]``
+  are carried, and the contract test pins them against the CLI: an agent that
+  consults the zero-install path must not adopt a manifest scope the CLI
+  refuses, nor read a candidate list the cap cut short as an enumeration.
 - Descriptive (not byte-identical) ``evidence`` / ``reason`` strings.
 - Absolute scores may differ by ±0.5 in edge cases.
 - The parse probe is **JSON-only** (stdlib has no YAML parser). A
@@ -80,7 +81,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "0.3.0"
+SCRIPT_VERSION = "0.4.0"
 MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
 # Matches ``detect_workspace``'s ``max_python_files``. The bound is on
 # parses, not on the inventory: capping the inventory lets an asset-heavy
@@ -1921,9 +1922,15 @@ def detect(workspace: Path) -> dict[str, Any]:
         p.parent for p in files
         if p.name in PROJECT_MARKERS or p.name in WEAK_PROJECT_MARKERS
     } | ({workspace} if _project_marker(workspace, WEAK_PROJECT_MARKERS) else set())
+    # Truncation is decided before ambiguity and reported alongside it. Two
+    # projects found is an ambiguous scope however much of the tree was read;
+    # what a cut-short parse changes is that the candidate list is a lower
+    # bound, not an enumeration. Folding the two into one value made the cap
+    # warning unreachable on the repositories the cap had actually cut (#395).
+    agent_scope_truncated = py_truncated and len(project_roots) > 1
     if len(agent_project_candidates) > 1:
         agent_scope = "ambiguous"
-    elif py_truncated and len(project_roots) > 1:
+    elif agent_scope_truncated:
         agent_scope = "unknown"
     else:
         agent_scope = "single"
@@ -1935,12 +1942,22 @@ def detect(workspace: Path) -> dict[str, Any]:
             "`init --workspace <agent_project_candidates[].path> --write` for "
             "the project you are changing."
         )
+        if agent_scope_truncated:
+            next_action += (
+                " That list is not exhaustive: discovery stopped at the "
+                f"Python-file cap in a workspace holding {len(project_roots)} "
+                "project roots, so a project in the unread remainder is "
+                "missing from it. Run `agents-shipgate detect "
+                "--max-python-files <n> --json` before concluding a project "
+                "is absent."
+            )
     elif agent_scope == "unknown":
         next_action = (
             "Discovery stopped at the Python-file cap in a workspace holding "
-            "several project roots, so whether one manifest describes it was "
-            "not established. Run `agents-shipgate detect --json` for the full "
-            "picture, or init in the project directory you are changing."
+            f"{len(project_roots)} project roots, so whether one manifest "
+            "describes it was not established. Run `agents-shipgate detect "
+            "--json` for the full picture, or init in the project directory "
+            "you are changing."
         )
     elif is_agent or suggested or codex_plugin_candidates:
         next_action = f"agents-shipgate init --workspace {workspace}"
@@ -1954,12 +1971,14 @@ def detect(workspace: Path) -> dict[str, Any]:
         "project_name_candidates": project_names,
         "agent_scope": agent_scope,
         "agent_project_candidates": agent_project_candidates,
+        "agent_scope_truncated": agent_scope_truncated,
         "suggested_sources": suggested,
         "excluded_sources": excluded,
         "codex_plugin_candidates": codex_plugin_candidates,
         "next_action": next_action,
         "workspace_signals": {
             "python_file_count": len(py_facts),
+            "project_root_count": len(project_roots),
             "has_pyproject_or_requirements": (
                 (workspace / "pyproject.toml").is_file()
                 or (workspace / "requirements.txt").is_file()

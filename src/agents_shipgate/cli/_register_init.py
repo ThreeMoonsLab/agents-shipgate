@@ -244,6 +244,8 @@ def _unresolved_scope_message(
     candidates: list[AgentProjectCandidate],
     *,
     scope: str,
+    truncated: bool = False,
+    project_roots: int = 0,
 ) -> str:
     if scope == "unknown":
         lines = [
@@ -270,12 +272,22 @@ def _unresolved_scope_message(
             f"  - ... ({remaining} more; see auto_detected.agent_project_candidates "
             "in --json)"
         )
+    if truncated and scope != "unknown":
+        # The refusal hands this list over as the thing to choose from, so it
+        # has to say when the walk that produced it was cut short. Without
+        # this an adopter reads their own project's absence as an answer
+        # (#395); the uncapped project-root census bounds the claim.
+        lines.append(
+            "This list is not exhaustive: discovery stopped at the "
+            f"Python-file cap in a workspace holding {project_roots} project "
+            "roots, so a project in the unread remainder is missing from it."
+        )
     lines.append(
         "Re-run init with --workspace pointed at the project you are changing, "
         "or pass --allow-unresolved-scope to write one manifest for this "
         "workspace as a whole."
     )
-    if scope == "unknown":
+    if scope == "unknown" or truncated:
         lines.append(
             "`agents-shipgate detect --max-python-files <n> --json` reports the "
             "full picture when the repository is larger than the default cap."
@@ -290,6 +302,7 @@ def _unresolved_scope_actions(
     scope: str,
     setup_flags: list[str],
     kit: Path | None,
+    truncated: bool = False,
 ) -> list[NextAction]:
     """Rank the decision above the commands that carry it out.
 
@@ -307,6 +320,13 @@ def _unresolved_scope_actions(
         "pick the one this change belongs to. Shipgate will not choose for "
         "you — the manifest declares one agent's name, purpose, and tool "
         "surface."
+        + (
+            " That list is a lower bound, not an enumeration: discovery "
+            "stopped at the Python-file cap, so re-run detection with a "
+            "higher --max-python-files before concluding a project is absent."
+            if truncated
+            else ""
+        )
         if scope != "unknown"
         else (
             f"Discovery of {workspace} was capped before it could tell whether "
@@ -777,6 +797,10 @@ def register(app: typer.Typer) -> None:
         # cannot be silently mis-scoped and the refusal does not apply.
         scope_candidates: list[AgentProjectCandidate] = []
         detected_scope = "single"
+        # Whether that candidate list is an enumeration or a lower bound, and
+        # the uncapped project-root census that bounds it (#395).
+        scope_truncated = False
+        scope_project_roots = 0
         if minimal:
             template = render_manifest_template(workspace_resolved)
             placeholders = collect_placeholders(template)
@@ -875,6 +899,9 @@ def register(app: typer.Typer) -> None:
                 # "ambiguous", `chosen_agent_name` above is one of several
                 # unrelated agents, so --write refuses (#363).
                 "agent_scope": detect_result.agent_scope,
+                # Whether `agent_project_candidates` below enumerates the
+                # workspace or only the part of it the parse reached (#395).
+                "agent_scope_truncated": detect_result.agent_scope_truncated,
                 "agent_project_candidates": [
                     candidate.model_dump(mode="json")
                     for candidate in detect_result.agent_project_candidates
@@ -882,6 +909,8 @@ def register(app: typer.Typer) -> None:
             }
             scope_candidates = list(detect_result.agent_project_candidates)
             detected_scope = detect_result.agent_scope
+            scope_truncated = detect_result.agent_scope_truncated
+            scope_project_roots = detect_result.workspace_signals.project_root_count
             excluded_sources = detect_result.excluded_sources
             if excluded_sources:
                 # Glob-matched files the input adapters reject — dropped from
@@ -959,7 +988,11 @@ def register(app: typer.Typer) -> None:
                 manifest_status = "refused_unresolved_scope"
                 manifest_exit = 2
                 manifest_message = _unresolved_scope_message(
-                    workspace_resolved, scope_candidates, scope=detected_scope
+                    workspace_resolved,
+                    scope_candidates,
+                    scope=detected_scope,
+                    truncated=scope_truncated,
+                    project_roots=scope_project_roots,
                 )
                 scope_refused = True
             else:
@@ -1053,6 +1086,7 @@ def register(app: typer.Typer) -> None:
                     agent_instructions=agent_instructions,
                 ),
                 kit=agent_instructions_kit,
+                truncated=scope_truncated,
             )
 
         # Routing. Computed from the manifest that is *on disk*, not from the
@@ -1146,6 +1180,7 @@ def register(app: typer.Typer) -> None:
                     # candidate list could change while the identity of the
                     # answer about it did not.
                     detected_scope,
+                    scope_truncated,
                     [candidate.model_dump(mode="json") for candidate in scope_candidates],
                     [action.model_dump(mode="json") for action in scope_actions],
                 ),
@@ -1176,6 +1211,7 @@ def register(app: typer.Typer) -> None:
                 next_actions=routing.json_actions(),
                 control=routing.envelope.model_dump(mode="json"),
                 agent_scope=detected_scope,
+                agent_scope_truncated=scope_truncated,
                 agent_project_candidates=[
                     candidate.model_dump(mode="json") for candidate in scope_candidates
                 ],

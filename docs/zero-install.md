@@ -31,9 +31,10 @@ The script's output is a **structural subset** of `agents-shipgate detect --json
   "codex_plugin_candidates": [{"mode": "package", "path": "..."}],
   "agent_scope": "single",
   "agent_project_candidates": [{"path": ".", "marker": "pyproject.toml", "agent_names": [...]}],
+  "agent_scope_truncated": false,
   "next_action": "agents-shipgate init --workspace .",
   "workspace_signals": {...},
-  "script_version": "0.3.0"
+  "script_version": "0.4.0"
 }
 ```
 
@@ -41,7 +42,7 @@ Like the canonical CLI, the script parse-probes each glob-matched MCP/OpenAPI ca
 
 Like `agents-shipgate detect`, the script silently skips common fixture corpus directories such as `fixtures/`, `_fixtures/`, `__fixtures__/`, `testdata/`, `test_data/`, `test-fixtures/`, `test_fixtures/`, `golden/`, and `goldens/` when they are below the selected workspace. Point `--workspace` directly at a fixture project if you intentionally want to classify that fixture itself.
 
-The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources, same excluded sources, same Codex plugin candidates, and the same manifest-scope verdict (`agent_scope` plus `agent_project_candidates[]`) for every sample in `samples/`. The scope verdict is pinned because an agent that consults the zero-install path must not adopt a scope the CLI would refuse: on a workspace whose agents live in several self-contained projects, both report `agent_scope: "ambiguous"` and neither recommends initializing the root. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
+The script and the canonical CLI are pinned to **structural verdict parity** by [`tests/test_zero_install_detector.py`](https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/tests/test_zero_install_detector.py): same `is_agent_project`, same fired frameworks, same suggested sources, same excluded sources, same Codex plugin candidates, and the same manifest-scope verdict (`agent_scope`, `agent_scope_truncated`, plus `agent_project_candidates[]`) for every sample in `samples/`. The scope verdict is pinned because an agent that consults the zero-install path must not adopt a scope the CLI would refuse: on a workspace whose agents live in several self-contained projects, both report `agent_scope: "ambiguous"` and neither recommends initializing the root. `agent_scope_truncated` is pinned for the same reason one step down: when the Python parse stopped at its cap in a workspace holding more than one project root, `agent_project_candidates[]` is a lower bound rather than an enumeration, and a caller that reads a truncated list as complete concludes its own project is not an agent project. Field-by-field byte parity is not pinned and not promised — the script is not a drop-in replacement for the CLI.
 
 `agent_name_candidates` is the one field pinned byte for byte, including its ranking and each entry's `rationale[]`. It is not a yes/no signal: it names the agent a generated manifest would declare as the reviewed identity, so a script that ranked differently would point you at a different agent than `init` does.
 

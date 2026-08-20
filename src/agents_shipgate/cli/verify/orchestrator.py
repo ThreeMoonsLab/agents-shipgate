@@ -27,6 +27,7 @@ from agents_shipgate.cli.discovery.scope import (
     manifest_opt_in,
     resolve_change_scope,
 )
+from agents_shipgate.cli.discovery.signals import weak_marker_evidence_dirs
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
@@ -4130,6 +4131,15 @@ def run_preview(
             root=root,
             changed_files=changed_files,
             limit=requested_root,
+            # Without this the resolver sees only the strong project markers,
+            # and a project whose whole boundary is `requirements.txt` beside
+            # `agent.py` is invisible to it — the walk climbs past it to the
+            # repository root, no scope resolves, and the branch below emits
+            # the root `init` that `init` refuses deterministically. `detect`
+            # answers this same question with the evidence it collects; the
+            # preview path collects it for the directories the diff actually
+            # sits under (#394).
+            evidence_dirs=weak_marker_evidence_dirs(root, changed_files),
         )
         if _head_is_current_worktree(root, head)
         else ScopeResolution(

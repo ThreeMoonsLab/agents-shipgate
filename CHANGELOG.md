@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **`verify --preview` on a monorepo now names the project the pull request
+  actually changed, instead of a repository root that `init` refuses.** The
+  change-scope resolver draws a project boundary around a bare
+  `requirements.txt` only for directories the caller has already found agent
+  evidence in — the whole boundary a `requirements.txt` beside `agent.py` has.
+  The preview call site passed no evidence at all, so the walk climbed past
+  such a project to the workspace root, resolved no scope, and emitted
+  `init --workspace <repo root> --write`, which `init` then refused
+  deterministically: "holds 53 self-contained projects that define agents, and
+  one manifest describes one agent surface." `detect` had reported the same
+  project correctly all along, so the two commands an adopter runs in sequence
+  disagreed
+  ([#394](https://github.com/ThreeMoonsLab/agents-shipgate/issues/394)).
+
+  Preview now collects that evidence for the directories the diff sits under,
+  by the same per-file rule `detect` uses, and asks it only where the answer
+  can change anything: a directory carrying a strong marker is already a
+  project root, and one carrying no weak marker cannot become one. On the
+  reported pull request the first command an adopter sees goes from an
+  eight-step recovery to `init --workspace python/agents/smart_closer --write`.
+
+- **Project discovery no longer presents a truncated candidate list as a
+  complete one.** On a repository large enough to hit the Python-file cap,
+  `detect` and `init` reported the agent projects found *before* the cap as if
+  they were all of them — no cap warning, no `--max-python-files` hint, and the
+  project actually under review missing from the list the user was told to
+  choose from. The `ambiguous` verdict short-circuited the truncation check, so
+  `"unknown"` — the state whose entire purpose is to say the parse was cut
+  short — was reachable only when one or fewer candidates were found, and the
+  fail-safe was unreachable on exactly the repositories most likely to need it
+  ([#395](https://github.com/ThreeMoonsLab/agents-shipgate/issues/395)).
+
+  Truncation is now evaluated independently of ambiguity and reported beside
+  it: `detect --json` and `init --json` carry `agent_scope_truncated`, the
+  human and refusal messages say the list is not exhaustive and name the
+  `--max-python-files` remedy, and `workspace_signals.project_root_count`
+  bounds the claim with an uncapped, filename-only census of project roots. A
+  capped walk that reached no agent at all no longer reports "workspace does
+  not appear to be an agent project" either. The zero-install
+  `tools/shipgate-detect.py` carries the same field (script version `0.4.0`),
+  pinned by the parity test.
+
 - **A tool inventory now completes the source that asked for it, instead of
   shadowing it.** `incomplete_surface` fires for every statically-extracted
   tool on a first ADK/LangChain/CrewAI/n8n scan, and the only remedy the tool

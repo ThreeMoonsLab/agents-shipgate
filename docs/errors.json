@@ -30,9 +30,10 @@
         "next_action",
         "next_actions",
         "agent_scope",
+        "agent_scope_truncated",
         "agent_project_candidates"
       ],
-      "recovery_hint": "Follow the emitted ranked `next_actions[]`; do not assume every config_error is a manifest problem. For manifests, distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run the emitted preview/setup route; `SHIP-DIAG-INVALID-MANIFEST` → edit the existing manifest and do NOT re-run `init`. When `agent_scope` is `ambiguous` or `unknown`, `init --write` refused because the manifest scope was not settled — agents in several self-contained projects, or discovery capped before it could tell — and wrote nothing at all; re-run it with `--workspace` pointed at one of `agent_project_candidates[].path` instead of retrying the same command. For flag, preflight, and host-audit errors, preserve the original workspace and request context, and stop for review whenever no exact safe command is emitted."
+      "recovery_hint": "Follow the emitted ranked `next_actions[]`; do not assume every config_error is a manifest problem. For manifests, distinguish missing vs. invalid via the diagnostic id: `SHIP-DIAG-MISSING-MANIFEST` → run the emitted preview/setup route; `SHIP-DIAG-INVALID-MANIFEST` → edit the existing manifest and do NOT re-run `init`. When `agent_scope` is `ambiguous` or `unknown`, `init --write` refused because the manifest scope was not settled — agents in several self-contained projects, or discovery capped before it could tell — and wrote nothing at all; re-run it with `--workspace` pointed at one of `agent_project_candidates[].path` instead of retrying the same command. When `agent_scope_truncated` is `true` that list is a lower bound, not an enumeration — discovery stopped at its Python-file cap — so if the project you are changing is not in it, re-run `detect --max-python-files <n> --json` rather than concluding it is absent. For flag, preflight, and host-audit errors, preserve the original workspace and request context, and stop for review whenever no exact safe command is emitted."
     },
     {
       "id": "config_already_exists",

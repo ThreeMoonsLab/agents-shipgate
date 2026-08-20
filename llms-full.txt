@@ -263,7 +263,10 @@ agents-shipgate bootstrap --json
   projects (`agent_project_candidates[]` lists them, and the manifest belongs
   in one of them rather than at the workspace root); `"unknown"` means
   discovery was capped before it could tell, so raise `--max-python-files` or
-  name the project directly.
+  name the project directly. `agent_scope_truncated: true` says the candidate
+  list itself is a lower bound — the parse stopped at its cap, so a project in
+  the unread remainder is missing from it. Never read absence from a truncated
+  list as an answer; raise the cap first.
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
@@ -1050,6 +1053,13 @@ Key response fields:
   discovery hit its Python-file cap in a workspace with several project roots,
   so the verdict would otherwise have depended on which files were read
   first.
+- `auto_detected.agent_scope_truncated`: whether that candidate list is an
+  enumeration or a lower bound. `true` means the Python parse stopped at its
+  cap in a workspace holding more than one project root, so a project in the
+  unread remainder is missing from the list — do **not** conclude a project is
+  absent from it. Re-run `detect --max-python-files <n> --json` first.
+  `workspace_signals.project_root_count` bounds the claim: it is an uncapped,
+  filename-only census of project-marker directories.
 
 `--ci` is orthogonal to `--write`: each gets its own overwrite-refusal.
 Exit code is the max of per-action outcomes; manifest-error and
