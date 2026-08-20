@@ -32,8 +32,42 @@ def tool_finding(
     capability_refs: list[str] | None = None,
     capability_policy_evidence: CapabilityPolicyEvidence | None = None,
     capability_trace_refs: list[str] | None = None,
+    evidence_field: str | None = None,
 ) -> Finding:
     support = _heuristic_support(provenance_kind)
+    # A reviewed binding keeps the primary's locators while preserving evidence
+    # its *members* supplied, so a finding raised on a backfilled field cites an
+    # artifact that does not contain the evidence — the free-form-output finding
+    # pointed at an inventory JSON with no output schema (#386 review). A check
+    # that names the field it judged gets the supplying observation instead, and
+    # says so in the evidence. Opt-in per check: silently re-pointing on an
+    # evidence-key match would misfire whenever a key happens to share a Tool
+    # field name.
+    donor = (tool.evidence_provenance or {}).get(evidence_field or "")
+    source = (
+        SourceReference(**donor)
+        if donor
+        else SourceReference(
+            type=tool.source_type,
+            ref=tool.source_ref,
+            location=tool.source_location,
+            path=tool.source_path,
+            start_line=tool.source_start_line,
+            end_line=tool.source_end_line,
+            start_column=tool.source_start_column,
+            pointer=tool.source_pointer,
+        )
+    )
+    if donor:
+        evidence = {
+            **evidence,
+            "evidence_supplied_by": {
+                "field": evidence_field,
+                "source_type": donor.get("type"),
+                "source_ref": donor.get("ref"),
+                "source_pointer": donor.get("pointer"),
+            },
+        }
     return Finding(
         check_id=check_id,
         title=title,
@@ -45,16 +79,7 @@ def tool_finding(
         evidence=evidence,
         confidence=parse_confidence(confidence),
         provenance_kind=provenance_kind,
-        source=SourceReference(
-            type=tool.source_type,
-            ref=tool.source_ref,
-            location=tool.source_location,
-            path=tool.source_path,
-            start_line=tool.source_start_line,
-            end_line=tool.source_end_line,
-            start_column=tool.source_start_column,
-            pointer=tool.source_pointer,
-        ),
+        source=source,
         policy_evidence_source=_policy_evidence_source(
             context, policy_evidence_pointer
         ),

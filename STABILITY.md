@@ -876,12 +876,17 @@ bindings join nothing and prevent `passed`.
 One-to-one manifest selectors now accept `tool_id`, `provider`, `source_type`,
 and `source_id`. A bare name that matches more than one provider applies
 nowhere and becomes an unsuppressible identity evidence gap. A canonical tool
-answers to the `source_type`/`source_id` of **any observation bound into it**,
-not only its primary's: a reviewed binding (or a
+answers to the `tool_id` **and** the `source_type`/`source_id` of **any
+observation bound into it**, not only its primary's — including the `tool_id`
+each observation carried while it was still unbound: a reviewed binding (or a
 `tool_inventories[].source_id` completion) must not silently rekey the identity
-that an already-written source-qualified row names. Both qualifiers, when given
+that an already-written row names, and Shipgate's own action scaffold emits
+`tool`, `tool_id`, and `source_id` together. Both source qualifiers, when given
 together, must be satisfied by the same observation, so a selector cannot pair
-one member's type with another member's id. Finding
+one member's type with another member's id. This rule holds for every selector
+consumer — action rows, `policies.*` entries, and `checks.ignore` — not only
+`tool_identity` resolution. Alias ids are for resolution only and never enter
+the catalog partition. Finding
 fingerprints are v2 and include the canonical `tool_id` instead of display
 name. A v1 baseline fingerprint may match only when that legacy name resolves
 to exactly one current tool identity; the old broad check-ID/name fallback is

@@ -3,7 +3,7 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_28ea2190893a36c2
+- Run id: agents\_shipgate\_e2edfa81ffc0f70d
 - Generated at: 2026-01-01T00:00:00\+00:00
 - Packet schema: 0\.12
 
@@ -38,7 +38,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ### Review items
 
-- `SHIP-SCHEMA-FREEFORM-OUTPUT` (medium): send\_email\_preview returns free-form text output — `inventories/sdk-tools.json\#/tools/0`
+- `SHIP-SCHEMA-FREEFORM-OUTPUT` (medium): send\_email\_preview returns free-form text output — `agents/refund\_agent.py:5`
 - `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes — `shipgate.yaml:91`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): shopify.cancel\_order requires scopes not declared in the manifest — `specs/support-tools.openapi.yaml:116`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): support.search\_kb requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/0`
@@ -212,7 +212,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - **Manual review for SHIP-POLICY-CONFIRMATION-MISSING** — Declare a user confirmation policy for stripe.create\_refund or remove this action from the release.
   - Related finding(s): fp\_c762eebfadaf39d9, fp\_fae2921fd2d0cbd5
 - **Manual review for SHIP-SCHEMA-FREEFORM-OUTPUT** — Prefer a structured output schema for send\_email\_preview, especially when output is later passed back into model context.
-  - Related finding(s): fp\_a529aff56f95a538
+  - Related finding(s): fp\_70c544942ba7c6ab
 - **Manual review for SHIP-SIDEFX-IDEMPOTENCY-MISSING** — Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create\_refund.
   - Related finding(s): fp\_2cf0d6c77d9c3eee
 - **Re-run scan after resolving source warnings** — Source loaders emitted warnings; some tool surfaces may have been parsed with reduced confidence.

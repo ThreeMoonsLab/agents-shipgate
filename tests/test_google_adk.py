@@ -1522,3 +1522,157 @@ def test_prescribed_entry_parses_back_to_the_source_it_names(tmp_path, source_id
         "path": "<saved file>",
         "source_id": source_id,
     }
+
+
+def _complete_the_source(project, tmp_path, extra: str = "") -> None:
+    """Apply the prescribed remediation to an already-scanned project."""
+
+    (project / "tool-inventory.json").write_text(
+        (tmp_path / "before" / "suggested-inventory.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST
+        + extra
+        + """
+google_adk:
+  tool_inventories:
+    - path: tool-inventory.json
+      source_id: adk_agent
+""",
+        encoding="utf-8",
+    )
+
+
+def test_the_generated_action_scaffold_still_resolves_after_completion(tmp_path):
+    """#386 follow-up: test the selector Shipgate actually emits, `tool_id` and all.
+
+    The earlier regression hand-wrote `tool` + `source_id`, but
+    `_action_selector` also emits `tool_id`, and `resolve` prioritizes it.
+    Completion rekeys the canonical id, so the *generated* scaffold — the exact
+    thing the tool tells a user to paste — still broke.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(_ADK_MANIFEST, encoding="utf-8")
+
+    before, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "before",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    templates = [
+        gap.next_action.declaration_template
+        for gap in before.release_decision.evidence_coverage.evidence_gaps
+        if gap.next_action.declaration_template
+        and gap.next_action.declaration_template.get("tool") == "get_manager_email"
+    ]
+    assert templates, "expected a scaffolded action declaration to test"
+    template = templates[0]
+    # The selector under test is the emitted one, not a hand-written subset.
+    assert template["tool_id"]
+    assert template["source_id"] == "adk_agent"
+
+    declaration = f"""
+action_surface:
+  actions:
+    - tool: {json.dumps(template["tool"])}
+      tool_id: {json.dumps(template["tool_id"])}
+      source_id: {json.dumps(template["source_id"])}
+      effect: read
+      authority:
+        mode: none
+"""
+    _complete_the_source(project, tmp_path, declaration)
+
+    after, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "after",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    kinds = {
+        gap.kind for gap in after.release_decision.evidence_coverage.evidence_gaps
+    }
+    assert "unresolved_tool_selector" not in kinds
+    assert "ambiguous_tool_selector" not in kinds
+    assert "incomplete_surface" not in kinds
+
+
+def test_source_qualified_policy_and_suppression_survive_completion(tmp_path):
+    """#386 follow-up: aliases have to reach every selector consumer.
+
+    `_action_has_policy_control` and `_matching_suppression` compared the
+    canonical primary fields directly, so completing the source silently
+    un-declared a source-qualified confirmation policy — the scan then reported
+    a missing `confirmation.required` and moved to `blocked` on a manifest the
+    user never touched — and made a source-qualified `checks.ignore` inert.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    qualified = """
+action_surface:
+  actions:
+    - tool: send_email
+      source_id: adk_agent
+      effect: write
+      authority:
+        mode: none
+      approval:
+        required: true
+      safeguards:
+        audit_log: true
+
+policies:
+  require_confirmation_for_tools:
+    - tool: send_email
+      source_id: adk_agent
+
+checks:
+  ignore:
+    - check_id: SHIP-DOC-MISSING-DESCRIPTION
+      tool: send_email
+      source_id: adk_agent
+      reason: "Preview helper is documented in the runbook."
+"""
+    (project / "shipgate.yaml").write_text(_ADK_MANIFEST + qualified, encoding="utf-8")
+
+    before, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "before",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    def state(report):
+        active = {f.check_id for f in report.findings if not f.suppressed}
+        suppressed = {f.check_id for f in report.findings if f.suppressed}
+        return report.release_decision.decision, active, suppressed
+
+    before_decision, before_active, before_suppressed = state(before)
+    assert "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" not in before_active
+    assert "SHIP-DOC-MISSING-DESCRIPTION" in before_suppressed
+
+    _complete_the_source(project, tmp_path, qualified)
+
+    after, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "after",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    after_decision, after_active, after_suppressed = state(after)
+
+    # The confirmation policy still applies, so no control goes missing ...
+    assert "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING" not in after_active
+    # ... the source-qualified suppression still bites ...
+    assert "SHIP-DOC-MISSING-DESCRIPTION" in after_suppressed
+    # ... and applying the remediation did not make the verdict worse.
+    assert after_decision == before_decision

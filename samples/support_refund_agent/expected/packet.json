@@ -274,7 +274,7 @@
       },
       {
         "finding_ids": [
-          "fp_a529aff56f95a538"
+          "fp_70c544942ba7c6ab"
         ],
         "scenario": "Manual review for SHIP-SCHEMA-FREEFORM-OUTPUT",
         "why": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context."
@@ -337,19 +337,19 @@
             "capability_refs": [],
             "capability_trace_refs": [],
             "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
-            "fingerprint": "fp_a529aff56f95a538",
-            "id": "fp_a529aff56f95a538",
+            "fingerprint": "fp_70c544942ba7c6ab",
+            "id": "fp_70c544942ba7c6ab",
             "policy_evidence_source": null,
             "severity": "medium",
             "source": {
               "end_line": null,
-              "location": null,
-              "path": "inventories/sdk-tools.json",
-              "pointer": "/tools/0",
-              "ref": "inventories/sdk-tools.json",
+              "location": "agents/refund_agent.py:5",
+              "path": null,
+              "pointer": null,
+              "ref": "agents/refund_agent.py",
               "start_column": null,
               "start_line": null,
-              "type": "mcp"
+              "type": "sdk_function"
             },
             "support": null,
             "title": "send_email_preview returns free-form text output"
@@ -2488,19 +2488,19 @@
         "capability_refs": [],
         "capability_trace_refs": [],
         "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
-        "fingerprint": "fp_a529aff56f95a538",
-        "id": "fp_a529aff56f95a538",
+        "fingerprint": "fp_70c544942ba7c6ab",
+        "id": "fp_70c544942ba7c6ab",
         "policy_evidence_source": null,
         "severity": "medium",
         "source": {
           "end_line": null,
-          "location": null,
-          "path": "inventories/sdk-tools.json",
-          "pointer": "/tools/0",
-          "ref": "inventories/sdk-tools.json",
+          "location": "agents/refund_agent.py:5",
+          "path": null,
+          "pointer": null,
+          "ref": "agents/refund_agent.py",
           "start_column": null,
           "start_line": null,
-          "type": "mcp"
+          "type": "sdk_function"
         },
         "support": null,
         "title": "send_email_preview returns free-form text output"
@@ -2741,7 +2741,7 @@
     "verdict": "BLOCKED"
   },
   "request_id": null,
-  "run_id": "agents_shipgate_28ea2190893a36c2",
+  "run_id": "agents_shipgate_e2edfa81ffc0f70d",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

@@ -168,14 +168,20 @@ instead. A reviewed binding that already claims an observation always wins.
 
 Completing a source **adds** evidence and never removes it:
 
-- Rows already written against the completed source keep resolving. A selector
-  such as `{tool: lookup_case, source_id: adk_agent}` matches the merged tool,
-  because a canonical tool answers to the identity of every observation bound
-  into it — not only the inventory's.
+- Rows already written against the completed source keep resolving. A canonical
+  tool answers to the identity of every observation bound into it — its
+  `source_type`/`source_id` *and* the `tool_id` it carried while unbound — so
+  `{tool: lookup_case, tool_id: tool_v2_…, source_id: adk_agent}`, exactly as
+  Shipgate scaffolds it, still matches. The same rule applies to
+  `policies.require_*_for_tools` entries and `checks.ignore` rows.
 - Evidence only the source knew — `output_schema`, `owner`, the function
   signature, the auth type/mode/credential — is preserved wherever the
-  inventory is silent. Where both say something and they disagree, that is a
-  `conflicting_tool_identity` issue, not a silent overwrite.
+  inventory is silent, and stays traceable to the observation that supplied it:
+  a finding raised on preserved evidence cites that artifact, not the
+  inventory. Where two observations both say something and disagree, that is a
+  `conflicting_tool_identity` issue which makes the identity non-pass-eligible,
+  not a silent pick. (`auth.source` is exempt: it names the extractor that read
+  the auth record, so two readings of one capability differ by construction.)
 
 ## LangChain And CrewAI Artifacts
 

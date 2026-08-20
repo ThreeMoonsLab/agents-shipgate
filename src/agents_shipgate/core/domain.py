@@ -344,6 +344,22 @@ class Tool(BaseModel):
     owner: str | None = None
     extraction_confidence: Confidence = "low"
     extraction: dict[str, Any] = Field(default_factory=dict)
+    # Per-field donor provenance for evidence a reviewed binding preserved from
+    # a *member* observation rather than the primary one. Backfilling keeps the
+    # evidence but the row keeps the primary's locators, so a finding raised on
+    # a backfilled field would cite an artifact that does not contain it — the
+    # restored free-form-output finding pointed at an inventory JSON with no
+    # output schema at all (#386 review). Keyed by Tool field name
+    # (``output_schema``, ``auth.source``, …); values are ``SourceReference``
+    # kwargs for the observation that actually supplied the value.
+    #
+    # In-memory only, like the assessments below: report schemas expose
+    # provenance through their own versioned models, and ``tool_finding``
+    # consumes this to point a finding at its real source.
+    evidence_provenance: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        exclude=True,
+    )
     # In-memory semantic resolution. Excluded from generic Tool dumps because
     # report schemas expose this evidence through their own versioned models.
     semantic_assessment: ToolSemanticAssessment | None = Field(

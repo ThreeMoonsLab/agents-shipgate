@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
+import yaml
 
 from agents_shipgate.ci.agent_result import build_agent_result
 from agents_shipgate.ci.github_summary import write_github_step_summary
@@ -71,6 +72,7 @@ from agents_shipgate.core.evidence_actions import (
     one_line,
     primary_evidence_gap,
     undisplay_literal,
+    yaml_scalar,
 )
 from agents_shipgate.core.findings import build_agent_summary
 from agents_shipgate.core.source_warnings import (
@@ -2708,3 +2710,51 @@ def test_zero_observation_binding_member_states_the_rule_and_names_agent_binding
     assert "cannot be a tool_identity.bindings member" in message
     for name in _ADK_SYMBOLS:
         assert f"'{name}'" in message
+
+
+# --- #386 follow-up review: the emitted YAML scalar must be total ------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "adk_agent",
+        "google_adk:agents/agent,prod.py",
+        "google_adk:agents/agent#main.py",
+        "google_adk:agents/{env}.py",
+        "google_adk:agents/agent: prod.py",
+        "adk_\u00fcber",
+        # C1 controls and DEL: PyYAML rejects a stream containing these ...
+        "adk\u0080agent",
+        "adk\u009fagent",
+        "adk\u007fagent",
+        # ... and silently normalizes NEL to a space, which is worse: the
+        # remediation parsed cleanly and named a *different* source.
+        "adk\u0085agent",
+        # A path decoded with surrogateescape carries lone surrogates.
+        "adk\udcc3agent",
+    ],
+    ids=[
+        "plain",
+        "comma",
+        "hash",
+        "braces",
+        "colon-space",
+        "non-ascii",
+        "c1-pad",
+        "c1-apc",
+        "del",
+        "c1-nel",
+        "lone-surrogate",
+    ],
+)
+def test_yaml_scalar_round_trips_every_schema_legal_source_id(value: str) -> None:
+    """Guidance a user copies verbatim has to parse back to what it named.
+
+    ``ensure_ascii=False`` read better and was not total: four of these cases
+    made the prescribed entry unparseable and one silently renamed the source
+    (#386 follow-up review).
+    """
+
+    parsed = yaml.safe_load("{source_id: " + yaml_scalar(value) + "}")
+    assert parsed == {"source_id": value}

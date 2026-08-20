@@ -59,7 +59,40 @@
   The prescribed entry is also YAML-safe: source ids are unconstrained strings
   and generated framework ids embed the configured path, so a comma used to
   split `source_id: google_adk:agent,prod.py` into two keys and the exact text
-  the tool printed failed manifest validation.
+  the tool printed failed manifest validation. Encoding escapes every non-ASCII
+  code point rather than emitting it literally — PyYAML rejects a stream
+  carrying C1 controls or a lone surrogate outright, and silently normalizes
+  U+0085 NEL to a space, so an id containing NEL round-tripped to a *different*
+  id and the remediation named the wrong source.
+
+  Identity aliasing covers the whole selector surface, not just the source
+  qualifiers. Completion also rekeys the canonical `tool_id` from an
+  observation-derived hash to a binding-derived one, and `_action_selector`
+  emits `tool_id` on every row it scaffolds — so the generated declaration
+  became `unresolved_tool_selector` against the very inventory the tool had
+  just prescribed. A canonical tool now answers to the id each of its
+  observations carried while unbound, and the rule reaches every selector
+  consumer: `_action_has_policy_control` and `_matching_suppression` compared
+  the canonical fields directly, so a source-qualified
+  `require_confirmation_for_tools` entry silently stopped applying (reporting a
+  missing `confirmation.required` and moving the verdict to `blocked` on an
+  untouched manifest) and a source-qualified `checks.ignore` went inert. Alias
+  ids resolve selectors only; they never enter the catalog partition that
+  `agent_bindings` reads.
+
+  Preserved evidence is now conflict-checked and traceable. Backfilling "the
+  first non-empty value" resolved genuine disagreements by observation-id
+  order: two members reporting `owner: team-a` and `owner: team-b` produced a
+  tool owned by `team-a` with no issues and `pass_eligible=True`. Every
+  contributor to `output_schema`, `function_signature`, `owner`, and
+  `auth.credential_mode` is compared — the primary included — and more than one
+  distinct populated value is `conflicting_tool_identity`, which makes the
+  identity non-pass-eligible. (`auth.source` names the extractor that read the
+  record, not the credential, so it is preserved without being compared.) Each
+  preserved value records the observation that supplied it, and a finding
+  raised on one cites that artifact: the restored free-form-output finding now
+  points at `agents/refund_agent.py:5`, where the `-> str` actually is, instead
+  of an inventory JSON containing no output schema at all.
 
 - **An input that is not there is no longer reported as an input with the
   wrong shape, and no command creates the workspace it was asked to inspect.**

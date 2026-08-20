@@ -25,6 +25,10 @@ def run(context: ScanContext):
                     severity="medium",
                     category="schema",
                     evidence={"output_schema": tool.output_schema or {"type": "string"}},
+                    # The judged schema may have been preserved from a bound
+                    # member, in which case the reviewer needs the artifact that
+                    # declares it, not the primary's (#386 review).
+                    evidence_field="output_schema",
                     confidence="medium",
                     recommendation=(
                         f"Prefer a structured output schema for {tool.name}, especially when output "

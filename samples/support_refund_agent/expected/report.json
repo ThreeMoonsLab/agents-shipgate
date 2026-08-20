@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.34",
-  "run_id": "agents_shipgate_28ea2190893a36c2",
+  "run_id": "agents_shipgate_e2edfa81ffc0f70d",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -388,22 +388,22 @@
     ],
     "review_items": [
       {
-        "id": "fp_a529aff56f95a538",
-        "fingerprint": "fp_a529aff56f95a538",
+        "id": "fp_70c544942ba7c6ab",
+        "fingerprint": "fp_70c544942ba7c6ab",
         "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
         "severity": "medium",
         "title": "send_email_preview returns free-form text output",
         "baseline_status": null,
         "blocks_release": false,
         "source": {
-          "type": "mcp",
-          "ref": "inventories/sdk-tools.json",
-          "location": null,
-          "path": "inventories/sdk-tools.json",
+          "type": "sdk_function",
+          "ref": "agents/refund_agent.py",
+          "location": "agents/refund_agent.py:5",
+          "path": null,
           "start_line": null,
           "end_line": null,
           "start_column": null,
-          "pointer": "/tools/0"
+          "pointer": null
         },
         "policy_evidence_source": null,
         "capability_refs": [],
@@ -1109,8 +1109,8 @@
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "contribution_rules": [
       {
-        "finding_id": "fp_a529aff56f95a538",
-        "fingerprint": "fp_a529aff56f95a538",
+        "finding_id": "fp_70c544942ba7c6ab",
+        "fingerprint": "fp_70c544942ba7c6ab",
         "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
         "category": "review_item",
         "rule": "review_required",
@@ -1926,7 +1926,7 @@
       "included_reason": "referenced_by_medium_finding",
       "control_status": "partial",
       "related_findings": [
-        "fp_a529aff56f95a538"
+        "fp_70c544942ba7c6ab"
       ]
     },
     {
@@ -2958,7 +2958,7 @@
       "release_implication": "Human review is required to interpret this finding."
     },
     {
-      "id": "mis_a202dc91ce46847e",
+      "id": "mis_cca854292c69e390",
       "kind": "control_missing",
       "severity": "medium",
       "tool_name": "send_email_preview",
@@ -2967,7 +2967,7 @@
       ],
       "intention_refs": [],
       "finding_refs": [
-        "fp_a529aff56f95a538"
+        "fp_70c544942ba7c6ab"
       ],
       "policy_requirement": "Model-consumed tool outputs should be structured.",
       "gap": "send_email_preview returns free-form text output.",
@@ -3080,16 +3080,16 @@
       ]
     },
     {
-      "id": "scn_a977a73697f8d2df",
+      "id": "scn_e7b4f88cd7deb488",
       "scenario_type": "schema_boundary",
       "title": "Tool schema boundary check",
       "given": "Exercise the release path for send_email_preview.",
       "expected_control": "The tool accepts bounded structured inputs and returns structured outputs where needed.",
       "source_misalignments": [
-        "mis_a202dc91ce46847e"
+        "mis_cca854292c69e390"
       ],
       "source_findings": [
-        "fp_a529aff56f95a538"
+        "fp_70c544942ba7c6ab"
       ]
     }
   ],
@@ -5529,8 +5529,8 @@
   "baseline": null,
   "findings": [
     {
-      "id": "fp_a529aff56f95a538",
-      "fingerprint": "fp_a529aff56f95a538",
+      "id": "fp_70c544942ba7c6ab",
+      "fingerprint": "fp_70c544942ba7c6ab",
       "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
       "title": "send_email_preview returns free-form text output",
       "severity": "medium",
@@ -5541,16 +5541,20 @@
       "evidence": {
         "output_schema": {
           "type": "string"
+        },
+        "evidence_supplied_by": {
+          "field": "output_schema",
+          "source_type": "sdk_function",
+          "source_ref": "agents/refund_agent.py",
+          "source_pointer": null
         }
       },
       "confidence": "medium",
       "provenance_kind": "static_declaration",
       "source": {
-        "type": "mcp",
-        "ref": "inventories/sdk-tools.json",
-        "location": null,
-        "path": "inventories/sdk-tools.json",
-        "pointer": "/tools/0"
+        "type": "sdk_function",
+        "ref": "agents/refund_agent.py",
+        "location": "agents/refund_agent.py:5"
       },
       "policy_evidence_source": null,
       "capability_refs": [],
