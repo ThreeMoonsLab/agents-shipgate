@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import yaml
 
 from agents_shipgate.checks.adk import _has_long_running_contract
 from agents_shipgate.cli.scan import inspect_sources, run_scan
@@ -1241,6 +1242,21 @@ tool_sources:
 """
 
 
+def _inventory_entry_from(instruction: str) -> object:
+    """Parse the `- {path: ..., source_id: ...}` entry an instruction prescribes.
+
+    The remediation is only worth emitting if it can be pasted, so every test
+    that checks the text reads it through a YAML parser rather than asserting a
+    substring — a value that silently splits into two keys still contains the
+    substring (#386 review).
+    """
+
+    snippet = next(
+        part for part in instruction.split("`") if part.strip().startswith("- {")
+    )
+    return yaml.safe_load(snippet.strip().removeprefix("- "))
+
+
 def _coverage(report):
     """(catalog size, reachable tools, incomplete_surface subjects)."""
 
@@ -1294,7 +1310,12 @@ def test_prescribed_inventory_remediation_closes_the_gap_it_was_issued_for(tmp_p
         if gap.kind == "incomplete_surface"
     )
     assert "google_adk.tool_inventories" in instruction
-    assert "source_id: adk_agent" in instruction
+    # Parsed, not substring-matched: the instruction's value is that a reader
+    # can copy the entry verbatim, so the test reads it the way they would.
+    assert _inventory_entry_from(instruction) == {
+        "path": "<saved file>",
+        "source_id": "adk_agent",
+    }
 
     # Apply it exactly: save the emitted skeleton, reference it with source_id.
     skeleton = (tmp_path / "before" / "suggested-inventory.json").read_text(
@@ -1367,3 +1388,137 @@ google_adk:
     warning = report.source_warnings[0]
     assert "declares no source_id" in warning
     assert "source_id='adk_agent'" in warning
+
+
+def test_source_qualified_action_rows_survive_inventory_completion(tmp_path):
+    """#386 review: the tool's own scaffold must still resolve after its own fix.
+
+    ``_action_selector`` emits ``source_id`` on every action row it scaffolds,
+    and same-name providers *require* a source-qualified selector. Completing
+    the source rekeys the canonical tool to the inventory's identity, so without
+    member-source aliases a user who pasted Shipgate's scaffold and then applied
+    Shipgate's inventory instruction gets ``unresolved_tool_selector`` on rows
+    that resolved a minute earlier.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    declarations = """
+action_surface:
+  actions:
+    - tool: get_manager_email
+      source_id: adk_agent
+      effect: read
+      authority:
+        mode: none
+    - tool: send_email
+      source_id: adk_agent
+      effect: write
+      authority:
+        mode: none
+"""
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST + declarations, encoding="utf-8"
+    )
+
+    before, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "before",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    unresolved = {"unresolved_tool_selector", "ambiguous_tool_selector"}
+    before_kinds = {
+        gap.kind for gap in before.release_decision.evidence_coverage.evidence_gaps
+    }
+    assert not (before_kinds & unresolved)
+
+    (project / "tool-inventory.json").write_text(
+        (tmp_path / "before" / "suggested-inventory.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST
+        + declarations
+        + """
+google_adk:
+  tool_inventories:
+    - path: tool-inventory.json
+      source_id: adk_agent
+""",
+        encoding="utf-8",
+    )
+
+    after, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "after",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    evidence = after.release_decision.evidence_coverage
+    after_kinds = {gap.kind for gap in evidence.evidence_gaps}
+
+    assert not (after_kinds & unresolved), [
+        (gap.kind, gap.subject) for gap in evidence.evidence_gaps
+    ]
+    # The declarations still apply, so the gap the inventory closed stays closed
+    # rather than reappearing as an unresolved-selector row.
+    assert "incomplete_surface" not in after_kinds
+    assert evidence.semantic_coverage.pass_eligible_actions == 2
+
+
+@pytest.mark.parametrize(
+    "source_id",
+    [
+        "adk_agent",
+        "google_adk:agents/agent,prod.py",
+        "google_adk:agents/agent#main.py",
+        "google_adk:agents/{env}.py",
+        "google_adk:agents/agent: prod.py",
+    ],
+    ids=["plain", "comma", "hash", "braces", "colon-space"],
+)
+def test_prescribed_entry_parses_back_to_the_source_it_names(tmp_path, source_id: str):
+    """#386 review: an unquoted source id splits the flow mapping it sits in.
+
+    ``source_id`` is unconstrained and generated framework ids embed the
+    configured path, so a comma turned ``source_id: google_adk:agent,prod.py``
+    into ``source_id: google_adk:agent`` plus a stray ``prod.py`` key — which
+    ``extra="forbid"`` then rejects. The exact text the tool prescribed failed
+    manifest validation.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST.replace("id: adk_agent", f"id: {json.dumps(source_id)}"),
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    instruction = next(
+        gap.next_action.expects
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "incomplete_surface"
+    )
+    assert _inventory_entry_from(instruction) == {
+        "path": "<saved file>",
+        "source_id": source_id,
+    }
+
+    # The skeleton note prescribes the same entry and must survive the same way.
+    note = json.loads(
+        (tmp_path / "reports" / "suggested-inventory.json").read_text(encoding="utf-8")
+    )["note"]
+    assert _inventory_entry_from(note) == {
+        "path": "<saved file>",
+        "source_id": source_id,
+    }

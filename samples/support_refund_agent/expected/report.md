@@ -16,7 +16,8 @@ Blockers (5):
 - HIGH SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING — stripe.create\_refund has external communication capability without required controls
 - CRITICAL SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING — stripe.create\_refund has financial write capability without required controls
 
-Review items (9):
+Review items (10):
+- MEDIUM SHIP-SCHEMA-FREEFORM-OUTPUT — send\_email\_preview returns free-form text output
 - HIGH SHIP-AUTH-MANIFEST-BROAD-SCOPE — Manifest declares broad permission scopes
 - HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — shopify.cancel\_order requires scopes not declared in the manifest
 - HIGH SHIP-AUTH-SCOPE-COVERAGE-MISSING — support.search\_kb requires scopes not declared in the manifest
@@ -37,7 +38,7 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 - Critical: 3
 - High: 10
-- Medium: 1
+- Medium: 2
 - Low: 0
 - Suppressed: 0
 - Status: Release blockers detected (legacy; see Release Decision above)
@@ -70,7 +71,7 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 
 | Provenance kind | Active findings |
 | --- | ---: |
-| `static_declaration` | 14 |
+| `static_declaration` | 15 |
 | `ast_extraction` | 0 |
 | `keyword_heuristic` | 0 |
 | `regex_heuristic` | 0 |
@@ -94,7 +95,7 @@ Actual capabilities:
 
 - gmail.send\_customer\_email: capability=external\_write, risk=customer\_communication, external\_write, control=missing
 - refund\_status\_lookup: capability=read\_only, risk=read\_only, control=partial
-- send\_email\_preview: capability=read\_only, risk=read\_only, control=present
+- send\_email\_preview: capability=read\_only, risk=read\_only, control=partial
 - shopify.cancel\_order: capability=destructive, risk=destructive, write, control=missing
 - stripe.create\_refund: capability=financial\_action, risk=external\_write, financial\_action, write, control=missing
 - 1 more in report.json
@@ -116,7 +117,7 @@ Policy/control gaps:
 - HIGH policy\_gap \[gmail.send\_customer\_email\]: gmail.send\_customer\_email lacks a declared confirmation policy. (at .agents-shipgate/mcp-tools.json)
   Requires: Destructive, external, or customer actions require confirmation.
   Release implication: Release review must verify explicit user confirmation before shipping.
-- 9 more in report.json
+- 10 more in report.json
 
 Release implication:
 
@@ -130,6 +131,7 @@ Next validation:
 - High-risk tool validation case: A declared test or review scenario covers the high-risk tool path.
 - Confirmation gate for external or destructive action: The run records explicit confirmation before the side effect occurs.
 - Least-privilege scope review: Manifest and tool scopes match the narrow permissions needed for the release.
+- 1 more in report.json
 
 ## Recommended Next Actions
 
@@ -194,6 +196,10 @@ No local runtime trace artifacts were declared for capability evidence.
 - CRITICAL: SHIP-POLICY-APPROVAL-MISSING [stripe.create\_refund] - stripe.create\_refund lacks a declared approval policy
 - HIGH: SHIP-POLICY-CONFIRMATION-MISSING [gmail.send\_customer\_email] - gmail.send\_customer\_email lacks a declared confirmation policy
 - HIGH: SHIP-POLICY-CONFIRMATION-MISSING [stripe.create\_refund] - stripe.create\_refund lacks a declared confirmation policy
+
+### Schema
+
+- MEDIUM: SHIP-SCHEMA-FREEFORM-OUTPUT [send\_email\_preview] - send\_email\_preview returns free-form text output
 
 ### Side Effects
 

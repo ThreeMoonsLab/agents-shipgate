@@ -15,6 +15,7 @@ lead with can never move a verdict.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 
@@ -109,6 +110,25 @@ def _needs_escape(char: str, *, injective: bool) -> bool:
         or char in {"\u2028", "\u2029"}
         or _is_default_ignorable(char)
     )
+
+
+def yaml_scalar(value: str) -> str:
+    """Render ``value`` as a YAML scalar that parses back to exactly ``value``.
+
+    Manifest guidance interpolates identifiers a user then copies verbatim, and
+    a source id is an unconstrained string that commonly embeds the configured
+    path (``google_adk:agents/agent.py``). Written bare into a flow mapping, a
+    value containing ``,`` splits into two keys — ``source_id: google_adk:agent``
+    plus a stray ``prod.py`` — so the exact text the tool prescribed fails
+    manifest validation under ``extra="forbid"`` (#386 review). ``#``, ``{``,
+    ``}``, ``:`` and leading indicators are the same class of hazard.
+
+    JSON strings are a subset of both YAML 1.1 and 1.2 double-quoted scalars,
+    escape sequences included, so ``json.dumps`` is a total encoder here. ``ensure_ascii=False`` keeps non-ASCII identifiers readable rather
+    than escaping them.
+    """
+
+    return json.dumps(value, ensure_ascii=False)
 
 
 def display_literal(value: str) -> str:
@@ -420,6 +440,7 @@ def evidence_gap_accepted_values(gap: EvidenceGap) -> list[str]:
 
 
 __all__ = [
+    "yaml_scalar",
     "actionable_evidence_gaps",
     "display_literal",
     "undisplay_literal",

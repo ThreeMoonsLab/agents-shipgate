@@ -274,6 +274,13 @@
       },
       {
         "finding_ids": [
+          "fp_a529aff56f95a538"
+        ],
+        "scenario": "Manual review for SHIP-SCHEMA-FREEFORM-OUTPUT",
+        "why": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context."
+      },
+      {
+        "finding_ids": [
           "fp_2cf0d6c77d9c3eee"
         ],
         "scenario": "Manual review for SHIP-SIDEFX-IDEMPOTENCY-MISSING",
@@ -315,12 +322,39 @@
         "blocking_findings": [],
         "confidence": "medium",
         "domain": "Schema",
-        "evidence_present": "covered",
+        "evidence_present": "partial",
         "evidence_source": [
-          "tool_surface_facts.tools[].hashes"
+          "tool_surface_facts.tools[].hashes",
+          "findings[]"
         ],
-        "missing_controls": [],
-        "review_items": []
+        "missing_controls": [
+          "SHIP-SCHEMA-FREEFORM-OUTPUT on send_email_preview: send_email_preview returns free-form text output"
+        ],
+        "review_items": [
+          {
+            "baseline_status": null,
+            "blocks_release": false,
+            "capability_refs": [],
+            "capability_trace_refs": [],
+            "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+            "fingerprint": "fp_a529aff56f95a538",
+            "id": "fp_a529aff56f95a538",
+            "policy_evidence_source": null,
+            "severity": "medium",
+            "source": {
+              "end_line": null,
+              "location": null,
+              "path": "inventories/sdk-tools.json",
+              "pointer": "/tools/0",
+              "ref": "inventories/sdk-tools.json",
+              "start_column": null,
+              "start_line": null,
+              "type": "mcp"
+            },
+            "support": null,
+            "title": "send_email_preview returns free-form text output"
+          }
+        ]
       },
       {
         "blocking_findings": [],
@@ -2453,6 +2487,29 @@
         "blocks_release": false,
         "capability_refs": [],
         "capability_trace_refs": [],
+        "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+        "fingerprint": "fp_a529aff56f95a538",
+        "id": "fp_a529aff56f95a538",
+        "policy_evidence_source": null,
+        "severity": "medium",
+        "source": {
+          "end_line": null,
+          "location": null,
+          "path": "inventories/sdk-tools.json",
+          "pointer": "/tools/0",
+          "ref": "inventories/sdk-tools.json",
+          "start_column": null,
+          "start_line": null,
+          "type": "mcp"
+        },
+        "support": null,
+        "title": "send_email_preview returns free-form text output"
+      },
+      {
+        "baseline_status": null,
+        "blocks_release": false,
+        "capability_refs": [],
+        "capability_trace_refs": [],
         "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
         "fingerprint": "fp_df4a990cca9f936b",
         "id": "fp_df4a990cca9f936b",
@@ -2684,7 +2741,7 @@
     "verdict": "BLOCKED"
   },
   "request_id": null,
-  "run_id": "agents_shipgate_e25de5ef59b7d500",
+  "run_id": "agents_shipgate_28ea2190893a36c2",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

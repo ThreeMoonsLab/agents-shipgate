@@ -875,7 +875,13 @@ bindings join nothing and prevent `passed`.
 
 One-to-one manifest selectors now accept `tool_id`, `provider`, `source_type`,
 and `source_id`. A bare name that matches more than one provider applies
-nowhere and becomes an unsuppressible identity evidence gap. Finding
+nowhere and becomes an unsuppressible identity evidence gap. A canonical tool
+answers to the `source_type`/`source_id` of **any observation bound into it**,
+not only its primary's: a reviewed binding (or a
+`tool_inventories[].source_id` completion) must not silently rekey the identity
+that an already-written source-qualified row names. Both qualifiers, when given
+together, must be satisfied by the same observation, so a selector cannot pair
+one member's type with another member's id. Finding
 fingerprints are v2 and include the canonical `tool_id` instead of display
 name. A v1 baseline fingerprint may match only when that legacy name resolves
 to exactly one current tool identity; the old broad check-ID/name fallback is

@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -50,6 +51,35 @@ class SelectorResolution:
         return len(self.matches) == 1 and self.kind is None
 
 
+def _source_identities(tool: Tool) -> frozenset[tuple[str, str]]:
+    """Every ``(source_type, source_id)`` this canonical tool was observed as.
+
+    A merged tool keeps only its *primary* observation's source fields, so a
+    reviewed binding silently rekeys the identity a source-qualified selector
+    names: ``{tool: lookup, source_id: adk_agent}`` resolves before an inventory
+    completes ``adk_agent`` and matches nothing after, because the merged tool
+    now reads ``source_id: google_adk_inventory:...``. Shipgate emits
+    source-qualified action rows itself, so the tool's own scaffold stopped
+    resolving against the tool's own remediation (#386 review).
+
+    A canonical tool *is* the union of its observations, so every member's pair
+    identifies it. Read from ``identity_assessment``, whose claims carry one
+    entry per bound member; tools built outside the catalog have none and fall
+    back to their own pair.
+    """
+
+    assessment = tool.identity_assessment
+    pairs = {(tool.source_type, tool.source_id or "")}
+    if assessment is not None:
+        for claim in assessment.claims:
+            evidence = claim.evidence or {}
+            source_type = evidence.get("source_type")
+            if isinstance(source_type, str):
+                source_id = evidence.get("source_id")
+                pairs.add((source_type, source_id if isinstance(source_id, str) else ""))
+    return frozenset(pairs)
+
+
 @dataclass(frozen=True)
 class ToolSelectorIndex:
     """One-pass lookup index for repeated manifest selector resolution."""
@@ -57,6 +87,8 @@ class ToolSelectorIndex:
     tools: tuple[Tool, ...]
     by_id: dict[str, Tool]
     by_name: dict[str, tuple[Tool, ...]]
+    #: Per tool id, the source identities a selector may name it by.
+    source_identities: dict[str, frozenset[tuple[str, str]]]
 
     @classmethod
     def build(cls, tools: Sequence[Tool]) -> ToolSelectorIndex:
@@ -70,6 +102,24 @@ class ToolSelectorIndex:
                 name: tuple(sorted(matches, key=lambda tool: tool.id))
                 for name, matches in by_name.items()
             },
+            source_identities={tool.id: _source_identities(tool) for tool in tools},
+        )
+
+    def _matches_source(
+        self, tool: Tool, source_type: str | None, source_id: str | None
+    ) -> bool:
+        """Does one of this tool's observations answer to the qualifiers given?
+
+        Both qualifiers must be satisfied by the *same* observation. Checking
+        them independently would let a selector pair one member's source_type
+        with another's source_id and match a tool neither describes.
+        """
+
+        pairs = self.source_identities.get(tool.id) or _source_identities(tool)
+        return any(
+            (source_type is None or pair[0] == source_type)
+            and (source_id is None or pair[1] == source_id)
+            for pair in pairs
         )
 
     def resolve(self, selector: Any) -> SelectorResolution:
@@ -92,12 +142,12 @@ class ToolSelectorIndex:
             )
         if provider:
             candidates = tuple(tool for tool in candidates if tool.provider == provider)
-        if source_type:
+        if source_type or source_id:
             candidates = tuple(
-                tool for tool in candidates if tool.source_type == source_type
+                tool
+                for tool in candidates
+                if self._matches_source(tool, source_type or None, source_id or None)
             )
-        if source_id:
-            candidates = tuple(tool for tool in candidates if tool.source_id == source_id)
 
         if len(candidates) == 1:
             return SelectorResolution((candidates[0],))
@@ -630,7 +680,59 @@ def _merge_bound_observations(primary: Tool, members: list[Tool]) -> tuple[Tool,
             alternative.model_copy(deep=True) for alternative in member.auth.alternatives
         )
         merged.auth.invalid_annotations.extend(member.auth.invalid_annotations)
+        _backfill_from_member(merged, member)
     return merged, issues
+
+
+#: Tool fields a member may fill in when the primary has nothing there. Source
+#: identity (``source_type``/``source_id``/locators) is deliberately absent:
+#: the canonical row keeps the primary's identity, and a selector naming
+#: another member resolves through ``_source_identities`` instead.
+_BACKFILL_FIELDS: tuple[str, ...] = (
+    "description",
+    "input_schema",
+    "output_schema",
+    "parameters",
+    "function_signature",
+    "owner",
+)
+_BACKFILL_AUTH_FIELDS: tuple[str, ...] = ("type", "credential_mode", "source")
+
+
+def _backfill_from_member(merged: Tool, member: Tool) -> None:
+    """Fill gaps in the primary from a member; never overwrite what it has.
+
+    A binding promotes the primary's *extraction fidelity* — that is the whole
+    point of naming a reviewed inventory as primary — but the merge started
+    from the primary and copied nothing else across, so completing a source
+    also erased that source's own evidence. An n8n tool with ``apiKey`` /
+    ``unscoped`` auth, an output schema, and an owner came back high-confidence
+    with unknown auth, ``{}`` output, and no owner: the closed
+    ``incomplete_surface`` gap was replaced by ``partial_authority_evidence``,
+    which is the same non-monotonic trade #386 is about (#386 review).
+
+    Only empty slots are filled, so the reviewed observation still wins wherever
+    it actually says something. Disagreements between two populated values are
+    not silently resolved here — ``input_schema``, ``auth.type`` and
+    ``auth.mode`` already raise ``conflicting_tool_identity`` above, and this
+    runs after those checks.
+    """
+
+    for field in _BACKFILL_FIELDS:
+        if not getattr(merged, field):
+            value = getattr(member, field)
+            if value:
+                setattr(merged, field, deepcopy(value))
+    for field in _BACKFILL_AUTH_FIELDS:
+        if not getattr(merged.auth, field):
+            value = getattr(member.auth, field)
+            if value:
+                setattr(merged.auth, field, value)
+    # ``unknown`` is the absence of an authority claim, not a claim of none.
+    if merged.auth.mode == "unknown" and member.auth.mode != "unknown":
+        merged.auth.mode = member.auth.mode
+    if not merged.auth.explicit and member.auth.explicit:
+        merged.auth.explicit = True
 
 
 def _schema_signature(schema: Any) -> Any:

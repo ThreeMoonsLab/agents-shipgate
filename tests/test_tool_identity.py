@@ -549,3 +549,181 @@ def test_a_reviewed_binding_outranks_the_desugared_one() -> None:
     # override that choice by adding a competing binding.
     assert tools[0].provider == "reviewed_provider"
     assert tools[0].identity_assessment.binding_id == "reviewed"
+
+
+# --- #386 review: completion must not rekey or hollow out the tool -----------
+
+
+def _n8n_source(source_id: str, name: str) -> LoadedToolSource:
+    """A medium-confidence tool carrying evidence only the source knows."""
+
+    return LoadedToolSource(
+        source_id=source_id,
+        source_type="n8n",
+        tools=[
+            Tool(
+                id=f"tool:{name}",
+                name=name,
+                source_type="n8n_http_request_tool",
+                source_id=source_id,
+                source_ref="workflows/agent.json",
+                description="Call the billing API.",
+                output_schema={
+                    "type": "object",
+                    "properties": {"invoice_id": {"type": "string"}},
+                },
+                owner="billing-team",
+                function_signature=f"{name}(invoice_id: str) -> dict",
+                auth=AuthInfo(
+                    type="apiKey",
+                    mode="unscoped",
+                    credential_mode="static",
+                    source="workflow_credentials",
+                    explicit=True,
+                ),
+                extraction_confidence="medium",
+            )
+        ],
+    )
+
+
+def _n8n_inventory(path: str, name: str, *, completes: str) -> LoadedToolSource:
+    """A reviewed inventory that says nothing about auth, output, or owner."""
+
+    source_id = f"n8n_inventory:{path}"
+    return LoadedToolSource(
+        source_id=source_id,
+        source_type="n8n_inventory",
+        is_tool_inventory=True,
+        completes_source_id=completes,
+        tools=[
+            Tool(
+                id=f"inv:{name}",
+                name=name,
+                source_type="n8n_inventory",
+                source_id=source_id,
+                source_ref=path,
+                extraction_confidence="high",
+            )
+        ],
+    )
+
+
+def test_completion_keeps_the_completed_source_as_a_selector_identity() -> None:
+    """A source-qualified selector must survive the prescribed remediation.
+
+    Making the inventory ``primary`` rekeys the canonical tool's ``source_id``.
+    Shipgate emits source-qualified action rows itself, so without member-source
+    aliases its own scaffold stops resolving the moment the user applies its own
+    inventory instruction (#386 review).
+    """
+
+    before, _ = build_tool_identity_catalog(
+        [_adk_source("adk_agent", "get_manager_email")], ToolIdentityConfig()
+    )
+    after, _ = build_tool_identity_catalog(
+        [
+            _adk_source("adk_agent", "get_manager_email"),
+            _adk_inventory(
+                "tool-inventory.json", "get_manager_email", completes="adk_agent"
+            ),
+        ],
+        ToolIdentityConfig(),
+    )
+
+    selector = {"tool": "get_manager_email", "source_id": "adk_agent"}
+    assert resolve_tool_selector(before, selector).resolved
+    assert resolve_tool_selector(after, selector).resolved
+    # The inventory's own identity resolves too, as does the pre-merge type.
+    assert resolve_tool_selector(
+        after, {"tool": "get_manager_email", "source_type": "google_adk_function"}
+    ).resolved
+    assert resolve_tool_selector(
+        after,
+        {
+            "tool": "get_manager_email",
+            "source_id": "google_adk_inventory:tool-inventory.json",
+        },
+    ).resolved
+
+
+def test_source_qualifiers_must_be_satisfied_by_one_observation() -> None:
+    """Aliasing widens identity, it does not let qualifiers be mixed and matched.
+
+    Checking ``source_type`` and ``source_id`` independently would resolve a
+    selector pairing one member's type with another member's id — a tool
+    neither observation describes.
+    """
+
+    tools, _ = build_tool_identity_catalog(
+        [
+            _adk_source("adk_agent", "get_manager_email"),
+            _adk_inventory(
+                "tool-inventory.json", "get_manager_email", completes="adk_agent"
+            ),
+        ],
+        ToolIdentityConfig(),
+    )
+
+    crossed = resolve_tool_selector(
+        tools,
+        {
+            "tool": "get_manager_email",
+            "source_type": "google_adk_function",
+            "source_id": "google_adk_inventory:tool-inventory.json",
+        },
+    )
+    assert not crossed.resolved
+    assert crossed.kind == "unresolved_tool_selector"
+
+
+def test_completion_raises_confidence_without_erasing_source_evidence() -> None:
+    """Completion must add extraction fidelity, not trade one gap for another.
+
+    The merge starts from the primary, so a reviewed inventory that is silent
+    about auth, output schema, and ownership used to overwrite all three with
+    nothing — closing ``incomplete_surface`` and opening
+    ``partial_authority_evidence`` in its place (#386 review).
+    """
+
+    tools, warnings = build_tool_identity_catalog(
+        [
+            _n8n_source("n8n_agent", "create_invoice"),
+            _n8n_inventory("inv.json", "create_invoice", completes="n8n_agent"),
+        ],
+        ToolIdentityConfig(),
+    )
+
+    assert warnings == []
+    (tool,) = tools
+    # Raised by the inventory ...
+    assert tool.extraction_confidence == "high"
+    assert tool.source_type == "n8n_inventory"
+    # ... without dropping what only the source knew.
+    assert tool.auth.type == "apiKey"
+    assert tool.auth.mode == "unscoped"
+    assert tool.auth.credential_mode == "static"
+    assert tool.auth.source == "workflow_credentials"
+    assert tool.auth.explicit is True
+    assert tool.owner == "billing-team"
+    assert tool.output_schema["properties"] == {"invoice_id": {"type": "string"}}
+    assert tool.function_signature == "create_invoice(invoice_id: str) -> dict"
+    assert tool.description == "Call the billing API."
+
+
+def test_backfill_never_overwrites_what_the_reviewed_primary_states() -> None:
+    """Only empty slots are filled; the reviewed observation still wins."""
+
+    inventory = _n8n_inventory("inv.json", "create_invoice", completes="n8n_agent")
+    inventory.tools[0].owner = "security-team"
+    inventory.tools[0].auth = AuthInfo(type="oauth2", mode="scoped", scopes=["billing"])
+    source = _n8n_source("n8n_agent", "create_invoice")
+
+    tools, _ = build_tool_identity_catalog([source, inventory], ToolIdentityConfig())
+
+    (tool,) = tools
+    assert tool.owner == "security-team"
+    assert tool.auth.type == "oauth2"
+    # Two populated, disagreeing values are a conflict, not a silent pick.
+    issues = {issue.kind for issue in tool.identity_assessment.issues}
+    assert "conflicting_tool_identity" in issues

@@ -18,6 +18,7 @@ from agents_shipgate.core.current_control import (
     publish_current_control,
 )
 from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.evidence_actions import yaml_scalar
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.packet.builder import build_packet
 from agents_shipgate.schemas.current_control import (
@@ -216,12 +217,14 @@ def _inventory_reference_note(low_confidence: list[Tool]) -> str:
         key, source_id = bindable[0]
         return (
             f"reference it from `{key}` in shipgate.yaml as "
-            f"`- {{path: <saved file>, source_id: {source_id}}}` — without "
-            "`source_id` the inventory is an independent source, added beside "
-            "the extracted tools instead of completing them, and the gap that "
-            "asked for it stays open"
+            f"`- {{path: <saved file>, source_id: {yaml_scalar(source_id)}}}` — "
+            "without `source_id` the inventory is an independent source, added "
+            "beside the extracted tools instead of completing them, and the gap "
+            "that asked for it stays open"
         )
-    pairs = ", ".join(f"{key} -> source_id: {source_id}" for key, source_id in bindable)
+    pairs = ", ".join(
+        f"{key} -> source_id: {yaml_scalar(source_id)}" for key, source_id in bindable
+    )
     return (
         "split it per source, then reference each file from the matching "
         "tool_inventories key in shipgate.yaml with the `source_id` of the "

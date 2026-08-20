@@ -13,6 +13,7 @@ from agents_shipgate.core.evidence_actions import (
     evidence_gap_headline,
     evidence_gap_target,
     primary_evidence_gap,
+    yaml_scalar,
 )
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
@@ -419,7 +420,7 @@ def _inventory_remediation(
     """
 
     binding = (
-        f"`- {{path: <saved file>, source_id: {source_id}}}`"
+        f"`- {{path: <saved file>, source_id: {yaml_scalar(source_id)}}}`"
         if source_id
         else "an entry carrying `source_id: <the source above>`"
     )

@@ -3,7 +3,7 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_e25de5ef59b7d500
+- Run id: agents\_shipgate\_28ea2190893a36c2
 - Generated at: 2026-01-01T00:00:00\+00:00
 - Packet schema: 0\.12
 
@@ -14,7 +14,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 - Decision: `blocked`
 - Reason: 5 active findings block release.
 - Blockers: 5
-- Review items: 9
+- Review items: 10
 
 ### CI gate behavior (informational)
 
@@ -38,6 +38,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 
 ### Review items
 
+- `SHIP-SCHEMA-FREEFORM-OUTPUT` (medium): send\_email\_preview returns free-form text output — `inventories/sdk-tools.json\#/tools/0`
 - `SHIP-AUTH-MANIFEST-BROAD-SCOPE` (high): Manifest declares broad permission scopes — `shipgate.yaml:91`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): shopify.cancel\_order requires scopes not declared in the manifest — `specs/support-tools.openapi.yaml:116`
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` (high): support.search\_kb requires scopes not declared in the manifest — `.agents-shipgate/mcp-tools.json\#/tools/0`
@@ -55,7 +56,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 | Domain | Evidence present | Evidence source | Confidence | Missing controls | Blocking findings | Review items |
 |---|---|---|---|---|---|---|
 | Inventory | covered | tool\_inventory; tool\_surface; \+1 more | medium | — | — | — |
-| Schema | covered | tool\_surface\_facts.tools\[\].hashes | medium | — | — | — |
+| Schema | partial | tool\_surface\_facts.tools\[\].hashes; findings\[\] | medium | SHIP-SCHEMA-FREEFORM-OUTPUT on send\_email\_preview: send\_email\_preview returns free-form text output | — | SHIP-SCHEMA-FREEFORM-OUTPUT \(medium\) |
 | Auth | partial | tool\_surface\_facts.scopes; tool\_inventory\[\].auth\_scopes; \+1 more | mixed | SHIP-AUTH-MANIFEST-BROAD-SCOPE: Manifest declares broad permission scopes; SHIP-AUTH-SCOPE-COVERAGE-MISSING on shopify.cancel\_order: shopify.cancel\_order requires scopes not declared in the manifest; \+4 more | — | SHIP-AUTH-MANIFEST-BROAD-SCOPE \(high\); SHIP-AUTH-SCOPE-COVERAGE-MISSING \(high\); \+4 more |
 | Approval | partial | tool\_surface\_facts.controls\[kind=approval\_policy\]; findings\[\] | high | SHIP-POLICY-APPROVAL-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared approval policy; SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING on stripe.create\_refund: stripe.create\_refund has financial write capability without required controls | SHIP-POLICY-APPROVAL-MISSING \(critical\); SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING \(critical\) | — |
 | Confirmation | partial | tool\_surface\_facts.controls\[kind=confirmation\_policy\]; findings\[\] | high | SHIP-POLICY-CONFIRMATION-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared confirmation policy; SHIP-POLICY-CONFIRMATION-MISSING on gmail.send\_customer\_email: gmail.send\_customer\_email lacks a declared confirmation policy | — | SHIP-POLICY-CONFIRMATION-MISSING \(high\); SHIP-POLICY-CONFIRMATION-MISSING \(high\) |
@@ -210,6 +211,8 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
   - Related finding(s): fp\_973ea0ef2110ca9a
 - **Manual review for SHIP-POLICY-CONFIRMATION-MISSING** — Declare a user confirmation policy for stripe.create\_refund or remove this action from the release.
   - Related finding(s): fp\_c762eebfadaf39d9, fp\_fae2921fd2d0cbd5
+- **Manual review for SHIP-SCHEMA-FREEFORM-OUTPUT** — Prefer a structured output schema for send\_email\_preview, especially when output is later passed back into model context.
+  - Related finding(s): fp\_a529aff56f95a538
 - **Manual review for SHIP-SIDEFX-IDEMPOTENCY-MISSING** — Add an idempotency key, idempotent annotation, or declared idempotency policy for stripe.create\_refund.
   - Related finding(s): fp\_2cf0d6c77d9c3eee
 - **Re-run scan after resolving source warnings** — Source loaders emitted warnings; some tool surfaces may have been parsed with reduced confidence.

@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "0.34",
-  "run_id": "agents_shipgate_e25de5ef59b7d500",
+  "run_id": "agents_shipgate_28ea2190893a36c2",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -82,7 +82,7 @@
     "status": "release_blockers_detected",
     "critical_count": 3,
     "high_count": 10,
-    "medium_count": 1,
+    "medium_count": 2,
     "low_count": 0,
     "info_count": 0,
     "suppressed_count": 0,
@@ -388,6 +388,29 @@
     ],
     "review_items": [
       {
+        "id": "fp_a529aff56f95a538",
+        "fingerprint": "fp_a529aff56f95a538",
+        "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+        "severity": "medium",
+        "title": "send_email_preview returns free-form text output",
+        "baseline_status": null,
+        "blocks_release": false,
+        "source": {
+          "type": "mcp",
+          "ref": "inventories/sdk-tools.json",
+          "location": null,
+          "path": "inventories/sdk-tools.json",
+          "start_line": null,
+          "end_line": null,
+          "start_column": null,
+          "pointer": "/tools/0"
+        },
+        "policy_evidence_source": null,
+        "capability_refs": [],
+        "capability_trace_refs": [],
+        "support": null
+      },
+      {
         "id": "fp_df4a990cca9f936b",
         "fingerprint": "fp_df4a990cca9f936b",
         "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
@@ -640,23 +663,7 @@
               "correct_source_wiring"
             ],
             "suggested_patch_kind": "manual",
-            "declaration_template": {
-              "agent_bindings": {
-                "root": {
-                  "source_id": "<REVIEW_REQUIRED>",
-                  "object": "<REVIEW_REQUIRED>"
-                },
-                "declarations": [
-                  {
-                    "agent": "root",
-                    "complete": true,
-                    "tools": [],
-                    "handoffs": [],
-                    "reason": "<REVIEW_REQUIRED>"
-                  }
-                ]
-              }
-            },
+            "declaration_template": null,
             "auto_apply": false,
             "requires_human_review": true
           }
@@ -1101,6 +1108,14 @@
     "runtime_behavior_verified": false,
     "static_verdict_disclaimer": "This verdict covers deterministic static evidence only. Agents Shipgate did not execute the agent or prove runtime behavior, tool routing, credential enforcement, or safety.",
     "contribution_rules": [
+      {
+        "finding_id": "fp_a529aff56f95a538",
+        "fingerprint": "fp_a529aff56f95a538",
+        "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+        "category": "review_item",
+        "rule": "review_required",
+        "rationale": "requires_human_review=true (severity=medium); routed to review_items."
+      },
       {
         "finding_id": "fp_df4a990cca9f936b",
         "fingerprint": "fp_df4a990cca9f936b",
@@ -1908,9 +1923,11 @@
       ],
       "auth_scopes": [],
       "owner": null,
-      "included_reason": "high_risk_tag",
-      "control_status": "present",
-      "related_findings": []
+      "included_reason": "referenced_by_medium_finding",
+      "control_status": "partial",
+      "related_findings": [
+        "fp_a529aff56f95a538"
+      ]
     },
     {
       "id": "cap_fd7aa0505dafb1dc",
@@ -2941,6 +2958,22 @@
       "release_implication": "Human review is required to interpret this finding."
     },
     {
+      "id": "mis_a202dc91ce46847e",
+      "kind": "control_missing",
+      "severity": "medium",
+      "tool_name": "send_email_preview",
+      "capability_refs": [
+        "cap_26b4e442907a45af"
+      ],
+      "intention_refs": [],
+      "finding_refs": [
+        "fp_a529aff56f95a538"
+      ],
+      "policy_requirement": "Model-consumed tool outputs should be structured.",
+      "gap": "send_email_preview returns free-form text output.",
+      "release_implication": "Downstream model behavior may depend on unstructured tool output."
+    },
+    {
       "id": "mis_92f53a03869ff1ac",
       "kind": "scope_drift",
       "severity": "medium",
@@ -2959,7 +2992,7 @@
     "decision": "blocked",
     "summary": "5 release-relevant finding(s) map to active release blockers; resolve required controls or remove the capability.",
     "blocker_misalignment_count": 5,
-    "review_misalignment_count": 9,
+    "review_misalignment_count": 10,
     "fail_policy": {
       "ci_mode": "advisory",
       "fail_on": [],
@@ -3045,6 +3078,19 @@
         "fp_609d62f4dc434961",
         "fp_df4a990cca9f936b"
       ]
+    },
+    {
+      "id": "scn_a977a73697f8d2df",
+      "scenario_type": "schema_boundary",
+      "title": "Tool schema boundary check",
+      "given": "Exercise the release path for send_email_preview.",
+      "expected_control": "The tool accepts bounded structured inputs and returns structured outputs where needed.",
+      "source_misalignments": [
+        "mis_a202dc91ce46847e"
+      ],
+      "source_findings": [
+        "fp_a529aff56f95a538"
+      ]
     }
   ],
   "tool_surface": {
@@ -3105,7 +3151,7 @@
           "source_ref": "96ad0463be0ce3be",
           "description": "b19abbe1e1027c2f",
           "input_schema": "f4cfd236c5b193ec",
-          "output_schema": "44136fa355b3678a",
+          "output_schema": "38a346cadbd38205",
           "parameters": "4f1df264bfa081ee",
           "annotations": "ee3a832fe30bb286"
         }
@@ -5483,6 +5529,47 @@
   "baseline": null,
   "findings": [
     {
+      "id": "fp_a529aff56f95a538",
+      "fingerprint": "fp_a529aff56f95a538",
+      "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+      "title": "send_email_preview returns free-form text output",
+      "severity": "medium",
+      "category": "schema",
+      "tool_id": "tool_v2_2c9ee6ae2b9f0259ba2dad40a30fb18a8bdc3a732ffc207936fdd49c80e1bc9e",
+      "tool_name": "send_email_preview",
+      "agent_id": "agent:support-refund-agent/refund-assistant",
+      "evidence": {
+        "output_schema": {
+          "type": "string"
+        }
+      },
+      "confidence": "medium",
+      "provenance_kind": "static_declaration",
+      "source": {
+        "type": "mcp",
+        "ref": "inventories/sdk-tools.json",
+        "location": null,
+        "path": "inventories/sdk-tools.json",
+        "pointer": "/tools/0"
+      },
+      "policy_evidence_source": null,
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "support": null,
+      "capability_trace_refs": [],
+      "recommendation": "Prefer a structured output schema for send_email_preview, especially when output is later passed back into model context.",
+      "blocks_release": false,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": true,
+      "suggested_patch_kind": "manual",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-schema-freeform-output",
+      "agent_action": "escalate_to_human"
+    },
+    {
       "id": "fp_df4a990cca9f936b",
       "fingerprint": "fp_df4a990cca9f936b",
       "check_id": "SHIP-AUTH-MANIFEST-BROAD-SCOPE",
@@ -6557,8 +6644,8 @@
     "Add the required scopes for support.search_kb to permissions.scopes or narrow the tool's declared auth requirements."
   ],
   "generated_reports": {
-    "markdown": "/private/tmp/shipgate-goldens/support/report.md",
-    "json": "/private/tmp/shipgate-goldens/support/report.json"
+    "markdown": "expected/report.md",
+    "json": "expected/report.json"
   },
   "loaded_policy_packs": [],
   "loaded_plugins": [],
@@ -10680,11 +10767,11 @@
   ],
   "agent_summary": {
     "verdict": "blocked",
-    "headline": "5 active finding(s) block release; 9 review item(s) accepted as debt.",
+    "headline": "5 active finding(s) block release; 10 review item(s) accepted as debt.",
     "blocker_count": 5,
-    "review_item_count": 9,
+    "review_item_count": 10,
     "auto_appliable_patches": 0,
-    "needs_human_review": 14,
+    "needs_human_review": 15,
     "first_recommended_action": {
       "kind": "info",
       "command": null,
@@ -10720,9 +10807,9 @@
   },
   "reviewer_summary": {
     "verdict": "blocked",
-    "headline": "Release blocked: 14 lens changes. Start at release_decision.",
+    "headline": "Release blocked: 15 lens changes. Start at release_decision.",
     "tool_surface_changes": 0,
-    "capability_misalignments": 14,
+    "capability_misalignments": 15,
     "action_surface_changes": 0,
     "evidence_matrix_gaps": 0,
     "severity_overrides_applied": 0,
@@ -10769,7 +10856,7 @@
     "by_severity": {
       "critical": 3,
       "high": 10,
-      "medium": 1
+      "medium": 2
     },
     "by_reason_code": {
       "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING": 2,
@@ -10781,6 +10868,7 @@
       "SHIP-MANIFEST-UNUSED-SCOPE": 1,
       "SHIP-POLICY-APPROVAL-MISSING": 1,
       "SHIP-POLICY-CONFIRMATION-MISSING": 2,
+      "SHIP-SCHEMA-FREEFORM-OUTPUT": 1,
       "SHIP-SIDEFX-IDEMPOTENCY-MISSING": 1
     },
     "capability_delta_summary": {

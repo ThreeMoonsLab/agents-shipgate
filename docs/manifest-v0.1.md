@@ -166,6 +166,17 @@ as `tool_identity.bindings`. Where a source exposes one name twice, no join is
 implied and the scan asks for an explicit `tool_identity.bindings` entry
 instead. A reviewed binding that already claims an observation always wins.
 
+Completing a source **adds** evidence and never removes it:
+
+- Rows already written against the completed source keep resolving. A selector
+  such as `{tool: lookup_case, source_id: adk_agent}` matches the merged tool,
+  because a canonical tool answers to the identity of every observation bound
+  into it — not only the inventory's.
+- Evidence only the source knew — `output_schema`, `owner`, the function
+  signature, the auth type/mode/credential — is preserved wherever the
+  inventory is silent. Where both say something and they disagree, that is a
+  `conflicting_tool_identity` issue, not a silent overwrite.
+
 ## LangChain And CrewAI Artifacts
 
 LangChain/LangGraph and CrewAI support is local-only and static-only. Agents

@@ -33,6 +33,34 @@
   rather than degrading in silence. Inventories that genuinely describe a
   separate surface keep working unchanged.
 
+  Completion adds evidence and never removes it. A canonical tool now answers
+  to the `source_type`/`source_id` of **any observation bound into it**, so an
+  `action_surface` row already written against the completed source — including
+  one Shipgate scaffolded itself, which qualifies rows by `source_id` — keeps
+  resolving instead of becoming `unresolved_tool_selector` the moment the
+  inventory is applied. Both qualifiers, given together, must still be
+  satisfied by the same observation. Merging also backfills what only the
+  source knew (`output_schema`, `owner`, function signature, auth
+  type/mode/credential) wherever the reviewed inventory is silent; previously a
+  completed n8n tool came back high-confidence with unknown auth and no owner,
+  trading the closed `incomplete_surface` gap for a
+  `partial_authority_evidence` one. Disagreements between two populated values
+  remain `conflicting_tool_identity` rather than a silent overwrite.
+
+  That erasure was also *suppressing findings*, not only degrading evidence.
+  `samples/support_refund_agent` binds a `-> str` SDK function to a reviewed
+  inventory that is silent about output, and the merge dropped both the
+  AST-derived `{"type": "string"}` schema and the `sdk_function` source type
+  that `SHIP-SCHEMA-FREEFORM-OUTPUT` falls back on — so the shipped golden
+  recorded no free-form-output finding for a tool that plainly returns
+  free-form text. The finding is restored (one new MEDIUM review item; the
+  sample's verdict and its five blockers are unchanged).
+
+  The prescribed entry is also YAML-safe: source ids are unconstrained strings
+  and generated framework ids embed the configured path, so a comma used to
+  split `source_id: google_adk:agent,prod.py` into two keys and the exact text
+  the tool printed failed manifest validation.
+
 - **An input that is not there is no longer reported as an input with the
   wrong shape, and no command creates the workspace it was asked to inspect.**
   Three reports, one class. `verify --preview` given a `--workspace` that did
