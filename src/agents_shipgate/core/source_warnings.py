@@ -184,6 +184,96 @@ def unknown_binding_member_source(source_id: str, tool: str) -> str:
     )
 
 
+def _quoted_list(values: Sequence[str], *, limit: int = 8) -> str:
+    """Render a capped, deterministic list of identifiers for a warning."""
+
+    shown = [repr(value) for value in values[:limit]]
+    remainder = len(values) - len(shown)
+    return _join(shown) + (f" (+{remainder} more)" if remainder > 0 else "")
+
+
+def unknown_inventory_source_warning(
+    inventory_path: str, source_id: str, configured: Sequence[str]
+) -> str:
+    """Warning for ``tool_inventories[].source_id`` naming no configured source.
+
+    An inventory that completes nothing is *inert*, and an inert declaration
+    must never read as satisfied: its entries still land in the catalog as
+    separate tools sharing names with the extracted ones, which is exactly the
+    degraded shape #386 reported. Naming the configured ids makes the typo
+    repairable without a schema hunt.
+    """
+
+    return (
+        f"Tool inventory {inventory_path!r} declares source_id {source_id!r}, "
+        "for which no tool source is configured, so it completes no source and "
+        "its entries stay separate catalog tools. Correct it to name a "
+        f"configured tool source id — {_quoted_list(configured)} — then rerun "
+        "the scan."
+    )
+
+
+def self_referential_inventory_warning(inventory_path: str) -> str:
+    """Warning for an inventory naming its own generated source id."""
+
+    return (
+        f"Tool inventory {inventory_path!r} declares source_id "
+        f"{inventory_path!r}, which is the inventory itself, so it completes no "
+        "source. Name the tool source whose surface this file enumerates — a "
+        "shipgate.yaml#tool_sources[].id or a framework entrypoint id — then "
+        "rerun the scan."
+    )
+
+
+def unbound_inventory_duplicate_warning(
+    inventory_path: str, source_id: str, tools: Sequence[str]
+) -> str:
+    """Warning for an inventory that shadows the source it was meant to fix.
+
+    This is the shape #386 reported, reached by following the remediation text
+    as it used to be written: the inventory is referenced with no ``source_id``,
+    so its entries land beside the low-confidence observations of the same name
+    rather than completing them. The catalog grows, the gap that asked for the
+    file stays open, and the ratio the remediation was issued to improve goes
+    down. Silence there left the loop unclosable; this names the missing half.
+
+    Scoped to observations that are *not* already high confidence, because those
+    are the population an inventory exists to complete. Two unrelated sources
+    that happen to expose the same name are a coincidence, not a missed join.
+    """
+
+    noun = "entry" if len(tools) == 1 else "entries"
+    verb = "duplicates" if len(tools) == 1 else "duplicate"
+    return (
+        f"Tool inventory {inventory_path!r} declares no source_id, so "
+        f"{len(tools)} {noun} {verb} a name already extracted from source "
+        f"{source_id!r} and were added as separate catalog tools instead of "
+        f"completing it: {_quoted_list(tools)}. Add source_id={source_id!r} to "
+        "the tool_inventories entry, then rerun the scan."
+    )
+
+
+def ambiguous_inventory_merge_warning(
+    inventory_path: str, source_id: str, tools: Sequence[str]
+) -> str:
+    """Warning for inventory entries that match a source's name more than once.
+
+    Completing a source joins each inventory entry to *the* observation of that
+    name. Where a source exposes the same name twice, no join is implied by the
+    inventory alone, so the entries stay unmerged and the exact pairing has to
+    be reviewed.
+    """
+
+    noun = "entry" if len(tools) == 1 else "entries"
+    verb = "matches" if len(tools) == 1 else "match"
+    return (
+        f"Tool inventory {inventory_path!r} completes source {source_id!r}, but "
+        f"{len(tools)} {noun} {verb} more than one observation in that source "
+        f"and stayed unmerged: {_quoted_list(tools)}. Declare the exact join at "
+        "shipgate.yaml#tool_identity.bindings, then rerun the scan."
+    )
+
+
 # --- grouping ----------------------------------------------------------------
 
 
@@ -505,9 +595,13 @@ __all__ = [
     "SourceWarningGroup",
     "visible_skeleton",
     "adk_unresolved_tool_warning",
+    "ambiguous_inventory_merge_warning",
     "group_source_warnings",
     "invalid_tool_binding_warning",
+    "self_referential_inventory_warning",
     "unknown_binding_member_source",
+    "unbound_inventory_duplicate_warning",
+    "unknown_inventory_source_warning",
     "unmatched_binding_member",
     "zero_observation_binding_member",
 ]

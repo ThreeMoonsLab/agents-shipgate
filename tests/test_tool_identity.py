@@ -336,3 +336,216 @@ def test_one_ambiguous_same_name_selector_cannot_be_diluted(
 
     assert resolved == {}
     assert not any(tool.semantic_assessment.pass_eligible for tool in assessed)
+
+
+# --- #386: an inventory completes a source instead of shadowing it -----------
+
+
+def _adk_source(source_id: str, *names: str) -> LoadedToolSource:
+    """A statically extracted ADK source: medium confidence, AST-only type."""
+
+    return LoadedToolSource(
+        source_id=source_id,
+        source_type="google_adk",
+        tools=[
+            Tool(
+                id=f"tool:{name}",
+                name=name,
+                source_type="google_adk_function",
+                source_id=source_id,
+                source_ref="agent.py",
+                extraction_confidence="medium",
+            )
+            for name in names
+        ],
+    )
+
+
+def _adk_inventory(
+    path: str, *names: str, completes: str | None = None
+) -> LoadedToolSource:
+    """A reviewed inventory as the ADK adapter loads one."""
+
+    source_id = f"google_adk_inventory:{path}"
+    return LoadedToolSource(
+        source_id=source_id,
+        source_type="google_adk_inventory",
+        is_tool_inventory=True,
+        completes_source_id=completes,
+        tools=[
+            Tool(
+                id=f"inv:{name}",
+                name=name,
+                source_type="google_adk_inventory",
+                source_id=source_id,
+                source_ref=path,
+                annotations={"readOnlyHint": True},
+                extraction_confidence="high",
+            )
+            for name in names
+        ],
+    )
+
+
+def test_inventory_completing_a_source_does_not_grow_the_catalog() -> None:
+    """#386 acceptance 2: the prescribed fix must not add duplicate entries."""
+
+    tools, warnings = build_tool_identity_catalog(
+        [
+            _adk_source("adk_agent", "get_manager_email", "send_email"),
+            _adk_inventory(
+                "tool-inventory.json",
+                "get_manager_email",
+                "send_email",
+                completes="adk_agent",
+            ),
+        ],
+        ToolIdentityConfig(),
+    )
+
+    assert warnings == []
+    assert [tool.name for tool in sorted(tools, key=lambda item: item.name)] == [
+        "get_manager_email",
+        "send_email",
+    ]
+    # The reviewed inventory is the primary, so the merged tool carries its
+    # high extraction confidence — which is what closes `incomplete_surface`.
+    assert {tool.extraction_confidence for tool in tools} == {"high"}
+    assert {tool.provider for tool in tools} == {"adk_agent"}
+    assert all(len(tool.observation_ids) == 2 for tool in tools)
+
+
+def test_inventory_without_a_source_binding_still_adds_separate_tools() -> None:
+    """The pre-#386 spelling keeps working; it is now named, not silent."""
+
+    tools, warnings = build_tool_identity_catalog(
+        [
+            _adk_source("adk_agent", "get_manager_email"),
+            _adk_inventory("tool-inventory.json", "get_manager_email"),
+        ],
+        ToolIdentityConfig(),
+    )
+
+    assert len(tools) == 2
+    assert len(warnings) == 1
+    assert "declares no source_id" in warnings[0]
+    assert "source_id='adk_agent'" in warnings[0]
+
+
+def test_inventory_entries_the_source_does_not_expose_stay_standalone() -> None:
+    """An inventory exists to disclose tools static extraction missed."""
+
+    tools, warnings = build_tool_identity_catalog(
+        [
+            _adk_source("adk_agent", "get_manager_email"),
+            _adk_inventory(
+                "tool-inventory.json",
+                "get_manager_email",
+                "hidden_tool",
+                completes="adk_agent",
+            ),
+        ],
+        ToolIdentityConfig(),
+    )
+
+    assert warnings == []
+    by_name = {tool.name: tool for tool in tools}
+    assert sorted(by_name) == ["get_manager_email", "hidden_tool"]
+    assert len(by_name["get_manager_email"].observation_ids) == 2
+    assert len(by_name["hidden_tool"].observation_ids) == 1
+
+
+def test_unknown_inventory_source_is_reported_rather_than_silently_inert() -> None:
+    tools, warnings = build_tool_identity_catalog(
+        [
+            _adk_source("adk_agent", "get_manager_email"),
+            _adk_inventory(
+                "tool-inventory.json", "get_manager_email", completes="adk_agnt"
+            ),
+        ],
+        ToolIdentityConfig(),
+    )
+
+    assert len(tools) == 2
+    assert len(warnings) == 1
+    assert "no tool source is configured" in warnings[0]
+    assert "'adk_agent'" in warnings[0]
+
+
+def test_inventory_naming_itself_is_reported() -> None:
+    inventory = _adk_inventory("tool-inventory.json", "get_manager_email")
+    inventory.completes_source_id = inventory.source_id
+    tools, warnings = build_tool_identity_catalog(
+        [_adk_source("adk_agent", "get_manager_email"), inventory],
+        ToolIdentityConfig(),
+    )
+
+    assert len(tools) == 2
+    assert len(warnings) == 1
+    assert "which is the inventory itself" in warnings[0]
+
+
+def test_ambiguous_completion_target_fails_closed() -> None:
+    """Two observations of one name cannot be joined by the inventory alone."""
+
+    duplicate = _adk_source("adk_agent", "get_manager_email")
+    duplicate.tools.append(
+        Tool(
+            id="tool:get_manager_email_b",
+            name="get_manager_email",
+            source_type="google_adk_function",
+            source_id="adk_agent",
+            source_ref="other.py",
+            extraction_confidence="medium",
+        )
+    )
+    tools, warnings = build_tool_identity_catalog(
+        [
+            duplicate,
+            _adk_inventory(
+                "tool-inventory.json", "get_manager_email", completes="adk_agent"
+            ),
+        ],
+        ToolIdentityConfig(),
+    )
+
+    assert len(tools) == 3
+    assert len(warnings) == 1
+    assert "more than one observation" in warnings[0]
+    assert "tool_identity.bindings" in warnings[0]
+
+
+def test_a_reviewed_binding_outranks_the_desugared_one() -> None:
+    """An explicit human declaration wins; both claiming would invalidate it."""
+
+    inventory_id = "google_adk_inventory:tool-inventory.json"
+    config = ToolIdentityConfig(
+        bindings=[
+            ToolIdentityBindingConfig(
+                id="reviewed",
+                provider="reviewed_provider",
+                reason="the reviewer already joined these",
+                primary={"source_id": "adk_agent", "tool": "get_manager_email"},
+                members=[
+                    {"source_id": "adk_agent", "tool": "get_manager_email"},
+                    {"source_id": inventory_id, "tool": "get_manager_email"},
+                ],
+            )
+        ]
+    )
+    tools, warnings = build_tool_identity_catalog(
+        [
+            _adk_source("adk_agent", "get_manager_email"),
+            _adk_inventory(
+                "tool-inventory.json", "get_manager_email", completes="adk_agent"
+            ),
+        ],
+        config,
+    )
+
+    assert warnings == []
+    assert len(tools) == 1
+    # The reviewer chose the AST observation as primary; desugaring must not
+    # override that choice by adding a competing binding.
+    assert tools[0].provider == "reviewed_provider"
+    assert tools[0].identity_assessment.binding_id == "reviewed"

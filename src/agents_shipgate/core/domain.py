@@ -462,6 +462,21 @@ class LoadedToolSource(BaseModel):
     # separate from Tool.annotations so catalog-controlled metadata can never
     # become authority-bearing binding evidence.
     binding_observations: list[AgentBindingObservation] = Field(default_factory=list)
+    # For a reviewed tool inventory declared with
+    # ``<framework>.tool_inventories[].source_id``: the id of the source whose
+    # surface this file enumerates. ``build_tool_identity_catalog`` turns it
+    # into reviewed identity bindings, so an inventory *completes* the source
+    # that raised ``incomplete_surface`` instead of shadowing it with
+    # same-named duplicates (#386). ``None`` for every other source, including
+    # an inventory declared without the field.
+    completes_source_id: str | None = None
+    # True for a source loaded from a ``<framework>.tool_inventories`` entry.
+    # Kept separate from ``completes_source_id`` because the *unbound* case is
+    # the one that needs naming: an inventory that completes nothing while
+    # duplicating names the extracted sources already produced is the exact
+    # degraded shape #386 reported, and it has to be distinguishable from an
+    # ordinary source to be reported at all.
+    is_tool_inventory: bool = False
 
 
 # ---------------------------------------------------------------------------

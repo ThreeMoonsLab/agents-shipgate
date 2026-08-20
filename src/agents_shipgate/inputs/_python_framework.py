@@ -21,6 +21,7 @@ from agents_shipgate.inputs.python_static import (
 )
 from agents_shipgate.schemas.manifest import (
     ArtifactPathConfig,
+    ToolInventoryConfig,
     ToolSourceConfig,
 )
 
@@ -217,7 +218,7 @@ def load_python_path(
 
 
 def _load_inventory_ref(
-    ref: ArtifactPathConfig,
+    ref: ToolInventoryConfig,
     base_dir: Path,
     *,
     source_id: str,
@@ -250,6 +251,8 @@ def _load_inventory_ref(
         source_type=inventory_source_type,
         tools=tools,
         warnings=loaded.warnings,
+        completes_source_id=ref.source_id,
+        is_tool_inventory=True,
     )
 
 

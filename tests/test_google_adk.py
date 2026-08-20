@@ -1197,3 +1197,173 @@ agent_bindings:
         issue.kind == "partial_binding_evidence" and "worker" in issue.message
         for issue in graph.issues
     )
+
+
+# --- #386: the prescribed remediation must close the gap it was issued for ---
+
+
+_ADK_AGENT_SOURCE = """
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
+
+
+def get_manager_email(employee_id: str) -> dict:
+    \"\"\"Look up the manager's email for an employee.\"\"\"
+    return {"email": "manager@example.com"}
+
+
+def send_email(to: str, body: str) -> dict:
+    \"\"\"Send an email.\"\"\"
+    return {"status": "sent"}
+
+
+root_agent = LlmAgent(
+    name="closer_agent",
+    instruction="Route approvals.",
+    tools=[FunctionTool(func=get_manager_email), FunctionTool(func=send_email)],
+)
+"""
+
+_ADK_MANIFEST = """
+version: "0.1"
+project:
+  name: adk-inventory-remediation
+agent:
+  name: closer-agent
+  declared_purpose:
+    - route approval mail
+environment:
+  target: local
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+"""
+
+
+def _coverage(report):
+    """(catalog size, reachable tools, incomplete_surface subjects)."""
+
+    evidence = report.release_decision.evidence_coverage
+    return (
+        len(report.tool_catalog),
+        evidence.binding_coverage.reachable_tools,
+        {
+            gap.subject
+            for gap in evidence.evidence_gaps
+            if gap.kind == "incomplete_surface"
+        },
+    )
+
+
+def test_prescribed_inventory_remediation_closes_the_gap_it_was_issued_for(tmp_path):
+    """#386: following the emitted instruction must not leave the user worse off.
+
+    The remediation the tool prints for ``incomplete_surface`` used to say only
+    "reference it from google_adk.tool_inventories". Doing exactly that made the
+    inventory an independent source: the catalog doubled, the reachable/catalog
+    ratio fell, the ``action_surface`` selectors that used to resolve became
+    ambiguous, and the very gap that asked for the file stayed open. This test
+    reads the instruction the report emits, applies it mechanically, and asserts
+    the three properties acceptance criteria 1, 2, and 4 name.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(_ADK_MANIFEST, encoding="utf-8")
+
+    before, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "before",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    before_catalog, before_reachable, before_gaps = _coverage(before)
+    assert before_gaps == {
+        "get_manager_email [adk_agent]",
+        "send_email [adk_agent]",
+    }
+
+    # The instruction itself is under test: an agent following it has only this
+    # string to go on, so it has to name the field that makes the file complete
+    # the source rather than shadow it.
+    instruction = next(
+        gap.next_action.expects
+        for gap in before.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "incomplete_surface"
+    )
+    assert "google_adk.tool_inventories" in instruction
+    assert "source_id: adk_agent" in instruction
+
+    # Apply it exactly: save the emitted skeleton, reference it with source_id.
+    skeleton = (tmp_path / "before" / "suggested-inventory.json").read_text(
+        encoding="utf-8"
+    )
+    (project / "tool-inventory.json").write_text(skeleton, encoding="utf-8")
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST
+        + """
+google_adk:
+  tool_inventories:
+    - path: tool-inventory.json
+      source_id: adk_agent
+""",
+        encoding="utf-8",
+    )
+
+    after, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "after",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    after_catalog, after_reachable, after_gaps = _coverage(after)
+
+    # 1. the gap the instruction was issued for is closed
+    assert after_gaps == set()
+    # 2. naming tools the source already exposes does not grow the catalog
+    assert after_catalog == before_catalog
+    # 4. the coverage ratio never falls after a prescribed remediation
+    assert after_reachable * before_catalog >= before_reachable * after_catalog
+    assert after.source_warnings == []
+
+
+def test_inventory_without_source_id_is_named_rather_than_silently_degrading(tmp_path):
+    """The pre-#386 spelling still loads — and now says what it cost.
+
+    Left silent, a user who follows an older instruction (or an agent working
+    from a memorized one) lands back in the reported shape with no third step
+    offered. The catalog growth is unchanged for compatibility; what changes is
+    that the report names the cause and the one-line repair.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(_ADK_AGENT_SOURCE, encoding="utf-8")
+    (project / "tool-inventory.json").write_text(
+        '{"tools": [{"name": "get_manager_email", "description": "Look it up."}]}',
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        _ADK_MANIFEST
+        + """
+google_adk:
+  tool_inventories:
+    - tool-inventory.json
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    assert len(report.tool_catalog) == 3
+    assert len(report.source_warnings) == 1
+    warning = report.source_warnings[0]
+    assert "declares no source_id" in warning
+    assert "source_id='adk_agent'" in warning

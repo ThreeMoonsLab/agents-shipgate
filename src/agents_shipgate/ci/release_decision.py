@@ -392,6 +392,7 @@ _INVENTORY_MANIFEST_KEYS: tuple[tuple[str, str], ...] = (
 # low-confidence tools exist (see cli/scan/writing.py). Referenced here
 # so the gap rows and the artifact never drift apart.
 SUGGESTED_INVENTORY_FILENAME = "suggested-inventory.json"
+
 # Filename of the advisory declaration scaffold scan writes next to
 # report.json whenever any evidence gap carries a ``declaration_template``
 # (see cli/scan/writing.py). The templates themselves are generated here; the
@@ -401,6 +402,34 @@ SUGGESTED_INVENTORY_FILENAME = "suggested-inventory.json"
 # a binding, and a placeholder can never satisfy a gap.
 SUGGESTED_DECLARATIONS_FILENAME = "suggested-declarations.yaml"
 REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
+
+
+def _inventory_remediation(
+    manifest_key: str, source_id: str | None, *, rerun: str
+) -> str:
+    """The prescribed repair for a source static extraction cannot enumerate.
+
+    Two gap kinds prescribe the same repair (``incomplete_surface`` and
+    ``low_confidence_tool``), so the words live here once. ``source_id`` is not
+    decoration: an inventory referenced without it is an *independent* source
+    whose entries merely share names with the extracted ones, which grows the
+    catalog, leaves this gap open, and makes the action selectors that used to
+    resolve ambiguous (#386). Naming the source is what turns the file into a
+    completion of the surface that raised the gap.
+    """
+
+    binding = (
+        f"`- {{path: <saved file>, source_id: {source_id}}}`"
+        if source_id
+        else "an entry carrying `source_id: <the source above>`"
+    )
+    return (
+        "Review the skeleton written next to report.json, save it in your "
+        f"repo, then reference it from `{manifest_key}` in shipgate.yaml as "
+        f"{binding} — without `source_id` the inventory adds same-named tools "
+        f"beside this source instead of completing it — then {rerun}"
+    )
+
 
 # Root-selection scaffold for binding gaps. Module level so the guard test can
 # see it: a template must ask, never answer, and this one previously shipped a
@@ -844,19 +873,17 @@ def _semantic_gap(
         action_why = "Conflicting binding evidence cannot be auto-resolved."
         expects = "Reconcile positive structural evidence and reviewed declarations, then rerun verification."
     elif kind == "incomplete_surface":
-        manifest_key = _inventory_manifest_key(tool.source_type)
+        manifest_key = inventory_manifest_key(tool.source_type)
         if manifest_key is not None:
             action_kind = "declare_tool_inventory"
             accepted_values = ["reviewed_explicit_inventory"]
             action_why = (
                 f"{tool.source_type} extraction is static-only; an explicit "
-                "local tool inventory is the supported way to make the full "
-                "surface enumerable."
+                "local tool inventory bound to this source is the supported "
+                "way to make the full surface enumerable."
             )
-            expects = (
-                "Review the skeleton written next to report.json, save it in "
-                f"your repo, reference it from `{manifest_key}` in "
-                "shipgate.yaml, then rerun verification."
+            expects = _inventory_remediation(
+                manifest_key, tool.source_id, rerun="rerun verification."
             )
         else:
             action_kind = "provide_complete_inventory"
@@ -990,7 +1017,7 @@ def _semantic_gap_path(kind: str, tool: Tool) -> str:
 
     action_row = f"shipgate.yaml#action_surface.actions[tool={tool.name!r}]"
     if kind == "incomplete_surface":
-        if _inventory_manifest_key(tool.source_type) is not None:
+        if inventory_manifest_key(tool.source_type) is not None:
             return SUGGESTED_INVENTORY_FILENAME
         return "shipgate.yaml#tool_sources"
     if kind in _SELECTOR_KINDS:
@@ -1040,7 +1067,13 @@ def _with_scaffold_pointer(
     )
 
 
-def _inventory_manifest_key(source_type: str) -> str | None:
+def inventory_manifest_key(source_type: str) -> str | None:
+    """The ``<framework>.tool_inventories`` key that completes this source type.
+
+    ``None`` for source types with no such key — nothing may prescribe an
+    inventory entry, or the ``source_id`` on one, for those.
+    """
+
     for prefix, manifest_key in _INVENTORY_MANIFEST_KEYS:
         if source_type == prefix or source_type.startswith(f"{prefix}_"):
             return manifest_key
@@ -1061,20 +1094,18 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
         key=lambda tool: (tool.name, tool.source_type),
     )
     for tool in low_confidence:
-        manifest_key = _inventory_manifest_key(tool.source_type)
+        manifest_key = inventory_manifest_key(tool.source_type)
         if manifest_key is not None:
             action = EvidenceGapAction(
                 kind="declare_tool_inventory",
                 path=SUGGESTED_INVENTORY_FILENAME,
                 why=(
                     f"{tool.source_type} extraction is static-only; an "
-                    "explicit local tool inventory is the supported way to "
-                    "raise this tool to high confidence."
+                    "explicit local tool inventory bound to this source is "
+                    "the supported way to raise this tool to high confidence."
                 ),
-                expects=(
-                    f"Review the skeleton written next to report.json, save "
-                    f"it in your repo, reference it from `{manifest_key}` in "
-                    "shipgate.yaml, then rerun the scan."
+                expects=_inventory_remediation(
+                    manifest_key, tool.source_id, rerun="rerun the scan."
                 ),
             )
         else:

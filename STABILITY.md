@@ -1535,8 +1535,13 @@ verdicts it lands on — is the structured action on the *selected* row of
 publishable as authored, falling back to the first row when no row offers
 either (v0.16+; before that it was always row 0). For supported frameworks,
 that action names the generated local inventory artifact and the exact
-`<framework>.tool_inventories` manifest route. Only unidentified or unsupported
-source shapes receive generic MCP/OpenAPI/inventory guidance. Apply the reviewed
+`<framework>.tool_inventories` manifest route, **including the `source_id` that
+binds the inventory to the source the gap is keyed to**. An inventory referenced
+without `source_id` is an independent source: its entries are added beside the
+extracted tools rather than completing them, so the gap stays open and the
+catalog grows — following the route without that field is not the prescribed
+recovery. Only unidentified or unsupported source shapes receive generic
+MCP/OpenAPI/inventory guidance. Apply the reviewed
 evidence route and rerun the scan. When the decision is `review_required`
 because of an active high/critical finding, also resolve that finding.
 `agents-shipgate verify` keeps both cases human-routed

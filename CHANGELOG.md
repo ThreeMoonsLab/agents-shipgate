@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **A tool inventory now completes the source that asked for it, instead of
+  shadowing it.** `incomplete_surface` fires for every statically-extracted
+  tool on a first ADK/LangChain/CrewAI/n8n scan, and the only remedy the tool
+  offered was "save the skeleton, reference it from `<framework>.tool_inventories`".
+  Following that instruction exactly made things worse: the inventory was loaded
+  as an *independent* source, so its entries were added beside the extracted
+  tools rather than joined to them. On the reported subject the catalog went
+  from 12 tools to 18 with only 12 distinct names, the reachable ratio fell from
+  6/12 to 6/18, the `action_surface` rows that used to resolve became
+  `ambiguous_tool_selector`, and the gap that asked for the file was still open.
+  The loop had no third step
+  ([#386](https://github.com/ThreeMoonsLab/agents-shipgate/issues/386)).
+
+  `<framework>.tool_inventories[]` entries now take `source_id`, naming the tool
+  source whose surface the file enumerates. Each entry matching a name that
+  source already exposes is joined to that observation, so the catalog keeps its
+  size, the merged tool inherits the inventory's high extraction confidence, and
+  the gap closes. Entries the source does *not* expose stay standalone — an
+  inventory exists precisely to disclose tools static extraction missed, and a
+  tool nobody wired is still honestly reported as unbound.
+
+  Nothing is joined by name alone. `source_id` is a manifest declaration
+  desugared into the same reviewed-binding engine as `tool_identity.bindings`,
+  one binding per matched name; a name a source exposes twice implies no join
+  and asks for an explicit binding instead, and a reviewed binding that already
+  claims an observation always wins. The prescribed remediation text and the
+  `suggested-inventory.json` note now name the field, and an inventory declared
+  without it that shadows a low-confidence source says so in `source_warnings`
+  rather than degrading in silence. Inventories that genuinely describe a
+  separate surface keep working unchanged.
+
 - **An input that is not there is no longer reported as an input with the
   wrong shape, and no command creates the workspace it was asked to inspect.**
   Three reports, one class. `verify --preview` given a `--workspace` that did

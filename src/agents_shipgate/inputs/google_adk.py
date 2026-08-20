@@ -31,6 +31,7 @@ from agents_shipgate.inputs.traces import load_trace_artifacts
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ArtifactPathConfig,
+    ToolInventoryConfig,
     ToolSourceConfig,
 )
 
@@ -208,7 +209,7 @@ def _load_agent_config_ref(
 
 
 def _load_inventory_ref(
-    ref: ArtifactPathConfig,
+    ref: ToolInventoryConfig,
     base_dir: Path,
     *,
     source_id: str,
@@ -226,6 +227,8 @@ def _load_inventory_ref(
     for tool in loaded.tools:
         tool.source_type = "google_adk_inventory"
         tool.annotations["adk_inventory"] = True
+    loaded.completes_source_id = ref.source_id
+    loaded.is_tool_inventory = True
     return loaded
 
 

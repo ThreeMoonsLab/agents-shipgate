@@ -102,7 +102,8 @@ google_adk:
   eval_sets:
     - evals/support.eval.json
   tool_inventories:
-    - inventories/adk-mcp-tools.json
+    - path: inventories/adk-mcp-tools.json
+      source_id: adk_agent
   trace_samples:
     - traces/adk-tool-calls.jsonl
 ```
@@ -124,6 +125,46 @@ Module-relative expressions such as `Path(__file__).parent / "spec.yaml"` or
 assignment-then-read patterns may be reported as dynamic. In those cases,
 declare the same spec or MCP inventory explicitly in `tool_sources` or
 `google_adk.tool_inventories`.
+
+## Tool Inventories
+
+Every framework block (`google_adk`, `langchain`, `crewai`, `n8n`) accepts
+`tool_inventories`: reviewed, local MCP-shaped JSON files that describe the
+tools static extraction could not fully enumerate. Each entry takes a `path`
+and, optionally, `source_id`.
+
+**`source_id` names the tool source this file completes.** With it, every entry
+whose name the source already exposes is joined to that source's observation:
+the catalog stays the same size, the merged tool inherits the inventory's high
+extraction confidence, and the `incomplete_surface` evidence gap that asked for
+the file is closed. Entries the source does *not* expose stay separate — an
+inventory exists precisely to disclose tools static extraction missed.
+
+```yaml
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+
+google_adk:
+  tool_inventories:
+    - path: inventories/adk-tools.json
+      source_id: adk_agent
+```
+
+Without `source_id` the inventory is an **independent source**. Its entries are
+added *beside* the extracted tools rather than completing them, so a file whose
+names duplicate an already-extracted surface grows the catalog, leaves the gap
+open, and can make `action_surface` selectors ambiguous. That spelling stays
+supported for inventories that genuinely describe a separate surface; where it
+shadows a low-confidence source, the scan now says so in `source_warnings` and
+names the `source_id` to add.
+
+Joining is never inferred from names alone. `source_id` is a manifest
+declaration — the trust root — desugared into the same reviewed-binding engine
+as `tool_identity.bindings`. Where a source exposes one name twice, no join is
+implied and the scan asks for an explicit `tool_identity.bindings` entry
+instead. A reviewed binding that already claims an observation always wins.
 
 ## LangChain And CrewAI Artifacts
 
@@ -151,13 +192,15 @@ langchain:
   python_entrypoints:
     - agents/graph.py
   tool_inventories:
-    - inventories/langchain-tools.json
+    - path: inventories/langchain-tools.json
+      source_id: support_langchain
 
 crewai:
   python_entrypoints:
     - agents/crew.py
   tool_inventories:
-    - inventories/crewai-tools.json
+    - path: inventories/crewai-tools.json
+      source_id: support_crewai
 ```
 
 Supported static LangChain/LangGraph signals:
@@ -431,6 +474,12 @@ Every member and the primary must resolve exactly once; one observation may
 belong to at most one binding. Equal names or providers never imply
 equivalence. Invalid, overlapping, or structurally conflicting bindings join
 nothing and prevent `passed`.
+
+A `<framework>.tool_inventories[].source_id` entry (see
+[Tool Inventories](#tool-inventories)) is desugared into exactly these bindings,
+one per matched name, so an inventory completing a whole source does not have to
+be written out tool by tool. A binding declared here always wins over the
+desugared one.
 
 ## Agent Binding Surface
 

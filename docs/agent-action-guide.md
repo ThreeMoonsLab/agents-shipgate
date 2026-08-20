@@ -48,7 +48,7 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
 `SHIP-INVENTORY-WILDCARD-TOOLS` and friends fire when the agent exposes "all tools" via a wildcard. There's no patch — fix the source:
 
 - **MCP-only repos**: replace the wildcard with an explicit `tools` array in the export.
-- **ADK / LangChain / CrewAI**: declare `tool_inventories[]` with a static JSON listing the resolved tools.
+- **ADK / LangChain / CrewAI**: declare `tool_inventories[]` with a static JSON listing the resolved tools, and set `source_id` on the entry to the `tool_sources[].id` it completes — without it the file is an independent source and the gap that asked for it stays open.
 - **OpenAPI**: ensure all paths are documented; the wildcard usually means a path glob that's broader than reality.
 
 `SHIP-INVENTORY-LOW-CONFIDENCE-PRODUCTION-SURFACE` fires when the production target depends on best-effort SDK inference. Either move the target to staging while the inventory matures, or provide an MCP/OpenAPI source.
@@ -120,8 +120,8 @@ The OpenAI API category covers checks against `tools/openai-tools.json`, `prompt
 
 Framework-specific findings usually fire because the agent has dynamic toolsets / factory wrappers / runtime-loaded tools that the static AST extractor can't see. Recipe:
 
-- **ADK dynamic toolsets**: provide a static MCP export, an OpenAPI spec, OR a local tool inventory file (`google_adk.tool_inventories[]`). Eval coverage findings need eval files declared in `google_adk.eval_sets`.
-- **LangChain / CrewAI**: declare `langchain.tool_inventories[]` / `crewai.tool_inventories[]` pointing at JSON files listing the resolved tools.
+- **ADK dynamic toolsets**: provide a static MCP export, an OpenAPI spec, OR a local tool inventory file (`google_adk.tool_inventories[]`, with `source_id` naming the source it completes). Eval coverage findings need eval files declared in `google_adk.eval_sets`.
+- **LangChain / CrewAI**: declare `langchain.tool_inventories[]` / `crewai.tool_inventories[]` pointing at JSON files listing the resolved tools, each with the `source_id` of the source it completes.
 
 ## What NOT to do
 

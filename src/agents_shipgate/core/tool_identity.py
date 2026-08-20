@@ -16,14 +16,19 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.source_warnings import (
+    ambiguous_inventory_merge_warning,
     invalid_tool_binding_warning,
+    self_referential_inventory_warning,
+    unbound_inventory_duplicate_warning,
     unknown_binding_member_source,
+    unknown_inventory_source_warning,
     unmatched_binding_member,
     zero_observation_binding_member,
 )
 from agents_shipgate.schemas.manifest import (
     ToolIdentityBindingConfig,
     ToolIdentityConfig,
+    ToolObservationSelectorConfig,
 )
 
 _MCP_LIKE = {
@@ -120,9 +125,18 @@ def build_tool_identity_catalog(
     are combined only when a reviewed ``tool_identity.bindings[]`` entry names
     every member exactly. Invalid bindings apply nowhere and make the affected
     identity non-pass-eligible.
+
+    A ``<framework>.tool_inventories[].source_id`` entry is *desugared* into
+    those same reviewed bindings rather than merged by a second code path
+    (#386). The manifest — the trust root — is what asserts the join; the
+    inventory file never joins itself to anything by name.
     """
 
     observations = _observations(loaded_sources)
+    synthesized, warnings = _inventory_completion_bindings(
+        loaded_sources, observations, config
+    )
+    bindings = [*config.bindings, *synthesized]
     by_member: dict[tuple[str, str, str], list[Tool]] = defaultdict(list)
     for tool in observations:
         by_member[(tool.source_type, tool.source_id or "", tool.name)].append(tool)
@@ -143,9 +157,8 @@ def build_tool_identity_catalog(
     selected_by_binding: dict[str, list[Tool]] = {}
     binding_issues: dict[str, list[SemanticIssue]] = defaultdict(list)
     observation_bindings: dict[str, list[str]] = defaultdict(list)
-    warnings: list[str] = []
 
-    for binding in config.bindings:
+    for binding in bindings:
         selected: list[Tool] = []
         invalid_messages: list[str] = []
         for member in binding.members:
@@ -202,7 +215,7 @@ def build_tool_identity_catalog(
 
     consumed: set[str] = set()
     canonical: list[Tool] = []
-    bindings_by_id = {binding.id: binding for binding in config.bindings}
+    bindings_by_id = {binding.id: binding for binding in bindings}
     for binding_id in sorted(selected_by_binding):
         members = selected_by_binding[binding_id]
         if any(
@@ -319,6 +332,168 @@ def resolve_selectors_by_tool_id(
         for target in targets:
             _append_identity_issue(by_id[target.id], issue)
     return resolved, mutable
+
+
+#: Prefix of every binding id ``_inventory_completion_bindings`` synthesizes.
+#: Deterministic and derived from the manifest entry, so tool ids stay stable
+#: across runs, and distinctive enough that a hand-written binding id colliding
+#: with one is a typo rather than a coincidence — a collision is resolved in
+#: favour of the reviewed entry.
+_INVENTORY_BINDING_PREFIX = "tool_inventory:"
+
+
+def _inventory_completion_bindings(
+    loaded_sources: list[LoadedToolSource],
+    observations: list[Tool],
+    config: ToolIdentityConfig,
+) -> tuple[list[ToolIdentityBindingConfig], list[str]]:
+    """Desugar ``tool_inventories[].source_id`` into reviewed identity bindings.
+
+    Without the field an inventory is an independent source: its entries become
+    additional observations that share names with the ones static extraction
+    already produced, so the catalog grows, the ``incomplete_surface`` gap keyed
+    to the *original* source stays open, and the action selectors that used to
+    resolve become ambiguous (#386). The manifest naming the completed source is
+    what licenses the join — this function only turns that declaration into the
+    binding a reviewer would otherwise have written by hand, one per matched
+    name, with the inventory as ``primary`` so the merged tool carries the
+    inventory's high extraction confidence.
+
+    Three cases deliberately do not merge:
+
+    * an inventory entry the completed source does not expose — it is a tool
+      static extraction missed, which is the whole reason inventories exist, so
+      it stays a standalone observation;
+    * a name the completed source exposes more than once — the inventory alone
+      does not say *which* observation it describes;
+    * an observation a reviewed ``tool_identity.bindings[]`` entry already
+      claims — an explicit human declaration outranks a desugared one, and
+      double-claiming would invalidate both.
+    """
+
+    reviewed_members = {
+        (member.source_id, member.tool)
+        for binding in config.bindings
+        for member in binding.members
+    }
+    # Seeded with the reviewed ids so a hand-written binding always keeps the
+    # name, and grown as bindings are synthesized so two entries can never
+    # collide into one key in ``bindings_by_id`` and silently drop a merge.
+    claimed_ids = {binding.id for binding in config.bindings}
+    configured_source_ids = {loaded.source_id.strip() for loaded in loaded_sources}
+    by_source_name: dict[tuple[str, str], list[Tool]] = defaultdict(list)
+    for tool in observations:
+        by_source_name[(tool.source_id or "", tool.name)].append(tool)
+
+    synthesized: list[ToolIdentityBindingConfig] = []
+    warnings: list[str] = []
+    for loaded in loaded_sources:
+        target = (loaded.completes_source_id or "").strip()
+        inventory_id = loaded.source_id.strip()
+        if not target:
+            if loaded.is_tool_inventory:
+                warnings.extend(
+                    _unbound_inventory_warnings(
+                        loaded, inventory_id, observations, reviewed_members
+                    )
+                )
+            continue
+        if target == inventory_id:
+            warnings.append(self_referential_inventory_warning(inventory_id))
+            continue
+        if target not in configured_source_ids:
+            warnings.append(
+                unknown_inventory_source_warning(
+                    inventory_id,
+                    target,
+                    sorted(configured_source_ids - {inventory_id}),
+                )
+            )
+            continue
+        ambiguous: list[str] = []
+        for name in dict.fromkeys(tool.name for tool in loaded.tools):
+            target_matches = by_source_name.get((target, name), [])
+            if not target_matches:
+                continue
+            if len(target_matches) > 1:
+                ambiguous.append(name)
+                continue
+            if len(by_source_name.get((inventory_id, name), [])) != 1:
+                # Unreachable while ``_observations`` rejects duplicate
+                # observation identities; skipping rather than reporting
+                # ambiguity keeps the message honest if that ever changes.
+                continue
+            if (inventory_id, name) in reviewed_members or (
+                target,
+                name,
+            ) in reviewed_members:
+                continue
+            binding_id = f"{_INVENTORY_BINDING_PREFIX}{inventory_id}#{name}"
+            if binding_id in claimed_ids:
+                continue
+            claimed_ids.add(binding_id)
+            inventory_selector = ToolObservationSelectorConfig(
+                source_id=inventory_id, tool=name
+            )
+            synthesized.append(
+                ToolIdentityBindingConfig(
+                    id=binding_id,
+                    provider=target,
+                    reason=(
+                        f"reviewed tool inventory {inventory_id!r} completes "
+                        f"source {target!r} (tool_inventories[].source_id)"
+                    ),
+                    primary=inventory_selector,
+                    members=[
+                        ToolObservationSelectorConfig(source_id=target, tool=name),
+                        inventory_selector,
+                    ],
+                )
+            )
+        if ambiguous:
+            warnings.append(
+                ambiguous_inventory_merge_warning(inventory_id, target, ambiguous)
+            )
+    return synthesized, warnings
+
+
+def _unbound_inventory_warnings(
+    loaded: LoadedToolSource,
+    inventory_id: str,
+    observations: list[Tool],
+    reviewed_members: set[tuple[str, str]],
+) -> list[str]:
+    """Name an inventory that shadows the low-confidence source it duplicates.
+
+    An inventory referenced without ``source_id`` is a legitimate way to declare
+    tools no adapter can see, so overlap alone is not the complaint. The
+    complaint is overlap with an observation that is *not yet* high confidence
+    and that no reviewed binding claims: that pairing is the #386 shape, where
+    the file the gate asked for is added beside the gap instead of closing it.
+    One row per shadowed source, so a 40-tool inventory does not emit 40
+    warnings into a gating count.
+    """
+
+    names = set(dict.fromkeys(tool.name for tool in loaded.tools))
+    shadowed: dict[str, list[str]] = defaultdict(list)
+    for tool in observations:
+        source_id = tool.source_id or ""
+        if source_id == inventory_id or tool.name not in names:
+            continue
+        if tool.extraction_confidence == "high":
+            continue
+        if (source_id, tool.name) in reviewed_members or (
+            inventory_id,
+            tool.name,
+        ) in reviewed_members:
+            continue
+        shadowed[source_id].append(tool.name)
+    return [
+        unbound_inventory_duplicate_warning(
+            inventory_id, source_id, sorted(dict.fromkeys(shadowed[source_id]))
+        )
+        for source_id in sorted(shadowed)
+    ]
 
 
 def _observations(loaded_sources: list[LoadedToolSource]) -> list[Tool]:

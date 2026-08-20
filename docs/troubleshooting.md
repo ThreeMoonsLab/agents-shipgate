@@ -161,8 +161,15 @@ tool_sources:
 
 google_adk:
   tool_inventories:
-    - inventories/adk-mcp-tools.json
+    - path: inventories/adk-mcp-tools.json
+      source_id: adk
 ```
+
+`source_id` names the tool source the inventory completes. Omit it and the file
+becomes an independent source: entries sharing a name with an already-extracted
+tool are added *beside* it, which grows the catalog and leaves the
+`incomplete_surface` gap that asked for the inventory open. See
+[Tool Inventories](manifest-v0.1.md#tool-inventories).
 
 Static `tool_filter` values reduce ADK MCP risk, but they do not enumerate the
 tool schemas by themselves. Add an inventory when reviewers need full schema

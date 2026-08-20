@@ -6,7 +6,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from agents_shipgate.schemas.manifest._artifacts import (
     ArtifactPathConfig,
+    ToolInventoryConfig,
     _parse_artifact_entries,
+    _parse_tool_inventory_entries,
 )
 from agents_shipgate.schemas.manifest._common import STRICT_MODEL_CONFIG
 
@@ -17,20 +19,24 @@ class GoogleAdkConfig(BaseModel):
     python_entrypoints: list[ArtifactPathConfig] = Field(default_factory=list)
     agent_configs: list[ArtifactPathConfig] = Field(default_factory=list)
     eval_sets: list[ArtifactPathConfig] = Field(default_factory=list)
-    tool_inventories: list[ArtifactPathConfig] = Field(default_factory=list)
+    tool_inventories: list[ToolInventoryConfig] = Field(default_factory=list)
     trace_samples: list[ArtifactPathConfig] = Field(default_factory=list)
 
     @field_validator(
         "python_entrypoints",
         "agent_configs",
         "eval_sets",
-        "tool_inventories",
         "trace_samples",
         mode="before",
     )
     @classmethod
     def parse_artifacts(cls, value: Any) -> list[ArtifactPathConfig]:
         return _parse_artifact_entries(value)
+
+    @field_validator("tool_inventories", mode="before")
+    @classmethod
+    def parse_tool_inventories(cls, value: Any) -> list[ToolInventoryConfig]:
+        return _parse_tool_inventory_entries(value)
 
     def has_inputs(self) -> bool:
         return any(
