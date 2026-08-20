@@ -880,12 +880,15 @@ def test_evidence_unlocks_the_weak_marker_the_preview_path_walks_past(
     assert blind.scope is None
 
     evidence = weak_marker_evidence_dirs(weak_marker_monorepo, changed)
-    assert evidence == frozenset(
+    assert evidence.undetermined == ()
+    assert evidence.directories == frozenset(
         {(weak_marker_monorepo / "python/agents/smart_closer").resolve()}
     )
 
     seeing = resolve_change_scope(
-        root=weak_marker_monorepo, changed_files=changed, evidence_dirs=evidence
+        root=weak_marker_monorepo,
+        changed_files=changed,
+        evidence_dirs=evidence.directories,
     )
     assert seeing.status == "resolved"
     assert seeing.scope is not None
@@ -947,11 +950,139 @@ def test_two_requirements_only_projects_contest_the_scope(tmp_path: Path) -> Non
     resolution = resolve_change_scope(
         root=repo,
         changed_files=changed,
-        evidence_dirs=weak_marker_evidence_dirs(repo, changed),
+        evidence_dirs=weak_marker_evidence_dirs(repo, changed).directories,
     )
 
     assert resolution.status == "contested"
     assert resolution.contested == ("agents/alpha", "agents/beta")
+
+
+def test_an_artifact_only_project_unlocks_its_weak_marker(tmp_path: Path) -> None:
+    """`detect` counts OpenAPI/MCP artifacts and Codex plugin packages as
+    agent evidence, so preview has to as well. A Python service exposing a
+    spec beside its requirements file is a project both must see, or the
+    command preview emits is one `init` refuses (#399 review)."""
+
+    repo = _init_repo(tmp_path)
+    api = repo / "services" / "api"
+    api.mkdir(parents=True)
+    (api / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (api / "openapi.yaml").write_text(
+        "openapi: 3.0.0\n"
+        "info: {title: api, version: 1.0.0}\n"
+        "paths:\n"
+        "  /pay:\n"
+        "    post:\n"
+        "      operationId: pay\n"
+        "      summary: Send money.\n"
+        '      responses: {"200": {description: ok}}\n',
+        encoding="utf-8",
+    )
+    _write_agent_project(
+        repo, "services/worker", name="worker_agent", tool="work"
+    )
+    _commit_all(repo, "base")
+
+    changed = ["services/api/openapi.yaml"]
+    evidence = weak_marker_evidence_dirs(repo, changed)
+    assert evidence.undetermined == ()
+    assert evidence.directories == frozenset({(repo / "services/api").resolve()})
+
+    # And the two agree about it, which is the property the omission broke.
+    detected = {c.path for c in detect_workspace(repo).agent_project_candidates}
+    assert detected == {"services/api", "services/worker"}
+
+
+def test_a_deleted_agent_leaves_its_weak_marker_undetermined(tmp_path: Path) -> None:
+    """The probe reads the head tree. When the change under review deletes the
+    one file that was the evidence, "no evidence" is not an answer — it would
+    route to a workspace-root `init` that adopts an unrelated project's agent
+    (#399 review)."""
+
+    repo = _init_repo(tmp_path)
+    gone = repo / "services" / "gone"
+    gone.mkdir(parents=True)
+    (gone / "requirements.txt").write_text("google-adk\n", encoding="utf-8")
+    (gone / "agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="gone_agent", tool="act"), encoding="utf-8"
+    )
+    _write_agent_project(repo, "services/other", name="other_agent", tool="ask")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    subprocess.run(["git", "rm", "-q", "services/gone/agent.py"], cwd=repo, check=True)
+    _commit_all(repo, "remove the gone agent")
+
+    evidence = weak_marker_evidence_dirs(repo, ["services/gone/agent.py"])
+    assert evidence.directories == frozenset()
+    assert [path for path, _reason in evidence.undetermined] == ["services/gone"]
+
+    payload = _preview(repo)
+    action = payload["control"]["next_action"]
+    assert action["kind"] == "discover"
+    assert "services/gone" in action["why"]
+    assert "--write" not in action["command"]
+
+
+def test_an_ignored_file_is_not_evidence_the_recommended_command_can_see(
+    tmp_path: Path,
+) -> None:
+    """Routing must not depend on local ignore state. `detect` inventories
+    through git, so an ignored agent file beside a requirements file is
+    invisible to the command preview recommends — and preview narrowing to
+    that directory anyway is preview disagreeing with itself (#399 review)."""
+
+    repo = _init_repo(tmp_path)
+    (repo / ".gitignore").write_text("generated_agent.py\n", encoding="utf-8")
+    ignored = repo / "services" / "ignored"
+    ignored.mkdir(parents=True)
+    (ignored / "requirements.txt").write_text("google-adk\n", encoding="utf-8")
+    (ignored / "generated_agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="ignored_agent", tool="act"), encoding="utf-8"
+    )
+    (ignored / "util.py").write_text("x = 1\n", encoding="utf-8")
+    _write_agent_project(repo, "services/real", name="real_agent", tool="ask")
+    _commit_all(repo, "base")
+
+    evidence = weak_marker_evidence_dirs(repo, ["services/ignored/util.py"])
+    assert evidence.directories == frozenset()
+    assert evidence.undetermined == ()
+    assert [c.path for c in detect_workspace(repo).agent_project_candidates] == [
+        "services/real"
+    ]
+
+
+def test_the_probe_stops_at_the_same_budget_discovery_stops_at(
+    tmp_path: Path,
+) -> None:
+    """Preview is the lightweight path; it cannot be the one place with no
+    parse bound. Exhaustion is undetermined, not negative — the probe would
+    otherwise report "no project here" from files it never read, which is
+    #395 one surface over (#399 review)."""
+
+    repo = _init_repo(tmp_path)
+    (repo / "pyproject.toml").write_text(
+        _PYPROJECT.format(name="wide"), encoding="utf-8"
+    )
+    flat = repo / "flat"
+    flat.mkdir()
+    (flat / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    for index in range(1205):
+        (flat / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+    _commit_all(repo, "base")
+
+    exhausted = weak_marker_evidence_dirs(repo, ["flat/mod00001.py"])
+    assert exhausted.directories == frozenset()
+    assert [path for path, _reason in exhausted.undetermined] == ["flat"]
+    assert "budget" in exhausted.undetermined[0][1]
+
+    # Within budget the same directory settles negative, so exhaustion is the
+    # only thing the tri-state is reporting.
+    assert (
+        weak_marker_evidence_dirs(
+            repo, ["flat/mod00001.py"], max_python_files=5000
+        ).undetermined
+        == ()
+    )
 
 
 def test_preview_and_detect_name_the_same_project(
@@ -965,7 +1096,9 @@ def test_preview_and_detect_name_the_same_project(
     resolution = resolve_change_scope(
         root=weak_marker_monorepo,
         changed_files=changed,
-        evidence_dirs=weak_marker_evidence_dirs(weak_marker_monorepo, changed),
+        evidence_dirs=weak_marker_evidence_dirs(
+            weak_marker_monorepo, changed
+        ).directories,
     )
     detected = detect_workspace(weak_marker_monorepo)
 
@@ -997,12 +1130,14 @@ def test_a_requirements_file_without_an_agent_beside_it_is_no_evidence(
     )
 
     changed = ["docs/conf.py", "agent.py"]
-    assert weak_marker_evidence_dirs(repo, changed) == frozenset()
+    evidence = weak_marker_evidence_dirs(repo, changed)
+    assert evidence.directories == frozenset()
+    assert evidence.undetermined == ()
     assert (
         resolve_change_scope(
             root=repo,
             changed_files=changed,
-            evidence_dirs=weak_marker_evidence_dirs(repo, changed),
+            evidence_dirs=evidence.directories,
         ).status
         == "not_narrowed"
     )
@@ -1027,8 +1162,13 @@ def test_evidence_is_read_from_the_directory_itself_not_from_below_it(
         _ADK_AGENT_MODULE.format(name="deployed", tool="act"), encoding="utf-8"
     )
 
-    assert weak_marker_evidence_dirs(repo, ["deploy/app/agent.py"]) == frozenset()
-    assert weak_marker_evidence_dirs(repo, ["deploy/main.py"]) == frozenset()
+    assert (
+        weak_marker_evidence_dirs(repo, ["deploy/app/agent.py"]).directories
+        == frozenset()
+    )
+    assert (
+        weak_marker_evidence_dirs(repo, ["deploy/main.py"]).directories == frozenset()
+    )
 
 
 def test_a_strong_marker_needs_no_evidence_at_all(tmp_path: Path) -> None:
@@ -1047,11 +1187,13 @@ def test_a_strong_marker_needs_no_evidence_at_all(tmp_path: Path) -> None:
     )
 
     changed = ["services/billing/agent.py"]
-    assert weak_marker_evidence_dirs(repo, changed) == frozenset()
+    evidence = weak_marker_evidence_dirs(repo, changed)
+    assert evidence.directories == frozenset()
+    assert evidence.undetermined == ()
     scope = resolve_change_scope(
         root=repo,
         changed_files=changed,
-        evidence_dirs=weak_marker_evidence_dirs(repo, changed),
+        evidence_dirs=evidence.directories,
     ).scope
     assert scope is not None
     assert scope.relative == "services/billing"
@@ -1517,9 +1659,10 @@ def test_a_truncated_candidate_list_is_never_reported_as_complete(
     listed = [candidate.path for candidate in result.agent_project_candidates]
     assert listed == ["aa_one", "aa_two"]
     assert "zz_hidden" not in listed
-    # The uncapped census is what bounds the claim: three project roots
-    # exist, two are listed.
-    assert result.workspace_signals.project_root_count == 3
+    # The uncapped census is what bounds the claim: three marked projects
+    # plus the workspace itself, which is a candidate scope whether or not it
+    # carries a marker. Two of the four are listed.
+    assert result.workspace_signals.project_root_count == 4
     assert "--max-python-files" in result.next_action
 
     # Raising the cap reaches the hidden project, and the claim of
@@ -1536,7 +1679,7 @@ def test_a_truncated_candidate_list_is_never_reported_as_complete(
     assert payload["manifest_status"] == "refused_unresolved_scope"
     assert payload["auto_detected"]["agent_scope"] == "ambiguous"
     assert payload["auto_detected"]["agent_scope_truncated"] is True
-    assert "not exhaustive" in payload["manifest_message"]
+    assert "may be incomplete" in payload["manifest_message"]
     assert "--max-python-files" in payload["manifest_message"]
     assert not (repo / "shipgate.yaml").exists()
 
@@ -1575,6 +1718,86 @@ def test_a_capped_walk_never_reports_no_agent_project(tmp_path: Path) -> None:
     assert "--max-python-files" in echoed.output
 
 
+def test_an_unmarked_root_agent_is_counted_before_the_cap_clears_the_walk(
+    tmp_path: Path,
+) -> None:
+    """The census has to leave room for the scope the walk falls back to.
+    Counting only marker directories missed the workspace itself, so a
+    repository with one marked sub-project and an unmarked root agent past the
+    cap censused a single root, kept `single` with no truncation warning, and
+    let `init --write` write a root manifest carrying the sub-project's agent
+    name while covering the root agent nobody had read (#399 review)."""
+
+    repo = tmp_path / "implicit"
+    nested = repo / "aa_nested"
+    nested.mkdir(parents=True)
+    (nested / "pyproject.toml").write_text(
+        _PYPROJECT.format(name="aa-nested"), encoding="utf-8"
+    )
+    (nested / "agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="nested_agent", tool="act"), encoding="utf-8"
+    )
+    # Sorts after the filler, so the cap hides it; it carries no marker, so it
+    # is the workspace-fallback candidate `.`.
+    (repo / "zz_root_agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="root_agent_unmarked", tool="act"),
+        encoding="utf-8",
+    )
+    filler = repo / "mm_filler"
+    filler.mkdir()
+    for index in range(1200):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+
+    capped = detect_workspace(repo)
+    assert capped.workspace_signals.project_root_count == 2
+    assert capped.agent_scope_truncated is True
+    assert capped.agent_scope != "single"
+
+    # Which is the answer the uncapped walk gives, arrived at honestly.
+    full = detect_workspace(repo, max_python_files=5000)
+    assert full.agent_scope == "ambiguous"
+    assert [c.path for c in full.agent_project_candidates] == [".", "aa_nested"]
+
+    refused = runner.invoke(app, ["init", "--workspace", str(repo), "--write", "--json"])
+    assert refused.exit_code == 2, refused.output
+    assert not (repo / "shipgate.yaml").exists()
+
+
+def test_a_capped_walk_never_publishes_a_terminal_machine_route(
+    tmp_path: Path,
+) -> None:
+    """The human summary was only half of it. Every negative-control
+    diagnostic publishes a `stop`, which routing turns into
+    `setup_not_applicable` — a terminal machine route for a scan that said it
+    was inconclusive. `bootstrap` read the same negative as "nothing to do"
+    (#399 review)."""
+
+    repo = tmp_path / "capped-machine"
+    for name in ("zz_one", "zz_two"):
+        project = repo / name
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text(
+            _PYPROJECT.format(name=name.replace("_", "-")), encoding="utf-8"
+        )
+        (project / "agent.py").write_text(
+            _ADK_AGENT_MODULE.format(name=name, tool="act"), encoding="utf-8"
+        )
+    filler = repo / "aa_filler"
+    filler.mkdir()
+    for index in range(1200):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+
+    detected = runner.invoke(app, ["detect", "--workspace", str(repo), "--json"])
+    assert detected.exit_code == 0, detected.output
+    payload = json.loads(detected.output)
+    assert payload["is_agent_project"] is False
+    assert payload["agent_scope_truncated"] is True
+    assert [d["id"] for d in payload["diagnostics"]] == []
+    assert payload["control"]["decision"] != "setup_not_applicable"
+    assert payload["control"]["next_action"]["kind"] != "stop"
+    assert "--max-python-files" in payload["control"]["next_action"]["why"]
+
+
 def test_an_uncapped_ambiguous_workspace_claims_no_truncation(
     monorepo: Path,
 ) -> None:
@@ -1593,7 +1816,7 @@ def test_an_uncapped_ambiguous_workspace_claims_no_truncation(
     assert refused.exit_code == 2, refused.output
     payload = json.loads(refused.output)
     assert payload["auto_detected"]["agent_scope_truncated"] is False
-    assert "not exhaustive" not in payload["manifest_message"]
+    assert "may be incomplete" not in payload["manifest_message"]
 
 
 def test_a_large_single_project_repo_keeps_its_single_verdict(

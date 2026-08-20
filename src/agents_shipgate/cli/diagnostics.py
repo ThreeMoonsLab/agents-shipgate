@@ -287,7 +287,21 @@ def diagnose_detect(
     # diagnostics here are interesting — the agent is past detect. Only
     # surface the artifact-only nudge when relevant.
     if not has_manifest:
-        if not is_agent and not has_suggested and not has_codex_plugin:
+        # Every negative control below is a claim about the *whole* workspace,
+        # and a capped parse read part of one. On a truncated walk each of them
+        # publishes a `stop` action, which routing turns into
+        # `setup_not_applicable` — a terminal machine route for a scan that
+        # said it was inconclusive, on exactly the repositories the cap cuts
+        # (#399 review). Emitting nothing here hands the route to
+        # `_detect_advance`, which reads the non-`single` scope and returns the
+        # higher-cap recovery; truncation always implies a non-`single` scope,
+        # so that route is always there to fall through to.
+        if (
+            not is_agent
+            and not has_suggested
+            and not has_codex_plugin
+            and not result.agent_scope_truncated
+        ):
             # Negative-control precedence
             if (
                 signals.has_prompts_dir

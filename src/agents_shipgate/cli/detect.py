@@ -133,8 +133,8 @@ def detect(
             typer.echo(
                 "No agent framework signals matched in the part of the tree that "
                 f"was read, and it holds {result.workspace_signals.project_root_count} "
-                "project roots. Re-run with --max-python-files <n>, or point "
-                "--workspace at the project you are changing."
+                "candidate project scopes. Re-run with --max-python-files <n>, "
+                "or point --workspace at the project you are changing."
             )
         else:
             typer.echo("Workspace does not appear to be an agent project.")
@@ -359,13 +359,14 @@ def _echo_agent_scope(result: DetectResult) -> None:
         roots = result.workspace_signals.project_root_count
         typer.echo(
             (
-                "This list is not exhaustive: the Python parse stopped at the "
-                f"cap in a workspace holding {roots} project roots, so a "
-                "project in the unread remainder is missing from it."
+                "This list may be incomplete: the Python parse stopped at the "
+                f"cap in a workspace holding {roots} candidate project "
+                "scopes, so any project in the part of the tree that was not "
+                "read is missing from it."
                 if candidates
                 else (
                     "The Python parse stopped at the cap in a workspace "
-                    f"holding {roots} project roots."
+                    f"holding {roots} candidate project scopes."
                 )
             )
             + " Re-run with --max-python-files <n> before concluding your "

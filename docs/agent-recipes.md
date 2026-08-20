@@ -155,8 +155,16 @@ Consume the response to decide whether to proceed. Key fields:
 - `is_agent_project` is `false`, AND
 - `suggested_sources` is empty, AND
 - `codex_plugin_candidates` is empty, AND
+- `agent_scope_truncated` is `false` — each negative above is a claim about
+  the whole workspace, and a run whose Python parse stopped at its cap read
+  only part of one, AND
 - no `shipgate.yaml` already exists, AND
 - the user did not explicitly request a scan.
+
+A payload that does not carry every one of those keys leaves the condition
+unevaluable — `trigger` reports `stop_conditions_evaluated: false` and infers
+no stop. Re-run `detect` with the current CLI rather than reading an absent
+key as `false`.
 
 Otherwise proceed. MCP/OpenAPI-only tool-surface repos and Codex plugin
 package repos surface as `is_agent_project: false` but should still be
@@ -193,11 +201,16 @@ Key response fields:
   first.
 - `auto_detected.agent_scope_truncated`: whether that candidate list is an
   enumeration or a lower bound. `true` means the Python parse stopped at its
-  cap in a workspace holding more than one project root, so a project in the
-  unread remainder is missing from the list — do **not** conclude a project is
-  absent from it. Re-run `detect --max-python-files <n> --json` first.
-  `workspace_signals.project_root_count` bounds the claim: it is an uncapped,
-  filename-only census of project-marker directories.
+  cap in a workspace holding more than one candidate project scope, so any
+  project in the part of the tree that was not read is missing from the list —
+  do **not** conclude a project is absent from it. Re-run
+  `detect --max-python-files <n> --json` first.
+- `auto_detected.workspace_signals.project_root_count` bounds that claim: an
+  uncapped, filename-only census of the directories that could be a manifest
+  scope (every project-marker directory, plus the workspace root itself, which
+  is a candidate whether or not it carries a marker). `init` emits the same
+  block `detect` does, so the number its refusal message quotes is readable
+  structurally.
 
 `--ci` is orthogonal to `--write`: each gets its own overwrite-refusal.
 Exit code is the max of per-action outcomes; manifest-error and

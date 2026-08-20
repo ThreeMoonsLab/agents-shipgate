@@ -17,11 +17,27 @@
   ([#394](https://github.com/ThreeMoonsLab/agents-shipgate/issues/394)).
 
   Preview now collects that evidence for the directories the diff sits under,
-  by the same per-file rule `detect` uses, and asks it only where the answer
-  can change anything: a directory carrying a strong marker is already a
-  project root, and one carrying no weak marker cannot become one. On the
-  reported pull request the first command an adopter sees goes from an
-  eight-step recovery to `init --workspace python/agents/smart_closer --write`.
+  and asks it only where the answer can change anything: a directory carrying
+  a strong marker is already a project root, and one carrying no weak marker
+  cannot become one. For the rest it reads what `detect` would find directly
+  in that directory, through the same three rules — framework-attributed
+  Python, suggested OpenAPI/MCP sources, and Codex plugin packages — over the
+  same git-aware inventory, so an ignored file cannot make preview narrow to a
+  directory `detect` never saw. On the reported pull request the first command
+  an adopter sees goes from an eight-step recovery to
+  `init --workspace python/agents/smart_closer --write`.
+
+  The probe reports three things as *undetermined* rather than as "no project
+  here", each routing to discovery instead of to a workspace-root `init`: the
+  shared `max_python_files` budget running out, an unreadable inventory, and a
+  change that deletes the one Python file beside a requirements file — the
+  head tree cannot say whether what it removed was that project's agent.
+
+- `detect`'s glob-based source suggestion re-ran the whole git inventory walk
+  once per pattern — fifteen walks for one pass. `_candidate_files_matching`
+  now accepts an inventory the caller already built, which both fixes that and
+  is what lets the preview evidence probe ask the *same* suggestion rule about
+  a single directory rather than keeping a second copy of it.
 
 - **Project discovery no longer presents a truncated candidate list as a
   complete one.** On a repository large enough to hit the Python-file cap,
@@ -36,13 +52,28 @@
 
   Truncation is now evaluated independently of ambiguity and reported beside
   it: `detect --json` and `init --json` carry `agent_scope_truncated`, the
-  human and refusal messages say the list is not exhaustive and name the
+  human and refusal messages say the list may be incomplete and name the
   `--max-python-files` remedy, and `workspace_signals.project_root_count`
-  bounds the claim with an uncapped, filename-only census of project roots. A
-  capped walk that reached no agent at all no longer reports "workspace does
-  not appear to be an agent project" either. The zero-install
-  `tools/shipgate-detect.py` carries the same field (script version `0.4.0`),
-  pinned by the parity test.
+  bounds the claim with an uncapped, filename-only census of the directories
+  that could be a manifest scope — every project-marker directory *plus the
+  workspace root*, which is a candidate whether or not it carries a marker,
+  because unmarked agent evidence is attributed to it as `.`.
+
+  Nothing publishes a terminal negative from a capped walk any more. The three
+  negative-control diagnostics (`SHIP-DIAG-NO-AGENT-SURFACE`,
+  `-NON-AGENT-LIBRARY`, `-PURE-PROMPT-EXPERIMENT`) each publish a `stop` that
+  routing turns into `setup_not_applicable`; none of them fires while
+  `agent_scope_truncated` is true, so `detect --json` routes to the higher-cap
+  recovery instead. `bootstrap` no longer reads the same negative as "nothing
+  to do", and the trigger catalog's stop block gained
+  `agent_scope_truncated: false` — with a `detect` payload missing any key the
+  block reads now reported as `stop_conditions_evaluated: false` rather than
+  silently satisfying it, since absent is not false. `detect` no longer prints
+  "workspace does not appear to be an agent project" for a capped walk either.
+
+  The zero-install `tools/shipgate-detect.py` carries both new fields (script
+  version `0.4.0`), pinned by the parity test — which now includes a workspace
+  that actually truncates, since every sample fixture sits far under the cap.
 
 - **A tool inventory now completes the source that asked for it, instead of
   shadowing it.** `incomplete_surface` fires for every statically-extracted

@@ -294,6 +294,58 @@ def test_script_finds_at_least_one_python_file_when_cli_does(
         )
 
 
+_ADK_AGENT = """\
+from google.adk.agents import Agent
+
+
+def act(x: str) -> str:
+    \"\"\"Act.\"\"\"
+    return "ok"
+
+
+root_agent = Agent(name="{name}", tools=[act])
+"""
+
+
+def test_script_and_cli_agree_on_a_truncated_walk(script_module, tmp_path):
+    """The parity samples all sit far under the cap, so they only ever pin
+    ``agent_scope_truncated: false``. A workspace that actually truncates is
+    where the two detectors could disagree about whether their own candidate
+    list is complete — and an agent that consults the zero-install path must
+    not read a capped list as an enumeration any more than it may read a
+    capped scope verdict as settled (#395, #399 review)."""
+
+    repo = tmp_path / "capped"
+    for name in ("aa_one", "aa_two", "zz_hidden"):
+        project = repo / name
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text(
+            f'[project]\nname = "{name}"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+        (project / "agent.py").write_text(
+            _ADK_AGENT.format(name=name), encoding="utf-8"
+        )
+    filler = repo / "mm_filler"
+    filler.mkdir()
+    for index in range(1200):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+
+    assert cli_result["agent_scope_truncated"] is True
+    assert script_result["agent_scope_truncated"] is True
+    assert script_result["agent_scope"] == cli_result["agent_scope"]
+    assert (
+        script_result["workspace_signals"]["project_root_count"]
+        == cli_result["workspace_signals"]["project_root_count"]
+    )
+    # Both name a recovery that actually changes the outcome: repeating the
+    # same capped run reproduces the same verdict.
+    assert "--max-python-files" in script_result["next_action"]
+    assert "--max-python-files" in cli_result["next_action"]
+
+
 def test_script_and_cli_skip_common_fixture_dirs(script_module, tmp_path):
     _write_skipped_fixture_signals(tmp_path / "fixtures")
 

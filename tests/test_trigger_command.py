@@ -242,6 +242,7 @@ def test_stop_conditions_fire_with_detect_result():
         "is_agent_project": False,
         "suggested_sources": [],
         "codex_plugin_candidates": [],
+        "agent_scope_truncated": False,
     }
     res = evaluate(paths=["src/internal/util.py"], detect_result=detect)
     assert res["stop_conditions_evaluated"] is True
@@ -251,11 +252,64 @@ def test_stop_conditions_fire_with_detect_result():
     assert res["next_action"]["kind"] == "stop"
 
 
+def test_a_truncated_detect_cannot_fire_the_stop_conditions():
+    """Every negative in the stop block is a claim about the whole workspace.
+    A detect run whose Python parse stopped at its cap read part of one, so
+    `is_agent_project: false` from it is not a reason to stop (#399 review)."""
+
+    detect = {
+        "is_agent_project": False,
+        "suggested_sources": [],
+        "codex_plugin_candidates": [],
+        "agent_scope_truncated": True,
+    }
+    res = evaluate(paths=["src/internal/util.py"], detect_result=detect)
+    assert res["stop_conditions_evaluated"] is True
+    assert res["stop_conditions_fired"] is False
+    assert res["skip_reason"] != "stop_conditions"
+
+
+def test_a_matched_capability_rule_survives_a_truncated_detect():
+    """The stop block blocks everything, so a truncated negative could bury a
+    rule that had already fired on the diff itself."""
+
+    detect = {
+        "is_agent_project": False,
+        "suggested_sources": [],
+        "codex_plugin_candidates": [],
+        "agent_scope_truncated": True,
+    }
+    res = evaluate(
+        paths=["src/tools.py"],
+        diff_text="+@function_tool\n+def refund(): ...\n",
+        detect_result=detect,
+    )
+    assert res["stop_conditions_fired"] is False
+    assert res["should_run"] is True
+
+
+def test_a_detect_payload_missing_a_stop_key_is_not_evaluable():
+    """Absent is not false. A payload from a build that predates a key the
+    block reads leaves the block unevaluable — the same answer the evaluator
+    already gives when no payload is supplied at all — rather than silently
+    concluding "not an agent project" from evidence nobody produced."""
+
+    legacy = {
+        "is_agent_project": False,
+        "suggested_sources": [],
+        "codex_plugin_candidates": [],
+    }
+    res = evaluate(paths=["src/internal/util.py"], detect_result=legacy)
+    assert res["stop_conditions_evaluated"] is False
+    assert res["stop_conditions_fired"] is False
+
+
 def test_stop_conditions_suppressed_by_user_request():
     detect = {
         "is_agent_project": False,
         "suggested_sources": [],
         "codex_plugin_candidates": [],
+        "agent_scope_truncated": False,
     }
     res = evaluate(
         paths=["src/internal/util.py"], detect_result=detect, user_requested=True
@@ -272,6 +326,7 @@ def test_trigger_subcommand_detect_json_enables_stop(tmp_path):
                 "is_agent_project": False,
                 "suggested_sources": [],
                 "codex_plugin_candidates": [],
+                "agent_scope_truncated": False,
             }
         ),
         encoding="utf-8",

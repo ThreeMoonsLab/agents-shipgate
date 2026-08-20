@@ -160,11 +160,21 @@ def bootstrap_run(
     is_agent_project = bool(detect_payload.get("is_agent_project"))
     suggested = detect_payload.get("suggested_sources") or []
     manifest_already = manifest_path.is_file()
+    # "Nothing to do" rests on detect having looked at the whole workspace.
+    # When its Python parse stopped at the cap it looked at part of one, and
+    # `is_agent_project: false` is then a statement about the files that were
+    # read rather than about the repository (#399 review). Fall through instead:
+    # a truncated walk always leaves the manifest scope unresolved, so `init`
+    # refuses with the cap, the project-scope census, and the higher-cap
+    # recovery, and `_stop_with_failure` forwards that structured error
+    # verbatim — the same routing a manual `init` gives.
+    discovery_truncated = bool(detect_payload.get("agent_scope_truncated"))
 
     if (
         not is_agent_project
         and not suggested
         and not manifest_already
+        and not discovery_truncated
     ):
         return {
             "verdict": "no_agent_surface",

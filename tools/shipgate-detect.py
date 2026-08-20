@@ -1918,10 +1918,14 @@ def detect(workspace: Path) -> dict[str, Any]:
     agent_project_candidates = _agent_project_candidates(
         workspace, evidence_paths, literals_by_path
     )
+    # The workspace is always a candidate scope, marker or not: agent evidence
+    # under no marker is attributed to it as ".", so an unmarked root agent in
+    # the part of the tree the parse never reached is a project this census has
+    # to leave room for (#399 review).
     project_roots = {
         p.parent for p in files
         if p.name in PROJECT_MARKERS or p.name in WEAK_PROJECT_MARKERS
-    } | ({workspace} if _project_marker(workspace, WEAK_PROJECT_MARKERS) else set())
+    } | {workspace}
     # Truncation is decided before ambiguity and reported alongside it. Two
     # projects found is an ambiguous scope however much of the tree was read;
     # what a cut-short parse changes is that the candidate list is a lower
@@ -1944,20 +1948,20 @@ def detect(workspace: Path) -> dict[str, Any]:
         )
         if agent_scope_truncated:
             next_action += (
-                " That list is not exhaustive: discovery stopped at the "
+                " That list may be incomplete: discovery stopped at the "
                 f"Python-file cap in a workspace holding {len(project_roots)} "
-                "project roots, so a project in the unread remainder is "
-                "missing from it. Run `agents-shipgate detect "
-                "--max-python-files <n> --json` before concluding a project "
-                "is absent."
+                "candidate project scopes, so any project in the part of the "
+                "tree that was not read is missing from it. Run "
+                "`agents-shipgate detect --max-python-files <n> --json` "
+                "before concluding a project is absent."
             )
     elif agent_scope == "unknown":
         next_action = (
             "Discovery stopped at the Python-file cap in a workspace holding "
-            f"{len(project_roots)} project roots, so whether one manifest "
-            "describes it was not established. Run `agents-shipgate detect "
-            "--json` for the full picture, or init in the project directory "
-            "you are changing."
+            f"{len(project_roots)} candidate project scopes, so whether one "
+            "manifest describes it was not established. Run `agents-shipgate "
+            "detect --max-python-files <n> --json` for the full picture, or "
+            "init in the project directory you are changing."
         )
     elif is_agent or suggested or codex_plugin_candidates:
         next_action = f"agents-shipgate init --workspace {workspace}"

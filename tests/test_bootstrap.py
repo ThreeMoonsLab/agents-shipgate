@@ -77,6 +77,43 @@ def test_bootstrap_skips_when_no_agent_surface(tmp_path):
     assert [s["label"] for s in result["steps"]] == ["detect"]
 
 
+def test_bootstrap_does_not_read_a_capped_walk_as_nothing_to_do(tmp_path):
+    """"Nothing to do" rests on detect having looked at the whole workspace.
+    When its Python parse stopped at the cap it looked at part of one, and
+    `is_agent_project: false` is then a statement about the files that were
+    read (#399 review). Falling through lets `init`'s own refusal carry the
+    higher-cap recovery, which `_stop_with_failure` forwards verbatim."""
+
+    repo = tmp_path / "capped"
+    for name in ("zz_one", "zz_two"):
+        project = repo / name
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text(
+            f'[project]\nname = "{name}"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+        (project / "agent.py").write_text(
+            "from google.adk.agents import Agent\n\n\n"
+            "def act(x: str) -> str:\n"
+            '    """Act."""\n'
+            '    return "ok"\n\n\n'
+            f'root_agent = Agent(name="{name}", tools=[act])\n',
+            encoding="utf-8",
+        )
+    filler = repo / "aa_filler"
+    filler.mkdir()
+    for index in range(1200):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+
+    result = bootstrap_run(workspace=repo, ci=False, apply=False)
+
+    assert result["verdict"] != "no_agent_surface"
+    assert [s["label"] for s in result["steps"]] == ["detect", "init"]
+    init_payload = result["steps"][-1]["payload"] or {}
+    assert init_payload["manifest_status"] == "refused_unresolved_scope"
+    assert "--max-python-files" in init_payload["manifest_message"]
+    assert not (repo / "shipgate.yaml").exists()
+
+
 def test_bootstrap_tolerates_manifest_already_exists(tmp_path):
     """When the workspace already has shipgate.yaml, init refuses to
     overwrite (exit 2 with ``manifest_status: skipped_existing``).

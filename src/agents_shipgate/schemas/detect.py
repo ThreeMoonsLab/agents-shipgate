@@ -131,12 +131,14 @@ class WorkspaceSignals(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     python_file_count: int = 0
-    # Directories carrying a project marker, counted from the whole walk by
-    # filename alone — no parsing, and no cap. It is the one number that
-    # stays trustworthy where the AST pass stops being trustworthy, so it
-    # bounds a truncated candidate list: `agent_project_candidates` names
-    # the agent projects found *before* the cap, this counts the project
-    # roots that exist.
+    # Directories that could be a manifest scope: every directory carrying a
+    # project marker, plus the workspace root itself — which is a candidate
+    # whether or not it carries one, because agent evidence under no marker
+    # is attributed to it as ".". Counted from the whole walk by filename
+    # alone — no parsing, and no cap — so it is the one number that stays
+    # trustworthy where the AST pass stops being trustworthy, and it bounds a
+    # truncated candidate list: `agent_project_candidates` names the agent
+    # projects found *before* the cap, this counts the scopes that exist.
     project_root_count: int = 0
     has_pyproject_or_requirements: bool = False
     has_prompts_dir: bool = False

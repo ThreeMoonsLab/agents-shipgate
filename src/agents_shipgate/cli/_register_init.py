@@ -250,8 +250,9 @@ def _unresolved_scope_message(
     if scope == "unknown":
         lines = [
             f"Refusing to write shipgate.yaml: discovery stopped at the "
-            f"Python-file cap while {workspace} holds several project roots, "
-            "so whether one manifest describes it was not established.",
+            f"Python-file cap while {workspace} holds {project_roots} "
+            "candidate project scopes, so whether one manifest describes it "
+            "was not established.",
         ]
         if candidates:
             lines.append("Projects found before the cap:")
@@ -278,9 +279,10 @@ def _unresolved_scope_message(
         # this an adopter reads their own project's absence as an answer
         # (#395); the uncapped project-root census bounds the claim.
         lines.append(
-            "This list is not exhaustive: discovery stopped at the "
-            f"Python-file cap in a workspace holding {project_roots} project "
-            "roots, so a project in the unread remainder is missing from it."
+            "This list may be incomplete: discovery stopped at the "
+            f"Python-file cap in a workspace holding {project_roots} candidate "
+            "project scopes, so any project in the part of the tree that was "
+            "not read is missing from it."
         )
     lines.append(
         "Re-run init with --workspace pointed at the project you are changing, "
@@ -900,8 +902,15 @@ def register(app: typer.Typer) -> None:
                 # unrelated agents, so --write refuses (#363).
                 "agent_scope": detect_result.agent_scope,
                 # Whether `agent_project_candidates` below enumerates the
-                # workspace or only the part of it the parse reached (#395).
+                # workspace or only the part of it the parse reached (#395),
+                # and the workspace signals the truncation claim is measured
+                # against. `project_root_count` is the number the refusal
+                # message quotes, so a caller that reads the message has to be
+                # able to read the number too (#399 review).
                 "agent_scope_truncated": detect_result.agent_scope_truncated,
+                "workspace_signals": detect_result.workspace_signals.model_dump(
+                    mode="json"
+                ),
                 "agent_project_candidates": [
                     candidate.model_dump(mode="json")
                     for candidate in detect_result.agent_project_candidates
@@ -1212,6 +1221,7 @@ def register(app: typer.Typer) -> None:
                 control=routing.envelope.model_dump(mode="json"),
                 agent_scope=detected_scope,
                 agent_scope_truncated=scope_truncated,
+                project_root_count=scope_project_roots,
                 agent_project_candidates=[
                     candidate.model_dump(mode="json") for candidate in scope_candidates
                 ],

@@ -3921,6 +3921,49 @@ def _head_is_current_worktree(root: Path, head: str | None) -> bool:
     return head_sha is not None and head_sha == worktree_sha
 
 
+def _preview_scope(
+    *, root: Path, changed_files: list[str], limit: Path | None, head: str | None
+) -> ScopeResolution:
+    """Which project the changed paths belong to, for the routing below.
+
+    Project markers are read from the working tree, because that is what
+    ``init`` will run against. When the evaluated head is some other commit
+    the two disagree — the same refs would recommend different directories
+    depending on what happens to be checked out — so no scope is claimed.
+
+    ``evidence_dirs`` is what lets the resolver see a project whose whole
+    boundary is a ``requirements.txt`` beside an ``agent.py``. Without it the
+    walk climbs past such a project to the repository root, nothing resolves,
+    and routing emits the root ``init`` that ``init`` refuses
+    deterministically (#394).
+
+    A directory the evidence probe could not settle is not a directory
+    without a project. Spending it as one would put the workspace root back
+    in the same routing slot the missing evidence took it out of, so an
+    unsettled probe is reported as ``not_evaluated`` and routes to discovery
+    (#399 review).
+    """
+
+    if not _head_is_current_worktree(root, head):
+        return ScopeResolution(
+            status="not_evaluated",
+            detail=(
+                f"the evaluated head {head!r} is not the commit this worktree "
+                "has checked out, and project markers are read from the "
+                "worktree that init would run against"
+            ),
+        )
+    evidence = weak_marker_evidence_dirs(root, changed_files)
+    if evidence.undetermined:
+        return ScopeResolution(status="not_evaluated", detail=evidence.detail)
+    return resolve_change_scope(
+        root=root,
+        changed_files=changed_files,
+        limit=limit,
+        evidence_dirs=evidence.directories,
+    )
+
+
 def _preview_detect_command(workspace: Path) -> str:
     command_workspace = _preview_command_workspace(workspace, scope=None)
     return retarget_command(
@@ -4126,30 +4169,8 @@ def run_preview(
     # `init` will run against. When the evaluated head is some other commit,
     # the two disagree — the same refs would recommend different directories
     # depending on what happens to be checked out — so no scope is claimed.
-    resolution = (
-        resolve_change_scope(
-            root=root,
-            changed_files=changed_files,
-            limit=requested_root,
-            # Without this the resolver sees only the strong project markers,
-            # and a project whose whole boundary is `requirements.txt` beside
-            # `agent.py` is invisible to it — the walk climbs past it to the
-            # repository root, no scope resolves, and the branch below emits
-            # the root `init` that `init` refuses deterministically. `detect`
-            # answers this same question with the evidence it collects; the
-            # preview path collects it for the directories the diff actually
-            # sits under (#394).
-            evidence_dirs=weak_marker_evidence_dirs(root, changed_files),
-        )
-        if _head_is_current_worktree(root, head)
-        else ScopeResolution(
-            status="not_evaluated",
-            detail=(
-                f"the evaluated head {head!r} is not the commit this worktree "
-                "has checked out, and project markers are read from the "
-                "worktree that init would run against"
-            ),
-        )
+    resolution = _preview_scope(
+        root=root, changed_files=changed_files, limit=requested_root, head=head
     )
     scope = resolution.scope
     scoped_config = (

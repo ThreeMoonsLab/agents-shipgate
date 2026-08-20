@@ -17,7 +17,7 @@
     "none_match_boundary_surface": "No changed file matches any path in `boundary_adapters`. Used by negative rules so a host trust root is never treated as a docs-only change.",
     "any_of": "Logical OR over a list of nested predicates.",
     "all_of": "Logical AND over a list of nested predicates.",
-    "detect_returns": "Result of `agents-shipgate detect --workspace . --json` matches the given `key: value` pair (`is_agent_project: false`, `suggested_sources: []`, etc.). Used in `stop_conditions` only.",
+    "detect_returns": "Result of `agents-shipgate detect --workspace . --json` matches the given `key: value` pair (`is_agent_project: false`, `suggested_sources: []`, etc.). A key the supplied payload does not carry is *absent*, not false: the block that reads it is then unevaluable rather than satisfied. Used in `stop_conditions` only.",
     "user_did_not_request": "The user did not explicitly ask for a Shipgate run in their prompt. Used in `stop_conditions` only."
   },
   "boundary_adapters": [
@@ -381,11 +381,12 @@
     }
   ],
   "stop_conditions": {
-    "description": "Stop and do not propose Shipgate when ALL of these hold (mirrors AGENTS.md \"Stop conditions\" prose).",
+    "description": "Stop and do not propose Shipgate when ALL of these hold (mirrors AGENTS.md \"Stop conditions\" prose). Every negative in this conjunction is a claim about the whole workspace, which is why `agent_scope_truncated: false` belongs in it: a detect run whose Python parse stopped at its cap read only part of the repository, and `is_agent_project: false` from a partial read is not a reason to stop. A `detect` payload that does not carry every key named here leaves the block unevaluable — `stop_conditions_evaluated` is false and no stop is inferred.",
     "all_of": [
       {"detect_returns": "is_agent_project: false"},
       {"detect_returns": "suggested_sources: []"},
       {"detect_returns": "codex_plugin_candidates: []"},
+      {"detect_returns": "agent_scope_truncated: false"},
       {"file_absent": "shipgate.yaml"},
       {"user_did_not_request": true}
     ]
