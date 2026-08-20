@@ -1203,17 +1203,26 @@ agent_bindings:
 # --- #386: the prescribed remediation must close the gap it was issued for ---
 
 
+# Neither parameter list is annotated, so the AST can name these two tools but
+# cannot read their schemas: ``_json_schema_type`` falls back to ``string`` for
+# every one of them. That is a real ``incomplete_surface`` — and the reason a
+# reviewed inventory is worth writing, since the inventory is where the real
+# parameter types come from. Since #393 a *fully* annotated, fully resolvable
+# module reports a proven surface instead, so the inventory tests below need a
+# source whose surface genuinely is not proven; see
+# ``test_a_fully_static_adk_module_needs_no_inventory_to_reach_high_confidence``
+# for the other half of that pair.
 _ADK_AGENT_SOURCE = """
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 
 
-def get_manager_email(employee_id: str) -> dict:
+def get_manager_email(employee_id) -> dict:
     \"\"\"Look up the manager's email for an employee.\"\"\"
     return {"email": "manager@example.com"}
 
 
-def send_email(to: str, body: str) -> dict:
+def send_email(to, body) -> dict:
     \"\"\"Send an email.\"\"\"
     return {"status": "sent"}
 
@@ -1676,3 +1685,546 @@ checks:
     assert "SHIP-DOC-MISSING-DESCRIPTION" in after_suppressed
     # ... and applying the remediation did not make the verdict worse.
     assert after_decision == before_decision
+
+
+
+# --- #393: extraction confidence is measured, not assumed ---------------------
+
+
+def _proven_module(
+    *,
+    preamble: str = "",
+    extra_tools: str = "",
+    agent_kwargs: str = "",
+    trailer: str = "",
+) -> str:
+    """One ADK module with exactly one root agent, varied at four points.
+
+    Every ambiguity below is injected into *this* agent rather than added as a
+    sibling. A second module-level ``Agent(...)`` makes the root selector
+    ambiguous, which excludes the tools from scope for an unrelated reason and
+    would have made these tests pass without measuring anything.
+    """
+
+    return f'''
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
+{preamble}
+
+def lookup_account(record_id: str) -> dict:
+    """Look up a Salesforce account."""
+    return {{"record_id": record_id}}
+
+
+def create_quote(record_id: str, amount: float) -> dict:
+    """Create a quote against an opportunity."""
+    return {{"quote": record_id}}
+
+
+root_agent = LlmAgent(
+    name="smart_closer",
+    instruction="Close deals.",
+    tools=[
+        FunctionTool(func=lookup_account),
+        FunctionTool(func=create_quote),{extra_tools}
+    ],{agent_kwargs}
+)
+{trailer}'''
+
+
+_PROVEN_MANIFEST = """
+version: "0.1"
+project:
+  name: adk-proven-surface
+agent:
+  name: smart_closer
+  declared_purpose:
+    - close deals across salesforce records
+environment:
+  target: local
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+"""
+
+_PROVEN_ACTIONS = """
+action_surface:
+  actions:
+    - tool: lookup_account
+      effect: read
+      authority:
+        mode: none
+    - tool: create_quote
+      effect: write
+      authority:
+        mode: none
+"""
+
+
+def _proven_project(tmp_path, *, source: str | None = None, manifest_extra: str = ""):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agent.py").write_text(
+        source if source is not None else _proven_module(), encoding="utf-8"
+    )
+    (project / "shipgate.yaml").write_text(
+        _PROVEN_MANIFEST + manifest_extra, encoding="utf-8"
+    )
+    return project
+
+
+def _scan_proven(tmp_path, project):
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    return report
+
+
+def test_a_fully_static_adk_module_needs_no_inventory_to_reach_high_confidence(
+    tmp_path,
+):
+    """#393: `medium` used to be the ceiling of the ADK AST path.
+
+    Nothing a repository could do to its own source raised it, so
+    `insufficient_evidence` was not a property of any repository — it was the
+    framework's default first-run verdict, reproducible on the most statically
+    trivial module there is. The remedy it prescribed was transcription: copy
+    the tools Shipgate had just extracted correctly into
+    `suggested-inventory.json`, which adds no fact to the system.
+    """
+
+    report = _scan_proven(tmp_path, _proven_project(tmp_path))
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}
+    evidence = report.release_decision.evidence_coverage
+    assert evidence.low_confidence_tool_count == 0
+    assert evidence.source_warning_count == 0
+    # What remains is the human assertion the gate genuinely needs, not an
+    # extraction failure the repository cannot act on.
+    assert {gap.kind for gap in evidence.evidence_gaps} == {
+        "missing_effect_evidence",
+        "missing_authority_evidence",
+    }
+    # No transcription is requested, so the skeleton is not even written.
+    assert not (tmp_path / "reports" / "suggested-inventory.json").exists()
+
+
+def test_a_proven_adk_surface_with_declared_actions_reaches_a_merge_verdict(tmp_path):
+    """The loop terminates. Before #393 this exact project could not.
+
+    Declaring every action's effect and authority — the one thing the gate
+    genuinely needs a human for — still left `incomplete_surface` on every tool
+    and `insufficient_evidence` as the verdict, because the extraction ceiling
+    was unreachable from the manifest. Effect and authority remain human
+    assertions; what changed is that they are now the *last* step rather than
+    one behind a step no repository could take.
+    """
+
+    report = _scan_proven(
+        tmp_path, _proven_project(tmp_path, manifest_extra=_PROVEN_ACTIONS)
+    )
+
+    decision = report.release_decision
+    assert decision.decision == "passed"
+    assert decision.evidence_coverage.semantic_coverage.pass_eligible_actions == 2
+    assert decision.evidence_coverage.evidence_gaps == []
+
+
+#: One construct per row, each leaving some part of the tool surface unproven,
+#: with the reason code the adapter has to record for it. Every row starts from
+#: the module above, which reaches `high` on its own, so the construct is the
+#: only variable. The three `mutable_tool_binding` rows and
+#: `agent_built_from_kwargs` were all silently promoted to `high` by the first
+#: draft of this change.
+_UNPROVEN_CONSTRUCTS = [
+    pytest.param(
+        {
+            "preamble": "from external import imported_tool\n",
+            "extra_tools": "\n        imported_tool,",
+        },
+        "unresolved_tool_reference",
+        id="unresolved_tool_reference",
+    ),
+    pytest.param(
+        {
+            "preamble": "base_tools = []\n",
+            "extra_tools": "\n        *base_tools,",
+        },
+        "unresolved_tool_expression",
+        id="starred_tool_element",
+    ),
+    pytest.param(
+        {
+            "preamble": (
+                "from external import missing\n\nwrapper = FunctionTool(func=missing)\n"
+            ),
+            "extra_tools": "\n        wrapper,",
+        },
+        "unresolved_tool_wrapper",
+        id="unresolved_tool_wrapper",
+    ),
+    pytest.param(
+        {
+            "preamble": "from google.adk.tools.mcp_tool import McpToolset\n",
+            "extra_tools": '\n        McpToolset(tool_filter=["a"]),',
+        },
+        "dynamic_toolset",
+        id="dynamic_toolset",
+    ),
+    pytest.param(
+        {
+            "preamble": "from google.adk.tools import LongRunningFunctionTool\n",
+            "extra_tools": "\n        LongRunningFunctionTool(func=lookup_account),",
+        },
+        "conflicting_tool_contract",
+        id="conflicting_tool_contract",
+    ),
+    pytest.param(
+        {
+            "preamble": "from external import helper_agent\n",
+            "agent_kwargs": "\n    sub_agents=[helper_agent],",
+        },
+        "unresolved_sub_agent",
+        id="unresolved_sub_agent",
+    ),
+    pytest.param(
+        {
+            "preamble": "overrides = {}\n",
+            "agent_kwargs": "\n    **overrides,",
+        },
+        "dynamic_agent_kwargs",
+        id="agent_built_from_kwargs",
+    ),
+    pytest.param(
+        {
+            "preamble": "from external import imported_tool\n",
+            "trailer": "root_agent.tools.append(imported_tool)\n",
+        },
+        "mutable_tool_binding",
+        id="tools_mutated_after_construction",
+    ),
+    pytest.param(
+        {
+            "preamble": "from external import imported_tool\n",
+            "trailer": "bucket = root_agent.tools\nbucket.append(imported_tool)\n",
+        },
+        "mutable_tool_binding",
+        id="tools_mutated_through_an_alias",
+    ),
+    pytest.param(
+        {
+            "preamble": "from external import imported_tool\n",
+            "trailer": 'setattr(root_agent, "tools", [imported_tool])\n',
+        },
+        "mutable_tool_binding",
+        id="tools_replaced_by_setattr",
+    ),
+]
+
+
+@pytest.mark.parametrize("module_kwargs, reason", _UNPROVEN_CONSTRUCTS)
+def test_one_unproven_construct_holds_the_whole_module_at_medium(
+    tmp_path, module_kwargs: dict, reason: str
+):
+    """The proof is earned by the file, not by the agent that reads cleanest.
+
+    Scoping completeness per resolved tool would let `lookup_account` claim a
+    proof its own module cannot support: in every row here, a tool nobody
+    enumerated is reachable from the same agent.
+    """
+
+    project = _proven_project(tmp_path, source=_proven_module(**module_kwargs))
+
+    report = _scan_proven(tmp_path, project)
+
+    catalog = {tool["name"]: tool for tool in report.tool_catalog}
+    assert catalog["lookup_account"]["confidence"] == "medium"
+    assert catalog["create_quote"]["confidence"] == "medium"
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert {gap.subject.split(" ")[0] for gap in gaps} == {
+        "lookup_account",
+        "create_quote",
+    }
+    # The row has to name the construct responsible: one sentence repeated on
+    # every AST tool in every repository is the defect #393 reports.
+    assert all(reason in gap.why for gap in gaps)
+
+
+def test_a_dynamic_tools_expression_holds_the_module_at_medium(tmp_path):
+    """The reported shape: `tools=` is not a literal sequence at all.
+
+    Kept apart from the table because it replaces the tools list rather than
+    adding to it, so the agent contributes no tools of its own and a second
+    agent has to own the ones under test.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble="extra_tools = []\n",
+            agent_kwargs="\n    sub_agents=[dynamic_agent],",
+        ).replace(
+            "root_agent = LlmAgent(",
+            'dynamic_agent = LlmAgent(name="dyn", tools=extra_tools + [])\n\n'
+            "root_agent = LlmAgent(",
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("dynamic_tools_expression" in gap.why for gap in gaps)
+
+
+@pytest.mark.parametrize(
+    "signature, reason",
+    [
+        pytest.param("record_id", "untyped_parameter", id="untyped_parameter"),
+        pytest.param(
+            "record_id: str, **headers",
+            "variadic_parameters",
+            id="variadic_parameters",
+        ),
+        pytest.param(
+            "record_id: str",
+            "decorated_tool_function",
+            id="decorated_tool_function",
+        ),
+    ],
+)
+def test_a_function_whose_own_interface_is_unreadable_stays_medium(
+    tmp_path, signature: str, reason: str
+):
+    """A fully resolved module can still hold an unresolvable function.
+
+    An unannotated parameter is typed `string` by the JSON-schema fallback,
+    `**kwargs` is dropped altogether, and a decorator replaces the callable ADK
+    introspects — each would put a guess into the report wearing a schema's
+    clothes. Unlike the module-scoped reasons, this one is about one callable,
+    so its siblings keep their proof.
+    """
+
+    decorator = (
+        "import functools\n\n\n@functools.cache\n"
+        if reason == "decorated_tool_function"
+        else ""
+    )
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(extra_tools="\n        loose_tool,")
+        + f'''
+
+{decorator}def loose_tool({signature}) -> dict:
+    """A tool whose interface cannot be read."""
+    return {{}}
+''',
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    catalog = {tool["name"]: tool for tool in report.tool_catalog}
+    assert catalog["loose_tool"]["confidence"] == "medium"
+    assert catalog["lookup_account"]["confidence"] == "high"
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert gap.subject.startswith("loose_tool")
+    assert reason in gap.why
+
+
+def test_an_unclassified_extractor_warning_fails_closed(tmp_path, monkeypatch):
+    """The backstop, proven load-bearing by a negative control.
+
+    Every ambiguity the extractor knows about routes through
+    ``_surface_warning``, which records a reason. A future one added with a
+    plain ``artifacts.warnings.append`` would leave ``surface_gaps`` empty and
+    promote an unresolved module to ``high`` — the fail-open shape where a
+    block-level "safe" signal clears a path-wide guard. Simulating exactly that
+    slip must still cost the module its proof.
+    """
+
+    from agents_shipgate.inputs import google_adk
+
+    original = google_adk._PythonAdkExtractor._record_eval_references
+
+    def leak_an_unclassified_warning(self):
+        original(self)
+        self.artifacts.warnings.append("a future ambiguity nobody classified")
+
+    monkeypatch.setattr(
+        google_adk._PythonAdkExtractor,
+        "_record_eval_references",
+        leak_an_unclassified_warning,
+    )
+
+    report = _scan_proven(tmp_path, _proven_project(tmp_path))
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert "unclassified_extractor_warning" in gap.why
+
+
+def test_an_eval_artifact_warning_never_costs_the_surface_its_proof(tmp_path):
+    """Eval collateral says nothing about which tools an agent can call."""
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(trailer='eval_set = "evals/missing.eval.json"\n'),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert any("eval reference" in warning for warning in report.source_warnings)
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}
+
+
+def test_a_qualified_module_path_is_not_mistaken_for_an_agent_attribute(tmp_path):
+    """``google.adk.tools`` is a package, not an agent's tool list.
+
+    The mutation guard keys on any ``.tools`` access, so without the
+    imported-root exclusion a module spelling its imports in full would be
+    accused of mutating a tool list it never touched.
+
+    This module is unproven either way: the dotted-import spelling is not one
+    ``_qualified_name`` resolves, so the element reads as an unresolvable tool
+    expression. That is a separate, pre-existing limitation — what matters here
+    is *which* reason is recorded.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble="import google.adk.tools\n",
+            extra_tools="\n        google.adk.tools.FunctionTool(func=lookup_account),",
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert "unresolved_tool_expression" in gap.why
+    assert "mutable_tool_binding" not in gap.why
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        pytest.param(
+            "def build():\n"
+            "    def loose_tool(x: str) -> dict:\n"
+            '        """Built at runtime."""\n'
+            "        return {}\n"
+            "    return loose_tool\n\n\n"
+            "loose_tool = build()\n",
+            id="defined_inside_a_factory",
+        ),
+        pytest.param(
+            "from external import replacement\n\n\n"
+            "def loose_tool(x: str) -> dict:\n"
+            '    """Outer."""\n'
+            "    return {}\n\n\n"
+            "loose_tool = replacement\n",
+            id="rebound_after_definition",
+        ),
+        pytest.param(
+            "class Ops:\n"
+            "    def loose_tool(self, x: str) -> dict:\n"
+            '        """Lifted out of a class body."""\n'
+            "        return {}\n",
+            id="only_defined_as_a_method",
+        ),
+        pytest.param(
+            "import os\n\n"
+            'if os.getenv("X"):\n'
+            "    def loose_tool(x: str) -> dict:\n"
+            '        """A."""\n'
+            "        return {}\n"
+            "else:\n"
+            "    def loose_tool(x: str, y: str) -> dict:\n"
+            '        """B."""\n'
+            "        return {}\n",
+            id="two_conditional_definitions",
+        ),
+        pytest.param(
+            "from external import loose_tool\n\n\n"
+            "def loose_tool(x: str) -> dict:\n"
+            '    """Shadowed by an import."""\n'
+            "    return {}\n",
+            id="shadowed_by_an_import",
+        ),
+    ],
+)
+def test_a_definition_the_name_may_not_refer_to_is_never_proven(
+    tmp_path, definition: str
+):
+    """Naming a tool and proving its signature are different claims.
+
+    ``tools=[loose_tool]`` resolves through a flat, scope-blind name map, which
+    is what lets the adapter report the tool at all. In each of these modules
+    that map answers with a definition the running agent will not use — the
+    factory's inner function, the pre-rebinding one, a method, whichever
+    conditional branch the walk saw last, the local one an import shadows. All
+    five reported a proven surface when this change was first written.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(extra_tools="\n        loose_tool,")
+        + "\n"
+        + definition,
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert "shadowed_tool_definition" in gap.why
+
+
+def test_the_conventional_functiontool_wrapper_variable_is_still_proven(tmp_path):
+    """`lookup_tool = FunctionTool(func=lookup)` is the idiomatic ADK spelling.
+
+    The rebinding check keys on names bound anywhere in the module, so it has
+    to distinguish a name bound *beside* a definition from one bound *over* it.
+    Getting this wrong would demote almost every real ADK entrypoint.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module().replace(
+            "root_agent = LlmAgent(",
+            "lookup_tool = FunctionTool(func=lookup_account)\n\n"
+            "root_agent = LlmAgent(",
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}

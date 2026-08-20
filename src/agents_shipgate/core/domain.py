@@ -276,6 +276,20 @@ class AuthInfo(BaseModel):
     invalid_annotations: list[str] = Field(default_factory=list)
 
 
+#: ``Tool.extraction["surface"]`` — an adapter's answer to "did you read the
+#: whole tool surface, or only report what you could see?".
+#:
+#: Only an adapter writes ``extraction``; no loader copies it out of a parsed
+#: input file, so unlike ``annotations`` this claim cannot be self-declared by
+#: an untrusted artifact. Absence of the key is *not* ``SURFACE_PARTIAL`` with
+#: extra steps — it means the adapter has no answer, which every consumer must
+#: treat as incomplete. Defined here so the producers (``inputs/*``) and the
+#: consumer (``core.semantic_assessment``) share one spelling rather than two
+#: string literals that have to agree (#393).
+SURFACE_ENUMERATED = "enumerated"
+SURFACE_PARTIAL = "partial"
+
+
 class ToolParameter(BaseModel):
     model_config = ConfigDict(extra="allow")
 

@@ -854,13 +854,17 @@ def test_verify_real_base_scan_enables_head_diff(tmp_path: Path) -> None:
 
 def test_verify_text_projects_google_adk_primary_evidence_action(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
+    # ``case_id`` is unannotated on purpose. Since #393 the ADK AST path reports
+    # a proven surface for a module it fully resolved, so the inventory
+    # remediation this test projects needs a source whose surface genuinely is
+    # not proven — here, the parameter type static extraction cannot read.
     (repo / "agent.py").write_text(
         '''
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 
 
-def lookup_case(case_id: str) -> dict:
+def lookup_case(case_id) -> dict:
     """Look up read-only support case metadata."""
     return {"case_id": case_id}
 

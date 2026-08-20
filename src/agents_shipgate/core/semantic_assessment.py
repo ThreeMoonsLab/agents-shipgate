@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from agents_shipgate.core.domain import (
+    SURFACE_ENUMERATED,
     AuthorityMode,
     AuthoritySemanticAssessment,
     BindingSemanticAssessment,
@@ -42,6 +43,12 @@ _MCP_SOURCE_TYPES = frozenset(
         "conductor_mcp_call",
     }
 )
+#: Source types whose tool surface is read out of source code rather than out
+#: of a published contract, so completeness has to be established rather than
+#: assumed. Membership alone is *not* a verdict: an adapter that proves it
+#: enumerated the surface says so on the tool (see
+#: :data:`agents_shipgate.core.domain.SURFACE_ENUMERATED`), and only a source
+#: type that says nothing is treated as incomplete.
 _AST_ONLY_SOURCE_TYPES = frozenset(
     {
         "sdk_function",
@@ -886,12 +893,31 @@ def _issue(
 
 
 def _surface_is_complete(tool: Tool) -> bool:
-    return not (
-        tool.source_type in _AST_ONLY_SOURCE_TYPES
-        or tool.annotations.get("wildcard_tools") is True
+    """Whether this tool's surface is known, not merely reported.
+
+    Until #393 an AST source type was disqualified outright. That made
+    ``incomplete_surface`` a constant for every repository built on a supported
+    Python framework — true of a toolkit factory and of twelve annotated
+    module-level functions alike — and a condition that holds for every input
+    distinguishes nothing. The only way out was a reviewed inventory
+    transcribing tools the adapter had already extracted correctly, which added
+    no fact to the system.
+
+    An AST adapter may now discharge the doubt by measuring it: it enumerates
+    the surface, or it names what it could not resolve. Saying nothing still
+    reads as incomplete, so adapters that have not been taught to answer keep
+    their previous verdict and a newly unresolvable construct fails closed.
+    """
+
+    if (
+        tool.annotations.get("wildcard_tools") is True
         or tool.annotations.get("mcp_wildcard_tools") is True
         or tool.annotations.get("mcp_unknown_schema") is True
-    )
+    ):
+        return False
+    if tool.source_type in _AST_ONLY_SOURCE_TYPES:
+        return tool.extraction.get("surface") == SURFACE_ENUMERATED
+    return True
 
 
 def _validated_hint_basis(

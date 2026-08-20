@@ -10,6 +10,8 @@ from agents_shipgate.core.artifact_models import (
     GoogleAdkToolset,
 )
 from agents_shipgate.core.domain import (
+    SURFACE_ENUMERATED,
+    SURFACE_PARTIAL,
     AgentBindingObservation,
     AuthInfo,
     LoadedToolSource,
@@ -84,6 +86,62 @@ _SCOPE_NODES = (
     ast.Lambda,
     ast.ClassDef,
 )
+#: ``Tool.extraction["surface"]`` — whether this adapter *proved* the tool
+#: surface it reports, rather than merely produced it.
+#:
+#: Before #393 the Python AST path hardcoded ``confidence="medium"``, so no ADK
+#: repository could reach ``high`` from source however statically analysable it
+#: was, and ``insufficient_evidence`` was the framework's default first-run
+#: verdict rather than a property of any repository. A condition that holds for
+#: every input carries no information: it could not tell a toolkit factory from
+#: twelve module-level functions, and the remedy it prescribed — transcribe the
+#: twelve tools Shipgate had just extracted correctly into an inventory — added
+#: no fact to the system.
+#:
+#: ``SURFACE_ENUMERATED`` is therefore a claim the extractor has to earn on the
+#: parsed module. Every construct that leaves any part of the surface
+#: unresolved records a reason code below and holds the whole module at
+#: ``medium``; absence of the attestation reads as incomplete everywhere
+#: downstream, so a new ambiguity nobody classified fails closed.
+
+#: Module-scoped reasons: one unresolved construct anywhere in the file means
+#: this file's tool surface was not proven, so it holds every tool the file
+#: produced. Scoping them per agent instead would let a fully-resolved agent in
+#: a half-resolved module claim a proof the module cannot support.
+SURFACE_GAP_DYNAMIC_TOOLS = "dynamic_tools_expression"
+SURFACE_GAP_UNRESOLVED_REFERENCE = "unresolved_tool_reference"
+SURFACE_GAP_UNRESOLVED_EXPRESSION = "unresolved_tool_expression"
+SURFACE_GAP_UNRESOLVED_WRAPPER = "unresolved_tool_wrapper"
+SURFACE_GAP_DYNAMIC_TOOLSET = "dynamic_toolset"
+SURFACE_GAP_CONFLICTING_CONTRACT = "conflicting_tool_contract"
+SURFACE_GAP_UNRESOLVED_SUB_AGENT = "unresolved_sub_agent"
+#: The module reaches an agent's ``tools`` attribute after construction, or
+#: builds an agent from unpacked keyword arguments. Reading the ``tools=``
+#: literal proves the surface only if that literal is the whole story;
+#: ``agent.tools.append(imported)`` and ``Agent(**config)`` both make it not be.
+SURFACE_GAP_MUTABLE_TOOL_BINDING = "mutable_tool_binding"
+SURFACE_GAP_DYNAMIC_AGENT_KWARGS = "dynamic_agent_kwargs"
+#: A ``tools=`` element resolved to a definition the name may not actually
+#: refer to. ``self.functions`` is a flat, scope-blind name map, so it happily
+#: answers with a function defined inside a factory, a method lifted out of a
+#: class body, one of two conditional definitions, or a definition whose name
+#: was later rebound. Naming the tool is still useful; claiming its signature
+#: was proven is not.
+SURFACE_GAP_SHADOWED_DEFINITION = "shadowed_tool_definition"
+#: Emitted only by the fail-closed backstop in
+#: ``_PythonAdkExtractor._resolve_extraction_evidence``:
+#: a warning this module raised through neither surface helper. It means a new
+#: ambiguity was added without deciding what it says about the surface, so the
+#: module declines to claim one.
+SURFACE_GAP_UNCLASSIFIED = "unclassified_extractor_warning"
+#: Per-tool reasons: the module may be fully enumerated while one function's
+#: own callable interface still is not.
+SURFACE_GAP_UNTYPED_PARAMETER = "untyped_parameter"
+SURFACE_GAP_VARIADIC_PARAMETERS = "variadic_parameters"
+SURFACE_GAP_DECORATED_FUNCTION = "decorated_tool_function"
+#: An Agent Config lists tool *names*; there is no signature to read, so this
+#: path never claims an enumerated surface.
+SURFACE_GAP_TOOL_REFERENCE_ONLY = "tool_reference_only"
 
 
 def load_google_adk_artifacts(
@@ -422,7 +480,12 @@ def _tool_from_config_entry(
         annotations={"adk_tool_reference": name, "agent_name": agent_name},
         auth=AuthInfo(source="google_adk_config"),
         extraction_confidence="low",
-        extraction={"method": "google_adk_agent_config", "confidence": "low"},
+        extraction={
+            "method": "google_adk_agent_config",
+            "confidence": "low",
+            "surface": SURFACE_PARTIAL,
+            "surface_gaps": [SURFACE_GAP_TOOL_REFERENCE_ONLY],
+        },
     )
     tools.append(tool)
     artifacts.function_tools.append(
@@ -588,6 +651,11 @@ class _PythonAdkExtractor:
             for node in ast.walk(tree)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
+        # Names ``self.functions`` can answer for without being right. The map
+        # above is flat and scope-blind by design — it has to be, to name a
+        # tool at all — but the answer is only a *proof* of the signature when
+        # the name is defined once, at module scope, and never rebound.
+        self.unproven_function_names = _unproven_function_names(tree)
         self.wrappers = self._wrapper_assignments()
         self.toolset_assignments = self._toolset_assignments()
         # One canonical Tool per function definition, keyed by the def name.
@@ -598,6 +666,13 @@ class _PythonAdkExtractor:
         # agents is loaded once, not once per agent.
         self.toolset_tool_names: dict[int, list[str]] = {}
         self.agent_bindings: dict[str, _AdkAgentBinding] = {}
+        # Reasons this module's tool surface was not proven complete (#393).
+        # Empty at the end of ``extract`` is what earns ``SURFACE_ENUMERATED``.
+        self.surface_gaps: list[str] = []
+        # Warnings this module raised through ``_surface_warning`` or
+        # ``_note_warning``. Compared against the real growth of
+        # ``artifacts.warnings`` so an unclassified append fails closed.
+        self._accounted_warnings = 0
         # Every ``Agent(...)`` assignment in this module, walked once and
         # reused: ``extract`` iterates it, and the sub-agent spelling map
         # below is built from it.
@@ -612,9 +687,16 @@ class _PythonAdkExtractor:
     def extract(self) -> list[LoadedToolSource]:
         tools: list[Tool] = []
         loaded_sources: list[LoadedToolSource] = []
+        warnings_before = len(self.artifacts.warnings)
         self._record_eval_references()
+        self._record_mutable_tool_bindings()
         for target_name, call in self.agent_call_list:
             agent_name = _kwarg_string(call, "name") or target_name or "adk_agent"
+            if any(keyword.arg is None for keyword in call.keywords):
+                # ``Agent(**config)`` hides every keyword, ``tools`` included.
+                # Without ``tools=`` the agent silently records tool_count 0,
+                # which would otherwise read as a proven empty surface.
+                self._note_surface_gap(SURFACE_GAP_DYNAMIC_AGENT_KWARGS)
             tools_expr = _kwarg(call, "tools")
             tool_count = len(tools_expr.elts) if isinstance(tools_expr, (ast.List, ast.Tuple)) else 0
             self.artifacts.agents.append(
@@ -630,8 +712,9 @@ class _PythonAdkExtractor:
             self._record_agent_callbacks_plugins_subagents(call, agent_name)
             if not isinstance(tools_expr, (ast.List, ast.Tuple)):
                 if tools_expr is not None:
-                    self.artifacts.warnings.append(
-                        f"Google ADK agent {agent_name!r} uses a dynamic tools expression."
+                    self._surface_warning(
+                        f"Google ADK agent {agent_name!r} uses a dynamic tools expression.",
+                        SURFACE_GAP_DYNAMIC_TOOLS,
                     )
                     self.artifacts.toolsets.append(
                         GoogleAdkToolset(
@@ -648,6 +731,7 @@ class _PythonAdkExtractor:
                 loaded_sources.extend(
                     self._extract_tool_expr(item, tools, agent_name, binding)
                 )
+        self._resolve_extraction_evidence(warnings_before)
         return [
             LoadedToolSource(
                 source_id=self.source_id,
@@ -658,6 +742,102 @@ class _PythonAdkExtractor:
             ),
             *loaded_sources,
         ]
+
+    def _surface_warning(self, message: str, reason: str) -> None:
+        """Report a construct that leaves part of this module's surface unknown."""
+
+        self.artifacts.warnings.append(message)
+        self._accounted_warnings += 1
+        self._note_surface_gap(reason)
+
+    def _note_warning(self, message: str) -> None:
+        """Report a warning that says nothing about the tool surface.
+
+        Eval-artifact references are about test collateral, not about which
+        tools an agent can call, so they must not cost the module its
+        completeness claim. Everything else goes through ``_surface_warning``.
+        """
+
+        self.artifacts.warnings.append(message)
+        self._accounted_warnings += 1
+
+    def _note_surface_gap(self, reason: str) -> None:
+        if reason not in self.surface_gaps:
+            self.surface_gaps.append(reason)
+
+    def _record_mutable_tool_bindings(self) -> None:
+        """Notice any reach for an agent's ``tools`` after it is constructed.
+
+        The ``tools=`` literal is only a proof of the surface while nothing
+        else touches it. ``root_agent.tools.append(imported_tool)``,
+        ``root_agent.tools = [...]``, ``setattr(root_agent, "tools", ...)``,
+        and an alias bound with ``bucket = root_agent.tools`` all add tools the
+        walk above never sees, and every one of them was silently promoted to
+        ``high`` before this guard.
+
+        Any ``.tools`` access at all counts, not only the mutating spellings:
+        a read can be aliased and a subscript store hides behind a load. The
+        cost of over-reporting is one module that stays at ``medium``, which is
+        where it already was; the cost of under-reporting is a proven-surface
+        claim over tools nobody enumerated. Dotted module paths such as
+        ``google.adk.tools.FunctionTool`` are excluded by their imported root —
+        those are packages, not agents.
+        """
+
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Attribute) and node.attr == "tools":
+                if not self._is_imported_module_path(node.value):
+                    self._note_surface_gap(SURFACE_GAP_MUTABLE_TOOL_BINDING)
+                    return
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "setattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value == "tools"
+            ):
+                self._note_surface_gap(SURFACE_GAP_MUTABLE_TOOL_BINDING)
+                return
+
+    def _is_imported_module_path(self, node: ast.AST) -> bool:
+        """Whether ``node`` roots in a name this module imported."""
+
+        current = node
+        while isinstance(current, ast.Attribute):
+            current = current.value
+        return isinstance(current, ast.Name) and current.id in self.aliases
+
+    def _resolve_extraction_evidence(self, warnings_before: int) -> None:
+        """Settle each tool's extraction confidence on what this module proved.
+
+        Runs once, after the whole module is walked, because completeness is a
+        property of the file rather than of the agent that happened to be
+        visited first: a dynamic tools expression on the last agent invalidates
+        the proof for tools bound by the first.
+
+        The unaccounted-warning backstop is the load-bearing part. A future
+        ambiguity added with a plain ``artifacts.warnings.append`` would
+        otherwise leave ``surface_gaps`` empty and silently promote an
+        unresolved module to ``high`` — the fail-open shape a "safe" block-level
+        signal clearing a path-wide guard produces. Counting warnings makes the
+        default answer "not proven".
+        """
+
+        emitted = len(self.artifacts.warnings) - warnings_before
+        if emitted != self._accounted_warnings:
+            self._note_surface_gap(SURFACE_GAP_UNCLASSIFIED)
+        for tool in self.canonical_function_tools.values():
+            raw_gaps = tool.extraction.get("surface_gaps")
+            local_gaps = raw_gaps if isinstance(raw_gaps, list) else []
+            gaps = sorted({*self.surface_gaps, *local_gaps})
+            confidence = "medium" if gaps else "high"
+            tool.extraction["surface"] = (
+                SURFACE_PARTIAL if gaps else SURFACE_ENUMERATED
+            )
+            tool.extraction["surface_gaps"] = gaps
+            tool.extraction["confidence"] = confidence
+            tool.extraction_confidence = confidence
 
     def _agent_names_by_variable(self) -> dict[tuple[ast.AST | None, str], str | None]:
         """Map each ``variable = Agent(...)`` to the agent's declared ``name=``.
@@ -813,8 +993,9 @@ class _PythonAdkExtractor:
                     self.functions[expr.id], tools, agent_name, binding, False
                 )
             else:
-                self.artifacts.warnings.append(
-                    adk_unresolved_tool_warning(agent_name, expr.id)
+                self._surface_warning(
+                    adk_unresolved_tool_warning(agent_name, expr.id),
+                    SURFACE_GAP_UNRESOLVED_REFERENCE,
                 )
             return []
         if isinstance(expr, ast.Call):
@@ -832,8 +1013,9 @@ class _PythonAdkExtractor:
                 return []
             if call_name in OPENAPI_TOOLSET_NAMES | MCP_TOOLSET_NAMES:
                 return self._extract_toolset_call(expr, agent_name, binding)
-        self.artifacts.warnings.append(
-            f"Google ADK agent {agent_name!r} has a tool expression that could not be statically resolved."
+        self._surface_warning(
+            f"Google ADK agent {agent_name!r} has a tool expression that could not be statically resolved.",
+            SURFACE_GAP_UNRESOLVED_EXPRESSION,
         )
         return []
 
@@ -855,8 +1037,9 @@ class _PythonAdkExtractor:
                 bool(wrapper.get("long_running")),
             )
             return
-        self.artifacts.warnings.append(
-            f"Google ADK tool wrapper {wrapper_name!r} has no statically resolvable function."
+        self._surface_warning(
+            f"Google ADK tool wrapper {wrapper_name!r} has no statically resolvable function.",
+            SURFACE_GAP_UNRESOLVED_WRAPPER,
         )
 
     def _bind_function_tool(
@@ -875,6 +1058,8 @@ class _PythonAdkExtractor:
         (and collide on tool observation identity).
         """
 
+        if node.name in self.unproven_function_names:
+            self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
         tool = self.canonical_function_tools.get(node.name)
         if tool is None:
             tool = self._function_to_tool(node, agent_name, long_running)
@@ -885,9 +1070,10 @@ class _PythonAdkExtractor:
             # LongRunningFunctionTool is a contradictory declaration about one
             # action. Keep the stricter contract and route it to review rather
             # than letting binding order decide.
-            self.artifacts.warnings.append(
+            self._surface_warning(
                 f"Google ADK function {node.name!r} is bound as both a long-running "
-                "and a standard function tool; review its operation contract."
+                "and a standard function tool; review its operation contract.",
+                SURFACE_GAP_CONFLICTING_CONTRACT,
             )
             if long_running:
                 tool.annotations["long_running"] = True
@@ -985,8 +1171,15 @@ class _PythonAdkExtractor:
                 "long_running": long_running,
             },
             auth=AuthInfo(source="google_adk_static"),
+            # Provisional: ``_resolve_extraction_evidence`` settles both fields
+            # once the whole module has been walked. ``medium`` here so a tool
+            # is never high-confidence in flight.
             extraction_confidence="medium",
-            extraction={"method": "google_adk_python_ast", "confidence": "medium"},
+            extraction={
+                "method": "google_adk_python_ast",
+                "confidence": "medium",
+                "surface_gaps": _function_surface_gaps(node, parameters),
+            },
         )
         payload = self._function_tool_payload(tool, agent_name)
         self.artifacts.function_tools.append(payload)
@@ -1021,9 +1214,10 @@ class _PythonAdkExtractor:
         )
         self.artifacts.toolsets.append(toolset)
         if not spec_path:
-            self.artifacts.warnings.append(
+            self._surface_warning(
                 f"Google ADK OpenAPIToolset at {self.source_ref}:{call.lineno} "
-                "has no static local spec path."
+                "has no static local spec path.",
+                SURFACE_GAP_DYNAMIC_TOOLSET,
             )
             return []
         loaded = load_openapi_tools(
@@ -1059,9 +1253,10 @@ class _PythonAdkExtractor:
         )
         self.artifacts.toolsets.append(toolset)
         if not inventory_path:
-            self.artifacts.warnings.append(
+            self._surface_warning(
                 f"Google ADK McpToolset at {self.source_ref}:{call.lineno} "
-                "has no static MCP tool inventory path."
+                "has no static MCP tool inventory path.",
+                SURFACE_GAP_DYNAMIC_TOOLSET,
             )
             return []
         loaded = load_mcp_tools(
@@ -1121,6 +1316,14 @@ class _PythonAdkExtractor:
                     resolved = self._sub_agent_name(variable, call)
                     if resolved is None:
                         unresolved_sub_agents.append(variable)
+                        # A handoff target this module does not define owns
+                        # tools this module never saw, so the file cannot
+                        # claim it enumerated the surface reachable from
+                        # here. Deliberately no warning: #385 left an
+                        # unreached branch ungated, and adding one now would
+                        # move repositories between verdicts for a reason
+                        # this change is not about.
+                        self._note_surface_gap(SURFACE_GAP_UNRESOLVED_SUB_AGENT)
                     else:
                         sub_agent_names.append(resolved)
                 self.artifacts.sub_agents.append(
@@ -1160,12 +1363,12 @@ class _PythonAdkExtractor:
             try:
                 path = resolve_input_path(self.entrypoint_dir, value)
             except InputParseError:
-                self.artifacts.warnings.append(
+                self._note_warning(
                     f"Google ADK eval reference {value!r} resolves outside the entrypoint directory."
                 )
                 continue
             if not path.exists():
-                self.artifacts.warnings.append(
+                self._note_warning(
                     f"Google ADK eval reference {value!r} was detected but not found."
                 )
                 continue
@@ -1429,6 +1632,75 @@ def _parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ToolParame
             continue
         parameters.append(_parameter(arg, required=default is None))
     return parameters
+
+
+def _unproven_function_names(tree: ast.Module) -> set[str]:
+    """Names whose function definition the AST cannot stand behind.
+
+    ``tools=[helper]`` is resolved through a flat ``name -> FunctionDef`` map
+    built by walking the whole module, which is what lets the adapter name a
+    tool at all. It is not what lets it *prove* one: the same map answers with
+    a definition nested inside a factory (``helper = build()``), a method
+    lifted out of a class body, whichever of two conditional definitions the
+    walk saw last, or a definition whose name was later rebound to an import.
+    Each of those reports a signature the running agent will not use.
+
+    A name is proven only when exactly one definition of it exists, that
+    definition is a direct child of the module, and nothing else in the file
+    binds the name. Everything else is listed here and costs the module its
+    completeness claim — the tool is still reported, just not as proven.
+    """
+
+    definitions: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            definitions[node.name] = definitions.get(node.name, 0) + 1
+    module_level = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    rebound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+            rebound.add(node.id)
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            for alias in node.names:
+                rebound.add(alias.asname or alias.name.split(".", 1)[0])
+    return {
+        name
+        for name, count in definitions.items()
+        if count > 1 or name not in module_level or name in rebound
+    }
+
+
+def _function_surface_gaps(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    parameters: list[ToolParameter],
+) -> list[str]:
+    """Reasons this one function's callable interface was not fully read.
+
+    Separate from the module-scoped reasons: a file can resolve every tool
+    expression it contains and still hold a function whose real signature the
+    AST does not give up.
+
+    * A decorator replaces the callable ADK introspects, so the definition's
+      parameters are not necessarily the tool's parameters.
+    * ``*args`` / ``**kwargs`` are dropped by :func:`_parameters` — the schema
+      would understate an open-ended surface rather than describe it.
+    * An unannotated parameter is typed ``string`` by
+      :func:`_json_schema_type`'s fallback. That is a guess presented as a
+      schema, which is exactly what a high-confidence extraction may not do.
+    """
+
+    gaps: list[str] = []
+    if node.decorator_list:
+        gaps.append(SURFACE_GAP_DECORATED_FUNCTION)
+    if node.args.vararg is not None or node.args.kwarg is not None:
+        gaps.append(SURFACE_GAP_VARIADIC_PARAMETERS)
+    if any(parameter.type is None for parameter in parameters):
+        gaps.append(SURFACE_GAP_UNTYPED_PARAMETER)
+    return sorted(gaps)
 
 
 def _parameter(arg: ast.arg, *, required: bool) -> ToolParameter:

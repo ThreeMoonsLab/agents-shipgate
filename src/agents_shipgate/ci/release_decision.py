@@ -1081,6 +1081,25 @@ def inventory_manifest_key(source_type: str) -> str | None:
     return None
 
 
+def _surface_gap_note(tool: Tool) -> str:
+    """Name the constructs that held this tool below high confidence (#393).
+
+    "static extraction could not prove the full tool surface" was the same
+    sentence on every AST-extracted tool in every repository, so it told a
+    reader nothing about *their* code and nothing about what to change. An
+    adapter that measures completeness can say which construct is responsible;
+    one that does not is unchanged.
+    """
+
+    raw_gaps = tool.extraction.get("surface_gaps")
+    if not isinstance(raw_gaps, list):
+        return ""
+    reasons = sorted({value for value in raw_gaps if isinstance(value, str) and value})
+    if not reasons:
+        return ""
+    return f" Unresolved: {', '.join(reasons)}."
+
+
 def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceGap]:
     """v0.26: one actionable row per measurable evidence gap.
 
@@ -1128,6 +1147,7 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
                 why=(
                     f"extraction_confidence={tool.extraction_confidence}; "
                     "static extraction could not prove the full tool surface."
+                    f"{_surface_gap_note(tool)}"
                 ),
                 next_action=action,
             )

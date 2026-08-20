@@ -142,9 +142,23 @@ ci:
 
 **Working fixture**: [`samples/google_adk_agent/`](../samples/google_adk_agent/).
 
+**Extraction confidence** is measured on the module, not assumed from the
+framework. A Python entrypoint whose tool surface the adapter fully resolved
+reaches `high` on its own, with no tool inventory: every `tools=` element
+resolves to a single module-level definition that nothing later rebinds, no
+toolset is dynamic, no `sub_agents` element is unresolvable, nothing reaches
+`agent.tools` after construction, no agent is built from `**kwargs`, and each
+bound function is undecorated with every parameter annotated and no
+`*args`/`**kwargs`. Anything else holds the
+whole file at `medium` and the `low_confidence_tool` evidence gap names the
+construct responsible (`dynamic_toolset`, `untyped_parameter`,
+`mutable_tool_binding`, …). Agent Config `tools:` entries are name references
+with no signature to read, so that path stays `low`.
+
 **Pitfalls**:
 - `OpenAPIToolset(...)` and `McpToolset(...)` need `tool_filter` declared; without it, the toolset counts as "unfiltered" and `SHIP-ADK-MCP-TOOLSET-UNFILTERED` fires high. Add the filter, then point `inventory_path` at a local tool inventory.
 - Production targets need `google_adk.eval_sets` declared; otherwise `SHIP-ADK-EVAL-COVERAGE-MISSING` fires. Add the block only after the eval file exists, or mark the artifact `optional: true` during bring-up.
+- An unannotated parameter is enough to hold a tool at `medium`: the JSON-schema fallback would type it `string`, which is a guess wearing a schema's clothes. ADK builds its own function declarations from those annotations, so adding them is worth doing regardless.
 
 ## MCP-only (no Python framework)
 
