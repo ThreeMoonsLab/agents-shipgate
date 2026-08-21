@@ -77,6 +77,26 @@ def test_bootstrap_skips_when_no_agent_surface(tmp_path):
     assert [s["label"] for s in result["steps"]] == ["detect"]
 
 
+def test_bootstrap_adopts_a_plugin_only_repository(tmp_path):
+    """A Codex plugin package is an adoptable surface that deliberately leaves
+    `is_agent_project` false — it has no Python framework import. The published
+    stop contract has always required `codex_plugin_candidates` to be empty
+    too; this guard did not read it, so a plugin-only repo stopped at detect
+    and never ran init (#399 review)."""
+
+    repo = tmp_path / "plugin-only"
+    (repo / ".codex-plugin").mkdir(parents=True)
+    (repo / ".codex-plugin" / "plugin.json").write_text(
+        '{"name": "demo", "version": "1.0.0"}', encoding="utf-8"
+    )
+
+    result = bootstrap_run(workspace=repo, ci=False, apply=False)
+
+    assert result["verdict"] != "no_agent_surface"
+    assert "init" in [s["label"] for s in result["steps"]]
+    assert (repo / "shipgate.yaml").is_file()
+
+
 def test_bootstrap_does_not_read_a_capped_walk_as_nothing_to_do(tmp_path):
     """"Nothing to do" rests on detect having looked at the whole workspace.
     When its Python parse stopped at the cap it looked at part of one, and
@@ -108,6 +128,7 @@ def test_bootstrap_does_not_read_a_capped_walk_as_nothing_to_do(tmp_path):
 
     assert result["verdict"] != "no_agent_surface"
     assert [s["label"] for s in result["steps"]] == ["detect", "init"]
+    assert result["steps"][0]["payload"]["python_parse_truncated"] is True
     init_payload = result["steps"][-1]["payload"] or {}
     assert init_payload["manifest_status"] == "refused_unresolved_scope"
     assert "--max-python-files" in init_payload["manifest_message"]

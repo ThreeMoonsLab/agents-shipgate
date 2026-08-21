@@ -293,14 +293,20 @@ def diagnose_detect(
         # `setup_not_applicable` — a terminal machine route for a scan that
         # said it was inconclusive, on exactly the repositories the cap cuts
         # (#399 review). Emitting nothing here hands the route to
-        # `_detect_advance`, which reads the non-`single` scope and returns the
-        # higher-cap recovery; truncation always implies a non-`single` scope,
-        # so that route is always there to fall through to.
+        # `_detect_advance`, which returns the higher-cap retry.
+        #
+        # The guard is the *raw* parse-completeness bit, not
+        # `agent_scope_truncated`. That one also requires more than one
+        # candidate scope, which is right for a claim about the candidate list
+        # and wrong for a claim about the workspace: a single-scope repository
+        # with a root `pyproject.toml` and its only agent past the cap reports
+        # `agent_scope_truncated: false`, and gating on it published exactly
+        # the terminal negative this is here to prevent.
         if (
             not is_agent
             and not has_suggested
             and not has_codex_plugin
-            and not result.agent_scope_truncated
+            and not result.python_parse_truncated
         ):
             # Negative-control precedence
             if (
@@ -366,7 +372,14 @@ def diagnose_detect(
                     )
                 )
 
-        if not is_agent and has_suggested and not has_codex_plugin:
+        # Both nudges below name a root `init --write`, and setup routing
+        # ranks a diagnostic ahead of the advance — so an unresolved scope
+        # here published a command that refuses deterministically, over the
+        # top of the scope route that would have said so (#399 review). They
+        # fire only where that command can succeed, which is exactly where
+        # the workspace is one manifest's scope.
+        single_scope = result.agent_scope == "single"
+        if not is_agent and has_suggested and not has_codex_plugin and single_scope:
             diagnostics.append(
                 Diagnostic(
                     id=DIAG_MCP_OPENAPI_ARTIFACT_ONLY,
@@ -392,7 +405,7 @@ def diagnose_detect(
                 )
             )
 
-        if not is_agent and has_codex_plugin:
+        if not is_agent and has_codex_plugin and single_scope:
             diagnostics.append(
                 Diagnostic(
                     id=DIAG_CODEX_PLUGIN_PACKAGE_DETECTED,

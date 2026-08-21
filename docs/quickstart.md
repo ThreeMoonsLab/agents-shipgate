@@ -94,7 +94,7 @@ curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/t
   | python3 - --workspace . --json
 ```
 
-If `is_agent_project: true` (or `suggested_sources` / `codex_plugin_candidates` is non-empty), continue with the install below. If `is_agent_project: false`, `suggested_sources: []`, `codex_plugin_candidates: []`, **and `agent_scope_truncated: false`**, Shipgate is not the right tool for this repo. (`agent_scope_truncated: true` means the Python parse stopped at its cap, so that negative describes the files that were read rather than the repository — re-run with `--max-python-files <n>` before concluding anything.) See [`docs/zero-install.md`](zero-install.md) for `uvx` and GitHub Action alternatives that also avoid a local install.
+If `is_agent_project: true` (or `suggested_sources` / `codex_plugin_candidates` is non-empty), continue with the install below. If `is_agent_project: false`, `suggested_sources: []`, `codex_plugin_candidates: []`, **and `python_parse_truncated: false`**, Shipgate is not the right tool for this repo. (`python_parse_truncated: true` means the Python parse stopped at its cap, so that negative describes the files that were read rather than the repository — re-run with `--max-python-files <workspace_signals.python_file_total>` before concluding anything.) See [`docs/zero-install.md`](zero-install.md) for `uvx` and GitHub Action alternatives that also avoid a local install.
 
 ## Install
 

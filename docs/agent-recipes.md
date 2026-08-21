@@ -155,9 +155,10 @@ Consume the response to decide whether to proceed. Key fields:
 - `is_agent_project` is `false`, AND
 - `suggested_sources` is empty, AND
 - `codex_plugin_candidates` is empty, AND
-- `agent_scope_truncated` is `false` — each negative above is a claim about
+- `python_parse_truncated` is `false` — each negative above is a claim about
   the whole workspace, and a run whose Python parse stopped at its cap read
-  only part of one, AND
+  only part of one. This is the raw parse bit, not `agent_scope_truncated`,
+  which additionally requires more than one candidate scope, AND
 - no `shipgate.yaml` already exists, AND
 - the user did not explicitly request a scan.
 
@@ -199,6 +200,12 @@ Key response fields:
   discovery hit its Python-file cap in a workspace with several project roots,
   so the verdict would otherwise have depended on which files were read
   first.
+- `auto_detected.python_parse_truncated`: whether the Python parse stopped at
+  its cap at all. Every whole-workspace negative — `is_agent_project: false`
+  included — is unsafe to act on while this is `true`. The recovery is
+  mechanical and the emitted `next_actions[0]` carries it:
+  `detect --max-python-files <workspace_signals.python_file_total> --json`, a
+  bound that covers every Python file and so cannot hit the cap again.
 - `auto_detected.agent_scope_truncated`: whether that candidate list is an
   enumeration or a lower bound. `true` means the Python parse stopped at its
   cap in a workspace holding more than one candidate project scope, so any

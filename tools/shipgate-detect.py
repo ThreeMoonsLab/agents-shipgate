@@ -48,7 +48,8 @@ Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
-- ``agent_scope`` / ``agent_scope_truncated`` / ``agent_project_candidates[]``
+- ``agent_scope`` / ``agent_scope_truncated`` / ``python_parse_truncated`` /
+  ``agent_project_candidates[]``
   are carried, and the contract test pins them against the CLI: an agent that
   consults the zero-install path must not adopt a manifest scope the CLI
   refuses, nor read a candidate list the cap cut short as an enumeration.
@@ -1976,12 +1977,18 @@ def detect(workspace: Path) -> dict[str, Any]:
         "agent_scope": agent_scope,
         "agent_project_candidates": agent_project_candidates,
         "agent_scope_truncated": agent_scope_truncated,
+        # The raw parse-completeness fact, independent of how many scopes the
+        # workspace holds. Whole-workspace negatives gate on this, not on the
+        # scope flag: a single-scope repository whose only agent sits past the
+        # cap has `agent_scope_truncated: false` and an unread agent.
+        "python_parse_truncated": py_truncated,
         "suggested_sources": suggested,
         "excluded_sources": excluded,
         "codex_plugin_candidates": codex_plugin_candidates,
         "next_action": next_action,
         "workspace_signals": {
             "python_file_count": len(py_facts),
+            "python_file_total": sum(1 for p in files if p.suffix == ".py"),
             "project_root_count": len(project_roots),
             "has_pyproject_or_requirements": (
                 (workspace / "pyproject.toml").is_file()

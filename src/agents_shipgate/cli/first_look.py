@@ -96,7 +96,14 @@ def _working_tree_line(workspace: Path) -> str:
 
 
 def _classification_line(workspace: Path) -> tuple[str, bool]:
-    """Repo classification plus whether any agent tool surface was found."""
+    """Repo classification plus whether any agent tool surface was found.
+
+    A capped parse never reports "no signals": that is a claim about the whole
+    workspace made from the part of it that was read, and a first look is
+    exactly where an adopter acts on it. The line says the scan was cut short
+    and the next-command router treats the workspace as still open (#399
+    review).
+    """
 
     from agents_shipgate.cli.discovery import detect_workspace
 
@@ -114,6 +121,13 @@ def _classification_line(workspace: Path) -> tuple[str, bool]:
         label = f"agent project ({frameworks})" if frameworks else "agent project"
     elif result.suggested_sources or result.codex_plugin_candidates:
         label = "Shipgate-compatible tool artifacts found"
+    elif result.python_parse_truncated:
+        total = result.workspace_signals.python_file_total
+        return (
+            "classification incomplete — the Python parse stopped at its cap; "
+            f"run `agents-shipgate detect --max-python-files {total} --json`",
+            True,
+        )
     else:
         label = "no strong agent-framework signals"
     return label, has_surface

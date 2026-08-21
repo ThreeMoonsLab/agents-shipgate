@@ -160,27 +160,36 @@ def bootstrap_run(
     is_agent_project = bool(detect_payload.get("is_agent_project"))
     suggested = detect_payload.get("suggested_sources") or []
     manifest_already = manifest_path.is_file()
-    # "Nothing to do" rests on detect having looked at the whole workspace.
-    # When its Python parse stopped at the cap it looked at part of one, and
-    # `is_agent_project: false` is then a statement about the files that were
-    # read rather than about the repository (#399 review). Fall through instead:
-    # a truncated walk always leaves the manifest scope unresolved, so `init`
-    # refuses with the cap, the project-scope census, and the higher-cap
+    # Codex plugin packages and marketplaces are adoptable surfaces that
+    # deliberately leave `is_agent_project` false — they have no Python
+    # framework import — so a plugin-only repository stopping here never ran
+    # `init` at all. The published stop contract has always listed them; this
+    # guard did not read them (#399 review).
+    plugin_candidates = detect_payload.get("codex_plugin_candidates") or []
+    # "Nothing to do" also rests on detect having looked at the whole
+    # workspace. When its Python parse stopped at the cap it looked at part of
+    # one, and `is_agent_project: false` is then a statement about the files
+    # that were read rather than about the repository. Fall through instead:
+    # `init` refuses with the cap, the project-scope census, and the higher-cap
     # recovery, and `_stop_with_failure` forwards that structured error
-    # verbatim — the same routing a manual `init` gives.
-    discovery_truncated = bool(detect_payload.get("agent_scope_truncated"))
+    # verbatim — the same routing a manual `init` gives. The raw parse bit is
+    # the guard, not `agent_scope_truncated`: a single-scope workspace whose
+    # only agent sits past the cap has the narrow flag false.
+    parse_truncated = bool(detect_payload.get("python_parse_truncated"))
 
     if (
         not is_agent_project
         and not suggested
+        and not plugin_candidates
         and not manifest_already
-        and not discovery_truncated
+        and not parse_truncated
     ):
         return {
             "verdict": "no_agent_surface",
             "stopped": True,
             "stop_reason": (
                 "detect says is_agent_project=false, suggested_sources=[], "
+                "codex_plugin_candidates=[], python_parse_truncated=false, "
                 "and no shipgate.yaml exists. Bootstrap has nothing to do."
             ),
             "steps": steps,

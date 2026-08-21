@@ -233,10 +233,17 @@ agents-shipgate bootstrap --json
 `bootstrap` runs `detect → init --write --ci → scan --suggest-patches → apply-patches --confidence high` against the current workspace, stopping on the first non-recoverable error and emitting a structured per-step summary. Use it for first-time adoption; for ongoing CI keep using the GitHub Action. Flags: `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json`.
 
 - **`detect`** — read-only; classifies the workspace. `is_agent_project: false`
-  means stop early **only when `agent_scope_truncated` is also false**: a
-  truncated walk read part of the workspace, so its negative is a statement
-  about the files that were read, not about the repository. `agent_scope` says
-  whether one manifest can describe this workspace at all: `"ambiguous"` means agents live in several self-contained
+  is **not** on its own a reason to stop. It is false for every artifact-only
+  and Codex-plugin-only workspace, which are adoptable, and it is unsafe to
+  read at all when the parse was cut short. Stop only when the whole published
+  stop condition holds: `is_agent_project: false` **and** `suggested_sources`
+  empty **and** `codex_plugin_candidates` empty **and**
+  `python_parse_truncated: false`. `python_parse_truncated: true` means the
+  Python parse stopped at `max_python_files`, so the negative describes the
+  files that were read rather than the repository — re-run with
+  `--max-python-files <workspace_signals.python_file_total>`, which is a bound
+  that cannot hit the cap again. `agent_scope` says whether one manifest can
+  describe this workspace at all: `"ambiguous"` means agents live in several self-contained
   projects (`agent_project_candidates[]` lists them, and the manifest belongs
   in one of them rather than at the workspace root); `"unknown"` means
   discovery was capped before it could tell, so raise `--max-python-files` or
@@ -464,7 +471,7 @@ The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`),
 - `agents-shipgate detect --json` returns `is_agent_project: false`, AND
 - `suggested_sources` is empty (no MCP/OpenAPI hits flowing in as `mcp` or `openapi`), AND
 - `codex_plugin_candidates` is empty (no Codex plugin package or marketplace hits), AND
-- `agent_scope_truncated` is `false` — every negative above is a claim about the whole workspace, and a run whose Python parse stopped at its cap read only part of one, AND
+- `python_parse_truncated` is `false` — every negative above is a claim about the whole workspace, and a run whose Python parse stopped at its cap read only part of one, AND (this is the raw parse bit, not `agent_scope_truncated`: that one additionally requires more than one candidate scope, so a single-scope workspace whose only agent sits past the cap leaves it false)
 - no `shipgate.yaml` already exists in the workspace, AND
 - the user did not explicitly request a scan.
 

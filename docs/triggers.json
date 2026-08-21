@@ -381,12 +381,12 @@
     }
   ],
   "stop_conditions": {
-    "description": "Stop and do not propose Shipgate when ALL of these hold (mirrors AGENTS.md \"Stop conditions\" prose). Every negative in this conjunction is a claim about the whole workspace, which is why `agent_scope_truncated: false` belongs in it: a detect run whose Python parse stopped at its cap read only part of the repository, and `is_agent_project: false` from a partial read is not a reason to stop. A `detect` payload that does not carry every key named here leaves the block unevaluable — `stop_conditions_evaluated` is false and no stop is inferred.",
+    "description": "Stop and do not propose Shipgate when ALL of these hold (mirrors AGENTS.md \"Stop conditions\" prose). Every negative in this conjunction is a claim about the whole workspace, which is why `python_parse_truncated: false` belongs in it: a detect run whose Python parse stopped at its cap read only part of the repository, and `is_agent_project: false` from a partial read is not a reason to stop. The raw parse bit is the one to read here, not `agent_scope_truncated` — that one additionally requires more than one candidate scope, so a single-scope workspace whose only agent sits past the cap leaves it false. A `detect` payload that does not carry every key named here leaves the block unevaluable — `stop_conditions_evaluated` is false and no stop is inferred.",
     "all_of": [
       {"detect_returns": "is_agent_project: false"},
       {"detect_returns": "suggested_sources: []"},
       {"detect_returns": "codex_plugin_candidates: []"},
-      {"detect_returns": "agent_scope_truncated: false"},
+      {"detect_returns": "python_parse_truncated: false"},
       {"file_absent": "shipgate.yaml"},
       {"user_did_not_request": true}
     ]

@@ -305,18 +305,55 @@ def _unresolved_scope_actions(
     setup_flags: list[str],
     kit: Path | None,
     truncated: bool = False,
+    python_file_total: int = 0,
 ) -> list[NextAction]:
     """Rank the decision above the commands that carry it out.
 
-    Rank 1 is deliberately not a command: promoting one candidate would
-    make the same arbitrary pick this refusal exists to prevent. The
-    per-candidate commands follow, in path order, so a caller that knows
-    which project it is changing can match on the path rather than trust
-    an ordering. Each repeats the setup flags this invocation asked for —
-    a recovery that silently drops ``--ci`` or an agent-instruction
-    selection completes with less than the caller requested.
+    For an *ambiguous* scope, rank 1 is deliberately not a command:
+    promoting one candidate would make the same arbitrary pick this refusal
+    exists to prevent. The per-candidate commands follow, in path order, so
+    a caller that knows which project it is changing can match on the path
+    rather than trust an ordering. Each repeats the setup flags this
+    invocation asked for — a recovery that silently drops ``--ci`` or an
+    agent-instruction selection completes with less than the caller
+    requested.
+
+    An ``unknown`` scope is a different obligation wearing the same shape.
+    Nothing has been chosen there because nothing has been *seen*: the parse
+    stopped at its cap. Finishing it is mechanical and read-only, so rank 1
+    is the higher-cap ``detect`` — with a bound that covers every Python file,
+    so the retry cannot land back here — and the human choice waits until
+    there is a settled list to choose from. When the parse was cut short but
+    a contest is already established, the same command follows the decision
+    instead of leading it (#399 review).
     """
 
+    retry = (
+        NextAction(
+            kind="command",
+            command=render_command(
+                [
+                    "detect",
+                    "--workspace",
+                    str(workspace),
+                    "--max-python-files",
+                    str(python_file_total),
+                    "--json",
+                ]
+            ),
+            why=(
+                "Discovery stopped at its Python-file cap, so the candidate "
+                "list above describes the part of the workspace that was "
+                "read. Re-run with a bound that covers every Python file."
+            ),
+            expects=(
+                "A detect payload with python_parse_truncated false, whose "
+                "agent_project_candidates are settled."
+            ),
+        )
+        if truncated and python_file_total > 0
+        else None
+    )
     why = (
         f"{workspace} defines agents in {len(candidates)} separate projects; "
         "pick the one this change belongs to. Shipgate will not choose for "
@@ -332,20 +369,24 @@ def _unresolved_scope_actions(
         if scope != "unknown"
         else (
             f"Discovery of {workspace} was capped before it could tell whether "
-            "one manifest describes it. Name the project you are changing, or "
-            "re-run detection with a higher cap."
+            "one manifest describes it. Finish the scan with the command "
+            "above, or name the project you are changing."
         )
     )
-    actions = [
-        NextAction(
-            kind="review",
-            why=why,
-            expects=(
-                "One project directory chosen from "
-                "auto_detected.agent_project_candidates."
-            ),
-        )
-    ]
+    decision = NextAction(
+        kind="review",
+        why=why,
+        expects=(
+            "One project directory chosen from "
+            "auto_detected.agent_project_candidates."
+        ),
+    )
+    if scope == "unknown" and retry is not None:
+        actions = [retry, decision]
+    elif retry is not None:
+        actions = [decision, retry]
+    else:
+        actions = [decision]
     # The workspace root is never offered as a command: it is the scope this
     # run just refused, so running it again returns here. `.` stays in the
     # reported candidate list because agent files that belong to no
@@ -803,6 +844,7 @@ def register(app: typer.Typer) -> None:
         # the uncapped project-root census that bounds it (#395).
         scope_truncated = False
         scope_project_roots = 0
+        scope_python_files = 0
         if minimal:
             template = render_manifest_template(workspace_resolved)
             placeholders = collect_placeholders(template)
@@ -920,6 +962,7 @@ def register(app: typer.Typer) -> None:
             detected_scope = detect_result.agent_scope
             scope_truncated = detect_result.agent_scope_truncated
             scope_project_roots = detect_result.workspace_signals.project_root_count
+            scope_python_files = detect_result.workspace_signals.python_file_total
             excluded_sources = detect_result.excluded_sources
             if excluded_sources:
                 # Glob-matched files the input adapters reject — dropped from
@@ -1096,6 +1139,7 @@ def register(app: typer.Typer) -> None:
                 ),
                 kit=agent_instructions_kit,
                 truncated=scope_truncated,
+                python_file_total=scope_python_files,
             )
 
         # Routing. Computed from the manifest that is *on disk*, not from the

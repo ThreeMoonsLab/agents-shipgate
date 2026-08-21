@@ -118,6 +118,13 @@ So Shipgate scopes rather than guesses:
 - `agents-shipgate detect --json` answers the same question without writing
   anything: read `agent_scope`, `agent_scope_truncated`, and
   `agent_project_candidates[]`.
+- `python_parse_truncated: true` is the wider version of the same warning: the
+  Python parse stopped at its cap, so *any* whole-workspace negative — most of
+  all `is_agent_project: false` — describes the files that were read rather
+  than the repository. Nothing publishes a terminal route while it is true;
+  the emitted `next_actions[0]` is
+  `detect --max-python-files <workspace_signals.python_file_total> --json`,
+  which covers every Python file and so cannot land back here.
 
 One manifest per project directory is the supported monorepo shape; each is
 verified with `verify --workspace <project> --config shipgate.yaml` from

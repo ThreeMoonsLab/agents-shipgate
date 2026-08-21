@@ -49,6 +49,7 @@ CANONICAL_KEYS = frozenset(
         "agent_scope",
         "agent_project_candidates",
         "agent_scope_truncated",
+        "python_parse_truncated",
         "suggested_sources",
         "excluded_sources",
         "next_action",
@@ -233,6 +234,17 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         "zero-install path must not adopt a scope the CLI refuses."
     )
     assert (
+        script_result["python_parse_truncated"]
+        == cli_result["python_parse_truncated"]
+    ), (
+        f"{sample_dir.name}: python_parse_truncated diverged "
+        f"(script={script_result['python_parse_truncated']!r}, "
+        f"cli={cli_result['python_parse_truncated']!r}). It is the guard every "
+        "whole-workspace negative is gated on, `is_agent_project: false` "
+        "included, so the two detectors must agree about whether their own "
+        "classification is complete (#399 review)."
+    )
+    assert (
         script_result["agent_scope_truncated"]
         == cli_result["agent_scope_truncated"]
     ), (
@@ -335,6 +347,12 @@ def test_script_and_cli_agree_on_a_truncated_walk(script_module, tmp_path):
 
     assert cli_result["agent_scope_truncated"] is True
     assert script_result["agent_scope_truncated"] is True
+    assert cli_result["python_parse_truncated"] is True
+    assert script_result["python_parse_truncated"] is True
+    assert (
+        script_result["workspace_signals"]["python_file_total"]
+        == cli_result["workspace_signals"]["python_file_total"]
+    )
     assert script_result["agent_scope"] == cli_result["agent_scope"]
     assert (
         script_result["workspace_signals"]["project_root_count"]

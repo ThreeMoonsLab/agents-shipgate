@@ -420,10 +420,12 @@ def _looks_like_n8n_workflow(path: Path) -> bool:
     return False
 
 
-def _discover_patterns(workspace: Path, patterns: tuple[str, ...]) -> list[str]:
+def _discover_patterns(
+    workspace: Path, patterns: tuple[str, ...], *, files: list[Path] | None = None
+) -> list[str]:
     found: list[str] = []
     seen: set[Path] = set()
-    for path in _candidate_files_matching(workspace, patterns):
+    for path in _candidate_files_matching(workspace, patterns, files=files):
         if path in seen:
             continue
         seen.add(path)

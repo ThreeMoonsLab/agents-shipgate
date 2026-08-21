@@ -20,18 +20,27 @@
   and asks it only where the answer can change anything: a directory carrying
   a strong marker is already a project root, and one carrying no weak marker
   cannot become one. For the rest it reads what `detect` would find directly
-  in that directory, through the same three rules — framework-attributed
-  Python, suggested OpenAPI/MCP sources, and Codex plugin packages — over the
-  same git-aware inventory, so an ignored file cannot make preview narrow to a
-  directory `detect` never saw. On the reported pull request the first command
+  in that directory, through every rule that can put a file in its evidence
+  set — framework-attributed Python, the artifact-glob detectors (Anthropic,
+  OpenAI API, n8n, Conductor), suggested OpenAPI/MCP sources, and Codex plugin
+  packages — over the same git-aware inventory, so an ignored file cannot make
+  preview narrow to a directory `detect` never saw. On the reported pull request the first command
   an adopter sees goes from an eight-step recovery to
   `init --workspace python/agents/smart_closer --write`.
 
   The probe reports three things as *undetermined* rather than as "no project
-  here", each routing to discovery instead of to a workspace-root `init`: the
-  shared `max_python_files` budget running out, an unreadable inventory, and a
-  change that deletes the one Python file beside a requirements file — the
-  head tree cannot say whether what it removed was that project's agent.
+  here": the shared `max_python_files` budget running out with a file still
+  unread, an unreadable inventory, and a change that deletes the one file
+  beside a requirements file that could have been the evidence — the head tree
+  cannot say whether what it removed was that project's agent surface.
+
+  Each of those routes to a recovery that can actually advance it, because one
+  generic answer could not. A `detect` at the same cap hits the same cap, so
+  budget exhaustion emits a concrete higher-cap command; and a head-only
+  `detect` cannot see evidence the change deleted — it reports the surviving
+  project as the workspace's single scope and its `init` writes a manifest for
+  an agent the pull request never touched — so deleted evidence is a human
+  route with no command at all.
 
 - `detect`'s glob-based source suggestion re-ran the whole git inventory walk
   once per pattern — fifteen walks for one pass. `_candidate_files_matching`
@@ -59,21 +68,46 @@
   workspace root*, which is a candidate whether or not it carries a marker,
   because unmarked agent evidence is attributed to it as `.`.
 
-  Nothing publishes a terminal negative from a capped walk any more. The three
-  negative-control diagnostics (`SHIP-DIAG-NO-AGENT-SURFACE`,
-  `-NON-AGENT-LIBRARY`, `-PURE-PROMPT-EXPERIMENT`) each publish a `stop` that
-  routing turns into `setup_not_applicable`; none of them fires while
-  `agent_scope_truncated` is true, so `detect --json` routes to the higher-cap
-  recovery instead. `bootstrap` no longer reads the same negative as "nothing
-  to do", and the trigger catalog's stop block gained
-  `agent_scope_truncated: false` — with a `detect` payload missing any key the
-  block reads now reported as `stop_conditions_evaluated: false` rather than
-  silently satisfying it, since absent is not false. `detect` no longer prints
-  "workspace does not appear to be an agent project" for a capped walk either.
+  Nothing publishes a terminal negative from a capped walk any more, and the
+  guard for that is a second, wider field: `python_parse_truncated`, the raw
+  fact that the parse stopped at its cap. `agent_scope_truncated` additionally
+  requires more than one candidate scope — right for a claim about the
+  candidate *list*, wrong for a claim about the *workspace*, because a
+  single-scope repository whose only agent sorts past the cap leaves it false
+  while still hiding an agent. Every whole-workspace negative now gates on the
+  raw field: the three negative-control diagnostics
+  (`SHIP-DIAG-NO-AGENT-SURFACE`, `-NON-AGENT-LIBRARY`,
+  `-PURE-PROMPT-EXPERIMENT`), each of which publishes a `stop` that routing
+  turns into `setup_not_applicable`; `bootstrap`'s no-surface stop; the
+  `detect` human summary; the first-look classification line; and the trigger
+  catalog's stop block, which gained `python_parse_truncated: false`. A
+  `detect` payload missing any key that block reads is now reported as
+  `stop_conditions_evaluated: false` rather than silently satisfying it, since
+  absent is not false.
 
-  The zero-install `tools/shipgate-detect.py` carries both new fields (script
-  version `0.4.0`), pinned by the parity test — which now includes a workspace
-  that actually truncates, since every sample fixture sits far under the cap.
+  The recovery from a capped walk is now an executable command rather than
+  prose inside a human route. Raising `--max-python-files` is a mechanical,
+  read-only retry that needs no decision, so `detect` and `init` publish
+  `detect --max-python-files <workspace_signals.python_file_total> --json` —
+  a bound covering every Python file in the workspace, so the retry cannot
+  land back at the same cap. On an `unknown` scope that command *leads* the
+  ranked recovery, because nothing has been chosen there; nothing has been
+  seen. Human review is reserved for choosing an actual manifest boundary.
+
+  Two more routes that could not succeed are gone:
+  `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` and
+  `SHIP-DIAG-CODEX-PLUGIN-PACKAGE-DETECTED` name a root `init --write`, and
+  setup routing ranks a diagnostic ahead of the advance, so on an unresolved
+  scope they published a command that refuses deterministically; both now fire
+  only when `agent_scope == "single"`. And `bootstrap`'s no-surface stop
+  ignored `codex_plugin_candidates` entirely, so a Codex-plugin-only
+  repository — deliberately `is_agent_project: false` — stopped at `detect`
+  and never ran `init`.
+
+  The zero-install `tools/shipgate-detect.py` carries all the new fields
+  (script version `0.4.0`), pinned by the parity test — which now includes a
+  workspace that actually truncates, since every sample fixture sits far under
+  the cap.
 
 - **A tool inventory now completes the source that asked for it, instead of
   shadowing it.** `incomplete_surface` fires for every statically-extracted

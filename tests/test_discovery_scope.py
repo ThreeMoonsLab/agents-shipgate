@@ -1014,13 +1014,24 @@ def test_a_deleted_agent_leaves_its_weak_marker_undetermined(tmp_path: Path) -> 
 
     evidence = weak_marker_evidence_dirs(repo, ["services/gone/agent.py"])
     assert evidence.directories == frozenset()
-    assert [path for path, _reason in evidence.undetermined] == ["services/gone"]
+    assert [entry.path for entry in evidence.undetermined] == ["services/gone"]
+    assert evidence.causes == {"deleted_evidence"}
 
     payload = _preview(repo)
     action = payload["control"]["next_action"]
-    assert action["kind"] == "discover"
+    # And no command, because none would settle it: a head-only `detect` sees
+    # only the surviving project, reports it as the workspace's single scope,
+    # and its `init` succeeds with an agent this change never touched — the
+    # generic discovery route recovering into the wrong answer (#399 review).
+    assert action["actor"] == "human"
+    assert action["kind"] == "review"
+    assert action["command"] is None
     assert "services/gone" in action["why"]
-    assert "--write" not in action["command"]
+    assert payload["control"]["allowed_next_commands"] == []
+
+    # The route it replaced, run explicitly, is exactly the wrong answer.
+    detected = runner.invoke(app, ["detect", "--workspace", str(repo), "--json"])
+    assert json.loads(detected.output)["agent_scope"] == "single"
 
 
 def test_an_ignored_file_is_not_evidence_the_recommended_command_can_see(
@@ -1051,6 +1062,105 @@ def test_an_ignored_file_is_not_evidence_the_recommended_command_can_see(
     ]
 
 
+def test_an_artifact_glob_project_unlocks_its_weak_marker(tmp_path: Path) -> None:
+    """`_agent_project_candidates` counts every framework's `candidate_files`,
+    including the ones the artifact-glob detectors (Anthropic, OpenAI API,
+    n8n, Conductor) fire on. Reading only the OpenAPI/MCP suggestion families
+    left `requirements.txt` beside an `openai-config.json` invisible to
+    preview and visible to detect (#399 review)."""
+
+    repo = _init_repo(tmp_path)
+    api = repo / "services" / "api"
+    api.mkdir(parents=True)
+    (api / "requirements.txt").write_text("openai\n", encoding="utf-8")
+    (api / "openai-config.json").write_text('{"model": "gpt-4"}', encoding="utf-8")
+    _write_agent_project(repo, "services/worker", name="worker_agent", tool="work")
+    _commit_all(repo, "base")
+
+    evidence = weak_marker_evidence_dirs(repo, ["services/api/openai-config.json"])
+    assert evidence.undetermined == ()
+    assert evidence.directories == frozenset({(repo / "services/api").resolve()})
+    assert {c.path for c in detect_workspace(repo).agent_project_candidates} == {
+        "services/api",
+        "services/worker",
+    }
+
+
+def test_a_deleted_artifact_leaves_its_weak_marker_undetermined(
+    tmp_path: Path,
+) -> None:
+    """Deletion uncertainty has to cover every family that can unlock the
+    marker. Limiting it to `.py` left an artifact-only project silently
+    negative, and preview then prescribed a root `init` that succeeds and
+    adopts the unrelated surviving agent (#399 review)."""
+
+    repo = _init_repo(tmp_path)
+    gone = repo / "services" / "gone"
+    gone.mkdir(parents=True)
+    (gone / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (gone / "openapi.yaml").write_text(
+        "openapi: 3.0.0\n"
+        "info: {title: gone, version: 1.0.0}\n"
+        "paths:\n"
+        "  /pay:\n"
+        "    post:\n"
+        "      operationId: pay\n"
+        "      summary: Send money.\n"
+        '      responses: {"200": {description: ok}}\n',
+        encoding="utf-8",
+    )
+    _write_agent_project(repo, "services/other", name="other_agent", tool="ask")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    subprocess.run(
+        ["git", "rm", "-q", "services/gone/openapi.yaml"], cwd=repo, check=True
+    )
+    _commit_all(repo, "remove the spec")
+
+    evidence = weak_marker_evidence_dirs(repo, ["services/gone/openapi.yaml"])
+    assert evidence.directories == frozenset()
+    assert evidence.causes == {"deleted_evidence"}
+
+    action = _preview(repo)["control"]["next_action"]
+    assert action["actor"] == "human"
+    assert action["command"] is None
+
+
+def test_budget_exhaustion_routes_preview_to_a_bound_that_settles_it(
+    tmp_path: Path,
+) -> None:
+    """A recovery that reruns at the cap it just hit is not a recovery. The
+    emitted command carries a bound covering every Python file, so following
+    it settles what the capped pass could not (#399 review)."""
+
+    repo = _init_repo(tmp_path)
+    flat = repo / "flat"
+    flat.mkdir()
+    (flat / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    for index in range(1205):
+        (flat / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+    _write_agent_project(repo, "other", name="other_agent", tool="ask")
+    _commit_all(repo, "base")
+    _set_origin_main(repo)
+    (flat / "mod00001.py").write_text("x = 2\n", encoding="utf-8")
+    _commit_all(repo, "touch a module")
+
+    payload = _preview(repo)
+    action = payload["control"]["next_action"]
+    assert action["kind"] == "discover"
+    assert "--max-python-files" in action["command"]
+
+    # Following it terminates: the reported bound covers every Python file, so
+    # the next envelope is not truncated.
+    total = int(action["command"].split("--max-python-files ")[1].split()[0])
+    settled = runner.invoke(
+        app,
+        ["detect", "--workspace", str(repo), "--max-python-files", str(total), "--json"],
+    )
+    assert settled.exit_code == 0, settled.output
+    assert json.loads(settled.output)["python_parse_truncated"] is False
+
+
 def test_the_probe_stops_at_the_same_budget_discovery_stops_at(
     tmp_path: Path,
 ) -> None:
@@ -1072,8 +1182,8 @@ def test_the_probe_stops_at_the_same_budget_discovery_stops_at(
 
     exhausted = weak_marker_evidence_dirs(repo, ["flat/mod00001.py"])
     assert exhausted.directories == frozenset()
-    assert [path for path, _reason in exhausted.undetermined] == ["flat"]
-    assert "budget" in exhausted.undetermined[0][1]
+    assert [entry.path for entry in exhausted.undetermined] == ["flat"]
+    assert exhausted.causes == {"parse_budget"}
 
     # Within budget the same directory settles negative, so exhaustion is the
     # only thing the tri-state is reporting.
@@ -1083,6 +1193,14 @@ def test_the_probe_stops_at_the_same_budget_discovery_stops_at(
         ).undetermined
         == ()
     )
+
+    # A budget the directory exactly fills is not truncation: the last unit is
+    # spent on the last file and nothing stayed unread, which is what `detect`
+    # says about the same directory (#399 review).
+    exact = weak_marker_evidence_dirs(
+        repo, ["flat/mod00001.py"], max_python_files=1205
+    )
+    assert exact.undetermined == ()
 
 
 def test_preview_and_detect_name_the_same_project(
@@ -1763,6 +1881,134 @@ def test_an_unmarked_root_agent_is_counted_before_the_cap_clears_the_walk(
     assert not (repo / "shipgate.yaml").exists()
 
 
+def test_a_single_scope_workspace_still_reports_its_capped_parse(
+    tmp_path: Path,
+) -> None:
+    """`agent_scope_truncated` is the wrong guard for a claim about the
+    workspace. It also requires more than one candidate scope, because with
+    one there is nowhere for a second *project* to hide — but there is still
+    somewhere for the workspace's only *agent* to hide. A root
+    `pyproject.toml` repo whose agent sorts past the cap reported
+    `agent_scope: "single"`, `agent_scope_truncated: false`, and a terminal
+    `SHIP-DIAG-NON-AGENT-LIBRARY` / `setup_not_applicable` / `stop` (#399
+    review)."""
+
+    repo = tmp_path / "single-capped"
+    filler = repo / "aa_filler"
+    filler.mkdir(parents=True)
+    (repo / "pyproject.toml").write_text(
+        _PYPROJECT.format(name="single-capped"), encoding="utf-8"
+    )
+    for index in range(1001):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "zz_agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="hidden_agent", tool="act"), encoding="utf-8"
+    )
+
+    result = detect_workspace(repo)
+    assert result.is_agent_project is False
+    assert result.agent_scope == "single"
+    # The narrow flag is correctly false — and useless as a guard here.
+    assert result.agent_scope_truncated is False
+    assert result.python_parse_truncated is True
+
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(repo), "--json"]).output
+    )
+    assert [d["id"] for d in payload["diagnostics"]] == []
+    assert payload["control"]["decision"] != "setup_not_applicable"
+    assert payload["control"]["next_action"]["kind"] == "discover"
+
+    # Raising the cap finds the agent the terminal negative denied.
+    total = result.workspace_signals.python_file_total
+    assert detect_workspace(repo, max_python_files=total).is_agent_project is True
+
+
+def test_an_artifact_nudge_never_names_an_init_that_would_refuse(
+    tmp_path: Path,
+) -> None:
+    """Emitting no negative diagnostic is not enough: setup routing ranks a
+    diagnostic ahead of the advance, so the artifact-only nudge published a
+    root `init --write` over the top of the scope route — and that exact
+    command exits `refused_unresolved_scope` (#399 review)."""
+
+    repo = tmp_path / "artifact-capped"
+    filler = repo / "aa_filler"
+    filler.mkdir(parents=True)
+    (repo / "openapi.yaml").write_text(
+        "openapi: 3.0.0\n"
+        "info: {title: root, version: 1.0.0}\n"
+        "paths:\n"
+        "  /pay:\n"
+        "    post:\n"
+        "      operationId: pay\n"
+        "      summary: Send money.\n"
+        '      responses: {"200": {description: ok}}\n',
+        encoding="utf-8",
+    )
+    for index in range(1001):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+    nested = repo / "zz_nested"
+    nested.mkdir()
+    (nested / "pyproject.toml").write_text(
+        _PYPROJECT.format(name="zz-nested"), encoding="utf-8"
+    )
+    (nested / "agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="nested_agent", tool="act"), encoding="utf-8"
+    )
+
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(repo), "--json"]).output
+    )
+    assert payload["agent_scope"] == "unknown"
+    assert payload["suggested_sources"]
+    assert "SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY" not in [
+        d["id"] for d in payload["diagnostics"]
+    ]
+    command = payload["control"]["next_action"]["command"]
+    assert "init" not in command
+    assert "--max-python-files" in command
+
+    # The command it used to publish, run explicitly, is the refusal.
+    refused = runner.invoke(app, ["init", "--workspace", str(repo), "--write", "--json"])
+    assert refused.exit_code == 2, refused.output
+    assert json.loads(refused.output)["manifest_status"] == "refused_unresolved_scope"
+
+
+def test_a_capped_init_refusal_leads_with_the_retry_not_a_human_choice(
+    tmp_path: Path,
+) -> None:
+    """An `unknown` scope is not a choice nobody made — it is a scan nobody
+    finished. Raising the cap is mechanical and read-only, so it is rank 1;
+    the human choice waits until there is a settled list to choose from
+    (#399 review)."""
+
+    repo = tmp_path / "capped-init"
+    filler = repo / "aa_filler"
+    filler.mkdir(parents=True)
+    for index in range(1001):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+    nested = repo / "zz_nested"
+    nested.mkdir()
+    (nested / "pyproject.toml").write_text(
+        _PYPROJECT.format(name="zz-nested"), encoding="utf-8"
+    )
+    (nested / "agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="nested_agent", tool="act"), encoding="utf-8"
+    )
+
+    refused = runner.invoke(app, ["init", "--workspace", str(repo), "--write", "--json"])
+    assert refused.exit_code == 2, refused.output
+    payload = json.loads(refused.output)
+    assert payload["auto_detected"]["agent_scope"] == "unknown"
+    first = payload["next_actions"][0]
+    assert first["kind"] == "command"
+    total = payload["auto_detected"]["workspace_signals"]["python_file_total"]
+    assert f"--max-python-files {total}" in first["command"]
+    assert payload["control"]["next_action"]["actor"] == "coding_agent"
+    assert not (repo / "shipgate.yaml").exists()
+
+
 def test_a_capped_walk_never_publishes_a_terminal_machine_route(
     tmp_path: Path,
 ) -> None:
@@ -1791,11 +2037,39 @@ def test_a_capped_walk_never_publishes_a_terminal_machine_route(
     assert detected.exit_code == 0, detected.output
     payload = json.loads(detected.output)
     assert payload["is_agent_project"] is False
-    assert payload["agent_scope_truncated"] is True
+    assert payload["python_parse_truncated"] is True
     assert [d["id"] for d in payload["diagnostics"]] == []
     assert payload["control"]["decision"] != "setup_not_applicable"
-    assert payload["control"]["next_action"]["kind"] != "stop"
-    assert "--max-python-files" in payload["control"]["next_action"]["why"]
+
+    # And the route is executable. Raising a cap needs no decision, so
+    # publishing it as prose inside a human route left the only actionable
+    # step in a string, on a payload saying `command: null` (#399 review).
+    action = payload["control"]["next_action"]
+    assert action["actor"] == "coding_agent"
+    assert action["kind"] == "discover"
+    total = payload["workspace_signals"]["python_file_total"]
+    assert f"--max-python-files {total}" in action["command"]
+
+    # Following it settles the question rather than reproducing it.
+    settled = runner.invoke(
+        app,
+        [
+            "detect",
+            "--workspace",
+            str(repo),
+            "--max-python-files",
+            str(total),
+            "--json",
+        ],
+    )
+    assert settled.exit_code == 0, settled.output
+    after = json.loads(settled.output)
+    assert after["python_parse_truncated"] is False
+    assert after["is_agent_project"] is True
+    assert [c["path"] for c in after["agent_project_candidates"]] == [
+        "zz_one",
+        "zz_two",
+    ]
 
 
 def test_an_uncapped_ambiguous_workspace_claims_no_truncation(

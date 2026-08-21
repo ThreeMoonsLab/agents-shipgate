@@ -121,7 +121,7 @@ def detect(
         and not result.suggested_sources
         and not result.codex_plugin_candidates
     ):
-        if result.agent_scope_truncated:
+        if result.python_parse_truncated:
             # "No signals matched" is a claim about the whole workspace, and
             # a capped parse read part of one. On a repository large enough
             # to truncate before reaching any agent, the flat negative is
@@ -244,6 +244,12 @@ def _detect_advance(
     boundary, and asking again on the next ``detect`` would make that decision
     impossible to keep.
 
+    A truncated parse is checked before either, and is the one unresolved state
+    here that is *not* a human route: raising ``--max-python-files`` is a
+    mechanical, read-only retry that needs no decision, and
+    ``workspace_signals.python_file_total`` gives it a bound that cannot hit
+    the cap again.
+
     An unresolved *scope* is the same shape as an unresolved manifest, one step
     earlier. When a workspace defines agents in several projects (#363/#370),
     ``DetectResult.next_action`` is prose rather than a command precisely because
@@ -279,6 +285,44 @@ def _detect_advance(
                 ),
             ),
             "configure",
+            SETUP_INCOMPLETE,
+        )
+    if result.python_parse_truncated:
+        # Raising the cap is a mechanical, read-only retry, not a judgement —
+        # nobody has to choose a boundary to run it, and the answer it
+        # produces is the one a complete pass would have given. Publishing it
+        # as prose inside a human route left the only actionable step in a
+        # string, on a payload whose control said `next_actor: human` and
+        # `command: null` (#399 review).
+        #
+        # `python_file_total` makes the retry terminate: a bound that covers
+        # every Python file in the workspace cannot hit the cap again, where a
+        # rerun at the default would reproduce this exact verdict.
+        return (
+            NextAction(
+                kind="command",
+                command=render_command(
+                    [
+                        "detect",
+                        "--workspace",
+                        str(workspace),
+                        "--max-python-files",
+                        str(result.workspace_signals.python_file_total),
+                        "--json",
+                    ]
+                ),
+                why=(
+                    "Discovery stopped at its Python-file cap, so this "
+                    "classification describes the part of the workspace that "
+                    "was read. Re-run with a bound that covers every Python "
+                    "file before treating any negative here as an answer."
+                ),
+                expects=(
+                    "A detect payload with python_parse_truncated false, whose "
+                    "agent_scope and agent_project_candidates are settled."
+                ),
+            ),
+            "discover",
             SETUP_INCOMPLETE,
         )
     if result.agent_scope != "single":

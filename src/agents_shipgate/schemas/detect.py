@@ -131,6 +131,11 @@ class WorkspaceSignals(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     python_file_count: int = 0
+    # ``.py`` files in the workspace inventory, counted by filename with no
+    # cap. `python_file_count` is what the parse actually read; this is what
+    # a complete parse would read, so it is the `--max-python-files` value a
+    # retry needs in order to settle what a capped pass could not.
+    python_file_total: int = 0
     # Directories that could be a manifest scope: every directory carrying a
     # project marker, plus the workspace root itself — which is a candidate
     # whether or not it carries one, because agent evidence under no marker
@@ -179,6 +184,21 @@ class DetectResult(BaseModel):
     # a lower bound, not an enumeration: a project in the unread remainder
     # is missing from it.
     agent_scope_truncated: bool = False
+    # Whether the Python parse stopped at `max_python_files` at all — the raw
+    # completeness fact, independent of how many scopes the workspace holds.
+    #
+    # `agent_scope_truncated` is deliberately narrower: it also requires more
+    # than one candidate scope, because with only one there is nowhere for a
+    # second *project* to hide. That makes it the right guard for a claim
+    # about the candidate *list* and the wrong one for a claim about the
+    # workspace: a single-scope repository whose only agent sits past the cap
+    # reports `is_agent_project: false` with `agent_scope_truncated: false`,
+    # and every consumer that read the narrow flag as "the classification is
+    # complete" published a terminal negative for an agent nobody had read
+    # (#399 review). Gate whole-workspace negatives — the negative-control
+    # diagnostics, `bootstrap`'s no-surface stop, the trigger stop block — on
+    # this field, not on the scope one.
+    python_parse_truncated: bool = False
     suggested_sources: list[dict[str, str]] = Field(default_factory=list)
     # Glob-matched OpenAPI/MCP candidates the real input adapters reject
     # ({type, path, reason}). Kept out of suggested_sources so init never
