@@ -18,11 +18,30 @@
   mechanical step the caller owns. The route is now the `fetch_base` action
   that already exists for exactly this shape: `agent_action_required`, no
   command (Shipgate never writes to a caller's worktree), and an `expects` that
-  names the input and a `why` that names the ref. Checking that ref out and
-  re-running the identical command resolves the project and emits the scoped
-  `init`. The two causes that no checkout can repair — evidence the change
-  deleted, an unreadable inventory — keep their human route. Plain `verify` is
-  unaffected: it reads `--head` from the object database, not the worktree.
+  names the input. The two causes that no checkout can repair — evidence the
+  change deleted, an unreadable inventory — keep their human route. Plain
+  `verify` is unaffected: it reads `--head` from the object database, not the
+  worktree.
+
+  **`expects` names a commit id, and the rerun it asks for is pinned.** The
+  step being requested moves `HEAD`, so a route spelled with the caller's own
+  revision expression does not survive it: `--head HEAD~1` names one commit
+  before the checkout and its parent after, and following the route walked
+  history backwards one commit per iteration instead of resolving. A
+  `HEAD`-relative `--base` re-ranges across the same checkout, which is quieter
+  and worse — the rerun succeeds against a diff nobody asked for. Both refs are
+  resolved to immutable ids before either is published.
+
+  The requested checkout also makes the preview's control pointer stale. It
+  bound no HEAD identity, so `agents-shipgate agent control` — the one refresh
+  entry point — kept returning the same `current_control_id` and the same
+  unmet-looking request after the caller performed it, which is how a
+  refresh-driven controller repeats an action forever. The pointer now binds
+  the worktree the preview actually read.
+
+  `fetch_base` accordingly means "make this input available" in both of its
+  senses, and the adoption scorer recognizes a `git checkout`/`git switch` as
+  input recovery alongside `git fetch`.
 
 - **`detect` now publishes the same per-candidate `init` commands `init` does
   when a workspace holds several agent projects.** Its escalation handed the
@@ -37,6 +56,28 @@
   build that list from one helper, so the two an adopter runs in sequence
   cannot publish different recoveries for one workspace; the workspace root
   stays out of it, since that is the scope `init` refuses.
+
+  **Every** candidate gets one. The ten-item cap that keeps a human refusal
+  readable had been applied to the routing too, which left candidate 11 onward
+  selectable and unrunnable — `detect --workspace samples --json` finds 22
+  projects and emitted 10 commands, and the reported pull request's repository
+  has 25.
+
+  And a candidate that **already carries a manifest** routes to
+  `doctor --config <that manifest> --json`, not to `init --write`. A nested
+  `shipgate.yaml` is itself evidence of a project, so adopted directories are
+  candidates too: on this repository's own `samples/`, 21 of 22 are, and every
+  command emitted for them exited 2 on a manifest `init` will not overwrite
+  while `expects` promised a file that already existed. The exception is
+  `--agent-instructions`, which makes `init --write` the advertised refresh and
+  exits 0 — there the `init` route is kept, flags and all.
+
+  `detect`'s `control.input_id` now covers the route it publishes, not only the
+  classification behind it. Every emitted command is spelled for the entry
+  point the process came in through, so the same workspace read as
+  `agents-shipgate` and as `/opt/custom/agents-shipgate` published different
+  commands under one identity — and that identity is the documented cache
+  boundary for the answer.
 
 - **`verify --preview` on a monorepo now names the project the pull request
   actually changed, instead of a repository root that `init` refuses.** The

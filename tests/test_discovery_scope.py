@@ -137,6 +137,14 @@ def _preview(
     return json.loads(result.output)
 
 
+def _adopt(project: Path) -> None:
+    """Adopt one project the way an adopter would, so `doctor` can read it."""
+
+    written = runner.invoke(app, ["init", "--workspace", str(project), "--write"])
+    assert written.exit_code == 0, written.output
+    assert (project / "shipgate.yaml").is_file()
+
+
 def _init_command(target: Path) -> str:
     """The scoped ``init`` exactly as this process would spell it (#322)."""
 
@@ -480,9 +488,19 @@ def test_preview_claims_no_scope_for_a_head_that_is_not_checked_out(
     assert action["actor"] == "coding_agent"
     assert action["kind"] == "fetch_base"
     assert action["command"] is None
-    assert action["expects"] == "feature checked out in this worktree"
+    # The commit, not the caller's spelling: the checkout being asked for moves
+    # HEAD, so a revision expression would name something else afterwards.
+    feature = subprocess.run(
+        ["git", "rev-parse", "feature"],
+        cwd=monorepo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert action["expects"] == f"commit {feature[:12]} checked out in this worktree"
     assert "not the commit this worktree has checked out" in action["why"]
-    assert "Check feature out in this worktree" in action["why"]
+    assert f"Check {feature[:12]} out in this worktree" in action["why"]
+    assert f"--head {feature[:12]}" in action["why"]
     # A `fetch_base` route carries no command by contract, and none is smuggled
     # in beside it: the step that changes the answer is the checkout.
     assert control["allowed_next_commands"] == []
@@ -510,6 +528,113 @@ def test_checking_the_head_out_clears_the_preview_that_asked_for_it(
         f"--workspace {monorepo / 'python/agents/crypto-payroll-agent'} --write"
         in action["command"]
     )
+
+
+def test_a_head_relative_ref_is_pinned_before_the_checkout_is_asked_for(
+    monorepo: Path,
+) -> None:
+    """The recovery must not move the target it is asking the caller to reach.
+
+    `--head HEAD~1` names one commit before the checkout this route asks for
+    and its parent after it, so a route spelled with the expression walks
+    history backwards one commit per iteration instead of resolving. A
+    `HEAD`-relative `--base` re-ranges the same way, which is quieter and
+    worse: the rerun succeeds against a diff nobody asked for (#397 review)."""
+
+    _touch_one_project(monorepo)
+    (monorepo / "NOTES.md").write_text("later\n", encoding="utf-8")
+    _commit_all(monorepo, "a third commit, so HEAD~1 has somewhere to walk")
+
+    def preview() -> dict:
+        result = runner.invoke(
+            app,
+            [
+                "verify",
+                "--workspace",
+                str(monorepo),
+                "--preview",
+                "--base",
+                "HEAD~2",
+                "--head",
+                "HEAD~1",
+                "--format",
+                "json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        return json.loads(result.output)["control"]["next_action"]
+
+    def rev(ref: str) -> str:
+        return subprocess.run(
+            ["git", "rev-parse", ref],
+            cwd=monorepo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()[:12]
+
+    target, base = rev("HEAD~1"), rev("HEAD~2")
+    action = preview()
+
+    assert action["kind"] == "fetch_base"
+    assert action["expects"] == f"commit {target} checked out in this worktree"
+    # Both refs pinned, so the instruction means the same thing after the
+    # checkout as before it.
+    assert f"--base {base} --head {target}" in action["why"]
+    assert "HEAD~1" not in action["expects"]
+
+    # And following it terminates: the pinned rerun resolves the project.
+    subprocess.run(["git", "checkout", "-q", target], cwd=monorepo, check=True)
+    resolved = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(monorepo),
+            "--preview",
+            "--base",
+            base,
+            "--head",
+            target,
+            "--format",
+            "json",
+        ],
+    )
+    assert resolved.exit_code == 0, resolved.output
+    assert json.loads(resolved.output)["control"]["next_action"]["kind"] == "initialize"
+
+
+def test_the_requested_checkout_makes_the_preview_pointer_stale(
+    monorepo: Path,
+) -> None:
+    """A refresh that still reports the request as outstanding is a loop.
+
+    `agent control` is the one refresh entry point. Preview bound no HEAD
+    identity, so after the caller performed exactly the checkout `expects`
+    named, the pointer stayed current and handed back the same
+    `current_control_id` and the same unmet-looking request (#397 review)."""
+
+    _touch_one_project(monorepo)
+    subprocess.run(["git", "branch", "feature"], cwd=monorepo, check=True)
+    subprocess.run(["git", "checkout", "-q", "origin/main"], cwd=monorepo, check=True)
+    _preview_other_head(monorepo)
+
+    def refresh() -> int:
+        return runner.invoke(
+            app,
+            [
+                "agent",
+                "control",
+                "--workspace",
+                str(monorepo),
+                "--reports-dir",
+                str(monorepo / "agents-shipgate-reports"),
+            ],
+        ).exit_code
+
+    assert refresh() == 0
+    subprocess.run(["git", "checkout", "-q", "feature"], cwd=monorepo, check=True)
+    assert refresh() != 0
 
 
 def test_preview_prefers_the_changed_project_manifest_over_the_root_one(
@@ -1572,6 +1697,126 @@ def test_detect_publishes_the_init_command_for_each_candidate(monorepo: Path) ->
         "--json",
     ]
     assert "ask_rag_agent" in commands[0]["why"]
+
+
+def test_every_candidate_gets_a_command_however_many_there_are(
+    tmp_path: Path,
+) -> None:
+    """The display cap belongs to the human summary, not to the routing.
+
+    Slicing the machine list left candidate 11 onward selectable and
+    unrunnable, which is the dead end this list exists to close — issue #397's
+    own reproduction has 25 projects (#397 review)."""
+
+    repo = _init_repo(tmp_path)
+    for index in range(14):
+        _write_agent_project(
+            repo, f"apps/p{index:02d}", name=f"agent_{index:02d}", tool=f"t{index:02d}"
+        )
+    _commit_all(repo, "fourteen projects")
+
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(repo), "--json"]).output
+    )
+
+    routable = [c["path"] for c in payload["agent_project_candidates"] if c["path"] != "."]
+    commands = [a for a in payload["next_actions"] if a["kind"] == "command"]
+    assert len(routable) == 14
+    assert [action["args"][2] for action in commands] == [
+        str(repo / path) for path in routable
+    ]
+
+
+def test_an_adopted_candidate_routes_to_doctor_not_init(tmp_path: Path) -> None:
+    """`init --write` there exits 2 on a manifest it will not overwrite, while
+    `expects` promises a file that already exists.
+
+    A nested `shipgate.yaml` is itself evidence of a project, so adopted
+    directories are candidates too: on this repository's own `samples/`, 21 of
+    22 are, and every command emitted for them refused (#397 review)."""
+
+    repo = _init_repo(tmp_path)
+    adopted = _write_agent_project(repo, "apps/adopted", name="adopted", tool="a")
+    _write_agent_project(repo, "apps/fresh", name="fresh", tool="f")
+    _adopt(adopted)
+    _commit_all(repo, "one adopted, one not")
+
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(repo), "--json"]).output
+    )
+    commands = [a for a in payload["next_actions"] if a["kind"] == "command"]
+
+    assert [action["args"][0] for action in commands] == ["doctor", "init"]
+    for_adopted = commands[0]
+    assert for_adopted["args"][2] == str(adopted / "shipgate.yaml")
+    assert "already carries a manifest" in for_adopted["why"]
+
+    # And it runs: a published step that exits 2 is not a step.
+    followed = runner.invoke(app, for_adopted["args"])
+    assert followed.exit_code == 0, followed.output
+
+
+def test_an_instruction_refresh_keeps_init_for_an_adopted_candidate(
+    tmp_path: Path,
+) -> None:
+    """The one case where `init --write` on an existing manifest exits 0.
+
+    With `--agent-instructions` selected it leaves the manifest alone and
+    refreshes the instruction targets, so routing that candidate to `doctor`
+    would drop the setup the caller asked for."""
+
+    repo = _init_repo(tmp_path)
+    adopted = _write_agent_project(repo, "apps/adopted", name="adopted", tool="a")
+    _write_agent_project(repo, "apps/fresh", name="fresh", tool="f")
+    _adopt(adopted)
+    _commit_all(repo, "one adopted, one not")
+
+    refused = runner.invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(repo),
+            "--write",
+            "--agent-instructions=agents-md",
+            "--json",
+        ],
+    )
+    assert refused.exit_code == 2, refused.output
+    commands = [
+        a for a in json.loads(refused.output)["next_actions"] if a["kind"] == "command"
+    ]
+
+    assert [action["args"][0] for action in commands] == ["init", "init"]
+    assert "--agent-instructions=agents-md" in commands[0]["args"]
+
+
+def test_the_setup_identity_moves_with_the_command_it_publishes(
+    monorepo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`input_id` is the cache boundary for the answer, and the answer includes
+    the commands.
+
+    Every command is spelled for the entry point this process came in through
+    (#322), so the same workspace read two ways publishes two different
+    routes — and hashing the detection alone gave them one identity, letting a
+    cache replay a command that is not available here (#397 review)."""
+
+    def published(entry_point: str) -> tuple[str, str]:
+        monkeypatch.setenv("AGENTS_SHIPGATE_CLI", entry_point)
+        payload = json.loads(
+            runner.invoke(app, ["detect", "--workspace", str(monorepo), "--json"]).output
+        )
+        command = next(
+            a["command"] for a in payload["next_actions"] if a["kind"] == "command"
+        )
+        return payload["control"]["input_id"], command
+
+    first_id, first_command = published("agents-shipgate")
+    second_id, second_command = published("/opt/custom/agents-shipgate")
+
+    assert first_command != second_command
+    assert first_id != second_id
 
 
 def test_detect_and_init_publish_the_same_candidate_commands(monorepo: Path) -> None:

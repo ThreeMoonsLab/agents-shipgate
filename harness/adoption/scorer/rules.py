@@ -1023,8 +1023,20 @@ def _action_satisfies_control(action: _TimelineItem, control: _ControlSnapshot) 
 
     # ``fetch_base`` is the sole structured input-recovery route that may omit
     # an exact command.  Everything else fails closed when no command exists.
+    #
+    # Two families of input satisfy it, because ``expects`` names an input and
+    # not always a ref: making history available (``git fetch``) and putting
+    # the evaluated commit in the worktree (``git checkout``), which is what
+    # ``verify --preview`` asks for when the head under review is not the
+    # commit checked out — project markers are read from the working tree, so
+    # a fetch would leave that request unmet (#397 review).
     if control.next_action.get("kind") == "fetch_base":
-        return bool(re.search(r"\bgit\s+(?:fetch|remote\s+update)\b", command))
+        return bool(
+            re.search(
+                r"\bgit\s+(?:fetch|remote\s+update|checkout|switch|restore)\b",
+                command,
+            )
+        )
     return False
 
 

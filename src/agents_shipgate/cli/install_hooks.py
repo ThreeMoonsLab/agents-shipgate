@@ -1073,7 +1073,7 @@ def _route_verify_result(
             expects = next_action.get("expects") or "the requested Git ref"
             return _emit_stop_block(
                 f"Agents Shipgate verify ran before completion: {summary}.{base_note} "
-                f"Make {expects!r} available locally, then rerun the verifier. "
+                f"Provide {expects!r}, then rerun the verifier. "
                 f"{why} No executable command was authorized by the control result."
             )
         if not isinstance(command, str) or command not in allowed_commands:

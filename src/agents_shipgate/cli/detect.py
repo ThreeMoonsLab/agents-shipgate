@@ -97,7 +97,20 @@ def detect(
             operation="detect",
             workspace=workspace_resolved,
             manifest_path=(workspace_resolved / "shipgate.yaml" if has_manifest else None),
-            routing_facts=(result.model_dump(mode="json"), advance_decision),
+            # The *route*, not only the classification behind it. Every
+            # command published below is spelled for the entry point this
+            # process came in through (#322), so the same ambiguous workspace
+            # read as `agents-shipgate` and as `/opt/custom/agents-shipgate`
+            # publishes different `command`/`executable` values — and hashing
+            # the detection alone gave both one identity, which is the cache
+            # boundary for the answer. `init` and `doctor` already fold their
+            # own actions in for exactly this reason (#397 review).
+            routing_facts=(
+                result.model_dump(mode="json"),
+                advance_decision,
+                advance.model_dump(mode="json") if advance is not None else None,
+                [action.model_dump(mode="json") for action in advance_alternatives],
+            ),
         ),
         reason=_detect_reason(result, has_manifest=has_manifest),
         diagnostics=diagnostics,

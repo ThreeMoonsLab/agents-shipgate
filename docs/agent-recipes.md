@@ -30,8 +30,10 @@ additionally wants `--head` **checked out**: it reads project markers from the
 working tree, because that is the tree the `init` it recommends would write to.
 Previewing some other ref establishes no project and returns
 `agent_action_required` with a `fetch_base` action whose `expects` names the
-missing input — check the ref out, then re-run the identical command. Plain
-`verify` reads `--head` from the object database and needs no checkout. Read
+missing input as a **commit id** — check that commit out, then re-run with the
+pinned `--base`/`--head` the `why` spells out, because a revision expression
+re-resolves against the new `HEAD`. Plain `verify` reads `--head` from the
+object database and needs no checkout. Read
 `agents-shipgate-reports/agent-handoff.json` first and lead with
 `control.state`, `gate.merge_verdict`, `gate.can_merge_without_human`,
 `next_action`, `fix_task`, and `capability_review.top_changes[]`. Fall back to
@@ -164,7 +166,11 @@ Consume the response to decide whether to proceed. Key fields:
   setup, so it promises none. Add `--ci` or `--agent-instructions` yourself if
   you want them, or take the command from `init`'s own refusal, which repeats
   the flags the run asked for. Match on the path rather than the ordering.
-  The workspace root is never offered: it is the scope `init` refuses.
+  Every candidate gets an entry; the workspace root is never offered, since it
+  is the scope `init` refuses. A candidate that already carries a manifest gets
+  `doctor --config <that manifest> --json` rather than an `init` that would
+  refuse to overwrite it — unless you asked for `--agent-instructions`, which
+  makes `init --write` the advertised refresh and exits 0.
 
 **Stop condition.** Stop and skip `init` only when ALL of:
 

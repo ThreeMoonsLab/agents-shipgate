@@ -259,8 +259,11 @@ agents-shipgate bootstrap --json
   `init --write` publishes when it refuses the same workspace, minus the setup
   flags, which `detect` was not asked for and does not invent: if you want
   `--ci` or `--agent-instructions`, add them, or take the command from `init`'s
-  own refusal, which repeats what you asked for. Choosing the project is the
-  only work left. A truncated parse outranks that, in `detect` and in `init`
+  own refusal, which repeats what you asked for. A candidate that already
+  carries a manifest gets `doctor --config <that manifest> --json` instead —
+  `init --write` there refuses a file it will not overwrite. Every candidate
+  gets an entry; the ten-item cap is on the human summary only. Choosing the
+  project is the only work left. A truncated parse outranks that, in `detect` and in `init`
   alike: rank 1 is then the higher-cap rerun and no candidate commands are
   offered, because the list they would be built from is a lower bound.
 - **`init`** — auto-detects by default. `--ci` writes

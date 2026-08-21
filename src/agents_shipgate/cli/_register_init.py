@@ -311,6 +311,7 @@ def _unresolved_scope_actions(
     parse_truncated: bool = False,
     python_file_total: int = 0,
     setup_command: list[str] | None = None,
+    refreshes_existing: bool = False,
 ) -> list[NextAction]:
     """Rank the decision above the commands that carry it out.
 
@@ -398,7 +399,11 @@ def _unresolved_scope_actions(
         *([retry] if retry is not None else []),
         decision,
         *scope_candidate_actions(
-            workspace, candidates, setup_flags=setup_flags, kit=kit
+            workspace,
+            candidates,
+            setup_flags=setup_flags,
+            kit=kit,
+            init_refreshes_existing=refreshes_existing,
         ),
     ]
 
@@ -1146,6 +1151,11 @@ def register(app: typer.Typer) -> None:
                         agent_instructions=agent_instructions,
                     ),
                 ],
+                # With an instruction target selected, `init --write` leaves an
+                # existing manifest alone and still exits 0 — the advertised
+                # refresh command — so an adopted candidate keeps its `init`
+                # route rather than being handed to `doctor` (#397 review).
+                refreshes_existing=bool(requested_targets),
             )
 
         # Routing. Computed from the manifest that is *on disk*, not from the
