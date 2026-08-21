@@ -410,3 +410,44 @@ reaching a sink that could not take it:
   generated scaffold unloadable by PyYAML. Both are fixed at the shared layer —
   cycle-safe traversal, and one more class in the escape predicate — rather
   than at the one call site that happened to surface them.
+
+### Known gap: the mixed local/imported surface
+
+Re-review of the fix above found a shape it does **not** close, and the reason
+is worth recording because three separate defects sit behind it. An ADK agent
+with `tools=[local_tool, remote_tool]` — one defined in the entrypoint, one
+imported — follows the generated skeleton, binds the inventory to its source,
+and still cannot reach a verdict:
+
+1. **`incomplete_surface` prescribes an inventory for an unproven tool *set*.**
+   `_evidence_gaps` already draws that distinction for the `low_confidence_tool`
+   row about the same tool ("a tool inventory cannot close this: it describes
+   tools, not which tools an agent has"), and `_semantic_gap` does not — so the
+   two rows give opposite advice. Worse, after the inventory merges, the
+   `source_id` the remediation prints is the *inventory's own* id, which the
+   loader then rejects as self-referential.
+2. **An agent whose list is not exhaustive still presents a "complete"
+   structural set.** `structural_complete` is derived from edge completeness,
+   and the one resolved edge is genuinely complete, so a reviewed closed-world
+   declaration adding the imported tool — the repair the gap asks for — is
+   rejected as "does not match the complete structural tool set".
+3. **A framework partial is never superseded by a reviewed declaration.**
+   `partials` is a bare `set[str]` with no agent attribution, so even an
+   accepted declaration leaves the row standing.
+
+Each was reproduced. None is fixed here, deliberately. (1) is a one-line
+routing change, but on its own it points the reader at a target (2) then
+rejects — replacing a wrong instruction with a right one the engine mishandles.
+(2) and (3) are changes to shared binding-resolver semantics that the OpenAI
+Agents SDK adapter also depends on, and the obvious version of (2) — marking
+the agent's edges incomplete — drops the tools that *were* resolved out of
+`reachable_tool_ids` entirely, so they stop being judged and the per-tool
+`low_confidence_tool` rows #393 added disappear. The fix has to separate "this
+edge is uncertain" from "this list is not exhaustive", and give `partials` an
+agent, before any of it is safe.
+
+**The rule this adds:** *when a remedy cannot be completed, say so rather than
+shipping the half of it that fits.* A gate that misdirects is not better than
+one that abstains, and a partial fix to shared resolver semantics is exactly
+where a silent fail-open gets introduced.
+

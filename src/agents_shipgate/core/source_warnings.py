@@ -631,7 +631,7 @@ def unresolved_adk_tool_symbols(
 def withdraw_completed_adk_tool_warnings(
     warnings: Sequence[str],
     *,
-    agent_source_ids: Mapping[str, str],
+    agent_source_ids: Mapping[str, Collection[str]],
     completed_source_ids: Collection[str],
 ) -> list[str]:
     """Drop unresolved-symbol warnings for a source a human has since declared.
@@ -652,6 +652,13 @@ def withdraw_completed_adk_tool_warnings(
     tools it exposes never matched the symbol at all, so its source was
     prescribed the same inventory forever.
 
+    ``agent_source_ids`` maps a name to *every* source that publishes it, and a
+    warning is withdrawn only when they are **all** complete. A display name
+    two sources share is ambiguous about which of them raised the warning, but
+    that ambiguity stops mattering once none of the candidates is still owed
+    anything — dropping such a name outright left an answered warning standing
+    forever (PR #401 review).
+
     Only the *warning* is withdrawn. The loader's ``surface_gaps`` entry stays,
     so nothing here claims static analysis resolved what it could not, and
     extraction confidence is untouched.
@@ -663,7 +670,7 @@ def withdraw_completed_adk_tool_warnings(
     withdrawn = {
         adk_unresolved_tool_warning(agent, symbol)
         for agent, symbol in unresolved_adk_tool_symbols(warnings)
-        if agent_source_ids.get(agent) in completed
+        if (candidates := agent_source_ids.get(agent)) and completed.issuperset(candidates)
     }
     return [warning for warning in warnings if warning not in withdrawn]
 

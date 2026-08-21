@@ -35,13 +35,19 @@ def _completed_source_ids(loaded_sources: list[LoadedToolSource]) -> set[str]:
     }
 
 
-def _adk_agent_source_ids(adk: GoogleAdkArtifacts | None) -> dict[str, str]:
-    """Agent name -> the configured source that published it.
+def _adk_agent_source_ids(adk: GoogleAdkArtifacts | None) -> dict[str, set[str]]:
+    """Agent name -> every configured source that published that name.
 
     The unresolved-symbol warning names the agent; only the artifact bag knows
-    which source that agent was read from. A name two sources both publish is
-    dropped rather than guessed — withdrawing a warning against the wrong
-    source would clear a diagnostic nobody answered.
+    which source that agent was read from. The whole set is kept rather than
+    collapsed to a unique one: two sources publishing ``LlmAgent(name="Closer")``
+    are ambiguous only while *some* of them is still incomplete. Once every
+    candidate has a reviewed inventory, the warning is answered whichever one
+    raised it, and dropping the name kept it standing forever (PR #401 review).
+
+    Ids are stripped, because the completion side is: the manifest permits
+    surrounding whitespace, so ``' adk '`` on one side and ``'adk'`` on the
+    other compared unequal and left an answered warning in place.
     """
 
     if adk is None:
@@ -49,11 +55,9 @@ def _adk_agent_source_ids(adk: GoogleAdkArtifacts | None) -> dict[str, str]:
     by_name: dict[str, set[str]] = {}
     for agent in adk.agents:
         name, source_id = agent.get("name"), agent.get("source_id")
-        if isinstance(name, str) and isinstance(source_id, str):
-            by_name.setdefault(name, set()).add(source_id)
-    return {
-        name: next(iter(ids)) for name, ids in by_name.items() if len(ids) == 1
-    }
+        if isinstance(name, str) and isinstance(source_id, str) and source_id.strip():
+            by_name.setdefault(name, set()).add(source_id.strip())
+    return by_name
 
 
 def _build_tools_and_agent(

@@ -42,38 +42,49 @@ REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
 
 
 def _sentinel_paths(
-    node: object, path: str = "", _open: frozenset[int] = frozenset()
+    node: object, path: str = "", _seen: set[int] | None = None
 ) -> list[str]:
     """Dotted paths of every unfilled scaffold placeholder in a manifest.
 
-    Cycle-safe, because this now also walks *raw* input. ``yaml.safe_load``
-    preserves recursive aliases, so a syntactically valid manifest such as
-    ``bogus: &loop {x: *loop}`` hands the before-validator a self-referential
-    dict; an unguarded walk raised ``RecursionError`` and replaced the
-    structured config error — and the agent-mode recovery payload that goes
-    with it — with a stack overflow (PR #401 review). A container already open
-    on this branch is not descended again: it can hold no placeholder its first
-    visit did not already report.
+    Alias-safe, because this now also walks *raw* input. ``yaml.safe_load``
+    preserves aliases, so a syntactically valid manifest hands the
+    before-validator a graph rather than a tree.
+
+    ``_seen`` is **traversal-wide**, not per branch, and both halves of that
+    matter. A per-branch set stops a true cycle (``&loop {x: *loop}``) from
+    recursing forever, but leaves an acyclic *DAG* — repeated
+    ``{left: *prev, right: *prev}`` — visited once per path: 20 levels of it is
+    1.5 KB of YAML and over a second of work, doubling every level, and a
+    placeholder at the shared leaf materializes 2**n path strings before the
+    error is built (PR #401 review). Visiting each container once bounds the
+    walk by the size of the document.
+
+    The cost is that an aliased placeholder is reported at one representative
+    path instead of all of them, which is all rejecting it needs. No
+    placeholder is missed: a container skipped here was already fully walked
+    where it was first reached.
     """
 
+    if _seen is None:
+        _seen = set()
     if isinstance(node, (dict, list, tuple)):
         marker = id(node)
-        if marker in _open:
+        if marker in _seen:
             return []
-        _open = _open | {marker}
+        _seen.add(marker)
     if isinstance(node, dict):
         return [
             found
             for key, value in node.items()
             for found in _sentinel_paths(
-                value, f"{path}.{key}" if path else str(key), _open
+                value, f"{path}.{key}" if path else str(key), _seen
             )
         ]
     if isinstance(node, (list, tuple)):
         return [
             found
             for index, value in enumerate(node)
-            for found in _sentinel_paths(value, f"{path}[{index}]", _open)
+            for found in _sentinel_paths(value, f"{path}[{index}]", _seen)
         ]
     if isinstance(node, str) and node.strip() == REVIEW_REQUIRED_SENTINEL:
         return [path or "<root>"]

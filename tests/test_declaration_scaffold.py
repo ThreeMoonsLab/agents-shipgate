@@ -808,39 +808,49 @@ def test_cold_start_walk_scaffolds_both_layers_in_two_iterations(tmp_path) -> No
     # with no non-warning gap left to act on (PR #401 review).
     assert stage3.release_decision.evidence_coverage.source_warning_count == 0
 
+    # The action blocks come from the scaffold itself, answered the way its
+    # own comments instruct: pick a value from the printed vocabulary, and
+    # delete the lines `mode: none` does not take. `send_quote_email` is
+    # reviewed as what it is — declaring everything `read` leaves a
+    # `mixed_policy_evidence` gap against the risk hint, which would make this
+    # test prove only that warnings were withdrawn (PR #401 review).
+    reviewed_effects = dict.fromkeys(_COLD_START_TOOLS, "read")
+    reviewed_effects["send_quote_email"] = "external_communication"
+
+    actions = []
+    for block in yaml.safe_load_all(scaffold_path.read_text()):
+        if not block or "tool" not in block:
+            continue
+        block.pop("scopes", None)
+        block["authority"] = {"mode": "none"}
+        block["effect"] = reviewed_effects[block["tool"]]
+        if block["effect"] == "external_communication":
+            block["safeguards"] = {"audit_log": True}
+        actions.append(block)
+    assert {block["tool"] for block in actions} == set(_COLD_START_TOOLS)
+
     manifest.write_text(
         manifest.read_text()
-        + yaml.safe_dump(
-            {
-                "action_surface": {
-                    "actions": [
-                        {
-                            "tool": name,
-                            "effect": "read",
-                            "authority": {"mode": "none"},
-                        }
-                        for name in sorted(_COLD_START_TOOLS)
-                    ]
-                }
-            },
-            sort_keys=False,
-        ),
+        + yaml.safe_dump({"action_surface": {"actions": actions}}, sort_keys=False),
         encoding="utf-8",
     )
     final = _scan_cold_start(project, reports)
     assert final.release_decision is not None
     coverage = final.release_decision.evidence_coverage
-    assert coverage.semantic_coverage.gap_count == 0
+
+    # Every evidence layer is closed — including the policy one, which a
+    # uniform `read` would have left open.
     assert coverage.binding_coverage.gap_count == 0
+    assert coverage.semantic_coverage.gap_count == 0
+    assert coverage.policy_gap_count == 0
     assert coverage.source_warning_count == 0
-    # Whatever the verdict now turns on, it is a judgement about the declared
-    # surface — never the abstention the walk started in.
-    remaining = {gap.kind for gap in coverage.evidence_gaps}
-    assert "source_warning" not in remaining
-    assert all(
-        gap.next_action.path or gap.next_action.command
-        for gap in coverage.evidence_gaps
-    ), "a terminal verdict must leave nothing that cannot be acted on"
+    assert coverage.evidence_gaps == []
+
+    # And the verdict is now a judgement about the declared surface rather
+    # than an abstention about the evidence: `blocked`, on a finding about the
+    # external-communication tool the walk just declared.
+    assert final.release_decision.decision == "blocked"
+    assert final.release_decision.blockers
 
 
 def test_binding_scaffold_is_withheld_rather_than_truncated(tmp_path) -> None:
@@ -1257,13 +1267,31 @@ def test_withdrawal_is_scoped_to_the_completed_source() -> None:
     unrelated = "some other loader said something"
     kept = withdraw_completed_adk_tool_warnings(
         [declared, undeclared, unrelated],
-        agent_source_ids={"Alpha": "adk_a", "Beta": "adk_b"},
+        agent_source_ids={"Alpha": {"adk_a"}, "Beta": {"adk_b"}},
         completed_source_ids={"adk_a"},
     )
     assert kept == [undeclared, unrelated]
 
-    # An agent name two sources both publish is dropped from the map rather
-    # than guessed, so its warnings are never withdrawn against the wrong one.
+    # A name two sources publish is ambiguous about which raised the warning,
+    # so it survives while EITHER candidate is still owed an inventory...
+    shared = adk_unresolved_tool_warning("Twin", "pay")
+    assert withdraw_completed_adk_tool_warnings(
+        [shared],
+        agent_source_ids={"Twin": {"adk_a", "adk_b"}},
+        completed_source_ids={"adk_a"},
+    ) == [shared]
+    # ...and is withdrawn once every candidate is complete, because then the
+    # ambiguity no longer changes the answer.
+    assert (
+        withdraw_completed_adk_tool_warnings(
+            [shared],
+            agent_source_ids={"Twin": {"adk_a", "adk_b"}},
+            completed_source_ids={"adk_a", "adk_b"},
+        )
+        == []
+    )
+
+    # An agent the artifacts never recorded is never withdrawn against.
     assert withdraw_completed_adk_tool_warnings(
         [declared],
         agent_source_ids={},
@@ -1426,3 +1454,121 @@ def test_a_noncharacter_in_a_name_cannot_break_the_generated_scaffold() -> None:
     )
     assert scaffold is not None
     assert yaml.safe_load(scaffold) == template
+
+
+def test_shared_aliases_do_not_blow_up_the_sentinel_walk() -> None:
+    """An acyclic alias DAG is not a cycle, and was the expensive case.
+
+    A per-branch guard stops infinite recursion but still walks a shared child
+    once per path, so `{left: *prev, right: *prev}` nested 20 deep — 1.5 KB of
+    YAML — doubled the work at every level and materialized 2**n path strings
+    for a placeholder at the shared leaf, stalling manifest loading before the
+    structured error was ever built (PR #401 review).
+    """
+
+    import time
+
+    from agents_shipgate.schemas.manifest.root import _sentinel_paths
+
+    node: dict = {"leaf": "<REVIEW_REQUIRED>"}
+    for _ in range(20):
+        node = {"left": node, "right": node}
+
+    started = time.monotonic()
+    paths = _sentinel_paths(node)
+    elapsed = time.monotonic() - started
+
+    # One container, one visit, one representative path — which is all
+    # rejecting the placeholder needs.
+    assert len(paths) == 1
+    assert paths[0].endswith("leaf")
+    assert elapsed < 2.0, f"traversal took {elapsed:.2f}s; it is not bounded"
+
+
+def test_source_ids_compare_after_the_same_normalization() -> None:
+    """Both sides of the completion comparison must be stripped.
+
+    The manifest permits surrounding whitespace in an id, so a source and the
+    inventory completing it could both be spelled `' adk '` and still compare
+    unequal — leaving a warning the manifest had answered (PR #401 review).
+    """
+
+    from agents_shipgate.cli.scan.tools_agent import (
+        _adk_agent_source_ids,
+        _completed_source_ids,
+    )
+    from agents_shipgate.core.domain import LoadedToolSource
+    from agents_shipgate.inputs.google_adk import GoogleAdkArtifacts
+
+    artifacts = GoogleAdkArtifacts()
+    artifacts.agents.append({"name": "Closer", "source_id": " adk "})
+    loaded = [
+        LoadedToolSource(
+            source_id="inv",
+            source_type="google_adk_inventory",
+            completes_source_id=" adk ",
+            is_tool_inventory=True,
+        )
+    ]
+    assert _completed_source_ids(loaded) == {"adk"}
+    assert _adk_agent_source_ids(artifacts) == {"Closer": {"adk"}}
+
+
+def test_a_partly_read_tool_list_gets_the_same_declaration_block() -> None:
+    """An incomplete edge is the other shape a closed-world row repairs.
+
+    An agent whose tool list static analysis could only partly read has real
+    edges *and* catalog tools nothing binds. Scaffolding only the unbound ones
+    would hand the reviewer a closed-world row asserting the agent cannot reach
+    a tool the repository plainly wires to it (PR #401 review).
+    """
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+        AgentBindingNode,
+        AgentToolBindingEdge,
+    )
+
+    catalog = [
+        Tool(id="t1", name="local_tool", source_type="google_adk", source_id="adk"),
+        Tool(id="t2", name="remote_tool", source_type="google_adk", source_id="adk"),
+    ]
+    graph = AgentBindingGraphAssessment(
+        root_agent_id="agent:root",
+        status="partial",
+        agents=[AgentBindingNode(agent_id="agent:root", name="Closer", source_id="adk")],
+        tool_edges=[
+            AgentToolBindingEdge(
+                agent_id="agent:root",
+                tool_id="t1",
+                edge_type="direct_tool",
+                confidence="medium",
+                provenance_kind="static_declaration",
+                source="agent.py",
+                complete=False,
+            )
+        ],
+        possible_tool_ids=["t1"],
+        unbound_tool_ids=["t2"],
+        issues=[
+            AgentBindingIssue(
+                kind="partial_binding_evidence",
+                message="a possibly reachable tool has an incomplete edge",
+                agent_id="agent:root",
+                tool_id="t1",
+            )
+        ],
+    )
+    template = rd._binding_declaration_template(graph, graph.issues[0], catalog)
+    assert template is not None
+    declaration = template["agent_bindings"]["declarations"][0]
+    # Both the bound tool and the unbound one, so the row can be true.
+    assert [row["tool"] for row in declaration["tools"]] == [
+        "local_tool",
+        "remote_tool",
+    ]
+    assert declaration["complete"] == "<REVIEW_REQUIRED>"
+    assert declaration["reason"] == "<REVIEW_REQUIRED>"

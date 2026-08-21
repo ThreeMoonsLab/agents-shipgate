@@ -49,6 +49,18 @@
   a verdict past `SHIP-INVENTORY-NOT-ENUMERABLE`. The inventory skeleton is
   deleted alongside it, the way the declaration scaffold already was.
 
+  A display name two sources share is withdrawn against only once **every**
+  source publishing it is complete: while any candidate is still owed an
+  inventory the warning could be about that one, and once none is, the
+  ambiguity no longer changes the answer. Both sides of the comparison are
+  stripped, since the manifest permits surrounding whitespace in an id.
+
+  The closed-world `declarations` row is also scaffolded for the other shape
+  that needs it — an agent whose tool list static analysis could only *partly*
+  read — and lists the agent's existing edges as well as the unbound catalog
+  tools, because a row omitting a tool the repository plainly wires to the
+  agent would be false.
+
 - **Every `<REVIEW_REQUIRED>` in `suggested-declarations.yaml` now says what a
   legal answer is.** The one file an adopter is told to edit was the one file
   that did not name the vocabulary: `effect:` and `authority.mode:` were bare
@@ -74,10 +86,13 @@
   only `true`, so its own type answered first with "Input should be True",
   which tells a reader nothing about the scaffold they pasted; the placeholder
   is rejected before field validation, so one wording covers every field. That
-  check reads raw input, which `yaml.safe_load` can hand back with recursive
-  aliases intact, so its traversal is cycle-safe — a manifest containing
-  `&loop {x: *loop}` gets the structured config error and its agent-mode
-  recovery payload rather than a `RecursionError`.
+  check reads raw input, which `yaml.safe_load` can hand back as a *graph*
+  rather than a tree, so its traversal visits each container once. A manifest
+  containing `&loop {x: *loop}` gets the structured config error and its
+  agent-mode recovery payload rather than a `RecursionError`, and an acyclic
+  alias DAG — the expensive case, doubling the walk at every level and
+  materializing `2**n` path strings for one placeholder — is bounded by the
+  size of the document.
 
 - `display_literal` now escapes Unicode noncharacters alongside the invisible
   code points it already covered. They are the same hazard — nothing reaches

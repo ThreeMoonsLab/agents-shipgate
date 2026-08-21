@@ -514,10 +514,12 @@ def _binding_declaration_template(
     repository there is no agent object for a filled root selector to match, so
     offering one would send the reader after a value that cannot exist.
 
-    ``missing_binding_evidence`` — a resolved root, a populated catalog, and
-    not one static edge between them — wants a closed-world ``declarations``
-    row. Everything in it that a human owns stays a sentinel: ``complete`` is
-    the closed-world assertion and ``reason`` is how they verified it. What is
+    ``missing_binding_evidence`` (a resolved root, a populated catalog, and not
+    one static edge between them) and ``partial_binding_evidence`` (an agent
+    whose ``tools=[...]`` static analysis could only partly read) both want a
+    closed-world ``declarations`` row. Everything in it that a human owns stays
+    a sentinel: ``complete`` is the closed-world assertion and ``reason`` is how
+    they verified it. What is
     pre-filled is only what was *read off the surface*: which agent, which
     catalog tools exist, and which handoffs were observed. That is the
     retyping #361 measured — six tool names already extracted, hand-copied at
@@ -530,15 +532,35 @@ def _binding_declaration_template(
 
     if issue.kind == "ambiguous_root_agent":
         return deepcopy(AGENT_BINDINGS_ROOT_TEMPLATE) if graph.agents else None
-    if issue.kind != "missing_binding_evidence":
+    if issue.kind not in {"missing_binding_evidence", "partial_binding_evidence"}:
         return None
-    # Root-scoped only. The same kind is also raised per tool for capabilities
-    # bound to an agent the root does not reach (``_unbound_tool_gaps``); those
-    # are repaired by wiring the handoff, not by declaring the root's tool set.
-    if issue.tool_id is not None or issue.agent_id != graph.root_agent_id:
+    # Root-scoped only. ``missing_binding_evidence`` is also raised per tool for
+    # capabilities bound to an agent the root does not reach
+    # (``_unbound_tool_gaps``); those are repaired by wiring the handoff, not by
+    # declaring the root's tool set.
+    if issue.kind == "missing_binding_evidence" and (
+        issue.tool_id is not None or issue.agent_id != graph.root_agent_id
+    ):
+        return None
+    if issue.kind == "partial_binding_evidence" and issue.agent_id != graph.root_agent_id:
         return None
     catalog = {tool.id: tool for tool in tool_catalog}
-    unbound = [catalog[tool_id] for tool_id in graph.unbound_tool_ids if tool_id in catalog]
+    # Everything the declaration has to account for. ``unbound`` alone was
+    # right only while nothing at all was bound: on a mixed surface — one tool
+    # this module defines, one imported — the resolved tool is *already* an
+    # edge, and a closed-world row omitting it would assert the agent cannot
+    # reach a tool the repository plainly wires to it (PR #401 review).
+    candidate_ids = list(
+        dict.fromkeys(
+            [
+                edge.tool_id
+                for edge in graph.tool_edges
+                if edge.agent_id == issue.agent_id
+            ]
+            + list(graph.unbound_tool_ids)
+        )
+    )
+    unbound = [catalog[tool_id] for tool_id in candidate_ids if tool_id in catalog]
     if not unbound or len(unbound) > _MAX_SCAFFOLDED_BINDING_TOOLS:
         return None
     names = {agent.agent_id: agent.name for agent in graph.agents}
