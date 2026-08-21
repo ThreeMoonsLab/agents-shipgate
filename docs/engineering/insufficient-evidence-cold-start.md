@@ -285,10 +285,7 @@ Two templates close the two stages.
   completes, and the skeleton is written with the symbol names pre-filled.
   Per source, not per symbol: six warnings are one mechanism restated six
   times, and hanging a repair off each row would have put raw loader prose back
-  into the headline that the grouping work removed. The row is withdrawn once
-  the symbol has an observation — the entrypoint still cannot resolve the
-  import, so the warning stays, but re-prescribing a repair the reader has
-  already made is worse than silence.
+  into the headline that the grouping work removed.
 
 - **Stage 2 — the unbound catalog.** A resolved root, a populated catalog, and
   not one static edge between them now scaffolds the closed-world
@@ -351,3 +348,65 @@ field validation, so one wording covers every field whatever its type. Same
 rule as the round before: a promise printed in an artifact must be enforced
 somewhere, and the enforcement has to reach the fields people actually paste
 into.
+
+
+### What review found: the prescribed route did not terminate
+
+Two of the six findings on PR #401 were the same mistake seen from two sides,
+and both are about **what "this source is repaired" means**.
+
+The route was unreachable. Following it to the end — inventory, binding
+declaration, effect and authority for every tool — still returned
+`insufficient_evidence`, because the six unresolved-import warnings stayed on
+the report and `evidence_below_ie_threshold` gates on their raw count. A
+repository that did exactly what it was told had *nothing left to act on* and
+still could not be gated. An advertised remedy that cannot terminate is the
+same defect this whole document is about, one layer further in.
+
+The first attempt at "repaired" was a catalog-wide tool-name subtraction, and
+it was wrong in both directions:
+
+- an unrelated source exposing a tool named `search` silently cleared the ADK
+  source's unresolved `search` — a repair nobody had made; and
+- an inventory that had correctly *split* a toolset symbol into the tools it
+  exposes — which the skeleton's own instruction asks for — never matched the
+  symbol, so that source was prescribed the same inventory forever.
+
+The completion relationship is not a name. It is the reviewed
+`tool_inventories[].source_id`, already desugared into
+`LoadedToolSource.completes_source_id`, and it is *per source*. Withdrawal
+happens in the one place holding both halves of it: the loaded sources know
+which inventory completes which source, the ADK artifacts know which source
+each agent came from. Only the **warning** is withdrawn — the loader's
+`surface_gaps` entry stays, so nothing claims static analysis resolved what it
+could not and extraction confidence is unmoved.
+
+The obvious worry — silence the warnings by declaring an empty inventory — is
+already answered by a different check: `SHIP-INVENTORY-NOT-ENUMERABLE` fires on
+the empty surface and routes to `review_required`. The two are independent, and
+a test pins that they stay so.
+
+**The rule this adds:** *a remedy the tool prescribes must be able to reach a
+verdict.* Whatever the tool asks for, satisfying it has to move the gate — or
+the gate is asking for something else and should say so.
+
+Three smaller findings from the same review, each a case of repository data
+reaching a sink that could not take it:
+
+- **`complete:` closes the world over handoffs too.** The hint spoke only about
+  the tool list, while the scaffold pre-fills observed handoffs and the schema
+  treats both as closed. A reviewer could ratify the tools and silently assert
+  a downstream agent surface they never looked at. Both hints now name both
+  lists.
+- **A handoff has no source qualifier.** `handoffs:` is a bare list of names,
+  so a target whose name two agents share resolves to neither — the block
+  reports an unresolved binding instead of closing the gap it was offered for.
+  The template is withheld entirely rather than dropping the handoff, because
+  dropping it would understate a closed world the reviewer is about to assert.
+- **Two robustness holes with the same shape.** The raw-input sentinel check
+  recursed forever on a manifest carrying a recursive YAML alias, replacing a
+  structured config error with a stack overflow; and `display_literal` passed
+  Unicode noncharacters through, so an agent name containing U+FFFE made the
+  generated scaffold unloadable by PyYAML. Both are fixed at the shared layer —
+  cycle-safe traversal, and one more class in the escape predicate — rather
+  than at the one call site that happened to surface them.

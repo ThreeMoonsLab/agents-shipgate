@@ -82,14 +82,21 @@ _FIELD_HINTS: dict[str, str] = {
     ),
     "root.source_id": "the shipgate.yaml#tool_sources[].id that defines it.",
     "declarations.complete": (
-        "`true`, and only once you have checked that the tools listed below "
-        "are the COMPLETE set this agent can reach — delete any it cannot. "
-        "This is the closed-world assertion: the list was read off the "
-        "catalog, the claim is yours."
+        "`true`, and only once you have checked BOTH lists below — the tools "
+        "and the handoffs. This one word closes the world over each of them: "
+        "add anything reachable that is missing (a dynamically wired tool, a "
+        "sub-agent nothing static names) and delete anything listed that this "
+        "agent cannot reach. Both lists were read off what was observed; the "
+        "claim that they are complete is yours."
     ),
     "declarations.reason": (
-        "how you checked that tools list — the file and construct you read, "
-        "so the next reviewer can re-check it."
+        "how you checked both lists — the files and constructs you read for "
+        "the tools AND for the handoffs, so the next reviewer can re-check "
+        "them."
+    ),
+    "declarations.handoffs": (
+        "every agent this one can hand off to, by name. Covered by "
+        "`complete:` above, so an agent missing here is asserted unreachable."
     ),
     "tool_inventories.path": (
         "repo-relative path where you saved the reviewed inventory (for "

@@ -32,9 +32,22 @@
   the listed tools are *all* the agent can reach, so a silently cut list would
   be false exactly where a reviewer cannot see it.
 
-  Both instructions are also withdrawn once followed — the inventory skeleton
-  is deleted when the source it was written for has been completed, the way the
-  declaration scaffold already was.
+  Both instructions are also withdrawn once followed, and so is the diagnostic
+  behind them. A reviewed `tool_inventories` entry naming a source in
+  `source_id` is the answer shipgate itself prescribes for that source's
+  unresolved-symbol warnings, but those warnings stayed on the report and
+  `evidence_below_ie_threshold` gates on their raw count — so a repository that
+  did exactly what it was told sat at `insufficient_evidence` forever, with no
+  non-warning gap left to act on. They are now withdrawn when the manifest
+  declares the source, **per source**, keyed on that reviewed completion
+  relationship and never on tool names: a name subtraction cleared an unrelated
+  source's warning by coincidence in one direction, and in the other it never
+  matched an inventory that had correctly split a toolset symbol into the tools
+  it exposes, so that source was prescribed the same inventory forever. Only
+  the warning is withdrawn — the loader's `surface_gaps` entry stays, so
+  extraction confidence is untouched, and an empty inventory still cannot reach
+  a verdict past `SHIP-INVENTORY-NOT-ENUMERABLE`. The inventory skeleton is
+  deleted alongside it, the way the declaration scaffold already was.
 
 - **Every `<REVIEW_REQUIRED>` in `suggested-declarations.yaml` now says what a
   legal answer is.** The one file an adopter is told to edit was the one file
@@ -60,7 +73,19 @@
   the placeholder lands in. `agent_bindings.declarations[].complete` accepts
   only `true`, so its own type answered first with "Input should be True",
   which tells a reader nothing about the scaffold they pasted; the placeholder
-  is rejected before field validation, so one wording covers every field.
+  is rejected before field validation, so one wording covers every field. That
+  check reads raw input, which `yaml.safe_load` can hand back with recursive
+  aliases intact, so its traversal is cycle-safe — a manifest containing
+  `&loop {x: *loop}` gets the structured config error and its agent-mode
+  recovery payload rather than a `RecursionError`.
+
+- `display_literal` now escapes Unicode noncharacters alongside the invisible
+  code points it already covered. They are the same hazard — nothing reaches
+  the reader, so two repository objects render identically — and two of them
+  are worse: PyYAML rejects U+FFFE and U+FFFF outright, so an agent name
+  carrying one made the generated declaration scaffold unparseable, because
+  the document quoting that name in a comment could not be loaded at all. The
+  encoding stays injective, so `undisplay_literal` still recovers the name.
 
 - **`verify --preview` on a monorepo now names the project the pull request
   actually changed, instead of a repository root that `init` refuses.** The

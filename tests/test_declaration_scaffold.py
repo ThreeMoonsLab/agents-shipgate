@@ -800,6 +800,48 @@ def test_cold_start_walk_scaffolds_both_layers_in_two_iterations(tmp_path) -> No
         _COLD_START_TOOLS
     )
 
+    # --- and the route it advertises actually terminates ---------------------
+    # The prescribed repair used to be unreachable: the unresolved-import
+    # warnings stayed on the report after the inventory answered them, and
+    # `evidence_below_ie_threshold` gates on their raw count, so a repository
+    # that did exactly what it was told sat at `insufficient_evidence` forever
+    # with no non-warning gap left to act on (PR #401 review).
+    assert stage3.release_decision.evidence_coverage.source_warning_count == 0
+
+    manifest.write_text(
+        manifest.read_text()
+        + yaml.safe_dump(
+            {
+                "action_surface": {
+                    "actions": [
+                        {
+                            "tool": name,
+                            "effect": "read",
+                            "authority": {"mode": "none"},
+                        }
+                        for name in sorted(_COLD_START_TOOLS)
+                    ]
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    final = _scan_cold_start(project, reports)
+    assert final.release_decision is not None
+    coverage = final.release_decision.evidence_coverage
+    assert coverage.semantic_coverage.gap_count == 0
+    assert coverage.binding_coverage.gap_count == 0
+    assert coverage.source_warning_count == 0
+    # Whatever the verdict now turns on, it is a judgement about the declared
+    # surface — never the abstention the walk started in.
+    remaining = {gap.kind for gap in coverage.evidence_gaps}
+    assert "source_warning" not in remaining
+    assert all(
+        gap.next_action.path or gap.next_action.command
+        for gap in coverage.evidence_gaps
+    ), "a terminal verdict must leave nothing that cannot be acted on"
+
 
 def test_binding_scaffold_is_withheld_rather_than_truncated(tmp_path) -> None:
     """A closed-world list cut at N would be false where nobody can see it.
@@ -1048,3 +1090,339 @@ def test_repository_controlled_text_cannot_forge_a_line_in_the_scaffold() -> Non
     )
     assert rendered is not None
     assert yaml.safe_load(rendered) == hostile_row
+
+
+# --- PR #401 review: completion is per source, never per tool name -----------
+
+
+def _adk_project(
+    root: Path,
+    name: str,
+    *,
+    symbols: tuple[str, ...],
+    manifest_tail: str = "",
+) -> Path:
+    """An ADK agent whose ``tools=[...]`` entries are all imported symbols."""
+
+    project = root / name
+    project.mkdir()
+    (project / "agent.py").write_text(
+        "from google.adk.agents import LlmAgent\n\n"
+        "from .tools import (\n"
+        + "".join(f"    {symbol},\n" for symbol in symbols)
+        + ")\n\n"
+        "root_agent = LlmAgent(\n"
+        '    name="Closer",\n'
+        '    instruction="Close deals.",\n'
+        "    tools=[\n"
+        + "".join(f"        {symbol},\n" for symbol in symbols)
+        + "    ],\n)\n",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        'version: "0.1"\n'
+        f"project:\n  name: {name}\n"
+        "agent:\n  name: Closer\n  declared_purpose: [close opportunities]\n"
+        "environment:\n  target: local\n"
+        "tool_sources:\n  - id: adk_agent\n    type: google_adk\n    path: agent.py\n"
+        + manifest_tail,
+        encoding="utf-8",
+    )
+    return project
+
+
+def _inventory(project: Path, names: tuple[str, ...]) -> None:
+    (project / "inventories").mkdir(exist_ok=True)
+    (project / "inventories" / "tools.json").write_text(
+        json.dumps(
+            {"tools": [{"name": name, "description": f"reviewed {name}"} for name in names]}
+        ),
+        encoding="utf-8",
+    )
+
+
+def _open_symbols(report) -> set[str]:
+    from agents_shipgate.ci.release_decision import unresolved_symbol_names
+
+    return set(unresolved_symbol_names(report))
+
+
+def test_a_split_toolset_inventory_is_not_prescribed_forever(tmp_path) -> None:
+    """Completion is the reviewed `source_id`, not a name that happens to match.
+
+    The skeleton tells the reader to split a toolset symbol into the tools it
+    exposes, so following the instruction guarantees the symbol name never
+    appears in the inventory. Subtracting a catalog-wide name set therefore
+    re-prescribed the same inventory on every later run, forever (PR #401
+    review).
+    """
+
+    project = _adk_project(
+        tmp_path,
+        "split",
+        symbols=("search_toolset",),
+        manifest_tail=(
+            "google_adk:\n  tool_inventories:\n"
+            "  - path: inventories/tools.json\n    source_id: adk_agent\n"
+        ),
+    )
+    _inventory(project, ("web_search", "document_search"))
+    report = _scan_cold_start(project, tmp_path / "reports")
+
+    assert {row["name"] for row in report.tool_catalog} == {
+        "web_search",
+        "document_search",
+    }
+    # The symbol is nowhere in the inventory, and the repair is still complete.
+    assert _open_symbols(report) == set()
+    assert report.release_decision is not None
+    assert report.release_decision.evidence_coverage.source_warning_count == 0
+    assert not (tmp_path / "reports" / "suggested-inventory.json").exists()
+
+
+def test_a_same_named_tool_elsewhere_does_not_complete_this_source(tmp_path) -> None:
+    """Another source exposing the name is a coincidence, not a repair.
+
+    Under a catalog-wide name subtraction, an unrelated MCP server exposing
+    `search` silently cleared the ADK source's unresolved `search` — a repair
+    nobody had made (PR #401 review).
+    """
+
+    project = _adk_project(
+        tmp_path,
+        "crosssource",
+        symbols=("search",),
+        manifest_tail="  - id: other_mcp\n    type: mcp\n    path: mcp-tools.json\n",
+    )
+    (project / "mcp-tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "search",
+                        "description": "an unrelated server's search",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = _scan_cold_start(project, tmp_path / "reports")
+
+    assert "search" in {row["name"] for row in report.tool_catalog}
+    # Still owed: nothing declared anything about the ADK source.
+    assert _open_symbols(report) == {"search"}
+    assert report.release_decision is not None
+    assert report.release_decision.evidence_coverage.source_warning_count == 1
+
+
+def test_withdrawal_needs_a_declared_surface_not_just_a_bound_file(tmp_path) -> None:
+    """Silencing the warnings cannot be a shortcut to a verdict.
+
+    Withdrawal is licensed by a reviewed inventory naming the source, so the
+    cheapest abuse is an *empty* one. The enumerability check is what stops it
+    reaching `passed`, and this pins that the two are independent.
+    """
+
+    project = _adk_project(
+        tmp_path,
+        "empty",
+        symbols=("create_quote", "send_quote_email"),
+        manifest_tail=(
+            "google_adk:\n  tool_inventories:\n"
+            "  - path: inventories/tools.json\n    source_id: adk_agent\n"
+        ),
+    )
+    _inventory(project, ())
+    report = _scan_cold_start(project, tmp_path / "reports")
+
+    assert report.release_decision is not None
+    assert report.release_decision.decision != "passed"
+    assert "SHIP-INVENTORY-NOT-ENUMERABLE" in {
+        finding.check_id for finding in report.findings
+    }
+
+
+def test_withdrawal_is_scoped_to_the_completed_source() -> None:
+    """Two ADK sources, one declared: only that one's warnings are withdrawn."""
+
+    from agents_shipgate.core.source_warnings import (
+        adk_unresolved_tool_warning,
+        withdraw_completed_adk_tool_warnings,
+    )
+
+    declared = adk_unresolved_tool_warning("Alpha", "pay")
+    undeclared = adk_unresolved_tool_warning("Beta", "pay")
+    unrelated = "some other loader said something"
+    kept = withdraw_completed_adk_tool_warnings(
+        [declared, undeclared, unrelated],
+        agent_source_ids={"Alpha": "adk_a", "Beta": "adk_b"},
+        completed_source_ids={"adk_a"},
+    )
+    assert kept == [undeclared, unrelated]
+
+    # An agent name two sources both publish is dropped from the map rather
+    # than guessed, so its warnings are never withdrawn against the wrong one.
+    assert withdraw_completed_adk_tool_warnings(
+        [declared],
+        agent_source_ids={},
+        completed_source_ids={"adk_a"},
+    ) == [declared]
+
+
+# --- PR #401 review: the remaining robustness findings -----------------------
+
+
+def test_complete_asks_the_reviewer_to_check_handoffs_too() -> None:
+    """`complete: true` closes the world over BOTH lists, so say both.
+
+    The scaffold pre-fills observed handoffs and the hint spoke only about
+    tools, so a reviewer could ratify the tool set while silently asserting a
+    downstream agent surface they never looked at (PR #401 review).
+    """
+
+    from agents_shipgate.cli.scan.declarations import _FIELD_HINTS
+
+    complete = _FIELD_HINTS["declarations.complete"]
+    reason = _FIELD_HINTS["declarations.reason"]
+    for hint in (complete, reason):
+        assert "handoff" in hint.lower()
+    assert "tool" in complete.lower()
+
+
+def test_ambiguous_handoff_target_withholds_the_whole_template() -> None:
+    """A handoff has no source qualifier, so an ambiguous name resolves nowhere.
+
+    Emitting `handoffs: [Twin]` when two agents are named `Twin` produced a
+    block that reports an unresolved binding instead of closing the gap it was
+    offered for. Withheld entirely: dropping just the handoff would understate
+    a closed world the reviewer is about to assert (PR #401 review).
+    """
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+        AgentBindingNode,
+        AgentHandoffBindingEdge,
+    )
+
+    def _graph(second_twin_name: str) -> AgentBindingGraphAssessment:
+        return AgentBindingGraphAssessment(
+            root_agent_id="agent:root",
+            status="partial",
+            agents=[
+                AgentBindingNode(agent_id="agent:root", name="Root", source_id="a"),
+                AgentBindingNode(agent_id="agent:twin", name="Twin", source_id="a"),
+                AgentBindingNode(
+                    agent_id="agent:other", name=second_twin_name, source_id="b"
+                ),
+            ],
+            handoff_edges=[
+                AgentHandoffBindingEdge(
+                    source_agent_id="agent:root",
+                    target_agent_id="agent:twin",
+                    edge_type="subagent",
+                    confidence="high",
+                    provenance_kind="static_declaration",
+                    source="agent.py",
+                )
+            ],
+            unbound_tool_ids=["t1"],
+            issues=[
+                AgentBindingIssue(
+                    kind="missing_binding_evidence",
+                    message="no static edge",
+                    agent_id="agent:root",
+                )
+            ],
+        )
+
+    catalog = [Tool(id="t1", name="pay", source_type="mcp", source_id="s")]
+
+    ambiguous = _graph("Twin")
+    assert (
+        rd._binding_declaration_template(ambiguous, ambiguous.issues[0], catalog)
+        is None
+    )
+
+    # The same graph with a distinguishable second agent still scaffolds.
+    fine = _graph("Other")
+    template = rd._binding_declaration_template(fine, fine.issues[0], catalog)
+    assert template is not None
+    assert template["agent_bindings"]["declarations"][0]["handoffs"] == ["Twin"]
+
+
+def test_a_recursive_yaml_alias_still_gets_a_structured_error() -> None:
+    """The before-validator walks RAW input, which can be cyclic.
+
+    ``yaml.safe_load`` preserves recursive aliases, so `bogus: &loop {x: *loop}`
+    is a syntactically valid manifest carrying a self-referential dict. An
+    unguarded walk raised `RecursionError`, replacing the structured config
+    error — and the agent-mode recovery payload with it — with a stack
+    overflow (PR #401 review).
+    """
+
+    import pytest
+
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+
+    cyclic = yaml.safe_load("bogus: &loop {x: *loop}\n")
+    assert cyclic["bogus"]["x"] is cyclic["bogus"]
+    with pytest.raises(ValueError) as caught:
+        AgentsShipgateManifest.model_validate(cyclic)
+    assert not isinstance(caught.value, RecursionError)
+
+    # Cycle-safety must not blind the check: a placeholder inside the cycle is
+    # still found and still named.
+    loop: dict = {"name": "a", "declared_purpose": ["<REVIEW_REQUIRED>"]}
+    loop["self"] = loop
+    with pytest.raises(ValueError) as found:
+        AgentsShipgateManifest.model_validate(
+            {
+                "version": "0.1",
+                "project": {"name": "p"},
+                "environment": {"target": "local"},
+                "agent": loop,
+            }
+        )
+    assert "unfilled scaffold placeholder" in str(found.value)
+
+
+def test_a_noncharacter_in_a_name_cannot_break_the_generated_scaffold() -> None:
+    """PyYAML rejects U+FFFE outright, so a raw one made the file unloadable.
+
+    `display_literal` escaped control and invisible code points but passed
+    noncharacters through, and the scaffold quotes repository-controlled agent
+    names in comments — so one such name meant `yaml.safe_load_all` could not
+    read the document at all (PR #401 review).
+    """
+
+    from agents_shipgate.core.evidence_actions import (
+        display_literal,
+        undisplay_literal,
+    )
+    from agents_shipgate.schemas.bindings import AgentBindingNode
+
+    hostile = "bad￾￿﷐"
+    rendered = display_literal(hostile)
+    assert "￾" not in rendered
+    # Escaping stays injective, so the name is still recoverable.
+    assert undisplay_literal(rendered) == hostile
+
+    template = {
+        "agent_bindings": {
+            "root": {
+                "source_id": "<REVIEW_REQUIRED>",
+                "object": "<REVIEW_REQUIRED>",
+            }
+        }
+    }
+    scaffold = build_declaration_scaffold(
+        [_gap("ambiguous_root_agent", "shipgate.yaml#agent_bindings.root", template)],
+        agents=[AgentBindingNode(agent_id="a1", name=hostile, source_id=hostile)],
+    )
+    assert scaffold is not None
+    assert yaml.safe_load(scaffold) == template

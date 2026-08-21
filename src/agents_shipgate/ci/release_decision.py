@@ -558,6 +558,15 @@ def _binding_declaration_template(
             if edge.source_agent_id == issue.agent_id
         }
     )
+    # ``handoffs`` is a bare list of names with no source qualifier — the
+    # schema has nowhere to put one. A target whose name two agents share
+    # therefore resolves to neither, and the block would report an unresolved
+    # binding instead of closing the gap it was offered for (PR #401 review).
+    # Withhold the whole template rather than the handoff: dropping the target
+    # would understate a closed world the reviewer is about to assert, and the
+    # real repair for an ambiguous target is the source wiring.
+    if any(sum(1 for value in names.values() if value == target) != 1 for target in handoffs):
+        return None
     return {
         "agent_bindings": {
             "declarations": [
@@ -1432,23 +1441,21 @@ class UnresolvedSymbolSource:
 
 
 def unresolved_symbol_names(report: ReadinessReport) -> list[str]:
-    """Tool symbols an agent names that the catalog holds no observation for.
+    """Tool symbols still standing unanswered on this report's warnings.
 
-    Once a reviewed inventory has been joined to the source, the symbol has an
-    observation and the repair is *made* — the entrypoint still cannot resolve
-    the import, so the warning stays, but re-prescribing the inventory would
-    tell the reader to do again what they just did.
+    No name matching, deliberately. Subtracting a catalog-wide set of tool
+    names was wrong in both directions (PR #401 review): an unrelated source
+    exposing a same-named tool read as a repair that had not happened, and an
+    inventory that correctly split a toolset symbol into the tools it exposes
+    never matched the symbol, so its source was prescribed the same inventory
+    forever. The completion relationship is the reviewed
+    ``tool_inventories[].source_id``, and it is applied where both halves of it
+    are known — ``withdraw_completed_adk_tool_warnings``, during the scan. A
+    warning that survived to the report is one nothing has answered.
     """
 
-    known = {
-        str(row.get("name")) for row in report.tool_catalog if row.get("name")
-    }
     return sorted(
-        {
-            symbol
-            for _agent, symbol in unresolved_adk_tool_symbols(report.source_warnings)
-            if symbol not in known
-        }
+        {symbol for _agent, symbol in unresolved_adk_tool_symbols(report.source_warnings)}
     )
 
 
@@ -1476,8 +1483,8 @@ def unresolved_symbol_sources(
     guessed — an inventory joined to the wrong source completes nothing (#386).
     """
 
-    open_symbols = set(unresolved_symbol_names(report))
-    if not open_symbols:
+    symbols = unresolved_adk_tool_symbols(report.source_warnings)
+    if not symbols:
         return []
     manifest_key = inventory_manifest_key("google_adk")
     if manifest_key is None:  # pragma: no cover - google_adk is registered
@@ -1487,9 +1494,9 @@ def unresolved_symbol_sources(
         if agent.source_id:
             nodes.setdefault(agent.name, []).append(agent)
     by_source: dict[str, dict[str, Any]] = {}
-    for agent_name, symbol in unresolved_adk_tool_symbols(report.source_warnings):
+    for agent_name, symbol in symbols:
         candidates = nodes.get(agent_name, [])
-        if symbol not in open_symbols or len({a.source_id for a in candidates}) != 1:
+        if len({node.source_id for node in candidates}) != 1:
             continue
         node = candidates[0]
         source_id = node.source_id

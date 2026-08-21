@@ -41,20 +41,39 @@ from agents_shipgate.schemas.manifest.validation import ValidationConfig
 REVIEW_REQUIRED_SENTINEL = "<REVIEW_REQUIRED>"
 
 
-def _sentinel_paths(node: object, path: str = "") -> list[str]:
-    """Dotted paths of every unfilled scaffold placeholder in a manifest."""
+def _sentinel_paths(
+    node: object, path: str = "", _open: frozenset[int] = frozenset()
+) -> list[str]:
+    """Dotted paths of every unfilled scaffold placeholder in a manifest.
 
+    Cycle-safe, because this now also walks *raw* input. ``yaml.safe_load``
+    preserves recursive aliases, so a syntactically valid manifest such as
+    ``bogus: &loop {x: *loop}`` hands the before-validator a self-referential
+    dict; an unguarded walk raised ``RecursionError`` and replaced the
+    structured config error — and the agent-mode recovery payload that goes
+    with it — with a stack overflow (PR #401 review). A container already open
+    on this branch is not descended again: it can hold no placeholder its first
+    visit did not already report.
+    """
+
+    if isinstance(node, (dict, list, tuple)):
+        marker = id(node)
+        if marker in _open:
+            return []
+        _open = _open | {marker}
     if isinstance(node, dict):
         return [
             found
             for key, value in node.items()
-            for found in _sentinel_paths(value, f"{path}.{key}" if path else str(key))
+            for found in _sentinel_paths(
+                value, f"{path}.{key}" if path else str(key), _open
+            )
         ]
     if isinstance(node, (list, tuple)):
         return [
             found
             for index, value in enumerate(node)
-            for found in _sentinel_paths(value, f"{path}[{index}]")
+            for found in _sentinel_paths(value, f"{path}[{index}]", _open)
         ]
     if isinstance(node, str) and node.strip() == REVIEW_REQUIRED_SENTINEL:
         return [path or "<root>"]

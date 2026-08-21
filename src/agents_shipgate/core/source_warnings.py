@@ -11,11 +11,18 @@ clears all six at once. This module holds both halves of that:
   into one line naming the cause, the fix, and the affected subjects.
 
 Grouping is **render time only**. ``report.source_warnings`` and
-``evidence_coverage.source_warning_count`` stay exactly as the loaders
-produced them, because that count is a gating input
-(``evidence_below_ie_threshold``) and folding it would silently recalibrate
-the ``insufficient_evidence`` threshold. Rendered surfaces show mechanisms;
-the JSON keeps warnings.
+``evidence_coverage.source_warning_count`` are never folded, because that
+count is a gating input (``evidence_below_ie_threshold``) and collapsing six
+restatements into one would silently recalibrate the
+``insufficient_evidence`` threshold. Rendered surfaces show mechanisms; the
+JSON keeps warnings.
+
+:func:`withdraw_completed_adk_tool_warnings` is the one thing that removes a
+row, and it is not folding: it drops a warning whose *prescribed repair has
+been made* — a reviewed inventory declared against the source the warning is
+about. A question the manifest has answered is not an open diagnostic, and
+leaving it counted made the route shipgate itself prescribes unreachable.
+Nothing about how many ways one mechanism was restated changes.
 
 Three rules keep grouping from inventing facts:
 
@@ -46,7 +53,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from agents_shipgate.core.evidence_actions import (
@@ -621,6 +628,46 @@ def unresolved_adk_tool_symbols(
     return found
 
 
+def withdraw_completed_adk_tool_warnings(
+    warnings: Sequence[str],
+    *,
+    agent_source_ids: Mapping[str, str],
+    completed_source_ids: Collection[str],
+) -> list[str]:
+    """Drop unresolved-symbol warnings for a source a human has since declared.
+
+    The warning asks one question: *this entrypoint's tool surface cannot be
+    enumerated from source, supply it.* A reviewed ``tool_inventories`` entry
+    naming the source in ``source_id`` is the answer shipgate itself
+    prescribes, and it is a human declaration in the trust root. Leaving the
+    warning standing after that answer made the prescribed route unreachable:
+    the count still crosses ``_MAX_TOLERATED_SOURCE_WARNINGS``, so a repository
+    that did exactly what it was told stayed ``insufficient_evidence`` forever
+    (PR #401 review).
+
+    Withdrawal is **per source**, keyed on the reviewed completion
+    relationship, never on tool names. Name matching failed both ways: an
+    unrelated source exposing a same-named tool read as a repair that had not
+    happened, and an inventory that correctly split a toolset symbol into the
+    tools it exposes never matched the symbol at all, so its source was
+    prescribed the same inventory forever.
+
+    Only the *warning* is withdrawn. The loader's ``surface_gaps`` entry stays,
+    so nothing here claims static analysis resolved what it could not, and
+    extraction confidence is untouched.
+    """
+
+    if not completed_source_ids:
+        return list(warnings)
+    completed = set(completed_source_ids)
+    withdrawn = {
+        adk_unresolved_tool_warning(agent, symbol)
+        for agent, symbol in unresolved_adk_tool_symbols(warnings)
+        if agent_source_ids.get(agent) in completed
+    }
+    return [warning for warning in warnings if warning not in withdrawn]
+
+
 __all__ = [
     "SourceWarningGroup",
     "visible_skeleton",
@@ -634,5 +681,6 @@ __all__ = [
     "unknown_inventory_source_warning",
     "unmatched_binding_member",
     "unresolved_adk_tool_symbols",
+    "withdraw_completed_adk_tool_warnings",
     "zero_observation_binding_member",
 ]
