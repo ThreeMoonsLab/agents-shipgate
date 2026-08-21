@@ -159,13 +159,24 @@ reaches `high` on its own, with no tool inventory. That requires all of:
 - each bound function is undecorated, takes no `*args`/`**kwargs`, and annotates
   every parameter with a type the schema emitter represents faithfully.
 
-Anything else holds the whole file at `medium`, and the `low_confidence_tool`
+Anything else lowers the tool to `medium`, and the `low_confidence_tool`
 evidence gap names the construct responsible (`dynamic_toolset`,
-`untyped_parameter`, `mutable_tool_binding`, …). Module-scoped reasons reach
-tools contributed by a *resolved* OpenAPI or MCP toolset too, because the
-module could not prove its tool set either way; those tools are only ever
-lowered, never raised. Agent Config `tools:` entries are name references with
-no signature to read, so that path stays `low`.
+`untyped_parameter`, `mutable_tool_binding`, …). How far it reaches depends on
+what the reason is about:
+
+- The first four bullets are about **which tools exist**, so one of them holds
+  the whole file at `medium` — including tools contributed by a *resolved*
+  OpenAPI or MCP toolset in that file, and including the canonical tool after a
+  reviewed `tool_identity` binding merges the observation into another source.
+  No reviewed inventory can close these: an inventory describes tools, not
+  which tools an agent has. Fix the construct in the module.
+- The last bullet is about **one function's interface**, so it lowers only that
+  tool and leaves its siblings proven. A reviewed inventory *can* close these,
+  since the schema is exactly what it supplies.
+
+Propagation only ever lowers a tool, never raises one. Agent Config `tools:`
+entries are name references with no signature to read, so that path stays
+`low`.
 
 **Pitfalls**:
 - `OpenAPIToolset(...)` and `McpToolset(...)` need `tool_filter` declared; without it, the toolset counts as "unfiltered" and `SHIP-ADK-MCP-TOOLSET-UNFILTERED` fires high. Add the filter, then point `inventory_path` at a local tool inventory.

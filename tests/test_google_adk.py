@@ -5,8 +5,12 @@ import yaml
 
 from agents_shipgate.checks.adk import _has_long_running_contract
 from agents_shipgate.cli.scan import inspect_sources, run_scan
+from agents_shipgate.core.artifact_models import GoogleAdkArtifacts
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
+from agents_shipgate.inputs.google_adk import (
+    _load_python_path,
+    load_google_adk_artifacts,
+)
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 # A shared mapping tool bound to a coordinator and two sub-agents: the
@@ -2660,3 +2664,377 @@ def loose_tool(record_id: str):
     report = _scan_proven(tmp_path, project)
 
     assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}
+
+
+# --- PR #400 second review: six more fail-open paths --------------------------
+
+
+def test_an_identity_binding_cannot_close_an_unproven_tool_set(tmp_path):
+    """An identity assertion proves operation sameness, not surface completeness.
+
+    `_merge_bound_observations` starts from the primary and copies nothing
+    about extraction across — deliberately, because promoting the primary's
+    fidelity is what naming a reviewed inventory is for (#386). That reasoning
+    only holds for claims about one tool's own interface. Here an ADK toolset
+    observation carrying `dynamic_agent_kwargs` merged into a high-confidence
+    direct-OpenAPI primary and came out high, pass-eligible, and `passed`, with
+    the module's gap nowhere in the report.
+    """
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "api.yaml").write_text(
+        """
+openapi: 3.1.0
+info:
+  title: Records
+  version: "1.0"
+paths:
+  /records/{id}:
+    get:
+      operationId: lookup_record
+      summary: Look up a record by identifier and return the stored fields.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (project / "agent.py").write_text(
+        '''
+from google.adk.agents import LlmAgent
+from google.adk.tools.openapi_tool.openapi_spec_parser.openapi_toolset import (
+    OpenAPIToolset,
+)
+
+overrides = {}
+root_agent = LlmAgent(
+    name="smart_closer",
+    instruction="Close deals.",
+    tools=[OpenAPIToolset(spec_path="api.yaml")],
+    **overrides,
+)
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        '''
+version: "0.1"
+project:
+  name: adk-identity-merge
+agent:
+  name: smart_closer
+  declared_purpose:
+    - look up records
+environment:
+  target: local
+tool_sources:
+  - id: adk_agent
+    type: google_adk
+    path: agent.py
+  - id: direct_openapi
+    type: openapi
+    path: api.yaml
+
+tool_identity:
+  bindings:
+    - id: lookup-record
+      provider: records
+      reason: the ADK toolset and the direct spec expose one operation
+      primary:
+        source_id: direct_openapi
+        tool: lookup_record
+      members:
+        - source_id: direct_openapi
+          tool: lookup_record
+        - source_id: adk_agent:openapi:1
+          tool: lookup_record
+
+action_surface:
+  actions:
+    - tool: lookup_record
+      effect: read
+      authority:
+        mode: none
+'''.lstrip(),
+        encoding="utf-8",
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert "dynamic_agent_kwargs" in gap.why
+    # The remediation must not ask for the spec that is already there.
+    assert gap.next_action.kind == "provide_source"
+    assert "cannot close this" in gap.next_action.expects
+
+
+@pytest.mark.parametrize(
+    "symbol, replacement",
+    [
+        pytest.param("FunctionTool", "imported_replacement", id="wrapper_rebound"),
+        pytest.param("LlmAgent", "replacement_agent", id="agent_class_rebound"),
+    ],
+)
+def test_a_rebound_framework_symbol_is_not_googles_constructor(
+    tmp_path, symbol: str, replacement: str
+):
+    """`_qualified_name` resolves through a spelling-based alias table.
+
+    After `from google.adk.tools import FunctionTool` and
+    `FunctionTool = replacement`, a foreign factory was still read with
+    Google's semantics: its argument catalogued as an ADK tool, the module
+    marked proven. Rebinding `LlmAgent` has the same effect one level up.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble=f"from external import {replacement}\n",
+            trailer=f"{symbol} = {replacement}\n",
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("shadowed_framework_symbol" in gap.why for gap in gaps)
+
+
+@pytest.mark.parametrize(
+    "signature, expected_properties",
+    [
+        pytest.param(
+            "context: str, record_id: str",
+            ["context", "record_id"],
+            id="context_is_an_ordinary_input",
+        ),
+        pytest.param(
+            "ctx: str, record_id: str",
+            ["ctx", "record_id"],
+            id="ctx_is_an_ordinary_input",
+        ),
+        pytest.param(
+            "tool_context, record_id: str",
+            ["record_id"],
+            id="tool_context_name_fallback",
+        ),
+        pytest.param(
+            "ctx: ToolContext, record_id: str",
+            ["record_id"],
+            id="injected_by_annotation",
+        ),
+    ],
+)
+def test_only_a_verifiable_injected_parameter_leaves_the_schema(
+    tmp_path, signature: str, expected_properties: list[str]
+):
+    """ADK identifies injected context by type, with `tool_context` as fallback.
+
+    Dropping every parameter merely *spelled* `ctx` or `context` deleted real
+    model-visible inputs: `def known(context: str, record_id: str)` shipped a
+    one-property schema, was marked proven, and returned `passed`.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble="from google.adk.tools import ToolContext\n",
+            extra_tools="\n        loose_tool,",
+        )
+        + f'''
+
+def loose_tool({signature}) -> dict:
+    """Look up a record by identifier and return the stored fields."""
+    return {{}}
+''',
+    )
+
+    artifacts = GoogleAdkArtifacts()
+    loaded = _load_python_path(
+        project / "agent.py", project, "adk_agent", "agent.py", artifacts
+    )
+    tool = next(
+        tool
+        for source in loaded
+        for tool in source.tools
+        if tool.name == "loose_tool"
+    )
+    assert sorted(tool.input_schema.get("properties", {})) == expected_properties
+    assert tool.extraction_confidence == "high"
+
+    report = _scan_proven(tmp_path, project)
+    catalog = {row["name"]: row for row in report.tool_catalog}
+    assert catalog["loose_tool"]["confidence"] == "high"
+
+
+@pytest.mark.parametrize(
+    "shadow, annotation",
+    [
+        pytest.param("from domain import Account as str", "str", id="str_shadowed"),
+        pytest.param("from domain import Bag as list", "list", id="list_shadowed"),
+        pytest.param("from domain import Rec as dict", "dict", id="dict_shadowed"),
+        pytest.param("from domain import Seq as List", "List", id="typing_list_faked"),
+    ],
+)
+def test_a_shadowed_annotation_name_is_not_the_type_it_looks_like(
+    tmp_path, shadow: str, annotation: str
+):
+    """`from domain import Account as str` makes ADK see `Account` at runtime.
+
+    The faithfulness check read the spelling only, so the emitted string schema
+    was accepted as accurate and the tool reported high and enumerated.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble=f"{shadow}\n", extra_tools="\n        loose_tool,"
+        )
+        + f'''
+
+def loose_tool(value: {annotation}) -> dict:
+    """Look up a record by identifier and return the stored fields."""
+    return {{}}
+''',
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    tool = next(
+        tool for tool in report.tool_catalog if tool["name"] == "loose_tool"
+    )
+    assert tool["confidence"] == "medium"
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert "unrepresentable_annotation" in gap.why
+
+
+def test_a_genuine_typing_alias_is_still_faithful(tmp_path):
+    """The provenance check must not reject `from typing import List`."""
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            preamble="from typing import Dict, List\n",
+            extra_tools="\n        loose_tool,",
+        )
+        + '''
+
+def loose_tool(items: List[str], index: Dict[str, int]) -> dict:
+    """Look up a record by identifier and return the stored fields."""
+    return {}
+''',
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}
+
+
+@pytest.mark.parametrize(
+    "preamble, trailer",
+    [
+        pytest.param(
+            "from builtins import getattr as read_attr\n"
+            "from external import imported_tool\n",
+            'read_attr(root_agent, "tools").append(imported_tool)\n',
+            id="aliased_builtin",
+        ),
+        pytest.param(
+            "from external import imported_tool\n",
+            'vars(root_agent)["tools"].append(imported_tool)\n',
+            id="vars_dictionary",
+        ),
+        pytest.param(
+            "from external import imported_tool\n",
+            'root_agent.__dict__["tools"].append(imported_tool)\n',
+            id="dunder_dict",
+        ),
+    ],
+)
+def test_indirect_reflective_mutation_is_still_a_mutation(
+    tmp_path, preamble: str, trailer: str
+):
+    """Three more spellings that carry the attribute name as data.
+
+    `from builtins import getattr as read_attr` calls the real builtin under a
+    local name; `vars()` and `__dict__` reach the same attribute through a
+    mapping. None contains an `Attribute` node named `tools`, and the raw
+    spelling check saw only `read_attr`.
+    """
+
+    project = _proven_project(
+        tmp_path, source=_proven_module(preamble=preamble, trailer=trailer)
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("mutable_tool_binding" in gap.why for gap in gaps)
+
+
+def test_an_ordinary_dictionary_with_a_tools_key_is_not_a_mutation(tmp_path):
+    """The dictionary forms are matched on `vars()`/`__dict__`, not on any key.
+
+    Flagging every `["tools"]` subscript would demote modules that merely carry
+    a config mapping, which is common and harmless.
+    """
+
+    project = _proven_project(
+        tmp_path,
+        source=_proven_module(
+            trailer='CONFIG = {"tools": []}\nENABLED = CONFIG["tools"]\n'
+        ),
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert {tool["confidence"] for tool in report.tool_catalog} == {"high"}
+
+
+def test_a_star_import_makes_every_name_in_the_module_unknowable(tmp_path):
+    """`from x import *` can rebind any name, and binds none the table can see.
+
+    The alias is recorded under `"*"`, so a local `def lookup_account(...)`
+    still looked singly-bound and proven while the import may replace it.
+    """
+
+    project = _proven_project(
+        tmp_path, source=_proven_module(trailer="from external import *\n")
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    assert report.release_decision.decision != "passed"
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("star_import_shadowing" in gap.why for gap in gaps)

@@ -1115,7 +1115,30 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
     )
     for tool in low_confidence:
         manifest_key = inventory_manifest_key(tool.source_type)
-        if manifest_key is not None:
+        if tool.extraction.get("tool_set_proven") is False:
+            # An unproven tool *set* is not a missing artifact. Routing it by
+            # source type asked for an inventory or spec the repository had
+            # already supplied — the OpenAPI file is right there and complete;
+            # what is unresolved is the ADK module that decides which tools the
+            # agent gets (#400 review). Name that instead.
+            action = EvidenceGapAction(
+                kind="provide_source",
+                why=(
+                    "The tool surface this source belongs to could not be "
+                    "enumerated, so the set of tools is unknown even where an "
+                    "individual tool's schema is not."
+                ),
+                expects=(
+                    "Resolve the construct named in this row's reason in the "
+                    "source module — a dynamic tools expression, a toolset "
+                    "with no static inventory, an agent built from unpacked "
+                    "keyword arguments, or a tool list mutated after "
+                    "construction — then rerun the scan. A tool inventory "
+                    "cannot close this: it describes tools, not which tools "
+                    "an agent has."
+                ),
+            )
+        elif manifest_key is not None:
             action = EvidenceGapAction(
                 kind="declare_tool_inventory",
                 path=SUGGESTED_INVENTORY_FILENAME,

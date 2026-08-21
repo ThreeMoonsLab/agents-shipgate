@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -128,6 +129,16 @@ SURFACE_GAP_DYNAMIC_AGENT_KWARGS = "dynamic_agent_kwargs"
 #: was later rebound. Naming the tool is still useful; claiming its signature
 #: was proven is not.
 SURFACE_GAP_SHADOWED_DEFINITION = "shadowed_tool_definition"
+#: A call this adapter read as ``Agent``/``FunctionTool``/``*Toolset`` is only
+#: that framework's constructor while the name still refers to the import.
+#: ``from google.adk.tools import FunctionTool`` followed by
+#: ``FunctionTool = replacement`` leaves ``_qualified_name`` resolving the stale
+#: alias, so a foreign factory was read with Google's semantics (#400 review).
+SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL = "shadowed_framework_symbol"
+#: ``from x import *`` can rebind any name in the module at import time, and
+#: the binding table can only record it under ``"*"``. Nothing in the file is
+#: provably what it appears to be, so nothing is proven.
+SURFACE_GAP_STAR_IMPORT = "star_import_shadowing"
 #: Emitted only by the fail-closed backstop in
 #: ``_PythonAdkExtractor._resolve_extraction_evidence``:
 #: a warning this module raised through neither surface helper. It means a new
@@ -146,6 +157,36 @@ SURFACE_GAP_UNREPRESENTABLE_ANNOTATION = "unrepresentable_annotation"
 #: An Agent Config lists tool *names*; there is no signature to read, so this
 #: path never claims an enumerated surface.
 SURFACE_GAP_TOOL_REFERENCE_ONLY = "tool_reference_only"
+#: Reasons that are about *this callable's* interface rather than about which
+#: tools exist. The distinction is load-bearing at exactly one place: a
+#: reviewed tool inventory is a human statement about a tool's own schema, so
+#: it can legitimately close these — that is what #386 is for — while no
+#: per-tool assertion can establish that a module exposes no *other* tools. A
+#: reason absent from this set therefore survives identity merging and keeps
+#: the canonical tool below high (#400 review).
+TOOL_INTERFACE_SURFACE_GAPS = frozenset(
+    {
+        SURFACE_GAP_UNTYPED_PARAMETER,
+        SURFACE_GAP_VARIADIC_PARAMETERS,
+        SURFACE_GAP_DECORATED_FUNCTION,
+        SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
+        SURFACE_GAP_TOOL_REFERENCE_ONLY,
+    }
+)
+#: Names Google ADK injects rather than exposing to the model. ADK identifies
+#: the injection by the parameter's *type*, with ``tool_context`` as a name
+#: fallback; dropping every parameter spelled ``ctx`` or ``context`` deleted
+#: ordinary model-visible inputs from the schema (#400 review).
+ADK_CONTEXT_TYPE_NAMES = {
+    "ToolContext",
+    "CallbackContext",
+    "ReadonlyContext",
+    "google.adk.tools.ToolContext",
+    "google.adk.tools.tool_context.ToolContext",
+    "google.adk.agents.callback_context.CallbackContext",
+    "google.adk.agents.readonly_context.ReadonlyContext",
+}
+ADK_CONTEXT_PARAMETER_NAME = "tool_context"
 
 
 def load_google_adk_artifacts(
@@ -693,9 +734,13 @@ class _PythonAdkExtractor:
         loaded_sources: list[LoadedToolSource] = []
         warnings_before = len(self.artifacts.warnings)
         self._record_eval_references()
+        self._record_star_imports()
         self._record_mutable_tool_bindings()
         for target_name, call in self.agent_call_list:
             agent_name = _kwarg_string(call, "name") or target_name or "adk_agent"
+            # The call is only ADK's ``Agent`` while the name still refers to
+            # the import it was resolved through.
+            self._require_proven_framework_symbol(call)
             if any(keyword.arg is None for keyword in call.keywords):
                 # ``Agent(**config)`` hides every keyword, ``tools`` included.
                 # Without ``tools=`` the agent silently records tool_count 0,
@@ -769,6 +814,43 @@ class _PythonAdkExtractor:
         if reason not in self.surface_gaps:
             self.surface_gaps.append(reason)
 
+    def _record_star_imports(self) -> None:
+        """A ``from x import *`` makes every name in the module unknowable.
+
+        The binding table can only record the alias under ``"*"``, so a local
+        ``def known(...)`` looked singly-bound and proven while the star import
+        may replace it at run time (#400 review). Nothing here is provable, so
+        the module says so once rather than per name.
+        """
+
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.ImportFrom) and any(
+                alias.name == "*" for alias in node.names
+            ):
+                self._note_surface_gap(SURFACE_GAP_STAR_IMPORT)
+                return
+
+    def _require_proven_framework_symbol(self, call: ast.Call) -> None:
+        """Require a recognised framework constructor to really be that import.
+
+        ``_qualified_name`` maps a call back to ``google.adk...`` through the
+        import alias table, and that table is spelling-based: after
+        ``from google.adk.tools import FunctionTool`` and
+        ``FunctionTool = replacement``, a foreign factory was still read with
+        Google's semantics — its tools catalogued, its module proven (#400
+        review). The name has to be bound exactly once, by that import, for the
+        resolution to mean anything.
+        """
+
+        root = call.func
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name):
+            return
+        bindings = self.name_bindings.get(root.id, [])
+        if len(bindings) != 1 or not isinstance(bindings[0], ast.alias):
+            self._note_surface_gap(SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL)
+
     def _record_mutable_tool_bindings(self) -> None:
         """Notice any reach for an agent's ``tools`` after it is constructed.
 
@@ -788,8 +870,9 @@ class _PythonAdkExtractor:
         those are packages, not agents.
 
         Reflective access is checked separately because it carries the
-        attribute name as data: ``getattr(root_agent, "tools").append(...)``
-        contains no ``Attribute`` node named ``tools`` at all and walked
+        attribute name as data: ``getattr(root_agent, "tools").append(...)``,
+        ``vars(root_agent)["tools"]``, and ``root_agent.__dict__["tools"]``
+        contain no ``Attribute`` node named ``tools`` at all and walked
         straight past the first check (PR #400 review).
         """
 
@@ -798,7 +881,7 @@ class _PythonAdkExtractor:
                 if not self._is_imported_module_path(node.value):
                     self._note_surface_gap(SURFACE_GAP_MUTABLE_TOOL_BINDING)
                     return
-            if _is_reflective_tools_access(node):
+            if _is_reflective_tools_access(node, self.aliases):
                 self._note_surface_gap(SURFACE_GAP_MUTABLE_TOOL_BINDING)
                 return
 
@@ -852,6 +935,24 @@ class _PythonAdkExtractor:
         if not self._name_is_proven(name):
             self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
 
+    def _name_is_canonical(self, name: str) -> bool:
+        """Whether an annotation spelling still means the type it looks like.
+
+        A builtin (``str``, ``int``, ``list``, …) is canonical only while the
+        module binds nothing of that name: ``from domain import Account as str``
+        makes ADK see ``Account`` where the emitter wrote ``{"type": "string"}``
+        (#400 review). A ``typing`` alias (``List``, ``Dict``) is canonical only
+        when its single binding is an import that resolves into ``typing``.
+        """
+
+        bindings = self.name_bindings.get(name, [])
+        if name in _TYPING_ANNOTATION_ALIASES:
+            if len(bindings) != 1 or not isinstance(bindings[0], ast.alias):
+                return False
+            resolved = self.aliases.get(name, "")
+            return resolved.rsplit(".", 1)[0] in {"typing", "typing_extensions"}
+        return not bindings
+
     def _resolve_extraction_evidence(
         self, warnings_before: int, loaded_sources: list[LoadedToolSource]
     ) -> None:
@@ -885,28 +986,47 @@ class _PythonAdkExtractor:
         for tool in self.canonical_function_tools.values():
             raw_gaps = tool.extraction.get("surface_gaps")
             local_gaps = raw_gaps if isinstance(raw_gaps, list) else []
-            gaps = sorted({*self.surface_gaps, *local_gaps})
-            confidence = "medium" if gaps else "high"
-            tool.extraction["surface"] = (
-                SURFACE_PARTIAL if gaps else SURFACE_ENUMERATED
-            )
-            tool.extraction["surface_gaps"] = gaps
-            tool.extraction["confidence"] = confidence
-            tool.extraction_confidence = confidence
+            self._record_surface_evidence(tool, {*self.surface_gaps, *local_gaps})
         if not self.surface_gaps:
             return
-        module_gaps = sorted(self.surface_gaps)
         for loaded in loaded_sources:
             for tool in loaded.tools:
                 raw_gaps = tool.extraction.get("surface_gaps")
                 local_gaps = raw_gaps if isinstance(raw_gaps, list) else []
-                tool.extraction["surface"] = SURFACE_PARTIAL
-                tool.extraction["surface_gaps"] = sorted(
-                    {*module_gaps, *local_gaps}
+                self._record_surface_evidence(
+                    tool, {*self.surface_gaps, *local_gaps}, lower_only=True
                 )
-                if tool.extraction_confidence == "high":
-                    tool.extraction["confidence"] = "medium"
-                    tool.extraction_confidence = "medium"
+
+    def _record_surface_evidence(
+        self, tool: Tool, gaps: set[str], *, lower_only: bool = False
+    ) -> None:
+        """Write one tool's completeness evidence.
+
+        ``tool_set_proven`` is the half that has to survive identity merging. A
+        reviewed inventory or identity binding is a human statement about a
+        *tool's own schema*, so it legitimately closes the interface reasons —
+        that is what #386 is for. Nothing a human can say about one tool
+        establishes that a module exposes no *other* tools, so a set-scoped
+        reason has to travel with the observation and keep the canonical tool
+        below high wherever it is merged (#400 review).
+        """
+
+        ordered = sorted(gaps)
+        tool.extraction["surface"] = SURFACE_PARTIAL if ordered else SURFACE_ENUMERATED
+        tool.extraction["surface_gaps"] = ordered
+        tool.extraction["tool_set_proven"] = not (
+            gaps - TOOL_INTERFACE_SURFACE_GAPS
+        )
+        if not ordered:
+            if lower_only:
+                return
+            tool.extraction["confidence"] = "high"
+            tool.extraction_confidence = "high"
+            return
+        if lower_only and tool.extraction_confidence != "high":
+            return
+        tool.extraction["confidence"] = "medium"
+        tool.extraction_confidence = "medium"
 
     def _agent_names_by_variable(self) -> dict[tuple[ast.AST | None, str], str | None]:
         """Map each ``variable = Agent(...)`` to the agent's declared ``name=``.
@@ -1075,6 +1195,7 @@ class _PythonAdkExtractor:
         if isinstance(expr, ast.Call):
             call_name = _qualified_name(expr.func, self.aliases)
             if call_name in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES:
+                self._require_proven_framework_symbol(expr)
                 func_name = _call_func_name(expr)
                 if func_name and func_name in self.functions:
                     self._bind_function_tool(
@@ -1114,6 +1235,9 @@ class _PythonAdkExtractor:
         binding: _AdkAgentBinding,
     ) -> None:
         wrapper = self.wrappers[wrapper_name]
+        wrapper_call = wrapper.get("call")
+        if isinstance(wrapper_call, ast.Call):
+            self._require_proven_framework_symbol(wrapper_call)
         func_name = wrapper.get("func_name")
         if isinstance(func_name, str) and func_name in self.functions:
             self._bind_function_tool(
@@ -1190,6 +1314,7 @@ class _PythonAdkExtractor:
         if cached is not None:
             self._bind_toolset_tools(cached, agent_name, binding)
             return []
+        self._require_proven_framework_symbol(call)
         call_name = _qualified_name(call.func, self.aliases)
         if call_name in OPENAPI_TOOLSET_NAMES:
             loaded_sources = self._extract_openapi_toolset(call, agent_name)
@@ -1223,7 +1348,7 @@ class _PythonAdkExtractor:
         agent_name: str,
         long_running: bool,
     ) -> Tool:
-        parameters = _parameters(node)
+        parameters = _parameters(node, self.aliases)
         return_type = _annotation_to_string(node.returns)
         signature = f"{node.name}({', '.join(param.name for param in parameters)})"
         if return_type:
@@ -1264,7 +1389,9 @@ class _PythonAdkExtractor:
             extraction={
                 "method": "google_adk_python_ast",
                 "confidence": "medium",
-                "surface_gaps": _function_surface_gaps(node),
+                "surface_gaps": _function_surface_gaps(
+                    node, self.aliases, self._name_is_canonical
+                ),
             },
         )
         payload = self._function_tool_payload(tool, agent_name)
@@ -1702,8 +1829,33 @@ def _short_tool_name(name: str) -> str:
     return name.rsplit(".", 1)[-1]
 
 
+def _is_injected_context_arg(
+    arg: ast.arg, aliases: dict[str, str], *, is_receiver: bool
+) -> bool:
+    """Whether ADK supplies this argument itself instead of the model.
+
+    Google ADK decides this by the parameter's *type* — a ``ToolContext`` and
+    friends are filled in by the framework — and falls back to the
+    ``tool_context`` name. Dropping every parameter merely *spelled* ``ctx`` or
+    ``context`` deleted ordinary model-visible inputs from the schema, so
+    ``def known(context: str, record_id: str)`` shipped a one-property schema
+    and called it proven (#400 review). Only a statically verifiable injection
+    is omitted now; anything else stays a parameter, where an unreadable
+    annotation gets caught by the usual checks.
+    """
+
+    if is_receiver and arg.arg == "self":
+        return True
+    if arg.arg == ADK_CONTEXT_PARAMETER_NAME:
+        return True
+    if arg.annotation is None:
+        return False
+    return _qualified_name(arg.annotation, aliases) in ADK_CONTEXT_TYPE_NAMES
+
+
 def _bound_args(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
+    aliases: dict[str, str],
 ) -> list[tuple[ast.arg, bool]]:
     """The arguments that become tool parameters, with their requiredness.
 
@@ -1719,91 +1871,26 @@ def _bound_args(
         None for _ in range(len(positional_args) - len(node.args.defaults))
     ]
     positional_defaults.extend(node.args.defaults)
-    for arg, default in zip(positional_args, positional_defaults, strict=True):
-        if arg.arg in {"self", "ctx", "context", "tool_context"}:
+    for index, (arg, default) in enumerate(
+        zip(positional_args, positional_defaults, strict=True)
+    ):
+        if _is_injected_context_arg(arg, aliases, is_receiver=index == 0):
             continue
         bound.append((arg, default is None))
     for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True):
-        if arg.arg in {"self", "ctx", "context", "tool_context"}:
+        if _is_injected_context_arg(arg, aliases, is_receiver=False):
             continue
         bound.append((arg, default is None))
     return bound
 
 
-def _parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ToolParameter]:
+def _parameters(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, aliases: dict[str, str]
+) -> list[ToolParameter]:
     return [
-        _parameter(arg, required=required) for arg, required in _bound_args(node)
+        _parameter(arg, required=required)
+        for arg, required in _bound_args(node, aliases)
     ]
-
-
-#: Annotations :func:`_annotation_json_type` can name a JSON type for. Bare
-#: ``list``/``dict`` are included: ``{"type": "array"}`` omits the element
-#: schema but does not misstate the value, which is a different thing from a
-#: guess.
-_SCALAR_ANNOTATION_TYPES = {
-    "str": "string",
-    "int": "number",
-    "float": "number",
-    "bool": "boolean",
-    "list": "array",
-    "List": "array",
-    "dict": "object",
-    "Dict": "object",
-}
-
-
-def _annotation_json_type(node: ast.AST | None) -> str | None:
-    """The JSON type this annotation really denotes, or None if it denotes none.
-
-    Reads the annotation as a tree rather than as the unparsed string, so
-    ``set[str]``, ``tuple[int, str]``, ``int | None``, ``Optional[int]``,
-    ``Literal[...]``, a string forward reference, and any custom or Pydantic
-    class all answer None instead of silently becoming a scalar.
-    """
-
-    if isinstance(node, ast.Name):
-        return _SCALAR_ANNOTATION_TYPES.get(node.id)
-    if isinstance(node, ast.Subscript):
-        base = node.value
-        base_name = (
-            base.id
-            if isinstance(base, ast.Name)
-            else base.attr
-            if isinstance(base, ast.Attribute)
-            else None
-        )
-        if base_name in {"list", "List"}:
-            return "array" if _annotation_json_type(node.slice) else None
-        if base_name in {"dict", "Dict"}:
-            if isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2:
-                key, value = node.slice.elts
-                keyed_by_string = isinstance(key, ast.Name) and key.id == "str"
-                if keyed_by_string and _annotation_json_type(value):
-                    return "object"
-            return None
-    return None
-
-
-def _annotation_is_faithful(node: ast.AST | None) -> bool:
-    """Whether the schema :func:`_json_schema_type` emits matches the annotation.
-
-    An annotation is not by itself evidence that the emitted schema is right.
-    ``_json_schema_type`` reads the *unparsed string* and falls back to
-    ``"string"`` for everything it does not recognise, so ``set[str]``,
-    ``int | None``, a Pydantic model, and even ``typing.List[str]`` (spelled
-    with the module prefix the string match misses) all ship as
-    ``{"type": "string"}``.
-
-    Rather than keep a second vocabulary in sync with the emitter's, this asks
-    the emitter what it would produce and compares it to what the annotation
-    denotes. Any spelling the emitter mishandles is unfaithful by construction,
-    including one added later.
-    """
-
-    expected = _annotation_json_type(node)
-    if expected is None:
-        return False
-    return _json_schema_type(_annotation_to_string(node)) == expected
 
 
 #: Statements that bind a name at module scope in a way the adapter can point
@@ -1819,30 +1906,51 @@ _TOP_LEVEL_BINDING_STATEMENTS = (
     ast.Import,
     ast.ImportFrom,
 )
-
-
 #: Builtins that name an attribute with a string instead of a dotted access.
-#: Matched on the trailing name so ``builtins.setattr`` counts too.
+#: Matched on the trailing name so ``builtins.setattr`` and an aliased import
+#: of the same builtin both count.
 _REFLECTIVE_ATTRIBUTE_BUILTINS = {"getattr", "setattr", "delattr"}
 
 
-def _is_reflective_tools_access(node: ast.AST) -> bool:
-    """Whether ``node`` reaches an object's ``tools`` attribute by name."""
+def _is_reflective_tools_access(node: ast.AST, aliases: dict[str, str]) -> bool:
+    """Whether ``node`` reaches an object's ``tools`` attribute by name.
 
-    if not isinstance(node, ast.Call) or len(node.args) < 2:
-        return False
-    func = node.func
-    called = (
-        func.id
-        if isinstance(func, ast.Name)
-        else func.attr
-        if isinstance(func, ast.Attribute)
-        else None
-    )
-    if called not in _REFLECTIVE_ATTRIBUTE_BUILTINS:
-        return False
-    attribute = node.args[1]
-    return isinstance(attribute, ast.Constant) and attribute.value == "tools"
+    Three spellings, all of which produced the same runtime mutation while
+    containing no ``Attribute`` node named ``tools``:
+    ``getattr(agent, "tools")`` and its ``setattr``/``delattr`` siblings,
+    ``vars(agent)["tools"]``, and ``agent.__dict__["tools"]``.
+
+    The builtin is matched through the import alias table as well as its bare
+    spelling, so ``from builtins import getattr as read_attr`` is recognised —
+    it calls the real builtin, and only the local name changed (#400 review).
+    The dictionary forms are matched narrowly, on ``vars(...)`` and
+    ``__dict__`` specifically, rather than on any ``["tools"]`` subscript: a
+    config dictionary with a ``"tools"`` key is ordinary and is not a mutation.
+    """
+
+    if isinstance(node, ast.Subscript):
+        key = node.slice
+        if not (isinstance(key, ast.Constant) and key.value == "tools"):
+            return False
+        target = node.value
+        if isinstance(target, ast.Attribute) and target.attr == "__dict__":
+            return True
+        return isinstance(target, ast.Call) and _called_builtin(target, aliases) == "vars"
+    if isinstance(node, ast.Call) and len(node.args) >= 2:
+        if _called_builtin(node, aliases) not in _REFLECTIVE_ATTRIBUTE_BUILTINS:
+            return False
+        attribute = node.args[1]
+        return isinstance(attribute, ast.Constant) and attribute.value == "tools"
+    return False
+
+
+def _called_builtin(call: ast.Call, aliases: dict[str, str]) -> str | None:
+    """The builtin ``call`` invokes, seen through imports and dotted access."""
+
+    qualified = _qualified_name(call.func, aliases)
+    if qualified:
+        return qualified.rsplit(".", 1)[-1]
+    return None
 
 
 def _name_binding_occurrences(tree: ast.Module) -> dict[str, list[ast.AST]]:
@@ -1891,8 +1999,103 @@ def _name_binding_occurrences(tree: ast.Module) -> dict[str, list[ast.AST]]:
     return bindings
 
 
+#: Annotations :func:`_annotation_json_type` can name a JSON type for. Bare
+#: ``list``/``dict`` are included: ``{"type": "array"}`` omits the element
+#: schema but does not misstate the value, which is a different thing from a
+#: guess.
+_SCALAR_ANNOTATION_TYPES = {
+    "str": "string",
+    "int": "number",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "List": "array",
+    "dict": "object",
+    "Dict": "object",
+}
+#: The subset of the above that has to arrive through ``typing``; the rest are
+#: builtins, which are canonical exactly while the module binds nothing of that
+#: name. See ``_PythonAdkExtractor._name_is_canonical``.
+_TYPING_ANNOTATION_ALIASES = {"List", "Dict"}
+
+
+def _annotation_json_type(
+    node: ast.AST | None, name_is_canonical: Callable[[str], bool]
+) -> str | None:
+    """The JSON type this annotation really denotes, or None if it denotes none.
+
+    Reads the annotation as a tree rather than as the unparsed string, so
+    ``set[str]``, ``tuple[int, str]``, ``int | None``, ``Optional[int]``,
+    ``Literal[...]``, a string forward reference, and any custom or Pydantic
+    class all answer None instead of silently becoming a scalar.
+
+    ``name_is_canonical`` decides whether a spelling still refers to the
+    builtin or ``typing`` alias it looks like. Trusting the spelling alone let
+    ``from domain import Account as str`` describe a model as a string, on a
+    tool marked proven (#400 review).
+    """
+
+    if isinstance(node, ast.Name):
+        if not name_is_canonical(node.id):
+            return None
+        return _SCALAR_ANNOTATION_TYPES.get(node.id)
+    if isinstance(node, ast.Subscript):
+        base = node.value
+        if not isinstance(base, ast.Name) or not name_is_canonical(base.id):
+            # A dotted base such as ``typing.List`` is left to the emitter
+            # comparison below, which already rejects it: the string match in
+            # ``_json_schema_type`` misses the module prefix.
+            return None
+        if base.id in {"list", "List"}:
+            return (
+                "array"
+                if _annotation_json_type(node.slice, name_is_canonical)
+                else None
+            )
+        if base.id in {"dict", "Dict"}:
+            if isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2:
+                key, value = node.slice.elts
+                keyed_by_string = (
+                    isinstance(key, ast.Name)
+                    and key.id == "str"
+                    and name_is_canonical("str")
+                )
+                if keyed_by_string and _annotation_json_type(
+                    value, name_is_canonical
+                ):
+                    return "object"
+            return None
+    return None
+
+
+def _annotation_is_faithful(
+    node: ast.AST | None, name_is_canonical: Callable[[str], bool]
+) -> bool:
+    """Whether the schema :func:`_json_schema_type` emits matches the annotation.
+
+    An annotation is not by itself evidence that the emitted schema is right.
+    ``_json_schema_type`` reads the *unparsed string* and falls back to
+    ``"string"`` for everything it does not recognise, so ``set[str]``,
+    ``int | None``, a Pydantic model, and even ``typing.List[str]`` (spelled
+    with the module prefix the string match misses) all ship as
+    ``{"type": "string"}``.
+
+    Rather than keep a second vocabulary in sync with the emitter's, this asks
+    the emitter what it would produce and compares it to what the annotation
+    denotes. Any spelling the emitter mishandles is unfaithful by construction,
+    including one added later.
+    """
+
+    expected = _annotation_json_type(node, name_is_canonical)
+    if expected is None:
+        return False
+    return _json_schema_type(_annotation_to_string(node)) == expected
+
+
 def _function_surface_gaps(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
+    aliases: dict[str, str],
+    name_is_canonical: Callable[[str], bool],
 ) -> list[str]:
     """Reasons this one function's callable interface was not fully read.
 
@@ -1919,7 +2122,7 @@ def _function_surface_gaps(
         gaps.append(SURFACE_GAP_DECORATED_FUNCTION)
     if node.args.vararg is not None or node.args.kwarg is not None:
         gaps.append(SURFACE_GAP_VARIADIC_PARAMETERS)
-    annotations = [arg.annotation for arg, _ in _bound_args(node)]
+    annotations = [arg.annotation for arg, _ in _bound_args(node, aliases)]
     if any(annotation is None for annotation in annotations):
         gaps.append(SURFACE_GAP_UNTYPED_PARAMETER)
     declared = [
@@ -1927,7 +2130,10 @@ def _function_surface_gaps(
     ]
     if node.returns is not None:
         declared.append(node.returns)
-    if not all(_annotation_is_faithful(annotation) for annotation in declared):
+    if not all(
+        _annotation_is_faithful(annotation, name_is_canonical)
+        for annotation in declared
+    ):
         gaps.append(SURFACE_GAP_UNREPRESENTABLE_ANNOTATION)
     return sorted(gaps)
 
@@ -1947,13 +2153,23 @@ def _annotation_to_string(annotation: ast.AST | None) -> str | None:
 
 
 def _json_schema_type(annotation: str | None) -> str:
+    """The JSON type this adapter emits for an annotation, as a string match.
+
+    ``List[str]`` and ``Dict[str, int]`` are recognised alongside their builtin
+    spellings. Without that, ``from typing import List`` emitted ``string`` for
+    a list — which :func:`_annotation_is_faithful` correctly refused to certify,
+    so the tool was held at ``medium`` for what is really an emitter gap rather
+    than anything about the user's code.
+    """
+
     if annotation in {"int", "float"}:
         return "number"
     if annotation == "bool":
         return "boolean"
-    if annotation in {"list", "List"} or (annotation or "").startswith("list["):
+    text = annotation or ""
+    if annotation in {"list", "List"} or text.startswith(("list[", "List[")):
         return "array"
-    if annotation in {"dict", "Dict"} or (annotation or "").startswith("dict["):
+    if annotation in {"dict", "Dict"} or text.startswith(("dict[", "Dict[")):
         return "object"
     return "string"
 

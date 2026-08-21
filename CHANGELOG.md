@@ -189,12 +189,34 @@
   `low_confidence_tool` evidence gap names the reasons instead of repeating one
   sentence on every AST tool in every repository.
 
+  A recognised constructor is only ADK's while the name still refers to the
+  import: `from google.adk.tools import FunctionTool` followed by
+  `FunctionTool = replacement` used to have a foreign factory read with
+  Google's semantics (`shadowed_framework_symbol`), and a `from x import *`
+  can rebind anything the module defines (`star_import_shadowing`). Both are
+  refused rather than guessed at.
+
+  Two correctness fixes came out of the same review. Injected context
+  parameters are identified the way ADK identifies them — by type, with
+  `tool_context` as the name fallback — instead of by dropping every parameter
+  spelled `ctx` or `context`, which deleted ordinary model-visible inputs from
+  the emitted schema. And `List[...]`/`Dict[...]` now emit `array`/`object`
+  rather than `string`, so `from typing import List` is usable without holding
+  the tool at `medium` for what was an emitter gap.
+
   Module-scoped reasons reach every tool the file contributed, not just its
   function tools. A module whose only tools come from a *resolved* OpenAPI or
   MCP toolset still has a tool set the file could not prove — `Agent(**config)`
   beside a resolved `McpToolset` is the case — so those tools are lowered too.
   They are only ever lowered, never raised: this step cannot promote a tool the
-  adapter did not extract.
+  adapter did not extract. They also survive `tool_identity` merging: an
+  identity binding proves two observations describe the same operation, which
+  says nothing about whether the module one of them came from exposes further
+  tools, so a member's unproven tool *set* caps the canonical tool. Reasons
+  about a single tool's own interface still resolve in the primary's favour —
+  that is what a reviewed inventory is for — and the evidence gap for an
+  unproven set now names the construct to fix instead of asking for an
+  inventory or spec the repository has already supplied.
 
   `_surface_is_complete` changed with it: an AST source type used to be
   disqualified outright, which was the same constant one layer down and would
