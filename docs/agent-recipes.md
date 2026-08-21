@@ -159,8 +159,11 @@ Consume the response to decide whether to proceed. Key fields:
 - `next_actions[]` — the ranked route. On `agent_scope: "ambiguous"` rank 1 is
   the decision (`kind: "review"`, `command: null`) and every entry below it is
   one exact `init --workspace <candidate> --write --json`, with `executable`
-  and `args`, in candidate order — the same list `init --write` publishes when
-  it refuses the same workspace. Match on the path rather than the ordering.
+  and `args`, in candidate order — the list `init --write` publishes when it
+  refuses the same workspace, minus the setup flags: `detect` asked for no
+  setup, so it promises none. Add `--ci` or `--agent-instructions` yourself if
+  you want them, or take the command from `init`'s own refusal, which repeats
+  the flags the run asked for. Match on the path rather than the ordering.
   The workspace root is never offered: it is the scope `init` refuses.
 
 **Stop condition.** Stop and skip `init` only when ALL of:

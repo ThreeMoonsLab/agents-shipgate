@@ -255,8 +255,11 @@ agents-shipgate bootstrap --json
   absence from a truncated list as an answer; raise the cap first. On
   `agent_scope: "ambiguous"` with a complete parse, `next_actions[]` ranks the
   decision first (`kind: "review"`, no command) and then carries one exact
-  `init --workspace <candidate> --write --json` per candidate — the same list
-  `init --write` publishes when it refuses — so choosing the project is the
+  `init --workspace <candidate> --write --json` per candidate — the list
+  `init --write` publishes when it refuses the same workspace, minus the setup
+  flags, which `detect` was not asked for and does not invent: if you want
+  `--ci` or `--agent-instructions`, add them, or take the command from `init`'s
+  own refusal, which repeats what you asked for. Choosing the project is the
   only work left. A truncated parse outranks that, in `detect` and in `init`
   alike: rank 1 is then the higher-cap rerun and no candidate commands are
   offered, because the list they would be built from is a lower bound.

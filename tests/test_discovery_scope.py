@@ -1576,7 +1576,11 @@ def test_detect_publishes_the_init_command_for_each_candidate(monorepo: Path) ->
 
 def test_detect_and_init_publish_the_same_candidate_commands(monorepo: Path) -> None:
     """Two commands an adopter runs in sequence must not disagree about the
-    recovery for one workspace."""
+    recovery for one workspace.
+
+    Flagless on both sides, which is the whole of the claim: `init` repeats the
+    setup its invocation asked for, and `detect` was asked for none — see
+    :func:`test_detect_does_not_invent_setup_flags_init_was_asked_for`."""
 
     detected = runner.invoke(app, ["detect", "--workspace", str(monorepo), "--json"])
     assert detected.exit_code == 0, detected.output
@@ -1601,6 +1605,36 @@ def test_detect_and_init_publish_the_same_candidate_commands(monorepo: Path) -> 
         _init_command(monorepo / "python/agents/crypto-payroll-agent"),
     ]
     assert published == commands(json.loads(refused.output))
+
+
+def test_detect_does_not_invent_setup_flags_init_was_asked_for(
+    monorepo: Path,
+) -> None:
+    """The one place the two lists legitimately differ.
+
+    `init`'s recovery repeats the flags its own invocation carried, because a
+    recovery that silently drops `--ci` completes with less than the caller
+    requested and reports success for it. `detect` asked for no setup at all,
+    so promising any would be inventing it — and a reader told the lists are
+    identical would substitute the flagless command for the one they need."""
+
+    detected = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(monorepo), "--json"]).output
+    )
+    refused = runner.invoke(
+        app, ["init", "--workspace", str(monorepo), "--write", "--ci", "--json"]
+    )
+    assert refused.exit_code == 2, refused.output
+
+    def first_command(payload: dict) -> str:
+        return next(
+            action["command"]
+            for action in payload["next_actions"]
+            if action["kind"] == "command"
+        )
+
+    assert first_command(detected).endswith("--write --json")
+    assert first_command(json.loads(refused.output)).endswith("--write --ci --json")
 
 
 def test_following_a_detect_candidate_command_adopts_that_project(
