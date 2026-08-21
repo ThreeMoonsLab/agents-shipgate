@@ -32,7 +32,7 @@ def run_first_look(workspace: Path) -> None:
 
     typer.echo(f"  working tree:  {_working_tree_line(root)}")
 
-    classification, has_agent_surface = _classification_line(root)
+    classification, has_agent_surface, settle_command = _classification_line(root)
     typer.echo(f"  repo:          {classification}")
 
     host_line, has_host = _host_grants_line(root)
@@ -46,7 +46,9 @@ def run_first_look(workspace: Path) -> None:
     )
 
     typer.echo("")
-    typer.echo("→ " + _next_command(has_manifest, has_agent_surface, has_host))
+    typer.echo(
+        "→ " + _next_command(has_manifest, has_agent_surface, has_host, settle_command)
+    )
 
 
 def _working_tree_line(workspace: Path) -> str:
@@ -95,22 +97,33 @@ def _working_tree_line(workspace: Path) -> str:
     return f"{result.decision} — {files}; {result.summary}"
 
 
-def _classification_line(workspace: Path) -> tuple[str, bool]:
-    """Repo classification plus whether any agent tool surface was found.
+def _classification_line(workspace: Path) -> tuple[str, bool, str | None]:
+    """Repo classification, whether a tool surface was found, and the command
+    that settles the classification when this one could not.
 
     A capped parse never reports "no signals": that is a claim about the whole
     workspace made from the part of it that was read, and a first look is
-    exactly where an adopter acts on it. The line says the scan was cut short
-    and the next-command router treats the workspace as still open (#399
-    review).
+    exactly where an adopter acts on it. The third value carries that state
+    through to the single ``Next:`` line, because printing the retry here and
+    then routing the reader to ``verify --preview`` — which does not complete
+    the parse either — advertises a best next step that walks past the
+    recovery one line above it (#399 review).
     """
 
-    from agents_shipgate.cli.discovery import detect_workspace
+    from agents_shipgate.cli.discovery import DEFAULT_MAX_PYTHON_FILES, detect_workspace
 
     try:
-        result = detect_workspace(workspace, max_python_files=1000)
+        result = detect_workspace(workspace, max_python_files=DEFAULT_MAX_PYTHON_FILES)
     except Exception:  # noqa: BLE001 - classification is best-effort.
-        return "classification unavailable", False
+        return "classification unavailable", False, None
+    if result.python_parse_truncated:
+        total = result.workspace_signals.python_file_total
+        settle = f"agents-shipgate detect --max-python-files {total} --json"
+        return (
+            "classification incomplete — the Python parse stopped at its cap",
+            True,
+            settle,
+        )
     has_surface = bool(
         result.is_agent_project
         or result.suggested_sources
@@ -121,16 +134,9 @@ def _classification_line(workspace: Path) -> tuple[str, bool]:
         label = f"agent project ({frameworks})" if frameworks else "agent project"
     elif result.suggested_sources or result.codex_plugin_candidates:
         label = "Shipgate-compatible tool artifacts found"
-    elif result.python_parse_truncated:
-        total = result.workspace_signals.python_file_total
-        return (
-            "classification incomplete — the Python parse stopped at its cap; "
-            f"run `agents-shipgate detect --max-python-files {total} --json`",
-            True,
-        )
     else:
         label = "no strong agent-framework signals"
-    return label, has_surface
+    return label, has_surface, None
 
 
 def _host_grants_line(workspace: Path) -> tuple[str | None, bool]:
@@ -210,9 +216,22 @@ def _host_grants_line(workspace: Path) -> tuple[str | None, bool]:
     return ", ".join(parts) + " (run `shipgate audit --host` for the inventory)", True
 
 
-def _next_command(has_manifest: bool, has_agent_surface: bool, has_host: bool) -> str:
+def _next_command(
+    has_manifest: bool,
+    has_agent_surface: bool,
+    has_host: bool,
+    settle_command: str | None = None,
+) -> str:
     """The single highest-value next command for this repo's state."""
 
+    if settle_command is not None and not has_manifest:
+        # Nothing below can be the best next step while the classification the
+        # choices rest on is incomplete, and `verify --preview` does not
+        # complete it either.
+        return (
+            f"Next: `{settle_command}` — the classification above stopped at "
+            "its Python-file cap, and this bound covers every Python file here."
+        )
     if has_manifest:
         return "Next: `agents-shipgate verify --base origin/main --head HEAD` to gate your PR."
     if has_agent_surface:

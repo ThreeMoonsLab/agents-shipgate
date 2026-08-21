@@ -9,6 +9,7 @@ import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
 from agents_shipgate.cli.discovery import (
+    DEFAULT_MAX_PYTHON_FILES,
     detect_workspace,
     render_auto_manifest,
     render_manifest_template,
@@ -245,8 +246,26 @@ def _unresolved_scope_message(
     *,
     scope: str,
     truncated: bool = False,
+    parse_truncated: bool = False,
     project_roots: int = 0,
+    python_file_total: int = 0,
 ) -> str:
+    if scope == "single" and parse_truncated:
+        # The scope is settled and the *classification* is not. Rendering a
+        # manifest here declares an agent name and a tool surface read from
+        # part of the tree — on the reported repository, `CHANGE_ME` and no
+        # tools at all, written with exit 0 (#399 review).
+        return "\n".join(
+            [
+                f"Refusing to write shipgate.yaml: discovery of {workspace} "
+                f"stopped at the Python-file cap, so the agent name and tool "
+                "surface a manifest would declare were read from part of the "
+                "workspace.",
+                f"Re-run with --max-python-files {python_file_total}, a bound "
+                "that covers every Python file here, or point --workspace at "
+                "the project you are changing.",
+            ]
+        )
     if scope == "unknown":
         lines = [
             f"Refusing to write shipgate.yaml: discovery stopped at the "
@@ -273,7 +292,7 @@ def _unresolved_scope_message(
             f"  - ... ({remaining} more; see auto_detected.agent_project_candidates "
             "in --json)"
         )
-    if truncated and scope != "unknown":
+    if parse_truncated and scope != "unknown":
         # The refusal hands this list over as the thing to choose from, so it
         # has to say when the walk that produced it was cut short. Without
         # this an adopter reads their own project's absence as an answer
@@ -283,16 +302,23 @@ def _unresolved_scope_message(
             f"Python-file cap in a workspace holding {project_roots} candidate "
             "project scopes, so any project in the part of the tree that was "
             "not read is missing from it."
+            if truncated
+            else (
+                "Discovery also stopped at the Python-file cap, so the agent "
+                "name and tool surface a manifest would declare were read "
+                "from part of the workspace."
+            )
         )
     lines.append(
         "Re-run init with --workspace pointed at the project you are changing, "
         "or pass --allow-unresolved-scope to write one manifest for this "
         "workspace as a whole."
     )
-    if scope == "unknown" or truncated:
+    if scope == "unknown" or parse_truncated:
         lines.append(
-            "`agents-shipgate detect --max-python-files <n> --json` reports the "
-            "full picture when the repository is larger than the default cap."
+            f"Re-run with --max-python-files {python_file_total}, a bound that "
+            "covers every Python file here, to settle what the capped pass "
+            "could not."
         )
     return "\n".join(lines)
 
@@ -305,7 +331,9 @@ def _unresolved_scope_actions(
     setup_flags: list[str],
     kit: Path | None,
     truncated: bool = False,
+    parse_truncated: bool = False,
     python_file_total: int = 0,
+    setup_command: list[str] | None = None,
 ) -> list[NextAction]:
     """Rank the decision above the commands that carry it out.
 
@@ -318,14 +346,16 @@ def _unresolved_scope_actions(
     agent-instruction selection completes with less than the caller
     requested.
 
-    An ``unknown`` scope is a different obligation wearing the same shape.
-    Nothing has been chosen there because nothing has been *seen*: the parse
-    stopped at its cap. Finishing it is mechanical and read-only, so rank 1
-    is the higher-cap ``detect`` — with a bound that covers every Python file,
-    so the retry cannot land back here — and the human choice waits until
-    there is a settled list to choose from. When the parse was cut short but
-    a contest is already established, the same command follows the decision
-    instead of leading it (#399 review).
+    A capped parse is a different obligation wearing the same shape. Nothing
+    has been chosen there because nothing has been *seen*, and finishing the
+    scan is mechanical — so whenever the parse was cut short, rank 1 is this
+    same ``init`` invocation with a bound that covers every Python file. It
+    settles the scan and carries out what the caller asked for in one step,
+    and it cannot loop: at that bound the next run either writes or refuses
+    with a list that is an enumeration rather than a lower bound. Asking a
+    human to choose from a list the refusal itself calls incomplete is the
+    thing to avoid, whether the scope is ``unknown`` or already contested
+    (#399 review).
     """
 
     retry = (
@@ -333,25 +363,24 @@ def _unresolved_scope_actions(
             kind="command",
             command=render_command(
                 [
-                    "detect",
-                    "--workspace",
-                    str(workspace),
+                    *(setup_command or ["init", "--workspace", str(workspace), "--write"]),
                     "--max-python-files",
                     str(python_file_total),
                     "--json",
                 ]
             ),
             why=(
-                "Discovery stopped at its Python-file cap, so the candidate "
-                "list above describes the part of the workspace that was "
-                "read. Re-run with a bound that covers every Python file."
+                "Discovery stopped at its Python-file cap, so what this run "
+                "read is part of the workspace. This is the same setup at a "
+                "bound that covers every Python file: it settles the scan, "
+                "and either writes or refuses with a settled candidate list."
             ),
             expects=(
-                "A detect payload with python_parse_truncated false, whose "
-                "agent_project_candidates are settled."
+                "Either shipgate.yaml written from a complete parse, or a "
+                "refusal whose agent_project_candidates are an enumeration."
             ),
         )
-        if truncated and python_file_total > 0
+        if parse_truncated and python_file_total > 0
         else None
     )
     why = (
@@ -373,6 +402,13 @@ def _unresolved_scope_actions(
             "above, or name the project you are changing."
         )
     )
+    if scope == "single" and parse_truncated:
+        why = (
+            f"Discovery of {workspace} stopped at its Python-file cap, so the "
+            "agent name and tool surface a manifest would declare were read "
+            "from part of the workspace. Finish the scan with the command "
+            "above, or point --workspace at the project you are changing."
+        )
     decision = NextAction(
         kind="review",
         why=why,
@@ -381,12 +417,7 @@ def _unresolved_scope_actions(
             "auto_detected.agent_project_candidates."
         ),
     )
-    if scope == "unknown" and retry is not None:
-        actions = [retry, decision]
-    elif retry is not None:
-        actions = [decision, retry]
-    else:
-        actions = [decision]
+    actions = [retry, decision] if retry is not None else [decision]
     # The workspace root is never offered as a command: it is the scope this
     # run just refused, so running it again returns here. `.` stays in the
     # reported candidate list because agent files that belong to no
@@ -717,6 +748,18 @@ def register(app: typer.Typer) -> None:
             "--minimal",
             help="Use the legacy CHANGE_ME-heavy template instead of auto-detection.",
         ),
+        max_python_files: int = typer.Option(
+            DEFAULT_MAX_PYTHON_FILES,
+            "--max-python-files",
+            help=(
+                "Cap on .py files to AST-parse while auto-detecting. Mirrors "
+                "`detect`. A capped parse refuses to write, because the "
+                "manifest would declare a tool surface read from part of the "
+                "tree; re-run with the value detect reports as "
+                "workspace_signals.python_file_total."
+            ),
+            hidden=True,
+        ),
         allow_unresolved_scope: bool = typer.Option(
             False,
             "--allow-unresolved-scope",
@@ -843,6 +886,7 @@ def register(app: typer.Typer) -> None:
         # Whether that candidate list is an enumeration or a lower bound, and
         # the uncapped project-root census that bounds it (#395).
         scope_truncated = False
+        scope_parse_truncated = False
         scope_project_roots = 0
         scope_python_files = 0
         if minimal:
@@ -862,7 +906,9 @@ def register(app: typer.Typer) -> None:
             )
         else:
             try:
-                detect_result = detect_workspace(workspace_resolved)
+                detect_result = detect_workspace(
+                    workspace_resolved, max_python_files=max_python_files
+                )
             except DiscoveryError as exc:
                 message = (
                     "Workspace discovery could not establish bounded coverage: "
@@ -950,6 +996,11 @@ def register(app: typer.Typer) -> None:
                 # message quotes, so a caller that reads the message has to be
                 # able to read the number too (#399 review).
                 "agent_scope_truncated": detect_result.agent_scope_truncated,
+                # The raw completeness fact. A manifest rendered from a capped
+                # parse declares a tool surface read from part of the tree, so
+                # `--write` refuses on it — and a caller has to be able to read
+                # why (#399 review).
+                "python_parse_truncated": detect_result.python_parse_truncated,
                 "workspace_signals": detect_result.workspace_signals.model_dump(
                     mode="json"
                 ),
@@ -961,6 +1012,7 @@ def register(app: typer.Typer) -> None:
             scope_candidates = list(detect_result.agent_project_candidates)
             detected_scope = detect_result.agent_scope
             scope_truncated = detect_result.agent_scope_truncated
+            scope_parse_truncated = detect_result.python_parse_truncated
             scope_project_roots = detect_result.workspace_signals.project_root_count
             scope_python_files = detect_result.workspace_signals.python_file_total
             excluded_sources = detect_result.excluded_sources
@@ -1036,7 +1088,9 @@ def register(app: typer.Typer) -> None:
                 # set the user's primary intent is refreshing snippets, and an
                 # already-existing manifest is informational, not a failure.
                 manifest_skip_pending = True
-            elif detected_scope != "single" and not allow_unresolved_scope:
+            elif scope_parse_truncated or (
+                detected_scope != "single" and not allow_unresolved_scope
+            ):
                 manifest_status = "refused_unresolved_scope"
                 manifest_exit = 2
                 manifest_message = _unresolved_scope_message(
@@ -1044,7 +1098,9 @@ def register(app: typer.Typer) -> None:
                     scope_candidates,
                     scope=detected_scope,
                     truncated=scope_truncated,
+                    parse_truncated=scope_parse_truncated,
                     project_roots=scope_project_roots,
+                    python_file_total=scope_python_files,
                 )
                 scope_refused = True
             else:
@@ -1139,7 +1195,21 @@ def register(app: typer.Typer) -> None:
                 ),
                 kit=agent_instructions_kit,
                 truncated=scope_truncated,
+                parse_truncated=scope_parse_truncated,
                 python_file_total=scope_python_files,
+                # The same setup this run asked for, so the retry completes it
+                # rather than silently dropping --ci or an instruction target.
+                setup_command=[
+                    "init",
+                    "--workspace",
+                    str(workspace_resolved),
+                    "--write",
+                    *_requested_setup_flags(
+                        ci=ci,
+                        claude_code=claude_code,
+                        agent_instructions=agent_instructions,
+                    ),
+                ],
             )
 
         # Routing. Computed from the manifest that is *on disk*, not from the

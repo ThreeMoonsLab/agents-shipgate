@@ -373,13 +373,17 @@ def diagnose_detect(
                 )
 
         # Both nudges below name a root `init --write`, and setup routing
-        # ranks a diagnostic ahead of the advance — so an unresolved scope
-        # here published a command that refuses deterministically, over the
-        # top of the scope route that would have said so (#399 review). They
-        # fire only where that command can succeed, which is exactly where
-        # the workspace is one manifest's scope.
-        single_scope = result.agent_scope == "single"
-        if not is_agent and has_suggested and not has_codex_plugin and single_scope:
+        # ranks a diagnostic ahead of the advance — so anything unsettled here
+        # published a command over the top of the route that would have said
+        # so (#399 review). They fire only where that command both succeeds
+        # and adopts a complete surface: a settled scope says the workspace is
+        # one manifest's boundary, and a complete parse says the tool surface
+        # that manifest would declare was actually read. A settled scope does
+        # not imply the second — a one-project workspace is `"single"` however
+        # early the parse stopped — and gating on it alone let the artifact
+        # nudge outrank the full-count retry and adopt a truncated surface.
+        settled = result.agent_scope == "single" and not result.python_parse_truncated
+        if not is_agent and has_suggested and not has_codex_plugin and settled:
             diagnostics.append(
                 Diagnostic(
                     id=DIAG_MCP_OPENAPI_ARTIFACT_ONLY,
@@ -405,7 +409,7 @@ def diagnose_detect(
                 )
             )
 
-        if not is_agent and has_codex_plugin and single_scope:
+        if not is_agent and has_codex_plugin and settled:
             diagnostics.append(
                 Diagnostic(
                     id=DIAG_CODEX_PLUGIN_PACKAGE_DETECTED,

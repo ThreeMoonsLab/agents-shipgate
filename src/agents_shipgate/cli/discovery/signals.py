@@ -346,6 +346,7 @@ def detect_workspace(
         workspace,
     )
     project_root_count = _project_root_count(inventory, workspace)
+    python_file_total = sum(1 for path in inventory if path.suffix == ".py")
     agent_scope, agent_scope_truncated = _agent_scope(
         agent_project_candidates,
         parse_truncated=parse_truncated,
@@ -383,6 +384,19 @@ def detect_workspace(
             "established. Re-run with a higher --max-python-files, or run "
             "init in the project directory you are changing."
         )
+    elif parse_truncated:
+        # A settled scope is not a complete classification. On a workspace with
+        # one candidate scope the branches above never fire, so a capped parse
+        # fell straight through to `init` — which would adopt a tool surface
+        # read from part of the tree — or to the flat negative, which was the
+        # terminal false answer for an agent sitting past the cap (#399 review).
+        next_action = (
+            f"Discovery stopped at {max_python_files} Python files, so this "
+            "classification describes the part of the workspace that was read. "
+            "Re-run `detect --max-python-files "
+            f"{python_file_total} --json` — a bound that covers every Python "
+            "file — before treating any verdict here as complete."
+        )
     elif is_agent_project or suggested_sources or codex_plugin_candidates:
         next_action = render_command(["init", "--workspace", str(workspace)])
     else:
@@ -391,7 +405,7 @@ def detect_workspace(
     present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
     workspace_signals = WorkspaceSignals(
         python_file_count=len(py_facts),
-        python_file_total=sum(1 for path in inventory if path.suffix == ".py"),
+        python_file_total=python_file_total,
         project_root_count=project_root_count,
         has_pyproject_or_requirements=(
             (workspace / "pyproject.toml").is_file()
@@ -2382,6 +2396,16 @@ def weak_marker_evidence_dirs(
                 break
             current = parent
 
+    # Boundaries the change *removes*, computed before anything reads the head
+    # tree — because the head tree is where they are missing. A directory whose
+    # project marker this pull request deletes is not a directory that was
+    # never a project, and it never reaches the marker filter below (#399
+    # review).
+    undetermined: list[UndeterminedDirectory] = list(
+        _removed_boundaries(root_resolved, changed)
+    )
+    removed_dirs = {entry.path for entry in undetermined}
+
     # `project_marker` reports strong markers ahead of weak ones, so one call
     # separates all three cases: no marker (nothing to unlock), a strong
     # marker (already a project root, and evidence cannot change that), and a
@@ -2400,26 +2424,25 @@ def weak_marker_evidence_dirs(
         in WEAK_PROJECT_MARKERS
     )
     if not probe:
-        # The overwhelmingly common case, and the reason nothing above this
-        # line reads a file: no weak marker means no inventory and no parse.
-        return WeakMarkerEvidence()
+        # The common case, and the reason nothing above this line reads a
+        # file beyond a `stat`: no weak marker means no inventory and no parse.
+        return WeakMarkerEvidence(undetermined=_sorted(undetermined))
 
     try:
         inventory = _candidate_files(root_resolved)
     except (DiscoveryError, OSError):
         # Fail closed. Without the inventory every candidate is unsettled,
         # not settled negative.
-        return WeakMarkerEvidence(
-            undetermined=tuple(
-                UndeterminedDirectory(
-                    path=_relative(directory, root_resolved),
-                    cause="unreadable_inventory",
-                    reason="the workspace inventory could not be read",
-                )
-                for directory in probe
-                if directory != root_resolved
+        undetermined.extend(
+            UndeterminedDirectory(
+                path=_relative(directory, root_resolved),
+                cause="unreadable_inventory",
+                reason="the workspace inventory could not be read",
             )
+            for directory in probe
+            if directory != root_resolved
         )
+        return WeakMarkerEvidence(undetermined=_sorted(undetermined))
 
     by_directory: dict[Path, list[Path]] = {}
     for path in inventory:
@@ -2428,10 +2451,10 @@ def weak_marker_evidence_dirs(
     python_file_total = sum(1 for path in inventory if path.suffix == ".py")
 
     found: set[Path] = set()
-    undetermined: list[UndeterminedDirectory] = []
     budget = max_python_files
     for directory in probe:
         held = by_directory.get(directory, [])
+        relative = _relative(directory, root_resolved)
         if (
             directory in plugin_dirs
             or any(_collect_glob_hits(root_resolved, files=held).values())
@@ -2439,28 +2462,40 @@ def weak_marker_evidence_dirs(
         ):
             found.add(directory)
             continue
+        # Only the Python files a `detect` *of this directory* would reach.
+        # The command preview recommends is scoped to it, and that command
+        # spends the cap over the directory's whole subtree in inventory
+        # order — so a direct `agent.py` sorting after a thousand inert
+        # modules is evidence this probe can see and the command it names
+        # cannot (#399 review).
+        readable, beyond_cap = _within_parse_budget(
+            directory, held, inventory, max_python_files
+        )
         agent_python, budget, unread = _holds_agent_python(
-            held, root_resolved, budget=budget
+            readable, root_resolved, budget=budget
         )
         if agent_python:
             found.add(directory)
             continue
         if directory == root_resolved:
             continue
-        relative = _relative(directory, root_resolved)
-        if unread:
+        # Causes accumulate. A budget that ran out does not answer a deletion,
+        # and reporting only the first one routed a deleted-evidence case to a
+        # retry that cannot see what was deleted (#399 review).
+        if unread or beyond_cap:
             undetermined.append(
                 UndeterminedDirectory(
                     path=relative,
                     cause="parse_budget",
                     reason=(
-                        f"the {max_python_files}-file parse budget ran out "
-                        "with Python files beside its requirements file still "
-                        "unread"
+                        f"a {max_python_files}-file parse does not reach every "
+                        "Python file that could be its evidence"
                     ),
                 )
             )
-        elif _deletes_possible_evidence(directory, root_resolved, changed):
+        if relative not in removed_dirs and _deletes_possible_evidence(
+            directory, root_resolved, changed
+        ):
             undetermined.append(
                 UndeterminedDirectory(
                     path=relative,
@@ -2475,8 +2510,103 @@ def weak_marker_evidence_dirs(
             )
     return WeakMarkerEvidence(
         directories=frozenset(found),
-        undetermined=tuple(sorted(undetermined, key=lambda entry: entry.path)),
+        undetermined=_sorted(undetermined),
         python_file_total=python_file_total,
+    )
+
+
+def _sorted(
+    entries: list[UndeterminedDirectory],
+) -> tuple[UndeterminedDirectory, ...]:
+    return tuple(sorted(entries, key=lambda entry: (entry.path, entry.cause)))
+
+
+def _within_parse_budget(
+    directory: Path, held: list[Path], inventory: list[Path], max_python_files: int
+) -> tuple[list[Path], bool]:
+    """The files in ``held`` a capped ``detect`` *of ``directory``* would read.
+
+    Returns them, plus whether any direct Python file falls outside that
+    bound. The inventory is already in the order discovery consumes it, so
+    the bound is the first ``max_python_files`` Python paths under
+    ``directory`` — exactly the set the recommended scoped command reaches.
+    """
+
+    reachable: set[Path] = set()
+    seen = 0
+    for path in inventory:
+        if path.suffix != ".py":
+            continue
+        if path.parent != directory and directory not in path.parents:
+            continue
+        if seen >= max_python_files:
+            break
+        seen += 1
+        reachable.add(path)
+    readable = [path for path in held if path.suffix != ".py" or path in reachable]
+    beyond = any(
+        path.suffix == ".py" and path not in reachable for path in held
+    )
+    return readable, beyond
+
+
+def _removed_boundaries(
+    workspace: Path, changed: list[PurePosixPath]
+) -> list[UndeterminedDirectory]:
+    """Directories whose project boundary this change removes.
+
+    Every other question here is asked of the head tree, which is the one
+    place a removed boundary is guaranteed not to be. A pull request deleting
+    ``services/gone/{pyproject.toml,agent.py}`` leaves nothing for the marker
+    filter to find, so the directory is silently not a project and the change
+    is attributed to whatever survives — on the reported repository, a root
+    ``init`` for an unrelated agent (#399 review).
+
+    A removed *strong* marker is a removed boundary outright: a
+    ``pyproject.toml`` draws a project root with no evidence needed. A removed
+    *weak* marker only drew one beside agent evidence, so it counts when the
+    change also touches something in that directory that could have been the
+    evidence — which keeps a deleted ``tests/requirements.txt`` from reading
+    as a lost project.
+    """
+
+    removed: dict[str, UndeterminedDirectory] = {}
+    gone = [path for path in changed if not (workspace / path).exists()]
+    for path in gone:
+        name = path.parts[-1]
+        strong = name in PROJECT_MARKERS
+        if not strong and name not in WEAK_PROJECT_MARKERS:
+            continue
+        directory = workspace.joinpath(*path.parts[:-1])
+        if directory == workspace:
+            continue
+        relative = _relative(directory, workspace)
+        if any(_skip_part(part) for part in PurePosixPath(relative).parts):
+            continue
+        if not strong and not any(
+            _could_be_evidence(other, workspace)
+            for other in gone
+            if workspace.joinpath(*other.parts[:-1]) == directory
+        ):
+            continue
+        removed[relative] = UndeterminedDirectory(
+            path=relative,
+            cause="deleted_evidence",
+            reason=(
+                f"this change removes {name} from it, so the boundary that "
+                "made it a self-contained project is not in the tree being "
+                "evaluated"
+            ),
+        )
+    return list(removed.values())
+
+
+def _could_be_evidence(path: PurePosixPath, workspace: Path) -> bool:
+    """Whether a file at ``path`` could have been agent evidence, by name."""
+
+    return path.parts[-1].endswith(".py") or any(
+        _matches_pattern(workspace / path, workspace, pattern)
+        for pattern in _EVIDENCE_FILE_PATTERNS
     )
 
 
@@ -2496,12 +2626,8 @@ def _deletes_possible_evidence(
     for path in changed:
         parent = workspace.joinpath(*path.parts[:-1])
         if parent == directory:
-            if path.parts[-1].endswith(".py") or any(
-                _matches_pattern(workspace / path, workspace, pattern)
-                for pattern in _EVIDENCE_FILE_PATTERNS
-            ):
-                if not (workspace / path).exists():
-                    return True
+            if _could_be_evidence(path, workspace) and not (workspace / path).exists():
+                return True
         elif (
             path.parts[-1] == "plugin.json"
             and PurePosixPath(*path.parts[:-1]) == plugin_manifest

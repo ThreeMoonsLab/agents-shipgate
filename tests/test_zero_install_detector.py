@@ -364,6 +364,50 @@ def test_script_and_cli_agree_on_a_truncated_walk(script_module, tmp_path):
     assert "--max-python-files" in cli_result["next_action"]
 
 
+def test_script_and_cli_agree_on_a_capped_single_scope(script_module, tmp_path):
+    """A one-project workspace is `agent_scope: "single"` however early the
+    parse stopped, so the scope branches never fire and both detectors fell
+    through to "Workspace does not appear to be an agent project. No action."
+    — a terminal false negative for an agent sitting past the cap (#399
+    review)."""
+
+    repo = tmp_path / "capped-single"
+    filler = repo / "aa_filler"
+    filler.mkdir(parents=True)
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "capped"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    for index in range(1001):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "zz_agent.py").write_text(
+        _ADK_AGENT.format(name="hidden_agent"), encoding="utf-8"
+    )
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+
+    for label, result in (("script", script_result), ("cli", cli_result)):
+        assert result["python_parse_truncated"] is True, label
+        assert result["agent_scope"] == "single", label
+        assert result["is_agent_project"] is False, label
+        assert "does not appear to be an agent project" not in result["next_action"], (
+            f"{label}: a capped parse published a terminal false negative"
+        )
+        total = result["workspace_signals"]["python_file_total"]
+        assert f"--max-python-files {total}" in result["next_action"], label
+
+    # Human output takes the same route, ahead of every verdict below it.
+    import contextlib
+    import io
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        script_module.main(["--workspace", str(repo)])
+    printed = buffer.getvalue()
+    assert "does not appear to be an agent project" not in printed
+    assert "--max-python-files" in printed
+
+
 def test_script_and_cli_skip_common_fixture_dirs(script_module, tmp_path):
     _write_skipped_fixture_signals(tmp_path / "fixtures")
 

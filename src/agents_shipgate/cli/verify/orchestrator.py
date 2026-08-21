@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import hashlib
 import json
 import os
@@ -27,10 +28,7 @@ from agents_shipgate.cli.discovery.scope import (
     manifest_opt_in,
     resolve_change_scope,
 )
-from agents_shipgate.cli.discovery.signals import (
-    WeakMarkerEvidence,
-    weak_marker_evidence_dirs,
-)
+from agents_shipgate.cli.discovery.signals import weak_marker_evidence_dirs
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
@@ -3924,9 +3922,24 @@ def _head_is_current_worktree(root: Path, head: str | None) -> bool:
     return head_sha is not None and head_sha == worktree_sha
 
 
+@dataclasses.dataclass(frozen=True)
+class _PreviewScope:
+    """Which project the diff belongs to, and why it could not be established.
+
+    ``cause`` is what selects the recovery. It is not derivable from
+    ``resolution`` alone: ``not_evaluated`` covers a capped probe, evidence the
+    diff deleted, and a head that is not this worktree, and the honest next
+    step differs for each (#399 review).
+    """
+
+    resolution: ScopeResolution
+    cause: str | None = None
+    python_file_total: int = 0
+
+
 def _preview_scope(
     *, root: Path, changed_files: list[str], limit: Path | None, head: str | None
-) -> tuple[ScopeResolution, WeakMarkerEvidence]:
+) -> _PreviewScope:
     """Which project the changed paths belong to, for the routing below.
 
     Project markers are read from the working tree, because that is what
@@ -3948,8 +3961,8 @@ def _preview_scope(
     """
 
     if not _head_is_current_worktree(root, head):
-        return (
-            ScopeResolution(
+        return _PreviewScope(
+            resolution=ScopeResolution(
                 status="not_evaluated",
                 detail=(
                     f"the evaluated head {head!r} is not the commit this "
@@ -3957,27 +3970,38 @@ def _preview_scope(
                     "from the worktree that init would run against"
                 ),
             ),
-            WeakMarkerEvidence(),
+            cause="head_mismatch",
         )
     evidence = weak_marker_evidence_dirs(root, changed_files)
     if evidence.undetermined:
-        return ScopeResolution(status="not_evaluated", detail=evidence.detail), evidence
-    return (
-        resolve_change_scope(
+        causes = evidence.causes
+        # Deleted evidence outranks a capped probe: raising a bound cannot
+        # find a file the change removed, so a retry would settle the wrong
+        # question confidently.
+        cause = (
+            "deleted_evidence"
+            if "deleted_evidence" in causes
+            else ("unreadable_inventory" if "unreadable_inventory" in causes else "parse_budget")
+        )
+        return _PreviewScope(
+            resolution=ScopeResolution(
+                status="not_evaluated", detail=evidence.detail
+            ),
+            cause=cause,
+            python_file_total=evidence.python_file_total,
+        )
+    return _PreviewScope(
+        resolution=resolve_change_scope(
             root=root,
             changed_files=changed_files,
             limit=limit,
             evidence_dirs=evidence.directories,
-        ),
-        evidence,
+        )
     )
 
 
 def _unresolved_scope_route(
-    *,
-    resolution: ScopeResolution,
-    evidence: WeakMarkerEvidence,
-    workspace: Path,
+    *, scope: _PreviewScope, workspace: Path
 ) -> tuple[AgentControlAction, str]:
     """The recovery for a change whose project could not be established.
 
@@ -3997,31 +4021,31 @@ def _unresolved_scope_route(
     publishing a step that cannot take.
     """
 
-    causes = evidence.causes
-    if "deleted_evidence" in causes or "unreadable_inventory" in causes:
+    resolution = scope.resolution
+    if scope.cause in ("deleted_evidence", "unreadable_inventory", "head_mismatch"):
         return (
             HumanControlAction(
                 kind="review",
                 why=(
                     "The project this change belongs to could not be "
                     f"established ({resolution.detail}), and no read-only "
-                    "command settles it: the evidence is not in the tree "
-                    "being evaluated. Decide from the change itself whether "
-                    "that directory is a self-contained project, then "
-                    "initialize it — or the project this change belongs to — "
-                    "by name. Initializing the workspace root would adopt a "
-                    "scope nobody chose."
+                    "command settles it: the evidence is not in the tree this "
+                    "run can read. Decide from the change itself which project "
+                    "it belongs to and initialize that directory by name. "
+                    "Discovery of the current worktree would answer about a "
+                    "different tree, and initializing the workspace root would "
+                    "adopt a scope nobody chose."
                 ),
             ),
             "Shipgate could not establish which project this change belongs "
             "to, and no command settles it; a human decides here.",
         )
-    if "parse_budget" in causes:
+    if scope.cause == "parse_budget":
         return (
             CodingAgentCommandAction(
                 kind="discover",
                 command=_preview_detect_command(
-                    workspace, max_python_files=evidence.python_file_total
+                    workspace, max_python_files=scope.python_file_total
                 ),
                 why=(
                     "The project this change belongs to could not be "
@@ -4256,9 +4280,10 @@ def run_preview(
     # `init` will run against. When the evaluated head is some other commit,
     # the two disagree — the same refs would recommend different directories
     # depending on what happens to be checked out — so no scope is claimed.
-    resolution, scope_evidence = _preview_scope(
+    preview_scope = _preview_scope(
         root=root, changed_files=changed_files, limit=requested_root, head=head
     )
+    resolution = preview_scope.resolution
     scope = resolution.scope
     scoped_config = (
         _scoped_manifest_path(scope.directory, config_path.name)
@@ -4466,7 +4491,7 @@ def run_preview(
         # checkout (#363 review). Which recovery says so depends on why it
         # could not tell, so the route is chosen from the cause.
         next_action, headline = _unresolved_scope_route(
-            resolution=resolution, evidence=scope_evidence, workspace=workspace
+            scope=preview_scope, workspace=workspace
         )
     elif trigger.get("should_run") or trigger.get("dry_run_recommended"):
         next_action = CodingAgentCommandAction(

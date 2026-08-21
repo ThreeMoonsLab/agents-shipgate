@@ -18,7 +18,11 @@ import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import diagnose_detect
-from agents_shipgate.cli.discovery import detect_workspace, select_agent_name
+from agents_shipgate.cli.discovery import (
+    DEFAULT_MAX_PYTHON_FILES,
+    detect_workspace,
+    select_agent_name,
+)
 from agents_shipgate.cli.setup_control import (
     SETUP_INCOMPLETE,
     setup_control_envelope,
@@ -48,7 +52,7 @@ def detect(
         help="Emit JSON. Default: human-readable summary.",
     ),
     max_python_files: int = typer.Option(
-        1000,
+        DEFAULT_MAX_PYTHON_FILES,
         "--max-python-files",
         help="Cap on .py files to AST-parse. Defends against large monorepos.",
         hidden=True,

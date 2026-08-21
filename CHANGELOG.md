@@ -40,7 +40,21 @@
   `detect` cannot see evidence the change deleted — it reports the surviving
   project as the workspace's single scope and its `init` writes a manifest for
   an agent the pull request never touched — so deleted evidence is a human
-  route with no command at all.
+  route with no command at all. Causes accumulate rather than replacing one
+  another, and deleted evidence outranks a cap, because raising a bound cannot
+  find a file the change removed. An evaluated head that is not this worktree
+  is the third such cause: discovery of the current tree answers about a
+  different one, so that route carries no command either.
+
+  Two blind spots in that probe are closed. It now bounds each directory's
+  Python evidence to the files a `detect` *of that directory* would reach —
+  the first `max_python_files` paths of its subtree in inventory order — so a
+  direct `agent.py` sorting after a thousand inert modules is no longer
+  evidence preview can see and the scoped command it recommends cannot. And
+  boundaries the change *removes* are derived from the change set before
+  anything reads the head tree, since a deleted `pyproject.toml` leaves nothing
+  for a head-tree marker filter to find: a pull request deleting a whole
+  project was silently attributed to whatever survived.
 
 - `detect`'s glob-based source suggestion re-ran the whole git inventory walk
   once per pattern — fifteen walks for one pass. `_candidate_files_matching`
@@ -85,24 +99,45 @@
   `stop_conditions_evaluated: false` rather than silently satisfying it, since
   absent is not false.
 
+  `init --write` refuses on a truncated parse too, and takes the same
+  `--max-python-files` flag. It runs its own discovery, so a bound `detect`
+  settled on did not reach it: following the recommended route landed on an
+  `init` that re-ran at the default cap, missed the agent, and wrote a
+  `CHANGE_ME` manifest with no tools at exit 0.
+
   The recovery from a capped walk is now an executable command rather than
   prose inside a human route. Raising `--max-python-files` is a mechanical,
-  read-only retry that needs no decision, so `detect` and `init` publish
-  `detect --max-python-files <workspace_signals.python_file_total> --json` —
-  a bound covering every Python file in the workspace, so the retry cannot
-  land back at the same cap. On an `unknown` scope that command *leads* the
-  ranked recovery, because nothing has been chosen there; nothing has been
-  seen. Human review is reserved for choosing an actual manifest boundary.
+  read-only retry that needs no decision, so `next_actions[0]` is the *same
+  command you ran* at a bound covering every Python file in the workspace —
+  `detect --max-python-files <n> --json` from `detect`, and
+  `init --write --max-python-files <n> --json` (carrying the setup flags the
+  run asked for) from `init`. It cannot land back at the same cap, and from
+  `init` it settles the scan and completes the setup in one step. That command
+  leads the ranked recovery whenever the parse was truncated: asking a human to
+  choose from a list the refusal itself calls incomplete is the thing to avoid.
+  Human review is reserved for choosing an actual manifest boundary.
 
   Two more routes that could not succeed are gone:
   `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` and
   `SHIP-DIAG-CODEX-PLUGIN-PACKAGE-DETECTED` name a root `init --write`, and
-  setup routing ranks a diagnostic ahead of the advance, so on an unresolved
-  scope they published a command that refuses deterministically; both now fire
-  only when `agent_scope == "single"`. And `bootstrap`'s no-surface stop
-  ignored `codex_plugin_candidates` entirely, so a Codex-plugin-only
+  setup routing ranks a diagnostic ahead of the advance, so on an unsettled
+  workspace they published a command over the top of the route that would have
+  said so; both now fire only on a settled scope *and* a complete parse. A
+  single scope settles the manifest boundary and says nothing about whether the
+  surface that manifest would declare was read. And `bootstrap`'s no-surface
+  stop ignored `codex_plugin_candidates` entirely, so a Codex-plugin-only
   repository — deliberately `is_agent_project: false` — stopped at `detect`
   and never ran `init`.
+
+  `DetectResult.next_action` carries the same rule. The CLI overwrites it with
+  the routed action, which is why its stale branch survived: read as a library
+  value — which is what the zero-install detector mirrors — a capped
+  single-scope workspace still returned "Workspace does not appear to be an
+  agent project. No action." Truncation is now checked ahead of the adoption
+  and negative branches in both detectors, and in the script's human output.
+  `first_look` routes the same way: its final `Next:` line is the full-count
+  retry rather than a `verify --preview` that walks past the recovery printed
+  one line above it.
 
   The zero-install `tools/shipgate-detect.py` carries all the new fields
   (script version `0.4.0`), pinned by the parity test — which now includes a

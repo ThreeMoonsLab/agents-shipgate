@@ -184,3 +184,48 @@ def test_next_command_routing_priority() -> None:
     assert "audit --host" in _next_command(False, False, True)
     # Nothing relevant: say so plainly.
     assert "may not apply" in _next_command(False, False, False)
+    # An incomplete classification outranks all of them: nothing below can be
+    # the best next step while the classification the choices rest on stopped
+    # at its cap, and `verify --preview` does not complete it either (#399
+    # review).
+    settle = "agents-shipgate detect --max-python-files 1002 --json"
+    assert settle in _next_command(False, True, True, settle)
+    assert "verify --preview" not in _next_command(False, True, True, settle)
+    # An adopted manifest still wins: the boundary is already declared.
+    assert "verify" in _next_command(True, True, True, settle)
+
+
+def test_first_look_routes_a_capped_classification_to_the_full_count_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The classification line and the final arrow must not disagree: printing
+    the retry and then routing the reader to `verify --preview` advertises a
+    best next step that walks past the recovery one line above it."""
+
+    repo = _init_repo(tmp_path)
+    filler = repo / "aa_filler"
+    filler.mkdir()
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "capped"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    for index in range(1001):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "zz_agent.py").write_text(
+        "from google.adk.agents import Agent\n\n\n"
+        "def act(x: str) -> str:\n"
+        '    """Act."""\n'
+        '    return "ok"\n\n\n'
+        'root_agent = Agent(name="hidden_agent", tools=[act])\n',
+        encoding="utf-8",
+    )
+    _commit(repo)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0, result.output
+    assert "classification incomplete" in result.output
+    assert "no strong agent-framework signals" not in result.output
+    arrow = [line for line in result.output.splitlines() if line.startswith("→")]
+    assert arrow and "--max-python-files" in arrow[0], result.output
+    assert "verify --preview" not in arrow[0]

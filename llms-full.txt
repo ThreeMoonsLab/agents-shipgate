@@ -267,7 +267,9 @@ agents-shipgate bootstrap --json
   Python parse stopped at `max_python_files`, so the negative describes the
   files that were read rather than the repository — re-run with
   `--max-python-files <workspace_signals.python_file_total>`, which is a bound
-  that cannot hit the cap again. `agent_scope` says whether one manifest can
+  that cannot hit the cap again. `init --write` takes the same flag and refuses
+  without it while the parse is truncated, rather than declaring an agent name
+  and tool surface read from part of the tree. `agent_scope` says whether one manifest can
   describe this workspace at all: `"ambiguous"` means agents live in several self-contained
   projects (`agent_project_candidates[]` lists them, and the manifest belongs
   in one of them rather than at the workspace root); `"unknown"` means
@@ -1076,10 +1078,15 @@ Key response fields:
   first.
 - `auto_detected.python_parse_truncated`: whether the Python parse stopped at
   its cap at all. Every whole-workspace negative — `is_agent_project: false`
-  included — is unsafe to act on while this is `true`. The recovery is
-  mechanical and the emitted `next_actions[0]` carries it:
-  `detect --max-python-files <workspace_signals.python_file_total> --json`, a
-  bound that covers every Python file and so cannot hit the cap again.
+  included — is unsafe to act on while this is `true`, and `--write` refuses,
+  because the agent name and tool surface a manifest would declare were read
+  from part of the tree. The recovery is mechanical and the emitted
+  `next_actions[0]` carries it: the *same command you ran*, plus
+  `--max-python-files <workspace_signals.python_file_total>` — a bound that
+  covers every Python file and so cannot hit the cap again. From `detect` that
+  is a `detect`; from `init --write` it is an `init --write`, carrying the
+  setup flags the run asked for, so one step both settles the scan and
+  completes the setup.
 - `auto_detected.agent_scope_truncated`: whether that candidate list is an
   enumeration or a lower bound. `true` means the Python parse stopped at its
   cap in a workspace holding more than one candidate project scope, so any

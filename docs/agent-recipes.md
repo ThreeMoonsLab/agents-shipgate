@@ -202,10 +202,15 @@ Key response fields:
   first.
 - `auto_detected.python_parse_truncated`: whether the Python parse stopped at
   its cap at all. Every whole-workspace negative — `is_agent_project: false`
-  included — is unsafe to act on while this is `true`. The recovery is
-  mechanical and the emitted `next_actions[0]` carries it:
-  `detect --max-python-files <workspace_signals.python_file_total> --json`, a
-  bound that covers every Python file and so cannot hit the cap again.
+  included — is unsafe to act on while this is `true`, and `--write` refuses,
+  because the agent name and tool surface a manifest would declare were read
+  from part of the tree. The recovery is mechanical and the emitted
+  `next_actions[0]` carries it: the *same command you ran*, plus
+  `--max-python-files <workspace_signals.python_file_total>` — a bound that
+  covers every Python file and so cannot hit the cap again. From `detect` that
+  is a `detect`; from `init --write` it is an `init --write`, carrying the
+  setup flags the run asked for, so one step both settles the scan and
+  completes the setup.
 - `auto_detected.agent_scope_truncated`: whether that candidate list is an
   enumeration or a lower bound. `true` means the Python parse stopped at its
   cap in a workspace holding more than one candidate project scope, so any

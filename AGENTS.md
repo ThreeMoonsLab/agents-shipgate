@@ -242,7 +242,9 @@ agents-shipgate bootstrap --json
   Python parse stopped at `max_python_files`, so the negative describes the
   files that were read rather than the repository — re-run with
   `--max-python-files <workspace_signals.python_file_total>`, which is a bound
-  that cannot hit the cap again. `agent_scope` says whether one manifest can
+  that cannot hit the cap again. `init --write` takes the same flag and refuses
+  without it while the parse is truncated, rather than declaring an agent name
+  and tool surface read from part of the tree. `agent_scope` says whether one manifest can
   describe this workspace at all: `"ambiguous"` means agents live in several self-contained
   projects (`agent_project_candidates[]` lists them, and the manifest belongs
   in one of them rather than at the workspace root); `"unknown"` means

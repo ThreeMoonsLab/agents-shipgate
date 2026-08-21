@@ -38,6 +38,7 @@ from agents_shipgate.cli.discovery.ci_workflow import (
     write_ci_workflow,
 )
 from agents_shipgate.cli.discovery.signals import (
+    DEFAULT_MAX_PYTHON_FILES,
     detect_workspace,
     select_agent_name,
     weak_marker_evidence_dirs,
@@ -60,6 +61,7 @@ __all__ = [
     "CodexPluginCandidate",
     "DetectResult",
     "FrameworkDetection",
+    "DEFAULT_MAX_PYTHON_FILES",
     "MCP_PATTERNS",
     "MODEL_CONFIG_PATTERNS",
     "NameCandidate",

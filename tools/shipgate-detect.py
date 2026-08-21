@@ -1932,6 +1932,7 @@ def detect(workspace: Path) -> dict[str, Any]:
     # what a cut-short parse changes is that the candidate list is a lower
     # bound, not an enumeration. Folding the two into one value made the cap
     # warning unreachable on the repositories the cap had actually cut (#395).
+    python_file_total = sum(1 for p in files if p.suffix == ".py")
     agent_scope_truncated = py_truncated and len(project_roots) > 1
     if len(agent_project_candidates) > 1:
         agent_scope = "ambiguous"
@@ -1964,6 +1965,18 @@ def detect(workspace: Path) -> dict[str, Any]:
             "detect --max-python-files <n> --json` for the full picture, or "
             "init in the project directory you are changing."
         )
+    elif py_truncated:
+        # A settled scope is not a complete classification: a one-project
+        # workspace is "single" however early the parse stopped, so a capped
+        # run fell through to init or to the flat negative — the terminal
+        # false answer for an agent sitting past the cap (#399 review).
+        next_action = (
+            "Discovery stopped at the Python-file cap, so this classification "
+            "describes the part of the workspace that was read. Re-run "
+            f"`agents-shipgate detect --max-python-files {python_file_total} "
+            "--json` — a bound that covers every Python file — before treating "
+            "any verdict here as complete."
+        )
     elif is_agent or suggested or codex_plugin_candidates:
         next_action = f"agents-shipgate init --workspace {workspace}"
     else:
@@ -1988,7 +2001,7 @@ def detect(workspace: Path) -> dict[str, Any]:
         "next_action": next_action,
         "workspace_signals": {
             "python_file_count": len(py_facts),
-            "python_file_total": sum(1 for p in files if p.suffix == ".py"),
+            "python_file_total": python_file_total,
             "project_root_count": len(project_roots),
             "has_pyproject_or_requirements": (
                 (workspace / "pyproject.toml").is_file()
@@ -2021,6 +2034,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.json:
         print(json.dumps(result, indent=2))
+        return 0
+    if result["python_parse_truncated"]:
+        # Before any verdict, because every verdict below it is a claim about
+        # the whole workspace and the parse read part of one (#399 review).
+        print("Classification incomplete — the Python parse stopped at its cap.")
+        print(f"Next: {result['next_action']}")
         return 0
     if result["agent_scope"] != "single":
         candidates = result["agent_project_candidates"]
