@@ -2,6 +2,66 @@
 
 ## Unreleased
 
+- **The first scan of an agent whose tools are imported symbols now scaffolds
+  both layers it needs, instead of emitting nothing.**
+  `suggested-declarations.yaml` was only written once the binding layer was
+  already closed, so during the two scans where an adopter is most stuck it
+  did not exist, and the binding gap that *was* reported carried
+  `declaration_template: null`
+  ([#361](https://github.com/ThreeMoonsLab/agents-shipgate/issues/361)).
+
+  Two templates close that. A repository whose agent lists tool symbols static
+  analysis cannot resolve extracts nothing at all, so it used to produce only
+  source warnings routed to `review_warning` — no path, no command, nothing to
+  open. It now raises one `incomplete_surface` row **per source** carrying the
+  exact `tool_inventories` entry, joined by `source_id` to the source it
+  completes, and the tool-inventory skeleton is written with the symbol names
+  the agent's own `tools=[...]` list publishes. Per source, not per symbol: six
+  unresolved symbols are one mechanism restated six times, and attaching a
+  repair to each row would have put raw loader prose back in the headline that
+  grouping removed.
+
+  Once that inventory is declared, the catalog is populated and nothing binds
+  it to the root agent. That gap now scaffolds the closed-world
+  `agent_bindings.declarations` row with the agent, every catalog tool's exact
+  selector, and the observed handoffs pre-filled — while `complete` and
+  `reason`, the two values that are a human judgement, stay
+  `<REVIEW_REQUIRED>`. Merging the block verbatim after answering those two
+  closes `binding_coverage.gap_count` in one iteration. Past a ceiling of 50
+  tools the template is withheld rather than truncated: `complete: true` claims
+  the listed tools are *all* the agent can reach, so a silently cut list would
+  be false exactly where a reviewer cannot see it.
+
+  Both instructions are also withdrawn once followed — the inventory skeleton
+  is deleted when the source it was written for has been completed, the way the
+  declaration scaffold already was.
+
+- **Every `<REVIEW_REQUIRED>` in `suggested-declarations.yaml` now says what a
+  legal answer is.** The one file an adopter is told to edit was the one file
+  that did not name the vocabulary: `effect:` and `authority.mode:` were bare
+  blanks while `report.json` carried their nine and four accepted values per
+  gap, and completing twelve tools meant roughly forty-eight values looked up
+  in a different file
+  ([#388](https://github.com/ThreeMoonsLab/agents-shipgate/issues/388)).
+
+  Each blank is preceded by a comment carrying either that field's
+  `accepted_values` — rendered from the gap's own list, never a second copy, so
+  the two artifacts cannot disagree — or, where the answer is not drawn from a
+  closed set, the shape it takes and which modes make it required. The
+  `agent_bindings.root` block additionally lists the agent objects the scan
+  observed, with their source, for a human to confirm: `object` matches the
+  agent's *declared* name rather than the Python variable it was assigned to,
+  which is what made guessing it a coin flip. Nothing is filled in — a comment
+  is not a value, and inferring the trust root from AST evidence remains the
+  self-declaration surface [#268](https://github.com/ThreeMoonsLab/agents-shipgate/issues/268)
+  closed.
+
+  Pasting an unfinished scaffold now also reports itself as one whatever field
+  the placeholder lands in. `agent_bindings.declarations[].complete` accepts
+  only `true`, so its own type answered first with "Input should be True",
+  which tells a reader nothing about the scaffold they pasted; the placeholder
+  is rejected before field validation, so one wording covers every field.
+
 - **`verify --preview` on a monorepo now names the project the pull request
   actually changed, instead of a repository root that `init` refuses.** The
   change-scope resolver draws a project boundary around a bare

@@ -6,7 +6,9 @@ something that closes a gap on its own.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import get_args
 
 import yaml
 
@@ -248,15 +250,20 @@ def test_no_shipped_template_asserts_on_a_humans_behalf() -> None:
             for index, value in enumerate(node):
                 assert_no_assertion(value, f"{path}[{index}]")
             return
-        # Selector fields identify WHICH row the declaration is about. They are
-        # read off the observed surface, not judged by a human, so they are not
-        # assertions the scaffold is making on the reviewer's behalf.
-        if path.rsplit(".", 1)[-1] in {
+        # Selector fields identify WHICH row the declaration is about, and
+        # ``agent``/``handoffs`` name which agents. They are read off the
+        # observed surface, not judged by a human, so they are not assertions
+        # the scaffold is making on the reviewer's behalf. The index is
+        # stripped so a list member (`handoffs[0]`) is judged as its field.
+        leaf = path.rsplit(".", 1)[-1].split("[", 1)[0]
+        if leaf in {
             "tool",
             "tool_id",
             "source_id",
             "source_type",
             "provider",
+            "agent",
+            "handoffs",
         }:
             return
         assert node == REVIEW_REQUIRED_SENTINEL, (
@@ -279,23 +286,83 @@ def _shipped_templates() -> list[dict]:
         source_type="sdk_function",
         source_id="openai_sdk_agent",
     )
-    # The binding root template is emitted from _binding_coverage, not
-    # _semantic_gap, so enumerate it explicitly — a guard that misses the
+    # An ADK tool as well: ``incomplete_surface`` only scaffolds an inventory
+    # for a source type that HAS a tool_inventories key, so a guard run only
+    # over sdk_function would never see that template at all.
+    adk_tool = Tool(
+        id="t2",
+        name="create_quote",
+        source_type="google_adk",
+        source_id="adk_agent",
+    )
+    # The binding templates are emitted from _binding_coverage, not
+    # _semantic_gap, so enumerate them explicitly — a guard that misses the
     # template which actually carried an assertion is false confidence.
-    templates: list[dict] = [dict(rd.AGENT_BINDINGS_ROOT_TEMPLATE)]
-    for kind in (
-        "inferred_effect_only",
-        "missing_authority_evidence",
-        "partial_authority_evidence",
-        "unresolved_tool_selector",
-        "incomplete_surface",
-    ):
-        gap = rd._semantic_gap(tool, kind=kind, why="test")
-        template = gap.next_action.declaration_template
-        if template:
-            templates.append(template)
+    templates: list[dict] = [
+        dict(rd.AGENT_BINDINGS_ROOT_TEMPLATE),
+        _binding_declarations_template(),
+    ]
+    for source in (tool, adk_tool):
+        for kind in (
+            "inferred_effect_only",
+            "missing_authority_evidence",
+            "partial_authority_evidence",
+            "unresolved_tool_selector",
+            "incomplete_surface",
+        ):
+            gap = rd._semantic_gap(source, kind=kind, why="test")
+            template = gap.next_action.declaration_template
+            if template:
+                templates.append(template)
     assert templates, "expected at least one shipped template"
     return templates
+
+
+def _binding_declarations_template() -> dict:
+    """The closed-world declaration scaffolded for an unbound catalog (#361)."""
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+        AgentBindingNode,
+        AgentHandoffBindingEdge,
+    )
+
+    catalog = [
+        Tool(id="t1", name="create_quote", source_type="google_adk", source_id="adk"),
+        Tool(id="t2", name="send_email", source_type="google_adk", source_id="adk"),
+    ]
+    graph = AgentBindingGraphAssessment(
+        root_agent_id="agent:root",
+        status="partial",
+        agents=[
+            AgentBindingNode(agent_id="agent:root", name="Closer", source_id="adk"),
+            AgentBindingNode(agent_id="agent:sub", name="Helper", source_id="adk"),
+        ],
+        handoff_edges=[
+            AgentHandoffBindingEdge(
+                source_agent_id="agent:root",
+                target_agent_id="agent:sub",
+                edge_type="subagent",
+                confidence="high",
+                provenance_kind="static_declaration",
+                source="agent.py",
+            )
+        ],
+        unbound_tool_ids=["t1", "t2"],
+        issues=[
+            AgentBindingIssue(
+                kind="missing_binding_evidence",
+                message="no static edge",
+                agent_id="agent:root",
+            )
+        ],
+    )
+    template = rd._binding_declaration_template(graph, graph.issues[0], catalog)
+    assert template is not None
+    return template
 
 
 def test_unfilled_sentinel_is_rejected_by_the_manifest() -> None:
@@ -415,3 +482,569 @@ def test_binding_scaffold_only_offers_a_root_when_one_could_match() -> None:
     assert no_agents
     assert no_agents[0].next_action.declaration_template is None
     assert "suggested-declarations" not in (no_agents[0].next_action.expects or "")
+
+
+# --- #388: the scaffold says what a legal answer looks like ------------------
+
+
+def _strip_comments(scaffold: str) -> list[str]:
+    """The scaffold's YAML lines, with every comment line removed."""
+
+    return [
+        line
+        for line in scaffold.splitlines()
+        if not line.lstrip().startswith("#") and line not in {"", "---"}
+    ]
+
+
+def _blocks(scaffold: str) -> list[list[str]]:
+    """The scaffold's documents, each as its raw lines (comments included)."""
+
+    blocks: list[list[str]] = []
+    for line in scaffold.splitlines():
+        if line == "---":
+            blocks.append([])
+        elif blocks:
+            blocks[-1].append(line)
+    return blocks
+
+
+def test_every_blank_is_preceded_by_a_comment_that_says_what_to_write() -> None:
+    """The file a user is told to edit must say what a legal answer is (#388).
+
+    It shipped `effect: <REVIEW_REQUIRED>` with the nine accepted values living
+    only in report.json, and `authority.mode:` with its four — so the one file
+    a reader was directed to was the one that did not name the vocabulary. A
+    blank with nothing above it is the defect, whatever the field.
+    """
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+
+    tool = Tool(id="t1", name="process_order", source_type="sdk_function", source_id="s")
+    gaps = [
+        rd._semantic_gap(tool, kind=kind, why="test")
+        for kind in ("missing_effect_evidence", "missing_authority_evidence")
+    ]
+    scaffold = build_declaration_scaffold(gaps)
+    assert scaffold is not None
+
+    lines = scaffold.splitlines()
+    blanks = [i for i, line in enumerate(lines) if "<REVIEW_REQUIRED>" in line]
+    assert blanks, "expected the fixture to produce blanks"
+    for index in blanks:
+        # A list's guidance sits above the key that opens it (`scopes:`), which
+        # is where a reader looks; step over those bare container lines and
+        # require a comment before the blank either way.
+        cursor = index - 1
+        while lines[cursor].rstrip().endswith(":"):
+            cursor -= 1
+        assert lines[cursor].lstrip().startswith("#"), (
+            f"{lines[index]!r} has no guidance above it — the reader has to "
+            "leave the file to find out what it accepts"
+        )
+
+
+def test_the_printed_vocabulary_is_the_gaps_own_accepted_values() -> None:
+    """The scaffold and report.json cannot disagree about what is legal.
+
+    Acceptance criterion of #388: the comment is rendered FROM the gap's
+    ``accepted_values``, never from a second copy of the vocabulary, so adding
+    an effect or an authority mode to the engine reaches the scaffold with no
+    second edit.
+    """
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.cli.scan.declarations import (
+        _VOCABULARY_FIELD_BY_ACTION_KIND,
+    )
+    from agents_shipgate.core.domain import Tool
+    from agents_shipgate.schemas.report import EvidenceGapAction
+
+    # The routing table names real action kinds; a rename must break here
+    # rather than silently stop annotating.
+    valid = set(get_args(EvidenceGapAction.model_fields["kind"].annotation))
+    assert set(_VOCABULARY_FIELD_BY_ACTION_KIND) <= valid
+
+    tool = Tool(id="t1", name="process_order", source_type="sdk_function", source_id="s")
+    for kind, field in (
+        ("missing_effect_evidence", "effect"),
+        ("missing_authority_evidence", "authority.mode"),
+    ):
+        gap = rd._semantic_gap(tool, kind=kind, why="test")
+        scaffold = build_declaration_scaffold([gap])
+        assert scaffold is not None
+        rendered = " ".join(
+            line.lstrip("# ").strip()
+            for line in scaffold.splitlines()
+            if line.lstrip().startswith("#")
+        )
+        accepted = gap.next_action.accepted_values
+        assert accepted, f"{kind} publishes no vocabulary to print"
+        printed = rendered.split("accepted:", 1)[1]
+        for value in accepted:
+            assert value in printed, f"{field} omits {value!r} from its comment"
+
+
+def test_root_block_offers_the_agent_objects_the_scan_observed() -> None:
+    """Instance 1 of #388: stop asking for a value already computed.
+
+    `object` matches the agent's DECLARED name, not the Python variable it was
+    assigned to — the issue's own worked example guessed the variable — so
+    naming the observed candidates is also the fix for guessing wrong.
+    """
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+        AgentBindingNode,
+    )
+    from agents_shipgate.schemas.report import ReadinessReport
+
+    graph = AgentBindingGraphAssessment(
+        root_agent_id=None,
+        status="unknown",
+        agents=[
+            AgentBindingNode(
+                agent_id="a2", name="BetaAgent", source_id="adk", source_ref="agent.py"
+            ),
+            AgentBindingNode(
+                agent_id="a1", name="AlphaAgent", source_id="adk", source_ref="agent.py"
+            ),
+        ],
+        issues=[AgentBindingIssue(kind="ambiguous_root_agent", message="ambiguous")],
+    )
+    report = ReadinessReport.model_construct(binding_surface_facts=graph)
+    _coverage, gaps = rd._binding_coverage(report)
+    scaffold = build_declaration_scaffold(gaps, agents=graph.agents)
+    assert scaffold is not None
+
+    assert "object: AlphaAgent, source_id: adk" in scaffold
+    assert "object: BetaAgent, source_id: adk" in scaffold
+    # Sorted by name, not by the graph's agent-id order, which reads arbitrary.
+    assert scaffold.index("AlphaAgent") < scaffold.index("BetaAgent")
+    # Offered, never filled in: the value stays the human's.
+    body = yaml.safe_load(scaffold)
+    assert body == {
+        "agent_bindings": {
+            "root": {
+                "source_id": "<REVIEW_REQUIRED>",
+                "object": "<REVIEW_REQUIRED>",
+            }
+        }
+    }
+
+
+def test_comments_are_the_only_difference_from_a_plain_yaml_dump() -> None:
+    """The annotated renderer is not a second opinion about YAML style.
+
+    It exists to interleave comments, which PyYAML cannot carry. Everything
+    else — key order, indentation, quoting — must be byte-identical to
+    ``safe_dump``, so a template's rendering cannot drift from what every other
+    consumer of that dict sees.
+    """
+
+    for template in _shipped_templates():
+        gap = _gap("inferred_effect_only", "shipgate.yaml", template)
+        scaffold = build_declaration_scaffold([gap])
+        assert scaffold is not None
+        expected = yaml.safe_dump(
+            template, sort_keys=False, default_flow_style=False
+        ).rstrip("\n")
+        assert _strip_comments(scaffold) == expected.splitlines()
+        # And it still parses back to exactly the template it rendered.
+        assert yaml.safe_load(scaffold) == template
+
+
+# --- #361: scaffold the binding layer, and from the first scan ---------------
+
+
+_COLD_START_TOOLS = (
+    "create_quote",
+    "escalate_case",
+    "lookup_account",
+    "send_quote_email",
+    "summarize_case",
+    "update_opportunity",
+)
+
+
+def _cold_start_project(root: Path) -> Path:
+    """An ADK agent whose every ``tools=[...]`` entry is an imported symbol.
+
+    The shape #361 was reported against (google/adk-samples#1917): static
+    extraction resolves none of them, so the first scan has no tool rows at all
+    and the reader is left to author both the inventory and the binding block
+    from the docs.
+    """
+
+    project = root / "cold-start"
+    project.mkdir()
+    listed = ",\n        ".join(_COLD_START_TOOLS)
+    (project / "agent.py").write_text(
+        "from google.adk.agents import LlmAgent\n\n"
+        f"from .tools import (\n    {',\n    '.join(_COLD_START_TOOLS)},\n)\n\n"
+        "root_agent = LlmAgent(\n"
+        '    name="SmartCloserAgent",\n'
+        '    instruction="Close deals.",\n'
+        f"    tools=[\n        {listed},\n    ],\n)\n",
+        encoding="utf-8",
+    )
+    (project / "shipgate.yaml").write_text(
+        'version: "0.1"\n'
+        "project:\n  name: smart-closer\n"
+        "agent:\n  name: SmartCloserAgent\n  declared_purpose: [close opportunities]\n"
+        "environment:\n  target: local\n"
+        "tool_sources:\n  - id: adk_agent\n    type: google_adk\n    path: agent.py\n",
+        encoding="utf-8",
+    )
+    return project
+
+
+def _scan_cold_start(project: Path, reports: Path):
+    from agents_shipgate.cli.scan import run_scan
+
+    report, _ = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=reports,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    return report
+
+
+def test_cold_start_walk_scaffolds_both_layers_in_two_iterations(tmp_path) -> None:
+    """The whole of #361, walked: 5 hand-authored iterations become 2.
+
+    Stage 1 (bare init) and stage 2 (inventory declared) both used to emit no
+    scaffold at all — the binding gap carried ``declaration_template: null`` —
+    so the reader hand-wrote a 98-line inventory and an ``agent_bindings``
+    block at exactly the point they had the least context.
+    """
+
+    project = _cold_start_project(tmp_path)
+    reports = tmp_path / "reports"
+
+    # --- stage 1: nothing is extracted, and the repair is named -------------
+    stage1 = _scan_cold_start(project, reports)
+    assert stage1.release_decision is not None
+    assert stage1.release_decision.decision == "insufficient_evidence"
+    assert not stage1.tool_catalog
+
+    skeleton = reports / "suggested-inventory.json"
+    scaffold_path = reports / "suggested-declarations.yaml"
+    assert skeleton.is_file(), "the six names the agent lists are still retyped"
+    assert scaffold_path.is_file(), "no scaffold at the point the user is stuck"
+
+    names = [entry["name"] for entry in json.loads(skeleton.read_text())["tools"]]
+    assert names == sorted(_COLD_START_TOOLS)
+    wiring = yaml.safe_load(scaffold_path.read_text())
+    assert wiring == {
+        "google_adk": {
+            "tool_inventories": [
+                {"path": "<REVIEW_REQUIRED>", "source_id": "adk_agent"}
+            ]
+        }
+    }
+
+    # --- stage 2: the inventory is declared; the binding block is scaffolded -
+    (project / "inventories").mkdir()
+    (project / "inventories" / "tools.json").write_text(
+        skeleton.read_text(), encoding="utf-8"
+    )
+    manifest = project / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text()
+        + "google_adk:\n  tool_inventories:\n"
+        "    - path: inventories/tools.json\n      source_id: adk_agent\n",
+        encoding="utf-8",
+    )
+
+    stage2 = _scan_cold_start(project, reports)
+    assert stage2.release_decision is not None
+    coverage = stage2.release_decision.evidence_coverage
+    assert coverage.binding_coverage.gap_count == 1
+    assert len(stage2.tool_catalog) == len(_COLD_START_TOOLS)
+    assert scaffold_path.is_file()
+    # The repair is made, so the stage-1 inventory instruction is withdrawn
+    # rather than repeated at a reader who already followed it.
+    assert not skeleton.exists()
+
+    block = yaml.safe_load(scaffold_path.read_text())
+    declaration = block["agent_bindings"]["declarations"][0]
+    assert declaration["agent"] == "SmartCloserAgent"
+    assert [row["tool"] for row in declaration["tools"]] == sorted(_COLD_START_TOOLS)
+    assert all(row["tool_id"] for row in declaration["tools"])
+    # The judgement is untouched: nothing claims the set is complete, and
+    # nothing invents a reason for it.
+    assert declaration["complete"] == "<REVIEW_REQUIRED>"
+    assert declaration["reason"] == "<REVIEW_REQUIRED>"
+
+    # --- merging it verbatim closes the binding layer in ONE iteration ------
+    reviewed = yaml.safe_load(
+        scaffold_path.read_text()
+        .replace("complete: <REVIEW_REQUIRED>", "complete: true")
+        .replace("reason: <REVIEW_REQUIRED>", "reason: reviewed against agent.py")
+    )
+    manifest.write_text(
+        manifest.read_text() + yaml.safe_dump(reviewed, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    stage3 = _scan_cold_start(project, reports)
+    assert stage3.release_decision is not None
+    assert stage3.release_decision.evidence_coverage.binding_coverage.gap_count == 0
+    assert len(stage3.binding_surface_facts.reachable_tool_ids) == len(
+        _COLD_START_TOOLS
+    )
+
+
+def test_binding_scaffold_is_withheld_rather_than_truncated(tmp_path) -> None:
+    """A closed-world list cut at N would be false where nobody can see it.
+
+    ``complete: true`` says the listed tools are ALL the agent reaches, so a
+    silently truncated ``tools:`` is the one failure mode this template must
+    not have. Past the ceiling it offers nothing and the prose repair stands.
+    """
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+        AgentBindingNode,
+    )
+
+    def _template(count: int):
+        catalog = [
+            Tool(id=f"t{i}", name=f"tool_{i}", source_type="mcp", source_id="s")
+            for i in range(count)
+        ]
+        graph = AgentBindingGraphAssessment(
+            root_agent_id="agent:root",
+            status="partial",
+            agents=[AgentBindingNode(agent_id="agent:root", name="Root")],
+            unbound_tool_ids=[tool.id for tool in catalog],
+            issues=[
+                AgentBindingIssue(
+                    kind="missing_binding_evidence",
+                    message="no static edge",
+                    agent_id="agent:root",
+                )
+            ],
+        )
+        return rd._binding_declaration_template(graph, graph.issues[0], catalog)
+
+    at_ceiling = _template(rd._MAX_SCAFFOLDED_BINDING_TOOLS)
+    assert at_ceiling is not None
+    tools = at_ceiling["agent_bindings"]["declarations"][0]["tools"]
+    assert len(tools) == rd._MAX_SCAFFOLDED_BINDING_TOOLS
+    assert _template(rd._MAX_SCAFFOLDED_BINDING_TOOLS + 1) is None
+
+
+def test_binding_scaffold_is_root_scoped_only(tmp_path) -> None:
+    """A tool reachable only by another agent is repaired by wiring a handoff.
+
+    ``_unbound_tool_gaps`` raises the same kind per tool for capabilities the
+    root cannot reach. Scaffolding the root's closed-world tool set there would
+    prescribe the wrong repair — and would invite declaring a tool as the
+    root's when the repository says another agent owns it.
+    """
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+        AgentBindingNode,
+    )
+
+    catalog = [Tool(id="t1", name="pay", source_type="mcp", source_id="s")]
+    graph = AgentBindingGraphAssessment(
+        root_agent_id="agent:root",
+        status="partial",
+        agents=[AgentBindingNode(agent_id="agent:root", name="Root")],
+        unbound_tool_ids=["t1"],
+        issues=[
+            AgentBindingIssue(
+                kind="missing_binding_evidence",
+                message="bound to an agent the root does not reach",
+                agent_id="agent:other",
+                tool_id="t1",
+            )
+        ],
+    )
+    assert (
+        rd._binding_declaration_template(graph, graph.issues[0], catalog) is None
+    )
+
+
+def test_duplicate_named_root_falls_back_to_the_root_alias(tmp_path) -> None:
+    """A declaration naming a name two agents share resolves to neither."""
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+        AgentBindingNode,
+    )
+
+    catalog = [Tool(id="t1", name="pay", source_type="mcp", source_id="s")]
+    graph = AgentBindingGraphAssessment(
+        root_agent_id="agent:root",
+        status="partial",
+        agents=[
+            AgentBindingNode(agent_id="agent:root", name="Twin", source_id="a"),
+            AgentBindingNode(agent_id="agent:other", name="Twin", source_id="b"),
+        ],
+        unbound_tool_ids=["t1"],
+        issues=[
+            AgentBindingIssue(
+                kind="missing_binding_evidence",
+                message="no static edge",
+                agent_id="agent:root",
+            )
+        ],
+    )
+    template = rd._binding_declaration_template(graph, graph.issues[0], catalog)
+    assert template is not None
+    assert template["agent_bindings"]["declarations"][0]["agent"] == "root"
+
+
+def test_a_pasted_scaffold_says_it_is_unfinished_whatever_field_it_lands_in(
+    tmp_path,
+) -> None:
+    """``complete`` accepts only ``true``, so its type used to answer first.
+
+    "Input should be True" does not tell a reader they pasted an unfinished
+    scaffold. The placeholder is rejected before the field's own type is
+    consulted, so one wording covers every field.
+    """
+
+    import pytest
+
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+
+    base = {
+        "version": "0.1",
+        "project": {"name": "p"},
+        "agent": {"name": "a", "declared_purpose": ["do a thing"]},
+        "environment": {"target": "local"},
+        "tool_sources": [{"id": "s1", "type": "mcp", "path": "tools.json"}],
+    }
+    with pytest.raises(ValueError) as caught:
+        AgentsShipgateManifest.model_validate(
+            {
+                **base,
+                "agent_bindings": {
+                    "declarations": [
+                        {
+                            "agent": "root",
+                            "complete": "<REVIEW_REQUIRED>",
+                            "tools": [{"tool": "pay", "tool_id": "t1"}],
+                            "handoffs": [],
+                            "reason": "<REVIEW_REQUIRED>",
+                        }
+                    ]
+                },
+            }
+        )
+    message = str(caught.value)
+    assert "unfilled scaffold placeholder" in message
+    assert "agent_bindings.declarations[0].complete" in message
+    assert "Input should be True" not in message
+
+
+def test_one_repair_at_one_path_is_one_block() -> None:
+    """Two rows prescribing the same edit are one instruction, not two.
+
+    Every low-confidence tool of a framework source carries the same
+    ``tool_inventories`` wiring, and their subjects differ (the tool names), so
+    keyed on the subject alone they rendered as N identical blocks to paste —
+    which reads as N separate things to do.
+    """
+
+    import agents_shipgate.ci.release_decision as rd
+    from agents_shipgate.core.domain import Tool
+
+    gaps = [
+        rd._semantic_gap(
+            Tool(
+                id=f"t{index}",
+                name=name,
+                source_type="google_adk",
+                source_id="adk_agent",
+            ),
+            kind="incomplete_surface",
+            why="test",
+        )
+        for index, name in enumerate(("create_quote", "send_email"))
+    ]
+    assert {gap.subject for gap in gaps} == {
+        "create_quote [adk_agent]",
+        "send_email [adk_agent]",
+    }
+    scaffold = build_declaration_scaffold(gaps)
+    assert scaffold is not None
+    docs = [doc for doc in yaml.safe_load_all(scaffold) if doc]
+    assert docs == [
+        {
+            "google_adk": {
+                "tool_inventories": [
+                    {"path": "<REVIEW_REQUIRED>", "source_id": "adk_agent"}
+                ]
+            }
+        }
+    ]
+
+
+def test_repository_controlled_text_cannot_forge_a_line_in_the_scaffold() -> None:
+    """A name is data. It must not become structure a reader would paste.
+
+    Two vectors, both fed by repository JSON. A tool name holding a newline
+    renders as a *multi-line* YAML scalar whose continuation the emitter cannot
+    indent correctly on its own. An agent name holding one closes the `#` of a
+    candidate comment — and the next line it wrote would be a filled-in root
+    selector, the self-declaration this file exists to refuse (#268).
+    """
+
+    from agents_shipgate.schemas.bindings import AgentBindingNode
+
+    forged = "evil\nroot:\n  object: attacker\n  source_id: attacker"
+    template = {
+        "agent_bindings": {
+            "root": {
+                "source_id": "<REVIEW_REQUIRED>",
+                "object": "<REVIEW_REQUIRED>",
+            }
+        }
+    }
+    scaffold = build_declaration_scaffold(
+        [_gap("ambiguous_root_agent", "shipgate.yaml#agent_bindings.root", template)],
+        agents=[
+            AgentBindingNode(
+                agent_id="a1", name=forged, source_id=forged, source_ref=forged
+            )
+        ],
+    )
+    assert scaffold is not None
+    # The newlines are escaped, so the forged text stays inside the one comment
+    # line that quotes it and never becomes structure of its own.
+    assert "<U+000A>" in scaffold
+    assert all(
+        line.lstrip().startswith("#")
+        for line in scaffold.splitlines()
+        if "attacker" in line
+    )
+    assert yaml.safe_load(scaffold) == template
+
+    # The same value as a template scalar stays one line and round-trips.
+    hostile_row = {"tool": forged, "tool_id": "t1", "effect": "<REVIEW_REQUIRED>"}
+    rendered = build_declaration_scaffold(
+        [_gap("inferred_effect_only", "shipgate.yaml#action_surface", hostile_row)]
+    )
+    assert rendered is not None
+    assert yaml.safe_load(rendered) == hostile_row

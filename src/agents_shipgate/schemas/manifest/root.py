@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field, model_validator
 
 from agents_shipgate.schemas.common import Severity
@@ -59,6 +61,19 @@ def _sentinel_paths(node: object, path: str = "") -> list[str]:
     return []
 
 
+def _unfilled_sentinel_error(unfilled: list[str]) -> ValueError:
+    """One wording for the placeholder rejection, whenever it is detected."""
+
+    listed = ", ".join(unfilled[:5])
+    more = f" (+{len(unfilled) - 5} more)" if len(unfilled) > 5 else ""
+    return ValueError(
+        f"{REVIEW_REQUIRED_SENTINEL} is an unfilled scaffold placeholder "
+        f"and is not reviewed evidence: {listed}{more}. Replace each one "
+        "with a reviewed value, or delete the field if your answer does "
+        "not take it."
+    )
+
+
 class AgentsShipgateManifest(BaseModel):
     model_config = STRICT_MODEL_CONFIG
 
@@ -92,6 +107,25 @@ class AgentsShipgateManifest(BaseModel):
     # itself a trust-root change (SHIP-VERIFY-TRUST-ROOT-TOUCHED).
     human_ack: list[HumanAckDeclaration] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_raw_review_sentinels(cls, data: Any) -> Any:
+        """Catch a placeholder before the field it landed in rejects it first.
+
+        The after-validator below can only see values that already parsed, so a
+        sentinel in a *typed* field never reached it: pasting the binding
+        scaffold with ``complete: <REVIEW_REQUIRED>`` — where the schema accepts
+        only ``true`` — failed with "Input should be True", which does not tell
+        the reader they pasted an unfinished scaffold. Reading the raw input
+        first makes one wording cover every field, whatever its type.
+        """
+
+        if isinstance(data, dict):
+            unfilled = sorted(_sentinel_paths(data))
+            if unfilled:
+                raise _unfilled_sentinel_error(unfilled)
+        return data
+
     @model_validator(mode="after")
     def reject_unfilled_review_sentinels(self) -> AgentsShipgateManifest:
         """A scaffold placeholder must never read as reviewed evidence.
@@ -108,14 +142,7 @@ class AgentsShipgateManifest(BaseModel):
 
         unfilled = sorted(_sentinel_paths(self.model_dump(mode="python")))
         if unfilled:
-            listed = ", ".join(unfilled[:5])
-            more = f" (+{len(unfilled) - 5} more)" if len(unfilled) > 5 else ""
-            raise ValueError(
-                f"{REVIEW_REQUIRED_SENTINEL} is an unfilled scaffold placeholder "
-                f"and is not reviewed evidence: {listed}{more}. Replace each one "
-                "with a reviewed value, or delete the field if your answer does "
-                "not take it."
-            )
+            raise _unfilled_sentinel_error(unfilled)
         return self
 
     @model_validator(mode="after")

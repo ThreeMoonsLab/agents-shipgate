@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import dataclass
+from typing import Any
 
 from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
@@ -14,6 +17,12 @@ from agents_shipgate.core.evidence_actions import (
     evidence_gap_target,
     primary_evidence_gap,
     yaml_scalar,
+)
+from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
+from agents_shipgate.schemas.bindings import (
+    AgentBindingGraphAssessment,
+    AgentBindingIssue,
+    AgentBindingNode,
 )
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
@@ -111,8 +120,20 @@ def build_release_decision(
     ci_mode: str,
     fail_on: list[Severity] | None,
     new_findings_only: bool,
+    tool_catalog: Sequence[Tool] | None = None,
 ) -> ReleaseDecision:
+    """Compute the release decision.
+
+    ``tools`` is the root-reachable surface — the population every count and
+    every gate reads. ``tool_catalog`` is everything extraction found, reachable
+    or not, and is used for exactly one thing: scaffolding the binding
+    declaration for a repository whose catalog is populated and whose reachable
+    set is therefore empty (#361). Nothing gates on it. It defaults to ``tools``
+    so a caller that never had the distinction keeps its behaviour.
+    """
+
     fail_on_resolved = effective_fail_on(ci_mode, fail_on)
+    catalog = tools if tool_catalog is None else tool_catalog
 
     # blockers/review_items consider the full findings set, NOT
     # new_findings_only: baseline-matched criticals must remain visible
@@ -255,7 +276,7 @@ def build_release_decision(
     low_confidence_tool_count = sum(1 for tool in tools if tool.extraction_confidence != "high")
     semantic_coverage, semantic_gaps = _semantic_coverage(tools)
     identity_coverage = _identity_coverage(tools)
-    binding_coverage, binding_gaps = _binding_coverage(report)
+    binding_coverage, binding_gaps = _binding_coverage(report, catalog)
     evidence = EvidenceCoverageDecision(
         level=report.summary.evidence_coverage,
         human_review_recommended=report.summary.human_review_recommended,
@@ -444,6 +465,120 @@ AGENT_BINDINGS_ROOT_TEMPLATE: dict[str, object] = {
         },
     }
 }
+
+# Ceiling on the tool rows a closed-world binding declaration is scaffolded
+# with. Above it the template is withheld rather than truncated: a
+# ``declarations`` row is a claim that the listed tools are ALL the agent can
+# reach, so a list silently cut at N would be false exactly where the reviewer
+# is least able to notice — and a repository with hundreds of unbound catalog
+# entries is telling us to wire the binding in source, not to retype it.
+_MAX_SCAFFOLDED_BINDING_TOOLS = 50
+
+
+def _inventory_declaration_template(
+    manifest_key: str, source_id: str | None
+) -> dict[str, object] | None:
+    """The manifest wiring that joins a reviewed inventory to its source.
+
+    ``_inventory_remediation`` already prescribes this entry as prose. Emitting
+    it as a template puts it in the file the reader was actually told to edit,
+    which is the whole point of the scaffold (#388): the vocabulary and the
+    shape stop being something to reconstruct from a sentence.
+
+    Withheld when the source has no id: an inventory referenced without
+    ``source_id`` is an *independent* source added beside the extracted tools
+    instead of completing them, so the gap that asked for the file stays open
+    (#386). A template that quietly does that is worse than none.
+    """
+
+    if not source_id:
+        return None
+    block, _, key = manifest_key.partition(".")
+    if not block or not key:
+        return None
+    return {
+        block: {key: [{"path": REVIEW_REQUIRED_SENTINEL, "source_id": source_id}]}
+    }
+
+
+def _binding_declaration_template(
+    graph: AgentBindingGraphAssessment,
+    issue: AgentBindingIssue,
+    tool_catalog: Sequence[Tool],
+) -> dict[str, object] | None:
+    """The manifest block one binding issue is repaired in, or ``None``.
+
+    Two binding issues are scaffoldable, and they want different blocks.
+
+    ``ambiguous_root_agent`` wants root *selection* only. In a decorator-only
+    repository there is no agent object for a filled root selector to match, so
+    offering one would send the reader after a value that cannot exist.
+
+    ``missing_binding_evidence`` — a resolved root, a populated catalog, and
+    not one static edge between them — wants a closed-world ``declarations``
+    row. Everything in it that a human owns stays a sentinel: ``complete`` is
+    the closed-world assertion and ``reason`` is how they verified it. What is
+    pre-filled is only what was *read off the surface*: which agent, which
+    catalog tools exist, and which handoffs were observed. That is the
+    retyping #361 measured — six tool names already extracted, hand-copied at
+    the point the user has the least context — not the judgement.
+
+    The other binding kinds are repaired in source wiring or in an existing
+    declaration, so a block aimed at ``agent_bindings.declarations`` would not
+    fit the path their action names.
+    """
+
+    if issue.kind == "ambiguous_root_agent":
+        return deepcopy(AGENT_BINDINGS_ROOT_TEMPLATE) if graph.agents else None
+    if issue.kind != "missing_binding_evidence":
+        return None
+    # Root-scoped only. The same kind is also raised per tool for capabilities
+    # bound to an agent the root does not reach (``_unbound_tool_gaps``); those
+    # are repaired by wiring the handoff, not by declaring the root's tool set.
+    if issue.tool_id is not None or issue.agent_id != graph.root_agent_id:
+        return None
+    catalog = {tool.id: tool for tool in tool_catalog}
+    unbound = [catalog[tool_id] for tool_id in graph.unbound_tool_ids if tool_id in catalog]
+    if not unbound or len(unbound) > _MAX_SCAFFOLDED_BINDING_TOOLS:
+        return None
+    names = {agent.agent_id: agent.name for agent in graph.agents}
+    root_name = names.get(issue.agent_id or "")
+    # ``root`` is the documented alias for the configured root agent, and it is
+    # what a duplicated agent name has to fall back to: a declaration naming a
+    # name two agents share resolves to neither.
+    agent = (
+        root_name
+        if root_name and sum(1 for value in names.values() if value == root_name) == 1
+        else "root"
+    )
+    handoffs = sorted(
+        {
+            names.get(edge.target_agent_id, edge.target_agent_id)
+            for edge in graph.handoff_edges
+            if edge.source_agent_id == issue.agent_id
+        }
+    )
+    return {
+        "agent_bindings": {
+            "declarations": [
+                {
+                    "agent": agent,
+                    "complete": REVIEW_REQUIRED_SENTINEL,
+                    # The same selector shape the action templates use: both
+                    # resolve through ToolSelectorIndex, where ``tool_id`` is
+                    # exact and the source qualifier keeps the row readable.
+                    "tools": [
+                        _action_selector(tool)
+                        for tool in sorted(unbound, key=lambda item: (item.name, item.id))
+                    ],
+                    "handoffs": handoffs,
+                    "reason": REVIEW_REQUIRED_SENTINEL,
+                }
+            ]
+        }
+    }
+
+
 _SEMANTIC_RERUN_COMMAND = (
     "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json"
 )
@@ -471,6 +606,7 @@ _MANDATORY_CURRENT_CONTROL_CHECKS = frozenset(
 
 def _binding_coverage(
     report: ReadinessReport,
+    tool_catalog: Sequence[Tool] = (),
 ) -> tuple[BindingCoverageDecision, list[EvidenceGap]]:
     graph = report.binding_surface_facts
     reason_counts: dict[str, int] = {}
@@ -507,17 +643,7 @@ def _binding_coverage(
             path = "shipgate.yaml#agent_bindings"
             accepted_values = ["literal_binding", "reviewed_declaration"]
             expects = "Correct the binding annotation or provide an exact reviewed declaration."
-        # Only root SELECTION is scaffoldable. The other binding issues are
-        # repaired under ``agent_bindings.declarations`` or in the source
-        # wiring, so a root-only block would not fit the path they name — and
-        # in a decorator-only repository there is no agent object for a filled
-        # root selector to match, so offering one would send the reader after a
-        # value that cannot exist.
-        root_template = (
-            AGENT_BINDINGS_ROOT_TEMPLATE
-            if issue.kind == "ambiguous_root_agent" and graph.agents
-            else None
-        )
+        template = _binding_declaration_template(graph, issue, tool_catalog)
         gaps.append(
             EvidenceGap(
                 kind=issue.kind,
@@ -529,9 +655,9 @@ def _binding_coverage(
                     command=_SEMANTIC_RERUN_COMMAND,
                     path=path,
                     why="A complete root-reachable static binding graph is required for passed.",
-                    expects=_with_scaffold_pointer(expects, root_template),
+                    expects=_with_scaffold_pointer(expects, template),
                     accepted_values=accepted_values,
-                    declaration_template=deepcopy(root_template) if root_template else None,
+                    declaration_template=template,
                 ),
             )
         )
@@ -816,6 +942,12 @@ def _semantic_gap(
     action_kind: str
     accepted_values: list[str]
     declaration_template: dict[str, object] | None = None
+    # Whether ``expects`` should also name the on-disk scaffold. Off for the
+    # inventory repair: that row's own ``path`` is the skeleton to open and its
+    # remediation spells the manifest entry inline, so naming a second file for
+    # the same one-line edit splits one instruction in two. The block is still
+    # written to the scaffold for a reader who works from there.
+    name_scaffold = True
     if kind in {"incomplete_tool_identity"}:
         action_kind = "declare_source_identity"
         accepted_values = ["unique_source_id", "stable_native_locator"]
@@ -886,6 +1018,10 @@ def _semantic_gap(
             expects = _inventory_remediation(
                 manifest_key, tool.source_id, rerun="rerun verification."
             )
+            declaration_template = _inventory_declaration_template(
+                manifest_key, tool.source_id
+            )
+            name_scaffold = False
         else:
             action_kind = "provide_complete_inventory"
             accepted_values = [
@@ -979,7 +1115,9 @@ def _semantic_gap(
             command=_SEMANTIC_RERUN_COMMAND,
             path=_semantic_gap_path(kind, tool),
             why=action_why,
-            expects=_with_scaffold_pointer(expects, declaration_template),
+            expects=_with_scaffold_pointer(
+                expects, declaration_template if name_scaffold else None
+            ),
             accepted_values=accepted_values,
             declaration_template=declaration_template,
         ),
@@ -1104,9 +1242,9 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
     """v0.26: one actionable row per measurable evidence gap.
 
     Deterministic projection of the same inputs the counts use:
-    low-confidence tools (sorted by name) first, then source warnings in
-    report order. Never gates — `build_release_decision` keeps deciding
-    on the counts alone.
+    low-confidence tools (sorted by name) first, then unenumerable sources by
+    id, then source warnings in report order. Never gates —
+    `build_release_decision` keeps deciding on the counts alone.
     """
     gaps: list[EvidenceGap] = []
     low_confidence = sorted(
@@ -1139,6 +1277,9 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
                 ),
             )
         elif manifest_key is not None:
+            inventory_template = _inventory_declaration_template(
+                manifest_key, tool.source_id
+            )
             action = EvidenceGapAction(
                 kind="declare_tool_inventory",
                 path=SUGGESTED_INVENTORY_FILENAME,
@@ -1150,6 +1291,12 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
                 expects=_inventory_remediation(
                     manifest_key, tool.source_id, rerun="rerun the scan."
                 ),
+                # No scaffold pointer: this row's own ``path`` is the skeleton
+                # to open, and its remediation already spells the manifest
+                # entry inline. Naming a second file for the same one-line edit
+                # splits one instruction across two artifacts. The block is
+                # still in the scaffold for a reader who works from there.
+                declaration_template=inventory_template,
             )
         else:
             action = EvidenceGapAction(
@@ -1173,6 +1320,55 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
                     f"{_surface_gap_note(tool)}"
                 ),
                 next_action=action,
+            )
+        )
+    covered_sources = {
+        tool.source_id for tool in low_confidence if tool.source_id
+    }
+    for source in unresolved_symbol_sources(report):
+        if source.source_id in covered_sources:
+            # A low-confidence row for this source already prescribes the same
+            # inventory; two rows would be one repair asked for twice.
+            continue
+        inventory_template = _inventory_declaration_template(
+            source.manifest_key, source.source_id
+        )
+        listed = ", ".join(source.symbols[:_MAX_LISTED_SYMBOLS])
+        more = (
+            f" (+{len(source.symbols) - _MAX_LISTED_SYMBOLS} more)"
+            if len(source.symbols) > _MAX_LISTED_SYMBOLS
+            else ""
+        )
+        agents = ", ".join(source.agents)
+        gaps.append(
+            EvidenceGap(
+                kind="incomplete_surface",
+                subject=f"{source.source_id} [{source.manifest_key.split('.')[0]}]",
+                source_type=source.manifest_key.split(".")[0],
+                source_ref=source.source_ref,
+                why=(
+                    f"{len(source.symbols)} tool symbol(s) {agents} lists are "
+                    f"not defined in this entrypoint, so the source produced no "
+                    f"observation for them: {listed}{more}."
+                ),
+                next_action=EvidenceGapAction(
+                    kind="declare_tool_inventory",
+                    path=f"shipgate.yaml#{source.manifest_key}",
+                    why=(
+                        "The complete statically-bound tool surface must be "
+                        "enumerable before any tool of it can be judged."
+                    ),
+                    expects=_with_scaffold_pointer(
+                        _inventory_remediation(
+                            source.manifest_key,
+                            source.source_id,
+                            rerun="rerun the scan.",
+                        ),
+                        inventory_template,
+                    ),
+                    accepted_values=["reviewed_explicit_inventory"],
+                    declaration_template=inventory_template,
+                ),
             )
         )
     for warning in report.source_warnings:
@@ -1212,6 +1408,110 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
             )
         )
     return gaps
+
+
+# Symbols quoted in a gap's reason before it stops being a sentence.
+_MAX_LISTED_SYMBOLS = 8
+
+
+@dataclass(frozen=True)
+class UnresolvedSymbolSource:
+    """A configured source whose agent names tool symbols it never observed.
+
+    The tool surface of such a source is not enumerable from its entrypoint —
+    the symbols are imported, or built at run time — so the repository owes a
+    reviewed inventory joined to it. Held per source rather than per symbol:
+    one mechanism, one repair, one row (#361).
+    """
+
+    source_id: str
+    manifest_key: str
+    source_ref: str | None
+    agents: tuple[str, ...]
+    symbols: tuple[str, ...]
+
+
+def unresolved_symbol_names(report: ReadinessReport) -> list[str]:
+    """Tool symbols an agent names that the catalog holds no observation for.
+
+    Once a reviewed inventory has been joined to the source, the symbol has an
+    observation and the repair is *made* — the entrypoint still cannot resolve
+    the import, so the warning stays, but re-prescribing the inventory would
+    tell the reader to do again what they just did.
+    """
+
+    known = {
+        str(row.get("name")) for row in report.tool_catalog if row.get("name")
+    }
+    return sorted(
+        {
+            symbol
+            for _agent, symbol in unresolved_adk_tool_symbols(report.source_warnings)
+            if symbol not in known
+        }
+    )
+
+
+def unresolved_symbol_sources(
+    report: ReadinessReport,
+) -> list[UnresolvedSymbolSource]:
+    """One row per source whose agent names tool symbols it never observed.
+
+    A repository where every tool symbol is imported extracts *nothing*, so
+    none of the per-tool gap rows exist and the only rows the first scan
+    produces are source warnings routed to ``review_warning`` — a dead end with
+    no path, no command, and no template (#361). The repair is a reviewed
+    inventory joined to the source: exactly what an ``incomplete_surface`` row
+    already prescribes, so the first scan raises one instead of leaving the
+    reader with prose.
+
+    Per *source*, never per warning. Six unresolved symbols are one fact
+    restated six times (see ``core.source_warnings``), and attaching a repair
+    to each row would put raw loader prose back in the headline the grouping
+    work removed.
+
+    The source id comes from the binding graph's agent nodes, not from the
+    warning: the prose names the agent, the graph knows which configured source
+    produced it. An agent name two sources both publish is skipped rather than
+    guessed — an inventory joined to the wrong source completes nothing (#386).
+    """
+
+    open_symbols = set(unresolved_symbol_names(report))
+    if not open_symbols:
+        return []
+    manifest_key = inventory_manifest_key("google_adk")
+    if manifest_key is None:  # pragma: no cover - google_adk is registered
+        return []
+    nodes: dict[str, list[AgentBindingNode]] = {}
+    for agent in report.binding_surface_facts.agents:
+        if agent.source_id:
+            nodes.setdefault(agent.name, []).append(agent)
+    by_source: dict[str, dict[str, Any]] = {}
+    for agent_name, symbol in unresolved_adk_tool_symbols(report.source_warnings):
+        candidates = nodes.get(agent_name, [])
+        if symbol not in open_symbols or len({a.source_id for a in candidates}) != 1:
+            continue
+        node = candidates[0]
+        source_id = node.source_id
+        if source_id is None:  # pragma: no cover - filtered when nodes was built
+            continue
+        entry = by_source.setdefault(
+            source_id,
+            {"source_ref": node.source_ref, "agents": [], "symbols": set()},
+        )
+        if agent_name not in entry["agents"]:
+            entry["agents"].append(agent_name)
+        entry["symbols"].add(symbol)
+    return [
+        UnresolvedSymbolSource(
+            source_id=source_id,
+            manifest_key=manifest_key,
+            source_ref=entry["source_ref"],
+            agents=tuple(entry["agents"]),
+            symbols=tuple(sorted(entry["symbols"])),
+        )
+        for source_id, entry in sorted(by_source.items())
+    ]
 
 
 def _rule(

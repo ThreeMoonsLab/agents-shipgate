@@ -119,6 +119,7 @@ def build_report(
     report.release_decision = build_release_decision(
         report=report,
         tools=tools,
+        tool_catalog=tool_catalog if tool_catalog is not None else tools,
         ci_mode=ci_mode,
         fail_on=fail_on,
         new_findings_only=new_findings_only,

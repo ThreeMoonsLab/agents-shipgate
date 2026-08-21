@@ -60,9 +60,11 @@ a correctness audit of the templates themselves, and three were wrong:
 - The **binding** template carried a `declarations` row pre-filled with
   `complete: true`, `tools: []`, `handoffs: []` — an assertion that the agent
   definitively reaches *no* tools, offered in a file whose header promised it
-  asserted nothing. It now scaffolds root selection only, and a guard test
+  asserted nothing. It was cut back to root selection only, and a guard test
   enumerates every shipped template and fails on any non-sentinel value in a
-  human-owned field (negative-tested against the original block).
+  human-owned field (negative-tested against the original block). (A
+  `declarations` template came back in 2026-08 — see *Second round* below —
+  with the assertion removed rather than the block.)
 - The **selector** template offered a flat `{tool, tool_id, provider}` while
   pointing at `tool_identity`, whose schema accepts only `bindings` entries —
   unfillable anywhere. It emits no template now; inventing a `bindings` row
@@ -253,3 +255,99 @@ The 2026-W27 re-evaluation attributed most of `benign_escalation_rate` 0.286 to
 a cold-start whole-repo-surface artifact. Re-run the labeled corpus after (1)
 and (2); the expected movement is benign escalation down with
 `must_block_caught` and `needs_human_caught` held at 1.0.
+
+## Second round (2026-08-21): the scaffold reaches the scans that need it
+
+Two follow-ups measured against the same walk, on
+[google/adk-samples#1917](https://github.com/google/adk-samples/pull/1917) and
+[#1745](https://github.com/google/adk-samples/pull/1745): issues
+[#361](https://github.com/ThreeMoonsLab/agents-shipgate/issues/361) and
+[#388](https://github.com/ThreeMoonsLab/agents-shipgate/issues/388).
+
+**The scaffold existed only after the layer that needed it was already closed.**
+It is written whenever a gap carries a template, and until now only *semantic*
+gaps did — so the two scans where an adopter is most stuck emitted no scaffold
+at all. In an ADK repository whose `tools=[...]` entries are all imported
+symbols, stage 1 extracts nothing (six source warnings, each routed to
+`review_warning`: no path, no command, nothing to open) and stage 2 reports a
+binding gap carrying `declaration_template: null`. The reader hand-authored a
+98-line inventory and an `agent_bindings` block, losing one round to an invalid
+enum a template would have named.
+
+Two templates close the two stages.
+
+- **Stage 1 — the unenumerable source.** The names are not lost: the loader
+  writes them into its own warning prose, and `core.source_warnings` owns both
+  halves of that prose, so they are read back through the same exact,
+  `repr`-delimited decoder `group_source_warnings` already relies on — never a
+  regex over loader text. One `incomplete_surface` row per **source** carries
+  the `tool_inventories` entry with `source_id` bound to the source it
+  completes, and the skeleton is written with the symbol names pre-filled.
+  Per source, not per symbol: six warnings are one mechanism restated six
+  times, and hanging a repair off each row would have put raw loader prose back
+  into the headline that the grouping work removed. The row is withdrawn once
+  the symbol has an observation — the entrypoint still cannot resolve the
+  import, so the warning stays, but re-prescribing a repair the reader has
+  already made is worse than silence.
+
+- **Stage 2 — the unbound catalog.** A resolved root, a populated catalog, and
+  not one static edge between them now scaffolds the closed-world
+  `declarations` row. The 2026-07 defect was not the block; it was the
+  *assertion* inside it. What is pre-filled is only what was read off the
+  surface — which agent, which catalog tools exist, which handoffs were
+  observed — and `complete` and `reason`, the two values that are a judgement,
+  stay `<REVIEW_REQUIRED>`. Merging it verbatim after answering those two
+  closes `binding_coverage.gap_count` in one iteration.
+
+  Past 50 tools the template is **withheld, not truncated**. `complete: true`
+  claims the listed tools are all the agent can reach, so a silently cut list
+  is false precisely where the reviewer cannot see it — the one failure mode
+  this template must not have.
+
+**The file users were told to edit was the file that did not name the
+vocabulary.** `effect:` and `authority.mode:` were bare blanks while
+`report.json` carried their nine and four accepted values *per gap*; completing
+twelve tools meant roughly forty-eight values looked up somewhere else. Each
+blank now carries a comment above it: the field's `accepted_values` where the
+answer comes from a closed set, otherwise the shape it takes and which other
+answers make it required.
+
+The vocabulary is rendered **from the gap's own `accepted_values`**, never from
+a second copy, so the two artifacts cannot drift. That is possible for exactly
+two fields, and the reason is worth writing down: `accepted_values` is
+*overloaded* on the wire. For most gap kinds it lists the manifest **keys** a
+repair must set (`["agent", "complete:true", "tools", …]`); for
+`declare_action_effect` and `declare_action_authority` it lists the legal
+**values** of one field. Printing the first reading above a blank would tell a
+reviewer that `agent` is a legal `effect`, so only the second is routed, and
+the routing table is pinned to the action-kind enum by a test.
+
+**The root block now offers what the scan already computed.** `agent_bindings.
+root` handed out two blanks for a value the binding graph holds. It lists the
+observed agent objects with their sources, as comments, for a human to confirm.
+Note what that also fixes: `object` matches the agent's **declared** name, not
+the Python variable it was assigned to — the issue's own worked example guessed
+the variable — so the candidate list is the difference between confirming and
+guessing wrong. Nothing is filled in; inferring the trust root from AST
+evidence remains the self-declaration surface
+[#268](https://github.com/ThreeMoonsLab/agents-shipgate/issues/268) closed.
+
+**Two things a comment-carrying renderer has to get right.** PyYAML cannot
+carry comments, so the block is emitted by hand — and a hand-rolled emitter is
+where a second opinion about YAML style creeps in. A test asserts that
+stripping the comment lines back out yields exactly what `safe_dump` writes for
+the same template, so the two cannot diverge. And a *name* is repository data:
+a tool name holding a newline renders as a multi-line scalar the emitter cannot
+indent correctly on its own (it falls back to a JSON-encoded one-line scalar),
+and an agent name holding one would close the `#` of a candidate comment and
+write a filled-in root selector for a reader to paste — so those are escaped
+with `display_literal`, injectively, and an adversarial test holds both shut.
+
+**And the promise is enforced one layer earlier.** `declarations[].complete`
+accepts only `true`, so pasting the scaffold unfinished failed with pydantic's
+"Input should be True" — a true statement that says nothing about the scaffold
+the reader pasted. The placeholder is now rejected from the raw input before
+field validation, so one wording covers every field whatever its type. Same
+rule as the round before: a promise printed in an artifact must be enforced
+somewhere, and the enforcement has to reach the fields people actually paste
+into.

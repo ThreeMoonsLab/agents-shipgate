@@ -591,6 +591,36 @@ _MECHANISMS: tuple[_Mechanism, ...] = (
 )
 
 
+def unresolved_adk_tool_symbols(
+    warnings: Sequence[str],
+) -> list[tuple[str, str]]:
+    """``(agent, symbol)`` for every ADK unresolved-tool warning, in order.
+
+    The names an ADK entrypoint lists in ``tools=[...]`` but static analysis
+    cannot resolve exist nowhere else in the report: the loader records the
+    *reason* as a surface gap and the *names* only in this prose. Both halves
+    of that prose live in this module, so decoding it here is reading back what
+    :func:`adk_unresolved_tool_warning` wrote — the same exact, repr-delimited
+    decode :func:`group_source_warnings` already relies on, never a regex over
+    loader text.
+
+    Callers use it to scaffold the repair those names are the input to: the
+    reviewed inventory that gives the agent an enumerable tool surface (#361).
+    A warning that does not decode as this mechanism contributes nothing.
+    """
+
+    found: list[tuple[str, str]] = []
+    for warning in warnings:
+        match = _match(warning)
+        if match is None or match[0] is not _ADK_UNRESOLVED_TOOL:
+            continue
+        fields = match[1]
+        pair = (fields["agent"], fields["symbol"])
+        if pair not in found:
+            found.append(pair)
+    return found
+
+
 __all__ = [
     "SourceWarningGroup",
     "visible_skeleton",
@@ -603,5 +633,6 @@ __all__ = [
     "unbound_inventory_duplicate_warning",
     "unknown_inventory_source_warning",
     "unmatched_binding_member",
+    "unresolved_adk_tool_symbols",
     "zero_observation_binding_member",
 ]
