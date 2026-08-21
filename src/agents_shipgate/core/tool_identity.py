@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from agents_shipgate.core.domain import (
+    SURFACE_PARTIAL,
     LoadedToolSource,
     SemanticClaim,
     SemanticIssue,
@@ -772,7 +773,52 @@ def _merge_bound_observations(primary: Tool, members: list[Tool]) -> tuple[Tool,
         )
         merged.auth.invalid_annotations.extend(member.auth.invalid_annotations)
     issues.extend(_backfill_preserved_evidence(merged, primary, members))
+    _carry_unproven_tool_set(merged, members)
     return merged, issues
+
+
+def _carry_unproven_tool_set(merged: Tool, members: list[Tool]) -> None:
+    """Keep a member's *set*-level incompleteness on the canonical tool.
+
+    The merge starts from the primary and copies nothing about extraction
+    across, which is deliberate: promoting the primary's fidelity is what
+    naming a reviewed inventory is *for* (#386). That reasoning holds only for
+    claims about one tool's own interface, though. An identity assertion proves
+    two observations describe the same operation; it says nothing about whether
+    the module one of them came from exposes further tools nobody enumerated.
+
+    So an ADK observation carrying ``dynamic_agent_kwargs`` merged into a
+    high-confidence OpenAPI primary produced a high, pass-eligible canonical
+    tool and a `passed` verdict, with the module's gap nowhere in the report
+    (#400 review). Set-scoped reasons now survive the merge and cap the result;
+    interface-scoped ones still resolve in the primary's favour.
+    """
+
+    unproven = [
+        member
+        for member in members
+        if member.extraction.get("tool_set_proven") is False
+    ]
+    if not unproven:
+        return
+    carried: set[str] = set()
+    for member in unproven:
+        raw_gaps = member.extraction.get("surface_gaps")
+        if isinstance(raw_gaps, list):
+            carried.update(
+                value for value in raw_gaps if isinstance(value, str) and value
+            )
+    existing = merged.extraction.get("surface_gaps")
+    if isinstance(existing, list):
+        carried.update(
+            value for value in existing if isinstance(value, str) and value
+        )
+    merged.extraction["surface"] = SURFACE_PARTIAL
+    merged.extraction["surface_gaps"] = sorted(carried)
+    merged.extraction["tool_set_proven"] = False
+    if merged.extraction_confidence == "high":
+        merged.extraction["confidence"] = "medium"
+        merged.extraction_confidence = "medium"
 
 
 #: Tool fields a member may fill in when the primary has nothing there, and

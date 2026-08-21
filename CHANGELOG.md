@@ -143,6 +143,94 @@
   (script version `0.4.0`), pinned by the parity test — which now includes a
   workspace that actually truncates, since every sample fixture sits far under
   the cap.
+- **Google ADK extraction confidence is now measured on the module, not
+  hardcoded.** The Python AST path set `extraction_confidence="medium"` on
+  every tool it produced, and the only code that ever set `"high"` applied to
+  tools loaded from a `tool_inventory` artifact. Every gate tests `!= "high"`,
+  so no ADK repository could reach a pass from source however statically
+  analysable it was: `insufficient_evidence` was not a property of a
+  repository, it was the framework's default first-run verdict. Reproduced on
+  the most trivial case available — one file, twelve annotated module-level
+  functions, `12/12` catalog tools reachable, `0` unbound, `0` source warnings —
+  which still reported twelve `low_confidence_tool` gaps and abstained. A
+  condition that holds for every input carries no information: it could not
+  tell a toolkit factory from twelve plain functions, and the remedy it
+  prescribed was transcription — copy the twelve tools Shipgate had just
+  extracted correctly into `suggested-inventory.json`, adding no fact to the
+  system ([#393](https://github.com/ThreeMoonsLab/agents-shipgate/issues/393)).
+
+  A Google ADK Python entrypoint now reports `high` when the adapter can show
+  it read the whole surface, and `medium` with a named reason when it cannot.
+  The proof is scoped to the file: one unresolved construct anywhere holds
+  every tool the file produced, because a fully-resolved agent in a
+  half-resolved module can reach tools nobody enumerated. Module-scoped reasons
+  are `dynamic_tools_expression`, `unresolved_tool_reference`,
+  `unresolved_tool_expression`, `unresolved_tool_wrapper`, `dynamic_toolset`,
+  `conflicting_tool_contract`, `unresolved_sub_agent`, `mutable_tool_binding`
+  (anything reaching `agent.tools` after construction, including through an
+  alias, `setattr`, or `getattr(agent, "tools")`), `dynamic_agent_kwargs`
+  (`Agent(**config)`, which hides `tools` entirely), `unresolved_tool_wrapper`
+  (a recognised `FunctionTool`/`LongRunningFunctionTool` whose `func` this
+  module does not define — an import, an attribute, a lambda, or none at all),
+  and `shadowed_tool_definition` (the name-to-definition map is flat and
+  scope-blind, so `tools=[helper]` can resolve to a factory's inner function, a
+  method lifted out of a class body, one of two conditional definitions, or a
+  definition that a parameter, class, import, `except ... as`, `case ... as`,
+  `global`, or later assignment rebinds — the tool is still named, its
+  signature is not proven). Per-function reasons are `decorated_tool_function`,
+  `variadic_parameters`, `untyped_parameter`, and
+  `unrepresentable_annotation`. The last two are the same defect twice: the
+  JSON-schema fallback types an unannotated parameter `string`, and it types
+  `set[str]`, `int | None`, `tuple[...]`, a Pydantic model, and even
+  `typing.List[str]` `string` as well. A guess may not ship as a schema, so
+  faithfulness is now checked by asking the emitter what it would produce and
+  comparing it to what the annotation denotes — including the return
+  annotation, which feeds `output_schema` through the same fallback. The
+  `low_confidence_tool` evidence gap names the reasons instead of repeating one
+  sentence on every AST tool in every repository.
+
+  A recognised constructor is only ADK's while the name still refers to the
+  import: `from google.adk.tools import FunctionTool` followed by
+  `FunctionTool = replacement` used to have a foreign factory read with
+  Google's semantics (`shadowed_framework_symbol`), and a `from x import *`
+  can rebind anything the module defines (`star_import_shadowing`). Both are
+  refused rather than guessed at.
+
+  Two correctness fixes came out of the same review. Injected context
+  parameters are identified the way ADK identifies them — by type, with
+  `tool_context` as the name fallback — instead of by dropping every parameter
+  spelled `ctx` or `context`, which deleted ordinary model-visible inputs from
+  the emitted schema. And `List[...]`/`Dict[...]` now emit `array`/`object`
+  rather than `string`, so `from typing import List` is usable without holding
+  the tool at `medium` for what was an emitter gap.
+
+  Module-scoped reasons reach every tool the file contributed, not just its
+  function tools. A module whose only tools come from a *resolved* OpenAPI or
+  MCP toolset still has a tool set the file could not prove — `Agent(**config)`
+  beside a resolved `McpToolset` is the case — so those tools are lowered too.
+  They are only ever lowered, never raised: this step cannot promote a tool the
+  adapter did not extract. They also survive `tool_identity` merging: an
+  identity binding proves two observations describe the same operation, which
+  says nothing about whether the module one of them came from exposes further
+  tools, so a member's unproven tool *set* caps the canonical tool. Reasons
+  about a single tool's own interface still resolve in the primary's favour —
+  that is what a reviewed inventory is for — and the evidence gap for an
+  unproven set now names the construct to fix instead of asking for an
+  inventory or spec the repository has already supplied.
+
+  `_surface_is_complete` changed with it: an AST source type used to be
+  disqualified outright, which was the same constant one layer down and would
+  have kept `incomplete_surface` open on a proven surface. Membership now poses
+  the question and the adapter's own attestation answers it. Saying nothing
+  still reads as incomplete, so adapters not yet taught to answer —
+  LangChain, CrewAI, the OpenAI Agents SDK static path — keep their previous
+  verdict, an unclassified new warning demotes its module automatically, and
+  a wildcard exposure still outranks any completeness claim.
+
+  Net effect on the reported subject: a fully static ADK project with its
+  actions declared reaches `passed` instead of `insufficient_evidence`, and one
+  without them is asked for the effect and authority declarations a human
+  genuinely owes rather than for a transcription it cannot learn anything from.
 
 - **A tool inventory now completes the source that asked for it, instead of
   shadowing it.** `incomplete_surface` fires for every statically-extracted

@@ -1081,6 +1081,25 @@ def inventory_manifest_key(source_type: str) -> str | None:
     return None
 
 
+def _surface_gap_note(tool: Tool) -> str:
+    """Name the constructs that held this tool below high confidence (#393).
+
+    "static extraction could not prove the full tool surface" was the same
+    sentence on every AST-extracted tool in every repository, so it told a
+    reader nothing about *their* code and nothing about what to change. An
+    adapter that measures completeness can say which construct is responsible;
+    one that does not is unchanged.
+    """
+
+    raw_gaps = tool.extraction.get("surface_gaps")
+    if not isinstance(raw_gaps, list):
+        return ""
+    reasons = sorted({value for value in raw_gaps if isinstance(value, str) and value})
+    if not reasons:
+        return ""
+    return f" Unresolved: {', '.join(reasons)}."
+
+
 def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceGap]:
     """v0.26: one actionable row per measurable evidence gap.
 
@@ -1096,7 +1115,30 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
     )
     for tool in low_confidence:
         manifest_key = inventory_manifest_key(tool.source_type)
-        if manifest_key is not None:
+        if tool.extraction.get("tool_set_proven") is False:
+            # An unproven tool *set* is not a missing artifact. Routing it by
+            # source type asked for an inventory or spec the repository had
+            # already supplied — the OpenAPI file is right there and complete;
+            # what is unresolved is the ADK module that decides which tools the
+            # agent gets (#400 review). Name that instead.
+            action = EvidenceGapAction(
+                kind="provide_source",
+                why=(
+                    "The tool surface this source belongs to could not be "
+                    "enumerated, so the set of tools is unknown even where an "
+                    "individual tool's schema is not."
+                ),
+                expects=(
+                    "Resolve the construct named in this row's reason in the "
+                    "source module — a dynamic tools expression, a toolset "
+                    "with no static inventory, an agent built from unpacked "
+                    "keyword arguments, or a tool list mutated after "
+                    "construction — then rerun the scan. A tool inventory "
+                    "cannot close this: it describes tools, not which tools "
+                    "an agent has."
+                ),
+            )
+        elif manifest_key is not None:
             action = EvidenceGapAction(
                 kind="declare_tool_inventory",
                 path=SUGGESTED_INVENTORY_FILENAME,
@@ -1128,6 +1170,7 @@ def _evidence_gaps(report: ReadinessReport, tools: list[Tool]) -> list[EvidenceG
                 why=(
                     f"extraction_confidence={tool.extraction_confidence}; "
                     "static extraction could not prove the full tool surface."
+                    f"{_surface_gap_note(tool)}"
                 ),
                 next_action=action,
             )

@@ -19,13 +19,18 @@ tool_sources:
 google_adk:
   eval_sets:
     - evals/support.eval.json
-  # Reviewed inventory resolves the otherwise AST-only function bindings.
-  # `source_id` names the source it completes: each entry matching a name
-  # `adk_support` already exposes is joined to that observation rather than
-  # added beside it, so the catalog keeps its size and the tools reach high
-  # extraction confidence. Written out tool by tool, this is the same thing as
-  # a `tool_identity.bindings` entry per name — see samples/simple_crewai_agent
+  # Reviewed inventory joined to the source it completes. `source_id` names
+  # that source: each entry matching a name `adk_support` already exposes is
+  # joined to that observation rather than added beside it, so the catalog
+  # keeps its size. Written out tool by tool, this is the same thing as a
+  # `tool_identity.bindings` entry per name — see samples/simple_crewai_agent
   # and samples/simple_langchain_agent for that longer form.
+  #
+  # Since #393 this file is no longer what earns high extraction confidence
+  # here: `agent.py` resolves completely, so its two function tools reach
+  # `high` from source alone. What the inventory still contributes is reviewed
+  # metadata — descriptions and schemas a human stands behind. Keep it as the
+  # worked `source_id` example; a fully static ADK entrypoint does not need one.
   tool_inventories:
     - path: inventories/function-tools.json
       source_id: adk_support

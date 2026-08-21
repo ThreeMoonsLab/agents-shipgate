@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -10,6 +11,8 @@ from agents_shipgate.core.artifact_models import (
     GoogleAdkToolset,
 )
 from agents_shipgate.core.domain import (
+    SURFACE_ENUMERATED,
+    SURFACE_PARTIAL,
     AgentBindingObservation,
     AuthInfo,
     LoadedToolSource,
@@ -84,6 +87,106 @@ _SCOPE_NODES = (
     ast.Lambda,
     ast.ClassDef,
 )
+#: ``Tool.extraction["surface"]`` — whether this adapter *proved* the tool
+#: surface it reports, rather than merely produced it.
+#:
+#: Before #393 the Python AST path hardcoded ``confidence="medium"``, so no ADK
+#: repository could reach ``high`` from source however statically analysable it
+#: was, and ``insufficient_evidence`` was the framework's default first-run
+#: verdict rather than a property of any repository. A condition that holds for
+#: every input carries no information: it could not tell a toolkit factory from
+#: twelve module-level functions, and the remedy it prescribed — transcribe the
+#: twelve tools Shipgate had just extracted correctly into an inventory — added
+#: no fact to the system.
+#:
+#: ``SURFACE_ENUMERATED`` is therefore a claim the extractor has to earn on the
+#: parsed module. Every construct that leaves any part of the surface
+#: unresolved records a reason code below and holds the whole module at
+#: ``medium``; absence of the attestation reads as incomplete everywhere
+#: downstream, so a new ambiguity nobody classified fails closed.
+
+#: Module-scoped reasons: one unresolved construct anywhere in the file means
+#: this file's tool surface was not proven, so it holds every tool the file
+#: produced. Scoping them per agent instead would let a fully-resolved agent in
+#: a half-resolved module claim a proof the module cannot support.
+SURFACE_GAP_DYNAMIC_TOOLS = "dynamic_tools_expression"
+SURFACE_GAP_UNRESOLVED_REFERENCE = "unresolved_tool_reference"
+SURFACE_GAP_UNRESOLVED_EXPRESSION = "unresolved_tool_expression"
+SURFACE_GAP_UNRESOLVED_WRAPPER = "unresolved_tool_wrapper"
+SURFACE_GAP_DYNAMIC_TOOLSET = "dynamic_toolset"
+SURFACE_GAP_CONFLICTING_CONTRACT = "conflicting_tool_contract"
+SURFACE_GAP_UNRESOLVED_SUB_AGENT = "unresolved_sub_agent"
+#: The module reaches an agent's ``tools`` attribute after construction, or
+#: builds an agent from unpacked keyword arguments. Reading the ``tools=``
+#: literal proves the surface only if that literal is the whole story;
+#: ``agent.tools.append(imported)`` and ``Agent(**config)`` both make it not be.
+SURFACE_GAP_MUTABLE_TOOL_BINDING = "mutable_tool_binding"
+SURFACE_GAP_DYNAMIC_AGENT_KWARGS = "dynamic_agent_kwargs"
+#: A ``tools=`` element resolved to a definition the name may not actually
+#: refer to. ``self.functions`` is a flat, scope-blind name map, so it happily
+#: answers with a function defined inside a factory, a method lifted out of a
+#: class body, one of two conditional definitions, or a definition whose name
+#: was later rebound. Naming the tool is still useful; claiming its signature
+#: was proven is not.
+SURFACE_GAP_SHADOWED_DEFINITION = "shadowed_tool_definition"
+#: A call this adapter read as ``Agent``/``FunctionTool``/``*Toolset`` is only
+#: that framework's constructor while the name still refers to the import.
+#: ``from google.adk.tools import FunctionTool`` followed by
+#: ``FunctionTool = replacement`` leaves ``_qualified_name`` resolving the stale
+#: alias, so a foreign factory was read with Google's semantics (#400 review).
+SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL = "shadowed_framework_symbol"
+#: ``from x import *`` can rebind any name in the module at import time, and
+#: the binding table can only record it under ``"*"``. Nothing in the file is
+#: provably what it appears to be, so nothing is proven.
+SURFACE_GAP_STAR_IMPORT = "star_import_shadowing"
+#: Emitted only by the fail-closed backstop in
+#: ``_PythonAdkExtractor._resolve_extraction_evidence``:
+#: a warning this module raised through neither surface helper. It means a new
+#: ambiguity was added without deciding what it says about the surface, so the
+#: module declines to claim one.
+SURFACE_GAP_UNCLASSIFIED = "unclassified_extractor_warning"
+#: Per-tool reasons: the module may be fully enumerated while one function's
+#: own callable interface still is not.
+SURFACE_GAP_UNTYPED_PARAMETER = "untyped_parameter"
+SURFACE_GAP_VARIADIC_PARAMETERS = "variadic_parameters"
+SURFACE_GAP_DECORATED_FUNCTION = "decorated_tool_function"
+#: An annotation is present but the emitter cannot represent it, so the schema
+#: it ships is a guess with better manners than an absent annotation's. See
+#: :func:`_annotation_is_faithful`.
+SURFACE_GAP_UNREPRESENTABLE_ANNOTATION = "unrepresentable_annotation"
+#: An Agent Config lists tool *names*; there is no signature to read, so this
+#: path never claims an enumerated surface.
+SURFACE_GAP_TOOL_REFERENCE_ONLY = "tool_reference_only"
+#: Reasons that are about *this callable's* interface rather than about which
+#: tools exist. The distinction is load-bearing at exactly one place: a
+#: reviewed tool inventory is a human statement about a tool's own schema, so
+#: it can legitimately close these — that is what #386 is for — while no
+#: per-tool assertion can establish that a module exposes no *other* tools. A
+#: reason absent from this set therefore survives identity merging and keeps
+#: the canonical tool below high (#400 review).
+TOOL_INTERFACE_SURFACE_GAPS = frozenset(
+    {
+        SURFACE_GAP_UNTYPED_PARAMETER,
+        SURFACE_GAP_VARIADIC_PARAMETERS,
+        SURFACE_GAP_DECORATED_FUNCTION,
+        SURFACE_GAP_UNREPRESENTABLE_ANNOTATION,
+        SURFACE_GAP_TOOL_REFERENCE_ONLY,
+    }
+)
+#: Names Google ADK injects rather than exposing to the model. ADK identifies
+#: the injection by the parameter's *type*, with ``tool_context`` as a name
+#: fallback; dropping every parameter spelled ``ctx`` or ``context`` deleted
+#: ordinary model-visible inputs from the schema (#400 review).
+ADK_CONTEXT_TYPE_NAMES = {
+    "ToolContext",
+    "CallbackContext",
+    "ReadonlyContext",
+    "google.adk.tools.ToolContext",
+    "google.adk.tools.tool_context.ToolContext",
+    "google.adk.agents.callback_context.CallbackContext",
+    "google.adk.agents.readonly_context.ReadonlyContext",
+}
+ADK_CONTEXT_PARAMETER_NAME = "tool_context"
 
 
 def load_google_adk_artifacts(
@@ -422,7 +525,12 @@ def _tool_from_config_entry(
         annotations={"adk_tool_reference": name, "agent_name": agent_name},
         auth=AuthInfo(source="google_adk_config"),
         extraction_confidence="low",
-        extraction={"method": "google_adk_agent_config", "confidence": "low"},
+        extraction={
+            "method": "google_adk_agent_config",
+            "confidence": "low",
+            "surface": SURFACE_PARTIAL,
+            "surface_gaps": [SURFACE_GAP_TOOL_REFERENCE_ONLY],
+        },
     )
     tools.append(tool)
     artifacts.function_tools.append(
@@ -588,6 +696,11 @@ class _PythonAdkExtractor:
             for node in ast.walk(tree)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
+        # Every binding occurrence of every name in the module. The maps above
+        # are flat and scope-blind by design — they have to be, to name a tool
+        # at all — so this is what says whether their answer is also a *proof*.
+        # Read through ``_name_is_proven``.
+        self.name_bindings = _name_binding_occurrences(tree)
         self.wrappers = self._wrapper_assignments()
         self.toolset_assignments = self._toolset_assignments()
         # One canonical Tool per function definition, keyed by the def name.
@@ -598,6 +711,13 @@ class _PythonAdkExtractor:
         # agents is loaded once, not once per agent.
         self.toolset_tool_names: dict[int, list[str]] = {}
         self.agent_bindings: dict[str, _AdkAgentBinding] = {}
+        # Reasons this module's tool surface was not proven complete (#393).
+        # Empty at the end of ``extract`` is what earns ``SURFACE_ENUMERATED``.
+        self.surface_gaps: list[str] = []
+        # Warnings this module raised through ``_surface_warning`` or
+        # ``_note_warning``. Compared against the real growth of
+        # ``artifacts.warnings`` so an unclassified append fails closed.
+        self._accounted_warnings = 0
         # Every ``Agent(...)`` assignment in this module, walked once and
         # reused: ``extract`` iterates it, and the sub-agent spelling map
         # below is built from it.
@@ -612,9 +732,20 @@ class _PythonAdkExtractor:
     def extract(self) -> list[LoadedToolSource]:
         tools: list[Tool] = []
         loaded_sources: list[LoadedToolSource] = []
+        warnings_before = len(self.artifacts.warnings)
         self._record_eval_references()
+        self._record_star_imports()
+        self._record_mutable_tool_bindings()
         for target_name, call in self.agent_call_list:
             agent_name = _kwarg_string(call, "name") or target_name or "adk_agent"
+            # The call is only ADK's ``Agent`` while the name still refers to
+            # the import it was resolved through.
+            self._require_proven_framework_symbol(call)
+            if any(keyword.arg is None for keyword in call.keywords):
+                # ``Agent(**config)`` hides every keyword, ``tools`` included.
+                # Without ``tools=`` the agent silently records tool_count 0,
+                # which would otherwise read as a proven empty surface.
+                self._note_surface_gap(SURFACE_GAP_DYNAMIC_AGENT_KWARGS)
             tools_expr = _kwarg(call, "tools")
             tool_count = len(tools_expr.elts) if isinstance(tools_expr, (ast.List, ast.Tuple)) else 0
             self.artifacts.agents.append(
@@ -630,8 +761,9 @@ class _PythonAdkExtractor:
             self._record_agent_callbacks_plugins_subagents(call, agent_name)
             if not isinstance(tools_expr, (ast.List, ast.Tuple)):
                 if tools_expr is not None:
-                    self.artifacts.warnings.append(
-                        f"Google ADK agent {agent_name!r} uses a dynamic tools expression."
+                    self._surface_warning(
+                        f"Google ADK agent {agent_name!r} uses a dynamic tools expression.",
+                        SURFACE_GAP_DYNAMIC_TOOLS,
                     )
                     self.artifacts.toolsets.append(
                         GoogleAdkToolset(
@@ -648,6 +780,7 @@ class _PythonAdkExtractor:
                 loaded_sources.extend(
                     self._extract_tool_expr(item, tools, agent_name, binding)
                 )
+        self._resolve_extraction_evidence(warnings_before, loaded_sources)
         return [
             LoadedToolSource(
                 source_id=self.source_id,
@@ -658,6 +791,242 @@ class _PythonAdkExtractor:
             ),
             *loaded_sources,
         ]
+
+    def _surface_warning(self, message: str, reason: str) -> None:
+        """Report a construct that leaves part of this module's surface unknown."""
+
+        self.artifacts.warnings.append(message)
+        self._accounted_warnings += 1
+        self._note_surface_gap(reason)
+
+    def _note_warning(self, message: str) -> None:
+        """Report a warning that says nothing about the tool surface.
+
+        Eval-artifact references are about test collateral, not about which
+        tools an agent can call, so they must not cost the module its
+        completeness claim. Everything else goes through ``_surface_warning``.
+        """
+
+        self.artifacts.warnings.append(message)
+        self._accounted_warnings += 1
+
+    def _note_surface_gap(self, reason: str) -> None:
+        if reason not in self.surface_gaps:
+            self.surface_gaps.append(reason)
+
+    def _record_star_imports(self) -> None:
+        """A ``from x import *`` makes every name in the module unknowable.
+
+        The binding table can only record the alias under ``"*"``, so a local
+        ``def known(...)`` looked singly-bound and proven while the star import
+        may replace it at run time (#400 review). Nothing here is provable, so
+        the module says so once rather than per name.
+        """
+
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.ImportFrom) and any(
+                alias.name == "*" for alias in node.names
+            ):
+                self._note_surface_gap(SURFACE_GAP_STAR_IMPORT)
+                return
+
+    def _require_proven_framework_symbol(self, call: ast.Call) -> None:
+        """Require a recognised framework constructor to really be that import.
+
+        ``_qualified_name`` maps a call back to ``google.adk...`` through the
+        import alias table, and that table is spelling-based: after
+        ``from google.adk.tools import FunctionTool`` and
+        ``FunctionTool = replacement``, a foreign factory was still read with
+        Google's semantics — its tools catalogued, its module proven (#400
+        review). The name has to be bound exactly once, by that import, for the
+        resolution to mean anything.
+        """
+
+        root = call.func
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name):
+            return
+        bindings = self.name_bindings.get(root.id, [])
+        if len(bindings) != 1 or not isinstance(bindings[0], ast.alias):
+            self._note_surface_gap(SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL)
+
+    def _record_mutable_tool_bindings(self) -> None:
+        """Notice any reach for an agent's ``tools`` after it is constructed.
+
+        The ``tools=`` literal is only a proof of the surface while nothing
+        else touches it. ``root_agent.tools.append(imported_tool)``,
+        ``root_agent.tools = [...]``, ``setattr(root_agent, "tools", ...)``,
+        and an alias bound with ``bucket = root_agent.tools`` all add tools the
+        walk above never sees, and every one of them was silently promoted to
+        ``high`` before this guard.
+
+        Any ``.tools`` access at all counts, not only the mutating spellings:
+        a read can be aliased and a subscript store hides behind a load. The
+        cost of over-reporting is one module that stays at ``medium``, which is
+        where it already was; the cost of under-reporting is a proven-surface
+        claim over tools nobody enumerated. Dotted module paths such as
+        ``google.adk.tools.FunctionTool`` are excluded by their imported root —
+        those are packages, not agents.
+
+        Reflective access is checked separately because it carries the
+        attribute name as data: ``getattr(root_agent, "tools").append(...)``,
+        ``vars(root_agent)["tools"]``, and ``root_agent.__dict__["tools"]``
+        contain no ``Attribute`` node named ``tools`` at all and walked
+        straight past the first check (PR #400 review).
+        """
+
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Attribute) and node.attr == "tools":
+                if not self._is_imported_module_path(node.value):
+                    self._note_surface_gap(SURFACE_GAP_MUTABLE_TOOL_BINDING)
+                    return
+            if _is_reflective_tools_access(node, self.aliases):
+                self._note_surface_gap(SURFACE_GAP_MUTABLE_TOOL_BINDING)
+                return
+
+    def _is_imported_module_path(self, node: ast.AST) -> bool:
+        """Whether ``node`` roots in a name that is *only* ever an import.
+
+        Membership in ``self.aliases`` is not enough. ``from x import agents``
+        followed by ``agents = LlmAgent(...)`` leaves the name in the alias map
+        while it now refers to an agent, so ``agents.tools.append(...)`` was
+        waved through as a package path (PR #400 review). A root that anything
+        else in the module rebinds is not a package.
+        """
+
+        current = node
+        while isinstance(current, ast.Attribute):
+            current = current.value
+        if not isinstance(current, ast.Name) or current.id not in self.aliases:
+            return False
+        bindings = self.name_bindings.get(current.id, [])
+        return len(bindings) == 1 and isinstance(bindings[0], ast.alias)
+
+    def _name_is_proven(self, name: str) -> bool:
+        """Whether ``name`` unambiguously refers to what the flat maps say.
+
+        True only when the module binds the name exactly once, at module scope,
+        through a statement that is a direct child of the module body. A second
+        binding of any kind — a parameter, a class, an import, a later
+        assignment, a ``global`` declaration — means the resolution is a guess
+        about which one was in effect, and a guess is not a proof.
+        """
+
+        bindings = self.name_bindings.get(name, [])
+        if len(bindings) != 1:
+            return False
+        binding = bindings[0]
+        if self._scope_of(binding) is not self.tree:
+            return False
+        return isinstance(self._top_level_statement(binding), _TOP_LEVEL_BINDING_STATEMENTS)
+
+    def _top_level_statement(self, node: ast.AST) -> ast.AST | None:
+        """The direct child of the module body that contains ``node``."""
+
+        current: ast.AST | None = node
+        parent = self.parents.get(node)
+        while parent is not None and parent is not self.tree:
+            current = parent
+            parent = self.parents.get(parent)
+        return current if parent is self.tree else None
+
+    def _require_proven_name(self, name: str) -> None:
+        if not self._name_is_proven(name):
+            self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
+
+    def _name_is_canonical(self, name: str) -> bool:
+        """Whether an annotation spelling still means the type it looks like.
+
+        A builtin (``str``, ``int``, ``list``, …) is canonical only while the
+        module binds nothing of that name: ``from domain import Account as str``
+        makes ADK see ``Account`` where the emitter wrote ``{"type": "string"}``
+        (#400 review). A ``typing`` alias (``List``, ``Dict``) is canonical only
+        when its single binding is an import that resolves into ``typing``.
+        """
+
+        bindings = self.name_bindings.get(name, [])
+        if name in _TYPING_ANNOTATION_ALIASES:
+            if len(bindings) != 1 or not isinstance(bindings[0], ast.alias):
+                return False
+            resolved = self.aliases.get(name, "")
+            return resolved.rsplit(".", 1)[0] in {"typing", "typing_extensions"}
+        return not bindings
+
+    def _resolve_extraction_evidence(
+        self, warnings_before: int, loaded_sources: list[LoadedToolSource]
+    ) -> None:
+        """Settle each tool's extraction confidence on what this module proved.
+
+        Runs once, after the whole module is walked, because completeness is a
+        property of the file rather than of the agent that happened to be
+        visited first: a dynamic tools expression on the last agent invalidates
+        the proof for tools bound by the first.
+
+        ``loaded_sources`` carries the tools an OpenAPI or MCP toolset in this
+        module contributed. They are settled here too, because a module whose
+        *only* tools come from a resolved toolset still has a tool set this
+        file could not prove: ``Agent(**config)`` beside a resolved
+        ``McpToolset`` recorded ``dynamic_agent_kwargs`` into a loop over
+        function tools that was empty, and the gap evaporated (PR #400 review).
+        Their own schemas remain trustworthy, so they are only ever lowered,
+        never raised — this loop cannot promote a tool it did not extract.
+
+        The unaccounted-warning backstop is the load-bearing part. A future
+        ambiguity added with a plain ``artifacts.warnings.append`` would
+        otherwise leave ``surface_gaps`` empty and silently promote an
+        unresolved module to ``high`` — the fail-open shape a "safe" block-level
+        signal clearing a path-wide guard produces. Counting warnings makes the
+        default answer "not proven".
+        """
+
+        emitted = len(self.artifacts.warnings) - warnings_before
+        if emitted != self._accounted_warnings:
+            self._note_surface_gap(SURFACE_GAP_UNCLASSIFIED)
+        for tool in self.canonical_function_tools.values():
+            raw_gaps = tool.extraction.get("surface_gaps")
+            local_gaps = raw_gaps if isinstance(raw_gaps, list) else []
+            self._record_surface_evidence(tool, {*self.surface_gaps, *local_gaps})
+        if not self.surface_gaps:
+            return
+        for loaded in loaded_sources:
+            for tool in loaded.tools:
+                raw_gaps = tool.extraction.get("surface_gaps")
+                local_gaps = raw_gaps if isinstance(raw_gaps, list) else []
+                self._record_surface_evidence(
+                    tool, {*self.surface_gaps, *local_gaps}, lower_only=True
+                )
+
+    def _record_surface_evidence(
+        self, tool: Tool, gaps: set[str], *, lower_only: bool = False
+    ) -> None:
+        """Write one tool's completeness evidence.
+
+        ``tool_set_proven`` is the half that has to survive identity merging. A
+        reviewed inventory or identity binding is a human statement about a
+        *tool's own schema*, so it legitimately closes the interface reasons —
+        that is what #386 is for. Nothing a human can say about one tool
+        establishes that a module exposes no *other* tools, so a set-scoped
+        reason has to travel with the observation and keep the canonical tool
+        below high wherever it is merged (#400 review).
+        """
+
+        ordered = sorted(gaps)
+        tool.extraction["surface"] = SURFACE_PARTIAL if ordered else SURFACE_ENUMERATED
+        tool.extraction["surface_gaps"] = ordered
+        tool.extraction["tool_set_proven"] = not (
+            gaps - TOOL_INTERFACE_SURFACE_GAPS
+        )
+        if not ordered:
+            if lower_only:
+                return
+            tool.extraction["confidence"] = "high"
+            tool.extraction_confidence = "high"
+            return
+        if lower_only and tool.extraction_confidence != "high":
+            return
+        tool.extraction["confidence"] = "medium"
+        tool.extraction_confidence = "medium"
 
     def _agent_names_by_variable(self) -> dict[tuple[ast.AST | None, str], str | None]:
         """Map each ``variable = Agent(...)`` to the agent's declared ``name=``.
@@ -803,8 +1172,13 @@ class _PythonAdkExtractor:
     ) -> list[LoadedToolSource]:
         if isinstance(expr, ast.Name):
             if expr.id in self.wrappers:
+                # The variable's own name has to hold up too, not just the
+                # function it wraps: a wrapper reassigned later resolves
+                # through a last-write-wins map.
+                self._require_proven_name(expr.id)
                 self._append_wrapper_tool(expr.id, tools, agent_name, binding)
             elif expr.id in self.toolset_assignments:
+                self._require_proven_name(expr.id)
                 return self._extract_toolset_call(
                     self.toolset_assignments[expr.id], agent_name, binding
                 )
@@ -813,13 +1187,15 @@ class _PythonAdkExtractor:
                     self.functions[expr.id], tools, agent_name, binding, False
                 )
             else:
-                self.artifacts.warnings.append(
-                    adk_unresolved_tool_warning(agent_name, expr.id)
+                self._surface_warning(
+                    adk_unresolved_tool_warning(agent_name, expr.id),
+                    SURFACE_GAP_UNRESOLVED_REFERENCE,
                 )
             return []
         if isinstance(expr, ast.Call):
             call_name = _qualified_name(expr.func, self.aliases)
             if call_name in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES:
+                self._require_proven_framework_symbol(expr)
                 func_name = _call_func_name(expr)
                 if func_name and func_name in self.functions:
                     self._bind_function_tool(
@@ -829,11 +1205,25 @@ class _PythonAdkExtractor:
                         binding,
                         call_name in LONG_RUNNING_TOOL_NAMES,
                     )
+                else:
+                    # A recognised wrapper whose ``func`` this module does not
+                    # define: an imported function, an attribute, a lambda, or
+                    # no ``func`` at all. The wrapper is a real tool the agent
+                    # can call and nothing else records it, so returning
+                    # silently here reported a strictly smaller tool surface
+                    # than the agent has — and called it proven (PR #400
+                    # review).
+                    self._surface_warning(
+                        f"Google ADK agent {agent_name!r} wraps a tool whose function "
+                        f"{func_name or '<unspecified>'!r} is not defined in this module.",
+                        SURFACE_GAP_UNRESOLVED_WRAPPER,
+                    )
                 return []
             if call_name in OPENAPI_TOOLSET_NAMES | MCP_TOOLSET_NAMES:
                 return self._extract_toolset_call(expr, agent_name, binding)
-        self.artifacts.warnings.append(
-            f"Google ADK agent {agent_name!r} has a tool expression that could not be statically resolved."
+        self._surface_warning(
+            f"Google ADK agent {agent_name!r} has a tool expression that could not be statically resolved.",
+            SURFACE_GAP_UNRESOLVED_EXPRESSION,
         )
         return []
 
@@ -845,6 +1235,9 @@ class _PythonAdkExtractor:
         binding: _AdkAgentBinding,
     ) -> None:
         wrapper = self.wrappers[wrapper_name]
+        wrapper_call = wrapper.get("call")
+        if isinstance(wrapper_call, ast.Call):
+            self._require_proven_framework_symbol(wrapper_call)
         func_name = wrapper.get("func_name")
         if isinstance(func_name, str) and func_name in self.functions:
             self._bind_function_tool(
@@ -855,8 +1248,9 @@ class _PythonAdkExtractor:
                 bool(wrapper.get("long_running")),
             )
             return
-        self.artifacts.warnings.append(
-            f"Google ADK tool wrapper {wrapper_name!r} has no statically resolvable function."
+        self._surface_warning(
+            f"Google ADK tool wrapper {wrapper_name!r} has no statically resolvable function.",
+            SURFACE_GAP_UNRESOLVED_WRAPPER,
         )
 
     def _bind_function_tool(
@@ -875,6 +1269,7 @@ class _PythonAdkExtractor:
         (and collide on tool observation identity).
         """
 
+        self._require_proven_name(node.name)
         tool = self.canonical_function_tools.get(node.name)
         if tool is None:
             tool = self._function_to_tool(node, agent_name, long_running)
@@ -885,9 +1280,10 @@ class _PythonAdkExtractor:
             # LongRunningFunctionTool is a contradictory declaration about one
             # action. Keep the stricter contract and route it to review rather
             # than letting binding order decide.
-            self.artifacts.warnings.append(
+            self._surface_warning(
                 f"Google ADK function {node.name!r} is bound as both a long-running "
-                "and a standard function tool; review its operation contract."
+                "and a standard function tool; review its operation contract.",
+                SURFACE_GAP_CONFLICTING_CONTRACT,
             )
             if long_running:
                 tool.annotations["long_running"] = True
@@ -918,6 +1314,7 @@ class _PythonAdkExtractor:
         if cached is not None:
             self._bind_toolset_tools(cached, agent_name, binding)
             return []
+        self._require_proven_framework_symbol(call)
         call_name = _qualified_name(call.func, self.aliases)
         if call_name in OPENAPI_TOOLSET_NAMES:
             loaded_sources = self._extract_openapi_toolset(call, agent_name)
@@ -951,7 +1348,7 @@ class _PythonAdkExtractor:
         agent_name: str,
         long_running: bool,
     ) -> Tool:
-        parameters = _parameters(node)
+        parameters = _parameters(node, self.aliases)
         return_type = _annotation_to_string(node.returns)
         signature = f"{node.name}({', '.join(param.name for param in parameters)})"
         if return_type:
@@ -985,8 +1382,17 @@ class _PythonAdkExtractor:
                 "long_running": long_running,
             },
             auth=AuthInfo(source="google_adk_static"),
+            # Provisional: ``_resolve_extraction_evidence`` settles both fields
+            # once the whole module has been walked. ``medium`` here so a tool
+            # is never high-confidence in flight.
             extraction_confidence="medium",
-            extraction={"method": "google_adk_python_ast", "confidence": "medium"},
+            extraction={
+                "method": "google_adk_python_ast",
+                "confidence": "medium",
+                "surface_gaps": _function_surface_gaps(
+                    node, self.aliases, self._name_is_canonical
+                ),
+            },
         )
         payload = self._function_tool_payload(tool, agent_name)
         self.artifacts.function_tools.append(payload)
@@ -1021,9 +1427,10 @@ class _PythonAdkExtractor:
         )
         self.artifacts.toolsets.append(toolset)
         if not spec_path:
-            self.artifacts.warnings.append(
+            self._surface_warning(
                 f"Google ADK OpenAPIToolset at {self.source_ref}:{call.lineno} "
-                "has no static local spec path."
+                "has no static local spec path.",
+                SURFACE_GAP_DYNAMIC_TOOLSET,
             )
             return []
         loaded = load_openapi_tools(
@@ -1059,9 +1466,10 @@ class _PythonAdkExtractor:
         )
         self.artifacts.toolsets.append(toolset)
         if not inventory_path:
-            self.artifacts.warnings.append(
+            self._surface_warning(
                 f"Google ADK McpToolset at {self.source_ref}:{call.lineno} "
-                "has no static MCP tool inventory path."
+                "has no static MCP tool inventory path.",
+                SURFACE_GAP_DYNAMIC_TOOLSET,
             )
             return []
         loaded = load_mcp_tools(
@@ -1121,6 +1529,14 @@ class _PythonAdkExtractor:
                     resolved = self._sub_agent_name(variable, call)
                     if resolved is None:
                         unresolved_sub_agents.append(variable)
+                        # A handoff target this module does not define owns
+                        # tools this module never saw, so the file cannot
+                        # claim it enumerated the surface reachable from
+                        # here. Deliberately no warning: #385 left an
+                        # unreached branch ungated, and adding one now would
+                        # move repositories between verdicts for a reason
+                        # this change is not about.
+                        self._note_surface_gap(SURFACE_GAP_UNRESOLVED_SUB_AGENT)
                     else:
                         sub_agent_names.append(resolved)
                 self.artifacts.sub_agents.append(
@@ -1160,12 +1576,12 @@ class _PythonAdkExtractor:
             try:
                 path = resolve_input_path(self.entrypoint_dir, value)
             except InputParseError:
-                self.artifacts.warnings.append(
+                self._note_warning(
                     f"Google ADK eval reference {value!r} resolves outside the entrypoint directory."
                 )
                 continue
             if not path.exists():
-                self.artifacts.warnings.append(
+                self._note_warning(
                     f"Google ADK eval reference {value!r} was detected but not found."
                 )
                 continue
@@ -1413,22 +1829,313 @@ def _short_tool_name(name: str) -> str:
     return name.rsplit(".", 1)[-1]
 
 
-def _parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ToolParameter]:
-    parameters: list[ToolParameter] = []
+def _is_injected_context_arg(
+    arg: ast.arg, aliases: dict[str, str], *, is_receiver: bool
+) -> bool:
+    """Whether ADK supplies this argument itself instead of the model.
+
+    Google ADK decides this by the parameter's *type* — a ``ToolContext`` and
+    friends are filled in by the framework — and falls back to the
+    ``tool_context`` name. Dropping every parameter merely *spelled* ``ctx`` or
+    ``context`` deleted ordinary model-visible inputs from the schema, so
+    ``def known(context: str, record_id: str)`` shipped a one-property schema
+    and called it proven (#400 review). Only a statically verifiable injection
+    is omitted now; anything else stays a parameter, where an unreadable
+    annotation gets caught by the usual checks.
+    """
+
+    if is_receiver and arg.arg == "self":
+        return True
+    if arg.arg == ADK_CONTEXT_PARAMETER_NAME:
+        return True
+    if arg.annotation is None:
+        return False
+    return _qualified_name(arg.annotation, aliases) in ADK_CONTEXT_TYPE_NAMES
+
+
+def _bound_args(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    aliases: dict[str, str],
+) -> list[tuple[ast.arg, bool]]:
+    """The arguments that become tool parameters, with their requiredness.
+
+    One owner for the "which arguments count" question, so the schema
+    (:func:`_parameters`) and the check on whether that schema is faithful
+    (:func:`_function_surface_gaps`) can never disagree about which arguments
+    they are talking about.
+    """
+
+    bound: list[tuple[ast.arg, bool]] = []
     positional_args = [*node.args.posonlyargs, *node.args.args]
     positional_defaults: list[ast.expr | None] = [
         None for _ in range(len(positional_args) - len(node.args.defaults))
     ]
     positional_defaults.extend(node.args.defaults)
-    for arg, default in zip(positional_args, positional_defaults, strict=True):
-        if arg.arg in {"self", "ctx", "context", "tool_context"}:
+    for index, (arg, default) in enumerate(
+        zip(positional_args, positional_defaults, strict=True)
+    ):
+        if _is_injected_context_arg(arg, aliases, is_receiver=index == 0):
             continue
-        parameters.append(_parameter(arg, required=default is None))
+        bound.append((arg, default is None))
     for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True):
-        if arg.arg in {"self", "ctx", "context", "tool_context"}:
+        if _is_injected_context_arg(arg, aliases, is_receiver=False):
             continue
-        parameters.append(_parameter(arg, required=default is None))
-    return parameters
+        bound.append((arg, default is None))
+    return bound
+
+
+def _parameters(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, aliases: dict[str, str]
+) -> list[ToolParameter]:
+    return [
+        _parameter(arg, required=required)
+        for arg, required in _bound_args(node, aliases)
+    ]
+
+
+#: Statements that bind a name at module scope in a way the adapter can point
+#: at. A binding reached through anything else — an ``if``/``try``/``for`` body,
+#: a ``with`` block — is conditional or order-dependent, which is exactly what
+#: this check exists to refuse.
+_TOP_LEVEL_BINDING_STATEMENTS = (
+    ast.Assign,
+    ast.AnnAssign,
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+    ast.Import,
+    ast.ImportFrom,
+)
+#: Builtins that name an attribute with a string instead of a dotted access.
+#: Matched on the trailing name so ``builtins.setattr`` and an aliased import
+#: of the same builtin both count.
+_REFLECTIVE_ATTRIBUTE_BUILTINS = {"getattr", "setattr", "delattr"}
+
+
+def _is_reflective_tools_access(node: ast.AST, aliases: dict[str, str]) -> bool:
+    """Whether ``node`` reaches an object's ``tools`` attribute by name.
+
+    Three spellings, all of which produced the same runtime mutation while
+    containing no ``Attribute`` node named ``tools``:
+    ``getattr(agent, "tools")`` and its ``setattr``/``delattr`` siblings,
+    ``vars(agent)["tools"]``, and ``agent.__dict__["tools"]``.
+
+    The builtin is matched through the import alias table as well as its bare
+    spelling, so ``from builtins import getattr as read_attr`` is recognised —
+    it calls the real builtin, and only the local name changed (#400 review).
+    The dictionary forms are matched narrowly, on ``vars(...)`` and
+    ``__dict__`` specifically, rather than on any ``["tools"]`` subscript: a
+    config dictionary with a ``"tools"`` key is ordinary and is not a mutation.
+    """
+
+    if isinstance(node, ast.Subscript):
+        key = node.slice
+        if not (isinstance(key, ast.Constant) and key.value == "tools"):
+            return False
+        target = node.value
+        if isinstance(target, ast.Attribute) and target.attr == "__dict__":
+            return True
+        return isinstance(target, ast.Call) and _called_builtin(target, aliases) == "vars"
+    if isinstance(node, ast.Call) and len(node.args) >= 2:
+        if _called_builtin(node, aliases) not in _REFLECTIVE_ATTRIBUTE_BUILTINS:
+            return False
+        attribute = node.args[1]
+        return isinstance(attribute, ast.Constant) and attribute.value == "tools"
+    return False
+
+
+def _called_builtin(call: ast.Call, aliases: dict[str, str]) -> str | None:
+    """The builtin ``call`` invokes, seen through imports and dotted access."""
+
+    qualified = _qualified_name(call.func, aliases)
+    if qualified:
+        return qualified.rsplit(".", 1)[-1]
+    return None
+
+
+def _name_binding_occurrences(tree: ast.Module) -> dict[str, list[ast.AST]]:
+    """Every node in the module that binds a name, keyed by the name.
+
+    Counting binding *occurrences* rather than definitions is the point.
+    ``tools=[helper]`` is resolved through a flat ``name -> FunctionDef`` map
+    built by walking the whole module, which is what lets the adapter name a
+    tool at all — it is not what lets it *prove* one. The same map answers with
+    a definition nested inside a factory, a method lifted out of a class body,
+    whichever of two conditional definitions the walk saw last, or a definition
+    whose name a parameter, class, import, or later assignment shadows.
+
+    Every Python binding form is collected, not just ``def`` and ``=``:
+    parameters are ``ast.arg``, classes bind through ``ClassDef.name``,
+    ``except E as name`` and ``case X() as name`` have their own shapes, and
+    ``global``/``nonlocal`` declare that a name is rebound out of view. Missing
+    one of those was how a parameter named after a module function slipped
+    through as a proven definition (PR #400 review).
+    """
+
+    bindings: dict[str, list[ast.AST]] = {}
+
+    def record(name: str | None, node: ast.AST) -> None:
+        if name:
+            bindings.setdefault(name, []).append(node)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            record(node.name, node)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+            record(node.id, node)
+        elif isinstance(node, ast.arg):
+            record(node.arg, node)
+        elif isinstance(node, ast.alias):
+            record(node.asname or node.name.split(".", 1)[0], node)
+        elif isinstance(node, ast.ExceptHandler):
+            record(node.name, node)
+        elif isinstance(node, ast.MatchAs | ast.MatchStar):
+            record(node.name, node)
+        elif isinstance(node, ast.MatchMapping):
+            record(node.rest, node)
+        elif isinstance(node, ast.Global | ast.Nonlocal):
+            for name in node.names:
+                record(name, node)
+    return bindings
+
+
+#: Annotations :func:`_annotation_json_type` can name a JSON type for. Bare
+#: ``list``/``dict`` are included: ``{"type": "array"}`` omits the element
+#: schema but does not misstate the value, which is a different thing from a
+#: guess.
+_SCALAR_ANNOTATION_TYPES = {
+    "str": "string",
+    "int": "number",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "List": "array",
+    "dict": "object",
+    "Dict": "object",
+}
+#: The subset of the above that has to arrive through ``typing``; the rest are
+#: builtins, which are canonical exactly while the module binds nothing of that
+#: name. See ``_PythonAdkExtractor._name_is_canonical``.
+_TYPING_ANNOTATION_ALIASES = {"List", "Dict"}
+
+
+def _annotation_json_type(
+    node: ast.AST | None, name_is_canonical: Callable[[str], bool]
+) -> str | None:
+    """The JSON type this annotation really denotes, or None if it denotes none.
+
+    Reads the annotation as a tree rather than as the unparsed string, so
+    ``set[str]``, ``tuple[int, str]``, ``int | None``, ``Optional[int]``,
+    ``Literal[...]``, a string forward reference, and any custom or Pydantic
+    class all answer None instead of silently becoming a scalar.
+
+    ``name_is_canonical`` decides whether a spelling still refers to the
+    builtin or ``typing`` alias it looks like. Trusting the spelling alone let
+    ``from domain import Account as str`` describe a model as a string, on a
+    tool marked proven (#400 review).
+    """
+
+    if isinstance(node, ast.Name):
+        if not name_is_canonical(node.id):
+            return None
+        return _SCALAR_ANNOTATION_TYPES.get(node.id)
+    if isinstance(node, ast.Subscript):
+        base = node.value
+        if not isinstance(base, ast.Name) or not name_is_canonical(base.id):
+            # A dotted base such as ``typing.List`` is left to the emitter
+            # comparison below, which already rejects it: the string match in
+            # ``_json_schema_type`` misses the module prefix.
+            return None
+        if base.id in {"list", "List"}:
+            return (
+                "array"
+                if _annotation_json_type(node.slice, name_is_canonical)
+                else None
+            )
+        if base.id in {"dict", "Dict"}:
+            if isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2:
+                key, value = node.slice.elts
+                keyed_by_string = (
+                    isinstance(key, ast.Name)
+                    and key.id == "str"
+                    and name_is_canonical("str")
+                )
+                if keyed_by_string and _annotation_json_type(
+                    value, name_is_canonical
+                ):
+                    return "object"
+            return None
+    return None
+
+
+def _annotation_is_faithful(
+    node: ast.AST | None, name_is_canonical: Callable[[str], bool]
+) -> bool:
+    """Whether the schema :func:`_json_schema_type` emits matches the annotation.
+
+    An annotation is not by itself evidence that the emitted schema is right.
+    ``_json_schema_type`` reads the *unparsed string* and falls back to
+    ``"string"`` for everything it does not recognise, so ``set[str]``,
+    ``int | None``, a Pydantic model, and even ``typing.List[str]`` (spelled
+    with the module prefix the string match misses) all ship as
+    ``{"type": "string"}``.
+
+    Rather than keep a second vocabulary in sync with the emitter's, this asks
+    the emitter what it would produce and compares it to what the annotation
+    denotes. Any spelling the emitter mishandles is unfaithful by construction,
+    including one added later.
+    """
+
+    expected = _annotation_json_type(node, name_is_canonical)
+    if expected is None:
+        return False
+    return _json_schema_type(_annotation_to_string(node)) == expected
+
+
+def _function_surface_gaps(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    aliases: dict[str, str],
+    name_is_canonical: Callable[[str], bool],
+) -> list[str]:
+    """Reasons this one function's callable interface was not fully read.
+
+    Separate from the module-scoped reasons: a file can resolve every tool
+    expression it contains and still hold a function whose real signature the
+    AST does not give up.
+
+    * A decorator replaces the callable ADK introspects, so the definition's
+      parameters are not necessarily the tool's parameters.
+    * ``*args`` / ``**kwargs`` are dropped by :func:`_bound_args` — the schema
+      would understate an open-ended surface rather than describe it.
+    * An unannotated parameter is typed ``string`` by
+      :func:`_json_schema_type`'s fallback. That is a guess presented as a
+      schema, which is exactly what a high-confidence extraction may not do.
+    * An annotation the emitter cannot represent is the same guess with better
+      manners — ``set[str]`` and ``int | None`` also ship as ``string``. The
+      return annotation is checked too, because ``output_schema`` is built from
+      the same fallback; an *absent* return annotation is an honest omission
+      (``output_schema`` stays ``{}``) and is not a gap.
+    """
+
+    gaps: list[str] = []
+    if node.decorator_list:
+        gaps.append(SURFACE_GAP_DECORATED_FUNCTION)
+    if node.args.vararg is not None or node.args.kwarg is not None:
+        gaps.append(SURFACE_GAP_VARIADIC_PARAMETERS)
+    annotations = [arg.annotation for arg, _ in _bound_args(node, aliases)]
+    if any(annotation is None for annotation in annotations):
+        gaps.append(SURFACE_GAP_UNTYPED_PARAMETER)
+    declared = [
+        annotation for annotation in annotations if annotation is not None
+    ]
+    if node.returns is not None:
+        declared.append(node.returns)
+    if not all(
+        _annotation_is_faithful(annotation, name_is_canonical)
+        for annotation in declared
+    ):
+        gaps.append(SURFACE_GAP_UNREPRESENTABLE_ANNOTATION)
+    return sorted(gaps)
 
 
 def _parameter(arg: ast.arg, *, required: bool) -> ToolParameter:
@@ -1446,13 +2153,23 @@ def _annotation_to_string(annotation: ast.AST | None) -> str | None:
 
 
 def _json_schema_type(annotation: str | None) -> str:
+    """The JSON type this adapter emits for an annotation, as a string match.
+
+    ``List[str]`` and ``Dict[str, int]`` are recognised alongside their builtin
+    spellings. Without that, ``from typing import List`` emitted ``string`` for
+    a list — which :func:`_annotation_is_faithful` correctly refused to certify,
+    so the tool was held at ``medium`` for what is really an emitter gap rather
+    than anything about the user's code.
+    """
+
     if annotation in {"int", "float"}:
         return "number"
     if annotation == "bool":
         return "boolean"
-    if annotation in {"list", "List"} or (annotation or "").startswith("list["):
+    text = annotation or ""
+    if annotation in {"list", "List"} or text.startswith(("list[", "List[")):
         return "array"
-    if annotation in {"dict", "Dict"} or (annotation or "").startswith("dict["):
+    if annotation in {"dict", "Dict"} or text.startswith(("dict[", "Dict[")):
         return "object"
     return "string"
 

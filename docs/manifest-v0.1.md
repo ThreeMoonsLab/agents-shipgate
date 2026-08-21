@@ -133,6 +133,13 @@ Every framework block (`google_adk`, `langchain`, `crewai`, `n8n`) accepts
 tools static extraction could not fully enumerate. Each entry takes a `path`
 and, optionally, `source_id`.
 
+An inventory is for a surface the adapter genuinely could not read, not a
+transcription of one it already read correctly. A Google ADK Python entrypoint
+the adapter fully resolved now reaches high extraction confidence from source
+alone and asks for no inventory; when it does ask, the `low_confidence_tool`
+evidence gap names the construct that blocked it. Other framework adapters
+still report AST-extracted tools as `medium` and need the inventory.
+
 **`source_id` names the tool source this file completes.** With it, every entry
 whose name the source already exposes is joined to that source's observation:
 the catalog stays the same size, the merged tool inherits the inventory's high

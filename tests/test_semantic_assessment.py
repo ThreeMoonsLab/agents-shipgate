@@ -305,6 +305,105 @@ def test_ast_framework_declaration_cannot_replace_reviewed_inventory() -> None:
     assert "incomplete_surface" in {issue.kind for issue in assessment.effect.issues}
 
 
+def test_an_ast_adapter_that_proved_the_surface_closes_the_surface_gap() -> None:
+    """#393: an AST source type is a question, not a verdict.
+
+    Membership in ``_AST_ONLY_SOURCE_TYPES`` used to disqualify a tool outright,
+    which made ``incomplete_surface`` a constant for every repository on a
+    supported Python framework and left a reviewed inventory as the only exit.
+    An adapter that measured completeness may now answer for itself.
+    """
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "write",
+            "authority": {"mode": "none"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(
+            source_type="google_adk_function",
+            extraction={
+                "method": "google_adk_python_ast",
+                "confidence": "high",
+                "surface": "enumerated",
+                "surface_gaps": [],
+            },
+        ),
+        declaration,
+    )
+
+    assert assessment.pass_eligible is True
+    assert "incomplete_surface" not in {
+        issue.kind for issue in assessment.effect.issues
+    }
+
+
+@pytest.mark.parametrize(
+    "extraction",
+    [
+        pytest.param({"method": "google_adk_python_ast"}, id="no-claim"),
+        pytest.param(
+            {
+                "method": "google_adk_python_ast",
+                "surface": "partial",
+                "surface_gaps": ["dynamic_tools_expression"],
+            },
+            id="named-gap",
+        ),
+        pytest.param(
+            {"method": "google_adk_python_ast", "surface": "Enumerated"},
+            id="near-miss-spelling",
+        ),
+    ],
+)
+def test_an_ast_source_without_a_proof_stays_incomplete(extraction: dict) -> None:
+    """Only the exact attestation clears the gap; silence never does.
+
+    The dangerous shape here is the block-level "safe" signal that clears a
+    path-wide guard. Absence of a claim — an adapter never taught to answer, a
+    construct nobody classified, a value that does not match — has to read as
+    incomplete, or the promotion this test guards becomes a fail-open.
+    """
+
+    declaration = ActionDeclarationConfig.model_validate(
+        {
+            "tool": "process_order",
+            "effect": "write",
+            "authority": {"mode": "none"},
+        }
+    )
+
+    assessment = assess_tool_semantics(
+        _tool(source_type="google_adk_function", extraction=extraction),
+        declaration,
+    )
+
+    assert assessment.pass_eligible is False
+    assert "incomplete_surface" in {issue.kind for issue in assessment.effect.issues}
+
+
+def test_a_proven_surface_never_overrides_a_wildcard_exposure() -> None:
+    """Wildcard exposure outranks any completeness claim about the same tool."""
+
+    assessment = assess_tool_semantics(
+        _tool(
+            source_type="google_adk_function",
+            annotations={"wildcard_tools": True},
+            extraction={
+                "method": "google_adk_python_ast",
+                "confidence": "high",
+                "surface": "enumerated",
+            },
+        )
+    )
+
+    assert assessment.pass_eligible is False
+    assert "incomplete_surface" in {issue.kind for issue in assessment.effect.issues}
+
+
 def test_reviewed_inventory_and_declaration_can_close_framework_gaps() -> None:
     declaration = ActionDeclarationConfig.model_validate(
         {

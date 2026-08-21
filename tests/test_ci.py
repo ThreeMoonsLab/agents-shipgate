@@ -22,13 +22,18 @@ from agents_shipgate.schemas.surfaces import (
 def _scan_google_adk_insufficient_evidence_project(tmp_path) -> ReadinessReport:
     project = tmp_path / "google-adk-project"
     project.mkdir()
+    # ``case_id`` is unannotated on purpose: since #393 the ADK AST path reports
+    # a proven surface for a module it fully resolved, so a project that is
+    # meant to reach ``insufficient_evidence`` needs a surface that genuinely is
+    # not proven. Here the parameter type is the part static extraction cannot
+    # read, which is exactly what the inventory remediation under test supplies.
     (project / "agent.py").write_text(
         '''
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 
 
-def lookup_case(case_id: str) -> dict:
+def lookup_case(case_id) -> dict:
     """Look up read-only support case metadata."""
     return {"case_id": case_id}
 
