@@ -178,7 +178,7 @@ point either.
 | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SHIP-DIAG-MISSING-MANIFEST`        | block    | The manifest file does not exist on disk. Rank-1 action: `agents-shipgate verify --workspace <dir> --preview --json`.                             |
 | `SHIP-DIAG-INVALID-MANIFEST`        | block    | The manifest file exists but the loader rejected it (invalid YAML, schema validation failure, unsupported version). Rank-1 action: `edit <path>`. |
-| `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND `codex_plugin_candidates=[]` AND no manifest. Catch-all negative control.               |
+| `SHIP-DIAG-NO-AGENT-SURFACE`        | info     | `is_agent_project=false` AND `suggested_sources=[]` AND `codex_plugin_candidates=[]` AND `python_parse_truncated=false` AND no manifest. Catch-all negative control. |
 | `SHIP-DIAG-NON-AGENT-LIBRARY`       | info     | Python project (≥1 .py file + pyproject/requirements) with no agent framework, prompts, or tool surface.                                         |
 | `SHIP-DIAG-PURE-PROMPT-EXPERIMENT`  | info     | Only `prompts/` is present; no Python framework, no tool sources.                                                                                |
 | `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` | info   | `is_agent_project=false` BUT `suggested_sources` has MCP/OpenAPI entries. Artifact-only repos are valid Shipgate targets.                        |
@@ -189,6 +189,23 @@ point either.
 | `SHIP-DIAG-CHANGE-ME-PLACEHOLDERS`  | warn     | Manifest text still contains `CHANGE_ME` markers.                                                                                                |
 | `SHIP-DIAG-NO-PRODUCTION-PERMISSIONS` | warn   | `environment.target: production` AND no permissions / scopes / policies declared.                                                                 |
 | `SHIP-DIAG-UNKNOWN-ADAPTER-SOURCE-TYPE` | block | Manifest references a `tool_sources[].type` that no registered adapter handles. Rank-1 action depends on plugin state: enable plugin discovery (`AGENTS_SHIPGATE_ENABLE_PLUGINS=1`) and install the third-party adapter package, or fix a typo. v0.20+. |
+
+The three negative controls in that table (`NO-AGENT-SURFACE`,
+`NON-AGENT-LIBRARY`, `PURE-PROMPT-EXPERIMENT`) each publish a `stop`
+action, and each is a claim about the whole workspace. None of them fires
+when `python_parse_truncated` is `true`: the Python parse stopped at its
+cap, so the evidence behind the negative is the part of the tree that was
+read first. `detect` then routes to the higher-cap recovery instead of to
+`setup_not_applicable` — an executable
+`detect --max-python-files <python_file_total> --json`, since raising a cap
+is a mechanical read-only retry and not a decision anyone has to make.
+
+`SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` and
+`SHIP-DIAG-CODEX-PLUGIN-PACKAGE-DETECTED` both name a root
+`init --workspace <dir> --write`, so they fire only when
+`agent_scope == "single"` — the condition under which that command succeeds.
+Otherwise the scope route wins, because a diagnostic outranks the advance and
+would otherwise publish a command that refuses deterministically.
 
 ## Negative-control precedence
 

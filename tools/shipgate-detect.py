@@ -48,9 +48,11 @@ Intentional simplifications vs. the canonical CLI:
 
 - No ``diagnostics[]`` / ``next_actions[]`` (the diagnostic engine is
   not in scope for stdlib-only / zero-install).
-- ``agent_scope`` / ``agent_project_candidates[]`` are carried, and the
-  contract test pins them against the CLI: an agent that consults the
-  zero-install path must not adopt a manifest scope the CLI refuses.
+- ``agent_scope`` / ``agent_scope_truncated`` / ``python_parse_truncated`` /
+  ``agent_project_candidates[]``
+  are carried, and the contract test pins them against the CLI: an agent that
+  consults the zero-install path must not adopt a manifest scope the CLI
+  refuses, nor read a candidate list the cap cut short as an enumeration.
 - Descriptive (not byte-identical) ``evidence`` / ``reason`` strings.
 - Absolute scores may differ by ±0.5 in edge cases.
 - The parse probe is **JSON-only** (stdlib has no YAML parser). A
@@ -80,7 +82,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "0.3.0"
+SCRIPT_VERSION = "0.4.0"
 MAX_STRUCTURED_FILE_BYTES = 10 * 1024 * 1024
 # Matches ``detect_workspace``'s ``max_python_files``. The bound is on
 # parses, not on the inventory: capping the inventory lets an asset-heavy
@@ -1917,13 +1919,24 @@ def detect(workspace: Path) -> dict[str, Any]:
     agent_project_candidates = _agent_project_candidates(
         workspace, evidence_paths, literals_by_path
     )
+    # The workspace is always a candidate scope, marker or not: agent evidence
+    # under no marker is attributed to it as ".", so an unmarked root agent in
+    # the part of the tree the parse never reached is a project this census has
+    # to leave room for (#399 review).
     project_roots = {
         p.parent for p in files
         if p.name in PROJECT_MARKERS or p.name in WEAK_PROJECT_MARKERS
-    } | ({workspace} if _project_marker(workspace, WEAK_PROJECT_MARKERS) else set())
+    } | {workspace}
+    # Truncation is decided before ambiguity and reported alongside it. Two
+    # projects found is an ambiguous scope however much of the tree was read;
+    # what a cut-short parse changes is that the candidate list is a lower
+    # bound, not an enumeration. Folding the two into one value made the cap
+    # warning unreachable on the repositories the cap had actually cut (#395).
+    python_file_total = sum(1 for p in files if p.suffix == ".py")
+    agent_scope_truncated = py_truncated and len(project_roots) > 1
     if len(agent_project_candidates) > 1:
         agent_scope = "ambiguous"
-    elif py_truncated and len(project_roots) > 1:
+    elif agent_scope_truncated:
         agent_scope = "unknown"
     else:
         agent_scope = "single"
@@ -1935,12 +1948,34 @@ def detect(workspace: Path) -> dict[str, Any]:
             "`init --workspace <agent_project_candidates[].path> --write` for "
             "the project you are changing."
         )
+        if agent_scope_truncated:
+            next_action += (
+                " That list may be incomplete: discovery stopped at the "
+                f"Python-file cap in a workspace holding {len(project_roots)} "
+                "candidate project scopes, so any project in the part of the "
+                "tree that was not read is missing from it. Run "
+                "`agents-shipgate detect --max-python-files <n> --json` "
+                "before concluding a project is absent."
+            )
     elif agent_scope == "unknown":
         next_action = (
             "Discovery stopped at the Python-file cap in a workspace holding "
-            "several project roots, so whether one manifest describes it was "
-            "not established. Run `agents-shipgate detect --json` for the full "
-            "picture, or init in the project directory you are changing."
+            f"{len(project_roots)} candidate project scopes, so whether one "
+            "manifest describes it was not established. Run `agents-shipgate "
+            "detect --max-python-files <n> --json` for the full picture, or "
+            "init in the project directory you are changing."
+        )
+    elif py_truncated:
+        # A settled scope is not a complete classification: a one-project
+        # workspace is "single" however early the parse stopped, so a capped
+        # run fell through to init or to the flat negative — the terminal
+        # false answer for an agent sitting past the cap (#399 review).
+        next_action = (
+            "Discovery stopped at the Python-file cap, so this classification "
+            "describes the part of the workspace that was read. Re-run "
+            f"`agents-shipgate detect --max-python-files {python_file_total} "
+            "--json` — a bound that covers every Python file — before treating "
+            "any verdict here as complete."
         )
     elif is_agent or suggested or codex_plugin_candidates:
         next_action = f"agents-shipgate init --workspace {workspace}"
@@ -1954,12 +1989,20 @@ def detect(workspace: Path) -> dict[str, Any]:
         "project_name_candidates": project_names,
         "agent_scope": agent_scope,
         "agent_project_candidates": agent_project_candidates,
+        "agent_scope_truncated": agent_scope_truncated,
+        # The raw parse-completeness fact, independent of how many scopes the
+        # workspace holds. Whole-workspace negatives gate on this, not on the
+        # scope flag: a single-scope repository whose only agent sits past the
+        # cap has `agent_scope_truncated: false` and an unread agent.
+        "python_parse_truncated": py_truncated,
         "suggested_sources": suggested,
         "excluded_sources": excluded,
         "codex_plugin_candidates": codex_plugin_candidates,
         "next_action": next_action,
         "workspace_signals": {
             "python_file_count": len(py_facts),
+            "python_file_total": python_file_total,
+            "project_root_count": len(project_roots),
             "has_pyproject_or_requirements": (
                 (workspace / "pyproject.toml").is_file()
                 or (workspace / "requirements.txt").is_file()
@@ -1991,6 +2034,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.json:
         print(json.dumps(result, indent=2))
+        return 0
+    if result["python_parse_truncated"]:
+        # Before any verdict, because every verdict below it is a claim about
+        # the whole workspace and the parse read part of one (#399 review).
+        print("Classification incomplete — the Python parse stopped at its cap.")
+        print(f"Next: {result['next_action']}")
         return 0
     if result["agent_scope"] != "single":
         candidates = result["agent_project_candidates"]

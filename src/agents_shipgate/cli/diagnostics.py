@@ -287,7 +287,27 @@ def diagnose_detect(
     # diagnostics here are interesting — the agent is past detect. Only
     # surface the artifact-only nudge when relevant.
     if not has_manifest:
-        if not is_agent and not has_suggested and not has_codex_plugin:
+        # Every negative control below is a claim about the *whole* workspace,
+        # and a capped parse read part of one. On a truncated walk each of them
+        # publishes a `stop` action, which routing turns into
+        # `setup_not_applicable` — a terminal machine route for a scan that
+        # said it was inconclusive, on exactly the repositories the cap cuts
+        # (#399 review). Emitting nothing here hands the route to
+        # `_detect_advance`, which returns the higher-cap retry.
+        #
+        # The guard is the *raw* parse-completeness bit, not
+        # `agent_scope_truncated`. That one also requires more than one
+        # candidate scope, which is right for a claim about the candidate list
+        # and wrong for a claim about the workspace: a single-scope repository
+        # with a root `pyproject.toml` and its only agent past the cap reports
+        # `agent_scope_truncated: false`, and gating on it published exactly
+        # the terminal negative this is here to prevent.
+        if (
+            not is_agent
+            and not has_suggested
+            and not has_codex_plugin
+            and not result.python_parse_truncated
+        ):
             # Negative-control precedence
             if (
                 signals.has_prompts_dir
@@ -352,7 +372,18 @@ def diagnose_detect(
                     )
                 )
 
-        if not is_agent and has_suggested and not has_codex_plugin:
+        # Both nudges below name a root `init --write`, and setup routing
+        # ranks a diagnostic ahead of the advance — so anything unsettled here
+        # published a command over the top of the route that would have said
+        # so (#399 review). They fire only where that command both succeeds
+        # and adopts a complete surface: a settled scope says the workspace is
+        # one manifest's boundary, and a complete parse says the tool surface
+        # that manifest would declare was actually read. A settled scope does
+        # not imply the second — a one-project workspace is `"single"` however
+        # early the parse stopped — and gating on it alone let the artifact
+        # nudge outrank the full-count retry and adopt a truncated surface.
+        settled = result.agent_scope == "single" and not result.python_parse_truncated
+        if not is_agent and has_suggested and not has_codex_plugin and settled:
             diagnostics.append(
                 Diagnostic(
                     id=DIAG_MCP_OPENAPI_ARTIFACT_ONLY,
@@ -378,7 +409,7 @@ def diagnose_detect(
                 )
             )
 
-        if not is_agent and has_codex_plugin:
+        if not is_agent and has_codex_plugin and settled:
             diagnostics.append(
                 Diagnostic(
                     id=DIAG_CODEX_PLUGIN_PACKAGE_DETECTED,

@@ -193,7 +193,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="attr_call:subprocess.run",
-        line=483,
+        line=495,
         snippet=(
             "subprocess.run(['git', '--no-replace-objects', '-C', "
             "str(workspace), 'rev-parse', '--show-toplevel'], check=False, "
@@ -209,7 +209,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
         surface="attr_call:subprocess.Popen",
-        line=565,
+        line=577,
         snippet=(
             "subprocess.Popen(['git', '--no-replace-objects', '-C', "
             "str(workspace), *args], env=env, stdout=subprocess.PIPE, "

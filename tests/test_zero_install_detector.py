@@ -48,6 +48,8 @@ CANONICAL_KEYS = frozenset(
         "project_name_candidates",
         "agent_scope",
         "agent_project_candidates",
+        "agent_scope_truncated",
+        "python_parse_truncated",
         "suggested_sources",
         "excluded_sources",
         "next_action",
@@ -231,6 +233,28 @@ def test_script_verdict_matches_cli(script_module, sample_dir):
         f"cli={cli_result['agent_scope']!r}). An agent that consults the "
         "zero-install path must not adopt a scope the CLI refuses."
     )
+    assert (
+        script_result["python_parse_truncated"]
+        == cli_result["python_parse_truncated"]
+    ), (
+        f"{sample_dir.name}: python_parse_truncated diverged "
+        f"(script={script_result['python_parse_truncated']!r}, "
+        f"cli={cli_result['python_parse_truncated']!r}). It is the guard every "
+        "whole-workspace negative is gated on, `is_agent_project: false` "
+        "included, so the two detectors must agree about whether their own "
+        "classification is complete (#399 review)."
+    )
+    assert (
+        script_result["agent_scope_truncated"]
+        == cli_result["agent_scope_truncated"]
+    ), (
+        f"{sample_dir.name}: agent_scope_truncated diverged "
+        f"(script={script_result['agent_scope_truncated']!r}, "
+        f"cli={cli_result['agent_scope_truncated']!r}). It says whether "
+        "agent_project_candidates enumerates the workspace or only the part "
+        "the parse reached; a caller that reads a truncated list as complete "
+        "concludes its own project is not an agent project (#395)."
+    )
     script_projects = sorted(
         (c["path"], tuple(c["agent_names"]))
         for c in script_result["agent_project_candidates"]
@@ -280,6 +304,108 @@ def test_script_finds_at_least_one_python_file_when_cli_does(
             f"the zero-install script found 0. Walk logic diverged — "
             "check SKIP_DIRS and the os.walk pruning."
         )
+
+
+_ADK_AGENT = """\
+from google.adk.agents import Agent
+
+
+def act(x: str) -> str:
+    \"\"\"Act.\"\"\"
+    return "ok"
+
+
+root_agent = Agent(name="{name}", tools=[act])
+"""
+
+
+def test_script_and_cli_agree_on_a_truncated_walk(script_module, tmp_path):
+    """The parity samples all sit far under the cap, so they only ever pin
+    ``agent_scope_truncated: false``. A workspace that actually truncates is
+    where the two detectors could disagree about whether their own candidate
+    list is complete — and an agent that consults the zero-install path must
+    not read a capped list as an enumeration any more than it may read a
+    capped scope verdict as settled (#395, #399 review)."""
+
+    repo = tmp_path / "capped"
+    for name in ("aa_one", "aa_two", "zz_hidden"):
+        project = repo / name
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text(
+            f'[project]\nname = "{name}"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+        (project / "agent.py").write_text(
+            _ADK_AGENT.format(name=name), encoding="utf-8"
+        )
+    filler = repo / "mm_filler"
+    filler.mkdir()
+    for index in range(1200):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+
+    assert cli_result["agent_scope_truncated"] is True
+    assert script_result["agent_scope_truncated"] is True
+    assert cli_result["python_parse_truncated"] is True
+    assert script_result["python_parse_truncated"] is True
+    assert (
+        script_result["workspace_signals"]["python_file_total"]
+        == cli_result["workspace_signals"]["python_file_total"]
+    )
+    assert script_result["agent_scope"] == cli_result["agent_scope"]
+    assert (
+        script_result["workspace_signals"]["project_root_count"]
+        == cli_result["workspace_signals"]["project_root_count"]
+    )
+    # Both name a recovery that actually changes the outcome: repeating the
+    # same capped run reproduces the same verdict.
+    assert "--max-python-files" in script_result["next_action"]
+    assert "--max-python-files" in cli_result["next_action"]
+
+
+def test_script_and_cli_agree_on_a_capped_single_scope(script_module, tmp_path):
+    """A one-project workspace is `agent_scope: "single"` however early the
+    parse stopped, so the scope branches never fire and both detectors fell
+    through to "Workspace does not appear to be an agent project. No action."
+    — a terminal false negative for an agent sitting past the cap (#399
+    review)."""
+
+    repo = tmp_path / "capped-single"
+    filler = repo / "aa_filler"
+    filler.mkdir(parents=True)
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "capped"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    for index in range(1001):
+        (filler / f"mod{index:05d}.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "zz_agent.py").write_text(
+        _ADK_AGENT.format(name="hidden_agent"), encoding="utf-8"
+    )
+
+    script_result = script_module.detect(repo)
+    cli_result = detect_workspace(repo.resolve()).model_dump(mode="json")
+
+    for label, result in (("script", script_result), ("cli", cli_result)):
+        assert result["python_parse_truncated"] is True, label
+        assert result["agent_scope"] == "single", label
+        assert result["is_agent_project"] is False, label
+        assert "does not appear to be an agent project" not in result["next_action"], (
+            f"{label}: a capped parse published a terminal false negative"
+        )
+        total = result["workspace_signals"]["python_file_total"]
+        assert f"--max-python-files {total}" in result["next_action"], label
+
+    # Human output takes the same route, ahead of every verdict below it.
+    import contextlib
+    import io
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        script_module.main(["--workspace", str(repo)])
+    printed = buffer.getvalue()
+    assert "does not appear to be an agent project" not in printed
+    assert "--max-python-files" in printed
 
 
 def test_script_and_cli_skip_common_fixture_dirs(script_module, tmp_path):

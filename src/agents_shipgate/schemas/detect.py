@@ -131,6 +131,20 @@ class WorkspaceSignals(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     python_file_count: int = 0
+    # ``.py`` files in the workspace inventory, counted by filename with no
+    # cap. `python_file_count` is what the parse actually read; this is what
+    # a complete parse would read, so it is the `--max-python-files` value a
+    # retry needs in order to settle what a capped pass could not.
+    python_file_total: int = 0
+    # Directories that could be a manifest scope: every directory carrying a
+    # project marker, plus the workspace root itself — which is a candidate
+    # whether or not it carries one, because agent evidence under no marker
+    # is attributed to it as ".". Counted from the whole walk by filename
+    # alone — no parsing, and no cap — so it is the one number that stays
+    # trustworthy where the AST pass stops being trustworthy, and it bounds a
+    # truncated candidate list: `agent_project_candidates` names the agent
+    # projects found *before* the cap, this counts the scopes that exist.
+    project_root_count: int = 0
     has_pyproject_or_requirements: bool = False
     has_prompts_dir: bool = False
     has_tools_dir: bool = False
@@ -158,6 +172,33 @@ class DetectResult(BaseModel):
     # name it parsed.
     agent_scope: Literal["single", "ambiguous", "unknown"] = "single"
     agent_project_candidates: list[AgentProjectCandidate] = Field(default_factory=list)
+    # Whether the walk behind `agent_scope` and `agent_project_candidates`
+    # was cut short: the Python parse stopped at `max_python_files` in a
+    # workspace holding more than one project root. It is a separate field
+    # rather than a fourth `agent_scope` value because the two facts are
+    # independent — two projects found *is* an ambiguous scope however much
+    # of the tree was read — and collapsing them made the honest one
+    # unreachable: "unknown" only ever fired when one or fewer candidates
+    # were found, so the repositories most likely to be truncated were the
+    # ones that never reported it (#395). While true, the candidate list is
+    # a lower bound, not an enumeration: a project in the unread remainder
+    # is missing from it.
+    agent_scope_truncated: bool = False
+    # Whether the Python parse stopped at `max_python_files` at all — the raw
+    # completeness fact, independent of how many scopes the workspace holds.
+    #
+    # `agent_scope_truncated` is deliberately narrower: it also requires more
+    # than one candidate scope, because with only one there is nowhere for a
+    # second *project* to hide. That makes it the right guard for a claim
+    # about the candidate *list* and the wrong one for a claim about the
+    # workspace: a single-scope repository whose only agent sits past the cap
+    # reports `is_agent_project: false` with `agent_scope_truncated: false`,
+    # and every consumer that read the narrow flag as "the classification is
+    # complete" published a terminal negative for an agent nobody had read
+    # (#399 review). Gate whole-workspace negatives — the negative-control
+    # diagnostics, `bootstrap`'s no-surface stop, the trigger stop block — on
+    # this field, not on the scope one.
+    python_parse_truncated: bool = False
     suggested_sources: list[dict[str, str]] = Field(default_factory=list)
     # Glob-matched OpenAPI/MCP candidates the real input adapters reject
     # ({type, path, reason}). Kept out of suggested_sources so init never

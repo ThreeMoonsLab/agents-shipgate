@@ -303,6 +303,14 @@ def resolve_change_scope(
     ``limit`` is the workspace the caller asked about. The suggestion never
     leaves it, so a preview scoped to a sub-directory cannot be answered
     with a directory the caller did not ask about.
+
+    ``evidence_dirs`` is passed straight to :func:`find_project_root` and
+    is not optional in practice: a project whose entire boundary is a
+    ``requirements.txt`` beside an ``agent.py`` is a project this module
+    cannot see without it, and the walk then climbs to the repository root
+    and reports ``not_narrowed`` — which routing spends on a root ``init``
+    that ``init`` refuses (#394). Callers build it with
+    ``signals.weak_marker_evidence_dirs``.
     """
 
     try:

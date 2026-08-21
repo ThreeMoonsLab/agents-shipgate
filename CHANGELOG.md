@@ -2,6 +2,148 @@
 
 ## Unreleased
 
+- **`verify --preview` on a monorepo now names the project the pull request
+  actually changed, instead of a repository root that `init` refuses.** The
+  change-scope resolver draws a project boundary around a bare
+  `requirements.txt` only for directories the caller has already found agent
+  evidence in — the whole boundary a `requirements.txt` beside `agent.py` has.
+  The preview call site passed no evidence at all, so the walk climbed past
+  such a project to the workspace root, resolved no scope, and emitted
+  `init --workspace <repo root> --write`, which `init` then refused
+  deterministically: "holds 53 self-contained projects that define agents, and
+  one manifest describes one agent surface." `detect` had reported the same
+  project correctly all along, so the two commands an adopter runs in sequence
+  disagreed
+  ([#394](https://github.com/ThreeMoonsLab/agents-shipgate/issues/394)).
+
+  Preview now collects that evidence for the directories the diff sits under,
+  and asks it only where the answer can change anything: a directory carrying
+  a strong marker is already a project root, and one carrying no weak marker
+  cannot become one. For the rest it reads what `detect` would find directly
+  in that directory, through every rule that can put a file in its evidence
+  set — framework-attributed Python, the artifact-glob detectors (Anthropic,
+  OpenAI API, n8n, Conductor), suggested OpenAPI/MCP sources, and Codex plugin
+  packages — over the same git-aware inventory, so an ignored file cannot make
+  preview narrow to a directory `detect` never saw. On the reported pull request the first command
+  an adopter sees goes from an eight-step recovery to
+  `init --workspace python/agents/smart_closer --write`.
+
+  The probe reports three things as *undetermined* rather than as "no project
+  here": the shared `max_python_files` budget running out with a file still
+  unread, an unreadable inventory, and a change that deletes the one file
+  beside a requirements file that could have been the evidence — the head tree
+  cannot say whether what it removed was that project's agent surface.
+
+  Each of those routes to a recovery that can actually advance it, because one
+  generic answer could not. A `detect` at the same cap hits the same cap, so
+  budget exhaustion emits a concrete higher-cap command; and a head-only
+  `detect` cannot see evidence the change deleted — it reports the surviving
+  project as the workspace's single scope and its `init` writes a manifest for
+  an agent the pull request never touched — so deleted evidence is a human
+  route with no command at all. Causes accumulate rather than replacing one
+  another, and deleted evidence outranks a cap, because raising a bound cannot
+  find a file the change removed. An evaluated head that is not this worktree
+  is the third such cause: discovery of the current tree answers about a
+  different one, so that route carries no command either.
+
+  Two blind spots in that probe are closed. It now bounds each directory's
+  Python evidence to the files a `detect` *of that directory* would reach —
+  the first `max_python_files` paths of its subtree in inventory order — so a
+  direct `agent.py` sorting after a thousand inert modules is no longer
+  evidence preview can see and the scoped command it recommends cannot. And
+  boundaries the change *removes* are derived from the change set before
+  anything reads the head tree, since a deleted `pyproject.toml` leaves nothing
+  for a head-tree marker filter to find: a pull request deleting a whole
+  project was silently attributed to whatever survived.
+
+- `detect`'s glob-based source suggestion re-ran the whole git inventory walk
+  once per pattern — fifteen walks for one pass. `_candidate_files_matching`
+  now accepts an inventory the caller already built, which both fixes that and
+  is what lets the preview evidence probe ask the *same* suggestion rule about
+  a single directory rather than keeping a second copy of it.
+
+- **Project discovery no longer presents a truncated candidate list as a
+  complete one.** On a repository large enough to hit the Python-file cap,
+  `detect` and `init` reported the agent projects found *before* the cap as if
+  they were all of them — no cap warning, no `--max-python-files` hint, and the
+  project actually under review missing from the list the user was told to
+  choose from. The `ambiguous` verdict short-circuited the truncation check, so
+  `"unknown"` — the state whose entire purpose is to say the parse was cut
+  short — was reachable only when one or fewer candidates were found, and the
+  fail-safe was unreachable on exactly the repositories most likely to need it
+  ([#395](https://github.com/ThreeMoonsLab/agents-shipgate/issues/395)).
+
+  Truncation is now evaluated independently of ambiguity and reported beside
+  it: `detect --json` and `init --json` carry `agent_scope_truncated`, the
+  human and refusal messages say the list may be incomplete and name the
+  `--max-python-files` remedy, and `workspace_signals.project_root_count`
+  bounds the claim with an uncapped, filename-only census of the directories
+  that could be a manifest scope — every project-marker directory *plus the
+  workspace root*, which is a candidate whether or not it carries a marker,
+  because unmarked agent evidence is attributed to it as `.`.
+
+  Nothing publishes a terminal negative from a capped walk any more, and the
+  guard for that is a second, wider field: `python_parse_truncated`, the raw
+  fact that the parse stopped at its cap. `agent_scope_truncated` additionally
+  requires more than one candidate scope — right for a claim about the
+  candidate *list*, wrong for a claim about the *workspace*, because a
+  single-scope repository whose only agent sorts past the cap leaves it false
+  while still hiding an agent. Every whole-workspace negative now gates on the
+  raw field: the three negative-control diagnostics
+  (`SHIP-DIAG-NO-AGENT-SURFACE`, `-NON-AGENT-LIBRARY`,
+  `-PURE-PROMPT-EXPERIMENT`), each of which publishes a `stop` that routing
+  turns into `setup_not_applicable`; `bootstrap`'s no-surface stop; the
+  `detect` human summary; the first-look classification line; and the trigger
+  catalog's stop block, which gained `python_parse_truncated: false`. A
+  `detect` payload missing any key that block reads is now reported as
+  `stop_conditions_evaluated: false` rather than silently satisfying it, since
+  absent is not false.
+
+  `init --write` refuses on a truncated parse too, and takes the same
+  `--max-python-files` flag. It runs its own discovery, so a bound `detect`
+  settled on did not reach it: following the recommended route landed on an
+  `init` that re-ran at the default cap, missed the agent, and wrote a
+  `CHANGE_ME` manifest with no tools at exit 0.
+
+  The recovery from a capped walk is now an executable command rather than
+  prose inside a human route. Raising `--max-python-files` is a mechanical,
+  read-only retry that needs no decision, so `next_actions[0]` is the *same
+  command you ran* at a bound covering every Python file in the workspace —
+  `detect --max-python-files <n> --json` from `detect`, and
+  `init --write --max-python-files <n> --json` (carrying the setup flags the
+  run asked for) from `init`. It cannot land back at the same cap, and from
+  `init` it settles the scan and completes the setup in one step. That command
+  leads the ranked recovery whenever the parse was truncated: asking a human to
+  choose from a list the refusal itself calls incomplete is the thing to avoid.
+  Human review is reserved for choosing an actual manifest boundary.
+
+  Two more routes that could not succeed are gone:
+  `SHIP-DIAG-MCP-OPENAPI-ARTIFACT-ONLY` and
+  `SHIP-DIAG-CODEX-PLUGIN-PACKAGE-DETECTED` name a root `init --write`, and
+  setup routing ranks a diagnostic ahead of the advance, so on an unsettled
+  workspace they published a command over the top of the route that would have
+  said so; both now fire only on a settled scope *and* a complete parse. A
+  single scope settles the manifest boundary and says nothing about whether the
+  surface that manifest would declare was read. And `bootstrap`'s no-surface
+  stop ignored `codex_plugin_candidates` entirely, so a Codex-plugin-only
+  repository — deliberately `is_agent_project: false` — stopped at `detect`
+  and never ran `init`.
+
+  `DetectResult.next_action` carries the same rule. The CLI overwrites it with
+  the routed action, which is why its stale branch survived: read as a library
+  value — which is what the zero-install detector mirrors — a capped
+  single-scope workspace still returned "Workspace does not appear to be an
+  agent project. No action." Truncation is now checked ahead of the adoption
+  and negative branches in both detectors, and in the script's human output.
+  `first_look` routes the same way: its final `Next:` line is the full-count
+  retry rather than a `verify --preview` that walks past the recovery printed
+  one line above it.
+
+  The zero-install `tools/shipgate-detect.py` carries all the new fields
+  (script version `0.4.0`), pinned by the parity test — which now includes a
+  workspace that actually truncates, since every sample fixture sits far under
+  the cap.
+
 - **A tool inventory now completes the source that asked for it, instead of
   shadowing it.** `incomplete_surface` fires for every statically-extracted
   tool on a first ADK/LangChain/CrewAI/n8n scan, and the only remedy the tool

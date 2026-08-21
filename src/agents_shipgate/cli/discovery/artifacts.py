@@ -420,10 +420,12 @@ def _looks_like_n8n_workflow(path: Path) -> bool:
     return False
 
 
-def _discover_patterns(workspace: Path, patterns: tuple[str, ...]) -> list[str]:
+def _discover_patterns(
+    workspace: Path, patterns: tuple[str, ...], *, files: list[Path] | None = None
+) -> list[str]:
     found: list[str] = []
     seen: set[Path] = set()
-    for path in _candidate_files_matching(workspace, patterns):
+    for path in _candidate_files_matching(workspace, patterns, files=files):
         if path in seen:
             continue
         seen.add(path)
@@ -445,10 +447,20 @@ def _skip_part(part: str) -> bool:
     )
 
 
-def _candidate_files_matching(workspace: Path, patterns: tuple[str, ...]) -> list[Path]:
+def _candidate_files_matching(
+    workspace: Path, patterns: tuple[str, ...], *, files: list[Path] | None = None
+) -> list[Path]:
+    """Inventory entries matching any of ``patterns``.
+
+    ``files`` supplies an inventory the caller already built. Without it each
+    call re-runs the whole git walk, which is how one ``_suggested_sources``
+    pass came to pay for fifteen of them; and a caller that wants the rule
+    applied to *part* of a workspace has no way to say so.
+    """
+
     return sorted(
         path
-        for path in _candidate_files(workspace)
+        for path in (files if files is not None else _candidate_files(workspace))
         if any(_matches_pattern(path, workspace, pattern) for pattern in patterns)
     )
 

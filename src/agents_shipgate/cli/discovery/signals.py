@@ -38,9 +38,10 @@ from __future__ import annotations
 import ast
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Literal
 
 from agents_shipgate.cli.discovery.artifacts import (
     ANTHROPIC_POLICY_PATTERNS,
@@ -57,7 +58,9 @@ from agents_shipgate.cli.discovery.artifacts import (
     _candidate_files_matching,
     _discover_patterns,
     _looks_like_n8n_workflow,
+    _matches_pattern,
     _relative,
+    _skip_part,
     probe_suggested_source,
 )
 from agents_shipgate.cli.discovery.scope import (
@@ -66,7 +69,7 @@ from agents_shipgate.cli.discovery.scope import (
     find_project_root,
     project_marker,
 )
-from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.errors import DiscoveryError, InputParseError
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
 from agents_shipgate.invocation import render_command
@@ -248,8 +251,16 @@ _REQUIREMENTS_TOKEN_RE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
 
 # --- Public entry point -----------------------------------------------------
 
+#: How many ``.py`` files one discovery pass will AST-parse. Shared by
+#: :func:`detect_workspace` and :func:`weak_marker_evidence_dirs` so "the same
+#: budget" is one number rather than two that agree today.
+DEFAULT_MAX_PYTHON_FILES = 1000
 
-def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> DetectResult:
+
+
+def detect_workspace(
+    workspace: Path, *, max_python_files: int = DEFAULT_MAX_PYTHON_FILES
+) -> DetectResult:
     """Walk ``workspace`` and report which frameworks are present.
 
     Read-only. Caps Python AST parses at ``max_python_files`` to keep the
@@ -268,22 +279,10 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
     py_facts = [fact for fact in py_facts if fact is not None]
 
     pkg_tokens = _collect_package_tokens(workspace)
-    glob_hits = _collect_glob_hits(workspace)
+    glob_hits = _collect_glob_hits(workspace, files=inventory)
     dir_hits = _collect_dir_hits(workspace)
 
-    scores: dict[str, _FrameworkScore] = {
-        "langchain": _FrameworkScore(),
-        "crewai": _FrameworkScore(),
-        "google_adk": _FrameworkScore(),
-        "anthropic": _FrameworkScore(),
-        "openai_agents_sdk": _FrameworkScore(),
-        "n8n": _FrameworkScore(),
-        "conductor": _FrameworkScore(),
-        # openai_api is the artifact-based OpenAI Messages API surface
-        # (manifest.openai_api block). Distinct from openai_agents_sdk
-        # (Python @function_tool decorators).
-        "openai_api": _FrameworkScore(),
-    }
+    scores = _initial_framework_scores()
 
     for fact in py_facts:
         _score_python_signals(fact, scores)
@@ -328,7 +327,9 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
     agent_name_candidates = _rank_agent_name_candidates(
         py_facts, workspace, project_name_candidates
     )
-    suggested_sources, excluded_sources = _suggested_sources(workspace)
+    suggested_sources, excluded_sources = _suggested_sources(
+        workspace, files=inventory
+    )
     codex_plugin_candidates = _codex_plugin_candidates(workspace, inventory)
     agent_project_candidates = _agent_project_candidates(
         py_facts,
@@ -344,10 +345,12 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         + _nested_manifest_paths(inventory, workspace),
         workspace,
     )
-    agent_scope = _agent_scope(
+    project_root_count = _project_root_count(inventory, workspace)
+    python_file_total = sum(1 for path in inventory if path.suffix == ".py")
+    agent_scope, agent_scope_truncated = _agent_scope(
         agent_project_candidates,
         parse_truncated=parse_truncated,
-        project_roots=_project_root_count(inventory, workspace),
+        project_roots=project_root_count,
     )
 
     is_agent_project = bool(detections)
@@ -360,13 +363,39 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
             "`init --workspace <agent_project_candidates[].path> --write` for "
             "the project you are changing."
         )
+        if agent_scope_truncated:
+            # The list is what the caller is told to choose from, so it has
+            # to say when it is a lower bound. Naming the uncapped project
+            # root count bounds the claim with a number the cap never
+            # touched, and the remedy makes the full list reachable (#395).
+            next_action += (
+                " That list may be incomplete: discovery stopped at "
+                f"{max_python_files} Python files in a workspace holding "
+                f"{project_root_count} candidate project scopes, so any "
+                "project in the part of the tree that was not read is "
+                "missing from it. Re-run with a higher --max-python-files "
+                "before concluding a project is absent."
+            )
     elif agent_scope == "unknown":
         next_action = (
             f"Discovery stopped at {max_python_files} Python files in a "
-            "workspace holding several project roots, so whether one manifest "
-            "describes it was not established. Re-run with a higher "
-            "--max-python-files, or run init in the project directory you are "
-            "changing."
+            f"workspace holding {project_root_count} candidate project "
+            "scopes, so whether one manifest describes it was not "
+            "established. Re-run with a higher --max-python-files, or run "
+            "init in the project directory you are changing."
+        )
+    elif parse_truncated:
+        # A settled scope is not a complete classification. On a workspace with
+        # one candidate scope the branches above never fire, so a capped parse
+        # fell straight through to `init` — which would adopt a tool surface
+        # read from part of the tree — or to the flat negative, which was the
+        # terminal false answer for an agent sitting past the cap (#399 review).
+        next_action = (
+            f"Discovery stopped at {max_python_files} Python files, so this "
+            "classification describes the part of the workspace that was read. "
+            "Re-run `detect --max-python-files "
+            f"{python_file_total} --json` — a bound that covers every Python "
+            "file — before treating any verdict here as complete."
         )
     elif is_agent_project or suggested_sources or codex_plugin_candidates:
         next_action = render_command(["init", "--workspace", str(workspace)])
@@ -376,6 +405,8 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
     present_dirs = [d for d in CONVENTIONAL_DIRS if (workspace / d).is_dir()]
     workspace_signals = WorkspaceSignals(
         python_file_count=len(py_facts),
+        python_file_total=python_file_total,
+        project_root_count=project_root_count,
         has_pyproject_or_requirements=(
             (workspace / "pyproject.toml").is_file()
             or (workspace / "requirements.txt").is_file()
@@ -392,6 +423,8 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
         project_name_candidates=project_name_candidates,
         agent_scope=agent_scope,
         agent_project_candidates=agent_project_candidates,
+        agent_scope_truncated=agent_scope_truncated,
+        python_parse_truncated=parse_truncated,
         suggested_sources=suggested_sources,
         excluded_sources=excluded_sources,
         codex_plugin_candidates=codex_plugin_candidates,
@@ -401,6 +434,29 @@ def detect_workspace(workspace: Path, *, max_python_files: int = 1000) -> Detect
 
 
 # --- Internals --------------------------------------------------------------
+
+
+def _initial_framework_scores() -> dict[str, _FrameworkScore]:
+    """A fresh, empty score sheet — one entry per framework this pass knows.
+
+    One list, because :func:`_score_python_signals` indexes it by name and a
+    second copy that missed a framework would silently stop attributing that
+    framework's files.
+    """
+
+    return {
+        "langchain": _FrameworkScore(),
+        "crewai": _FrameworkScore(),
+        "google_adk": _FrameworkScore(),
+        "anthropic": _FrameworkScore(),
+        "openai_agents_sdk": _FrameworkScore(),
+        "n8n": _FrameworkScore(),
+        "conductor": _FrameworkScore(),
+        # openai_api is the artifact-based OpenAI Messages API surface
+        # (manifest.openai_api block). Distinct from openai_agents_sdk
+        # (Python @function_tool decorators).
+        "openai_api": _FrameworkScore(),
+    }
 
 
 def _collect_python_files(
@@ -1535,8 +1591,17 @@ class _GlobHit:
     path: str
 
 
-def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
+def _collect_glob_hits(
+    workspace: Path, *, files: list[Path] | None = None
+) -> dict[str, list[_GlobHit]]:
     """Per-framework glob signals.
+
+    Every hit here scores ``2.0`` ``strong``, so one hit on its own clears
+    the detection threshold and puts its file in that framework's
+    ``candidate_files``. That is what makes a single hit self-sufficient
+    evidence, and why ``files`` — the inventory of one directory — answers
+    "does this directory hold artifact evidence" with this exact rule rather
+    than a lighter-weight copy of it.
 
     Three artifact-based frameworks have unambiguous filename markers:
 
@@ -1560,37 +1625,37 @@ def _collect_glob_hits(workspace: Path) -> dict[str, list[_GlobHit]]:
         "conductor": [],
         "openai_api": [],
     }
-    for path in _discover_patterns(workspace, ANTHROPIC_TOOL_PATTERNS):
+    for path in _discover_patterns(workspace, files=files, patterns=ANTHROPIC_TOOL_PATTERNS):
         hits["anthropic"].append(
             _GlobHit(2.0, "strong", f"anthropic tool file: {path}", path)
         )
-    for path in _discover_patterns(workspace, ANTHROPIC_POLICY_PATTERNS):
+    for path in _discover_patterns(workspace, files=files, patterns=ANTHROPIC_POLICY_PATTERNS):
         hits["anthropic"].append(
             _GlobHit(2.0, "strong", f"anthropic policy file: {path}", path)
         )
     # openai-config.json is the OpenAI Messages API model-config marker —
     # belongs to openai_api, not the agents SDK (manifest.openai_api.model_config).
-    for path in _discover_patterns(workspace, MODEL_CONFIG_PATTERNS):
+    for path in _discover_patterns(workspace, files=files, patterns=MODEL_CONFIG_PATTERNS):
         hits["openai_api"].append(
             _GlobHit(2.0, "strong", f"openai-config marker: {path}", path)
         )
-    for path in _discover_patterns(workspace, OPENAI_TOOL_PATTERNS):
+    for path in _discover_patterns(workspace, files=files, patterns=OPENAI_TOOL_PATTERNS):
         hits["openai_api"].append(
             _GlobHit(2.0, "strong", f"openai tool file: {path}", path)
         )
-    for path in _discover_patterns(workspace, POLICY_RULE_PATTERNS):
+    for path in _discover_patterns(workspace, files=files, patterns=POLICY_RULE_PATTERNS):
         hits["openai_api"].append(
             _GlobHit(2.0, "strong", f"openai-api policy file: {path}", path)
         )
-    for path in _discover_patterns(workspace, TEST_CASE_PATTERNS):
+    for path in _discover_patterns(workspace, files=files, patterns=TEST_CASE_PATTERNS):
         hits["openai_api"].append(
             _GlobHit(2.0, "strong", f"openai-api test cases: {path}", path)
         )
-    for path in _discover_patterns(workspace, N8N_WORKFLOW_PATTERNS):
+    for path in _discover_patterns(workspace, files=files, patterns=N8N_WORKFLOW_PATTERNS):
         full_path = (workspace / path).resolve()
         if _looks_like_n8n_workflow(full_path):
             hits["n8n"].append(_GlobHit(2.0, "strong", f"n8n workflow: {path}", path))
-    for path in _discover_patterns(workspace, CONDUCTOR_WORKFLOW_PATTERNS):
+    for path in _discover_patterns(workspace, files=files, patterns=CONDUCTOR_WORKFLOW_PATTERNS):
         full_path = (workspace / path).resolve()
         try:
             data = json.loads(full_path.read_text(encoding="utf-8"))
@@ -1986,28 +2051,39 @@ def _agent_scope(
     *,
     parse_truncated: bool,
     project_roots: int,
-) -> str:
-    """Whether one manifest can describe this workspace.
+) -> tuple[str, bool]:
+    """Whether one manifest can describe this workspace, and how far the
+    walk behind that answer got.
 
-    ``"unknown"`` is not a softer ``"single"``. Python parsing stops at
-    ``max_python_files``, so on a large repository the evidence behind a
-    ``"single"`` verdict may simply be the part of the tree that got read
-    first — and filesystem ordering is not a safety property. When the
-    parse was cut short *and* the workspace holds more than one project
-    root, a second agent project could be sitting in the unread remainder,
-    so the answer is that no answer was established.
+    Python parsing stops at ``max_python_files``, so on a large repository
+    the evidence behind the verdict may simply be the part of the tree that
+    got read first — and filesystem ordering is not a safety property. When
+    the parse was cut short *and* the workspace holds more than one project
+    root, a project could be sitting in the unread remainder. That is the
+    ``truncated`` half of the answer, and it is computed first because it
+    is true regardless of how many candidates were found.
 
-    Truncation alone is not enough to say that: a repository with one
-    project root has nowhere for a second project to hide, however many
-    files it holds, so large single-project repositories keep their
-    ``"single"`` verdict and their working ``init``.
+    Truncation alone is not enough to say it: a repository with one project
+    root has nowhere for a second project to hide, however many files it
+    holds, so large single-project repositories keep their ``"single"``
+    verdict and their working ``init``.
+
+    The two halves are independent, and folding them into one value hid the
+    honest one. ``"ambiguous"`` short-circuited, so ``"unknown"`` — the
+    state whose entire purpose is to say the parse was cut short — was
+    reachable only when one or fewer candidates were found, and the cap
+    warning went unprinted on exactly the repositories the cap had cut
+    (#395). Two candidates found *is* an ambiguous scope whatever the cap
+    did; what truncation changes is that the candidate list is a lower
+    bound rather than an enumeration, which is what ``truncated`` says.
     """
 
+    truncated = parse_truncated and project_roots > 1
     if len(candidates) > 1:
-        return "ambiguous"
-    if parse_truncated and project_roots > 1:
-        return "unknown"
-    return "single"
+        return "ambiguous", truncated
+    if truncated:
+        return "unknown", True
+    return "single", False
 
 
 def _nested_manifest_paths(inventory: list[Path], workspace: Path) -> list[str]:
@@ -2027,21 +2103,31 @@ def _nested_manifest_paths(inventory: list[Path], workspace: Path) -> list[str]:
 
 
 def _project_root_count(inventory: list[Path], workspace: Path) -> int:
-    """How many project roots the workspace holds, counted from the walk.
+    """How many scopes the workspace could hold, counted from the walk.
 
     Filename matching over the inventory the walk already produced — no
     parsing, no cap — so this stays trustworthy exactly where the AST pass
     stops being trustworthy.
+
+    Weak markers are counted even though they need evidence to draw a
+    boundary: this number only decides whether *another* project could be
+    hiding in the part of the tree the parse never reached, so counting one
+    that turns out not to be a project fails closed.
+
+    The workspace itself is always counted, marker or not.
+    :func:`_agent_project_candidates` attributes agent evidence that sits
+    under no marker to the workspace as ``"."``, so an unmarked root is a
+    candidate scope like any other — and counting only marker directories
+    missed exactly that one. A repository with one marked sub-project and an
+    unmarked agent at its root past the cap censused a single root, kept its
+    ``"single"`` verdict with no truncation warning, and let ``init --write``
+    write a root manifest carrying the sub-project's agent name while
+    silently covering the root agent nobody had read (#399 review).
     """
 
     markers = (*PROJECT_MARKERS, *WEAK_PROJECT_MARKERS)
-    # Weak markers are counted here even though they need evidence to draw a
-    # boundary: this number only decides whether a *second* project could be
-    # hiding in the part of the tree the parse never reached, so counting one
-    # that turns out not to be a project fails closed.
     roots = {path.parent for path in inventory if path.name in markers}
-    if project_marker(workspace, extra=WEAK_PROJECT_MARKERS) is not None:
-        roots.add(workspace)
+    roots.add(workspace)
     return len(roots)
 
 
@@ -2144,6 +2230,463 @@ def _agent_project_candidates(
     return sorted(candidates, key=lambda candidate: candidate.path)
 
 
+#: Filename patterns that could make a file agent evidence for the directory
+#: it sits in — every family :func:`_collect_glob_hits` and
+#: :func:`_suggested_sources` read. Used to decide whether a *deleted* path
+#: could have been the evidence a weak marker rested on, which is a question
+#: only its name can answer: the file is gone, so nothing can be parsed.
+_EVIDENCE_FILE_PATTERNS: tuple[str, ...] = (
+    *ANTHROPIC_TOOL_PATTERNS,
+    *ANTHROPIC_POLICY_PATTERNS,
+    *MODEL_CONFIG_PATTERNS,
+    *OPENAI_TOOL_PATTERNS,
+    *POLICY_RULE_PATTERNS,
+    *TEST_CASE_PATTERNS,
+    *N8N_WORKFLOW_PATTERNS,
+    *CONDUCTOR_WORKFLOW_PATTERNS,
+    *OPENAPI_PATTERNS,
+    *MCP_PATTERNS,
+)
+
+
+@dataclass(frozen=True)
+class UndeterminedDirectory:
+    """A weak-marker directory the probe could not settle, and why.
+
+    ``cause`` is what the routing surface reads. Collapsing all three into
+    one "unresolved" loses the only thing that decides what to do next: a
+    budget the caller can raise is a mechanical retry, while evidence this
+    change deleted is a question the head tree cannot answer at all, and
+    handing the second one a command that reruns the first is a recovery
+    that returns the same wrong answer (#399 review).
+    """
+
+    #: Workspace-relative POSIX path.
+    path: str
+    cause: Literal["parse_budget", "deleted_evidence", "unreadable_inventory"]
+    reason: str
+
+
+@dataclass(frozen=True)
+class WeakMarkerEvidence:
+    """What the preview path could establish about weak project markers.
+
+    ``undetermined`` is the load-bearing half. A probe that cannot settle a
+    directory has not shown there is no project there, and reporting that as
+    "no evidence" is how a scope resolver ends up naming the workspace root
+    for a change it could not attribute (#399 review).
+    """
+
+    #: Directories whose weak marker is backed by agent evidence.
+    directories: frozenset[Path] = frozenset()
+    #: Directories the probe could not settle, sorted by path.
+    undetermined: tuple[UndeterminedDirectory, ...] = ()
+    #: ``.py`` files in the workspace inventory, uncapped — the cap that
+    #: reaches every one of them, for a retry command to name. ``0`` when no
+    #: inventory was read.
+    python_file_total: int = 0
+
+    @property
+    def causes(self) -> frozenset[str]:
+        return frozenset(entry.cause for entry in self.undetermined)
+
+    @property
+    def detail(self) -> str:
+        """One line naming what was unsettled, for a routing surface to quote."""
+
+        first = self.undetermined[0]
+        more = (
+            f" (and {len(self.undetermined) - 1} more)"
+            if len(self.undetermined) > 1
+            else ""
+        )
+        return (
+            f"whether {first.path} is a self-contained project could not be "
+            f"established: {first.reason}{more}"
+        )
+
+
+def weak_marker_evidence_dirs(
+    root: Path,
+    changed_files: Iterable[str],
+    *,
+    max_python_files: int = DEFAULT_MAX_PYTHON_FILES,
+) -> WeakMarkerEvidence:
+    """Which weak project markers above the changed paths are real projects.
+
+    :func:`find_project_root` unlocks
+    :data:`~agents_shipgate.cli.discovery.scope.WEAK_PROJECT_MARKERS` for
+    exactly the directories the caller has already found agent evidence in,
+    and ``detect`` establishes that with a whole-workspace walk — seconds on
+    a large monorepo, which the ``verify --preview`` routing path cannot
+    spend. Passing nothing instead is not a cheaper approximation, it is a
+    different answer: a project whose only boundary is ``requirements.txt``
+    beside ``agent.py`` disappears, the walk climbs to the repository root,
+    and preview emits a root ``init`` that ``init`` then refuses (#394).
+
+    So answer the same question, but only where the answer can change
+    anything. A directory that already carries a strong marker is a project
+    root without any evidence, and one that carries no weak marker cannot
+    become one because of it; both are skipped, which on most repositories
+    leaves nothing to probe and costs a handful of ``stat`` calls. For the
+    rest, the evidence is what ``detect`` would find *directly in* that
+    directory — its own ``evidence_dirs`` are the immediate parents of the
+    evidence files it found, so this asks the same question of the same
+    files, through every rule that can put a file in ``evidence_paths``:
+
+    * :func:`_score_python_signals` for framework-attributed Python;
+    * :func:`_collect_glob_hits` for the artifact-glob frameworks
+      (Anthropic, OpenAI API, n8n, Conductor) — every hit there scores
+      ``2.0`` ``strong``, so one hit clears the detection threshold on its
+      own and its file is in that framework's ``candidate_files``;
+    * :func:`_suggested_sources` for OpenAPI/MCP/Conductor sources;
+    * :func:`_codex_plugin_candidates` for plugin packages and marketplaces.
+
+    Reading a subset was not a smaller version of the same answer: a
+    ``requirements.txt`` beside an ``openai-config.json`` is a project full
+    discovery reports and a subset does not, and preview then recommends the
+    root ``init`` that the canonical result refuses (#399 review).
+
+    The inventory comes from :func:`_candidate_files`, the git-aware walk
+    ``detect`` reads, so an ignored or untracked-ignored file cannot make
+    preview narrow to a directory ``detect`` never saw — routing must not
+    depend on local ignore state, least of all in a way that disagrees with
+    the command it recommends.
+
+    Three things leave a directory *undetermined* rather than negative, and
+    each is returned with its cause so the caller can route to a recovery
+    that actually advances it:
+
+    * ``parse_budget`` — the shared ``max_python_files`` budget, the same one
+      ``detect`` spends, ran out with a ``.py`` file still unread;
+    * ``unreadable_inventory`` — the workspace inventory could not be read;
+    * ``deleted_evidence`` — the only file that could have been the evidence
+      is a changed path this pull request deletes. The head tree cannot
+      answer for a project whose evidence the diff removed, and which
+      families count is decided by name, because there is nothing left to
+      parse.
+
+    The repository root is never reported undetermined: a claim on it
+    resolves to ``not_narrowed`` either way, so it can only add noise.
+    """
+
+    try:
+        root_resolved = root.resolve()
+    except OSError:  # pragma: no cover - unreadable workspace
+        return WeakMarkerEvidence()
+
+    # Every directory at or above a changed path, bounded by the root, built
+    # the way `resolve_change_scope` builds them so the two sets compare.
+    candidates: set[Path] = set()
+    changed: list[PurePosixPath] = []
+    for entry in changed_files:
+        if not entry:
+            continue
+        path = PurePosixPath(entry)
+        if path.is_absolute() or ".." in path.parts:
+            continue
+        changed.append(path)
+        current = root_resolved.joinpath(*path.parts[:-1])
+        while current not in candidates:
+            candidates.add(current)
+            if current == root_resolved:
+                break
+            parent = current.parent
+            if parent == current:  # pragma: no cover - defensive
+                break
+            current = parent
+
+    # Boundaries the change *removes*, computed before anything reads the head
+    # tree — because the head tree is where they are missing. A directory whose
+    # project marker this pull request deletes is not a directory that was
+    # never a project, and it never reaches the marker filter below (#399
+    # review).
+    undetermined: list[UndeterminedDirectory] = list(
+        _removed_boundaries(root_resolved, changed)
+    )
+    removed_dirs = {entry.path for entry in undetermined}
+
+    # `project_marker` reports strong markers ahead of weak ones, so one call
+    # separates all three cases: no marker (nothing to unlock), a strong
+    # marker (already a project root, and evidence cannot change that), and a
+    # weak marker (the only case worth reading files for).
+    probe = sorted(
+        directory
+        for directory in candidates
+        # `_skip_part` is the rule `_skip` applies; applied to the relative
+        # parts directly, because every candidate was built by joining them
+        # onto the resolved root and re-resolving each one to rediscover that
+        # is two syscalls per directory on the hot path.
+        if not any(
+            _skip_part(part) for part in directory.relative_to(root_resolved).parts
+        )
+        and project_marker(directory, extra=WEAK_PROJECT_MARKERS)
+        in WEAK_PROJECT_MARKERS
+    )
+    if not probe:
+        # The common case, and the reason nothing above this line reads a
+        # file beyond a `stat`: no weak marker means no inventory and no parse.
+        return WeakMarkerEvidence(undetermined=_sorted(undetermined))
+
+    try:
+        inventory = _candidate_files(root_resolved)
+    except (DiscoveryError, OSError):
+        # Fail closed. Without the inventory every candidate is unsettled,
+        # not settled negative.
+        undetermined.extend(
+            UndeterminedDirectory(
+                path=_relative(directory, root_resolved),
+                cause="unreadable_inventory",
+                reason="the workspace inventory could not be read",
+            )
+            for directory in probe
+            if directory != root_resolved
+        )
+        return WeakMarkerEvidence(undetermined=_sorted(undetermined))
+
+    by_directory: dict[Path, list[Path]] = {}
+    for path in inventory:
+        by_directory.setdefault(path.parent, []).append(path)
+    plugin_dirs = _codex_plugin_evidence_dirs(root_resolved, inventory)
+    python_file_total = sum(1 for path in inventory if path.suffix == ".py")
+
+    found: set[Path] = set()
+    budget = max_python_files
+    for directory in probe:
+        held = by_directory.get(directory, [])
+        relative = _relative(directory, root_resolved)
+        if (
+            directory in plugin_dirs
+            or any(_collect_glob_hits(root_resolved, files=held).values())
+            or _suggested_sources(root_resolved, files=held)[0]
+        ):
+            found.add(directory)
+            continue
+        # Only the Python files a `detect` *of this directory* would reach.
+        # The command preview recommends is scoped to it, and that command
+        # spends the cap over the directory's whole subtree in inventory
+        # order — so a direct `agent.py` sorting after a thousand inert
+        # modules is evidence this probe can see and the command it names
+        # cannot (#399 review).
+        readable, beyond_cap = _within_parse_budget(
+            directory, held, inventory, max_python_files
+        )
+        agent_python, budget, unread = _holds_agent_python(
+            readable, root_resolved, budget=budget
+        )
+        if agent_python:
+            found.add(directory)
+            continue
+        if directory == root_resolved:
+            continue
+        # Causes accumulate. A budget that ran out does not answer a deletion,
+        # and reporting only the first one routed a deleted-evidence case to a
+        # retry that cannot see what was deleted (#399 review).
+        if unread or beyond_cap:
+            undetermined.append(
+                UndeterminedDirectory(
+                    path=relative,
+                    cause="parse_budget",
+                    reason=(
+                        f"a {max_python_files}-file parse does not reach every "
+                        "Python file that could be its evidence"
+                    ),
+                )
+            )
+        if relative not in removed_dirs and _deletes_possible_evidence(
+            directory, root_resolved, changed
+        ):
+            undetermined.append(
+                UndeterminedDirectory(
+                    path=relative,
+                    cause="deleted_evidence",
+                    reason=(
+                        "this change deletes the file beside its requirements "
+                        "file that could have been the evidence, and the head "
+                        "tree cannot say whether what it removed was this "
+                        "project's agent surface"
+                    ),
+                )
+            )
+    return WeakMarkerEvidence(
+        directories=frozenset(found),
+        undetermined=_sorted(undetermined),
+        python_file_total=python_file_total,
+    )
+
+
+def _sorted(
+    entries: list[UndeterminedDirectory],
+) -> tuple[UndeterminedDirectory, ...]:
+    return tuple(sorted(entries, key=lambda entry: (entry.path, entry.cause)))
+
+
+def _within_parse_budget(
+    directory: Path, held: list[Path], inventory: list[Path], max_python_files: int
+) -> tuple[list[Path], bool]:
+    """The files in ``held`` a capped ``detect`` *of ``directory``* would read.
+
+    Returns them, plus whether any direct Python file falls outside that
+    bound. The inventory is already in the order discovery consumes it, so
+    the bound is the first ``max_python_files`` Python paths under
+    ``directory`` — exactly the set the recommended scoped command reaches.
+    """
+
+    reachable: set[Path] = set()
+    seen = 0
+    for path in inventory:
+        if path.suffix != ".py":
+            continue
+        if path.parent != directory and directory not in path.parents:
+            continue
+        if seen >= max_python_files:
+            break
+        seen += 1
+        reachable.add(path)
+    readable = [path for path in held if path.suffix != ".py" or path in reachable]
+    beyond = any(
+        path.suffix == ".py" and path not in reachable for path in held
+    )
+    return readable, beyond
+
+
+def _removed_boundaries(
+    workspace: Path, changed: list[PurePosixPath]
+) -> list[UndeterminedDirectory]:
+    """Directories whose project boundary this change removes.
+
+    Every other question here is asked of the head tree, which is the one
+    place a removed boundary is guaranteed not to be. A pull request deleting
+    ``services/gone/{pyproject.toml,agent.py}`` leaves nothing for the marker
+    filter to find, so the directory is silently not a project and the change
+    is attributed to whatever survives — on the reported repository, a root
+    ``init`` for an unrelated agent (#399 review).
+
+    A removed *strong* marker is a removed boundary outright: a
+    ``pyproject.toml`` draws a project root with no evidence needed. A removed
+    *weak* marker only drew one beside agent evidence, so it counts when the
+    change also touches something in that directory that could have been the
+    evidence — which keeps a deleted ``tests/requirements.txt`` from reading
+    as a lost project.
+    """
+
+    removed: dict[str, UndeterminedDirectory] = {}
+    gone = [path for path in changed if not (workspace / path).exists()]
+    for path in gone:
+        name = path.parts[-1]
+        strong = name in PROJECT_MARKERS
+        if not strong and name not in WEAK_PROJECT_MARKERS:
+            continue
+        directory = workspace.joinpath(*path.parts[:-1])
+        if directory == workspace:
+            continue
+        relative = _relative(directory, workspace)
+        if any(_skip_part(part) for part in PurePosixPath(relative).parts):
+            continue
+        if not strong and not any(
+            _could_be_evidence(other, workspace)
+            for other in gone
+            if workspace.joinpath(*other.parts[:-1]) == directory
+        ):
+            continue
+        removed[relative] = UndeterminedDirectory(
+            path=relative,
+            cause="deleted_evidence",
+            reason=(
+                f"this change removes {name} from it, so the boundary that "
+                "made it a self-contained project is not in the tree being "
+                "evaluated"
+            ),
+        )
+    return list(removed.values())
+
+
+def _could_be_evidence(path: PurePosixPath, workspace: Path) -> bool:
+    """Whether a file at ``path`` could have been agent evidence, by name."""
+
+    return path.parts[-1].endswith(".py") or any(
+        _matches_pattern(workspace / path, workspace, pattern)
+        for pattern in _EVIDENCE_FILE_PATTERNS
+    )
+
+
+def _deletes_possible_evidence(
+    directory: Path, workspace: Path, changed: list[PurePosixPath]
+) -> bool:
+    """Whether the change removes a file that could have been ``directory``'s.
+
+    Decided by name, because the file is gone: every family that can put a
+    path in ``evidence_paths`` is a filename rule except the Python parse,
+    and a ``.py`` file cannot be ruled out without reading it. A Codex plugin
+    manifest counts for the *package* directory above its ``.codex-plugin``
+    folder, which is the directory the candidate names.
+    """
+
+    plugin_manifest = PurePosixPath(_relative(directory, workspace)) / ".codex-plugin"
+    for path in changed:
+        parent = workspace.joinpath(*path.parts[:-1])
+        if parent == directory:
+            if _could_be_evidence(path, workspace) and not (workspace / path).exists():
+                return True
+        elif (
+            path.parts[-1] == "plugin.json"
+            and PurePosixPath(*path.parts[:-1]) == plugin_manifest
+            and not (workspace / path).exists()
+        ):
+            return True
+    return False
+
+
+def _codex_plugin_evidence_dirs(
+    workspace: Path, inventory: list[Path]
+) -> frozenset[Path]:
+    """Directories a Codex plugin candidate would put in ``evidence_dirs``.
+
+    Read off :func:`_codex_plugin_candidates` rather than off the filenames
+    again, so marketplace-covered packages are deduplicated here exactly as
+    they are there. A package candidate names a directory; a marketplace
+    candidate names a file, whose directory is what ``detect`` records.
+    """
+
+    dirs: set[Path] = set()
+    for candidate in _codex_plugin_candidates(workspace, inventory):
+        path = workspace if candidate.path == "." else workspace / candidate.path
+        dirs.add(path if candidate.mode == "package" else path.parent)
+    return frozenset(dirs)
+
+
+def _holds_agent_python(
+    files: list[Path], workspace: Path, *, budget: int
+) -> tuple[bool, int, bool]:
+    """Whether one of ``files`` is a framework-attributed agent file.
+
+    ``files`` are the inventory entries of a single directory, which is the
+    point: ``detect`` derives an evidence directory from an evidence file's
+    own parent, so a framework import two levels down names that
+    sub-directory, not this one.
+
+    Returns ``(found, remaining budget, stopped with a file unread)``. The
+    third value is reported rather than inferred from a zero remainder: a
+    directory holding exactly ``max_python_files`` benign modules spends the
+    last unit on its last file and was read completely, which is the same
+    thing ``detect`` would say about it (#399 review).
+    """
+
+    for path in files:
+        if path.suffix != ".py":
+            continue
+        if budget <= 0:
+            return False, 0, True
+        budget -= 1
+        fact = _parse_python_facts(path, workspace)
+        if fact is None:
+            continue
+        _score_python_signals(fact, _initial_framework_scores())
+        if fact.framework:
+            return True, budget, False
+    return False, budget, False
+
+
 def _project_name_candidates(workspace: Path) -> list[NameCandidate]:
     candidates: list[NameCandidate] = []
     pyproject = workspace / "pyproject.toml"
@@ -2162,7 +2705,7 @@ def _project_name_candidates(workspace: Path) -> list[NameCandidate]:
 
 
 def _suggested_sources(
-    workspace: Path,
+    workspace: Path, *, files: list[Path] | None = None
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """Suggest OpenAPI/MCP artifact files the real input adapters accept.
 
@@ -2174,18 +2717,25 @@ def _suggested_sources(
     config filename known in advance; the probe generalizes it to any
     ``mcpServers``-shaped or otherwise unparseable file (silently for
     ``.mcp.json``, with a visible reason for everything else).
+
+    ``files`` narrows the inventory this reads. Passing the walk's own
+    inventory keeps one pass from re-running the git walk once per pattern;
+    passing the files of a single directory asks this exact rule — the same
+    globs, the same ``.mcp.json`` skip, the same adapter probe — about that
+    directory, which is what the preview path needs to decide whether a
+    directory holds artifact evidence without a second copy of the rule.
     """
     candidates: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for pattern in OPENAPI_PATTERNS:
-        for path in _candidate_files_matching(workspace, (pattern,)):
+        for path in _candidate_files_matching(workspace, (pattern,), files=files):
             rel = _relative(path, workspace)
             if ("openapi", rel) in seen:
                 continue
             seen.add(("openapi", rel))
             candidates.append(("openapi", rel))
     for pattern in MCP_PATTERNS:
-        for path in _candidate_files_matching(workspace, (pattern,)):
+        for path in _candidate_files_matching(workspace, (pattern,), files=files):
             if path.name == ".mcp.json":
                 continue
             rel = _relative(path, workspace)
@@ -2194,7 +2744,7 @@ def _suggested_sources(
             seen.add(("mcp", rel))
             candidates.append(("mcp", rel))
     for pattern in CONDUCTOR_WORKFLOW_PATTERNS:
-        for path in _candidate_files_matching(workspace, (pattern,)):
+        for path in _candidate_files_matching(workspace, (pattern,), files=files):
             rel = _relative(path, workspace)
             if ("conductor", rel) in seen:
                 continue

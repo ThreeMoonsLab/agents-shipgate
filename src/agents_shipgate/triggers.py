@@ -211,24 +211,32 @@ def _matched_diff_tokens(triggers: dict[str, Any], diff_text: str) -> list[str]:
     return sorted(token for token in tokens if token in diff_text)
 
 
-def _contains_detect_returns(pred: Any) -> bool:
-    """Whether a predicate tree contains any ``detect_returns`` leaf.
+def _detect_returns_keys(pred: Any) -> set[str]:
+    """Every ``DetectResult`` key a predicate tree reads.
 
     Used to decide whether the stop block can be *fully evaluated*: a
     ``detect_returns`` predicate needs the output of ``agents-shipgate
-    detect``. When that output was not supplied, the stop block is not
-    evaluable and the evaluator must not infer a stop verdict.
+    detect``. When that output was not supplied — or was supplied by a build
+    that does not carry one of the keys the block reads — the stop block is
+    not evaluable and the evaluator must not infer a stop verdict.
+
+    Per key rather than per payload, because "the payload is present" stopped
+    being the same question as "the payload answers the block" the moment the
+    block grew a key older payloads do not carry. Reading an absent key as
+    ``false`` would resurrect the failure this whole block guards against, in
+    the one direction that matters: silently concluding "not an agent
+    project" from evidence nobody produced (#399 review).
     """
     if not isinstance(pred, dict):
-        return False
-    if "detect_returns" in pred:
-        return True
-    return any(
-        _contains_detect_returns(nested)
-        for key in ("any_of", "all_of")
-        if key in pred
-        for nested in pred[key]
-    )
+        return set()
+    keys: set[str] = set()
+    target = pred.get("detect_returns")
+    if isinstance(target, str) and ":" in target:
+        keys.add(target.partition(":")[0].strip())
+    for group in ("any_of", "all_of"):
+        for nested in pred.get(group) or ():
+            keys |= _detect_returns_keys(nested)
+    return keys
 
 
 def _next_action(
@@ -531,11 +539,16 @@ def evaluate(
     # cannot conclude "non-agent project" — so we never stop on it, and we
     # report stop_conditions_evaluated=False so consumers can tell the
     # difference between "evaluated, did not hold" and "could not evaluate".
+    required_detect_keys = _detect_returns_keys(stop_payload)
     stop_conditions_evaluated = (
         bool(stop_payload)
         and inputs_complete
         and (
-            detect_result is not None or not _contains_detect_returns(stop_payload)
+            not required_detect_keys
+            or (
+                detect_result is not None
+                and required_detect_keys <= set(detect_result)
+            )
         )
     )
     stop_fired = stop_conditions_evaluated and _eval_predicate(

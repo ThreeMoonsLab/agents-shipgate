@@ -108,8 +108,23 @@ So Shipgate scopes rather than guesses:
   discovery stopped at its Python-file cap in a workspace with several project
   roots, so a "single project" answer would just be whichever files were read
   first. Raise `detect --max-python-files`, or name the project directly.
+- `agent_scope_truncated: true` says the candidate list is a lower bound, not
+  an enumeration: the Python parse stopped at its cap, so a project in the part
+  of the tree that was never read is missing from it. If the project you are
+  changing is not listed, that is the first thing to rule out — re-run with
+  `detect --max-python-files <n>` before concluding it is not an agent project.
+  `workspace_signals.project_root_count` is the uncapped count the list is
+  measured against.
 - `agents-shipgate detect --json` answers the same question without writing
-  anything: read `agent_scope` and `agent_project_candidates[]`.
+  anything: read `agent_scope`, `agent_scope_truncated`, and
+  `agent_project_candidates[]`.
+- `python_parse_truncated: true` is the wider version of the same warning: the
+  Python parse stopped at its cap, so *any* whole-workspace negative — most of
+  all `is_agent_project: false` — describes the files that were read rather
+  than the repository. Nothing publishes a terminal route while it is true;
+  the emitted `next_actions[0]` is
+  `detect --max-python-files <workspace_signals.python_file_total> --json`,
+  which covers every Python file and so cannot land back here.
 
 One manifest per project directory is the supported monorepo shape; each is
 verified with `verify --workspace <project> --config shipgate.yaml` from

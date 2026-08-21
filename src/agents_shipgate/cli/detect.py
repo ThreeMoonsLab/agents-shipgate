@@ -18,7 +18,11 @@ import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.diagnostics import diagnose_detect
-from agents_shipgate.cli.discovery import detect_workspace, select_agent_name
+from agents_shipgate.cli.discovery import (
+    DEFAULT_MAX_PYTHON_FILES,
+    detect_workspace,
+    select_agent_name,
+)
 from agents_shipgate.cli.setup_control import (
     SETUP_INCOMPLETE,
     setup_control_envelope,
@@ -48,7 +52,7 @@ def detect(
         help="Emit JSON. Default: human-readable summary.",
     ),
     max_python_files: int = typer.Option(
-        1000,
+        DEFAULT_MAX_PYTHON_FILES,
         "--max-python-files",
         help="Cap on .py files to AST-parse. Defends against large monorepos.",
         hidden=True,
@@ -121,8 +125,26 @@ def detect(
         and not result.suggested_sources
         and not result.codex_plugin_candidates
     ):
-        typer.echo("Workspace does not appear to be an agent project.")
-        typer.echo("No agent framework signals matched the strong-signal threshold.")
+        if result.python_parse_truncated:
+            # "No signals matched" is a claim about the whole workspace, and
+            # a capped parse read part of one. On a repository large enough
+            # to truncate before reaching any agent, the flat negative is
+            # simply false — and it is the reading that stops an adopter
+            # (#395).
+            typer.echo(
+                "Discovery was capped before it could classify this workspace."
+            )
+            typer.echo(
+                "No agent framework signals matched in the part of the tree that "
+                f"was read, and it holds {result.workspace_signals.project_root_count} "
+                "candidate project scopes. Re-run with --max-python-files <n>, "
+                "or point --workspace at the project you are changing."
+            )
+        else:
+            typer.echo("Workspace does not appear to be an agent project.")
+            typer.echo(
+                "No agent framework signals matched the strong-signal threshold."
+            )
         _echo_excluded_sources(result.excluded_sources)
         return
 
@@ -226,6 +248,12 @@ def _detect_advance(
     boundary, and asking again on the next ``detect`` would make that decision
     impossible to keep.
 
+    A truncated parse is checked before either, and is the one unresolved state
+    here that is *not* a human route: raising ``--max-python-files`` is a
+    mechanical, read-only retry that needs no decision, and
+    ``workspace_signals.python_file_total`` gives it a bound that cannot hit
+    the cap again.
+
     An unresolved *scope* is the same shape as an unresolved manifest, one step
     earlier. When a workspace defines agents in several projects (#363/#370),
     ``DetectResult.next_action`` is prose rather than a command precisely because
@@ -261,6 +289,44 @@ def _detect_advance(
                 ),
             ),
             "configure",
+            SETUP_INCOMPLETE,
+        )
+    if result.python_parse_truncated:
+        # Raising the cap is a mechanical, read-only retry, not a judgement —
+        # nobody has to choose a boundary to run it, and the answer it
+        # produces is the one a complete pass would have given. Publishing it
+        # as prose inside a human route left the only actionable step in a
+        # string, on a payload whose control said `next_actor: human` and
+        # `command: null` (#399 review).
+        #
+        # `python_file_total` makes the retry terminate: a bound that covers
+        # every Python file in the workspace cannot hit the cap again, where a
+        # rerun at the default would reproduce this exact verdict.
+        return (
+            NextAction(
+                kind="command",
+                command=render_command(
+                    [
+                        "detect",
+                        "--workspace",
+                        str(workspace),
+                        "--max-python-files",
+                        str(result.workspace_signals.python_file_total),
+                        "--json",
+                    ]
+                ),
+                why=(
+                    "Discovery stopped at its Python-file cap, so this "
+                    "classification describes the part of the workspace that "
+                    "was read. Re-run with a bound that covers every Python "
+                    "file before treating any negative here as an answer."
+                ),
+                expects=(
+                    "A detect payload with python_parse_truncated false, whose "
+                    "agent_scope and agent_project_candidates are settled."
+                ),
+            ),
+            "discover",
             SETUP_INCOMPLETE,
         )
     if result.agent_scope != "single":
@@ -303,14 +369,27 @@ def _echo_agent_scope(result: DetectResult) -> None:
 
     Silent in the ordinary single-project case: the manifest scope is then
     the workspace the caller already named, and repeating it is noise.
+
+    Never silent about a truncated walk. The candidate list below is what a
+    human is told to choose from, and a list assembled from the part of the
+    tree that got read first is a lower bound, not an enumeration — printing
+    it unqualified told an adopter their own project was not an agent
+    project (#395).
     """
-    if result.agent_scope != "ambiguous":
+    if result.agent_scope == "single":
         return
     candidates = result.agent_project_candidates
     typer.echo("")
-    typer.echo(
-        f"Agent scope: ambiguous — {len(candidates)} separate projects define agents:"
-    )
+    if result.agent_scope == "ambiguous":
+        typer.echo(
+            f"Agent scope: ambiguous — {len(candidates)} separate projects define agents:"
+        )
+    else:
+        typer.echo(
+            "Agent scope: unknown — discovery was capped before it could tell "
+            "whether one manifest describes this workspace."
+            + (" Projects found before the cap:" if candidates else "")
+        )
     for candidate in candidates[:_MAX_ECHOED_SCOPE_CANDIDATES]:
         # A config-driven ``LlmAgent(name=CONFIG.agent_name)`` leaves no name
         # literal to parse; name the marker that made it a project instead.
@@ -319,10 +398,28 @@ def _echo_agent_scope(result: DetectResult) -> None:
     remaining = len(candidates) - _MAX_ECHOED_SCOPE_CANDIDATES
     if remaining > 0:
         typer.echo(f"- ... ({remaining} more; see agent_project_candidates in --json)")
-    typer.echo(
-        "One shipgate.yaml describes one agent surface, so init --write "
-        "refuses here until you name the project directory to initialize."
-    )
+    if result.agent_scope == "ambiguous":
+        typer.echo(
+            "One shipgate.yaml describes one agent surface, so init --write "
+            "refuses here until you name the project directory to initialize."
+        )
+    if result.agent_scope_truncated:
+        roots = result.workspace_signals.project_root_count
+        typer.echo(
+            (
+                "This list may be incomplete: the Python parse stopped at the "
+                f"cap in a workspace holding {roots} candidate project "
+                "scopes, so any project in the part of the tree that was not "
+                "read is missing from it."
+                if candidates
+                else (
+                    "The Python parse stopped at the cap in a workspace "
+                    f"holding {roots} candidate project scopes."
+                )
+            )
+            + " Re-run with --max-python-files <n> before concluding your "
+            "project is absent."
+        )
     typer.echo("")
 
 

@@ -233,12 +233,26 @@ agents-shipgate bootstrap --json
 `bootstrap` runs `detect → init --write --ci → scan --suggest-patches → apply-patches --confidence high` against the current workspace, stopping on the first non-recoverable error and emitting a structured per-step summary. Use it for first-time adoption; for ongoing CI keep using the GitHub Action. Flags: `--workspace`, `--confidence`, `--no-ci`, `--no-apply`, `--json`.
 
 - **`detect`** — read-only; classifies the workspace. `is_agent_project: false`
-  means stop early. `agent_scope` says whether one manifest can describe this
-  workspace at all: `"ambiguous"` means agents live in several self-contained
+  is **not** on its own a reason to stop. It is false for every artifact-only
+  and Codex-plugin-only workspace, which are adoptable, and it is unsafe to
+  read at all when the parse was cut short. Stop only when the whole published
+  stop condition holds: `is_agent_project: false` **and** `suggested_sources`
+  empty **and** `codex_plugin_candidates` empty **and**
+  `python_parse_truncated: false`. `python_parse_truncated: true` means the
+  Python parse stopped at `max_python_files`, so the negative describes the
+  files that were read rather than the repository — re-run with
+  `--max-python-files <workspace_signals.python_file_total>`, which is a bound
+  that cannot hit the cap again. `init --write` takes the same flag and refuses
+  without it while the parse is truncated, rather than declaring an agent name
+  and tool surface read from part of the tree. `agent_scope` says whether one manifest can
+  describe this workspace at all: `"ambiguous"` means agents live in several self-contained
   projects (`agent_project_candidates[]` lists them, and the manifest belongs
   in one of them rather than at the workspace root); `"unknown"` means
   discovery was capped before it could tell, so raise `--max-python-files` or
-  name the project directly.
+  name the project directly. `agent_scope_truncated: true` says the candidate
+  list itself is a lower bound — the parse stopped at its cap, so any project
+  in the part of the tree that was not read is missing from it. Never read
+  absence from a truncated list as an answer; raise the cap first.
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.
@@ -459,8 +473,11 @@ The command emits a stable JSON verdict: `should_run` (alias of `run_shipgate`),
 - `agents-shipgate detect --json` returns `is_agent_project: false`, AND
 - `suggested_sources` is empty (no MCP/OpenAPI hits flowing in as `mcp` or `openapi`), AND
 - `codex_plugin_candidates` is empty (no Codex plugin package or marketplace hits), AND
+- `python_parse_truncated` is `false` — every negative above is a claim about the whole workspace, and a run whose Python parse stopped at its cap read only part of one, AND (this is the raw parse bit, not `agent_scope_truncated`: that one additionally requires more than one candidate scope, so a single-scope workspace whose only agent sits past the cap leaves it false)
 - no `shipgate.yaml` already exists in the workspace, AND
 - the user did not explicitly request a scan.
+
+A `detect` payload that does not carry every one of those keys leaves the block unevaluable: `trigger` reports `stop_conditions_evaluated: false` and infers no stop. Re-run `detect` with the current CLI rather than reading an absent key as `false`.
 
 Otherwise proceed to `init`. MCP/OpenAPI tool-surface repos and Codex plugin package repos register as `is_agent_project: false` because they have no Python framework imports — but they are valid Shipgate targets. MCP/OpenAPI hits surface as `suggested_sources`; Codex plugin hits surface as `codex_plugin_candidates`. The trigger table above is the authoritative go/no-go.
 
