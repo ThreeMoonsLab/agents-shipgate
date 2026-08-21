@@ -258,7 +258,6 @@ def setup_control_envelope(
     alternatives = [diag.next_actions[0] for diag in ordered]
 
     blocking = next((diag for diag in ordered if diag.severity == "block"), None)
-    selected_is_advance = False
     if blocking is not None:
         selected, kind, decision = _route_for(blocking)
     elif advance_blocking and advance is not None:
@@ -270,7 +269,6 @@ def setup_control_envelope(
         # not skipped, only deferred: it is derived from the manifest on every
         # run, so the next one surfaces it.
         selected, kind, decision = advance, advance_kind, advance_decision
-        selected_is_advance = True
     elif pending_human:
         selected = NextAction(
             kind="review",
@@ -282,7 +280,6 @@ def setup_control_envelope(
         selected, kind, decision = _route_for(ordered[0])
     elif advance is not None:
         selected, kind, decision = advance, advance_kind, advance_decision
-        selected_is_advance = True
     else:
         # No obligation and no onward step is not "done": setup never completes
         # a task, so the honest answer is that a person decides what happens
@@ -326,7 +323,13 @@ def setup_control_envelope(
         # decision nobody made: `detect` on a workspace whose only agent
         # evidence is two nested manifests emitted `stop` — "not a Shipgate
         # target" — and then an `init --write` for each of the two (#397).
-        actions = [selected, *(advance_alternatives if selected_is_advance else ())]
+        #
+        # Asked of the object rather than tracked in a flag beside the two
+        # branches that assign it: `advance` is the only route any branch
+        # selects without building a fresh `NextAction`, so identity answers
+        # this exactly, and a precedence tier added later cannot forget to
+        # keep a mirror in step.
+        actions = [selected, *(advance_alternatives if selected is advance else ())]
         control: AgentControl = _human_route(selected.why, stop=selected.kind == "stop")
     else:
         actions = [selected, *(item for item in alternatives if item is not selected)][:3]

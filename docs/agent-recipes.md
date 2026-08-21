@@ -48,8 +48,9 @@ plugin manifests, `.mcp.json`, `.app.json`, or `SKILL.md`, run
 `control.state`. If it is `review_publishable`, a human must approve the merge
 and you may still commit, push, and update the PR; if it is
 `human_review_required`, stop for a human; if it is
-`agent_action_required`, perform only the exact coding-agent action and command
-in `control.next_action`.
+`agent_action_required`, perform only the exact coding-agent action in
+`control.next_action` — its `command` when it names one, and otherwise the
+input its `expects` names, which is the shape a `fetch_base` route carries.
 
 Do not claim completion unless `control.state` is `complete`. Conversation-level
 acknowledgement never changes control state; only a newly generated verifier
