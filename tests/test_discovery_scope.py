@@ -34,6 +34,7 @@ from agents_shipgate.cli.discovery.scope import (
 )
 from agents_shipgate.cli.discovery.signals import weak_marker_evidence_dirs
 from agents_shipgate.cli.main import app
+from agents_shipgate.invocation import render_command
 
 runner = CliRunner()
 
@@ -134,6 +135,12 @@ def _preview(
     result = runner.invoke(app, argv)
     assert result.exit_code == 0, result.output
     return json.loads(result.output)
+
+
+def _init_command(target: Path) -> str:
+    """The scoped ``init`` exactly as this process would spell it (#322)."""
+
+    return render_command(["init", "--workspace", str(target), "--write", "--json"])
 
 
 # --- resolve_change_scope ---------------------------------------------------
@@ -425,6 +432,24 @@ def test_preview_routes_to_discovery_when_the_change_spans_projects(
     assert "python/agents/crypto-payroll-agent" in action["why"]
 
 
+def _preview_other_head(repo: Path) -> dict:
+    argv = [
+        "verify",
+        "--workspace",
+        str(repo),
+        "--preview",
+        "--base",
+        "origin/main",
+        "--head",
+        "feature",
+        "--format",
+        "json",
+    ]
+    result = runner.invoke(app, argv)
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output)
+
+
 def test_preview_claims_no_scope_for_a_head_that_is_not_checked_out(
     monorepo: Path,
 ) -> None:
@@ -435,37 +460,56 @@ def test_preview_claims_no_scope_for_a_head_that_is_not_checked_out(
     Nor a *command* about whichever agent it holds: discovery of the current
     worktree answers a question about a different tree, and its single-scope
     answer routes straight back to a root `init` for the unrelated project
-    (#399 review). There is no read-only command that settles this, so the
-    route carries none."""
+    (#399 review).
+
+    What is missing is an input, not a judgement — a working tree holding the
+    commit under review — so the route names it and stays with the coding
+    agent. Handing this to a human published `must_stop` and `command: null`
+    for a state one checkout clears (#397)."""
 
     _touch_one_project(monorepo)
     subprocess.run(["git", "branch", "feature"], cwd=monorepo, check=True)
     subprocess.run(["git", "checkout", "-q", "origin/main"], cwd=monorepo, check=True)
 
-    result = runner.invoke(
-        app,
-        [
-            "verify",
-            "--workspace",
-            str(monorepo),
-            "--preview",
-            "--base",
-            "origin/main",
-            "--head",
-            "feature",
-            "--format",
-            "json",
-        ],
-    )
+    payload = _preview_other_head(monorepo)
 
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    action = payload["control"]["next_action"]
-    assert action["actor"] == "human"
-    assert action["kind"] == "review"
+    control = payload["control"]
+    action = control["next_action"]
+    assert control["state"] == "agent_action_required"
+    assert control["must_stop"] is False
+    assert action["actor"] == "coding_agent"
+    assert action["kind"] == "fetch_base"
     assert action["command"] is None
+    assert action["expects"] == "feature checked out in this worktree"
     assert "not the commit this worktree has checked out" in action["why"]
-    assert payload["control"]["allowed_next_commands"] == []
+    assert "Check feature out in this worktree" in action["why"]
+    # A `fetch_base` route carries no command by contract, and none is smuggled
+    # in beside it: the step that changes the answer is the checkout.
+    assert control["allowed_next_commands"] == []
+    assert control["permissions"]["report_complete"] is False
+
+
+def test_checking_the_head_out_clears_the_preview_that_asked_for_it(
+    monorepo: Path,
+) -> None:
+    """The route is only worth publishing if taking it moves the loop.
+
+    Same command, same refs, one checkout apart: the second run must name the
+    project the pull request changed rather than return the same request."""
+
+    _touch_one_project(monorepo)
+    subprocess.run(["git", "branch", "feature"], cwd=monorepo, check=True)
+    subprocess.run(["git", "checkout", "-q", "origin/main"], cwd=monorepo, check=True)
+    assert _preview_other_head(monorepo)["control"]["next_action"]["kind"] == "fetch_base"
+
+    subprocess.run(["git", "checkout", "-q", "feature"], cwd=monorepo, check=True)
+
+    action = _preview_other_head(monorepo)["control"]["next_action"]
+    assert action["kind"] == "initialize"
+    assert (
+        f"--workspace {monorepo / 'python/agents/crypto-payroll-agent'} --write"
+        in action["command"]
+    )
 
 
 def test_preview_prefers_the_changed_project_manifest_over_the_root_one(
@@ -1493,6 +1537,140 @@ def test_detect_reports_the_ambiguous_scope_and_its_candidates(monorepo: Path) -
         "python/agents/crypto-payroll-agent",
     ]
     assert payload["agent_project_candidates"][0]["agent_names"] == ["ask_rag_agent"]
+
+
+def test_detect_publishes_the_init_command_for_each_candidate(monorepo: Path) -> None:
+    """The decision is a person's; carrying it out is not.
+
+    `detect` published the choice as a JSON selector inside a shell command —
+    ``init --workspace <agent_project_candidates[].path> --write`` — and no
+    runnable command at all, so an agent following `allowed_next_commands` had
+    nowhere to go (#397). `init`'s own refusal has always ranked the decision
+    first and the per-candidate commands below it; `detect` now emits the same
+    shape."""
+
+    result = runner.invoke(app, ["detect", "--workspace", str(monorepo), "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    actions = payload["next_actions"]
+    # Rank 1 stays the decision: promoting one candidate would make the same
+    # arbitrary pick `init --write` refuses to make.
+    assert actions[0]["kind"] == "review"
+    assert actions[0]["command"] is None
+    commands = [action for action in actions[1:] if action["kind"] == "command"]
+    assert [action["command"] for action in commands] == [
+        _init_command(monorepo / "python/agents/RAG"),
+        _init_command(monorepo / "python/agents/crypto-payroll-agent"),
+    ]
+    # Structured argv, not only a string a caller has to re-parse (#369).
+    assert commands[0]["args"] == [
+        "init",
+        "--workspace",
+        str(monorepo / "python/agents/RAG"),
+        "--write",
+        "--json",
+    ]
+    assert "ask_rag_agent" in commands[0]["why"]
+
+
+def test_detect_and_init_publish_the_same_candidate_commands(monorepo: Path) -> None:
+    """Two commands an adopter runs in sequence must not disagree about the
+    recovery for one workspace."""
+
+    detected = runner.invoke(app, ["detect", "--workspace", str(monorepo), "--json"])
+    assert detected.exit_code == 0, detected.output
+    refused = runner.invoke(
+        app, ["init", "--workspace", str(monorepo), "--write", "--json"]
+    )
+    assert refused.exit_code == 2, refused.output
+
+    def commands(payload: dict) -> list[str]:
+        return [
+            action["command"]
+            for action in payload["next_actions"]
+            if action["kind"] == "command"
+        ]
+
+    assert commands(json.loads(detected.output)) == commands(json.loads(refused.output))
+
+
+def test_following_a_detect_candidate_command_adopts_that_project(
+    monorepo: Path,
+) -> None:
+    """A published step is only a step if running it changes the answer."""
+
+    detected = runner.invoke(app, ["detect", "--workspace", str(monorepo), "--json"])
+    assert detected.exit_code == 0, detected.output
+    first = next(
+        action
+        for action in json.loads(detected.output)["next_actions"]
+        if action["kind"] == "command"
+    )
+
+    written = runner.invoke(app, first["args"])
+
+    assert written.exit_code == 0, written.output
+    assert (monorepo / "python/agents/RAG" / "shipgate.yaml").is_file()
+    # Scoped, not folded into a root manifest for every agent in the repository.
+    assert not (monorepo / "shipgate.yaml").exists()
+
+
+def test_detect_never_offers_the_workspace_root_as_a_candidate_command(
+    monorepo: Path,
+) -> None:
+    """`.` is the scope `init` would refuse, so a command naming it returns
+    here. It stays in the reported candidate list — unattributed agent files
+    are real evidence of why the answer is unresolved — but not in the
+    routing."""
+
+    (monorepo / "loose_agent.py").write_text(
+        _ADK_AGENT_MODULE.format(name="loose_agent", tool="loose"), encoding="utf-8"
+    )
+    _commit_all(monorepo, "an agent that belongs to no project")
+
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(monorepo), "--json"]).output
+    )
+
+    assert "." in [candidate["path"] for candidate in payload["agent_project_candidates"]]
+    assert all(
+        f"--workspace {monorepo} --write" not in (action["command"] or "")
+        for action in payload["next_actions"]
+    )
+
+
+def test_detect_offers_no_candidate_command_under_a_stop(tmp_path: Path) -> None:
+    """The per-candidate commands carry out one decision; they must not ride
+    under a different one.
+
+    A workspace whose only agent evidence is two nested manifests classifies as
+    a non-agent library — `stop`, `setup_not_applicable` — while still holding
+    two candidate scopes. Publishing "not a Shipgate target" and then an
+    `init --write` for each candidate is two answers to two different
+    questions in one ranked list (#397)."""
+
+    repo = _init_repo(tmp_path)
+    (repo / "pyproject.toml").write_text(_PYPROJECT.format(name="plain-lib"), encoding="utf-8")
+    (repo / "lib.py").write_text("def hello() -> int:\n    return 1\n", encoding="utf-8")
+    for name in ("a", "b"):
+        project = repo / "apps" / name
+        project.mkdir(parents=True)
+        (project / "shipgate.yaml").write_text(
+            f"schema_version: 0.1\nagent:\n  name: {name}\n"
+            '  declared_purpose: ["x"]\n',
+            encoding="utf-8",
+        )
+        (project / "mod.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    _commit_all(repo, "two adopted projects, no agent code")
+
+    payload = json.loads(
+        runner.invoke(app, ["detect", "--workspace", str(repo), "--json"]).output
+    )
+
+    assert payload["agent_scope"] == "ambiguous"
+    assert payload["control"]["decision"] == "setup_not_applicable"
+    assert [action["kind"] for action in payload["next_actions"]] == ["stop"]
 
 
 def test_detect_reports_a_single_scope_for_the_adk_sample() -> None:

@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- **`verify --preview` of a head that is not checked out now asks for the
+  checkout, instead of stopping.** Preview reads project markers from the
+  working tree, because that is the tree the `init` it recommends would write
+  to, so previewing some other ref establishes no project — on the reported
+  pull request the changed directory exists only on the PR branch. That state
+  routed to a human with `must_stop: true`, `command: null`, and
+  `allowed_next_commands: []`, which ended the loop `allowed_next_commands`
+  promises in one move; the remedy, derivable from the very ref preview was
+  handed, was never stated
+  ([#397](https://github.com/ThreeMoonsLab/agents-shipgate/issues/397)).
+
+  Nothing about the change is in doubt there. What is missing is an input — a
+  working tree holding the commit under review — and producing it is one
+  mechanical step the caller owns. The route is now the `fetch_base` action
+  that already exists for exactly this shape: `agent_action_required`, no
+  command (Shipgate never writes to a caller's worktree), and an `expects` that
+  names the input and a `why` that names the ref. Checking that ref out and
+  re-running the identical command resolves the project and emits the scoped
+  `init`. The two causes that no checkout can repair — evidence the change
+  deleted, an unreadable inventory — keep their human route. Plain `verify` is
+  unaffected: it reads `--head` from the object database, not the worktree.
+
+- **`detect` now publishes the same per-candidate `init` commands `init` does
+  when a workspace holds several agent projects.** Its escalation handed the
+  reader a JSON selector inside a shell command —
+  `init --workspace <agent_project_candidates[].path> --write` — and no
+  runnable command anywhere in `next_actions[]`, so a preview that routed to
+  `detect` reached a second dead end (#397). `detect --json` now ranks the
+  decision first, exactly as before (`kind: "review"`, `command: null`, because
+  naming one candidate would make the arbitrary pick `init --write` refuses to
+  make), and carries one exact `init --workspace <candidate> --write --json`
+  below it per candidate, with the `executable`/`args` pair. Both commands
+  build that list from one helper, so the two an adopter runs in sequence
+  cannot publish different recoveries for one workspace; the workspace root
+  stays out of it, since that is the scope `init` refuses.
+
 - **`verify --preview` on a monorepo now names the project the pull request
   actually changed, instead of a repository root that `init` refuses.** The
   change-scope resolver draws a project boundary around a bare
@@ -44,7 +80,8 @@
   another, and deleted evidence outranks a cap, because raising a bound cannot
   find a file the change removed. An evaluated head that is not this worktree
   is the third such cause: discovery of the current tree answers about a
-  different one, so that route carries no command either.
+  different one, so no discovery command is offered there either — that route
+  asks for the checkout instead (below).
 
   Two blind spots in that probe are closed. It now bounds each directory's
   Python evidence to the files a `detect` *of that directory* would reach —

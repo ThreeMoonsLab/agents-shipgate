@@ -86,6 +86,14 @@ So Shipgate scopes rather than guesses:
   beside a sibling project does not send the answer back to the root. When the
   changed project already carries its own `shipgate.yaml`, preview routes you
   to `verify` there instead of to setup.
+- Preview reads project markers from the **working tree**, because that is the
+  tree the `init` it recommends would write to. So `verify --preview --head
+  <ref>` while some other commit is checked out establishes no project — the
+  directory the pull request adds exists only on `<ref>`. That is not a verdict
+  about the change: the control route is `agent_action_required` with a
+  `fetch_base` action whose `expects` names what is missing (this worktree, at
+  `<ref>`). Check the ref out and re-run the identical command. Plain `verify`
+  is unaffected — it reads `--head` from the object database, not the worktree.
 - `init --write` refuses a workspace whose agents live in more than one
   project: `manifest_status: "refused_unresolved_scope"`, exit `2`, and
   **nothing written** — no manifest, no CI workflow, no agent-instruction
@@ -117,7 +125,13 @@ So Shipgate scopes rather than guesses:
   measured against.
 - `agents-shipgate detect --json` answers the same question without writing
   anything: read `agent_scope`, `agent_scope_truncated`, and
-  `agent_project_candidates[]`.
+  `agent_project_candidates[]`. Its `next_actions[]` carries the same shape
+  `init`'s refusal does — the decision first (`kind: "review"`, no command,
+  because naming one candidate would make the pick Shipgate declines to make),
+  then one exact `init --workspace <candidate> --write --json` per candidate,
+  each with `executable`/`args`. Match on the path of the project you are
+  changing and run that entry; the workspace root is never among them, since
+  that is the scope `init` refuses.
 - `python_parse_truncated: true` is the wider version of the same warning: the
   Python parse stopped at its cap, so *any* whole-workspace negative — most of
   all `is_agent_project: false` — describes the files that were read rather

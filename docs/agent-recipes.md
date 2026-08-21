@@ -25,7 +25,13 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 ```
 
 For local uncommitted work, omit `--base`/`--head`. For committed PR/CI refs,
-make the base ref available first because `verify` never fetches. Read
+make the base ref available first because `verify` never fetches. `--preview`
+additionally wants `--head` **checked out**: it reads project markers from the
+working tree, because that is the tree the `init` it recommends would write to.
+Previewing some other ref establishes no project and returns
+`agent_action_required` with a `fetch_base` action whose `expects` names the
+missing input — check the ref out, then re-run the identical command. Plain
+`verify` reads `--head` from the object database and needs no checkout. Read
 `agents-shipgate-reports/agent-handoff.json` first and lead with
 `control.state`, `gate.merge_verdict`, `gate.can_merge_without_human`,
 `next_action`, `fix_task`, and `capability_review.top_changes[]`. Fall back to
@@ -149,6 +155,12 @@ Consume the response to decide whether to proceed. Key fields:
 - `codex_plugin_candidates[]` — Codex plugin package or marketplace
   artifacts matched by convention. These also do NOT bump
   `is_agent_project` on their own.
+- `next_actions[]` — the ranked route. On `agent_scope: "ambiguous"` rank 1 is
+  the decision (`kind: "review"`, `command: null`) and every entry below it is
+  one exact `init --workspace <candidate> --write --json`, with `executable`
+  and `args`, in candidate order — the same list `init --write` publishes when
+  it refuses the same workspace. Match on the path rather than the ordering.
+  The workspace root is never offered: it is the scope `init` refuses.
 
 **Stop condition.** Stop and skip `init` only when ALL of:
 

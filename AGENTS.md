@@ -252,7 +252,11 @@ agents-shipgate bootstrap --json
   name the project directly. `agent_scope_truncated: true` says the candidate
   list itself is a lower bound — the parse stopped at its cap, so any project
   in the part of the tree that was not read is missing from it. Never read
-  absence from a truncated list as an answer; raise the cap first.
+  absence from a truncated list as an answer; raise the cap first. On an
+  unresolved scope `next_actions[]` ranks the decision first (`kind: "review"`,
+  no command) and then carries one exact `init --workspace <candidate> --write
+  --json` per candidate — the same list `init --write` publishes when it
+  refuses — so choosing the project is the only work left.
 - **`init`** — auto-detects by default. `--ci` writes
   `.github/workflows/agents-shipgate.yml`; orthogonal to `--write`. Use
   `--minimal` for the pre-v0.6 CHANGE_ME-heavy template.

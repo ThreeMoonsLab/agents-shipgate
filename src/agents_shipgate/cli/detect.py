@@ -23,6 +23,10 @@ from agents_shipgate.cli.discovery import (
     detect_workspace,
     select_agent_name,
 )
+from agents_shipgate.cli.scope_routing import (
+    MAX_LISTED_SCOPE_CANDIDATES,
+    scope_candidate_actions,
+)
 from agents_shipgate.cli.setup_control import (
     SETUP_INCOMPLETE,
     setup_control_envelope,
@@ -34,10 +38,6 @@ from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.agent_control import AgentActionKind
 from agents_shipgate.schemas.detect import DetectResult
 from agents_shipgate.schemas.diagnostics import Diagnostic, NextAction
-
-# A monorepo can hold hundreds of agent projects; the human summary lists
-# enough to recognize the shape and points at --json for the rest.
-_MAX_ECHOED_SCOPE_CANDIDATES = 10
 
 
 def detect(
@@ -88,7 +88,7 @@ def detect(
     diagnostics: list[Diagnostic] = diagnose_detect(
         result, has_manifest=has_manifest, workspace=workspace_resolved
     )
-    advance, advance_kind, advance_decision = _detect_advance(
+    advance, advance_kind, advance_decision, advance_alternatives = _detect_advance(
         result, has_manifest=has_manifest, workspace=workspace_resolved
     )
     routing = setup_control_envelope(
@@ -104,6 +104,7 @@ def detect(
         advance=advance,
         advance_kind=advance_kind,
         advance_decision=advance_decision,
+        advance_alternatives=advance_alternatives,
         # `detect` classifies; it never fails a gate. This JSON path always
         # exits 0, and reporting the fact beats leaving a reader to infer it.
         exit_code=0,
@@ -226,7 +227,7 @@ def _detect_advance(
     *,
     has_manifest: bool,
     workspace: Path,
-) -> tuple[NextAction | None, AgentActionKind, str]:
+) -> tuple[NextAction | None, AgentActionKind, str, list[NextAction]]:
     """The stage this classification hands off to when nothing is wrong.
 
     ``DetectResult.next_action`` already names ``init`` in the adoptable case,
@@ -262,6 +263,14 @@ def _detect_advance(
     unrunnable string, and typing it as an agent route would ask the agent to
     make the choice; it is a human route.
 
+    That is why the fourth element exists. A human route is a decision to be
+    made, not an absence of work: below it go the exact ``init`` commands that
+    carry the decision out, one per candidate, which is the shape ``init``'s
+    own refusal has always published. Returned from here rather than recomposed
+    at the call site, because the condition that selects the route is the same
+    condition that makes the commands correct, and reading it twice is how the
+    two drift (#397).
+
     ``None`` when the workspace is not adoptable at all; the negative-control
     diagnostics own that route and end in a human stop.
     """
@@ -290,6 +299,7 @@ def _detect_advance(
             ),
             "configure",
             SETUP_INCOMPLETE,
+            [],
         )
     if result.python_parse_truncated:
         # Raising the cap is a mechanical, read-only retry, not a judgement —
@@ -328,6 +338,7 @@ def _detect_advance(
             ),
             "discover",
             SETUP_INCOMPLETE,
+            [],
         )
     if result.agent_scope != "single":
         return (
@@ -344,6 +355,11 @@ def _detect_advance(
             ),
             "discover",
             SETUP_INCOMPLETE,
+            # The decision is a person's; carrying it out is not. `init`
+            # publishes the per-candidate command for every project it refuses
+            # to choose between, and `detect` reporting the same fact one step
+            # earlier owed the caller the same list (#397).
+            scope_candidate_actions(workspace, result.agent_project_candidates),
         )
     adoptable = bool(
         result.is_agent_project
@@ -351,7 +367,7 @@ def _detect_advance(
         or result.codex_plugin_candidates
     )
     if not adoptable:
-        return (None, "discover", SETUP_INCOMPLETE)
+        return (None, "discover", SETUP_INCOMPLETE, [])
     return (
         NextAction(
             kind="command",
@@ -361,6 +377,7 @@ def _detect_advance(
         ),
         "initialize",
         SETUP_INCOMPLETE,
+        [],
     )
 
 
@@ -390,12 +407,12 @@ def _echo_agent_scope(result: DetectResult) -> None:
             "whether one manifest describes this workspace."
             + (" Projects found before the cap:" if candidates else "")
         )
-    for candidate in candidates[:_MAX_ECHOED_SCOPE_CANDIDATES]:
+    for candidate in candidates[:MAX_LISTED_SCOPE_CANDIDATES]:
         # A config-driven ``LlmAgent(name=CONFIG.agent_name)`` leaves no name
         # literal to parse; name the marker that made it a project instead.
         detail = ", ".join(candidate.agent_names) or (candidate.marker or "project root")
         typer.echo(f"- {candidate.path} ({detail})")
-    remaining = len(candidates) - _MAX_ECHOED_SCOPE_CANDIDATES
+    remaining = len(candidates) - MAX_LISTED_SCOPE_CANDIDATES
     if remaining > 0:
         typer.echo(f"- ... ({remaining} more; see agent_project_candidates in --json)")
     if result.agent_scope == "ambiguous":

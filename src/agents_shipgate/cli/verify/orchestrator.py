@@ -3930,11 +3930,17 @@ class _PreviewScope:
     ``resolution`` alone: ``not_evaluated`` covers a capped probe, evidence the
     diff deleted, and a head that is not this worktree, and the honest next
     step differs for each (#399 review).
+
+    ``head`` is carried beside the cause that names it rather than read again
+    at the route: the ``head_mismatch`` recovery *is* "check this ref out", so
+    the ref and the cause have to be produced together or the two can drift
+    (#397).
     """
 
     resolution: ScopeResolution
     cause: str | None = None
     python_file_total: int = 0
+    head: str | None = None
 
 
 def _preview_scope(
@@ -3971,6 +3977,7 @@ def _preview_scope(
                 ),
             ),
             cause="head_mismatch",
+            head=head,
         )
     evidence = weak_marker_evidence_dirs(root, changed_files)
     if evidence.undetermined:
@@ -4019,10 +4026,44 @@ def _unresolved_scope_route(
     Deleted evidence is a question no read-only command can answer, so it
     gets a human route and no command at all — publishing one here would be
     publishing a step that cannot take.
+
+    A head that is not this worktree is neither. Nothing about the change is
+    in doubt there: the missing input is a *working tree* holding the commit
+    under review, and producing it is one mechanical step the caller owns.
+    Shipgate never writes to a caller's worktree, so it cannot spell that
+    step as a command it runs — which is exactly what ``fetch_base`` is for.
+    Naming the input and letting the caller produce it keeps the loop moving;
+    routing it to a human published ``must_stop`` and ``command: null`` for a
+    state the coding agent clears itself, and the remedy — derivable from the
+    ref preview was handed — went unsaid (#397).
     """
 
     resolution = scope.resolution
-    if scope.cause in ("deleted_evidence", "unreadable_inventory", "head_mismatch"):
+    if scope.cause == "head_mismatch":
+        # ``head_mismatch`` is only produced for a non-None ``--head``: an
+        # absent one is the working tree by definition.
+        ref = scope.head or "the evaluated head"
+        return (
+            CodingAgentFetchBaseAction(
+                kind="fetch_base",
+                # A crisp noun phrase, because consumers interpolate it:
+                # the Claude Code stop hook renders `fetch_base` as
+                # "Make <expects> available locally".
+                expects=f"{ref} checked out in this worktree",
+                # Short enough that an ordinary ref name leaves the whole
+                # route inside the envelope's 400-byte prose cap, and the
+                # instruction leads so a long one still survives truncation.
+                why=(
+                    "The project this change belongs to could not be "
+                    f"established ({resolution.detail}). Check {ref} out in "
+                    "this worktree and re-run this same preview: discovery of "
+                    "the worktree as it stands answers about a different tree."
+                ),
+            ),
+            f"The evaluated head {ref} is not checked out here, so no project "
+            "could be named; check it out and re-run this preview.",
+        )
+    if scope.cause in ("deleted_evidence", "unreadable_inventory"):
         return (
             HumanControlAction(
                 kind="review",

@@ -44,6 +44,7 @@ from agents_shipgate.cli.discovery.placeholders import (
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.setup_control import (
     SETUP_ACTION_KINDS,
+    SETUP_INCOMPLETE,
     setup_control_envelope,
     setup_input_id,
 )
@@ -61,7 +62,12 @@ from agents_shipgate.schemas.agent_control_envelope import (
     validate_agent_control_envelope,
 )
 from agents_shipgate.schemas.detect import DetectResult, WorkspaceSignals
-from agents_shipgate.schemas.diagnostics import ALL_DIAGNOSTIC_IDS
+from agents_shipgate.schemas.diagnostics import (
+    ALL_DIAGNOSTIC_IDS,
+    DIAG_NO_AGENT_SURFACE,
+    Diagnostic,
+    NextAction,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _PUBLISHED_SCHEMA = Draft202012Validator(
@@ -1122,13 +1128,71 @@ def test_detect_never_declares_setup_complete_from_a_file_existing(tmp_path: Pat
     from agents_shipgate.cli.detect import _detect_advance
 
     result = DetectResult(is_agent_project=True)
-    advance, _kind, decision = _detect_advance(
+    advance, _kind, decision, alternatives = _detect_advance(
         result, has_manifest=True, workspace=tmp_path
     )
 
     assert decision != "setup_complete"
     assert advance is not None
     assert "doctor" in (advance.command or "")
+    assert alternatives == []
+
+
+def _carry_out() -> NextAction:
+    return NextAction(
+        kind="command",
+        command="agents-shipgate init --workspace apps/a --write --json",
+        why="Initialize only apps/a.",
+        expects="shipgate.yaml is created in apps/a.",
+    )
+
+
+def _decision() -> NextAction:
+    return NextAction(kind="review", why="Choose the project this change is about.")
+
+
+def test_advance_alternatives_ride_with_the_decision_that_selects_them():
+    """They are the ways of carrying out rank 1, so they follow rank 1."""
+
+    routing = setup_control_envelope(
+        operation="detect",
+        input_id="sha256:" + "0" * 64,
+        reason="Agents live in more than one project.",
+        advance=_decision(),
+        advance_kind="discover",
+        advance_decision=SETUP_INCOMPLETE,
+        advance_alternatives=[_carry_out()],
+    )
+
+    assert [action.kind for action in routing.actions] == ["review", "command"]
+
+
+def test_advance_alternatives_are_dropped_when_a_diagnostic_outranks_the_advance():
+    """Rank 1 is then a different question, and these answer the one nobody
+    published: `detect` on a workspace whose only agent evidence is two nested
+    manifests emitted `stop` — "not a Shipgate target" — and then an
+    `init --write` for each of the two (#397)."""
+
+    routing = setup_control_envelope(
+        operation="detect",
+        input_id="sha256:" + "0" * 64,
+        reason="No agent surface matched.",
+        diagnostics=[
+            Diagnostic(
+                id=DIAG_NO_AGENT_SURFACE,
+                title="No agent surface",
+                severity="info",
+                next_actions=[NextAction(kind="stop", why="Not a Shipgate target.")],
+            )
+        ],
+        advance=_decision(),
+        advance_kind="discover",
+        advance_decision=SETUP_INCOMPLETE,
+        advance_alternatives=[_carry_out()],
+    )
+
+    assert [action.kind for action in routing.actions] == ["stop"]
+    assert routing.envelope.control_state == "human_review_required"
 
 
 def test_a_refused_instruction_target_still_reports_what_failed(unadopted: Path):
